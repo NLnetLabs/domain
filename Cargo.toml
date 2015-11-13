@@ -1,0 +1,11 @@
+[package]
+name    = "domain-rs"
+version = "0.1.0"
+authors = ["Martin Hoffmann <hn@nvnc.de>"]
+
+[lib]
+name = "domain"
+path = "src/lib.rs"
+
+[dependencies]
+
