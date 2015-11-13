@@ -1,13 +1,27 @@
+//! Domain name handling.
+//!
+//! This module provides two types, `DomainName` and `DomainNameBuf` (akin
+//! to `str` and `String`), for working with domain names.
+//!
+//! Domain names are stored in a wire-like format as a `u8` slice in the
+//! form of a sequence of a single length byte followed by that many bytes
+//! for the label. Compressed and extended labels are not supported. This
+//! means the length byte can be at most 63. This also means that raw
+//! `u8` slices may be illegal which is why you cannot safely coerce domain
+//! names from `u8` slices.
+//!
+
 use std::ascii::AsciiExt;
 use std::borrow::{Borrow, Cow, /* unstable IntoCow, */ ToOwned};
 use std::cmp;
+use std::error::Error as StdError;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::iter;
 use std::mem;
 use std::ops::{self, Deref};
 use std::str;
-
+ 
 
 //------------ Domain Label -------------------------------------------------
 
@@ -391,13 +405,6 @@ impl str::FromStr for DomainNameBuf {
 
 /// A slice of a domain name (akin to `str`).
 ///
-/// Domain names are stored in a wire-like format as a `u8` slice in the
-/// form of a sequence of a single length byte followed by that many bytes
-/// for the label. Compressed and extended labels are not supported. This
-/// means the length byte can be at most 63. This also means that raw
-/// `u8` slices may be illegal which is why you cannot safely coerce domain
-/// names from `u8` slices.
-///
 /// This is an *unsized* type.
 ///
 pub struct DomainName {
@@ -636,7 +643,7 @@ impl Hash for DomainName {
 
 //------------ Errors -------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     OverlongLabel,
     PrematureEnd,
@@ -644,9 +651,20 @@ pub enum Error {
     IllegalCharacter
 }
 
+impl StdError for Error {
+    fn description(&self) -> &str {
+        match *self {
+            Error::OverlongLabel => "a label exceeds maximum length",
+            Error::PrematureEnd => "premature end of domain name",
+            Error::IllegalEscape => "illegal escape sequence in domain name",
+            Error::IllegalCharacter => "illegal character in domain name"
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "failed to parse domain name".fmt(f)
+        self.description().fmt(f)
     }
 }
 
