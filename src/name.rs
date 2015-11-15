@@ -115,6 +115,12 @@ impl Label {
             ch <= b' ' || ch == b'.' || ch == b'\\' || ch >= 0x7F
         })
     }
+
+    /// Returns the length of the label in octets.
+    ///
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
 }
 
 impl AsRef<Label> for Label {
@@ -241,15 +247,26 @@ impl DomainNameBuf {
         self
     }
 
+    /// Extends `self` with `label`.
+    ///
+    pub fn push<L: AsRef<Label>>(&mut self, label: L) {
+        self._push(label.as_ref())
+    }
+
+    fn _push(&mut self, label: &Label) {
+        self.inner.push(label.len() as u8);
+        self.inner.extend(&label.inner);
+    }
+
     /// Extends `self` with `name`.
     ///
     /// If `self` is already absolute, nothing happens.
     ///
-    pub fn push<N: AsRef<DomainName>>(&mut self, name: N) {
-        self._push(name.as_ref())
+    pub fn append<N: AsRef<DomainName>>(&mut self, name: N) {
+        self._append(name.as_ref())
     }
 
-    fn _push(&mut self, name: &DomainName) {
+    fn _append(&mut self, name: &DomainName) {
         if !self.is_absolute() {
             self.inner.extend(&name.inner)
         }
@@ -263,18 +280,28 @@ impl<'a> From<&'a DomainName> for DomainNameBuf {
     }
 }
 
-impl<N: AsRef<DomainName>> iter::FromIterator<N> for DomainNameBuf {
-    fn from_iter<I: IntoIterator<Item = N>>(iter: I) -> DomainNameBuf {
-        let mut buf = DomainNameBuf::new();
-        buf.extend(iter);
-        buf
+impl<'a> From<&'a Label> for DomainNameBuf {
+    fn from(label: &'a Label) -> DomainNameBuf {
+        let mut res = DomainNameBuf::new();
+        res.push(label);
+        res
     }
 }
 
-impl<N: AsRef<DomainName>> iter::Extend<N> for DomainNameBuf {
-    fn extend<I: IntoIterator<Item = N>>(&mut self, iter: I) {
-        for p in iter {
-            self.push(p.as_ref())
+impl<L: AsRef<Label>> iter::FromIterator<L> for DomainNameBuf {
+    fn from_iter<T>(iter: T) -> DomainNameBuf
+        where T: iter::IntoIterator<Item=L>
+    {
+        let mut res = DomainNameBuf::new();
+        res.extend(iter);
+        res
+    }
+}
+
+impl<L: AsRef<Label>> iter::Extend<L> for DomainNameBuf {
+    fn extend<I: IntoIterator<Item = L>>(&mut self, iter: I) {
+        for label in iter {
+            self.push(label);
         }
     }
 }
@@ -521,7 +548,7 @@ impl DomainName {
 
     fn _join(&self, base: &DomainName) -> DomainNameBuf {
         let mut buf = self.to_owned();
-        buf.push(base);
+        buf.append(base);
         buf
     }
 
