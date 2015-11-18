@@ -668,14 +668,15 @@ impl Hash for DomainName {
 }
 
 
-//------------ Errors -------------------------------------------------------
+//------------ Error --------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     OverlongLabel,
     PrematureEnd,
     IllegalEscape,
-    IllegalCharacter
+    IllegalCharacter,
+    IllegalLabelType,
 }
 
 impl StdError for Error {
@@ -684,7 +685,8 @@ impl StdError for Error {
             Error::OverlongLabel => "a label exceeds maximum length",
             Error::PrematureEnd => "premature end of domain name",
             Error::IllegalEscape => "illegal escape sequence in domain name",
-            Error::IllegalCharacter => "illegal character in domain name"
+            Error::IllegalCharacter => "illegal character in domain name",
+            Error::IllegalLabelType => "illegal label type in domain name",
         }
     }
 }
