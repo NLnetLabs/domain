@@ -1,6 +1,7 @@
 
 /// DNS message header.
 ///
+#[derive(Debug)]
 pub struct Header {
     // The header is stored as a u32 in host byte order. Don't forget
     // to_be() and from_be() when doing wire translation.

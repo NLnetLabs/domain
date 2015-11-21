@@ -1,6 +1,7 @@
 //! Handling of incoming DNS messages
 //!
 
+use std::ascii::AsciiExt;
 use std::io;
 use std::iter;
 use std::marker::PhantomData;
@@ -8,7 +9,7 @@ use std::net;
 use std::ops;
 use super::error::{Error, Result};
 use super::header::Header;
-use super::name::{self, DomainNameBuf};
+use super::name::{self, DomainName, DomainNameBuf};
 use super::record::RecordData;
 
 
@@ -19,6 +20,7 @@ use super::record::RecordData;
 /// The message owns the raw data. You can either create it a raw vec or
 /// by reading it directly out of a socket or reader.
 ///
+#[derive(Debug)]
 pub struct Message {
     buf: Vec<u8>,
 
@@ -50,10 +52,14 @@ impl Message {
         let ancount = try!(frag.parse_u16());
         let nscount = try!(frag.parse_u16());
         let arcount = try!(frag.parse_u16());
-        self.question = try!(SectionSpec::from_rrcount(&mut frag, qdcount));
-        self.answer = try!(SectionSpec::from_rrcount(&mut frag, ancount));
-        self.authority = try!(SectionSpec::from_rrcount(&mut frag, nscount));
-        self.additional = try!(SectionSpec::from_rrcount(&mut frag, arcount));
+        self.question = try!(SectionSpec::questions_from_count(&mut frag,
+                                                               qdcount));
+        self.answer = try!(SectionSpec::records_from_count(&mut frag,
+                                                           ancount));
+        self.authority = try!(SectionSpec::records_from_count(&mut frag,
+                                                              nscount));
+        self.additional = try!(SectionSpec::records_from_count(&mut frag,
+                                                               arcount));
         Ok(())
     }
 
@@ -91,20 +97,20 @@ impl Message {
         &self.header
     }
 
-    pub fn question(&self) -> Section {
-        Section::from_spec(self, &self.question)
+    pub fn question(&self) -> QuestionSection {
+        QuestionSection::from_spec(self, &self.question)
     }
 
-    pub fn answer(&self) -> Section {
-        Section::from_spec(self, &self.answer)
+    pub fn answer(&self) -> RecordSection {
+        RecordSection::from_spec(self, &self.answer)
     }
 
-    pub fn authority(&self) -> Section {
-        Section::from_spec(self, &self.authority)
+    pub fn authority(&self) -> RecordSection {
+        RecordSection::from_spec(self, &self.authority)
     }
 
-    pub fn additional(&self) -> Section {
-        Section::from_spec(self, &self.additional)
+    pub fn additional(&self) -> RecordSection {
+        RecordSection::from_spec(self, &self.additional)
     }
 
 }
@@ -134,7 +140,9 @@ impl<'a> Fragment<'a> {
     }
 
     fn check_len(&self, len: usize) -> Result<()> {
-        if self.range.end + len < self.buf.len() { Err(Error::ShortFragment) }
+        if self.range.start + len > self.range.end {
+            Err(Error::ShortFragment)
+        }
         else { Ok(()) }
     }
 
@@ -171,10 +179,11 @@ impl<'a> Fragment<'a> {
         Ok(res)
     }
 
-    pub fn parse_name(&mut self) -> Result<DomainNameBuf> {
-        // TODO
-        try!(self.skip_name());
-        Ok(DomainNameBuf::new())
+    pub fn parse_bytes(&mut self, len: usize) -> Result<&[u8]> {
+        try!(self.check_len(len));
+        let start = self.range.start;
+        self.range.start += len;
+        Ok(&self.buf[start .. start + len])
     }
 
     pub fn skip_u8(&mut self) -> Result<()> {
@@ -218,6 +227,67 @@ impl<'a> Fragment<'a> {
         };
     }
 
+    pub fn parse_name(&mut self) -> Result<DomainNameBuf> {
+        let mut res = DomainNameBuf::new();
+        try!(self._parse_name(&mut res));
+        Ok(res)
+    }
+
+    fn _parse_name(&mut self, name: &mut DomainNameBuf) -> Result<()> {
+        loop {
+            let ltype = try!(self.parse_u8()) as usize;
+            match ltype {
+                0 => return Ok(()),
+                1 ... 63 => name.push(&try!(self.parse_bytes(ltype))),
+                0xC0 ... 0xFF => {
+                    let ptr = ((ltype & 0x3F)) << 8
+                            | try!(self.parse_u8()) as usize;
+                    return Fragment::from_bounds(self.buf, ptr, self.buf.len())
+                                ._parse_name(name)
+                }
+                _ => return Err(Error::NameError(name::Error::IllegalLabelType))
+            }
+        }
+    }
+
+    /// Returns whether the name at the beginning of `self` matches `name`. 
+    ///
+    /// Does not move the fragment forward.
+    ///
+    pub fn name_eq(&self, name: &DomainName) -> bool {
+        match self._name_eq(name) {
+            Err(_) => false,
+            Ok(res) => res
+        }
+    }
+
+    fn _name_eq(&self, name: &DomainName) -> Result<bool> {
+        let mut frag = self.clone();
+        for label in name.iter() {
+            let ltype = try!(frag.parse_u8()) as usize;
+            match ltype {
+                0 => return Ok(label.len() == 0),
+                1 ... 63 => {
+                    if label.len() != ltype
+                       || !try!(frag.parse_bytes(ltype))
+                              .eq_ignore_ascii_case(label.as_bytes())
+                    {
+                        return Ok(false)
+                    }
+                },
+                0xC0 ... 0xFF => {
+                    let ptr = ((ltype & 0x3F)) << 8
+                            | try!(frag.parse_u8()) as usize;
+                    frag = Fragment::from_bounds(frag.buf, ptr,
+                                                 frag.buf.len())
+                },
+                _ => return Ok(false)
+            }
+        }
+        return Ok(false)
+    }
+
+
     pub fn len(&self) -> usize {
         self.range.end - self.range.start
     }
@@ -230,47 +300,162 @@ impl<'a> Fragment<'a> {
 
 //------------ SectionSpec --------------------------------------------------
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct SectionSpec {
     range: ops::Range<usize>,
-    rrcount: u16,
+    count: u16,
 }
 
 impl SectionSpec {
     fn new() -> SectionSpec {
-        SectionSpec { range: ops::Range { start: 0, end: 0 }, rrcount: 0 }
+        SectionSpec { range: ops::Range { start: 0, end: 0 }, count: 0 }
     }
 
-    fn from_values(start: usize, end: usize, rrcount: u16) -> SectionSpec {
+    fn from_values(start: usize, end: usize, count: u16) -> SectionSpec {
         SectionSpec { range: ops::Range { start: start, end: end },
-                      rrcount: rrcount }
+                      count: count }
     }
 
-    fn from_rrcount(frag: &mut Fragment, rrcount: u16)
+    fn questions_from_count(frag: &mut Fragment, count: u16)
         -> Result<SectionSpec>
     {
         let start = frag.range.start;
-        for _ in 0..rrcount {
+        for _ in 0 .. count {
+            try!(frag.skip_name());
+            try!(frag.skip_bytes(4));
+        }
+        Ok(SectionSpec::from_values(start, frag.range.start, count))
+    }
+
+    fn records_from_count(frag: &mut Fragment, count: u16)
+        -> Result<SectionSpec>
+    {
+        let start = frag.range.start;
+        for _ in 0 .. count {
             try!(frag.skip_name());
             try!(frag.skip_bytes(8));
             let rdlen = try!(frag.parse_u16()) as usize;
             try!(frag.skip_bytes(rdlen));
         }
-        Ok(SectionSpec::from_values(start, frag.range.start, rrcount))
+        Ok(SectionSpec::from_values(start, frag.range.start, count))
     }
 
 }
 
 
-//------------ Section ------------------------------------------------------
+//------------ QuestionSection ----------------------------------------------
 
-pub struct Section<'a> {
+pub struct QuestionSection<'a> {
     frag: Fragment<'a>,
 }
 
-impl<'a> Section<'a> {
-    fn from_spec(msg: &'a Message, spec: &SectionSpec) -> Section<'a> {
-        Section { frag: Fragment::from_range(&msg.buf, &spec.range) }
+impl<'a> QuestionSection<'a> {
+    fn from_spec(msg: &'a Message, spec: &SectionSpec) -> QuestionSection<'a>
+    {
+        QuestionSection { frag: Fragment::from_range(&msg.buf, &spec.range) }
+    }
+
+    pub fn iter(&mut self) -> QuestionIter<'a> {
+        QuestionIter::from_section(self)
+    }
+}
+
+
+//------------ Question -----------------------------------------------------
+
+/// A question requests answers for a certain type of resource records.
+///
+#[derive(Clone, Debug)]
+pub struct Question {
+    /// The name of the node for which records are requested.
+    ///
+    pub qname: DomainNameBuf,
+
+    /// The type of records that are requested.
+    ///
+    pub qtype: u16,
+
+    /// The requested class.
+    ///
+    pub qclass: u16
+}
+
+impl Question {
+    fn from_frag(frag: &mut Fragment) -> Result<Question> {
+        let qname = try!(frag.parse_name());
+        let qtype = try!(frag.parse_u16());
+        let qclass = try!(frag.parse_u16());
+        Ok(Question { qname: qname, qtype: qtype, qclass: qclass })
+    }
+
+    fn skip(frag: &mut Fragment) -> Result<()> {
+        try!(frag.skip_name());
+        try!(frag.skip_bytes(4));
+        Ok(())
+    }
+}
+
+
+/// An iterator over questions.
+///
+pub struct QuestionIter<'a> {
+    frag: Fragment<'a>
+}
+
+impl<'a> QuestionIter<'a> {
+    fn from_section(section: &QuestionSection<'a>) -> QuestionIter<'a> {
+        QuestionIter { frag: section.frag.clone() }
+    }
+
+    fn skip_next(&mut self) -> bool {
+        if self.frag.is_empty() { false }
+        else { Question::skip(&mut self.frag).unwrap(); true }
+    }
+}
+
+impl<'a> Iterator for QuestionIter<'a> {
+    type Item = Result<Question>;
+
+    fn next(&mut self) -> Option<Result<Question>> {
+        if self.frag.is_empty() { None }
+        else { Some(Question::from_frag(&mut self.frag)) }
+    }
+
+    fn count(mut self) -> usize {
+        let mut res = 0;
+        while self.skip_next() { res += 1 }
+        res
+    }
+
+    fn last(mut self) -> Option<Result<Question>> {
+        if self.frag.is_empty() { return None }
+        let mut frag = self.frag.clone();
+        while self.skip_next() {
+            frag = self.frag.clone();
+        }
+        Some(Question::from_frag(&mut frag))
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Result<Question>> {
+        for _ in 0 .. n {
+            if !self.skip_next() {
+                return None
+            }
+        }
+        self.next()
+    }
+}
+
+
+//------------ RecordSection ------------------------------------------------
+
+pub struct RecordSection<'a> {
+    frag: Fragment<'a>,
+}
+
+impl<'a> RecordSection<'a> {
+    fn from_spec(msg: &'a Message, spec: &SectionSpec) -> RecordSection<'a> {
+        RecordSection { frag: Fragment::from_range(&msg.buf, &spec.range) }
                   
     }
 
@@ -325,7 +510,7 @@ pub struct RecordRangeIter<'a> {
 }
 
 impl<'a> RecordRangeIter<'a> {
-    fn from_section(section: &Section<'a>) -> RecordRangeIter<'a> {
+    fn from_section(section: &RecordSection<'a>) -> RecordRangeIter<'a> {
         RecordRangeIter { frag: section.frag.clone() }
     }
 }
@@ -345,6 +530,7 @@ impl<'a> Iterator for RecordRangeIter<'a> {
 
 /// A parsed resource record of a given record type.
 ///
+#[derive(Clone, Debug)]
 pub struct Record<R: RecordData> {
     /// The name of the node to which to record pertains.
     pub name: DomainNameBuf,
@@ -398,7 +584,7 @@ pub struct RecordIter<'a, R: RecordData> {
 }
 
 impl<'a, R: RecordData> RecordIter<'a, R> {
-    fn from_section(section: &Section<'a>) -> RecordIter<'a, R> {
+    fn from_section(section: &RecordSection<'a>) -> RecordIter<'a, R> {
         RecordIter { base: RecordRangeIter::from_section(section),
                      record_type: PhantomData }
     }
@@ -444,8 +630,45 @@ impl<'a, R: RecordData> Iterator for RecordIter<'a, R> {
 }
 
 
-//------------ Resource Record Information ----------------------------------
+//------------ Iterating over a RRSet ---------------------------------------
+/*
+pub struct RRSetIter<'a, R: RecordData> {
+    base: RecordRangeIter<'a>,
+    name: &'a DomainName,
+    rclass: u16,
+    record_type: PhantomData<R>,
+}
 
+impl<'a, R: RecordData> RecordIter<'a, R> {
+    fn from_section(section: &RecordSection<'a>, name: &'a DomainName,
+                    rclass: u16) -> RRSetIter<'a, R>
+    {
+        RRSetIter { base: RecordRangeIter::from_section(section),
+                    name: name, rclass: rclass,
+                     record_type: PhantomData }
+    }
+
+    fn next_range(&mut self) -> Option<RecordRange> {
+        loop {
+            match self.base.next() {
+                Some(ref range) {
+                    let name_frag = Fragment::from_range(self.base.frag.buf,
+                                                         range.range);
+                    if name_frag.name_eq(self.name)
+                        && range.rtype
+                },
+                None => return None
+            }
+        }
+    }
+}
+*/
+
+//------------ Resource Record Information ----------------------------------
+//
+// XXX Not sure this is useful at all.
+
+#[derive(Clone, Debug)]
 pub struct RecordInfo {
     pub name: DomainNameBuf,
     pub rtype: u16,
@@ -475,7 +698,7 @@ pub struct RecordInfoIter<'a> {
 }
 
 impl<'a> RecordInfoIter<'a> {
-    fn from_section(section: &Section<'a>) -> RecordInfoIter<'a> {
+    fn from_section(section: &RecordSection<'a>) -> RecordInfoIter<'a> {
         RecordInfoIter { base: RecordRangeIter::from_section(section) }
     }
 
@@ -541,4 +764,26 @@ fn read_exact<R: io::Read>(s: &mut R, mut buf: &mut [u8]) -> io::Result<()> {
 mod tests {
     use super::*;
 
+    fn make_data() -> Vec<u8> {
+        b"\xd3\x88\x81\x80\x00\x01\x00\x01\x00\x04\x00\x04\x06github\x03com\
+          \x00\x00\x01\x00\x01\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x14\
+         \x00\x04\xc0\x1e\xfc\x80\xc0\x0c\x00\x02\x00\x01\x00\x00\xf7\
+         \xd9\x00\x14\x03ns3\x03p16\x06dynect\x03net\x00\xc0\x0c\x00\
+         \x02\x00\x01\x00\x00\xf7\xd9\x00\x06\x03ns1\xc0<\xc0\x0c\x00\
+         \x02\x00\x01\x00\x00\xf7\xd9\x00\x06\x03ns2\xc0<\xc0\x0c\x00\
+         \x02\x00\x01\x00\x00\xf7\xd9\x00\x06\x03ns4\xc0<\xc0X\x00\x01\
+         \x00\x01\x00\x01\x10\xe9\x00\x04\xd0NF\x10\xc0j\x00\x01\x00\x01\
+         \x00\x01\x00w\x00\x04\xcc\x0d\xfa\x10\xc08\x00\x01\x00\x01\x00\
+         \x01#A\x00\x04\xd0NG\x10\xc0|\x00\x01\x00\x01\x00\x00\xf9\x93\
+         \x00\x04\xcc\x0d\xfb\x10".to_vec()
+    }
+
+    #[test]
+    fn test_from_vec() {
+        let res = Message::from_vec(make_data()).unwrap();
+        for q in res.question().iter() { println!("{:?}", q) }
+        for rr in res.answer().iter_info() { println!("{:?}", rr) }
+        for rr in res.authority().iter_info() { println!("{:?}", rr) }
+        for rr in res.additional().iter_info() { println!("{:?}", rr) }
+    }
 }

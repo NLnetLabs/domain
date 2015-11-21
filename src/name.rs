@@ -61,6 +61,12 @@ impl Label {
         }
     }
 
+    /// Gives access to the underlying u8 slice.
+    ///
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner
+    }
+
     /// Converts `self` to a `Cow<str>`.
     ///
     /// Non-printable ASCII characters plus ' ', '.', and '\' are escaped
@@ -132,6 +138,12 @@ impl AsRef<Label> for Label {
 impl AsRef<Label> for [u8] {
     fn as_ref(&self) -> &Label {
         Label::from_bytes(self)
+    }
+}
+
+impl AsRef<[u8]> for Label {
+    fn as_ref(&self) -> &[u8] {
+        &self.inner
     }
 }
 
