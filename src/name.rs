@@ -710,22 +710,6 @@ impl fmt::Display for Error {
 }
 
 
-
-//------------ Macros -------------------------------------------------------
-
-macro_rules! dname {
-    ( $( $x:expr ),* ) => {
-        {
-            let mut res = DomainNameBuf::new();
-            $(
-                res.push($x);
-            )*
-            res
-        }
-    };
-}
-
-
 //------------ Tests --------------------------------------------------------
 
 #[cfg(test)]
@@ -772,13 +756,4 @@ mod tests {
     //--- DomainName
 
 
-    //--- Macro
-
-    #[test]
-    pub fn test_macro() {
-        let left = dname!("foo", "bar", "baz"); 
-        let mut right = DomainNameBuf::new();
-        right.push("foo"); right.push("bar"); right.push("baz");
-        assert_eq!(left, right);
-    }
 }
