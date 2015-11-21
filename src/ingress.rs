@@ -263,28 +263,38 @@ impl<'a> Fragment<'a> {
 
     fn _name_eq(&self, name: &DomainName) -> Result<bool> {
         let mut frag = self.clone();
-        for label in name.iter() {
+        let mut name = name;
+        loop {
             let ltype = try!(frag.parse_u8()) as usize;
-            match ltype {
-                0 => return Ok(label.len() == 0),
-                1 ... 63 => {
-                    if label.len() != ltype
-                       || !try!(frag.parse_bytes(ltype))
-                              .eq_ignore_ascii_case(label.as_bytes())
-                    {
-                        return Ok(false)
-                    }
-                },
-                0xC0 ... 0xFF => {
-                    let ptr = ((ltype & 0x3F)) << 8
-                            | try!(frag.parse_u8()) as usize;
-                    frag = Fragment::from_bounds(frag.buf, ptr,
-                                                 frag.buf.len())
-                },
-                _ => return Ok(false)
+            if ltype < 64 {
+                if name.is_empty() {
+                    return Ok(false)
+                }
+                let (label, tail) = name.split_first().unwrap();
+                if ltype != label.len() {
+                    return Ok(false)
+                }
+                else if ltype == 0 {
+                    return Ok(true)
+                }
+                else if !try!(frag.parse_bytes(ltype))
+                              .eq_ignore_ascii_case(label.as_bytes()) {
+                    return Ok(false)
+                }
+                else {
+                    name = tail;
+                }
+            }
+            else if ltype >= 0xC0 {
+                let ptr = ((ltype & 0x3F)) << 8
+                        | try!(frag.parse_u8()) as usize;
+                frag = Fragment::from_bounds(frag.buf, ptr,
+                                             frag.buf.len())
+            }
+            else {
+                return Ok(false)
             }
         }
-        return Ok(false)
     }
 
 
@@ -345,6 +355,8 @@ impl SectionSpec {
 
 //------------ QuestionSection ----------------------------------------------
 
+/// The section of a DNS message containing the questions.
+///
 pub struct QuestionSection<'a> {
     frag: Fragment<'a>,
 }
@@ -355,6 +367,8 @@ impl<'a> QuestionSection<'a> {
         QuestionSection { frag: Fragment::from_range(&msg.buf, &spec.range) }
     }
 
+    /// Returns an iterator over the questions.
+    ///
     pub fn iter(&mut self) -> QuestionIter<'a> {
         QuestionIter::from_section(self)
     }
@@ -449,6 +463,8 @@ impl<'a> Iterator for QuestionIter<'a> {
 
 //------------ RecordSection ------------------------------------------------
 
+/// One of the three sections of a DNS message containing resource records.
+///
 pub struct RecordSection<'a> {
     frag: Fragment<'a>,
 }
@@ -458,11 +474,42 @@ impl<'a> RecordSection<'a> {
         RecordSection { frag: Fragment::from_range(&msg.buf, &spec.range) }
                   
     }
+}
 
+impl<'a> RecordSection<'a> {
+    /// Returns an iterator over the resource records of type `R`.
+    ///
+    /// Quietly skips over records where parsing of name or data fails.
+    ///
     pub fn iter<R: RecordData>(&mut self) -> RecordIter<'a, R> {
         RecordIter::from_section(self)
     }
 
+    /// Returns a strict iterator over the resource records of type `R`.
+    ///
+    pub fn strict_iter<R: RecordData>(&mut self) -> StrictRecordIter<'a, R> {
+        StrictRecordIter::from_section(self)
+    }
+
+    /// Returns an iterator over the record data of a resource record set.
+    ///
+    pub fn rrset<R: RecordData>(&mut self, name: &'a DomainName,
+                                rclass: u16) -> RRSetIter<'a, R>
+    {
+        RRSetIter::from_section(self, name, rclass)
+    }
+
+    /// Returns an iterator over the record data of a resource record set.
+    ///
+    pub fn strict_rrset<R: RecordData>(&mut self, name: &'a DomainName,
+                                       rclass: u16) -> StrictRRSetIter<'a, R>
+    {
+        StrictRRSetIter::from_section(self, name, rclass)
+    }
+
+    /// Returns an iterator over the type-independent field of a resource
+    /// record.
+    ///
     pub fn iter_info(&mut self) -> RecordInfoIter<'a> {
         RecordInfoIter::from_section(self)
     }
@@ -478,9 +525,11 @@ impl<'a> RecordSection<'a> {
 /// iterating over sections. It uses ranges instead of fragments to work
 /// around limitation of lifetimes in traits.
 ///
+#[derive(Clone, Debug)]
 pub struct RecordRange {
     range: ops::Range<usize>,
     rtype: u16,
+    rclass: u16,
 }
 
 impl RecordRange {
@@ -493,12 +542,20 @@ impl RecordRange {
         let start = frag.range.start;
         frag.skip_name().unwrap();
         let rtype = frag.parse_u16().unwrap();
-        frag.skip_bytes(6).unwrap();
+        let rclass = frag.parse_u16().unwrap();
+        frag.skip_bytes(4).unwrap();
         let rdlen = frag.parse_u16().unwrap();
         frag.skip_bytes(rdlen as usize).unwrap();
         RecordRange { range: ops::Range { start: start,
                                           end: frag.range.start },
-                      rtype: rtype }
+                      rtype: rtype, rclass: rclass }
+    }
+
+    fn skip(frag: &mut Fragment) {
+        frag.skip_name().unwrap();
+        frag.skip_bytes(8).unwrap();
+        let rdlen = frag.parse_u16().unwrap();
+        frag.skip_bytes(rdlen as usize).unwrap();
     }
 }
 
@@ -512,6 +569,11 @@ pub struct RecordRangeIter<'a> {
 impl<'a> RecordRangeIter<'a> {
     fn from_section(section: &RecordSection<'a>) -> RecordRangeIter<'a> {
         RecordRangeIter { frag: section.frag.clone() }
+    }
+
+    fn skip_next(&mut self) -> bool {
+        if self.frag.is_empty() { false }
+        else { RecordRange::skip(&mut self.frag); true }
     }
 }
 
@@ -573,10 +635,13 @@ impl<R: RecordData> Record<R> {
 
 /// An iterator over the resource records of a given type.
 ///
-/// Iterates over all records in a section that have a type matching `R`.
-/// The iterator creates (and therefore parses) the records on the fly.
-/// Since this may fail, it returns a result, which, admittedly, is a little
-/// awkward.
+/// Iterates over all records in the section that have a type matching `R`.
+/// If parsing a record's name or data fails, skips this record without
+/// any indication of error.
+///
+/// Because of this feature, all iterator methods that skip over elements
+/// (such as `count()` or `nth()`) have to parse records, too, making them
+/// more expensive. Use this iterator only for looping or collecting.
 ///
 pub struct RecordIter<'a, R: RecordData> {
     base: RecordRangeIter<'a>,
@@ -586,7 +651,46 @@ pub struct RecordIter<'a, R: RecordData> {
 impl<'a, R: RecordData> RecordIter<'a, R> {
     fn from_section(section: &RecordSection<'a>) -> RecordIter<'a, R> {
         RecordIter { base: RecordRangeIter::from_section(section),
-                     record_type: PhantomData }
+                           record_type: PhantomData }
+    }
+}
+
+impl<'a, R: RecordData> Iterator for RecordIter<'a, R> {
+    type Item = Record<R>;
+
+    fn next(&mut self) -> Option<Record<R>> {
+        loop {
+            match self.base.next() {
+                None => return None,
+                Some(range) => {
+                    if range.rtype == R::rtype() {
+                        match Record::from_range(&self.base.frag, range) {
+                            Ok(res) => return Some(res),
+                            _ => { }
+                        }
+                    }
+                },
+            }
+        }
+    }
+}
+
+
+/// A strict iterator over the resource records of a given type.
+///
+/// Iterates over all records in a section that have a type matching `R`.
+/// If parsing a record's name or data fails, returns an error for this
+/// record.
+///
+pub struct StrictRecordIter<'a, R: RecordData> {
+    base: RecordRangeIter<'a>,
+    record_type: PhantomData<R>,
+}
+
+impl<'a, R: RecordData> StrictRecordIter<'a, R> {
+    fn from_section(section: &RecordSection<'a>) -> StrictRecordIter<'a, R> {
+        StrictRecordIter { base: RecordRangeIter::from_section(section),
+                           record_type: PhantomData }
     }
 
     fn next_range(&mut self) -> Option<RecordRange> {
@@ -599,7 +703,7 @@ impl<'a, R: RecordData> RecordIter<'a, R> {
     }
 }
 
-impl<'a, R: RecordData> Iterator for RecordIter<'a, R> {
+impl<'a, R: RecordData> Iterator for StrictRecordIter<'a, R> {
     type Item = Result<Record<R>>;
 
     fn next(&mut self) -> Option<Result<Record<R>>> {
@@ -631,7 +735,9 @@ impl<'a, R: RecordData> Iterator for RecordIter<'a, R> {
 
 
 //------------ Iterating over a RRSet ---------------------------------------
-/*
+
+/// An iterator over the record data of a given resource record set.
+///
 pub struct RRSetIter<'a, R: RecordData> {
     base: RecordRangeIter<'a>,
     name: &'a DomainName,
@@ -639,7 +745,7 @@ pub struct RRSetIter<'a, R: RecordData> {
     record_type: PhantomData<R>,
 }
 
-impl<'a, R: RecordData> RecordIter<'a, R> {
+impl<'a, R: RecordData> RRSetIter<'a, R> {
     fn from_section(section: &RecordSection<'a>, name: &'a DomainName,
                     rclass: u16) -> RRSetIter<'a, R>
     {
@@ -647,27 +753,111 @@ impl<'a, R: RecordData> RecordIter<'a, R> {
                     name: name, rclass: rclass,
                      record_type: PhantomData }
     }
+}
 
-    fn next_range(&mut self) -> Option<RecordRange> {
+impl<'a, R: RecordData> Iterator for RRSetIter<'a, R> {
+    type Item = R;
+
+    fn next(&mut self) -> Option<R> {
         loop {
-            match self.base.next() {
-                Some(ref range) {
-                    let name_frag = Fragment::from_range(self.base.frag.buf,
-                                                         range.range);
-                    if name_frag.name_eq(self.name)
-                        && range.rtype
-                },
-                None => return None
+            if self.base.frag.is_empty() { return None }
+            else if !self.base.frag.name_eq(self.name) {
+                self.base.skip_next();
+            }
+            else {
+                let range = self.base.next().unwrap();
+                if range.rtype == R::rtype() && range.rclass == self.rclass {
+                    match rdata_from_range(&self.base.frag, range) {
+                        Ok(res) => return Some(res),
+                        _ => { }
+                    }
+                }
             }
         }
     }
 }
-*/
+
+
+/// An iterator over the record data of a given resource record set.
+///
+pub struct StrictRRSetIter<'a, R: RecordData> {
+    base: RecordRangeIter<'a>,
+    name: &'a DomainName,
+    rclass: u16,
+    record_type: PhantomData<R>,
+}
+
+
+impl<'a, R: RecordData> StrictRRSetIter<'a, R> {
+    fn from_section(section: &RecordSection<'a>, name: &'a DomainName,
+                    rclass: u16) -> StrictRRSetIter<'a, R>
+    {
+        StrictRRSetIter { base: RecordRangeIter::from_section(section),
+                    name: name, rclass: rclass,
+                     record_type: PhantomData }
+    }
+
+    fn next_range(&mut self) -> Option<RecordRange> {
+        loop {
+            if self.base.frag.is_empty() { return None }
+            if self.base.frag.name_eq(self.name) {
+                let range = self.base.next().unwrap();
+                if range.rtype == R::rtype() && range.rclass == self.rclass {
+                    return Some(range)
+                }
+            }
+            else {
+                self.base.skip_next();
+            }
+        }
+    }
+}
+
+impl<'a, R: RecordData> Iterator for StrictRRSetIter<'a, R> {
+    type Item = Result<R>;
+
+    fn next(&mut self) -> Option<Result<R>> {
+        self.next_range().map(|x| rdata_from_range(&self.base.frag, x))
+    }
+
+    fn count(mut self) -> usize {
+        let mut res = 0;
+        while self.next_range().is_some() { res += 1 }
+        res
+    }
+
+    fn last(mut self) -> Option<Result<R>> {
+        let mut last = None;
+        loop {
+            match self.next_range() {
+                None => break,
+                x @ _ => last = x
+            }
+        }
+        last.map(|x| rdata_from_range(&self.base.frag, x))
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Result<R>> {
+        for _ in 0 .. n {
+            if self.next_range().is_none() { return None }
+        }
+        self.next()
+    }
+}
+
+fn rdata_from_range<R: RecordData>(frag: &Fragment, r: RecordRange)
+    -> Result<R>
+{
+    let mut frag = Fragment::from_range(frag.buf, &r.range);
+    try!(frag.skip_name());
+    try!(frag.skip_bytes(10));
+    R::from_fragment(&mut frag)
+}
 
 //------------ Resource Record Information ----------------------------------
-//
-// XXX Not sure this is useful at all.
 
+/// Information about a resource record.
+///
 #[derive(Clone, Debug)]
 pub struct RecordInfo {
     pub name: DomainNameBuf,
@@ -693,6 +883,8 @@ impl RecordInfo {
 }
 
 
+/// An iterator over the resource record information.
+///
 pub struct RecordInfoIter<'a> {
     base: RecordRangeIter<'a>,
 }
@@ -761,8 +953,11 @@ fn read_exact<R: io::Read>(s: &mut R, mut buf: &mut [u8]) -> io::Result<()> {
 //------------ Tests -----------------------------------------------------
 
 #[cfg(test)]
+#[macro_use]
 mod tests {
+    use std::net::Ipv4Addr;
     use super::*;
+    use super::super::record;
 
     fn make_data() -> Vec<u8> {
         b"\xd3\x88\x81\x80\x00\x01\x00\x01\x00\x04\x00\x04\x06github\x03com\
@@ -781,9 +976,18 @@ mod tests {
     #[test]
     fn test_from_vec() {
         let res = Message::from_vec(make_data()).unwrap();
+        /*
         for q in res.question().iter() { println!("{:?}", q) }
-        for rr in res.answer().iter_info() { println!("{:?}", rr) }
-        for rr in res.authority().iter_info() { println!("{:?}", rr) }
+        for rr in res.answer().iter::<record::A>() { println!("{:?}", rr) }
+        for rr in res.authority().iter::<record::NS>() { println!("{:?}", rr) }
         for rr in res.additional().iter_info() { println!("{:?}", rr) }
+        */
+        let mut rdata: Vec<record::A> =
+            res.additional().rrset::<record::A>(&dname!("ns4", "p16", "dynect",
+                                                        "net", ""), 1)
+                .collect();
+        assert_eq!(rdata.len(), 1);
+        assert_eq!(rdata.pop().unwrap().addr,
+                   Ipv4Addr::new(204,13,251,16));
     }
 }
