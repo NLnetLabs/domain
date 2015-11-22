@@ -1,4 +1,6 @@
+use std::fmt::Debug;
 use std::net;
+use super::egress::Assembly;
 use super::error::Result;
 use super::ingress::Fragment;
 use super::name;
@@ -6,20 +8,33 @@ use super::name;
 
 //------------ Record Data Trait --------------------------------------------
 
-/// A trait for all record types.
+/// A trait for assemblying record data.
 ///
+/// This is separate from `RecordData` because we want to use trait objects
+/// for keeping record data objects until we actually assemble the message.
+/// However, `RecordData` is not object safe.
 ///
-pub trait RecordData: Sized {
+pub trait RecordDataAssembly: Debug {
+    /// Assembles the wire format of the record data by pushing to `asm`.
+    ///
+    fn assemble(&self, assembly: &mut Assembly);
+}
+
+/// A trait for record data.
+///
+pub trait RecordData: RecordDataAssembly + Sized {
     /// The integer value of the registered record type.
     ///
     fn rtype() -> u16;
 
+    /// The textual name of the record type.
+    ///
+    fn rname() -> &'static str;
+
     /// Parse the record data out of a fragment.
     ///
-    fn from_fragment(frag: &mut Fragment) -> Result<Self>;
+    fn parse(frag: &mut Fragment) -> Result<Self>;
 }
-
-
 
 //------------ A ------------------------------------------------------------
 
@@ -39,16 +54,25 @@ impl A {
 }
 
 impl RecordData for A {
-    fn rtype() -> u16 {
-        1
-    }
+    fn rtype() -> u16 { 1 }
+    fn rname() -> &'static str { "A" }
 
-    fn from_fragment(frag: &mut Fragment) -> Result<A> {
+    fn parse(frag: &mut Fragment) -> Result<A> {
         let a = try!(frag.parse_u8());
         let b = try!(frag.parse_u8());
         let c = try!(frag.parse_u8());
         let d = try!(frag.parse_u8());
         Ok(A::new(net::Ipv4Addr::new(a, b, c, d)))
+    }
+}
+
+impl RecordDataAssembly for A {
+    fn assemble(&self, asm: &mut Assembly) {
+        let octets = self.addr.octets();
+        asm.push_u8(octets[0]);
+        asm.push_u8(octets[1]);
+        asm.push_u8(octets[2]);
+        asm.push_u8(octets[3]);
     }
 }
 
@@ -74,11 +98,16 @@ impl NS {
 }
 
 impl RecordData for NS {
-    fn rtype() -> u16 {
-        2
-    }
+    fn rtype() -> u16 { 2 }
+    fn rname() -> &'static str { "NS" }
 
-    fn from_fragment(frag: &mut Fragment) -> Result<NS> {
+    fn parse(frag: &mut Fragment) -> Result<NS> {
         Ok(NS { nsdname: try!(frag.parse_name()) })
+    }
+}
+
+impl RecordDataAssembly for NS {
+    fn assemble(&self, asm: &mut Assembly) {
+        asm.push_name_compressed(&self.nsdname);
     }
 }

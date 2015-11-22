@@ -487,7 +487,9 @@ impl<'a> RecordSection<'a> {
 
     /// Returns a strict iterator over the resource records of type `R`.
     ///
-    pub fn strict_iter<R: RecordData>(&mut self) -> StrictRecordIter<'a, R> {
+    pub fn strict_iter<R: RecordData>(&mut self)
+        -> StrictRecordIter<'a, R>
+    {
         StrictRecordIter::from_section(self)
     }
 
@@ -626,7 +628,7 @@ impl<R: RecordData> Record<R> {
         let rclass = try!(frag.parse_u16());
         let ttl = try!(frag.parse_u32());
         try!(frag.skip_u16());
-        let data = try!(R::from_fragment(&mut frag));
+        let data = try!(R::parse(&mut frag));
         Ok(Record { name: name, rtype: range.rtype, rclass: rclass, ttl: ttl,
                     data: data } )
     }
@@ -851,7 +853,7 @@ fn rdata_from_range<R: RecordData>(frag: &Fragment, r: RecordRange)
     let mut frag = Fragment::from_range(frag.buf, &r.range);
     try!(frag.skip_name());
     try!(frag.skip_bytes(10));
-    R::from_fragment(&mut frag)
+    R::parse(&mut frag)
 }
 
 //------------ Resource Record Information ----------------------------------
@@ -953,7 +955,6 @@ fn read_exact<R: io::Read>(s: &mut R, mut buf: &mut [u8]) -> io::Result<()> {
 //------------ Tests -----------------------------------------------------
 
 #[cfg(test)]
-#[macro_use]
 mod tests {
     use std::net::Ipv4Addr;
     use super::*;

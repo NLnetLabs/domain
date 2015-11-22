@@ -1,7 +1,7 @@
 
 /// DNS message header.
 ///
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Header {
     // The header is stored as a u32 in host byte order. Don't forget
     // to_be() and from_be() when doing wire translation.
@@ -15,6 +15,10 @@ impl Header {
 
     pub fn from_u32(inner: u32) -> Header {
         Header { inner: inner }
+    }
+
+    pub fn as_u32(&self) -> u32 {
+        self.inner
     }
 
     pub fn id(&self) -> u16 {
