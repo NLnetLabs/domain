@@ -10,7 +10,7 @@ use std::ops;
 use super::error::{Error, Result};
 use super::header::Header;
 use super::name::{self, DomainName, DomainNameBuf};
-use super::record::RecordData;
+use super::rdata::RecordData;
 
 
 //------------ Message ------------------------------------------------------

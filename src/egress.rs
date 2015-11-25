@@ -8,7 +8,7 @@ use std::net;
 use std::ptr;
 use super::header::Header;
 use super::name;
-use super::record::{RecordData, RecordDataAssembly};
+use super::rdata::{RecordData, RecordDataAssembly};
 
 //------------ Assembly -----------------------------------------------------
 
