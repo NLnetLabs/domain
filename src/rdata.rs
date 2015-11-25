@@ -1,8 +1,7 @@
 use std::fmt::Debug;
 use std::net;
 use super::egress::Assembly;
-use super::error::Result;
-use super::ingress::Fragment;
+use super::ingress::{self, Fragment};
 use super::name;
 
 
@@ -33,7 +32,7 @@ pub trait RecordData: RecordDataAssembly + Sized {
 
     /// Parse the record data out of a fragment.
     ///
-    fn parse(frag: &mut Fragment) -> Result<Self>;
+    fn parse(frag: &mut Fragment) -> ingress::Result<Self>;
 }
 
 //------------ A ------------------------------------------------------------
@@ -57,7 +56,7 @@ impl RecordData for A {
     fn rtype() -> u16 { 1 }
     fn rname() -> &'static str { "A" }
 
-    fn parse(frag: &mut Fragment) -> Result<A> {
+    fn parse(frag: &mut Fragment) -> ingress::Result<A> {
         let a = try!(frag.parse_u8());
         let b = try!(frag.parse_u8());
         let c = try!(frag.parse_u8());
@@ -101,7 +100,7 @@ impl RecordData for NS {
     fn rtype() -> u16 { 2 }
     fn rname() -> &'static str { "NS" }
 
-    fn parse(frag: &mut Fragment) -> Result<NS> {
+    fn parse(frag: &mut Fragment) -> ingress::Result<NS> {
         Ok(NS { nsdname: try!(frag.parse_name()) })
     }
 }
