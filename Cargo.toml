@@ -8,4 +8,3 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-

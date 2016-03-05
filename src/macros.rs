@@ -5,7 +5,7 @@ macro_rules! dname {
         {
             let mut res = $crate::name::DomainNameBuf::new();
             $(
-                res.push($x);
+                res.push_normal($x).unwrap();
             )*
             res
         }

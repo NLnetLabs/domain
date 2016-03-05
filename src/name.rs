@@ -1,508 +1,170 @@
 //! Domain name handling.
 //!
-//! This module provides two types, `DomainName` and `DomainNameBuf` (akin
-//! to `str` and `String`), for working with domain names.
-//!
-//! Domain names are stored in a wire-like format as a `u8` slice in the
-//! form of a sequence of a single length byte followed by that many bytes
-//! for the label. Compressed and extended labels are not supported. This
-//! means the length byte can be at most 63. This also means that raw
-//! `u8` slices may be illegal which is why you cannot safely coerce domain
-//! names from `u8` slices.
-//!
 
 use std::ascii::AsciiExt;
-use std::borrow::{Borrow, Cow, /* unstable IntoCow, */ ToOwned};
+use std::borrow::{Borrow, Cow, ToOwned};
 use std::cmp;
-use std::error::Error as StdError;
+use std::convert::{self, Into};
+use std::error;
 use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::iter;
+use std::hash;
 use std::mem;
-use std::ops::{self, Deref};
+use std::ops::Deref;
+use std::result;
 use std::str;
- 
 
-//------------ Domain Label -------------------------------------------------
+use super::bytes::{self, BytesBuf, BytesSlice};
 
-/// The content of a domain name label.
-///
-/// This is basically just a `u8` slice. If the label is just ASCII, it can
-/// be coerced into a `str`. This should be the case pretty much always, but
-/// the protocol allows the full `u8` range in labels.
+
+//------------ DomainName ---------------------------------------------------
+
+/// A byte slice representing a self-contained domain name.
 ///
 /// This is an *unsized* type.
 ///
-pub struct Label {
-    pub inner: [u8]
-}
-
-impl Label {
-    fn from_bytes(s: &[u8]) -> &Label {
-        unsafe { mem::transmute(s) }
-    }
-
-    fn from_str(s: &str) -> &Label {
-        Label::from_bytes(s.as_bytes())
-    }
-
-    /// Coerces into a `Label` slice.
-    ///
-    pub fn new<L: AsRef<Label> + ?Sized>(l: &L) -> &Label {
-        l.as_ref()
-    }
-
-    /// Yields a `&str` slice if `self` is purely ASCII.
-    ///
-    pub fn as_str(&self) -> Option<&str> {
-        match self.inner.is_ascii() {
-            true => str::from_utf8(&self.inner).ok(),
-            false => None
-        }
-    }
-
-    /// Gives access to the underlying u8 slice.
-    ///
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.inner
-    }
-
-    /// Converts `self` to a `Cow<str>`.
-    ///
-    /// Non-printable ASCII characters plus ' ', '.', and '\' are escaped
-    /// zonefile-style.
-    ///
-    pub fn to_string_lossy(&self) -> Cow<str> {
-        if self.needs_escaping() {
-            let mut res = String::new();
-            for &ch in self.inner.iter() {
-                if ch == b' ' || ch == b'.' || ch == b'\\' {
-                    res.push('\\');
-                    res.push(ch as char);
-                }
-                else if ch < b' '  || ch >= 0x7F {
-                    res.push('\\');
-                    res.push(((ch / 100) % 10 + b'0') as char);
-                    res.push(((ch / 10) % 10 + b'0') as char);
-                    res.push((ch % 10 + b'0') as char);
-                }
-                else {
-                    res.push(ch as char);
-                }
-            }
-            Cow::Owned(res)
-        }
-        else {
-            unsafe {
-                Cow::Borrowed(mem::transmute(&self.inner))
-            }
-        }
-    }
-
-    /// Convert `self` to an owned `Vec<u8>`.
-    ///
-    pub fn to_owned(&self) -> Vec<u8> {
-        Vec::from(&self.inner)
-    }
-
-    /// Returns true if the label is empty.
-    ///
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    /// Returns whether the label needs escaping for string conversion.
-    ///
-    /// A label needs escaping if it contains non-printable ASCII
-    /// characters, `' '`, `'.'` or `'\\'`.
-    ///
-    pub fn needs_escaping(&self) -> bool {
-        self.inner.iter().any(|&ch| {
-            ch <= b' ' || ch == b'.' || ch == b'\\' || ch >= 0x7F
-        })
-    }
-
-    /// Returns the length of the label in octets.
-    ///
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-}
-
-impl AsRef<Label> for Label {
-    fn as_ref(&self) -> &Label {
-        self
-    }
-}
-
-impl AsRef<Label> for [u8] {
-    fn as_ref(&self) -> &Label {
-        Label::from_bytes(self)
-    }
-}
-
-impl AsRef<[u8]> for Label {
-    fn as_ref(&self) -> &[u8] {
-        &self.inner
-    }
-}
-
-impl AsRef<Label> for str {
-    fn as_ref(&self) -> &Label {
-        Label::from_str(self)
-    }
-}
-
-impl<T: AsRef<Label> + ?Sized> cmp::PartialEq<T> for Label {
-    fn eq(&self, other: &T) -> bool {
-        self.inner.eq_ignore_ascii_case(&Label::new(other).inner)
-    }
-}
-
-impl cmp::Eq for Label { }
-
-impl<T: AsRef<Label> + ?Sized> cmp::PartialOrd<T> for Label {
-    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
-        self.inner.to_ascii_lowercase().partial_cmp(
-            &Label::new(other).inner.to_ascii_lowercase())
-    }
-}
-
-impl cmp::Ord for Label {
-    fn cmp(&self, other: &Label) -> cmp::Ordering {
-        self.inner.to_ascii_lowercase().cmp(&other.inner.to_ascii_lowercase())
-    }
-}
-
-impl Hash for Label {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.inner.to_ascii_lowercase().hash(state)
-    }
-}
-
-impl fmt::Debug for Label {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&self.to_string_lossy(), formatter)
-    }
-}
-
-impl fmt::Display for Label {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&self.to_string_lossy(), formatter)
-    }
-}
-
-
-//------------ Iterator -----------------------------------------------------
-
-/// The iterator over the labels of a domain name slice.
-///
-/// Due to the way domain names are stored, it can only iterate forwards.
-///
-#[derive(Clone)]
-pub struct Iter<'a> {
-    // the raw slice to eat labels from
-    slice: &'a [u8]
-}
-
-
-impl<'a> Iter<'a> {
-
-    /// Extracts a domain name slice corresponding to the portion of the
-    /// domain name remaining for iteration.
-    ///
-    pub fn as_name(&self) -> &'a DomainName {
-        unsafe { DomainName::from_bytes(self.slice) }
-    }
-}
-
-impl<'a> iter::Iterator for Iter<'a> {
-    type Item = &'a Label;
-
-    fn next(&mut self) -> Option<&'a Label> {
-        self.slice.first().map(|n| {
-            let (head, tail) = self.slice.split_at(*n as usize + 1);
-            let (_, head) = head.split_at(1);
-            self.slice = &tail;
-            Label::from_bytes(head)
-        })
-    }
-}
-
-
-//------------ Domain Name Buffer -------------------------------------------
-
-/// An owned, mutable domain name (akin to `String).
-///
-#[derive(Clone)]
-pub struct DomainNameBuf {
-    inner: Vec<u8>
-}
-
-impl DomainNameBuf {
-    // Create a `DomainNameBuf` from a `u8` slice. This is only safe it the
-    // slice follows the encoding rules.
-    //
-    unsafe fn from_bytes(s: &[u8]) -> DomainNameBuf {
-        DomainNameBuf { inner: Vec::from(s) }
-    }
-
-    /// Creates a new empty `DomainNameBuf`
-    ///
-    pub fn new() -> DomainNameBuf {
-        DomainNameBuf { inner: Vec::new() }
-    }
-
-    /// Coerces to a `DomainName` slice.
-    ///
-    pub fn as_name(&self) -> &DomainName {
-        self
-    }
-
-    /// Extends `self` with `label`.
-    ///
-    pub fn push<L: AsRef<Label>>(&mut self, label: L) {
-        self._push(label.as_ref())
-    }
-
-    fn _push(&mut self, label: &Label) {
-        self.inner.push(label.len() as u8);
-        self.inner.extend(&label.inner);
-    }
-
-    /// Extends `self` with `name`.
-    ///
-    /// If `self` is already absolute, nothing happens.
-    ///
-    pub fn append<N: AsRef<DomainName>>(&mut self, name: N) {
-        self._append(name.as_ref())
-    }
-
-    fn _append(&mut self, name: &DomainName) {
-        if !self.is_absolute() {
-            self.inner.extend(&name.inner)
-        }
-    }
-
-}
-
-impl<'a> From<&'a DomainName> for DomainNameBuf {
-    fn from(n: &'a DomainName) -> DomainNameBuf {
-        unsafe { DomainNameBuf::from_bytes(&n.inner) }
-    }
-}
-
-impl<'a> From<&'a Label> for DomainNameBuf {
-    fn from(label: &'a Label) -> DomainNameBuf {
-        let mut res = DomainNameBuf::new();
-        res.push(label);
-        res
-    }
-}
-
-impl<L: AsRef<Label>> iter::FromIterator<L> for DomainNameBuf {
-    fn from_iter<T>(iter: T) -> DomainNameBuf
-        where T: iter::IntoIterator<Item=L>
-    {
-        let mut res = DomainNameBuf::new();
-        res.extend(iter);
-        res
-    }
-}
-
-impl<L: AsRef<Label>> iter::Extend<L> for DomainNameBuf {
-    fn extend<I: IntoIterator<Item = L>>(&mut self, iter: I) {
-        for label in iter {
-            self.push(label);
-        }
-    }
-}
-
-impl fmt::Debug for DomainNameBuf {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&**self, formatter)
-    }
-}
-
-impl ops::Deref for DomainNameBuf {
-    type Target = DomainName;
-
-    fn deref(&self) -> &DomainName {
-        unsafe { DomainName::from_bytes(&self.inner) }
-    }
-}
-
-impl Borrow<DomainName> for DomainNameBuf {
-    fn borrow(&self) -> &DomainName {
-        self.deref()
-    }
-}
-
-/* XXX Unstable
-
-impl IntoCow<'static, DomainName> for DomainNameBuf {
-    fn into_cow(self) -> Cow<'static, DomainName> {
-        Cow::Owned(self)
-    }
-}
-
-impl IntoCow<'a, DomainName> for &'a DomainName {
-    fn into_cow(self) -> Cow<'a, DomainName> {
-        Cow::Borrowed(self)
-    }
-}
-*/
-
-impl ToOwned for DomainName {
-    type Owned = DomainNameBuf;
-    fn to_owned(&self) -> DomainNameBuf { self.to_owned() }
-}
-
-impl cmp::PartialEq for DomainNameBuf {
-    fn eq(&self, other: &DomainNameBuf) -> bool {
-        self.inner.eq_ignore_ascii_case(&other.inner)
-    }
-}
-
-impl cmp::Eq for DomainNameBuf { }
-
-impl cmp::PartialOrd for DomainNameBuf {
-    fn partial_cmp(&self, other: &DomainNameBuf) -> Option<cmp::Ordering> {
-        self.deref().partial_cmp(other.deref())
-    }
-}
-
-impl cmp::Ord for DomainNameBuf {
-    fn cmp(&self, other: &DomainNameBuf) -> cmp::Ordering {
-        self.deref().cmp(other.deref())
-    }
-}
-
-impl Hash for DomainNameBuf {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.inner.to_ascii_lowercase().hash(state)
-    }
-}
-
-impl str::FromStr for DomainNameBuf {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<DomainNameBuf, Error> {
-        let mut res = DomainNameBuf::new();
-        let mut label = Vec::new();
-        let mut chars = s.chars();
-        loop {
-            match chars.next() {
-                Some(c) => {
-                    match c {
-                        '.' => {
-                            if label.len() > 63 {
-                                return Err(Error::OverlongLabel)
-                            }
-                            res.inner.push(label.len() as u8);
-                            res.inner.extend(&label);
-                            label.clear();
-                        }
-                        '\\' => {
-                            let ch = try!(chars.next()
-                                          .ok_or(Error::PrematureEnd));
-                            if ch.is_digit(10) {
-                                let v = ch.to_digit(10).unwrap() * 100
-                                      + try!(chars.next()
-                                             .ok_or(Error::PrematureEnd)
-                                             .and_then(|c| c.to_digit(10)
-                                                       .ok_or(
-                                                        Error::IllegalEscape)))
-                                             * 10
-                                      + try!(chars.next()
-                                             .ok_or(Error::PrematureEnd)
-                                             .and_then(|c| c.to_digit(10)
-                                                       .ok_or(
-                                                       Error::IllegalEscape)));
-                                label.push(v as u8);
-                            }
-                            else {
-                                label.push(ch as u8);
-                            }
-                        }
-                        ' ' ... '-' | '/' ... '[' | ']' ... '~' => {
-                            label.push(c as u8);
-                        }
-                        _ => return Err(Error::IllegalCharacter)
-                    }
-                }
-                None => break
-            }
-        }
-        res.inner.push(label.len() as u8);
-        res.inner.extend(&label);
-        Ok(res)
-    }
-}
-
-//------------ Domain Name Slice --------------------------------------------
-
-/// A slice of a domain name (akin to `str`).
-///
-/// This is an *unsized* type.
-///
+#[derive(Debug)]
 pub struct DomainName {
-    inner: [u8]
+    slice: [u8]
 }
 
+
+/// # Creation and Conversion
+///
 impl DomainName {
-    // Create a `DomainName` from a `u8` slice. This is only safe if the
-    // slice follows the encoding rules.
-    //
-    unsafe fn from_bytes(s: &[u8]) -> &DomainName {
-        mem::transmute(s)
-    }
-
-    /// Yields the underlying `[u8]`.
+    /// Create a domain name slice from a bytes slice.
     ///
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.inner
+    /// This is only safe if the slice follows the encoding rules and does
+    /// not contain a compressed label.
+    ///
+    unsafe fn from_bytes(slice: &[u8]) -> &DomainName {
+        mem::transmute(slice)
     }
 
-    /// Converts a `DomainName` to an owned `DomainNameBuf`.
+    /// Returns the underlying bytes slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.slice
+    }
+
+    /// Converts `self` into an owned domain name.
     ///
     pub fn to_owned(&self) -> DomainNameBuf {
         DomainNameBuf::from(self)
     }
 
-    /// A domain name is *absolute* if it ends with an empty label.
+    /// Converts `self` to a string.
+    ///
+    /// The resulting string will follow the zonefile representation.
+    ///
+    /// Normal labels will be interpreted as ASCII text with non-printable
+    /// ASCII characters and non-ASCII bytes escaped as a backslash followed
+    /// by three decimal digits with the decimal value of the byte and
+    /// periods within a label and backslashes escaped with a leading
+    /// backslash.
+    /// 
+    /// Binary labels are encoded starting with `"[x"`, then the hexadecimal
+    /// representation of the bitfield, then a slash, then a decimal
+    /// representation of the bit count, and finally a closing `']'`.
+    ///
+    pub fn to_string(&self) -> String {
+        // With normal ASCII labels only, the resulting string is exactly
+        // as long as the domain name slice.
+        let mut res = String::with_capacity(self.slice.len());
+        for label in self.iter() {
+            if !res.is_empty() { res.push('.') }
+            label.push_string(&mut res)
+        }
+        res
+    }
+}
+
+/// # Properties
+///
+impl DomainName {
+    /// Checks whether the domain name is absolute.
+    ///
+    /// A domain name is absolute if it ends with an empty normal label
+    /// (the root label).
     ///
     pub fn is_absolute(&self) -> bool {
-        self.last().map_or(false, |l| l.is_empty())
+        self.last().map_or(false, |l| l.is_root())
     }
 
-    /// A domain name is *relative* if it is not absolute.
-    ///
-    /// Inicidentally, this means that an empty domain name is relative.
+    /// Checks whether the domain name is relative, ie., not absolute.
     ///
     pub fn is_relative(&self) -> bool {
         !self.is_absolute()
     }
+}
 
-    /// The domain name without its leftmost label.
+
+/// # Iteration over labels.
+///
+impl DomainName {
+
+    /// Produces an iterator over the labels in the name.
+    ///
+    pub fn iter(&self) -> NameIter {
+        NameIter { slice: &self.slice }
+    }
+
+    /// Returns the number of labels in `self`.
+    ///
+    pub fn len(&self) -> usize {
+        self.iter().count()
+    }
+
+    /// Checks whether the domain name is empty.
+    ///
+    pub fn is_empty(&self) -> bool {
+        self.slice.is_empty()
+    }
+
+    /// Returns the first label or `None` if the name is empty.
+    ///
+    pub fn first(&self) -> Option<Label> {
+        self.iter().next()
+    }
+
+    /// Returns the last label or `None` if the name is empty.
+    ///
+    pub fn last(&self) -> Option<Label> {
+        self.iter().last()
+    }
+}
+
+
+/// # Manipulations
+///
+impl DomainName {
+    /// Returns the first label and the rest of the name.
+    ///
+    /// Returns `None` if the name is empty.
+    ///
+    pub fn split_first(&self) -> Option<(Label, &DomainName)> {
+        let mut iter = self.iter();
+        iter.next().map(|l| (l, iter.as_name()))
+    }
+
+    /// Returns the domain name without its leftmost label.
     ///
     /// Returns `None` for an empty domain name. Returns an empty domain
     /// name for a single label domain name.
-    ///
     pub fn parent(&self) -> Option<&DomainName> {
         self.split_first().map(|(_, tail)| tail)
     }
 
     /// Determines whether `base` is a prefix of `self`.
     ///
-    /// Only considers whole labels. Comparision happens DNS-style, ie.,
-    /// case insensitive.
+    /// The method only cosiders whole labels and compares them
+    /// case-insensitively.
     ///
-    pub fn starts_with<N: AsRef<DomainName>>(&self, base: N) -> bool {
+    /// The current implementation does not compare a sequence of binary
+    /// labels correctly.
+    pub fn starts_with<N: AsRef<Self>>(&self, base: N) -> bool {
         self._starts_with(base.as_ref())
     }
 
-    fn _starts_with(&self, base: &DomainName) -> bool {
+    fn _starts_with(&self, base: &Self) -> bool {
         let mut self_iter = self.iter();
         let mut base_iter = base.iter();
         loop {
@@ -512,21 +174,23 @@ impl DomainName {
                 }
                 (Some(_), None) => return true,
                 (None, None) => return true,
-                (None, Some(_)) => return false
+                (None, Some(_)) => return false,
             }
         }
     }
 
     /// Determines whether `base` is a suffix of `self`.
     ///
-    /// Only considers whole labels. Comparision happens DNS-style, ie.,
-    /// case insensitive.
+    /// The method only cosiders whole labels and compares them
+    /// case-insensitively.
     ///
-    pub fn ends_with<N: AsRef<DomainName>>(&self, base: N) -> bool {
+    /// The current implementation does not compare a sequence of binary
+    /// labels correctly.
+    pub fn ends_with<N: AsRef<Self>>(&self, base: N) -> bool {
         self._ends_with(base.as_ref())
     }
 
-    fn _ends_with(&self, base: &DomainName) -> bool {
+    fn _ends_with(&self, base: &Self) -> bool {
         let mut self_iter = self.iter();
 
         loop {
@@ -535,7 +199,7 @@ impl DomainName {
                 Some(l) => l,
                 None => return false
             };
-            if self_iter.find(|&l| l == base_first).is_none() {
+            if self_iter.find(|l| *l == base_first).is_none() {
                 return false
             }
             let mut self_test = self_iter.clone();
@@ -553,207 +217,1097 @@ impl DomainName {
     }
 
     /// Creates an owned domain name with `base` adjoined to `self`.
-    ///
-    pub fn join<N: AsRef<DomainName>>(&self, base: N) -> DomainNameBuf {
+    pub fn join<N: AsRef<Self>>(&self, base: N) -> DomainNameBuf {
         self._join(base.as_ref())
     }
 
-    fn _join(&self, base: &DomainName) -> DomainNameBuf {
-        let mut buf = self.to_owned();
-        buf.append(base);
-        buf
-    }
-
-    /// Produce an iterator over the domain name’s labels.
-    ///
-    pub fn iter(&self) -> Iter {
-        Iter { slice: &self.inner }
-    }
-
-    //--- Behave like a slice of labels
-    //
-    // None of these are particularily cheap.
-    //
-
-    /// Returns the number of labels in `self`.
-    ///
-    pub fn len(&self) -> usize {
-        self.iter().count()
-    }
-
-    /// Returns true if there are no labels in `self`.
-    ///
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    /// Returns the first label or `None` if the name is empty.
-    ///
-    pub fn first(&self) -> Option<&Label> {
-        self.iter().next()
-    }
-
-    /// Returns the last label or `None` if the name is empty.
-    ///
-    pub fn last(&self) -> Option<&Label> {
-        self.iter().last()
-    }
-
-    /// Returns the first label and the rest of the name.
-    ///
-    /// Returns `None` if the name is empty.
-    ///
-    pub fn split_first(&self) -> Option<(&Label, &DomainName)> {
-        let mut iter = self.iter();
-        iter.next().map(|l| (l, iter.as_name()))
+    fn _join(&self, base: &Self) -> DomainNameBuf {
+        let mut res = self.to_owned();
+        res.append(base);
+        res
     }
 }
 
-impl fmt::Debug for DomainName {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        let mut first = true;
-        for label in self.iter() {
-            if !first { try!(formatter.write_str(".")); }
-            else { first = false; }
-            try!(formatter.write_str(&label.to_string_lossy()));
+impl BuildDomainName for DomainName {
+    fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
+        buf.add_name_pos(self);
+        buf.push_bytes(&self.slice);
+        Ok(())
+    }
+    
+    fn push_buf_compressed<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
+        let mut name = self;
+        loop {
+            match buf.get_name_pos(name) {
+                Some(pos) => {
+                    LabelHead::Compressed(((pos & 0xFF00) >> 8) as u8)
+                                .push(buf);
+                    buf.push_u8((pos & 0xFF) as u8);
+                    break;
+                }
+                None => {
+                    let (left, right) = match name.split_first() {
+                        Some(x) => x,
+                        None => break
+                    };
+                    buf.add_name_pos(name);
+                    left.push_buf(buf);
+                    name = right;
+                }
+            }
         }
         Ok(())
     }
 }
 
-impl fmt::Display for DomainName {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(self, formatter)
+
+impl AsRef<DomainName> for DomainName {
+    fn as_ref(&self) -> &DomainName { self }
+}
+
+
+impl ToOwned for DomainName {
+    type Owned = DomainNameBuf;
+
+    fn to_owned(&self) -> Self::Owned { self.to_owned() }
+}
+
+impl<T: AsRef<DomainName> + ?Sized> PartialEq<T> for DomainName {
+    fn eq(&self, other: &T) -> bool {
+        self.iter().eq(other.as_ref().iter())
     }
 }
 
-impl<T: AsRef<DomainName> + ?Sized> cmp::PartialEq<T> for DomainName {
-    fn eq(&self, other: &T) -> bool {
-        // Since the maximum label size 63 is below the ASCII letters,
-        // we can simply AsciiExt::eq_ignore_ascii_case the whole slice.
-        self.inner.eq_ignore_ascii_case(&other.as_ref().inner)
+impl<'a> PartialEq<WireDomainName<'a>> for DomainName {
+    /// Test whether `self` and `other` are equal.
+    ///
+    /// An unparsable `other` always compares false.
+    fn eq(&self, other: &WireDomainName) -> bool {
+        let mut self_iter = self.iter();
+        let mut other_iter = other.iter();
+        loop {
+            match (self_iter.next(), other_iter.next()) {
+                (Some(left), Some(Ok(right))) => {
+                    if left != right { return false }
+                }
+                (None, None) => { return true }
+                _ => { return false }
+            }
+        }
+    }
+}
+
+//impl<T: AsRef<str> + ?Sized> PartialEq<T> for DomainName {
+//    fn eq(&self, other: &T) -> bool {
+impl PartialEq<str> for DomainName {
+    fn eq(&self, other: &str) -> bool {
+        if !other.is_ascii() { return false }
+        let mut other = other.as_bytes();
+        let mut name = unsafe { DomainName::from_bytes(&self.slice) };
+        loop {
+            let (label, tail) = match name.split_first() {
+                Some(x) => x,
+                None => return other.is_empty()
+            };
+            match label.eq_zonefile(other) {
+                Ok(v) => return v,
+                Err(tail) => other = tail
+            };
+            if tail.is_empty() {
+                return other.is_empty()
+            }
+            name = tail
+        }
     }
 }
 
 impl cmp::Eq for DomainName { }
 
-impl<T: AsRef<DomainName> + ?Sized> cmp::PartialOrd<T> for DomainName {
-    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
-        // Sadly, for ordering that trick doesn't work. We should
-        // lexically compare label by label.
 
-        // XXX Switch to this here once that's stable:
-        // self.iter().partial_cmp(other.as_ref().iter())
-        for (self_label, other_label) in self.iter().zip(other.as_ref().iter())
-        {
-            match self_label.cmp(other_label) {
-                cmp::Ordering::Less => return Some(cmp::Ordering::Less),
-                cmp::Ordering::Greater => return Some(cmp::Ordering::Greater),
-                _ => continue
+impl<T: AsRef<DomainName> + ?Sized> PartialOrd<T> for DomainName {
+    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
+        self.iter().partial_cmp(other.as_ref().iter())
+    }
+}
+
+impl<'a> PartialOrd<WireDomainName<'a>> for DomainName {
+    fn partial_cmp(&self, other: &WireDomainName) -> Option<cmp::Ordering> {
+        let mut self_iter = self.iter();
+        let mut other_iter = other.iter();
+        loop {
+            match (self_iter.next(), other_iter.next()) {
+                (None, None) => return Some(cmp::Ordering::Equal),
+                (None, _   ) => return Some(cmp::Ordering::Less),
+                (_   , None) => return Some(cmp::Ordering::Greater),
+                (Some(left), Some(Ok(right))) => {
+                    let ordering = left.partial_cmp(&right);
+                    if ordering != Some(cmp::Ordering::Equal) {
+                        return ordering;
+                    }
+                }
+                (_, Some(Err(_))) => return None,
             }
         }
-        Some(cmp::Ordering::Equal)
     }
 }
 
-impl cmp::Ord for DomainName {
-    fn cmp(&self, other: &DomainName) -> cmp::Ordering {
-        // XXX Switch to this here once that's stable:
-        // self.iter().cmp(other.as_ref().iter())
-        self.partial_cmp(other).unwrap()
+impl Ord for DomainName {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.iter().cmp(other.iter())
     }
 }
 
-impl AsRef<DomainName> for DomainName {
-    fn as_ref(&self) -> &DomainName { self }
+
+impl hash::Hash for DomainName {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        use std::hash::Hash;
+
+        for label in self.iter() {
+            label.hash(state)
+        }
+    }
 }
+
+
+//------------ DomainNameBuf ------------------------------------------------
+
+/// An owned, mutable, self-contained domain name.
+///
+#[derive(Clone, Debug)]
+pub struct DomainNameBuf {
+    inner: Vec<u8>
+}
+
+impl DomainNameBuf {
+    /// Creates a `DomainNameBuf` from a `u8` slice.
+    ///
+    /// This is only safe if the slice follows the encoding rules.
+    ///
+    unsafe fn from_bytes(s: &[u8]) -> DomainNameBuf {
+        DomainNameBuf { inner: Vec::from(s) }
+    }
+
+    /// Creates a new empty domain name.
+    ///
+    pub fn new() -> DomainNameBuf {
+        DomainNameBuf { inner: Vec::new() }
+    }
+
+    /// Coerces to a `DomainName` slice.
+    ///
+    pub fn as_name(&self) -> &DomainName {
+        self
+    }
+
+    /// Extends self with a normal label.
+    ///
+    pub fn push_normal<L: AsRef<[u8]>>(&mut self, label: L) -> Result<()> {
+        Ok(self.push(try!(Label::new_normal(label.as_ref()))))
+    }
+
+    /// Extends self with a binary label.
+    ///
+    pub fn push_binary(&mut self, count: u8, slice: &[u8]) -> Result<()>{
+        Ok(self.push(try!(Label::new_binary(count, slice))))
+    }
+
+    /// Extends self with a label.
+    pub fn push(&mut self, label: Label) {
+        label.push_buf(&mut self.inner);
+    }
+
+    /// Extends `self` with a domain name.
+    ///
+    /// If `self` is already absolute, nothing will happen.
+    /// 
+    /// XXX Is this a good rule? Checking for absolute names is costly.
+    ///
+    pub fn append<N: AsRef<DomainName>>(&mut self, name: N) {
+        self._append(name.as_ref())
+    }
+
+    fn _append(&mut self, name: &DomainName) {
+        if !self.is_absolute() {
+            self.inner.extend(&name.slice)
+        }
+    }
+}
+
+impl<'a> From<&'a DomainName> for DomainNameBuf {
+    fn from(n: &'a DomainName) -> DomainNameBuf {
+        unsafe { DomainNameBuf::from_bytes(&n.slice) }
+    }
+}
+
+impl str::FromStr for DomainNameBuf {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> ParseResult<DomainNameBuf> {
+        let mut res = DomainNameBuf::new();
+        let mut label = Vec::new();
+        let mut chars = s.chars();
+        loop {
+            match chars.next() {
+                Some(c) => {
+                    match c {
+                        '.' => {
+                            if label.len() > 63 {
+                                return Err(ParseError::OverlongLabel)
+                            }
+                            res.inner.push(label.len() as u8);
+                            res.inner.extend(&label);
+                            label.clear();
+                        }
+                        '\\' => {
+                            let ch = try!(chars.next()
+                                          .ok_or(ParseError::PrematureEnd));
+                            if ch.is_digit(10) {
+                                let v = ch.to_digit(10).unwrap() * 100
+                                      + try!(chars.next()
+                                             .ok_or(ParseError::PrematureEnd)
+                                             .and_then(|c| c.to_digit(10)
+                                                       .ok_or(
+                                                  ParseError::IllegalEscape)))
+                                             * 10
+                                      + try!(chars.next()
+                                             .ok_or(ParseError::PrematureEnd)
+                                             .and_then(|c| c.to_digit(10)
+                                                       .ok_or(
+                                                 ParseError::IllegalEscape)));
+                                label.push(v as u8);
+                            }
+                            else {
+                                label.push(ch as u8);
+                            }
+                        }
+                        ' ' ... '-' | '/' ... '[' | ']' ... '~' => {
+                            label.push(c as u8);
+                        }
+                        _ => return Err(ParseError::IllegalCharacter)
+                    }
+                }
+                None => break
+            }
+        }
+        res.inner.push(label.len() as u8);
+        res.inner.extend(&label);
+        Ok(res)
+    }
+}
+
+impl Deref for DomainNameBuf {
+    type Target = DomainName;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { DomainName::from_bytes(&self.inner) }
+    }
+}
+
+impl Borrow<DomainName> for DomainNameBuf {
+    fn borrow(&self) -> &DomainName {
+        self.deref()
+    }
+}
+
 
 impl AsRef<DomainName> for DomainNameBuf {
     fn as_ref(&self) -> &DomainName { self }
 }
 
 
-impl Hash for DomainName {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.inner.to_ascii_lowercase().hash(state)
+impl cmp::PartialEq for DomainNameBuf {
+    fn eq(&self, other: &Self) -> bool {
+        self.deref().eq(other.deref())
+    }
+}
+
+impl cmp::Eq for DomainNameBuf { }
+
+impl cmp::PartialOrd for DomainNameBuf {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.deref().partial_cmp(other.deref())
+    }
+}
+
+impl cmp::Ord for DomainNameBuf {
+    fn cmp(&self, other: &DomainNameBuf) -> cmp::Ordering {
+        self.deref().cmp(other.deref())
+    }
+}
+
+impl hash::Hash for DomainNameBuf {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.deref().hash(state)
     }
 }
 
 
-//------------ Error --------------------------------------------------------
+//------------ WireDomainName ----------------------------------------------
+
+/// A domain name embedded in a DNS message.
+///
+/// A wire domain name is not self-contained but rather may reference
+/// another domain name. Because if this, it always needs a second bytes
+/// slice representing the message and called the *context*.
+/// 
+#[derive(Clone, Debug)]
+pub struct WireDomainName<'a> {
+    slice: &'a [u8],
+    context: &'a [u8],
+}
+
+
+/// # Creation and Conversion
+///
+impl<'a> WireDomainName<'a> {
+    /// Creates a new wire domain name from its components.
+    pub fn new(slice: &'a[u8], context: &'a[u8]) -> WireDomainName<'a> {
+        WireDomainName { slice: slice, context: context }
+    }
+
+    /// Splits a wire domain name from the beginning of a  bytes slice.
+    pub fn split_from(slice: &'a[u8], context: &'a[u8])
+                      -> Result<(WireDomainName<'a>, &'a[u8])> {
+        let mut pos = 0;
+        loop {
+            let (end, head) = try!(Label::peek(slice, pos));
+            if head.is_final() {
+                let (bytes, slice) = try!(slice.split_bytes(end));
+                return Ok((WireDomainName::new(bytes, context), slice));
+            }
+            pos = end;
+        }
+    }
+
+    /// Converts `self` into a self-contained, owned domain name.
+    pub fn to_owned(&self) -> Result<DomainNameBuf> {
+        Ok(try!(self.decompress()).into_owned())
+    }
+
+    /// Decompresses `self`.
+    ///
+    /// If `self` does not contain any compressed labels, it will be
+    /// coerced into a regular domain name slice. If it does, it will be
+    /// converted into an owned domain name.
+    pub fn decompress(&self) -> Result<Cow<'a, DomainName>> {
+        // Walk over the name and return it if it ends without compression.
+        let mut pos = 0;
+        loop {
+            let (end, head) = try!(Label::peek(self.slice, pos));
+            match head {
+                LabelHead::Normal(0) => {
+                    let name = unsafe { 
+                        DomainName::from_bytes(&self.slice[..end])
+                    };
+                    return Ok(Cow::Borrowed(name));
+                }
+                LabelHead::Compressed(..) => {
+                    break;
+                }
+                _ => { pos = end }
+            }
+        }
+        // We have compression. Copy all until the compressed label, then
+        // iterate over the rest and append each label.
+        let (bytes, slice) = try!(self.slice.split_bytes(pos));
+        let mut res = unsafe { DomainNameBuf::from_bytes(bytes) };
+        for label in WireIter::new(slice, self.context) {
+            let label = try!(label);
+            res.push(label)
+        }
+        Ok(Cow::Owned(res))
+    }
+
+    pub fn to_string(&self) -> Result<String> {
+        // Assuming a properly parsed out slice, the resulting string is
+        // at least its sice.
+        let mut res = String::with_capacity(self.slice.len());
+        for label in self.iter() {
+            let label = try!(label);
+            if !res.is_empty() { res.push('.') }
+            label.push_string(&mut res)
+        }
+        Ok(res)
+    }
+}
+
+
+// # Iteration over Labels
+//
+impl<'a> WireDomainName<'a> {
+    /// Returns an iterator over the labels.
+    pub fn iter(&self) -> WireIter<'a> {
+        WireIter::new(self.slice, self.context)
+    }
+}
+
+
+impl<'a> BuildDomainName for WireDomainName<'a> {
+    fn push_buf<O: BytesBuf>(&self, buf: &mut O) -> Result<()> {
+        for label in self.iter() {
+            try!(label).push_buf(buf)
+        }
+        Ok(())
+    }
+
+    fn push_buf_compressed<O: BytesBuf>(&self, buf: &mut O) -> Result<()> {
+        try!(self.decompress()).push_buf_compressed(buf)
+    }
+}
+
+
+impl<'a> PartialEq for WireDomainName<'a> {
+    fn eq(&self, other: &WireDomainName) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+
+impl<'a, T: AsRef<DomainName> + ?Sized> PartialEq<T> for WireDomainName<'a>
+{
+    fn eq(&self, other: &T) -> bool {
+        other.as_ref().eq(self)
+    }
+}
+
+impl<'a, T: AsRef<DomainName> + ?Sized> PartialOrd<T> for WireDomainName<'a>
+{
+    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
+        other.as_ref().partial_cmp(self).map(|o| o.reverse())
+    }
+}
+
+
+//------------ NameIter -----------------------------------------------------
+
+/// An iterator over the labels in a domain name.
+#[derive(Clone, Debug)]
+pub struct NameIter<'a> {
+    slice: &'a [u8]
+}
+
+impl<'a> NameIter<'a> {
+    /// Returns the domain name for the remaining portion.
+    pub fn as_name(&self) -> &'a DomainName {
+        unsafe { DomainName::from_bytes(self.slice) }
+    }
+}
+
+impl<'a> Iterator for NameIter<'a> {
+    type Item = Label<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (label, slice) = match Label::split_from(self.slice) {
+            Err(..) => return None,
+            Ok(res) => res
+        };
+        self.slice = slice;
+        Some(label)
+    }
+}
+
+
+//------------ WireIter ----------------------------------------------------
+
+/// An iterator over the labels in a frail domain name.
+#[derive(Clone, Debug)]
+pub struct WireIter<'a> {
+    slice: &'a[u8],
+    context: &'a[u8],
+}
+
+impl<'a> WireIter<'a> {
+    fn new(slice: &'a[u8], context: &'a[u8]) -> WireIter<'a> {
+        WireIter { slice: slice, context: context }
+    }
+
+    pub fn as_name(&self) -> Result<Cow<'a, DomainName>> {
+        WireDomainName::new(self.slice, self.context).decompress()
+    }
+}
+
+impl<'a> Iterator for WireIter<'a> {
+    type Item = Result<Label<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.slice.is_empty() { return None }
+        match Label::split_compressed(self.slice, self.context) {
+            Err(e) => Some(Err(e)),
+            Ok((label, slice)) => {
+                self.slice = if label.is_root() { b"" }
+                             else { slice };
+                Some(Ok(label))
+            }
+        }
+    }
+}
+
+
+//------------ Label --------------------------------------------------------
+
+/// The content of a domain name label.
+///
+/// This type only represents labels with an actual content, ie., normal
+/// and binary labels. Compressed labels are being resolved into their
+/// actual content by the domain name types on the fly.
+///
+#[derive(Clone, Debug)]
+pub enum Label<'a> {
+    /// A normal label containing up to 63 octets.
+    Normal(&'a [u8]),
+
+    /// A binary label.
+    ///
+    /// The first element is the number of bits in the label with zero
+    /// indicating 256 bits. The second element is the byte slice
+    /// representing the bit field padded to full octets.
+    ///
+    /// This vairant is historic and annoying and shouldn't really be
+    /// encountered anymore.
+    Binary(u8, &'a[u8]),
+}
+
+
+impl<'a> Label<'a> {
+    /// Create a new normal label.
+    fn new_normal(s: &[u8]) -> Result<Label> {
+        if s.len() > 63 { ErrorKind::OverlongLabel.into() }
+        else { Ok(Label::Normal(s)) }
+    }
+
+    /// Creates a new binary label.
+    fn new_binary(count: u8, s: &[u8]) -> Result<Label> {
+        let len = Self::binary_len(count);
+        try!(s.check_len(len));
+        return Ok(Label::Binary(count, &s[..len]))
+    }
+
+    /// Splits a label from the beginning of a bytes slice.
+    ///
+    /// Returns the label and the remainder of the slice.
+    ///
+    fn split_from(slice: &'a[u8]) -> Result<(Label<'a>, &'a[u8])> {
+        let (head, slice) = try!(LabelHead::split_from(slice));
+        match head {
+            LabelHead::Normal(len) => {
+                let (bytes, slice) = try!(slice.split_bytes(len as usize));
+                Ok((Label::Normal(bytes), slice))
+            }
+            LabelHead::Binary => {
+                let (count, slice) = try!(slice.split_u8());
+                let len = Label::binary_len(count);
+                let (bytes, slice) = try!(slice.split_bytes(len));
+                Ok((Label::Binary(count, bytes), slice))
+            }
+            LabelHead::Compressed(_) => {
+                ErrorKind::UnexpectedCompression.into()
+            }
+        }
+    }
+
+    /// Split a possibly compressed label from the beginning of a slice.
+    ///
+    /// Returns the label, whether this was a compressed label, and the
+    /// slice to keep parsing the next labels from.
+    fn split_compressed(slice: &'a[u8], context: &'a[u8])
+                        -> Result<(Label<'a>, &'a[u8])> {
+        let (head, slice) = try!(LabelHead::split_from(slice));
+        match head {
+            LabelHead::Normal(len) => {
+                let (bytes, slice) = try!(slice.split_bytes(len as usize));
+                Ok((Label::Normal(bytes), slice))
+            }
+            LabelHead::Binary => {
+                let (count, slice) = try!(slice.split_u8());
+                let len = Label::binary_len(count);
+                let (bytes, slice) = try!(slice.split_bytes(len));
+                Ok((Label::Binary(count, bytes), slice))
+            }
+            LabelHead::Compressed(upper) => {
+                let (lower, _) = try!(slice.split_u8());
+                let ptr = ((upper as usize) << 8) | (lower as usize);
+                Label::split_compressed(try!(context.tail(ptr)), context)
+            }
+        }
+    }
+
+    /// Peeks at a label starting at `pos` in `slice`.
+    ///
+    /// Returns the end index of the label (ie., the index of the following
+    /// octet) and the label head.
+    ///
+    fn peek(slice: &[u8], pos: usize) -> Result<(usize, LabelHead)> {
+        try!(slice.check_len(pos + 1));
+        let head = try!(LabelHead::from_byte(slice[pos]));
+        let end = match head {
+            LabelHead::Normal(len) => {
+                pos + 1 + (len as usize)
+            }
+            LabelHead::Binary => {
+                try!(slice.check_len(pos + 1));
+                let count = slice[pos + 1];
+                pos + 2 + Label::binary_len(count)
+            }
+            LabelHead::Compressed(_) => {
+                pos + 2
+            }
+        };
+        try!(slice.check_len(end));
+        Ok((end, head))
+    }
+
+    /// Returns a string slice if this is normal label and purely ASCII.
+    pub fn as_str(&self) -> Option<&str> {
+        match *self {
+            Label::Normal(s) => str::from_utf8(s).ok(),
+            _ => None
+        }
+    }
+
+    /// Returns the length of the label’s wire representation in octets.
+    pub fn len(&self) -> usize {
+        match *self {
+            Label::Normal(s) => s.len() + 1,
+            Label::Binary(count, _) => Self::binary_len(count) + 2,
+        }
+    }
+
+    /// Returns whether this is the root label
+    pub fn is_root(&self) -> bool {
+        match *self {
+            Label::Normal(b"") => true,
+            _ => false,
+        }
+    }
+
+    /// Push the label to the end of an octet buffer.
+    fn push_buf<O: BytesBuf>(&self, vec: &mut O) {
+        match *self {
+            Label::Normal(slice) => {
+                assert!(slice.len() <= 63);
+                vec.push_u8(slice.len() as u8);
+                vec.push_bytes(slice);
+            }
+            Label::Binary(count, slice) => {
+                assert!(slice.len() == Self::binary_len(count));
+                LabelHead::Binary.push(vec);
+                vec.push_u8(count);
+                vec.push_bytes(slice);
+            }
+        }
+    }
+
+    /// Returns the bit label length for a binary label with `count` bits.
+    fn binary_len(count: u8) -> usize {
+        if count == 0 { 32 }
+        else if count % 8 == 0 { (count / 8) as usize }
+        else { (count / 8 + 1) as usize }
+    }
+
+    /// Push the string representation to the end of a string.
+    fn push_string(&self, res: &mut String) {
+        use std::char::from_digit;
+
+        match *self {
+            Label::Normal(slice) => {
+                for &ch in slice {
+                    if ch == b' ' || ch == b'.' || ch == b'\\' {
+                        res.push('\\');
+                        res.push(ch as char);
+                    }
+                    else if ch < b' '  || ch >= 0x7F {
+                        res.push('\\');
+                        res.push(((ch / 100) % 10 + b'0') as char);
+                        res.push(((ch / 10) % 10 + b'0') as char);
+                        res.push((ch % 10 + b'0') as char);
+                    }
+                    else {
+                        res.push(ch as char);
+                    }
+                }
+            }
+            Label::Binary(count, slice) => {
+                res.push_str("[x");
+                for &ch in slice {
+                    res.push(from_digit(((ch & 0xF0) >> 4) as u32,
+                                        16).unwrap());
+                    res.push(from_digit((ch & 0x0F) as u32, 16).unwrap());
+                    
+                }
+                res.push('/');
+                res.push(from_digit(((count / 100) % 10) as u32, 10).unwrap());
+                res.push(from_digit(((count / 10) % 10) as u32, 10).unwrap());
+                res.push(from_digit((count % 10) as u32, 10).unwrap());
+                res.push(']');
+            }
+        }
+    }
+
+    /// Equality compares the label with a zonefile representation.
+    ///
+    /// Returns either the result or the remainder of the slice to
+    /// use for continuing comparison.
+    fn eq_zonefile<'b>(&self, mut s: &'b[u8]) -> result::Result<bool, &'b[u8]> {
+        match *self {
+            Label::Normal(l) => {
+                for lch in l.iter() {
+                    if s.is_empty() { return Ok(false) }
+                    let (sch, rest) = match split_zonefile_char(s) {
+                        Some(x) => x, None => return Ok(false)
+                    };
+                    if *lch != sch { return Ok(false) }
+                    s = rest;
+                }
+                Err(s)
+            }
+            Label::Binary(count, l) => {
+                // XXX TODO
+                let _ = (count, l);
+                unimplemented!()
+            }
+        }
+    }
+}
+
+
+impl<'a> PartialEq for Label<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (&Label::Normal(l), &Label::Normal(r)) => {
+                l.eq_ignore_ascii_case(r)
+            }
+            (&Label::Binary(lc, ls), &Label::Binary(rc, rs)) => {
+                if lc != rc { false }
+                else {
+                    // This assumes that both labels are well-formed,
+                    // or at least no empty.
+                    let (ll, ls) = ls.split_last().unwrap();
+                    let (rl, rs) = rs.split_last().unwrap();
+                    if ls != rs { false }
+                    else {
+                        match lc & 0x7 {
+                            0 => ll == rl,
+                            c @ _ => {
+                                let mask = (1 << c) - 1;
+                                (ll & mask) == (rl & mask)
+                            }
+                        }
+                    }
+                }
+            }
+            _ => false
+        }
+    }
+}
+
+impl<'a> PartialEq<[u8]> for Label<'a> {
+    fn eq(&self, other: &[u8]) -> bool {
+        match self {
+            &Label::Normal(slice) => {
+                slice.eq_ignore_ascii_case(other)
+            }
+            _ => false
+        }
+    }
+}
+
+impl<'a> PartialEq<str> for Label<'a> {
+    fn eq(&self, other: &str) -> bool {
+        self.eq(other.as_bytes())
+    }
+}
+
+impl<'a> Eq for Label<'a> { }
+
+impl<'a> PartialOrd for Label<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'a> Ord for Label<'a> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        match (self, other) {
+            (&Label::Normal(l), &Label::Normal(r)) => {
+                l.iter().map(u8::to_ascii_lowercase).cmp(
+                    r.iter().map(u8::to_ascii_lowercase))
+            }
+            (&Label::Binary(_, ls), &Label::Binary(_, rs)) => {
+                // XXX This considers the padding bits and thus might
+                //     be wrong.
+                ls.cmp(rs)
+            }
+            (&Label::Normal(..), &Label::Binary(..)) => cmp::Ordering::Greater,
+            (&Label::Binary(..), &Label::Normal(..)) => cmp::Ordering::Less,
+        }
+    }
+}
+
+impl<'a> hash::Hash for Label<'a> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        match self {
+            &Label::Normal(slice) => {
+                state.write_u8(0);
+                for ch in slice {
+                    state.write_u8(ch.to_ascii_lowercase())
+                }
+            }
+            &Label::Binary(count, slice) => {
+                state.write_u8(1);
+                state.write_u8(count);
+                let (last, slice) = slice.split_last().unwrap();
+                state.write(slice);
+                let count = count & 0x7;
+                let mask = if count == 0 { 0xFF }
+                           else { (1 << count) - 1 };
+                state.write_u8(last & mask);
+            }
+        }
+    }
+}
+
+
+//------------ LabelHead ----------------------------------------------------
+
+/// The first octet of a domain name.
+///
+/// This is an internal type used for parsing labels. We only have variants
+/// for the defined label types. Illegal or unknown types will result in
+/// parse errors.
+///
+#[derive(Clone, Copy, Debug)]
+enum LabelHead {
+    /// A normal label with the length in octets.
+    Normal(u8),
+
+    /// A compressed label with the upper six bits of the pointer.
+    Compressed(u8),
+
+    /// A binary label.
+    ///
+    /// Since this is an extended type, the first octet really only is the
+    /// type.
+    Binary,
+}
+
+impl LabelHead {
+    fn from_byte(octet: u8) -> Result<LabelHead> {
+        match octet {
+            0 ... 0x3F => Ok(LabelHead::Normal(octet)),
+            0xC0 ... 0xFF => Ok(LabelHead::Compressed(octet & 0x3F)),
+            0x41 => Ok(LabelHead::Binary),
+            _ => ErrorKind::IllegalLabelType.into(),
+        }
+    }
+
+    fn split_from<'a>(slice: &'a[u8]) -> Result<(LabelHead, &'a[u8])> {
+        let (head, slice) = try!(slice.split_u8());
+        Ok((try!(LabelHead::from_byte(head)), slice))
+    }
+
+    fn push<O: BytesBuf>(self, buf: &mut O) {
+        match self {
+            LabelHead::Normal(c) => {
+                assert!(c <= 0x3F);
+                buf.push_u8(c)
+            }
+            LabelHead::Compressed(c) => {
+                assert!(c != 0x3F);
+                buf.push_u8(c | 0xC0)
+            }
+            LabelHead::Binary => {
+                buf.push_u8(0x41)
+            }
+        }
+    }
+
+    fn is_final(&self) -> bool {
+        match *self {
+            LabelHead::Normal(0) => true,
+            LabelHead::Compressed(..) => true,
+            _ => false
+        }
+    }
+}
+
+
+//------------ BuildDomainName ----------------------------------------------
+
+/// A trait for types that are able to construct a domain name.
+pub trait BuildDomainName {
+    fn push_buf<O: BytesBuf>(&self, o: &mut O) -> Result<()>;
+    fn push_buf_compressed<O: BytesBuf>(&self, o: &mut O) -> Result<()>;
+}
+
+
+//------------ Error and Result ---------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Error {
+pub enum ErrorKind {
     OverlongLabel,
-    PrematureEnd,
     IllegalEscape,
     IllegalCharacter,
     IllegalLabelType,
+    UnexpectedCompression,
 }
 
-impl StdError for Error {
+impl ErrorKind {
+    pub fn description(&self) -> &str {
+        match *self {
+            ErrorKind::OverlongLabel => "a label exceeds maximum length",
+            ErrorKind::IllegalEscape =>
+                                    "illegal escape sequence in domain name",
+            ErrorKind::IllegalCharacter => "illegal character in domain name",
+            ErrorKind::IllegalLabelType => "illegal label type in domain name",
+            ErrorKind::UnexpectedCompression => "unexpected compressed label",
+        }
+    }
+}
+
+impl<T> Into<Result<T>> for ErrorKind {
+    fn into(self) -> Result<T> { Err(Error::NameError(self)) }
+}
+
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Error {
+    NameError(ErrorKind),
+    OctetError(bytes::Error),
+}
+
+impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
-            Error::OverlongLabel => "a label exceeds maximum length",
-            Error::PrematureEnd => "premature end of domain name",
-            Error::IllegalEscape => "illegal escape sequence in domain name",
-            Error::IllegalCharacter => "illegal character in domain name",
-            Error::IllegalLabelType => "illegal label type in domain name",
+            Error::NameError(ref kind) => kind.description(),
+            Error::OctetError(ref kind) => kind.description()
         }
+    }
+}
+
+impl convert::From<bytes::Error> for Error {
+    fn from(error: bytes::Error) -> Error {
+        Error::OctetError(error)
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use std::error::Error;
+
         self.description().fmt(f)
     }
 }
 
+pub type Result<T> = result::Result<T, Error>;
 
-//------------ Tests --------------------------------------------------------
+
+//------------ ParseError and ParseResult -----------------------------------
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParseError {
+    PrematureEnd,
+    OverlongLabel,
+    IllegalEscape,
+    IllegalCharacter,
+}
+
+impl error::Error for ParseError {
+    fn description(&self) -> &str {
+        use self::ParseError::*;
+
+        match *self {
+            PrematureEnd => "unexpected end",
+            OverlongLabel => "a label exceeds the maximum length",
+            IllegalEscape => "illegal escape sequence",
+            IllegalCharacter => "illegal character",
+        }
+    }
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use std::error::Error;
+
+        self.description().fmt(f)
+    }
+}
+
+pub type ParseResult<T> = result::Result<T, ParseError>;
+
+
+//------------ Internal Helpers ---------------------------------------------
+
+fn split_zonefile_char(slice: &[u8]) -> Option<(u8, &[u8])> {
+    let (head, tail) = match slice.split_first() {
+        Some(x) => x, None => return None
+    };
+    if *head == b'\\' {
+        let (c1, tail) = match slice.split_first() {
+            Some((c, tail)) => (*c, tail), None => return None
+        };
+        if c1 >= b'0' && c1 <= b'2' {
+            let (c2, tail) = match tail.split_first() {
+                Some((c, tail)) => (*c, tail), _ => return None
+            };
+            if c2 < b'0' || c2 > b'9' { return None }
+            let (c3, tail) = match tail.split_first() {
+                Some((c, tail)) => (*c, tail), _ => return None
+            };
+            if c3 < b'0' || c2 > b'9' { return None }
+            let v = ((c1 - b'0') as u16) * 100
+                  + ((c2 - b'0') as u16) * 10
+                  + ((c3 - b'0') as u16);
+            if v > 255 { return None }
+            Some(((v as u8), tail))
+        }
+        else {
+            Some((c1, tail))
+        }
+    }
+    else {
+        Some((*head, tail))
+    }
+}
+
+
+//============ Testing ======================================================
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
-    use std::str::FromStr;
-    use std::string::ToString;
 
-    //--- From and to string
+    #[test]
+    fn label_from_bytes() {
+        assert_eq!(Label::split_from(b"\x05abcdefg"),
+                   Ok((Label::Normal(b"abcde"), &b"fg"[..])));
+        assert_eq!(Label::split_from(b"\x41\x03abc"),
+                   Ok((Label::Binary(0x03, &b"a"[..]), &b"bc"[..])));
+        assert_eq!(Label::split_from(b"\x41\x08abc"),
+                   Ok((Label::Binary(0x08, &b"a"[..]), &b"bc"[..])));
+        assert_eq!(Label::split_from(b"\x41\x09abc"),
+                   Ok((Label::Binary(0x09, &b"ab"[..]), &b"c"[..])));
 
-    fn assert_str(s: &str) {
-        assert_eq!(DomainNameBuf::from_str(s).unwrap().to_string(), s);
+        assert!(Label::split_from(b"\xc1\x11abc").is_err());
+        assert!(Label::split_from(b"\x83abd").is_err());
+        assert!(Label::split_from(b"").is_err());
+        assert!(Label::split_from(b"\x05abc").is_err());
+        assert!(Label::split_from(b"\xc1").is_err());
     }
 
     #[test]
-    pub fn test_from_string() {
-        assert_str("foo.bar.baz.");
-        assert_str("foo.bar.baz");
-        assert_str("foo\\.bar.baz");
-        assert_str("foo\\020.bar.baz");
-    }
-                
-
-    //--- Label
-
-    #[test]
-    pub fn test_label_eq() {
-        assert!(Label::new("foo") == Label::new("foo"));
-        assert!(Label::new("foo") == "foo");
-        assert!(Label::new("foo") == "foo".as_bytes());
+    fn starts_with() {
+        assert!(dname!(b"abc", b"def", b"ghi")
+                    .starts_with(dname!(b"abc")));
+        assert!(dname!(b"abc", b"def", b"ghi", b"")
+                    .starts_with(dname!(b"abc", b"DEF")));
+        assert!(!dname!(b"abc", b"def", b"ghi")
+                    .starts_with(dname!(b"abc", b"")));
+        assert!(!dname!(b"abc", b"def", b"ghi", b"")
+                    .starts_with(dname!(b"abc", b"iop")));
     }
 
     #[test]
-    pub fn test_label_neq() {
-        assert!(Label::new("foo") != Label::new("bar"));
-        assert!(Label::new("foo") != "bar");
-        assert!(Label::new("foo") != "bar".as_bytes());
+    fn ends_with() {
+        assert!(dname!(b"abc", b"def", b"ghi", b"")
+                    .ends_with(dname!(b"ghi", b"")));
     }
-
-
-    //--- DomainNameBuf
-    
-
-    //--- DomainName
-
-
 }
