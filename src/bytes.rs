@@ -14,14 +14,50 @@ use super::name::DomainName;
 /// A trait for writing binary DNS data.
 ///
 pub trait BytesBuf {
-    //--- Appending basic types
+    type Pos;
 
-    fn push_u8(&mut self, data: u8);
-    fn push_u16(&mut self, data: u16);
-    fn push_u32(&mut self, data: u32);
+    //--- Appending basic types
     fn push_bytes(&mut self, data: &[u8]);
 
-    //--- Name compresion support
+    fn push_u8(&mut self, data: u8) {
+        let bytes: [u8; 1] = unsafe { mem::transmute(data) };
+        self.push_bytes(&bytes);
+    }
+
+    fn push_u16(&mut self, data: u16) {
+        let data = data.to_be();
+        let bytes: [u8; 2] = unsafe { mem::transmute(data) };
+        self.push_bytes(&bytes);
+    }
+
+    fn push_u32(&mut self, data: u32) {
+        let data = data.to_be();
+        let bytes: [u8; 4] = unsafe { mem::transmute(data) };
+        self.push_bytes(&bytes);
+    }
+
+    //--- Updating of earlier data.
+    fn pos(&self) -> Self::Pos;
+    fn update_bytes(&mut self, pos: Self::Pos, data: &[u8]);
+
+    fn update_u8(&mut self, pos: Self::Pos, data: u8) {
+        let bytes: [u8; 1] = unsafe { mem::transmute(data) };
+        self.update_bytes(pos, &bytes);
+    }
+
+    fn update_u16(&mut self, pos: Self::Pos, data: u16) {
+        let data = data.to_be();
+        let bytes: [u8; 2] = unsafe { mem::transmute(data) };
+        self.update_bytes(pos, &bytes);
+    }
+
+    fn update_u32(&mut self, pos: Self::Pos, data: u32) {
+        let data = data.to_be();
+        let bytes: [u8; 4] = unsafe { mem::transmute(data) };
+        self.update_bytes(pos, &bytes);
+    }
+
+    //--- Name compression support
     //
     // This is disabled by default
 
@@ -40,34 +76,24 @@ pub trait BytesBuf {
 }
 
 impl BytesBuf for Vec<u8> {
-    /// Pushes an `u8` to the end of the octet buffer.
-    ///
-    fn push_u8(&mut self, data: u8) {
-        self.push(data)
-    }
+    type Pos = usize;
 
-    /// Pushes an `u16` to the end of the octet buffer.
-    ///
-    fn push_u16(&mut self, data: u16) {
-        let data = data.to_be();
-        let bytes: [u8; 2] = unsafe { mem::transmute(data) };
-        self.push_bytes(&bytes);
-    }
-
-    /// Pushes an `u32` to the end of the octet buffer.
-    ///
-    fn push_u32(&mut self, data: u32) {
-        let data = data.to_be();
-        let bytes: [u8; 4] = unsafe { mem::transmute(data) };
-        self.push_bytes(&bytes);
-    }
-
-    /// Pushes `data` to the end of the octet buffer.
-    ///
     fn push_bytes(&mut self, data: &[u8]) {
         self.extend(data)
     }
 
+    fn pos(&self) -> Self::Pos {
+        self.len()
+    }
+
+    fn update_bytes(&mut self, pos: Self::Pos, data: &[u8]) {
+        assert!(pos + data.len() < self.len());
+        unsafe {
+            ptr::copy_nonoverlapping(data.as_ptr(),
+                                     self[pos..pos + data.len()].as_mut_ptr(),
+                                     data.len())
+        }
+    }
 }
 
 

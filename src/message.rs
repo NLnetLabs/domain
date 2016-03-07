@@ -659,28 +659,17 @@ impl MessageVec {
 
 
 impl BytesBuf for MessageVec {
-    fn push_u8(&mut self, data: u8) {
-        if self.keep_pushing(1) {
-            self.vec.push_u8(data)
-        }
-    }
-
-    fn push_u16(&mut self, data: u16) {
-        if self.keep_pushing(2) {
-            self.vec.push_u16(data)
-        }
-    }
-
-    fn push_u32(&mut self, data: u32) {
-        if self.keep_pushing(4) {
-            self.vec.push_u32(data)
-        }
-    }
+    type Pos = <Vec<u8> as BytesBuf>::Pos;
 
     fn push_bytes(&mut self, data: &[u8]) {
         if self.keep_pushing(data.len()) {
             self.vec.push_bytes(data)
         }
+    }
+
+    fn pos(&self) -> Self::Pos { self.vec.pos() }
+    fn update_bytes(&mut self, pos: Self::Pos, data: &[u8]) {
+        self.vec.update_bytes(pos, data)
     }
 
     fn can_compress(&self) -> bool {
