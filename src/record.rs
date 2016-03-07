@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use super::name::{BuildDomainName, DomainName, DomainNameBuf, WireDomainName};
-use super::bytes::{BytesSlice, BytesBuf};
-use super::question::Result; // XXX Temporary.
+use super::bytes::{self, BytesSlice, BytesBuf};
+use super::question::{Result, Error}; // XXX Temporary.
 use super::rdata::traits::{BuildRecordData, RecordDataSlice};
 
 //------------ RecordBuf ----------------------------------------------------
@@ -32,7 +32,14 @@ impl<D: BuildRecordData> BuildRecord for RecordBuf<D> {
         buf.push_u16(self.rdata.rtype());
         buf.push_u16(self.rclass);
         buf.push_u32(self.ttl);
+        let pos = buf.pos();
+        buf.push_u16(0);
         try!(self.rdata.push_buf(buf));
+        let delta = buf.delta(pos);
+        if delta > (::std::u16::MAX as usize) {
+            return Err(Error::OctetError(bytes::Error::Overflow));
+        }
+        buf.update_u16(pos, delta as u16);
         Ok(())
     }
 }
@@ -77,17 +84,20 @@ impl<'a> WireRecord<'a> {
             slice))
     }
 
-    /*
     /// Converts `self` into an owned record.
-    pub fn to_owned(&self) -> Result<RecordBuf> {
-        Ok(RecordBuf { name: try!(self.name.to_owned()),
-                       rtype: self.rtype, rclass: self.rclass,
-                       ttl: self.ttl, rdata: self.rdata.to_owned() })
+    pub fn to_owned<D: RecordDataSlice<'a>>(&self)
+                -> Result<Option<RecordBuf<D::Owned>>> {
+        let rdata = match try!(self.rdata::<D>()) {
+            None => return Ok(None),
+            Some(rdata) => rdata
+        };
+        Ok(Some(RecordBuf { name: try!(self.name.to_owned()),
+                            rclass: self.rclass, ttl: self.ttl,
+                            rdata: rdata.to_owned() }))
     }
-    */
 
-    pub fn rdata<D: RecordDataSlice<'a>>(&self) -> Option<Result<D>> {
-        D::parse(self.rtype, self.rdata).map(|v| v.map_err(|e| e.into()))
+    pub fn rdata<D: RecordDataSlice<'a>>(&self) -> Result<Option<D>> {
+        D::parse(self.rtype, self.rdata, self.message) .map_err(|e| e.into())
     }
 }
 
@@ -114,7 +124,7 @@ impl<'a> WireRecord<'a> {
     pub fn ttl(&self) -> u32 { self.ttl }
 
     /// Returns the raw record data.
-    pub fn rdata(&self) -> &'a[u8] { self.rdata }
+    pub fn rdata_bytes(&self) -> &'a[u8] { self.rdata }
 }
 
 impl<'a> BuildRecord for WireRecord<'a> {

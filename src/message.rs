@@ -668,6 +668,7 @@ impl BytesBuf for MessageVec {
     }
 
     fn pos(&self) -> Self::Pos { self.vec.pos() }
+    fn delta(&self, pos: Self::Pos) -> usize { self.vec.delta(pos) }
     fn update_bytes(&mut self, pos: Self::Pos, data: &[u8]) {
         self.vec.update_bytes(pos, data)
     }

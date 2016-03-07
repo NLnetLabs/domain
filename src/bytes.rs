@@ -14,7 +14,7 @@ use super::name::DomainName;
 /// A trait for writing binary DNS data.
 ///
 pub trait BytesBuf {
-    type Pos;
+    type Pos: Copy;
 
     //--- Appending basic types
     fn push_bytes(&mut self, data: &[u8]);
@@ -38,6 +38,7 @@ pub trait BytesBuf {
 
     //--- Updating of earlier data.
     fn pos(&self) -> Self::Pos;
+    fn delta(&self, pos: Self::Pos) -> usize;
     fn update_bytes(&mut self, pos: Self::Pos, data: &[u8]);
 
     fn update_u8(&mut self, pos: Self::Pos, data: u8) {
@@ -84,6 +85,11 @@ impl BytesBuf for Vec<u8> {
 
     fn pos(&self) -> Self::Pos {
         self.len()
+    }
+
+    fn delta(&self, pos: Self::Pos) -> usize {
+        assert!(pos < self.len());
+        self.len() - pos
     }
 
     fn update_bytes(&mut self, pos: Self::Pos, data: &[u8]) {

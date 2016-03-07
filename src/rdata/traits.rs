@@ -7,14 +7,19 @@ pub trait BuildRecordData {
 }
 
 pub trait RecordDataSlice<'a>: Sized {
-    fn parse(rtype: u16, rdata: &'a[u8]) -> Option<Result<Self>>;
+    type Owned: BuildRecordData;
+
+    fn parse(rtype: u16, rdata: &'a[u8], context: &'a [u8])
+             -> Result<Option<Self>>;
+    fn to_owned(&self) -> Self::Owned;
 }
 
 pub trait ConcreteRecordData<'a>: Sized {
     fn rtype() -> u16;
     fn rname() -> &'static str;
     fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()>;
-    fn parse(rdata: &'a[u8]) -> Result<Self>;
+    fn parse(rdata: &'a[u8], context: &'a [u8]) -> Result<Self>;
+    fn to_owned(&self) -> Self;
 }
 
 impl<'a, C: ConcreteRecordData<'a>> BuildRecordData for C {
@@ -25,8 +30,14 @@ impl<'a, C: ConcreteRecordData<'a>> BuildRecordData for C {
 }
 
 impl<'a, C: ConcreteRecordData<'a>> RecordDataSlice<'a> for C {
-    fn parse(rtype: u16, rdata: &'a[u8]) -> Option<Result<Self>> {
-        if rtype != Self::rtype() { None }
-        else { Some(Self::parse(rdata)) }
+    type Owned = Self;
+
+    fn parse(rtype: u16, rdata: &'a[u8], context: &'a [u8])
+             -> Result<Option<Self>> {
+        if rtype != Self::rtype() { Ok(None) }
+        else { Ok(Some(try!(Self::parse(rdata, context)))) }
+    }
+    fn to_owned(&self) -> Self {
+        self.to_owned()
     }
 }
