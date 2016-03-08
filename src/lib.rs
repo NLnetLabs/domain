@@ -7,4 +7,5 @@ pub mod message;
 pub mod name;
 pub mod question;
 pub mod rdata;
+pub mod resolver;
 pub mod record;

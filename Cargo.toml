@@ -7,4 +7,11 @@ authors = ["Martin Hoffmann <hn@nvnc.de>"]
 name = "domain"
 path = "src/lib.rs"
 
+[[bin]]
+name = "dig"
+path = "src/dig.rs"
+
 [dependencies]
+argparse = "0.2"
+
+[dev-dependencies]

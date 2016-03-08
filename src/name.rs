@@ -393,6 +393,13 @@ impl DomainNameBuf {
         DomainNameBuf { inner: Vec::new() }
     }
 
+    /// Creates a new domain name with only the root label.
+    pub fn root() -> DomainNameBuf {
+        let mut res = DomainNameBuf::new();
+        res.push(Label::Normal(b""));
+        res
+    }
+
     /// Coerces to a `DomainName` slice.
     ///
     pub fn as_name(&self) -> &DomainName {
