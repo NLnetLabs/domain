@@ -126,7 +126,7 @@ impl BytesSlice for [u8] {
         let (l, r) = self.split_at(2);
         let l: &[u8; 2] = unsafe { mem::transmute(l.as_ptr()) };
         let l = unsafe { mem::transmute(*l) };
-        Ok((l, r))
+        Ok((u16::from_be(l), r))
     }
 
     fn split_u32(&self) -> Result<(u32, &[u8])> {
@@ -135,7 +135,7 @@ impl BytesSlice for [u8] {
         let (l, r) = self.split_at(4);
         let l: &[u8; 4] = unsafe { mem::transmute(l.as_ptr()) };
         let l = unsafe { mem::transmute(*l) };
-        Ok((l, r))
+        Ok((u32::from_be(l), r))
     }
 
     fn split_bytes(&self, at: usize) -> Result<(&[u8], &[u8])> {

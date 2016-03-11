@@ -368,6 +368,12 @@ impl hash::Hash for DomainName {
     }
 }
 
+impl fmt::Display for DomainName {
+    fn fmt(&self,  f: &mut fmt::Formatter) -> fmt::Result {
+        self.to_string().fmt(f)
+    }
+}
+
 
 //------------ DomainNameBuf ------------------------------------------------
 
@@ -398,6 +404,59 @@ impl DomainNameBuf {
         let mut res = DomainNameBuf::new();
         res.push(Label::Normal(b""));
         res
+    }
+
+    /// Creates a new domain name from a string.
+    pub fn from_str(s: &str) -> ParseResult<DomainNameBuf> {
+        let mut res = DomainNameBuf::new();
+        let mut label = Vec::new();
+        let mut chars = s.chars();
+        loop {
+            match chars.next() {
+                Some(c) => {
+                    match c {
+                        '.' => {
+                            if label.len() > 63 {
+                                return Err(ParseError::OverlongLabel)
+                            }
+                            res.inner.push(label.len() as u8);
+                            res.inner.extend(&label);
+                            label.clear();
+                        }
+                        '\\' => {
+                            let ch = try!(chars.next()
+                                          .ok_or(ParseError::PrematureEnd));
+                            if ch.is_digit(10) {
+                                let v = ch.to_digit(10).unwrap() * 100
+                                      + try!(chars.next()
+                                             .ok_or(ParseError::PrematureEnd)
+                                             .and_then(|c| c.to_digit(10)
+                                                       .ok_or(
+                                                  ParseError::IllegalEscape)))
+                                             * 10
+                                      + try!(chars.next()
+                                             .ok_or(ParseError::PrematureEnd)
+                                             .and_then(|c| c.to_digit(10)
+                                                       .ok_or(
+                                                 ParseError::IllegalEscape)));
+                                label.push(v as u8);
+                            }
+                            else {
+                                label.push(ch as u8);
+                            }
+                        }
+                        ' ' ... '-' | '/' ... '[' | ']' ... '~' => {
+                            label.push(c as u8);
+                        }
+                        _ => return Err(ParseError::IllegalCharacter)
+                    }
+                }
+                None => break
+            }
+        }
+        res.inner.push(label.len() as u8);
+        res.inner.extend(&label);
+        Ok(res)
     }
 
     /// Coerces to a `DomainName` slice.
@@ -450,56 +509,9 @@ impl str::FromStr for DomainNameBuf {
     type Err = ParseError;
 
     fn from_str(s: &str) -> ParseResult<DomainNameBuf> {
-        let mut res = DomainNameBuf::new();
-        let mut label = Vec::new();
-        let mut chars = s.chars();
-        loop {
-            match chars.next() {
-                Some(c) => {
-                    match c {
-                        '.' => {
-                            if label.len() > 63 {
-                                return Err(ParseError::OverlongLabel)
-                            }
-                            res.inner.push(label.len() as u8);
-                            res.inner.extend(&label);
-                            label.clear();
-                        }
-                        '\\' => {
-                            let ch = try!(chars.next()
-                                          .ok_or(ParseError::PrematureEnd));
-                            if ch.is_digit(10) {
-                                let v = ch.to_digit(10).unwrap() * 100
-                                      + try!(chars.next()
-                                             .ok_or(ParseError::PrematureEnd)
-                                             .and_then(|c| c.to_digit(10)
-                                                       .ok_or(
-                                                  ParseError::IllegalEscape)))
-                                             * 10
-                                      + try!(chars.next()
-                                             .ok_or(ParseError::PrematureEnd)
-                                             .and_then(|c| c.to_digit(10)
-                                                       .ok_or(
-                                                 ParseError::IllegalEscape)));
-                                label.push(v as u8);
-                            }
-                            else {
-                                label.push(ch as u8);
-                            }
-                        }
-                        ' ' ... '-' | '/' ... '[' | ']' ... '~' => {
-                            label.push(c as u8);
-                        }
-                        _ => return Err(ParseError::IllegalCharacter)
-                    }
-                }
-                None => break
-            }
-        }
-        res.inner.push(label.len() as u8);
-        res.inner.extend(&label);
-        Ok(res)
+        DomainNameBuf::from_str(s)
     }
+
 }
 
 impl Deref for DomainNameBuf {
@@ -680,6 +692,15 @@ impl<'a, T: AsRef<DomainName> + ?Sized> PartialOrd<T> for WireDomainName<'a>
 {
     fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
         other.as_ref().partial_cmp(self).map(|o| o.reverse())
+    }
+}
+
+impl<'a> fmt::Display for WireDomainName<'a> {
+    fn fmt(&self,  f: &mut fmt::Formatter) -> fmt::Result {
+        match self.to_string() {
+            Ok(s) => s.fmt(f),
+            Err(..) => "<PARSEERR>".fmt(f)
+        }
     }
 }
 

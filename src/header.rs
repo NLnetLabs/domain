@@ -14,6 +14,7 @@
 
 use std::mem;
 use super::bytes::{BytesSlice, Error, Result};
+use super::iana::{Opcode, Rcode};
 
 
 //------------ Header -------------------------------------------------------
@@ -87,10 +88,14 @@ impl Header {
     pub fn set_qr(&mut self, set: bool) { self.set_bit(2, 7, set) }
 
     /// Returns the Opcode field.
-    pub fn opcode(&self) -> Opcode { Opcode::from_header(self) }
+    pub fn opcode(&self) -> Opcode {
+        Opcode::from_int((self.inner[2] >> 3) & 0x0F)
+    }
 
     /// Sets the opcode field.
-    pub fn set_opcode(&mut self, opcode: Opcode) { opcode.to_header(self) }
+    pub fn set_opcode(&mut self, opcode: Opcode) {
+        self.inner[2] = self.inner[2] & 0x87 | (opcode.to_int() << 3);
+    }
 
     /// Returns the value of the AA bit.
     pub fn aa(&self) -> bool { self.get_bit(2, 2) }
@@ -135,10 +140,14 @@ impl Header {
     pub fn set_cd(&mut self, set: bool) { self.set_bit(3, 4, set) }
 
     /// Returns the RCODE field.
-    pub fn rcode(&self) -> Rcode { Rcode::from_header(self) }
+    pub fn rcode(&self) -> Rcode {
+        Rcode::from_int(self.inner[3] & 0x0F)
+    }
 
     /// Sets the RCODE field.
-    pub fn set_rcode(&mut self, rcode: Rcode) { rcode.to_header(self) }
+    pub fn set_rcode(&mut self, rcode: Rcode) {
+        self.inner[3] = self.inner[3] & 0xF0 | (rcode.to_int() & 0x0F);
+    }
 
 
     //--- Internal helpers
@@ -166,152 +175,6 @@ impl Header {
     fn set_bit(&mut self, offset: usize, bit: usize, set: bool) {
         if set { self.inner[offset] |= 1 << bit }
         else { self.inner[offset] &= !(1 << bit) }
-    }
-}
-
-
-//------------ Opcode -------------------------------------------------------
-
-/// The opcode specifies the kind of query.
-///
-#[derive(Debug, PartialEq)]
-pub enum Opcode {
-    /// a standard query [RFC1035]
-    Query,
-
-    /// a inverse query [RFC1035]
-    IQuery,
-
-    /// a server status request [RFC1035]
-    Status,
-
-    /// a NOTIFY query [RFC1996]
-    Notify,
-
-    /// an UPDATE query [RFC2136]
-    Update,
-
-    /// unassigned opcode: 3, 6-15
-    Unassigned(u8)
-}
-
-impl Opcode {
-    fn from_header(header: &Header) -> Opcode {
-        let octet = (header.inner[2] >> 3) & 0x0F;
-        match octet {
-            0 => Opcode::Query,
-            1 => Opcode::IQuery,
-            2 => Opcode::Status,
-            4 => Opcode::Notify,
-            5 => Opcode::Update,
-            3 | 6 ... 15 => Opcode::Unassigned(octet),
-            _ => unreachable!()
-        }
-    }
-
-    fn to_header(&self, header: &mut Header) {
-        let value = match *self {
-            Opcode::Query => 0,
-            Opcode::IQuery => 1,
-            Opcode::Status => 2,
-            Opcode::Notify => 4,
-            Opcode::Update => 5,
-            Opcode::Unassigned(i) => {
-                match i {
-                    3 | 6 ... 15 => i,
-                    _ => panic!()
-                }
-            }
-        };
-        header.inner[2] = header.inner[2] & 0x87 | value << 3; 
-    }
-}
-
-
-//------------ Rcode --------------------------------------------------------
-
-/// Response code.
-///
-/// This is the four bit error code in the message header.
-///
-#[derive(Debug, PartialEq)]
-pub enum Rcode {
-    /// no error condition [RFC1035]
-    NoError,
-
-    /// format error [RFC1035]
-    FormErr,
-
-    /// server failure [RFC1035]
-    ServFail,
-
-    /// name error [RFC1035]
-    NXDomain,
-
-    /// not implemented [RFC1035]
-    NotImp,
-
-    /// query refused [RFC1035]
-    Refused,
-
-    /// name exists when it should not [RFC2136]
-    YXDomain,
-
-    /// RR set exists when it should not [RFC2136]
-    YXRRSet,
-
-    /// RR set that should exist does not [RFC2136]
-    NXRRSet,
-
-    /// server not authoritative for zone [RFC2136] or not authorized [RFC2845]
-    NotAuth,
-
-    /// name not contained in zone [RFC2136]
-    NotZone,
-
-    /// unassigned: 11-15
-    Unassigned(u8)
-}
-
-impl Rcode {
-    fn from_header(header: &Header) -> Rcode {
-        let i = header.inner[3] & 0x0F;
-        match i {
-            0 => Rcode::NoError,
-            1 => Rcode::FormErr,
-            2 => Rcode::ServFail,
-            3 => Rcode::NXDomain,
-            4 => Rcode::NotImp,
-            5 => Rcode::Refused,
-            6 => Rcode::YXDomain,
-            7 => Rcode::YXRRSet,
-            8 => Rcode::NXRRSet,
-            9 => Rcode::NotAuth,
-            10 => Rcode::NotZone,
-            11 ... 15 => Rcode::Unassigned(i),
-            _ => unreachable!()
-        }
-    }
-
-    fn to_header(&self, header: &mut Header) {
-        let i = match *self {
-            Rcode::NoError => 0,
-            Rcode::FormErr => 1,
-            Rcode::ServFail => 2,
-            Rcode::NXDomain => 3,
-            Rcode::NotImp => 4,
-            Rcode::Refused => 5,
-            Rcode::YXDomain => 6,
-            Rcode::YXRRSet => 7,
-            Rcode::NXRRSet => 8,
-            Rcode::NotAuth => 9,
-            Rcode::NotZone => 10,
-            Rcode::Unassigned(i) => match i {
-                11 ... 15 => i,
-                _ => panic!()
-            }
-        };
-        header.inner[3] = header.inner[3] & 0xF0 | i;
     }
 }
 
@@ -346,7 +209,7 @@ impl HeaderCounts {
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
     pub unsafe fn from_message(s: &[u8]) -> &HeaderCounts {
-        mem::transmute(&s[mem::size_of::<Header>()..].as_ptr())
+        mem::transmute((s[mem::size_of::<Header>()..].as_ptr()))
     }
 
     /// Creates a mutable reference from the bytes slice of a message.
@@ -354,7 +217,7 @@ impl HeaderCounts {
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
     pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut HeaderCounts {
-        mem::transmute(&mut s[mem::size_of::<Header>()..].as_ptr())
+        mem::transmute(s[mem::size_of::<Header>()..].as_ptr())
     }
 
     /// Returns the underlying bytes slice.
@@ -493,6 +356,7 @@ pub type FullHeader = [u8; 12];
 #[cfg(test)]
 mod test {
     use super::*;
+    use super::super::iana::{Opcode, Rcode};
 
     #[test]
     fn getters() {

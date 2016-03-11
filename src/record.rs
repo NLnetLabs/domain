@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use super::name::{BuildDomainName, DomainName, DomainNameBuf, WireDomainName};
 use super::bytes::{self, BytesSlice, BytesBuf};
 use super::question::{Result, Error}; // XXX Temporary.
+use super::iana::{Class, RRType};
 use super::rdata::traits::{BuildRecordData, RecordDataSlice};
 
 //------------ RecordBuf ----------------------------------------------------
@@ -9,14 +10,14 @@ use super::rdata::traits::{BuildRecordData, RecordDataSlice};
 #[derive(Debug)]
 pub struct RecordBuf<D: BuildRecordData> {
     name: DomainNameBuf,
-    rclass: u16,
+    rclass: Class,
     ttl: u32,
     rdata: D,
 }
 
 impl<D: BuildRecordData> RecordBuf<D> {
     /// Creates a new empty record.
-    pub fn new<N: AsRef<DomainName>>(name: &N, rclass: u16, ttl: u32,
+    pub fn new<N: AsRef<DomainName>>(name: &N, rclass: Class, ttl: u32,
                                      rdata: D) -> Self {
         RecordBuf { name: name.as_ref().to_owned(), rclass: rclass, ttl: ttl,
                     rdata: rdata }
@@ -30,7 +31,7 @@ impl<D: BuildRecordData> BuildRecord for RecordBuf<D> {
     fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
         try!(self.name.push_buf(buf));
         buf.push_u16(self.rdata.rtype());
-        buf.push_u16(self.rclass);
+        self.rclass.push_buf(buf);
         buf.push_u32(self.ttl);
         let pos = buf.pos();
         buf.push_u16(0);
@@ -50,8 +51,8 @@ impl<D: BuildRecordData> BuildRecord for RecordBuf<D> {
 #[derive(Debug)]
 pub struct WireRecord<'a> {
     name: WireDomainName<'a>,
-    rtype: u16,
-    rclass: u16,
+    rtype: RRType,
+    rclass: Class,
     ttl: u32,
     rdata: &'a[u8],
     message: &'a[u8],
@@ -62,7 +63,7 @@ pub struct WireRecord<'a> {
 impl<'a> WireRecord<'a> {
     /// Create a new raw record.
     ///
-    pub fn new(name: WireDomainName<'a>, rtype: u16, rclass: u16,
+    pub fn new(name: WireDomainName<'a>, rtype: RRType, rclass: Class,
                ttl: u32, rdata: &'a[u8], message: &'a[u8])
                -> WireRecord<'a> {
         WireRecord { name: name, rtype: rtype, rclass: rclass, ttl: ttl,
@@ -80,7 +81,8 @@ impl<'a> WireRecord<'a> {
         let (ttl, slice) = try!(slice.split_u32());
         let (rdlen, slice) = try!(slice.split_u16());
         let (rdata, slice) = try!(slice.split_bytes(rdlen as usize));
-        Ok((WireRecord::new(name, rtype, rclass, ttl, rdata, context),
+        Ok((WireRecord::new(name, rtype.into(), rclass.into(), ttl, rdata,
+                            context),
             slice))
     }
 
@@ -97,7 +99,8 @@ impl<'a> WireRecord<'a> {
     }
 
     pub fn rdata<D: RecordDataSlice<'a>>(&self) -> Result<Option<D>> {
-        D::parse(self.rtype, self.rdata, self.message) .map_err(|e| e.into())
+        D::parse(self.rtype.to_int(), self.rdata, self.message)
+            .map_err(|e| e.into())
     }
 }
 
@@ -115,10 +118,10 @@ impl<'a> WireRecord<'a> {
     }
 
     /// Returns the record type.
-    pub fn rtype(&self) -> u16 { self.rtype }
+    pub fn rtype(&self) -> RRType { self.rtype }
 
     /// Returns the record class.
-    pub fn rclass(&self) -> u16 { self.rclass }
+    pub fn rclass(&self) -> Class { self.rclass }
 
     /// Returns the record’s time to live.
     pub fn ttl(&self) -> u32 { self.ttl }
@@ -130,8 +133,8 @@ impl<'a> WireRecord<'a> {
 impl<'a> BuildRecord for WireRecord<'a> {
     fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
         try!(self.name.push_buf(buf));
-        buf.push_u16(self.rtype);
-        buf.push_u16(self.rclass);
+        self.rtype.push_buf(buf);
+        self.rclass.push_buf(buf);
         buf.push_u32(self.ttl);
         buf.push_u16(self.rdata.len() as u16);
         buf.push_bytes(self.rdata);

@@ -84,6 +84,10 @@ impl<'a> QuestionSection<'a> {
         }
     }
 
+    pub fn iter(&mut self) -> &mut Self {
+        self
+    }
+
     pub fn answer(self) -> Option<AnswerSection<'a>> {
         if self.count == 0 {
             Some(AnswerSection::new(self.message, self.slice))
@@ -121,6 +125,10 @@ pub struct RecordSection<'a> {
 impl<'a> RecordSection<'a> {
     fn new(message: &'a Message, slice: &'a[u8], count: u16) -> Self {
         RecordSection { message: message, slice: slice, count: count }
+    }
+
+    pub fn iter(&mut self) -> &mut Self {
+        self
     }
 }
 
@@ -172,6 +180,12 @@ impl<'a> Deref for AnswerSection<'a> {
     }
 }
 
+impl<'a> DerefMut for AnswerSection<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 
 //------------ AuthoritySection ---------------------------------------------
 
@@ -194,6 +208,20 @@ impl<'a> AuthoritySection<'a> {
                                         self.inner.slice))
         }
         else { None }
+    }
+}
+
+impl<'a> Deref for AuthoritySection<'a> {
+    type Target = RecordSection<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'a> DerefMut for AuthoritySection<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }
 
@@ -222,12 +250,19 @@ impl<'a> Deref for AdditionalSection<'a> {
     }
 }
 
+impl<'a> DerefMut for AdditionalSection<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 
 //============ Owned Message ================================================
 
 #[derive(Debug)]
 pub struct MessageBuf {
-    inner: Vec<u8>
+    buf: Vec<u8>,
+    offset: usize,
 }
 
 
@@ -235,19 +270,48 @@ impl MessageBuf {
     /// Creates an owned message from a bytes slice.
     ///
     /// This is only safe if this really is a proper message.
-    unsafe fn from_bytes(s: &[u8]) -> MessageBuf {
-        MessageBuf { inner: Vec::from(s) }
+    unsafe fn from_bytes(s: &[u8], offset: usize) -> MessageBuf {
+        MessageBuf { buf: Vec::from(s), offset: offset }
+    }
+
+    pub fn from_vec(buf: Vec<u8>, offset: usize) -> Result<MessageBuf> {
+        if buf.len() < mem::size_of::<FullHeader>() + offset {
+            return Err(Error::OctetError(bytes::Error::PrematureEnd))
+        }
+        Ok(MessageBuf { buf: buf, offset: offset })
     }
 
     /// Coerces to a message slice.
-    pub fn as_name(&self) -> &Message {
+    pub fn as_slice(&self) -> &Message {
         self
+    }
+
+    pub fn prefix(&self) -> &[u8] {
+        &self.buf[..self.offset]
+    }
+
+    pub fn prefix_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[..self.offset]
+    }
+
+    pub fn message_bytes(&self) -> &[u8] {
+        &self.buf[self.offset..]
+    }
+
+    pub fn message_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[self.offset..]
     }
 }
 
 impl<'a> From<&'a Message> for MessageBuf {
     fn from(msg: &'a Message) -> MessageBuf {
-        unsafe { MessageBuf::from_bytes(&msg.slice) }
+        unsafe { MessageBuf::from_bytes(&msg.slice, 0) }
+    }
+}
+
+impl From<MessageVec> for MessageBuf {
+    fn from(vec: MessageVec) -> MessageBuf {
+        MessageBuf { buf: vec.vec, offset: vec.offset }
     }
 }
 
@@ -255,7 +319,7 @@ impl Deref for MessageBuf {
     type Target = Message;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { Message::from_bytes_unsafe(&self.inner) }
+        unsafe { Message::from_bytes_unsafe(&self.message_bytes()) }
     }
 }
 
@@ -325,14 +389,19 @@ impl QuestionBuilder {
                       |counts| counts.inc_qdcount(1))
     }
 
+    pub fn push_question<N: AsRef<DomainName>>(&mut self, name: N, qtype: u16,
+                                               qclass: u16) -> Result<()> {
+        self.push(&(name.as_ref(), qtype, qclass))
+    }
+
     /// Move on to the answer section
     pub fn answer(self) -> AnswerBuilder {
         AnswerBuilder::new(self.buf)
     }
 
     /// Finish off the message and return the underlying vector.
-    pub fn finish(self) -> Vec<u8> {
-        self.buf.vec
+    pub fn finish(self) -> MessageBuf {
+        self.buf.into()
     }
 }
 
@@ -373,8 +442,8 @@ impl AnswerBuilder {
     }
 
     /// Finish off the message and return the underlying vector.
-    pub fn finish(self) -> Vec<u8> {
-        self.buf.vec
+    pub fn finish(self) -> MessageBuf {
+        self.buf.into()
     }
 }
 
@@ -415,8 +484,8 @@ impl AuthorityBuilder {
     }
 
     /// Finish off the message and return the underlying vector.
-    pub fn finish(self) -> Vec<u8> {
-        self.buf.vec
+    pub fn finish(self) -> MessageBuf {
+        self.buf.into()
     }
 }
 
@@ -453,8 +522,8 @@ impl AdditionalBuilder {
     }
 
     /// Finish off the message and return the underlying vector.
-    pub fn finish(self) -> Vec<u8> {
-        self.buf.vec
+    pub fn finish(self) -> MessageBuf {
+        self.buf.into()
     }
 }
 

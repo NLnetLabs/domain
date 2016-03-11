@@ -6,6 +6,7 @@ use std::convert;
 use std::error;
 use std::fmt;
 use std::result;
+use super::iana::{Class, RRType};
 use super::name::{self, BuildDomainName, DomainName, DomainNameBuf,
                   WireDomainName};
 use super::bytes::{self, BytesSlice, BytesBuf};
@@ -17,9 +18,9 @@ use super::bytes::{self, BytesSlice, BytesBuf};
 ///
 #[derive(Debug)]
 pub struct QuestionBuf {
-    qname: name::DomainNameBuf,
-    qtype: u16,
-    qclass: u16,
+    qname: DomainNameBuf,
+    qtype: RRType,
+    qclass: Class,
 }
 
 /// # Creation and Conversion
@@ -31,7 +32,13 @@ impl QuestionBuf {
     /// will be 1 (IN).
     ///
     pub fn new() -> QuestionBuf {
-        QuestionBuf { qname: DomainNameBuf::new(), qtype: 0, qclass: 1 }
+        QuestionBuf { qname: DomainNameBuf::new(), qtype: RRType::Int(0),
+                      qclass: Class::IN }
+    }
+
+    pub fn from_args(name: DomainNameBuf, qtype: RRType, qclass: Class)
+                     -> QuestionBuf {
+        QuestionBuf { qname: name, qtype: qtype, qclass: qclass }
     }
 }
 
@@ -39,8 +46,8 @@ impl QuestionBuf {
 impl BuildQuestion for QuestionBuf {
     fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
         try!(self.qname.push_buf(buf));
-        buf.push_u16(self.qtype);
-        buf.push_u16(self.qclass);
+        self.qtype.push_buf(buf);
+        self.qclass.push_buf(buf);
         Ok(())
     }
 }
@@ -51,8 +58,8 @@ impl BuildQuestion for QuestionBuf {
 #[derive(Debug)]
 pub struct WireQuestion<'a> {
     qname: WireDomainName<'a>,
-    qtype: u16,
-    qclass: u16,
+    qtype: RRType,
+    qclass: Class,
 }
 
 /// # Creation and Conversion
@@ -60,7 +67,7 @@ pub struct WireQuestion<'a> {
 impl<'a> WireQuestion<'a> {
     /// Creates a new frail question.
     ///
-    pub fn new(qname: WireDomainName<'a>, qtype: u16, qclass: u16)
+    pub fn new(qname: WireDomainName<'a>, qtype: RRType, qclass: Class)
                -> WireQuestion<'a> {
         WireQuestion { qname: qname, qtype: qtype, qclass: qclass }
     }
@@ -73,7 +80,7 @@ impl<'a> WireQuestion<'a> {
                                                               context));
         let (qtype, slice) = try!(slice.split_u16());
         let (qclass, slice) = try!(slice.split_u16());
-        Ok((WireQuestion::new(qname, qtype, qclass), slice))
+        Ok((WireQuestion::new(qname, qtype.into(), qclass.into()), slice))
     }
 
     /// Converts `self` to an owned `QuestionBuf`.
@@ -98,12 +105,12 @@ impl<'a> WireQuestion<'a> {
     }
 
     /// Returns the requested record type.
-    pub fn qtype(&self) -> u16 {
+    pub fn qtype(&self) -> RRType {
         self.qtype
     }
 
     /// Returns the requested class.
-    pub fn qclass(&self) -> u16 {
+    pub fn qclass(&self) -> Class {
         self.qclass
     }
 }
@@ -112,8 +119,8 @@ impl<'a> WireQuestion<'a> {
 impl<'a> BuildQuestion for WireQuestion<'a> {
     fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
         try!(self.qname.push_buf(buf));
-        buf.push_u16(self.qtype);
-        buf.push_u16(self.qclass);
+        self.qtype.push_buf(buf);
+        self.qclass.push_buf(buf);
         Ok(())
     }
 }
@@ -125,6 +132,14 @@ pub trait BuildQuestion {
     fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()>;
 }
 
+impl<'a> BuildQuestion for (&'a DomainName, u16, u16) {
+    fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
+        try!(self.0.push_buf(buf));
+        buf.push_u16(self.1);
+        buf.push_u16(self.2);
+        Ok(())
+    }
+}
  
 //------------ Error and Result ---------------------------------------------
 
