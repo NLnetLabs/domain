@@ -5,14 +5,18 @@ use std::collections::HashMap;
 use std::convert;
 use std::error;
 use std::fmt;
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::result;
 use super::header::{Header, HeaderCounts, FullHeader};
-use super::name::{self, DomainName, DomainNameBuf};
+use super::iana::{Class, RRType};
+use super::name::{self, DomainName, DomainNameBuf, DomainNameSlice,
+                  CompactDomainName};
 use super::bytes::{self, BytesBuf};
-use super::question::{self, BuildQuestion, WireQuestion};
-use super::record::{WireRecord, BuildRecord};
+use super::question::{self, Question};
+use super::record::Record;
+use super::rdata::traits::{RecordData, CompactRecordData};
 
 
 //============ Message Slice ================================================
@@ -88,7 +92,8 @@ impl<'a> QuestionSection<'a> {
         self
     }
 
-    pub fn answer(self) -> Option<AnswerSection<'a>> {
+    pub fn answer<D: CompactRecordData<'a>>(self)
+                                            -> Option<AnswerSection<'a, D>> {
         if self.count == 0 {
             Some(AnswerSection::new(self.message, self.slice))
         }
@@ -97,11 +102,11 @@ impl<'a> QuestionSection<'a> {
 }
 
 impl<'a> Iterator for QuestionSection<'a> {
-    type Item = Result<WireQuestion<'a>>;
+    type Item = Result<Question<CompactDomainName<'a>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.count == 0 { return None }
-        match WireQuestion::split_from(self.slice, &self.message.slice) {
+        match Question::split_from(self.slice, &self.message.slice) {
             Ok((res, slice)) => {
                 self.count -= 1;
                 self.slice = slice;
@@ -116,15 +121,17 @@ impl<'a> Iterator for QuestionSection<'a> {
 //------------ RecordSection ------------------------------------------------
 
 #[derive(Debug)]
-pub struct RecordSection<'a> {
+pub struct RecordSection<'a, D: CompactRecordData<'a>> {
     message: &'a Message,
     slice: &'a [u8],
-    count: u16
+    count: u16,
+    phantom: PhantomData<D>,
 }
 
-impl<'a> RecordSection<'a> {
+impl<'a, D: CompactRecordData<'a>> RecordSection<'a, D> {
     fn new(message: &'a Message, slice: &'a[u8], count: u16) -> Self {
-        RecordSection { message: message, slice: slice, count: count }
+        RecordSection { message: message, slice: slice, count: count,
+                        phantom: PhantomData }
     }
 
     pub fn iter(&mut self) -> &mut Self {
@@ -132,18 +139,23 @@ impl<'a> RecordSection<'a> {
     }
 }
 
-impl<'a> Iterator for RecordSection<'a> {
-    type Item = Result<WireRecord<'a>>;
+impl<'a, D: CompactRecordData<'a>> Iterator for RecordSection<'a, D> {
+    type Item = Result<Record<CompactDomainName<'a>, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.count == 0 { return None }
-        match WireRecord::split_from(self.slice, &self.message.slice) {
-            Ok((res, slice)) => {
-                self.count -= 1;
-                self.slice = slice;
-                Some(Ok(res))
+        loop {
+            if self.count == 0 { return None }
+            match Record::split_from(self.slice, &self.message.slice) {
+                Ok((inner, slice)) => {
+                    self.count -= 1;
+                    self.slice = slice;
+                    match inner {
+                        Some(record) => return Some(Ok(record)),
+                        None => { }
+                    }
+                }
+                Err(e) => return Some(Err(Error::from(e)))
             }
-            Err(e) => Some(Err(Error::from(e)))
         }
     }
 }
@@ -152,11 +164,11 @@ impl<'a> Iterator for RecordSection<'a> {
 //------------ AnswerSection ------------------------------------------------
 
 #[derive(Debug)]
-pub struct AnswerSection<'a> {
-    inner: RecordSection<'a>,
+pub struct AnswerSection<'a, D: CompactRecordData<'a>> {
+    inner: RecordSection<'a, D>,
 }
 
-impl<'a> AnswerSection<'a> {
+impl<'a, D: CompactRecordData<'a>> AnswerSection<'a, D> {
     fn new(message: &'a Message, slice: &'a[u8]) -> Self {
         AnswerSection {
             inner: RecordSection::new(message, slice,
@@ -164,7 +176,7 @@ impl<'a> AnswerSection<'a> {
         }
     }
 
-    pub fn authority(self) -> Option<AuthoritySection<'a>> {
+    pub fn authority(self) -> Option<AuthoritySection<'a, D>> {
         if self.inner.count == 0 {
             Some(AuthoritySection::new(self.inner.message, self.inner.slice))
         }
@@ -172,15 +184,15 @@ impl<'a> AnswerSection<'a> {
     }
 }
 
-impl<'a> Deref for AnswerSection<'a> {
-    type Target = RecordSection<'a>;
+impl<'a, D: CompactRecordData<'a>> Deref for AnswerSection<'a, D> {
+    type Target = RecordSection<'a, D>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl<'a> DerefMut for AnswerSection<'a> {
+impl<'a, D: CompactRecordData<'a>> DerefMut for AnswerSection<'a, D> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
@@ -190,11 +202,11 @@ impl<'a> DerefMut for AnswerSection<'a> {
 //------------ AuthoritySection ---------------------------------------------
 
 #[derive(Debug)]
-pub struct AuthoritySection<'a> {
-    inner: RecordSection<'a>
+pub struct AuthoritySection<'a, D: CompactRecordData<'a>> {
+    inner: RecordSection<'a, D>
 }
 
-impl<'a> AuthoritySection<'a> {
+impl<'a, D: CompactRecordData<'a>> AuthoritySection<'a, D> {
     fn new(message: &'a Message, slice: &'a[u8]) -> Self {
         AuthoritySection {
             inner: RecordSection::new(message, slice,
@@ -202,7 +214,7 @@ impl<'a> AuthoritySection<'a> {
         }
     }
 
-    pub fn additional(self) -> Option<AdditionalSection<'a>> {
+    pub fn additional(self) -> Option<AdditionalSection<'a, D>> {
         if self.inner.count == 0 {
             Some(AdditionalSection::new(self.inner.message,
                                         self.inner.slice))
@@ -211,15 +223,15 @@ impl<'a> AuthoritySection<'a> {
     }
 }
 
-impl<'a> Deref for AuthoritySection<'a> {
-    type Target = RecordSection<'a>;
+impl<'a, D: CompactRecordData<'a>> Deref for AuthoritySection<'a, D> {
+    type Target = RecordSection<'a, D>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl<'a> DerefMut for AuthoritySection<'a> {
+impl<'a, D: CompactRecordData<'a>> DerefMut for AuthoritySection<'a, D> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
@@ -229,11 +241,11 @@ impl<'a> DerefMut for AuthoritySection<'a> {
 //------------ AdditionalSection --------------------------------------------
 
 #[derive(Debug)]
-pub struct AdditionalSection<'a> {
-    inner: RecordSection<'a>
+pub struct AdditionalSection<'a, D: CompactRecordData<'a>> {
+    inner: RecordSection<'a, D>
 }
 
-impl<'a> AdditionalSection<'a> {
+impl<'a, D: CompactRecordData<'a>> AdditionalSection<'a, D> {
     fn new(message: &'a Message, slice: &'a[u8]) -> Self {
         AdditionalSection {
             inner: RecordSection::new(message, slice,
@@ -242,15 +254,15 @@ impl<'a> AdditionalSection<'a> {
     }
 }
 
-impl<'a> Deref for AdditionalSection<'a> {
-    type Target = RecordSection<'a>;
+impl<'a, D: CompactRecordData<'a>> Deref for AdditionalSection<'a, D> {
+    type Target = RecordSection<'a, D>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl<'a> DerefMut for AdditionalSection<'a> {
+impl<'a, D: CompactRecordData<'a>> DerefMut for AdditionalSection<'a, D> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
@@ -384,14 +396,15 @@ impl QuestionBuilder {
     }
 
     /// Appends a new question to the question section.
-    pub fn push<Q: BuildQuestion>(&mut self, question: &Q) -> Result<()> {
+    pub fn push<N: DomainName>(&mut self, question: &Question<N>)
+                               -> Result<()> {
         self.buf.push(|buf| question.push_buf(buf).map_err(|e| e.into()),
                       |counts| counts.inc_qdcount(1))
     }
 
-    pub fn push_question<N: AsRef<DomainName>>(&mut self, name: N, qtype: u16,
-                                               qclass: u16) -> Result<()> {
-        self.push(&(name.as_ref(), qtype, qclass))
+    pub fn push_question<N: DomainName>(&mut self, name: N, qtype: RRType,
+                                        qclass: Class) -> Result<()> {
+        self.push(&Question::new(name, qtype, qclass))
     }
 
     /// Move on to the answer section
@@ -432,16 +445,32 @@ impl AnswerBuilder {
         AnswerBuilder { buf: buf }
     }
 
-    pub fn push<R: BuildRecord>(&mut self, record: &R) -> Result<()> {
+    pub fn push<N, D>(&mut self, record: &Record<N, D>) -> Result<()>
+                where N: DomainName, D: RecordData {
         self.buf.push(|buf| record.push_buf(buf).map_err(|e| e.into()),
                       |counts| counts.inc_ancount(1))
     }
+
+    pub fn push_record<N, D>(&mut self, name: N, rclass: Class, ttl: u32,
+                             data: D) -> Result<()>
+                       where N: DomainName, D: RecordData {
+        self.push(&Record::new(name, rclass, ttl, data))
+    }
+
+    /*
+    pub fn push<N: AsRef<DomainNameSlice>>(&mut self, name: N, rclass: Class,
+                                      ttl: u32, dataop: Box<PushDataOp>)
+                                      -> Result<()> {
+        self.buf.push_record(name.as_ref(), rclass, ttl, dataop,
+                             |counts| counts.inc_ancount(1))
+    }
+    */
 
     pub fn authority(self) -> AuthorityBuilder {
         AuthorityBuilder::new(self.buf)
     }
 
-    /// Finish off the message and return the underlying vector.
+    /// Finish off the message and return the underlying message.
     pub fn finish(self) -> MessageBuf {
         self.buf.into()
     }
@@ -474,10 +503,15 @@ impl AuthorityBuilder {
         AuthorityBuilder { buf: buf }
     }
 
-    pub fn push<R: BuildRecord>(&mut self, record: &R) -> Result<()> {
-        self.buf.push(|buf| record.push_buf(buf).map_err(|e| e.into()),
-                      |counts| counts.inc_nscount(1))
+    /*
+    pub fn push<N, F>(&mut self, name: N, rclass: Class, ttl: u32,
+                      dataop: F) -> Result<()>
+                where N: AsRef<DomainName>,
+                      F: FnOnce(&mut Vec<u8>) -> RRType {
+        self.buf.push_record(name.as_ref(), rclass, ttl, dataop,
+                             |counts| counts.inc_ancount(1))
     }
+    */
 
     pub fn additional(self) -> AdditionalBuilder {
         AdditionalBuilder::new(self.buf)
@@ -516,10 +550,15 @@ impl AdditionalBuilder {
         AdditionalBuilder { buf: buf }
     }
 
-    pub fn push<R: BuildRecord>(&mut self, record: &R) -> Result<()> {
-        self.buf.push(|buf| record.push_buf(buf).map_err(|e| e.into()),
-                      |counts| counts.inc_arcount(1))
+    /*
+    pub fn push<N, F>(&mut self, name: N, rclass: Class, ttl: u32,
+                      dataop: F) -> Result<()>
+                where N: AsRef<DomainName>,
+                      F: FnOnce(&mut Vec<u8>) -> RRType {
+        self.buf.push_record(name.as_ref(), rclass, ttl, dataop,
+                             |counts| counts.inc_ancount(1))
     }
+    */
 
     /// Finish off the message and return the underlying vector.
     pub fn finish(self) -> MessageBuf {
@@ -724,6 +763,31 @@ impl MessageVec {
         }
     }
 
+    /*
+    fn push_record<I>(&mut self, name: &DomainNameSlice, rclass: Class,
+                         ttl: u32, dataop: Box<PushDataOp>, incop: I) -> Result<()>
+                   where 
+                         I: FnOnce(&mut HeaderCounts) -> bytes::Result<()> {
+        let buildop = |buf: &mut MessageVec| {
+            try!(name.push_buf_compressed(buf));
+            let type_pos = buf.pos();
+            buf.push_u16(0);
+            rclass.push_buf(buf);
+            buf.push_u32(ttl);
+            let len_pos = buf.pos();
+            buf.push_u16(0);
+            let rtype = dataop(&mut buf.vec);
+            let delta = buf.pos();
+            if delta > (::std::u16::MAX as usize) {
+                return Err(Error::OctetError(bytes::Error::Overflow));
+            }
+            buf.update_u16(type_pos, rtype.to_int());
+            buf.update_u16(len_pos, delta as u16);
+            Ok(())
+        };
+        self.push(buildop, incop)
+    }
+    */
 }
 
 
@@ -746,7 +810,7 @@ impl BytesBuf for MessageVec {
         self.compress.is_some()
     }
 
-    fn add_name_pos<N: AsRef<DomainName>>(&mut self, name: N) {
+    fn add_name_pos<N: AsRef<DomainNameSlice>>(&mut self, name: N) {
         if self.truncated { return }
         if let Some(ref mut map) = self.compress {
             if self.vec.len() >= 65535 { return }
@@ -755,7 +819,7 @@ impl BytesBuf for MessageVec {
         }
     }
 
-    fn get_name_pos<N: AsRef<DomainName>>(&self, name: N) -> Option<u16> {
+    fn get_name_pos<N: AsRef<DomainNameSlice>>(&self, name: N) -> Option<u16> {
         match self.compress {
             Some(ref map) => map.get(name.as_ref()).map(|x| *x),
             None => None
@@ -820,4 +884,29 @@ impl fmt::Display for Error {
 pub type Result<T> = result::Result<T, Error>;
 
 
+//============ Testing ======================================================
 
+#[cfg(test)]
+mod test {
+    use std::net::Ipv4Addr;
+    use super::super::iana::{Class, RRType};
+    use super::super::name::DomainNameBuf;
+    use super::super::rdata::rfc1035::{A, NS};
+    use super::*;
+
+    #[test]
+    fn build_message() {
+        let mut msg = MessageBuilder::new(1550, 0, true).question();
+        msg.push_question(DomainNameBuf::from_str("example.com.").unwrap(),
+                          RRType::A, Class::IN).unwrap();
+        let mut msg = msg.answer();
+        let data = A::new(Ipv4Addr::new(127, 0, 0, 1));
+        msg.push_record(DomainNameBuf::from_str("example.com.").unwrap(),
+                        Class::IN, 3600, data).unwrap();
+        let data = NS::new(DomainNameBuf::from_str("ns.example.com.").unwrap());
+        msg.push_record(DomainNameBuf::from_str("example.com.").unwrap(),
+                        Class::IN, 3600, data).unwrap();
+        let _ = msg.finish();
+    }
+}
+                 

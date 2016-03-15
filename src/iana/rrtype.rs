@@ -687,3 +687,25 @@ impl fmt::Display for RRType {
         }
     }
 }
+
+
+impl PartialEq for RRType {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_int() == other.to_int()
+    }
+}
+
+impl PartialEq<u16> for RRType {
+    fn eq(&self, other: &u16) -> bool {
+        self.to_int() == *other
+    }
+}
+
+impl PartialEq<RRType> for u16 {
+    fn eq(&self, other: &RRType) -> bool {
+        *self == other.to_int()
+    }
+}
+
+impl Eq for RRType { }
+

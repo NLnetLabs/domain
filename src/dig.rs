@@ -7,7 +7,9 @@ use std::fmt;
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::result;
+use domain::iana::{Class, RRType};
 use domain::message::{self, MessageBuf, MessageBuilder, RecordSection};
+use domain::rdata::generic::CompactGenericRecordData;
 use domain::resolver::conf::ResolvConf;
 use domain::name::{self, DomainNameBuf};
 
@@ -83,12 +85,12 @@ impl Options {
         }
     }
 
-    fn qtype(&self) -> Result<u16> {
-        Ok((if self.name.is_empty() { 2 } else { 1 }))
+    fn qtype(&self) -> Result<RRType> {
+        Ok((if self.name.is_empty() { RRType::NS } else { RRType::A }))
     }
 
-    fn qclass(&self) -> Result<u16> {
-        Ok((1))
+    fn qclass(&self) -> Result<Class> {
+        Ok((Class::IN))
     }
     
     fn conf(&self) -> &ResolvConf { &self.conf }
@@ -224,11 +226,11 @@ fn print_result(response: MessageBuf) {
     }
 }
 
-fn print_section(section: &mut RecordSection) {
+fn print_section<'a>(section: &mut RecordSection<'a, CompactGenericRecordData<'a>>) {
     for record in section.iter() {
         let record = record.unwrap();
-        println!("{}\t{}\t{}\t{}\t...", record.name(), record.ttl(),
-                 record.rclass(), record.rtype())
+        println!("{}\t{}\t{}\t{}\t{}", record.name(), record.ttl(),
+                 record.rclass(), record.rtype(), record.rdata())
     }
 }
 

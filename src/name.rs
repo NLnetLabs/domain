@@ -18,25 +18,48 @@ use super::bytes::{self, BytesBuf, BytesSlice};
 
 //------------ DomainName ---------------------------------------------------
 
+/// A trait common to all domain name types.
+///
+/// This trait only exists so that composed types containing domain names
+/// can be generic over the various domain name types we have. The common
+/// functionality, however, is very limited.
+///
+pub trait DomainName: fmt::Display {
+    /// Converts the domain name into an owned domain name.
+    fn to_owned(&self) -> Result<DomainNameBuf>;
+
+    /// Converts the domain name into a self-contained cow.
+    fn to_cow(&self) -> Result<Cow<DomainNameSlice>>;
+
+    /// Pushes the domain name to the end of theprovided buffer.
+    fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()>;
+
+    /// Pushes the domain name to buffer using name compression.
+    fn push_buf_compressed<B: BytesBuf>(&self, buf: &mut B) -> Result<()>;
+}
+
+
+//------------ DomainNameSlice ----------------------------------------------
+
 /// A byte slice representing a self-contained domain name.
 ///
 /// This is an *unsized* type.
 ///
 #[derive(Debug)]
-pub struct DomainName {
+pub struct DomainNameSlice {
     slice: [u8]
 }
 
 
 /// # Creation and Conversion
 ///
-impl DomainName {
+impl DomainNameSlice {
     /// Create a domain name slice from a bytes slice.
     ///
     /// This is only safe if the slice follows the encoding rules and does
     /// not contain a compressed label.
     ///
-    unsafe fn from_bytes(slice: &[u8]) -> &DomainName {
+    unsafe fn from_bytes(slice: &[u8]) -> &DomainNameSlice {
         mem::transmute(slice)
     }
 
@@ -79,7 +102,7 @@ impl DomainName {
 
 /// # Properties
 ///
-impl DomainName {
+impl DomainNameSlice {
     /// Checks whether the domain name is absolute.
     ///
     /// A domain name is absolute if it ends with an empty normal label
@@ -99,7 +122,7 @@ impl DomainName {
 
 /// # Iteration over labels.
 ///
-impl DomainName {
+impl DomainNameSlice {
 
     /// Produces an iterator over the labels in the name.
     ///
@@ -135,12 +158,12 @@ impl DomainName {
 
 /// # Manipulations
 ///
-impl DomainName {
+impl DomainNameSlice {
     /// Returns the first label and the rest of the name.
     ///
     /// Returns `None` if the name is empty.
     ///
-    pub fn split_first(&self) -> Option<(Label, &DomainName)> {
+    pub fn split_first(&self) -> Option<(Label, &DomainNameSlice)> {
         let mut iter = self.iter();
         iter.next().map(|l| (l, iter.as_name()))
     }
@@ -149,7 +172,7 @@ impl DomainName {
     ///
     /// Returns `None` for an empty domain name. Returns an empty domain
     /// name for a single label domain name.
-    pub fn parent(&self) -> Option<&DomainName> {
+    pub fn parent(&self) -> Option<&DomainNameSlice> {
         self.split_first().map(|(_, tail)| tail)
     }
 
@@ -228,7 +251,15 @@ impl DomainName {
     }
 }
 
-impl BuildDomainName for DomainName {
+impl DomainName for DomainNameSlice {
+    fn to_owned(&self) -> Result<DomainNameBuf> {
+        Ok(self.to_owned())
+    }
+
+    fn to_cow(&self) -> Result<Cow<DomainNameSlice>> {
+        Ok(Cow::Borrowed(self))
+    }
+
     fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
         buf.add_name_pos(self);
         buf.push_bytes(&self.slice);
@@ -261,28 +292,28 @@ impl BuildDomainName for DomainName {
 }
 
 
-impl AsRef<DomainName> for DomainName {
-    fn as_ref(&self) -> &DomainName { self }
+impl AsRef<DomainNameSlice> for DomainNameSlice {
+    fn as_ref(&self) -> &DomainNameSlice { self }
 }
 
 
-impl ToOwned for DomainName {
+impl ToOwned for DomainNameSlice {
     type Owned = DomainNameBuf;
 
     fn to_owned(&self) -> Self::Owned { self.to_owned() }
 }
 
-impl<T: AsRef<DomainName> + ?Sized> PartialEq<T> for DomainName {
+impl<T: AsRef<DomainNameSlice> + ?Sized> PartialEq<T> for DomainNameSlice {
     fn eq(&self, other: &T) -> bool {
         self.iter().eq(other.as_ref().iter())
     }
 }
 
-impl<'a> PartialEq<WireDomainName<'a>> for DomainName {
+impl<'a> PartialEq<CompactDomainName<'a>> for DomainNameSlice {
     /// Test whether `self` and `other` are equal.
     ///
     /// An unparsable `other` always compares false.
-    fn eq(&self, other: &WireDomainName) -> bool {
+    fn eq(&self, other: &CompactDomainName) -> bool {
         let mut self_iter = self.iter();
         let mut other_iter = other.iter();
         loop {
@@ -297,13 +328,13 @@ impl<'a> PartialEq<WireDomainName<'a>> for DomainName {
     }
 }
 
-//impl<T: AsRef<str> + ?Sized> PartialEq<T> for DomainName {
+//impl<T: AsRef<str> + ?Sized> PartialEq<T> for DomainNameSlice {
 //    fn eq(&self, other: &T) -> bool {
-impl PartialEq<str> for DomainName {
+impl PartialEq<str> for DomainNameSlice {
     fn eq(&self, other: &str) -> bool {
         if !other.is_ascii() { return false }
         let mut other = other.as_bytes();
-        let mut name = unsafe { DomainName::from_bytes(&self.slice) };
+        let mut name = unsafe { DomainNameSlice::from_bytes(&self.slice) };
         loop {
             let (label, tail) = match name.split_first() {
                 Some(x) => x,
@@ -321,17 +352,17 @@ impl PartialEq<str> for DomainName {
     }
 }
 
-impl cmp::Eq for DomainName { }
+impl cmp::Eq for DomainNameSlice { }
 
 
-impl<T: AsRef<DomainName> + ?Sized> PartialOrd<T> for DomainName {
+impl<T: AsRef<DomainNameSlice> + ?Sized> PartialOrd<T> for DomainNameSlice {
     fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
         self.iter().partial_cmp(other.as_ref().iter())
     }
 }
 
-impl<'a> PartialOrd<WireDomainName<'a>> for DomainName {
-    fn partial_cmp(&self, other: &WireDomainName) -> Option<cmp::Ordering> {
+impl<'a> PartialOrd<CompactDomainName<'a>> for DomainNameSlice {
+    fn partial_cmp(&self, other: &CompactDomainName) -> Option<cmp::Ordering> {
         let mut self_iter = self.iter();
         let mut other_iter = other.iter();
         loop {
@@ -351,14 +382,14 @@ impl<'a> PartialOrd<WireDomainName<'a>> for DomainName {
     }
 }
 
-impl Ord for DomainName {
+impl Ord for DomainNameSlice {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.iter().cmp(other.iter())
     }
 }
 
 
-impl hash::Hash for DomainName {
+impl hash::Hash for DomainNameSlice {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         use std::hash::Hash;
 
@@ -368,7 +399,7 @@ impl hash::Hash for DomainName {
     }
 }
 
-impl fmt::Display for DomainName {
+impl fmt::Display for DomainNameSlice {
     fn fmt(&self,  f: &mut fmt::Formatter) -> fmt::Result {
         self.to_string().fmt(f)
     }
@@ -459,9 +490,9 @@ impl DomainNameBuf {
         Ok(res)
     }
 
-    /// Coerces to a `DomainName` slice.
+    /// Coerces to a `DomainNameSlice` slice.
     ///
-    pub fn as_name(&self) -> &DomainName {
+    pub fn as_name(&self) -> &DomainNameSlice {
         self
     }
 
@@ -488,19 +519,38 @@ impl DomainNameBuf {
     /// 
     /// XXX Is this a good rule? Checking for absolute names is costly.
     ///
-    pub fn append<N: AsRef<DomainName>>(&mut self, name: N) {
+    pub fn append<N: AsRef<DomainNameSlice>>(&mut self, name: N) {
         self._append(name.as_ref())
     }
 
-    fn _append(&mut self, name: &DomainName) {
+    fn _append(&mut self, name: &DomainNameSlice) {
         if !self.is_absolute() {
             self.inner.extend(&name.slice)
         }
     }
 }
 
-impl<'a> From<&'a DomainName> for DomainNameBuf {
-    fn from(n: &'a DomainName) -> DomainNameBuf {
+impl DomainName for DomainNameBuf {
+    fn to_owned(&self) -> Result<DomainNameBuf> {
+        Ok(self.clone())
+    }
+
+    fn to_cow(&self) -> Result<Cow<DomainNameSlice>> {
+        Ok(Cow::Borrowed(&self))
+    }
+
+    fn push_buf<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
+        self.deref().push_buf(buf)
+    }
+
+    fn push_buf_compressed<B: BytesBuf>(&self, buf: &mut B) -> Result<()> {
+        self.deref().push_buf_compressed(buf)
+    }
+}
+
+
+impl<'a> From<&'a DomainNameSlice> for DomainNameBuf {
+    fn from(n: &'a DomainNameSlice) -> DomainNameBuf {
         unsafe { DomainNameBuf::from_bytes(&n.slice) }
     }
 }
@@ -515,22 +565,22 @@ impl str::FromStr for DomainNameBuf {
 }
 
 impl Deref for DomainNameBuf {
-    type Target = DomainName;
+    type Target = DomainNameSlice;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { DomainName::from_bytes(&self.inner) }
+        unsafe { DomainNameSlice::from_bytes(&self.inner) }
     }
 }
 
-impl Borrow<DomainName> for DomainNameBuf {
-    fn borrow(&self) -> &DomainName {
+impl Borrow<DomainNameSlice> for DomainNameBuf {
+    fn borrow(&self) -> &DomainNameSlice {
         self.deref()
     }
 }
 
 
-impl AsRef<DomainName> for DomainNameBuf {
-    fn as_ref(&self) -> &DomainName { self }
+impl AsRef<DomainNameSlice> for DomainNameBuf {
+    fn as_ref(&self) -> &DomainNameSlice { self }
 }
 
 
@@ -561,16 +611,22 @@ impl hash::Hash for DomainNameBuf {
 }
 
 
-//------------ WireDomainName ----------------------------------------------
+impl fmt::Display for DomainNameBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.deref().fmt(f)
+    }
+}
 
-/// A domain name embedded in a DNS message.
+//------------ CompactDomainName --------------------------------------------
+
+/// A reference to a possibly compressed domain name.
 ///
-/// A wire domain name is not self-contained but rather may reference
+/// This domain name is not self-contained but rather may reference
 /// another domain name. Because if this, it always needs a second bytes
 /// slice representing the message and called the *context*.
 /// 
 #[derive(Clone, Debug)]
-pub struct WireDomainName<'a> {
+pub struct CompactDomainName<'a> {
     slice: &'a [u8],
     context: &'a [u8],
 }
@@ -578,21 +634,21 @@ pub struct WireDomainName<'a> {
 
 /// # Creation and Conversion
 ///
-impl<'a> WireDomainName<'a> {
-    /// Creates a new wire domain name from its components.
-    pub fn new(slice: &'a[u8], context: &'a[u8]) -> WireDomainName<'a> {
-        WireDomainName { slice: slice, context: context }
+impl<'a> CompactDomainName<'a> {
+    /// Creates a new domain name from its components.
+    pub fn new(slice: &'a[u8], context: &'a[u8]) -> CompactDomainName<'a> {
+        CompactDomainName { slice: slice, context: context }
     }
 
     /// Splits a wire domain name from the beginning of a  bytes slice.
     pub fn split_from(slice: &'a[u8], context: &'a[u8])
-                      -> Result<(WireDomainName<'a>, &'a[u8])> {
+                      -> Result<(CompactDomainName<'a>, &'a[u8])> {
         let mut pos = 0;
         loop {
             let (end, head) = try!(Label::peek(slice, pos));
             if head.is_final() {
                 let (bytes, slice) = try!(slice.split_bytes(end));
-                return Ok((WireDomainName::new(bytes, context), slice));
+                return Ok((CompactDomainName::new(bytes, context), slice));
             }
             pos = end;
         }
@@ -608,7 +664,7 @@ impl<'a> WireDomainName<'a> {
     /// If `self` does not contain any compressed labels, it will be
     /// coerced into a regular domain name slice. If it does, it will be
     /// converted into an owned domain name.
-    pub fn decompress(&self) -> Result<Cow<'a, DomainName>> {
+    pub fn decompress(&self) -> Result<Cow<'a, DomainNameSlice>> {
         // Walk over the name and return it if it ends without compression.
         let mut pos = 0;
         loop {
@@ -616,7 +672,7 @@ impl<'a> WireDomainName<'a> {
             match head {
                 LabelHead::Normal(0) => {
                     let name = unsafe { 
-                        DomainName::from_bytes(&self.slice[..end])
+                        DomainNameSlice::from_bytes(&self.slice[..end])
                     };
                     return Ok(Cow::Borrowed(name));
                 }
@@ -630,7 +686,7 @@ impl<'a> WireDomainName<'a> {
         // iterate over the rest and append each label.
         let (bytes, slice) = try!(self.slice.split_bytes(pos));
         let mut res = unsafe { DomainNameBuf::from_bytes(bytes) };
-        for label in WireIter::new(slice, self.context) {
+        for label in CompactIter::new(slice, self.context) {
             let label = try!(label);
             res.push(label)
         }
@@ -653,15 +709,23 @@ impl<'a> WireDomainName<'a> {
 
 // # Iteration over Labels
 //
-impl<'a> WireDomainName<'a> {
+impl<'a> CompactDomainName<'a> {
     /// Returns an iterator over the labels.
-    pub fn iter(&self) -> WireIter<'a> {
-        WireIter::new(self.slice, self.context)
+    pub fn iter(&self) -> CompactIter<'a> {
+        CompactIter::new(self.slice, self.context)
     }
 }
 
 
-impl<'a> BuildDomainName for WireDomainName<'a> {
+impl<'a> DomainName for CompactDomainName<'a> {
+    fn to_owned(&self) -> Result<DomainNameBuf> {
+        self.to_owned()
+    }
+
+    fn to_cow(&self) -> Result<Cow<DomainNameSlice>> {
+        self.decompress()
+    }
+
     fn push_buf<O: BytesBuf>(&self, buf: &mut O) -> Result<()> {
         for label in self.iter() {
             try!(label).push_buf(buf)
@@ -675,27 +739,27 @@ impl<'a> BuildDomainName for WireDomainName<'a> {
 }
 
 
-impl<'a> PartialEq for WireDomainName<'a> {
-    fn eq(&self, other: &WireDomainName) -> bool {
+impl<'a> PartialEq for CompactDomainName<'a> {
+    fn eq(&self, other: &CompactDomainName) -> bool {
         self.iter().eq(other.iter())
     }
 }
 
-impl<'a, T: AsRef<DomainName> + ?Sized> PartialEq<T> for WireDomainName<'a>
+impl<'a, T: AsRef<DomainNameSlice> + ?Sized> PartialEq<T> for CompactDomainName<'a>
 {
     fn eq(&self, other: &T) -> bool {
         other.as_ref().eq(self)
     }
 }
 
-impl<'a, T: AsRef<DomainName> + ?Sized> PartialOrd<T> for WireDomainName<'a>
+impl<'a, T: AsRef<DomainNameSlice> + ?Sized> PartialOrd<T> for CompactDomainName<'a>
 {
     fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
         other.as_ref().partial_cmp(self).map(|o| o.reverse())
     }
 }
 
-impl<'a> fmt::Display for WireDomainName<'a> {
+impl<'a> fmt::Display for CompactDomainName<'a> {
     fn fmt(&self,  f: &mut fmt::Formatter) -> fmt::Result {
         match self.to_string() {
             Ok(s) => s.fmt(f),
@@ -715,8 +779,8 @@ pub struct NameIter<'a> {
 
 impl<'a> NameIter<'a> {
     /// Returns the domain name for the remaining portion.
-    pub fn as_name(&self) -> &'a DomainName {
-        unsafe { DomainName::from_bytes(self.slice) }
+    pub fn as_name(&self) -> &'a DomainNameSlice {
+        unsafe { DomainNameSlice::from_bytes(self.slice) }
     }
 }
 
@@ -734,26 +798,26 @@ impl<'a> Iterator for NameIter<'a> {
 }
 
 
-//------------ WireIter ----------------------------------------------------
+//------------ CompactIter --------------------------------------------------
 
 /// An iterator over the labels in a frail domain name.
 #[derive(Clone, Debug)]
-pub struct WireIter<'a> {
+pub struct CompactIter<'a> {
     slice: &'a[u8],
     context: &'a[u8],
 }
 
-impl<'a> WireIter<'a> {
-    fn new(slice: &'a[u8], context: &'a[u8]) -> WireIter<'a> {
-        WireIter { slice: slice, context: context }
+impl<'a> CompactIter<'a> {
+    fn new(slice: &'a[u8], context: &'a[u8]) -> CompactIter<'a> {
+        CompactIter { slice: slice, context: context }
     }
 
-    pub fn as_name(&self) -> Result<Cow<'a, DomainName>> {
-        WireDomainName::new(self.slice, self.context).decompress()
+    pub fn as_name(&self) -> Result<Cow<'a, DomainNameSlice>> {
+        CompactDomainName::new(self.slice, self.context).decompress()
     }
 }
 
-impl<'a> Iterator for WireIter<'a> {
+impl<'a> Iterator for CompactIter<'a> {
     type Item = Result<Label<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1155,15 +1219,6 @@ impl LabelHead {
             _ => false
         }
     }
-}
-
-
-//------------ BuildDomainName ----------------------------------------------
-
-/// A trait for types that are able to construct a domain name.
-pub trait BuildDomainName {
-    fn push_buf<O: BytesBuf>(&self, o: &mut O) -> Result<()>;
-    fn push_buf_compressed<O: BytesBuf>(&self, o: &mut O) -> Result<()>;
 }
 
 

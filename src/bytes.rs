@@ -6,7 +6,7 @@ use std::fmt;
 use std::mem;
 use std::ptr;
 use std::result;
-use super::name::DomainName;
+use super::name::DomainNameSlice;
 
 
 //------------ BytesBuf -----------------------------------------------------
@@ -66,12 +66,12 @@ pub trait BytesBuf {
     fn can_compress(&self) -> bool { false }
 
     /// Adds a reference to a domain name at the current position.
-    fn add_name_pos<N: AsRef<DomainName>>(&mut self, name: N) {
+    fn add_name_pos<N: AsRef<DomainNameSlice>>(&mut self, name: N) {
         let _ = name;
     }
 
     /// Retrieves the position for `name`, if available.
-    fn get_name_pos<N: AsRef<DomainName>>(&self, name: N) -> Option<u16> {
+    fn get_name_pos<N: AsRef<DomainNameSlice>>(&self, name: N) -> Option<u16> {
         let _ = name; None
     }
 }

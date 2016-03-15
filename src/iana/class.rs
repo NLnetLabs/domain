@@ -84,3 +84,24 @@ impl fmt::Display for Class {
         }
     }
 }
+
+
+impl PartialEq for Class {
+    fn eq(&self, other: &Class) -> bool {
+        self.to_int() == other.to_int()
+    }
+}
+
+impl PartialEq<u16> for Class {
+    fn eq(&self, other: &u16) -> bool {
+        self.to_int() == *other
+    }
+}
+
+impl PartialEq<Class> for u16 {
+    fn eq(&self, other: &Class) -> bool {
+        *self == other.to_int()
+    }
+}
+
+impl Eq for Class { }
