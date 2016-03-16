@@ -12,6 +12,7 @@
 //! functionality multiple times. They contain implementations for the
 //! first two traits.
 
+use std::fmt;
 use super::super::bytes::{BytesBuf};
 use super::super::iana::RRType;
 pub use super::super::question::Result; // XXX Temporary
@@ -20,7 +21,7 @@ pub use super::super::question::Result; // XXX Temporary
 //------------ Basic Traits -------------------------------------------------
 
 /// A trait for creating record data.
-pub trait RecordData {
+pub trait RecordData: fmt::Display {
     /// Returns the record type for this record data instance.
     fn rtype(&self) -> RRType;
 
@@ -50,7 +51,7 @@ pub trait CompactRecordData<'a>: RecordData + Sized {
 /// This is the companion trait to `RecordData`. The only difference is that
 /// `rtype()` is an associated function instead of a method since all records
 /// with this data have the same type.
-pub trait ConcreteRecordData<'a>: Sized {
+pub trait ConcreteRecordData<'a>: fmt::Display + Sized {
     /// Returns the record type for all records of this data type.
     fn rtype() -> RRType;
 

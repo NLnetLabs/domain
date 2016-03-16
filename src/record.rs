@@ -1,3 +1,4 @@
+use std::fmt;
 use super::name::{DomainName, CompactDomainName};
 use super::bytes::{self, BytesSlice, BytesBuf};
 use super::question::Result; // XXX Temporary.
@@ -81,4 +82,13 @@ impl <'a, D: CompactRecordData<'a>> Record<CompactDomainName<'a>, D> {
 }
 
 
+//---- Traits
+
+impl <N: DomainName, D: RecordData> fmt::Display for Record<N, D> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}\t{}\t{}\t{}\t{}",
+               self.name, self.ttl, self.rclass, self.rdata.rtype(),
+               self.rdata)
+    }
+}
 

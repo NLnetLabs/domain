@@ -58,6 +58,8 @@ pub struct NS<N: DomainName> {
     nsdname: N
 }
 
+pub type CompactNS<'a> = NS<CompactDomainName<'a>>;
+
 impl<N: DomainName> NS<N> {
     pub fn new(nsdname: N) -> Self {
         NS { nsdname: nsdname }

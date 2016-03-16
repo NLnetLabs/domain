@@ -3,10 +3,9 @@
 use std::fmt;
 use super::super::bytes::BytesBuf;
 use super::super::iana::RRType;
-use super::super::name::CompactDomainName;
 use super::traits::{RecordData, CompactRecordData, Result};
 
-
+/*
 //------------ GenericRecordData --------------------------------------------
 
 /// A slice of generic record data.
@@ -32,7 +31,7 @@ impl<'a> RecordData for GenericRecordData<'a> {
         Ok(())
     }
 }
-
+*/
 
 //------------ CompactGenericRecordData -------------------------------------
 
@@ -86,7 +85,7 @@ impl<'a> fmt::Display for CompactGenericRecordData<'a> {
 
         match self.rtype {
             RRType::A => self.fmt::<A>(f),
-            RRType::NS => self.fmt::<NS<CompactDomainName<'a>>>(f),
+            RRType::NS => self.fmt::<CompactNS<'a>>(f),
             _ => "...".fmt(f)
         }
     }

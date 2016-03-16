@@ -1,7 +1,11 @@
 //! DNS CLASSes.
 
 use std::convert;
+use std::error;
 use std::fmt;
+use std::num;
+use std::result;
+use std::str;
 use super::super::bytes::BytesBuf;
 
 
@@ -70,6 +74,36 @@ impl convert::From<u16> for Class {
     }
 }
 
+impl str::FromStr for Class {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> ParseResult<Self> {
+        use std::ascii::AsciiExt;
+        use self::Class::*;
+
+        if s.eq_ignore_ascii_case("IN") { Ok(IN) }
+        else if s.eq_ignore_ascii_case("CH") { Ok(CH) }
+        else if s.eq_ignore_ascii_case("HS") { Ok(HS) }
+        else if s.eq_ignore_ascii_case("NONE") { Ok(NONE) }
+        else if s.eq_ignore_ascii_case("*") { Ok(ANY) }
+        else {
+            if let Some((n, _)) = s.char_indices().nth(5) {
+                let (l, r) = s.split_at(n);
+                if l.eq_ignore_ascii_case("CLASS") {
+                    Ok(Int(try!(u16::from_str_radix(r, 10))))
+                }
+                else {
+                    Err(ParseError::UnknownClass)
+                }
+            }
+            else {
+                Err(ParseError::UnknownClass)
+            }
+        }
+    }
+}
+
+
 impl fmt::Display for Class {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::Class::*;
@@ -105,3 +139,36 @@ impl PartialEq<Class> for u16 {
 }
 
 impl Eq for Class { }
+
+
+//------------ ParseError and ParseResult -----------------------------------
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParseError {
+    UnknownClass,
+}
+
+impl error::Error for ParseError {
+    fn description(&self) -> &str {
+        match *self {
+            ParseError::UnknownClass => "unknown class",
+        }
+    }
+}
+
+impl convert::From<num::ParseIntError> for ParseError {
+    fn from(_: num::ParseIntError) -> Self {
+        ParseError::UnknownClass
+    }
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use std::error::Error;
+
+        self.description().fmt(f)
+    }
+}
+
+pub type ParseResult<T> = result::Result<T, ParseError>;
+

@@ -7,7 +7,8 @@ use std::fmt;
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::result;
-use domain::iana::{Class, RRType};
+use std::str::FromStr;
+use domain::iana::{rrtype, Class, RRType};
 use domain::message::{self, MessageBuf, MessageBuilder, RecordSection};
 use domain::rdata::generic::CompactGenericRecordData;
 use domain::resolver::conf::ResolvConf;
@@ -86,7 +87,12 @@ impl Options {
     }
 
     fn qtype(&self) -> Result<RRType> {
-        Ok((if self.name.is_empty() { RRType::NS } else { RRType::A }))
+        if self.qtype.is_empty() {
+            Ok((if self.name.is_empty() { RRType::NS } else { RRType::A }))
+        }
+        else {
+            Ok(try!(RRType::from_str(&self.qtype)))
+        }
     }
 
     fn qclass(&self) -> Result<Class> {
@@ -114,6 +120,12 @@ impl error::Error for Error {
 
 impl convert::From<name::ParseError> for Error {
     fn from(error: name::ParseError) -> Error {
+        Error { inner: Box::new(error) }
+    }
+}
+
+impl convert::From<rrtype::ParseError> for Error {
+    fn from(error: rrtype::ParseError) -> Error {
         Error { inner: Box::new(error) }
     }
 }

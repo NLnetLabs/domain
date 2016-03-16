@@ -2,7 +2,11 @@
 //!
 
 use std::convert;
+use std::error;
 use std::fmt;
+use std::num;
+use std::result;
+use std::str;
 use super::super::bytes::BytesBuf;
 
 
@@ -594,6 +598,116 @@ impl convert::From<u16> for RRType {
     }
 }
 
+
+impl str::FromStr for RRType {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> ParseResult<Self> {
+        use std::ascii::AsciiExt;
+        use self::RRType::*;
+
+        if s.eq_ignore_ascii_case("A") { Ok(A) }
+        else if s.eq_ignore_ascii_case("NS") { Ok(NS) }
+        else if s.eq_ignore_ascii_case("MD") { Ok(MD) }
+        else if s.eq_ignore_ascii_case("MF") { Ok(MF) }
+        else if s.eq_ignore_ascii_case("CNAME") { Ok(CNAME) }
+        else if s.eq_ignore_ascii_case("SOA") { Ok(SOA) }
+        else if s.eq_ignore_ascii_case("MB") { Ok(MB) }
+        else if s.eq_ignore_ascii_case("MG") { Ok(MG) }
+        else if s.eq_ignore_ascii_case("MR") { Ok(MR) }
+        else if s.eq_ignore_ascii_case("NULL") { Ok(NULL) }
+        else if s.eq_ignore_ascii_case("WKS") { Ok(WKS) }
+        else if s.eq_ignore_ascii_case("PTR") { Ok(PTR) }
+        else if s.eq_ignore_ascii_case("HINFO") { Ok(HINFO) }
+        else if s.eq_ignore_ascii_case("MINFO") { Ok(MINFO) }
+        else if s.eq_ignore_ascii_case("MX") { Ok(MX) }
+        else if s.eq_ignore_ascii_case("TXT") { Ok(TXT) }
+        else if s.eq_ignore_ascii_case("RP") { Ok(RP) }
+        else if s.eq_ignore_ascii_case("AFSDB") { Ok(AFSDB) }
+        else if s.eq_ignore_ascii_case("X25") { Ok(X25) }
+        else if s.eq_ignore_ascii_case("ISDN") { Ok(ISDN) }
+        else if s.eq_ignore_ascii_case("RT") { Ok(RT) }
+        else if s.eq_ignore_ascii_case("NSAP") { Ok(NSAP) }
+        else if s.eq_ignore_ascii_case("NSAP-PTR") { Ok(NSAPPTR) }
+        else if s.eq_ignore_ascii_case("SIG") { Ok(SIG) }
+        else if s.eq_ignore_ascii_case("KEY") { Ok(KEY) }
+        else if s.eq_ignore_ascii_case("PX") { Ok(PX) }
+        else if s.eq_ignore_ascii_case("GPOS") { Ok(GPOS) }
+        else if s.eq_ignore_ascii_case("AAAA") { Ok(AAAA) }
+        else if s.eq_ignore_ascii_case("LOC") { Ok(LOC) }
+        else if s.eq_ignore_ascii_case("NXT") { Ok(NXT) }
+        else if s.eq_ignore_ascii_case("EID") { Ok(EID) }
+        else if s.eq_ignore_ascii_case("NIMLOC") { Ok(NIMLOC) }
+        else if s.eq_ignore_ascii_case("SRV") { Ok(SRV) }
+        else if s.eq_ignore_ascii_case("ATMA") { Ok(ATMA) }
+        else if s.eq_ignore_ascii_case("NAPTR") { Ok(NAPTR) }
+        else if s.eq_ignore_ascii_case("KX") { Ok(KX) }
+        else if s.eq_ignore_ascii_case("CERT") { Ok(CERT) }
+        else if s.eq_ignore_ascii_case("A6") { Ok(A6) }
+        else if s.eq_ignore_ascii_case("DNAME") { Ok(DNAME) }
+        else if s.eq_ignore_ascii_case("SINK") { Ok(SINK) }
+        else if s.eq_ignore_ascii_case("OPT") { Ok(OPT) }
+        else if s.eq_ignore_ascii_case("APL") { Ok(APL) }
+        else if s.eq_ignore_ascii_case("DS") { Ok(DS) }
+        else if s.eq_ignore_ascii_case("SSHFP") { Ok(SSHFP) }
+        else if s.eq_ignore_ascii_case("IPSECKEY") { Ok(IPSECKEY) }
+        else if s.eq_ignore_ascii_case("RRSIG") { Ok(RRSIG) }
+        else if s.eq_ignore_ascii_case("NSEC") { Ok(NSEC) }
+        else if s.eq_ignore_ascii_case("DNSKEY") { Ok(DNSKEY) }
+        else if s.eq_ignore_ascii_case("DHCID") { Ok(DHCID) }
+        else if s.eq_ignore_ascii_case("NSEC3") { Ok(NSEC3) }
+        else if s.eq_ignore_ascii_case("NSEC3PARAM") { Ok(NSEC3PARAM) }
+        else if s.eq_ignore_ascii_case("TLSA") { Ok(TLSA) }
+        else if s.eq_ignore_ascii_case("SMIMEA") { Ok(SMIMEA) }
+        else if s.eq_ignore_ascii_case("HIP") { Ok(HIP) }
+        else if s.eq_ignore_ascii_case("NINFO") { Ok(NINFO) }
+        else if s.eq_ignore_ascii_case("RKEY") { Ok(RKEY) }
+        else if s.eq_ignore_ascii_case("TALINK") { Ok(TALINK) }
+        else if s.eq_ignore_ascii_case("CDS") { Ok(CDS) }
+        else if s.eq_ignore_ascii_case("CDNSKEY") { Ok(CDNSKEY) }
+        else if s.eq_ignore_ascii_case("OPENPGPKEY") { Ok(OPENPGPKEY) }
+        else if s.eq_ignore_ascii_case("CSYNC") { Ok(CSYNC) }
+        else if s.eq_ignore_ascii_case("SPF") { Ok(SPF) }
+        else if s.eq_ignore_ascii_case("UINFO") { Ok(UINFO) }
+        else if s.eq_ignore_ascii_case("UID") { Ok(UID) }
+        else if s.eq_ignore_ascii_case("GID") { Ok(GID) }
+        else if s.eq_ignore_ascii_case("UNSPEC") { Ok(UNSPEC) }
+        else if s.eq_ignore_ascii_case("NID") { Ok(NID) }
+        else if s.eq_ignore_ascii_case("L32") { Ok(L32) }
+        else if s.eq_ignore_ascii_case("L64") { Ok(L64) }
+        else if s.eq_ignore_ascii_case("LP") { Ok(LP) }
+        else if s.eq_ignore_ascii_case("EUI48") { Ok(EUI48) }
+        else if s.eq_ignore_ascii_case("EUI64") { Ok(EUI64) }
+        else if s.eq_ignore_ascii_case("TKEY") { Ok(TKEY) }
+        else if s.eq_ignore_ascii_case("TSIG") { Ok(TSIG) }
+        else if s.eq_ignore_ascii_case("IXFR") { Ok(IXFR) }
+        else if s.eq_ignore_ascii_case("AXFR") { Ok(AXFR) }
+        else if s.eq_ignore_ascii_case("MAILB") { Ok(MAILB) }
+        else if s.eq_ignore_ascii_case("MAILA") { Ok(MAILA) }
+        else if s.eq_ignore_ascii_case("ANY") { Ok(ANY) }
+        else if s.eq_ignore_ascii_case("URI") { Ok(URI) }
+        else if s.eq_ignore_ascii_case("CAA") { Ok(CAA) }
+        else if s.eq_ignore_ascii_case("AVC") { Ok(AVC) }
+        else if s.eq_ignore_ascii_case("TA") { Ok(TA) }
+        else if s.eq_ignore_ascii_case("DLV") { Ok(DLV) }
+        else {
+            if let Some((n, _)) = s.char_indices().nth(4) {
+                let (l, r) = s.split_at(n);
+                if l.eq_ignore_ascii_case("TYPE") {
+                    Ok(Int(try!(u16::from_str_radix(r, 10))))
+                }
+                else {
+                    Err(ParseError::UnknownType)
+                }
+            }
+            else {
+                Err(ParseError::UnknownType)
+            }
+        }
+    }
+}
+
+
 impl fmt::Display for RRType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::RRType::*;
@@ -621,7 +735,7 @@ impl fmt::Display for RRType {
             ISDN => "ISDN".fmt(f),
             RT => "RT".fmt(f),
             NSAP => "NSAP".fmt(f),
-            NSAPPTR => "NSAPPTR".fmt(f),
+            NSAPPTR => "NSAP-PTR".fmt(f),
             SIG => "SIG".fmt(f),
             KEY => "KEY".fmt(f),
             PX => "PX".fmt(f),
@@ -683,7 +797,7 @@ impl fmt::Display for RRType {
             AVC => "AVC".fmt(f),
             TA => "TA".fmt(f),
             DLV => "DLV".fmt(f),
-            Int(value) => value.fmt(f)
+            Int(value) => write!(f, "TYPE{}", value)
         }
     }
 }
@@ -708,4 +822,36 @@ impl PartialEq<RRType> for u16 {
 }
 
 impl Eq for RRType { }
+
+
+//------------ ParseError and ParseResult -----------------------------------
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParseError {
+    UnknownType,
+}
+
+impl error::Error for ParseError {
+    fn description(&self) -> &str {
+        match *self {
+            ParseError::UnknownType => "unknown type",
+        }
+    }
+}
+
+impl convert::From<num::ParseIntError> for ParseError {
+    fn from(_: num::ParseIntError) -> Self {
+        ParseError::UnknownType
+    }
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use std::error::Error;
+
+        self.description().fmt(f)
+    }
+}
+
+pub type ParseResult<T> = result::Result<T, ParseError>;
 
