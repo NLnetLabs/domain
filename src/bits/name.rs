@@ -880,13 +880,19 @@ impl<'a> fmt::Display for LazyDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut empty = true;
         for label in self.iter() {
-            if !empty { try!('.'.fmt(f)) } else { empty = false }
             match label {
-                Ok(label) => try!(label.fmt(f)),
                 Err(..) => { try!("<PARSEERR>".fmt(f)); break }
+                Ok(label) => {
+                    if !empty { try!('.'.fmt(f)) }
+                    else {
+                        if label.is_root() { try!('.'.fmt(f)) }
+                        empty = false;
+                    }
+                    try!(label.fmt(f))
+                }
             }
         }
-        '.'.fmt(f)
+        Ok(())
     }
 }
 
