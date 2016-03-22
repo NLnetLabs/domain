@@ -18,18 +18,20 @@ use super::nest;
 ///
 /// This trait doesn’t actually define any methods but rather only collects
 /// the associated types for each flavor.
-pub trait Flavor<'a>: Sized {
+pub trait Flavor: Sized {
     type DName: name::DName;
-    type Nest: nest::Nest<'a, Self>;
 }
 
+/// The trait for DNS data that is stored in unparsed format.
+pub trait FlatFlavor<'a>: Flavor {
+    type Nest: nest::Nest<'a, Self>;
+}
 
 /// The flavor for owned DNS data.
 pub struct Owned;
 
-impl<'a> Flavor<'a> for Owned {
+impl Flavor for Owned {
     type DName = name::OwnedDName;
-    type Nest = nest::OwnedNest;
 }
 
 /// The flavor for DNS data referencing an underlying bytes slice.
@@ -37,8 +39,11 @@ pub struct Ref<'a> {
     marker: PhantomData<&'a u8>
 }
 
-impl<'a> Flavor<'a> for Ref<'a> {
+impl<'a> Flavor for Ref<'a> {
     type DName = name::DNameRef<'a>;
+}
+
+impl<'a> FlatFlavor<'a> for Ref<'a> {
     type Nest = nest::NestRef<'a>;
 }
 
@@ -48,7 +53,10 @@ pub struct Lazy<'a> {
     marker: PhantomData<&'a u8>
 }
 
-impl<'a> Flavor<'a> for Lazy<'a> {
+impl<'a> Flavor for Lazy<'a> {
     type DName = name::LazyDName<'a>;
+}
+
+impl<'a> FlatFlavor<'a> for Lazy<'a> {
     type Nest = nest::LazyNest<'a>;
 }

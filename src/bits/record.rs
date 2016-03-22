@@ -3,15 +3,15 @@
 use std::fmt;
 use super::compose::ComposeBytes;
 use super::error::{ComposeError, ComposeResult, ParseResult};
-use super::flavor::Flavor;
+use super::flavor::{FlatFlavor, Flavor};
 use super::iana::{Class, RRType};
 use super::parse::ParseFlavor;
-use super::rdata::RecordData;
+use super::rdata::{FlatRecordData, RecordData};
 
 //------------ Record -------------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct Record<'a, F: Flavor<'a>, D: RecordData<'a, F>> {
+pub struct Record<F: Flavor, D: RecordData<F>> {
     name: F::DName,
     class: Class,
     ttl: u32,
@@ -21,7 +21,7 @@ pub struct Record<'a, F: Flavor<'a>, D: RecordData<'a, F>> {
 
 /// # Creation and Conversion
 ///
-impl<'a, F: Flavor<'a>, D: RecordData<'a, F>> Record<'a, F, D> {
+impl<F: Flavor, D: RecordData<F>> Record<F, D> {
     /// Creates a new record from its parts.
     pub fn new(name: F::DName, class: Class, ttl: u32, rdata: D) -> Self {
         Record { name: name, class: class, ttl: ttl, rdata: rdata }
@@ -31,7 +31,7 @@ impl<'a, F: Flavor<'a>, D: RecordData<'a, F>> Record<'a, F, D> {
 
 /// # Element Access
 ///
-impl<'a, F: Flavor<'a>, D: RecordData<'a, F>> Record<'a, F, D> {
+impl<F: Flavor, D: RecordData<F>> Record<F, D> {
     /// Returns a reference to the domain name.
     pub fn name(&self) -> &F::DName {
         &self.name
@@ -61,7 +61,7 @@ impl<'a, F: Flavor<'a>, D: RecordData<'a, F>> Record<'a, F, D> {
 
 /// Parsing and Composing
 ///
-impl<'a, F: Flavor<'a>, D: RecordData<'a, F>> Record<'a, F, D> {
+impl<'a, F: FlatFlavor<'a>, D: FlatRecordData<'a, F>> Record<F, D> {
     pub fn parse<P>(parser: &mut P) -> ParseResult<Option<Self>>
                  where P: ParseFlavor<'a, F> {
         let name = try!(parser.parse_name());
@@ -73,7 +73,9 @@ impl<'a, F: Flavor<'a>, D: RecordData<'a, F>> Record<'a, F, D> {
         Ok(try!(D::parse(rtype, &mut rdata_sub))
                   .map(|rdata| Record::new(name, class, ttl, rdata)))
     }
+}
 
+impl<F: Flavor, D: RecordData<F>> Record<F, D> {
     pub fn compose<C: ComposeBytes>(&self, target: &mut C)
                                     -> ComposeResult<()> {
         try!(target.push_dname_compressed(&self.name));
@@ -94,8 +96,7 @@ impl<'a, F: Flavor<'a>, D: RecordData<'a, F>> Record<'a, F, D> {
 
 //--- Display
 
-impl<'a, F, D> fmt::Display for Record<'a, F, D> 
-     where F: Flavor<'a>, D: RecordData<'a, F> {
+impl<F: Flavor, D: RecordData<F>> fmt::Display for Record<F, D> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\t{}\t{}\t{}\t{}",
                self.name, self.ttl, self.class, self.rdata.rtype(),
@@ -111,8 +112,7 @@ pub trait ComposeRecord {
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()>;
 }
 
-impl<'a, F, D> ComposeRecord for Record<'a, F, D>
-      where F: Flavor<'a>, D: RecordData<'a, F> {
+impl<F: Flavor, D: RecordData<F>> ComposeRecord for Record<F, D> {
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         self.compose(target)
     }

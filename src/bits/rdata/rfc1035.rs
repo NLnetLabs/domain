@@ -2,10 +2,10 @@ use std::fmt;
 use std::net;
 use super::super::compose::ComposeBytes;
 use super::super::error::{ComposeResult, ParseResult};
-use super::super::flavor::Flavor;
+use super::super::flavor::{FlatFlavor, Flavor};
 use super::super::iana::RRType;
 use super::super::parse::ParseFlavor;
-use super::traits::RecordData;
+use super::traits::{FlatRecordData, RecordData};
 
 
 
@@ -26,7 +26,7 @@ impl A {
     pub fn addr_mut(&mut self) -> &mut net::Ipv4Addr { &mut self.addr }
 }
 
-impl<'a, F: Flavor<'a>> RecordData<'a, F> for A {
+impl<F: Flavor> RecordData<F> for A {
     fn rtype(&self) -> RRType { RRType::A }
     
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
@@ -35,7 +35,9 @@ impl<'a, F: Flavor<'a>> RecordData<'a, F> for A {
         }
         Ok(())
     }
+}
 
+impl<'a, F: FlatFlavor<'a>> FlatRecordData<'a, F> for A {
     fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
              where P: ParseFlavor<'a, F> {
         if rtype != RRType::A { return Ok(None) }
@@ -56,11 +58,11 @@ impl fmt::Display for A {
 //------------ NS -----------------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct NS<'a, F: Flavor<'a>> {
+pub struct NS<F: Flavor> {
     nsdname: F::DName
 }
 
-impl<'a, F: Flavor<'a>> NS<'a, F> {
+impl<F: Flavor> NS<F> {
     pub fn new(nsdname: F::DName) -> Self {
         NS { nsdname: nsdname }
     }
@@ -70,13 +72,15 @@ impl<'a, F: Flavor<'a>> NS<'a, F> {
     }
 }
 
-impl<'a, F: Flavor<'a>> RecordData<'a, F> for NS<'a, F> {
+impl<F: Flavor> RecordData<F> for NS<F> {
     fn rtype(&self) -> RRType { RRType::NS }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         target.push_dname_compressed(&self.nsdname)
     }
+}
 
+impl<'a, F: FlatFlavor<'a>> FlatRecordData<'a, F> for NS<F> {
     fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
              where P: ParseFlavor<'a, F> {
         if rtype != RRType::NS { return Ok(None) }
@@ -85,7 +89,7 @@ impl<'a, F: Flavor<'a>> RecordData<'a, F> for NS<'a, F> {
 }
 
 
-impl<'a, F: Flavor<'a>> fmt::Display for NS<'a, F> {
+impl<F: Flavor> fmt::Display for NS<F> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.nsdname.fmt(f)
     }

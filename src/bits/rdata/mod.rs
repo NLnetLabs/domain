@@ -1,6 +1,6 @@
 //! Resource data handling.
 
-pub use self::traits::RecordData;
+pub use self::traits::{FlatRecordData, RecordData};
 pub use self::generic::GenericRecordData;
 
 pub mod traits;

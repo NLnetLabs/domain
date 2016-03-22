@@ -2,9 +2,9 @@
 
 use std::mem;
 use super::error::{ParseResult, ParseError};
-use super::flavor::{Flavor, Owned, Ref, Lazy};
-use super::name::{OwnedDName, DNameRef, LazyDName};
-use super::nest::{OwnedNest, NestRef, LazyNest};
+use super::flavor::{self, FlatFlavor};
+use super::name::{DNameRef, LazyDName};
+use super::nest::{NestRef, LazyNest};
 
 
 //------------ Traits -------------------------------------------------------
@@ -64,22 +64,12 @@ pub trait ParseLazy<'a>: ParseBytes<'a> {
 /// `ParseBytesSimple` trait, not every parser can parse every kind of
 /// domain name. Because of this, parsers may implement the
 /// `ParseBytes` trait only for specific flavors.
-pub trait ParseFlavor<'a, F: Flavor<'a>>: ParseBytes<'a> {
+pub trait ParseFlavor<'a, F: FlatFlavor<'a>>: ParseBytes<'a> {
     fn parse_name(&mut self) -> ParseResult<F::DName>;
     fn parse_nest(&mut self, len: usize) -> ParseResult<F::Nest>;
 }
 
-impl<'a, P: ParseBytes<'a>> ParseFlavor<'a, Owned> for P {
-    fn parse_name(&mut self) -> ParseResult<OwnedDName> {
-        OwnedDName::parse_complete(self)
-    }
-    
-    fn parse_nest(&mut self, len: usize) -> ParseResult<OwnedNest> {
-        OwnedNest::parse(self, len)
-    }
-}
-
-impl<'a, P: ParseBytes<'a>> ParseFlavor<'a, Ref<'a>> for P {
+impl<'a, P: ParseBytes<'a>> ParseFlavor<'a, flavor::Ref<'a>> for P {
     fn parse_name(&mut self) -> ParseResult<DNameRef<'a>> {
         DNameRef::parse(self)
     }
@@ -89,7 +79,7 @@ impl<'a, P: ParseBytes<'a>> ParseFlavor<'a, Ref<'a>> for P {
     }
 }
 
-impl<'a> ParseFlavor<'a, Lazy<'a>> for ContextParser<'a> {
+impl<'a> ParseFlavor<'a, flavor::Lazy<'a>> for ContextParser<'a> {
     fn parse_name(&mut self) -> ParseResult<LazyDName<'a>> {
         LazyDName::parse(self)
     }

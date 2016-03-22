@@ -2,7 +2,7 @@
 
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
-use super::flavor::{self, Flavor};
+use super::flavor::{self, Flavor, FlatFlavor};
 use super::iana::{Class, RRType};
 use super::name::DName;
 use super::parse::ParseFlavor;
@@ -11,20 +11,20 @@ use super::parse::ParseFlavor;
 //------------ Question -----------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct Question<'a, F: Flavor<'a>> {
+pub struct Question<F: Flavor> {
     qname: F::DName,
     qtype: RRType,
     qclass: Class,
 }
 
-pub type OwnedQuestion<'a> = Question<'a, flavor::Owned>;
-pub type QuestionRef<'a> = Question<'a, flavor::Ref<'a>>;
-pub type LazyQuestion<'a> = Question<'a, flavor::Lazy<'a>>;
+pub type OwnedQuestion = Question<flavor::Owned>;
+pub type QuestionRef<'a> = Question<flavor::Ref<'a>>;
+pub type LazyQuestion<'a> = Question<flavor::Lazy<'a>>;
 
 
 /// # Creation and Conversion
 ///
-impl<'a, F: Flavor<'a>> Question<'a, F> {
+impl<F: Flavor> Question<F> {
     pub fn new(qname: F::DName, qtype: RRType, qclass: Class) -> Self {
         Question { qname: qname, qtype: qtype, qclass: qclass }
     }
@@ -33,7 +33,7 @@ impl<'a, F: Flavor<'a>> Question<'a, F> {
 
 /// # Element Access
 ///
-impl<'a, F: Flavor<'a>> Question<'a, F> {
+impl<F: Flavor> Question<F> {
     /// Returns the requested domain name.
     pub fn qname(&self) -> &F::DName {
         &self.qname
@@ -53,14 +53,16 @@ impl<'a, F: Flavor<'a>> Question<'a, F> {
 
 /// Parsing and Composing
 ///
-impl<'a, F: Flavor<'a>> Question<'a, F> {
+impl<'a, F: FlatFlavor<'a>> Question<F> {
     pub fn parse<P>(parser: &mut P) -> ParseResult<Self>
                  where P: ParseFlavor<'a, F> {
         Ok(Question::new(try!(parser.parse_name()),
                          try!(parser.parse_u16()).into(),
                          try!(parser.parse_u16()).into()))
     }
+}
 
+impl<F: Flavor> Question<F> {
     pub fn compose<C: ComposeBytes>(&self, target: &mut C)
                                     -> ComposeResult<()> {
         try!(target.push_dname_compressed(&self.qname));
@@ -77,7 +79,7 @@ pub trait ComposeQuestion {
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()>;
 }
 
-impl<'a, F: Flavor<'a>> ComposeQuestion for Question<'a, F> {
+impl<F: Flavor> ComposeQuestion for Question<F> {
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         self.compose(target)
     }

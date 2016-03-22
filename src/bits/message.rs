@@ -4,12 +4,12 @@ use std::marker::PhantomData;
 use std::mem;
 use super::compose::ComposeBytes;
 use super::error::{ComposeError, ComposeResult, ParseResult};
-use super::flavor::{self, Flavor};
+use super::flavor::{self, FlatFlavor};
 use super::header::{Header, HeaderCounts, FullHeader};
 use super::nest::{self, Nest};
 use super::parse::ParseBytes;
 use super::question::{ComposeQuestion, Question};
-use super::rdata::{GenericRecordData, RecordData};
+use super::rdata::{GenericRecordData, FlatRecordData};
 use super::record::{ComposeRecord, Record};
 
 
@@ -19,7 +19,7 @@ use super::record::{ComposeRecord, Record};
 
 /// A DNS message.
 #[derive(Clone, Debug)]
-pub struct Message<'a, F: Flavor<'a>> {
+pub struct Message<'a, F: FlatFlavor<'a>> {
     nest: F::Nest
 }
 
@@ -29,7 +29,7 @@ pub type LazyMessage<'a> = Message<'a, flavor::Lazy<'a>>;
 
 /// # Creation and Conversion
 ///
-impl<'a, F: Flavor<'a>> Message<'a, F> {
+impl<'a, F: FlatFlavor<'a>> Message<'a, F> {
     /// Creates a message from a nest.
     pub fn from_nest(nest: F::Nest) -> Self {
         Message { nest: nest }
@@ -51,7 +51,7 @@ impl<'a> Message<'a, flavor::Lazy<'a>> {
 
 // # Header Access
 //
-impl<'a, F: Flavor<'a>> Message<'a, F> {
+impl<'a, F: FlatFlavor<'a>> Message<'a, F> {
     /// Returns a reference to the message header.
     pub fn header<'b: 'a>(&'b self) -> &'a Header {
         unsafe { Header::from_message(self.nest.as_slice()) }
@@ -74,13 +74,13 @@ impl<'a, F: Flavor<'a>> Message<'a, F> {
 //------------ QuestionSection ----------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct QuestionSection<'a, F: Flavor<'a>> {
+pub struct QuestionSection<'a, F: FlatFlavor<'a>> {
     parser: <F::Nest as Nest<'a, F>>::Parser,
     counts: HeaderCounts,
     count: u16
 }
 
-impl<'a, F: Flavor<'a>> QuestionSection<'a, F> {
+impl<'a, F: FlatFlavor<'a>> QuestionSection<'a, F> {
     fn new(parser: <F::Nest as Nest<'a, F>>::Parser, counts: HeaderCounts)
            -> Self {
         let count = counts.qdcount();
@@ -102,8 +102,8 @@ impl<'a, F: Flavor<'a>> QuestionSection<'a, F> {
     }
 }
 
-impl<'a, F: Flavor<'a>> Iterator for QuestionSection<'a, F> {
-    type Item = ParseResult<Question<'a, F>>;
+impl<'a, F: FlatFlavor<'a>> Iterator for QuestionSection<'a, F> {
+    type Item = ParseResult<Question<F>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.count == 0 { return None }
@@ -117,18 +117,18 @@ impl<'a, F: Flavor<'a>> Iterator for QuestionSection<'a, F> {
 
 /// The answer section of a message.
 #[derive(Clone, Debug)]
-pub struct AnswerSection<'a, F: Flavor<'a>> {
+pub struct AnswerSection<'a, F: FlatFlavor<'a>> {
     parser: <F::Nest as Nest<'a, F>>::Parser,
     counts: HeaderCounts,
 }
 
-impl<'a, F: Flavor<'a>> AnswerSection<'a, F> {
+impl<'a, F: FlatFlavor<'a>> AnswerSection<'a, F> {
     fn new(parser: <F::Nest as Nest<'a, F>>::Parser, counts: HeaderCounts)
            -> Self {
         AnswerSection { parser: parser, counts: counts }
     }
 
-    pub fn iter<D: RecordData<'a, F>>(&self) -> RecordIter<'a, F, D> {
+    pub fn iter<D: FlatRecordData<'a, F>>(&self) -> RecordIter<'a, F, D> {
         RecordIter::new(self.parser.clone(), self.counts.ancount())
     }
 
@@ -144,18 +144,18 @@ impl<'a, F: Flavor<'a>> AnswerSection<'a, F> {
 
 /// The authority section of a message.
 #[derive(Clone, Debug)]
-pub struct AuthoritySection<'a, F: Flavor<'a>> {
+pub struct AuthoritySection<'a, F: FlatFlavor<'a>> {
     parser: <F::Nest as Nest<'a, F>>::Parser,
     counts: HeaderCounts,
 }
 
-impl<'a, F: Flavor<'a>> AuthoritySection<'a, F> {
+impl<'a, F: FlatFlavor<'a>> AuthoritySection<'a, F> {
     fn new(parser: <F::Nest as Nest<'a, F>>::Parser, counts: HeaderCounts)
            -> Self {
         AuthoritySection { parser: parser, counts: counts }
     }
 
-    pub fn iter<D: RecordData<'a, F>>(&self) -> RecordIter<'a, F, D> {
+    pub fn iter<D: FlatRecordData<'a, F>>(&self) -> RecordIter<'a, F, D> {
         RecordIter::new(self.parser.clone(), self.counts.nscount())
     }
 
@@ -171,18 +171,18 @@ impl<'a, F: Flavor<'a>> AuthoritySection<'a, F> {
 
 /// The additional section of a message.
 #[derive(Clone, Debug)]
-pub struct AdditionalSection<'a, F: Flavor<'a>> {
+pub struct AdditionalSection<'a, F: FlatFlavor<'a>> {
     parser: <F::Nest as Nest<'a, F>>::Parser,
     counts: HeaderCounts,
 }
 
-impl<'a, F: Flavor<'a>> AdditionalSection<'a, F> {
+impl<'a, F: FlatFlavor<'a>> AdditionalSection<'a, F> {
     fn new(parser: <F::Nest as Nest<'a, F>>::Parser, counts: HeaderCounts)
            -> Self {
         AdditionalSection { parser: parser, counts: counts }
     }
 
-    pub fn iter<D: RecordData<'a, F>>(&self) -> RecordIter<'a, F, D> {
+    pub fn iter<D: FlatRecordData<'a, F>>(&self) -> RecordIter<'a, F, D> {
         RecordIter::new(self.parser.clone(), self.counts.ancount())
     }
 }
@@ -191,13 +191,13 @@ impl<'a, F: Flavor<'a>> AdditionalSection<'a, F> {
 
 /// An iterator over the records in one of a record section.
 #[derive(Clone, Debug)]
-pub struct RecordIter<'a, F: Flavor<'a>, D: RecordData<'a, F>> {
+pub struct RecordIter<'a, F: FlatFlavor<'a>, D: FlatRecordData<'a, F>> {
     parser: <F::Nest as Nest<'a, F>>::Parser,
     count: u16,
     marker: PhantomData<D>
 }
 
-impl<'a, F: Flavor<'a>, D: RecordData<'a, F>> RecordIter<'a, F, D> {
+impl<'a, F: FlatFlavor<'a>, D: FlatRecordData<'a, F>> RecordIter<'a, F, D> {
     fn new(parser: <F::Nest as Nest<'a, F>>::Parser, count: u16) -> Self {
         RecordIter { parser: parser, count: count, marker: PhantomData }
     }
@@ -213,14 +213,14 @@ impl<'a, F: Flavor<'a>, D: RecordData<'a, F>> RecordIter<'a, F, D> {
         Ok(())
     }
 
-    fn step(&mut self) -> ParseResult<Option<Record<'a, F, D>>> {
+    fn step(&mut self) -> ParseResult<Option<Record<F, D>>> {
         Record::parse(&mut self.parser).map(|res| { self.count -= 1; res })
     }
 }
 
 impl<'a, F, D> Iterator for RecordIter<'a, F, D> 
-     where F: Flavor<'a>, D: RecordData<'a, F> {
-    type Item = ParseResult<Record<'a, F, D>>;
+     where F: FlatFlavor<'a>, D: FlatRecordData<'a, F> {
+    type Item = ParseResult<Record<F, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.count == 0 { return None }
