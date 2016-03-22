@@ -2,12 +2,9 @@
 //!
 
 use std::convert;
-use std::error;
 use std::fmt;
-use std::num;
-use std::result;
 use std::str;
-use super::super::bytes::BytesBuf;
+use super::super::error::{FromStrError, FromStrResult};
 
 
 /// Resource Record Types.
@@ -586,10 +583,6 @@ impl RRType {
             Int(value) => value
         }
     }
-
-    pub fn push_buf<B: BytesBuf>(self, buf: &mut B) {
-        buf.push_u16(self.to_int())
-    }
 }
 
 impl convert::From<u16> for RRType {
@@ -598,11 +591,16 @@ impl convert::From<u16> for RRType {
     }
 }
 
+impl convert::From<RRType> for u16 {
+    fn from(value: RRType) -> u16 {
+        value.to_int()
+    }
+}
 
 impl str::FromStr for RRType {
-    type Err = ParseError;
+    type Err = FromStrError;
 
-    fn from_str(s: &str) -> ParseResult<Self> {
+    fn from_str(s: &str) -> FromStrResult<Self> {
         use std::ascii::AsciiExt;
         use self::RRType::*;
 
@@ -694,14 +692,18 @@ impl str::FromStr for RRType {
             if let Some((n, _)) = s.char_indices().nth(4) {
                 let (l, r) = s.split_at(n);
                 if l.eq_ignore_ascii_case("TYPE") {
-                    Ok(Int(try!(u16::from_str_radix(r, 10))))
+                    let value = match u16::from_str_radix(r, 10) {
+                        Ok(x) => x,
+                        Err(..) => return Err(FromStrError::UnknownType)
+                    };
+                    Ok(Int(value))
                 }
                 else {
-                    Err(ParseError::UnknownType)
+                    Err(FromStrError::UnknownType)
                 }
             }
             else {
-                Err(ParseError::UnknownType)
+                Err(FromStrError::UnknownType)
             }
         }
     }
@@ -822,36 +824,4 @@ impl PartialEq<RRType> for u16 {
 }
 
 impl Eq for RRType { }
-
-
-//------------ ParseError and ParseResult -----------------------------------
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ParseError {
-    UnknownType,
-}
-
-impl error::Error for ParseError {
-    fn description(&self) -> &str {
-        match *self {
-            ParseError::UnknownType => "unknown type",
-        }
-    }
-}
-
-impl convert::From<num::ParseIntError> for ParseError {
-    fn from(_: num::ParseIntError) -> Self {
-        ParseError::UnknownType
-    }
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use std::error::Error;
-
-        self.description().fmt(f)
-    }
-}
-
-pub type ParseResult<T> = result::Result<T, ParseError>;
 

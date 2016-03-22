@@ -8,11 +8,14 @@ use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::result;
 use std::str::FromStr;
-use domain::iana::{rrtype, Class, RRType};
-use domain::message::{self, MessageBuf, MessageBuilder, RecordSection};
-use domain::rdata::generic::CompactGenericRecordData;
+use domain::bits::compose::ComposeVec;
+use domain::bits::error::{ComposeError, FromStrError, ParseError};
+use domain::bits::flavor::Lazy;
+use domain::bits::iana::{Class, RRType};
+use domain::bits::message::{LazyMessage, MessageBuilder, RecordIter};
+use domain::bits::name::OwnedDName;
+use domain::bits::rdata::generic::GenericRecordData;
 use domain::resolver::conf::ResolvConf;
-use domain::name::{self, DomainNameBuf};
 
 
 //------------ Options ------------------------------------------------------
@@ -75,13 +78,13 @@ impl Options {
 }
 
 impl Options {
-    fn name(&self) -> Result<DomainNameBuf> {
+    fn name(&self) -> Result<OwnedDName> {
         if self.name.is_empty() {
-            Ok(DomainNameBuf::root())
+            Ok(OwnedDName::root())
         }
         else {
-            let mut res = try!(DomainNameBuf::from_str(&self.name));
-            res.append(DomainNameBuf::root());
+            let mut res = try!(OwnedDName::from_str(&self.name));
+            res.append(OwnedDName::root());
             Ok(res)
         }
     }
@@ -118,20 +121,20 @@ impl error::Error for Error {
     }
 }
 
-impl convert::From<name::ParseError> for Error {
-    fn from(error: name::ParseError) -> Error {
+impl convert::From<ComposeError> for Error {
+    fn from(error: ComposeError) -> Error {
         Error { inner: Box::new(error) }
     }
 }
 
-impl convert::From<rrtype::ParseError> for Error {
-    fn from(error: rrtype::ParseError) -> Error {
+impl convert::From<FromStrError> for Error {
+    fn from(error: FromStrError) -> Error {
         Error { inner: Box::new(error) }
     }
 }
 
-impl convert::From<message::Error> for Error {
-    fn from(error: message::Error) -> Error {
+impl convert::From<ParseError> for Error {
+    fn from(error: ParseError) -> Error {
         Error { inner: Box::new(error) }
     }
 }
@@ -152,42 +155,42 @@ type Result<T> = result::Result<T, Error>;
 
 //------------ Processing Steps ---------------------------------------------
 
-fn create_query(options: &Options) -> Result<MessageBuf> {
-    let mut msg = MessageBuilder::new(::std::u16::MAX as usize, 2, true);
+fn create_query(options: &Options) -> Result<Vec<u8>> {
+    let mut msg = try!(MessageBuilder::new(ComposeVec::new(Some(512), true)));
 
     // XXX make a header
     msg.header_mut().set_id(17);
 
     let mut question = msg.question();
-    try!(question.push_question(try!(options.name()), try!(options.qtype()),
-                                try!(options.qclass())));
+    try!(question.push(&(try!(options.name()), try!(options.qtype()),
+                                try!(options.qclass()))));
 
     // XXX set prefix
-    Ok(question.finish())
+    Ok(try!(question.finish()).finish())
 }
 
-fn send_query(options: &Options, query: &MessageBuf)
-              -> Result<(MessageBuf, SocketAddr)> {
+fn send_query(options: &Options, query: &Vec<u8>)
+              -> Result<(Vec<u8>, SocketAddr)> {
     send_query_udp(options, query)
 }
 
-fn send_query_udp(options: &Options, query: &MessageBuf)
-                  -> Result<(MessageBuf, SocketAddr)> {
+fn send_query_udp(options: &Options, query: &Vec<u8>)
+                  -> Result<(Vec<u8>, SocketAddr)> {
     let sock = try!(UdpSocket::bind("0.0.0.0:0"));
     try!(sock.set_read_timeout(Some(options.conf().timeout)));
     for server in options.conf().servers.iter() {
-        try!(sock.send_to(query.message_bytes(), server));
+        try!(sock.send_to(&query, server));
         let mut buf = Vec::new();
         buf.resize(2000, 0);
         let (len, from) = try!(sock.recv_from(&mut buf));
         buf.truncate(len);
-        let msg = try!(MessageBuf::from_vec(buf, 0));
-        return Ok((msg, from));
+        return Ok((buf, from));
     }
     Err(io::Error::new(io::ErrorKind::Other, "No more servers").into())
 }
 
-fn print_result(response: MessageBuf) {
+fn print_result(response: Vec<u8>) {
+    let response = LazyMessage::from_bytes(&response);
     println!(";; Got answer:");
     println!(";; ->>HEADER<<- opcode: {}, status: {}, id: {}",
              response.header().opcode(), response.header().rcode(),
@@ -216,36 +219,33 @@ fn print_result(response: MessageBuf) {
         println!("");
     }
 
-    let mut answer = question.answer().unwrap();
+    let answer = question.answer().unwrap();
     if response.counts().ancount() > 0 {
         println!(";; ANSWER SECTION");
-        print_section(&mut answer);
+        print_records(answer.iter());
         println!("");
     }
 
-    let mut authority = answer.authority().unwrap();
+    let authority = answer.authority().unwrap();
     if response.counts().nscount() > 0 {
         println!(";; AUTHORITY SECTION");
-        print_section(&mut authority);
+        print_records(authority.iter());
         println!("");
     }
 
-    let mut additional = authority.additional().unwrap();
+    let additional = authority.additional().unwrap();
     if response.counts().arcount() > 0 {
         println!(";; ADDITIONAL SECTION");
-        print_section(&mut additional);
+        print_records(additional.iter());
         println!("");
     }
 }
 
-fn print_section<'a>(section: &mut RecordSection<'a, CompactGenericRecordData<'a>>) {
-    for record in section.iter() {
-        let record = record.unwrap();
-        println!("{}\t{}\t{}\t{}\t{}", record.name(), record.ttl(),
-                 record.rclass(), record.rtype(), record.rdata())
+fn print_records<'a>(iter: RecordIter<'a, Lazy<'a>, GenericRecordData<'a, Lazy<'a>>>) {
+    for record in iter {
+        println!("{}", record.unwrap());
     }
 }
-
 
 //------------ Main Function ------------------------------------------------
 
@@ -253,7 +253,7 @@ fn main() {
     let options = Options::from_args();
     let query = create_query(&options).unwrap();    
     let (response, server) = send_query(&options, &query).unwrap();
-    let len = response.message_bytes().len();
+    let len = response.len();
     print_result(response);
     println!(";; Query time: not yet available.");
     println!(";; SERVER: {}", server);

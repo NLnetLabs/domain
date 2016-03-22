@@ -13,7 +13,7 @@
 //!
 
 use std::mem;
-use super::bytes::{BytesSlice, Error, Result};
+use super::error::{ComposeError, ComposeResult};
 use super::iana::{Opcode, Rcode};
 
 
@@ -21,7 +21,7 @@ use super::iana::{Opcode, Rcode};
 
 /// The first part of the header of a DNS message.
 ///
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Header {
     inner: [u8; 4]
 }
@@ -37,16 +37,6 @@ impl Header {
     ///
     pub fn new() -> Header {
         Header { inner: [0; 4] }
-    }
-
-    /// Creates a header reference from the given slice.
-    ///
-    /// Returns the header reference and the remainder of the slice. Or
-    /// an error if the slice is to short.
-    ///
-    pub fn split_from(slice: &[u8]) -> Result<(&Header, &[u8])> {
-        let (left, right) = try!(slice.split_bytes(mem::size_of::<Self>()));
-        Ok((unsafe { Self::from_message(left) }, right))
     }
 
     /// Creates a header reference from a bytes slice of a message.
@@ -183,7 +173,7 @@ impl Header {
 
 /// The section count part of the header of a DNS message.
 ///
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HeaderCounts {
     inner: [u8; 8]
 }
@@ -194,14 +184,6 @@ impl HeaderCounts {
     /// Creates a new empty counts.
     pub fn new() -> HeaderCounts {
         HeaderCounts { inner: [0; 8] }
-    }
-
-    /// Creates a reference from the given slice.
-    ///
-    /// Returns the reference and the remainder of the slice.
-    pub fn split_from(slice: &[u8]) -> Result<(&HeaderCounts, &[u8])> {
-        let (left, right) = try!(slice.split_bytes(mem::size_of::<Self>()));
-        Ok((unsafe { mem::transmute(left.as_ptr()) }, right))
     }
 
     /// Creates a reference from the bytes slice of a message.
@@ -243,7 +225,7 @@ impl HeaderCounts {
     }
 
     /// Increase the QDCOUNT field.
-    pub fn inc_qdcount(&mut self, inc: u16) -> Result<()> {
+    pub fn inc_qdcount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(0, inc)
     }
 
@@ -258,7 +240,7 @@ impl HeaderCounts {
     }
 
     /// Increases the ANCOUNT field.
-    pub fn inc_ancount(&mut self, inc: u16) -> Result<()> {
+    pub fn inc_ancount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(2, inc)
     }
 
@@ -273,7 +255,7 @@ impl HeaderCounts {
     }
 
     /// Increases the NSCOUNT field.
-    pub fn inc_nscount(&mut self, inc: u16) -> Result<()> {
+    pub fn inc_nscount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(4, inc)
     }
 
@@ -288,7 +270,7 @@ impl HeaderCounts {
     }
 
     /// Increases the ARCOUNT field.
-    pub fn inc_arcount(&mut self, inc: u16) -> Result<()> {
+    pub fn inc_arcount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(6, inc)
     }
 
@@ -331,10 +313,10 @@ impl HeaderCounts {
         self.inner[offset + 1] = value as u8;
     }
 
-    fn inc_u16(&mut self, offset: usize, inc: u16) -> Result<()> {
+    fn inc_u16(&mut self, offset: usize, inc: u16) -> ComposeResult<()> {
         let value = match self.get_u16(offset).checked_add(inc) {
             Some(value) => value,
-            None => return Err(Error::Overflow),
+            None => return Err(ComposeError::Overflow),
         };
         self.set_u16(offset, value);
         Ok(())
@@ -346,9 +328,65 @@ impl HeaderCounts {
 
 /// The complete header of a DNS message.
 ///
-/// Currently, this type is only used to conveniently get the size of the
-/// entire header.
-pub type FullHeader = [u8; 12];
+#[derive(Clone, Debug, PartialEq)]
+pub struct FullHeader {
+    inner: [u8; 12]
+}
+
+/// # Creation and Conversion
+///
+impl FullHeader {
+    /// Creates a new empty header.
+    pub fn new() -> FullHeader {
+        FullHeader { inner: [0; 12] }
+    }
+
+    /// Creates a reference from the bytes slice of a message.
+    ///
+    /// This function is unsafe as it assumes the bytes slice to have the
+    /// correct length.
+    pub unsafe fn from_message(s: &[u8]) -> &FullHeader {
+        mem::transmute(s.as_ptr())
+    }
+
+    /// Creates a mutable reference from the bytes slice of a message.
+    ///
+    /// This function is unsafe as it assumes the bytes slice to have the
+    /// correct length.
+    pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut FullHeader {
+        mem::transmute(s.as_ptr())
+    }
+
+    /// Returns the underlying bytes slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner
+    }
+}
+
+
+/// # Access to Header and Dounts
+///
+impl FullHeader {
+    /// Returns a reference to the header.
+    pub fn header(&self) -> &Header {
+        unsafe { Header::from_message(&self.inner) }
+    }
+
+    /// Returns a mutable reference to the header.
+    pub fn header_mut(&mut self) -> &mut Header {
+        unsafe { Header::from_message_mut(&mut self. inner) }
+    }
+
+    /// Returns a reference to the header counts.
+    pub fn counts(&self) -> &HeaderCounts {
+        unsafe { HeaderCounts::from_message(&self.inner) }
+    }
+
+    /// Returns a mutable reference to the header counts.
+    pub fn counts_mut(&mut self) -> &mut HeaderCounts {
+        unsafe { HeaderCounts::from_message_mut(&mut self.inner) }
+    }
+}
 
 
 //============ Testing ======================================================

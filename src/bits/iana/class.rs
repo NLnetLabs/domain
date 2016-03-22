@@ -1,12 +1,9 @@
 //! DNS CLASSes.
 
 use std::convert;
-use std::error;
 use std::fmt;
-use std::num;
-use std::result;
 use std::str;
-use super::super::bytes::BytesBuf;
+use super::super::error::{FromStrError, FromStrResult};
 
 
 /// DNS CLASSes.
@@ -62,10 +59,6 @@ impl Class {
             Int(value) => value
         }
     }
-
-    pub fn push_buf<B: BytesBuf>(self, buf: &mut B) {
-        buf.push_u16(self.to_int());
-    }
 }
 
 impl convert::From<u16> for Class {
@@ -74,10 +67,16 @@ impl convert::From<u16> for Class {
     }
 }
 
-impl str::FromStr for Class {
-    type Err = ParseError;
+impl convert::From<Class> for u16 {
+    fn from(value: Class) -> u16 {
+        value.to_int()
+    }
+}
 
-    fn from_str(s: &str) -> ParseResult<Self> {
+impl str::FromStr for Class {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> FromStrResult<Self> {
         use std::ascii::AsciiExt;
         use self::Class::*;
 
@@ -90,14 +89,18 @@ impl str::FromStr for Class {
             if let Some((n, _)) = s.char_indices().nth(5) {
                 let (l, r) = s.split_at(n);
                 if l.eq_ignore_ascii_case("CLASS") {
-                    Ok(Int(try!(u16::from_str_radix(r, 10))))
+                    let value = match u16::from_str_radix(r, 10) {
+                        Ok(x) => x,
+                        Err(..) => return Err(FromStrError::UnknownClass)
+                    };
+                    Ok(Int(value))
                 }
                 else {
-                    Err(ParseError::UnknownClass)
+                    Err(FromStrError::UnknownClass)
                 }
             }
             else {
-                Err(ParseError::UnknownClass)
+                Err(FromStrError::UnknownClass)
             }
         }
     }
@@ -139,36 +142,4 @@ impl PartialEq<Class> for u16 {
 }
 
 impl Eq for Class { }
-
-
-//------------ ParseError and ParseResult -----------------------------------
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ParseError {
-    UnknownClass,
-}
-
-impl error::Error for ParseError {
-    fn description(&self) -> &str {
-        match *self {
-            ParseError::UnknownClass => "unknown class",
-        }
-    }
-}
-
-impl convert::From<num::ParseIntError> for ParseError {
-    fn from(_: num::ParseIntError) -> Self {
-        ParseError::UnknownClass
-    }
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use std::error::Error;
-
-        self.description().fmt(f)
-    }
-}
-
-pub type ParseResult<T> = result::Result<T, ParseError>;
 
