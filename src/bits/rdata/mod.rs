@@ -7,3 +7,4 @@ pub mod traits;
 pub mod generic;
 
 pub mod rfc1035;
+pub mod rfc3596;

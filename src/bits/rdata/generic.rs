@@ -60,9 +60,11 @@ impl<'a, F: FlatFlavor<'a>> FlatRecordData<'a, F> for GenericRecordData<'a, F> {
 impl<'a, F: FlatFlavor<'a>> fmt::Display for GenericRecordData<'a, F> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use super::rfc1035::*;
+        use super::rfc3596::*;
 
         match self.rtype {
             RRType::A => self.fmt::<A>(f),
+            RRType::AAAA => self.fmt::<AAAA>(f),
             RRType::NS => self.fmt::<NS<F>>(f),
             _ => "...".fmt(f)
         }

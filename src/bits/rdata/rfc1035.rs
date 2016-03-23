@@ -1,3 +1,7 @@
+//! Record data from RFC 1035.
+//!
+//! This RFC defines the initial set of record types.
+
 use std::fmt;
 use std::net;
 use super::super::compose::ComposeBytes;
@@ -6,8 +10,6 @@ use super::super::flavor::{FlatFlavor, Flavor};
 use super::super::iana::RRType;
 use super::super::parse::ParseFlavor;
 use super::traits::{FlatRecordData, RecordData};
-
-
 
 
 //------------ A ------------------------------------------------------------
