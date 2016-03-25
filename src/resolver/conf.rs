@@ -114,7 +114,7 @@ impl Default for ResolvOptions {
 //------------ ResolvConf ---------------------------------------------------
 
 /// Resolver configuration
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ResolvConf {
     /// Addresses of servers to query.
     pub servers: Vec<SocketAddr>,
