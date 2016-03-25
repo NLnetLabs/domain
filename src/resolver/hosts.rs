@@ -33,7 +33,16 @@ impl Hosts {
             reverse: HashMap::new()
         }
     }
-    
+
+    /// Creates a default hosts table for this system.
+    /// 
+    /// XXX This currently only works for Unix-y systems.
+    pub fn default() -> Self {
+        let mut res = Hosts::new();
+        let _ = res.parse_file("/etc/hosts");
+        res
+    }
+ 
     /// Adds a host to IP mapping.
     pub fn add_forward(&mut self, name: OwnedDName, addr: IpAddr) {
         self.forward.insert(name, addr);

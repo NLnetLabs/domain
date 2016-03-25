@@ -12,6 +12,50 @@ use super::super::parse::ParseFlavor;
 use super::traits::{FlatRecordData, RecordData};
 
 
+//------------ dname_type! --------------------------------------------------
+
+/// A macro for implementing a record data type with a single domain name.
+///
+/// Implements some basic methods plus the RecordData, FlatRecordData, and
+/// Display traits.
+macro_rules! dname_type {
+    ($target:ident, $rtype:ident, $field:ident) => {
+        impl<F: Flavor> $target<F> {
+            pub fn new($field: F::DName) -> Self {
+                $target { $field: $field }
+            }
+
+            pub fn $field(&self) -> &F::DName {
+                &self.$field
+            }
+        }
+
+        impl<F: Flavor> RecordData<F> for $target<F> {
+            fn rtype(&self) -> RRType { RRType::$rtype }
+
+            fn compose<C: ComposeBytes>(&self, target: &mut C)
+                                        -> ComposeResult<()> {
+                target.push_dname_compressed(&self.$field)
+            }
+        }
+
+        impl<'a, F: FlatFlavor<'a>> FlatRecordData<'a, F> for $target<F> {
+            fn parse<P>(rtype: RRType, parser: &mut P)
+                        -> ParseResult<Option<Self>>
+                     where P: ParseFlavor<'a, F> {
+                if rtype != RRType::$rtype { Ok(None) }
+                else { Ok(Some($target::new(try!(parser.parse_name())))) }
+            }
+        }
+
+        impl<F: Flavor> fmt::Display for $target<F> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                self.$field.fmt(f)
+            }
+        }
+    }
+}
+
 //------------ A ------------------------------------------------------------
 
 #[derive(Clone, Debug)]
@@ -57,6 +101,22 @@ impl fmt::Display for A {
 }
 
 
+//------------ CName --------------------------------------------------------
+
+/// CNAME record data.
+///
+/// The CNAME record specifies the canonical or primary name for domain
+/// name alias.
+///
+/// The CNAME type is defined in RFC 1035, section 3.3.1.
+#[derive(Clone, Debug)]
+pub struct CName<F: Flavor> {
+    cname: F::DName
+}
+
+dname_type!(CName, CNAME, cname);
+
+
 //------------ NS -----------------------------------------------------------
 
 #[derive(Clone, Debug)]
@@ -64,36 +124,5 @@ pub struct NS<F: Flavor> {
     nsdname: F::DName
 }
 
-impl<F: Flavor> NS<F> {
-    pub fn new(nsdname: F::DName) -> Self {
-        NS { nsdname: nsdname }
-    }
-
-    pub fn nsdname(&self) -> &F::DName {
-        &self.nsdname
-    }
-}
-
-impl<F: Flavor> RecordData<F> for NS<F> {
-    fn rtype(&self) -> RRType { RRType::NS }
-
-    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
-        target.push_dname_compressed(&self.nsdname)
-    }
-}
-
-impl<'a, F: FlatFlavor<'a>> FlatRecordData<'a, F> for NS<F> {
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
-             where P: ParseFlavor<'a, F> {
-        if rtype != RRType::NS { return Ok(None) }
-        Ok(Some(NS::new(try!(parser.parse_name()))))
-    }
-}
-
-
-impl<F: Flavor> fmt::Display for NS<F> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.nsdname.fmt(f)
-    }
-}
+dname_type!(NS, NS, nsdname);
 

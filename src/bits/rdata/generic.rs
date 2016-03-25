@@ -65,6 +65,7 @@ impl<'a, F: FlatFlavor<'a>> fmt::Display for GenericRecordData<'a, F> {
         match self.rtype {
             RRType::A => self.fmt::<A>(f),
             RRType::AAAA => self.fmt::<AAAA>(f),
+            RRType::CNAME => self.fmt::<CName<F>>(f),
             RRType::NS => self.fmt::<NS<F>>(f),
             _ => "...".fmt(f)
         }

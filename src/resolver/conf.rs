@@ -175,6 +175,16 @@ impl ResolvConf {
             self.search.push(OwnedDName::root())
         }
     }
+
+    /// Creates a default configuration for this system.
+    ///
+    /// XXX This currently only works for Unix-y systems.
+    pub fn default() -> Self {
+        let mut res = ResolvConf::new();
+        let _ = res.parse_file("/etc/resolv.con");
+        res.finalize();
+        res
+    }
 }
 
 
