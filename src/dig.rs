@@ -160,6 +160,8 @@ fn create_query(options: &Options) -> Result<Vec<u8>> {
 
     // XXX make a header
     msg.header_mut().set_id(17);
+    msg.header_mut().set_rd(true);
+    msg.header_mut().set_ad(true);
 
     let mut question = msg.question();
     try!(question.push(&(try!(options.name()), try!(options.qtype()),
