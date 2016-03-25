@@ -13,5 +13,5 @@ path = "src/dig.rs"
 
 [dependencies]
 argparse = "0.2"
+rand     = "0.3"
 
-[dev-dependencies]

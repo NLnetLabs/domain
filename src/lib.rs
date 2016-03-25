@@ -1,3 +1,5 @@
+extern crate rand;
+
 /*
 #[macro_use]
 mod macros;

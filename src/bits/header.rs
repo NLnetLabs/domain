@@ -71,6 +71,9 @@ impl Header {
     /// Sets the ID field.
     pub fn set_id(&mut self, value: u16) { self.set_u16(0, value) }
 
+    /// Sets the ID field to a randomly chosen number.
+    pub fn set_random_id(&mut self) { self.set_id(::rand::random()) }
+
     /// Returns the value of the QR bit.
     pub fn qr(&self) -> bool { self.get_bit(2, 7) }
 

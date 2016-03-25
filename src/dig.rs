@@ -159,7 +159,7 @@ fn create_query(options: &Options) -> Result<Vec<u8>> {
     let mut msg = try!(MessageBuilder::new(ComposeVec::new(Some(512), true)));
 
     // XXX make a header
-    msg.header_mut().set_id(17);
+    msg.header_mut().set_random_id();
     msg.header_mut().set_rd(true);
     msg.header_mut().set_ad(true);
 
