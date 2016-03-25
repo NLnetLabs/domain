@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use std::ptr;
+use super::cstring::CString;
 use super::error::{ComposeError, ComposeResult};
 use super::name::{DName, DNameSlice, Label, OwnedDName};
 
@@ -62,6 +63,9 @@ pub trait ComposeBytes: Sized + fmt::Debug {
     fn push_dname_compressed<D: DName>(&mut self, name: &D)
                                        -> ComposeResult<()>;
 
+    fn push_cstring<S: CString>(&mut self, cstring: &S) -> ComposeResult<()> {
+        cstring.compose(self)
+    }
 
     //--- Checkpoint and rollback.
 

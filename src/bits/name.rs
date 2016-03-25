@@ -398,7 +398,7 @@ impl<'a> DName for DNameRef<'a> {
 //--- From
 
 impl<'a> From<&'a DNameSlice> for DNameRef<'a> {
-    fn from(slice: &'a DNameSlice) -> DNameRef {
+    fn from(slice: &'a DNameSlice) -> Self {
         Self::from_slice(slice)
     }
 }

@@ -1,6 +1,7 @@
 //! DNS data.
 
 pub mod compose;
+pub mod cstring;
 pub mod error;
 pub mod flavor;
 pub mod header;

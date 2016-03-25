@@ -1,6 +1,7 @@
 //! Parsing of wire-format DNS data.
 
 use std::mem;
+use super::cstring::CStringRef;
 use super::error::{ParseResult, ParseError};
 use super::flavor::{self, FlatFlavor};
 use super::name::{DNameRef, LazyDName};
@@ -66,12 +67,17 @@ pub trait ParseLazy<'a>: ParseBytes<'a> {
 /// `ParseBytes` trait only for specific flavors.
 pub trait ParseFlavor<'a, F: FlatFlavor<'a>>: ParseBytes<'a> {
     fn parse_name(&mut self) -> ParseResult<F::DName>;
+    fn parse_cstring(&mut self) -> ParseResult<F::CString>;
     fn parse_nest(&mut self, len: usize) -> ParseResult<F::Nest>;
 }
 
 impl<'a, P: ParseBytes<'a>> ParseFlavor<'a, flavor::Ref<'a>> for P {
     fn parse_name(&mut self) -> ParseResult<DNameRef<'a>> {
         DNameRef::parse(self)
+    }
+
+    fn parse_cstring(&mut self) -> ParseResult<CStringRef<'a>> {
+        CStringRef::parse(self)
     }
     
     fn parse_nest(&mut self, len: usize) -> ParseResult<NestRef<'a>> {
@@ -82,6 +88,10 @@ impl<'a, P: ParseBytes<'a>> ParseFlavor<'a, flavor::Ref<'a>> for P {
 impl<'a> ParseFlavor<'a, flavor::Lazy<'a>> for ContextParser<'a> {
     fn parse_name(&mut self) -> ParseResult<LazyDName<'a>> {
         LazyDName::parse(self)
+    }
+
+    fn parse_cstring(&mut self) -> ParseResult<CStringRef<'a>> {
+        CStringRef::parse(self)
     }
 
     fn parse_nest(&mut self, len: usize) -> ParseResult<LazyNest<'a>> {

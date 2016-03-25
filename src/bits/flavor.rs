@@ -10,6 +10,7 @@
 //! flavors as well as the actual flavors as types.
 
 use std::marker::PhantomData;
+use super::cstring;
 use super::name;
 use super::nest;
 
@@ -20,6 +21,7 @@ use super::nest;
 /// the associated types for each flavor.
 pub trait Flavor: Sized {
     type DName: name::DName;
+    type CString: cstring::CString;
 }
 
 /// The trait for DNS data that is stored in unparsed format.
@@ -32,6 +34,7 @@ pub struct Owned;
 
 impl Flavor for Owned {
     type DName = name::OwnedDName;
+    type CString = cstring::OwnedCString;
 }
 
 /// The flavor for DNS data referencing an underlying bytes slice.
@@ -41,6 +44,7 @@ pub struct Ref<'a> {
 
 impl<'a> Flavor for Ref<'a> {
     type DName = name::DNameRef<'a>;
+    type CString = cstring::CStringRef<'a>;
 }
 
 impl<'a> FlatFlavor<'a> for Ref<'a> {
@@ -55,6 +59,7 @@ pub struct Lazy<'a> {
 
 impl<'a> Flavor for Lazy<'a> {
     type DName = name::LazyDName<'a>;
+    type CString = cstring::CStringRef<'a>;
 }
 
 impl<'a> FlatFlavor<'a> for Lazy<'a> {
