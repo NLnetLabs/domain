@@ -13,12 +13,15 @@ use super::flavor::{self, FlatFlavor};
 //------------ Nest --------------------------------------------------------
 
 /// A trait common to all nest types.
-pub trait Nest<'a, F: FlatFlavor<'a>>: Sized + Clone + Debug {
+pub trait Nest: Sized + Clone + Debug {
+    fn as_slice(&self) -> &[u8];
+    fn len(&self) -> usize;
+    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()>;
+}
+
+pub trait FlatNest<'a, F: FlatFlavor<'a>>: Nest {
     type Parser: ParseFlavor<'a, F> + Clone + Debug;
 
-    fn as_slice<'b: 'a>(&'b self) -> &'a [u8];
-    fn len(&self) -> usize();
-    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()>;
     fn parser(&self) -> Self::Parser;
 }
 
@@ -42,11 +45,9 @@ impl<'a> NestRef<'a> {
         self.inner
     }
 
-    /*
     pub fn to_owned(&self) -> OwnedNest {
         OwnedNest::from_bytes(self.inner)
     }
-    */
 
     pub fn parse<P: ParseBytes<'a>>(parser: &mut P, len: usize)
                                     -> ParseResult<Self> {
@@ -55,12 +56,10 @@ impl<'a> NestRef<'a> {
 }
 
 
-//--- Nest
+//--- Nest and FlatNest
 
-impl<'a> Nest<'a, flavor::Ref<'a>> for NestRef<'a> {
-    type Parser = SliceParser<'a>;
-
-    fn as_slice<'b: 'a>(&'b self) -> &'a [u8] {
+impl<'a> Nest for NestRef<'a> {
+    fn as_slice(&self) -> &[u8] {
         self.inner
     }
 
@@ -71,6 +70,10 @@ impl<'a> Nest<'a, flavor::Ref<'a>> for NestRef<'a> {
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         target.push_bytes(self.inner)
     }
+}
+
+impl<'a> FlatNest<'a, flavor::Ref<'a>> for NestRef<'a> {
+    type Parser = SliceParser<'a>;
 
     fn parser(&self) -> SliceParser<'a> {
         SliceParser::new(&self.inner)
@@ -109,7 +112,7 @@ impl<'a> AsRef<[u8]> for NestRef<'a> {
     }
 }
 
-/*
+
 //------------ OwnedNest ---------------------------------------------------
 
 /// An owned nest.
@@ -133,11 +136,23 @@ impl OwnedNest {
                  where P: ParseBytes<'a> {
         Ok(try!(NestRef::parse(p, len)).to_owned())
     }
+}
 
-    pub fn as_slice(&self) -> &[u8] {
+
+//--- Nest
+
+impl Nest for OwnedNest {
+    fn as_slice(&self) -> &[u8] {
         self
     }
 
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
+        target.push_bytes(&self.inner)
+    }
 }
 
 
@@ -159,7 +174,7 @@ impl Deref for OwnedNest {
         &self.inner
     }
 }
-*/
+
 
 //------------ LazyNest ----------------------------------------------------
 
@@ -184,20 +199,16 @@ impl<'a> LazyNest<'a> {
                           parser.context()))
     }
 
-    /*
     pub fn to_owned(&self) -> OwnedNest {
         OwnedNest::from_bytes(self.bytes)
     }
-    */
 }
 
 
 //--- Nest
 
-impl<'a> Nest<'a, flavor::Lazy<'a>> for LazyNest<'a> {
-    type Parser = ContextParser<'a>;
-
-    fn as_slice<'b: 'a>(&'b self) -> &'a [u8] {
+impl<'a> Nest for LazyNest<'a> {
+    fn as_slice(&self) -> &[u8] {
         self.bytes
     }
 
@@ -208,6 +219,10 @@ impl<'a> Nest<'a, flavor::Lazy<'a>> for LazyNest<'a> {
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         target.push_bytes(self.bytes)
     }
+}
+
+impl<'a> FlatNest<'a, flavor::Lazy<'a>> for LazyNest<'a> {
+    type Parser = ContextParser<'a>;
 
     fn parser(&self) -> ContextParser<'a> {
         ContextParser::new(self.bytes, self.context)

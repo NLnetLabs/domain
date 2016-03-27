@@ -91,6 +91,7 @@ pub type ParseResult<T> = Result<T, ParseError>;
 pub enum FromStrError {
     UnexpectedEnd,
     LongLabel,
+    LongString,
     IllegalEscape,
     IllegalCharacter,
     UnknownType,
@@ -104,6 +105,7 @@ impl Error for FromStrError {
         match *self {
             UnexpectedEnd => "unexpected end of input",
             LongLabel => "domain name label with more than 63 octets",
+            LongString => "character string with more than 255 octets",
             IllegalEscape => "illegal escape sequence",
             IllegalCharacter => "illegal character",
             UnknownType => "unknown type",

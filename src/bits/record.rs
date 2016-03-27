@@ -64,7 +64,7 @@ impl<F: Flavor, D: RecordData<F>> Record<F, D> {
 impl<'a, F: FlatFlavor<'a>, D: FlatRecordData<'a, F>> Record<F, D> {
     pub fn parse<P>(parser: &mut P) -> ParseResult<Option<Self>>
                  where P: ParseFlavor<'a, F> {
-        let name = try!(parser.parse_name());
+        let name = try!(parser.parse_dname());
         let rtype = try!(parser.parse_u16()).into();
         let class = try!(parser.parse_u16()).into();
         let ttl = try!(parser.parse_u32());

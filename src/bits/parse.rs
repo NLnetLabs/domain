@@ -6,6 +6,7 @@ use super::error::{ParseResult, ParseError};
 use super::flavor::{self, FlatFlavor};
 use super::name::{DNameRef, LazyDName};
 use super::nest::{NestRef, LazyNest};
+use super::octets::OctetsRef;
 
 
 //------------ Traits -------------------------------------------------------
@@ -66,32 +67,41 @@ pub trait ParseLazy<'a>: ParseBytes<'a> {
 /// domain name. Because of this, parsers may implement the
 /// `ParseBytes` trait only for specific flavors.
 pub trait ParseFlavor<'a, F: FlatFlavor<'a>>: ParseBytes<'a> {
-    fn parse_name(&mut self) -> ParseResult<F::DName>;
+    fn parse_dname(&mut self) -> ParseResult<F::DName>;
     fn parse_cstring(&mut self) -> ParseResult<F::CString>;
-    fn parse_nest(&mut self, len: usize) -> ParseResult<F::Nest>;
+    fn parse_octets(&mut self, len: usize) -> ParseResult<F::Octets>;
+    fn parse_nest(&mut self, len: usize) -> ParseResult<F::FlatNest>;
 }
 
 impl<'a, P: ParseBytes<'a>> ParseFlavor<'a, flavor::Ref<'a>> for P {
-    fn parse_name(&mut self) -> ParseResult<DNameRef<'a>> {
+    fn parse_dname(&mut self) -> ParseResult<DNameRef<'a>> {
         DNameRef::parse(self)
     }
 
     fn parse_cstring(&mut self) -> ParseResult<CStringRef<'a>> {
         CStringRef::parse(self)
     }
-    
+
+    fn parse_octets(&mut self, len: usize) -> ParseResult<OctetsRef<'a>> {
+        OctetsRef::parse(self, len)
+    }
+ 
     fn parse_nest(&mut self, len: usize) -> ParseResult<NestRef<'a>> {
         NestRef::parse(self, len)
     }
 }
 
 impl<'a> ParseFlavor<'a, flavor::Lazy<'a>> for ContextParser<'a> {
-    fn parse_name(&mut self) -> ParseResult<LazyDName<'a>> {
+    fn parse_dname(&mut self) -> ParseResult<LazyDName<'a>> {
         LazyDName::parse(self)
     }
 
     fn parse_cstring(&mut self) -> ParseResult<CStringRef<'a>> {
         CStringRef::parse(self)
+    }
+
+    fn parse_octets(&mut self, len: usize) -> ParseResult<OctetsRef<'a>> {
+        OctetsRef::parse(self, len)
     }
 
     fn parse_nest(&mut self, len: usize) -> ParseResult<LazyNest<'a>> {

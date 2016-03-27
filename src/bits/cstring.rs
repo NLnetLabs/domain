@@ -2,15 +2,17 @@
 
 use std::borrow::Borrow;
 use std::cmp;
+use std::fmt;
 use std::hash;
 use std::ops::Deref;
+use std::str;
 use super::compose::ComposeBytes;
-use super::error::{ComposeResult, ParseResult};
+use super::error::{ComposeResult, FromStrError, FromStrResult, ParseResult};
 use super::parse::ParseBytes;
 
 //------------ CString ------------------------------------------------------
 
-pub trait CString {
+pub trait CString: fmt::Display + Sized {
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()>;
 }
 
@@ -24,10 +26,6 @@ pub struct CStringRef<'a> {
 impl <'a> CStringRef<'a> {
     unsafe fn from_bytes(bytes: &'a [u8]) -> Self {
         CStringRef { inner: bytes }
-    }
-
-    pub fn as_slice(&self) -> &CStringRef {
-        self
     }
 
     pub fn to_owned(&self) -> OwnedCString {
@@ -114,7 +112,22 @@ impl<'a> hash::Hash for CStringRef<'a> {
 
 //--- Display
 
-// XXX TODO
+impl<'a> fmt::Display for CStringRef<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for &ch in self.inner.iter() {
+            if ch == b' ' || ch == b'\\' {
+                try!(write!(f, "\\{}", ch as char));
+            }
+            else if ch < b' ' || ch >= 0x7F {
+                try!(write!(f, "\\{:03}", ch));
+            }
+            else {
+                try!((ch as char).fmt(f));
+            }
+        }
+        Ok(())
+    }
+}
 
 
 //------------ OwnedCString -------------------------------------------------
@@ -134,7 +147,26 @@ impl OwnedCString {
         OwnedCString { inner: Vec::new() }
     }
 
-    // XXX TODO from_str
+    pub fn from_str(s: &str) -> FromStrResult<Self> {
+        let mut res = OwnedCString::new();
+        let mut chars = s.chars();
+        loop {
+            match chars.next() {
+                Some(c) => {
+                    match c {
+                        '\\' => res.push(try!(parse_escape(&mut chars))),
+                        ' ' ... '[' | ']' ... '~' => {
+                            res.push(c as u8);
+                        }
+                        _ => return Err(FromStrError::IllegalCharacter)
+                    }
+                }
+                None => break
+            }
+        }
+        if res.len() > 255 { Err(FromStrError::LongString) }
+        else { Ok(res) }
+    }
 
     pub fn parse<'a, P: ParseBytes<'a>>(parser: &mut P)
                                         -> ParseResult<Self> {
@@ -147,7 +179,13 @@ impl OwnedCString {
 }
 
 
-// XXX TODO Manipulations.
+/// # Manipulations.
+///
+impl OwnedCString {
+    pub fn push(&mut self, ch: u8) {
+        self.inner.push(ch)
+    }
+}
 
 
 //--- CString
@@ -227,6 +265,28 @@ impl hash::Hash for OwnedCString {
 
 //--- Display
 
-// XXX TODO
+impl fmt::Display for OwnedCString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        unsafe { CStringRef::from_bytes(&self.inner) }.fmt(f)
+    }
+}
 
+
+//------------ Internal Helpers ---------------------------------------------
+
+fn parse_escape(chars: &mut str::Chars) -> FromStrResult<u8> {
+    let ch = try!(chars.next().ok_or(FromStrError::UnexpectedEnd));
+    if ch == '0' || ch == '1' || ch == '2' {
+        let v = ch.to_digit(10).unwrap() * 100
+              + try!(chars.next().ok_or(FromStrError::UnexpectedEnd)
+                     .and_then(|c| c.to_digit(10)
+                                    .ok_or(FromStrError::IllegalEscape)))
+                     * 10
+              + try!(chars.next().ok_or(FromStrError::UnexpectedEnd)
+                     .and_then(|c| c.to_digit(10)
+                                    .ok_or(FromStrError::IllegalEscape)));
+        Ok(v as u8)
+    }
+    else { Ok(ch as u8) }
+}
 

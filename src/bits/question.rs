@@ -56,7 +56,7 @@ impl<F: Flavor> Question<F> {
 impl<'a, F: FlatFlavor<'a>> Question<F> {
     pub fn parse<P>(parser: &mut P) -> ParseResult<Self>
                  where P: ParseFlavor<'a, F> {
-        Ok(Question::new(try!(parser.parse_name()),
+        Ok(Question::new(try!(parser.parse_dname()),
                          try!(parser.parse_u16()).into(),
                          try!(parser.parse_u16()).into()))
     }

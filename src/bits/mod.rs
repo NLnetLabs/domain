@@ -9,6 +9,7 @@ pub mod iana;
 pub mod message;
 pub mod name;
 pub mod nest;
+pub mod octets;
 pub mod question;
 pub mod parse;
 pub mod rdata;

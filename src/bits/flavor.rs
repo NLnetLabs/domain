@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 use super::cstring;
 use super::name;
 use super::nest;
+use super::octets;
 
 
 /// The trait for the three flavors of DNS data.
@@ -22,11 +23,13 @@ use super::nest;
 pub trait Flavor: Sized {
     type DName: name::DName;
     type CString: cstring::CString;
+    type Octets: octets::Octets;
+    type Nest: nest::Nest;
 }
 
 /// The trait for DNS data that is stored in unparsed format.
 pub trait FlatFlavor<'a>: Flavor {
-    type Nest: nest::Nest<'a, Self>;
+    type FlatNest: nest::FlatNest<'a, Self>;
 }
 
 /// The flavor for owned DNS data.
@@ -35,6 +38,8 @@ pub struct Owned;
 impl Flavor for Owned {
     type DName = name::OwnedDName;
     type CString = cstring::OwnedCString;
+    type Octets = octets::OwnedOctets;
+    type Nest = nest::OwnedNest;
 }
 
 /// The flavor for DNS data referencing an underlying bytes slice.
@@ -45,10 +50,12 @@ pub struct Ref<'a> {
 impl<'a> Flavor for Ref<'a> {
     type DName = name::DNameRef<'a>;
     type CString = cstring::CStringRef<'a>;
+    type Octets = octets::OctetsRef<'a>;
+    type Nest = nest::NestRef<'a>;
 }
 
 impl<'a> FlatFlavor<'a> for Ref<'a> {
-    type Nest = nest::NestRef<'a>;
+    type FlatNest = nest::NestRef<'a>;
 }
 
 
@@ -60,8 +67,10 @@ pub struct Lazy<'a> {
 impl<'a> Flavor for Lazy<'a> {
     type DName = name::LazyDName<'a>;
     type CString = cstring::CStringRef<'a>;
+    type Octets = octets::OctetsRef<'a>;
+    type Nest = nest::LazyNest<'a>;
 }
 
 impl<'a> FlatFlavor<'a> for Lazy<'a> {
-    type Nest = nest::LazyNest<'a>;
+    type FlatNest = nest::LazyNest<'a>;
 }

@@ -5,23 +5,23 @@ use super::super::compose::ComposeBytes;
 use super::super::flavor::FlatFlavor;
 use super::super::error::{ComposeResult, ParseResult};
 use super::super::iana::RRType;
-use super::super::nest::Nest;
+use super::super::nest::{FlatNest, Nest};
 use super::super::parse::ParseFlavor;
 use super::traits::{FlatRecordData, RecordData};
 
 
 pub struct GenericRecordData<'a, F: FlatFlavor<'a>> {
     rtype: RRType,
-    data: F::Nest,
+    data: F::FlatNest,
 }
 
 impl<'a, F: FlatFlavor<'a>> GenericRecordData<'a, F> {
-    pub fn new(rtype: RRType, data: F::Nest) -> Self {
+    pub fn new(rtype: RRType, data: F::FlatNest) -> Self {
         GenericRecordData { rtype: rtype, data: data }
     }
 
     pub fn rtype(&self) -> RRType { self.rtype }
-    pub fn data(&self) -> &F::Nest { &self.data }
+    pub fn data(&self) -> &F::FlatNest { &self.data }
 
     pub fn fmt<R: FlatRecordData<'a, F>>(&self, f: &mut fmt::Formatter)
                                          -> fmt::Result {
@@ -63,10 +63,26 @@ impl<'a, F: FlatFlavor<'a>> fmt::Display for GenericRecordData<'a, F> {
         use super::rfc3596::*;
 
         match self.rtype {
+            // RFC 1035
             RRType::A => self.fmt::<A>(f),
-            RRType::AAAA => self.fmt::<AAAA>(f),
             RRType::CNAME => self.fmt::<CName<F>>(f),
+            RRType::HINFO => self.fmt::<HInfo<F>>(f),
+            RRType::MB => self.fmt::<MB<F>>(f),
+            RRType::MD => self.fmt::<MD<F>>(f),
+            RRType::MF => self.fmt::<MF<F>>(f),
+            RRType::MG => self.fmt::<MG<F>>(f),
+            RRType::MINFO => self.fmt::<MInfo<F>>(f),
+            RRType::MR => self.fmt::<MR<F>>(f),
+            RRType::MX => self.fmt::<MX<F>>(f),
             RRType::NS => self.fmt::<NS<F>>(f),
+            RRType::NULL => self.fmt::<Null<F>>(f),
+            RRType::PTR => self.fmt::<Ptr<F>>(f),
+            RRType::SOA => self.fmt::<SOA<F>>(f),
+            RRType::TXT => self.fmt::<Txt<F>>(f),
+            RRType::WKS => self.fmt::<WKS<F>>(f),
+
+            // RFC 3596
+            RRType::AAAA => self.fmt::<AAAA>(f),
             _ => "...".fmt(f)
         }
     }
