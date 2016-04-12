@@ -6,5 +6,5 @@ mod macros;
 */
 
 pub mod bits;
-pub mod resolver;
+pub mod resolv;
 

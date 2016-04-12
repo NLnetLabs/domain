@@ -15,7 +15,7 @@ use domain::bits::iana::{Class, RRType};
 use domain::bits::message::{LazyMessage, MessageBuilder, RecordIter};
 use domain::bits::name::OwnedDName;
 use domain::bits::rdata::generic::GenericRecordData;
-use domain::resolver::conf::ResolvConf;
+use domain::resolv::conf::ResolvConf;
 
 
 //------------ Options ------------------------------------------------------

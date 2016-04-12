@@ -7,11 +7,14 @@ authors = ["Martin Hoffmann <hn@nvnc.de>"]
 name = "domain"
 path = "src/lib.rs"
 
-[[bin]]
+[[example]]
 name = "dig"
-path = "src/dig.rs"
+path = "examples/dig.rs"
 
 [dependencies]
-argparse = "0.2"
 rand     = "0.3"
 
+[dev-dependencies]
+argparse     = "0.2"
+rotor        = "0.6"
+rotor-stream = "0.6"

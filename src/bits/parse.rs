@@ -63,7 +63,7 @@ pub trait ParseLazy<'a>: ParseBytes<'a> {
 /// A trait for parsing wire-format DNS data.
 ///
 /// While the basic types are implemented for every parser through the
-/// `ParseBytesSimple` trait, not every parser can parse every kind of
+/// `ParseBytes` trait, not every parser can parse every kind of
 /// domain name. Because of this, parsers may implement the
 /// `ParseBytes` trait only for specific flavors.
 pub trait ParseFlavor<'a, F: FlatFlavor<'a>>: ParseBytes<'a> {

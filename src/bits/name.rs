@@ -242,6 +242,15 @@ impl DNameSlice {
 }
 
 
+//--- DName
+
+impl<'a> DName for &'a DNameSlice {
+    fn to_cow(&self) -> ParseResult<Cow<DNameSlice>> {
+        Ok(Cow::Borrowed(self))
+    }
+}
+
+
 //--- AsRef
 
 impl AsRef<DNameSlice> for DNameSlice {

@@ -14,6 +14,7 @@ use super::cstring;
 use super::name;
 use super::nest;
 use super::octets;
+use super::parse;
 
 
 /// The trait for the three flavors of DNS data.
@@ -30,6 +31,9 @@ pub trait Flavor: Sized {
 /// The trait for DNS data that is stored in unparsed format.
 pub trait FlatFlavor<'a>: Flavor {
     type FlatNest: nest::FlatNest<'a, Self>;
+    type Parser: parse::ParseFlavor<'a, Self> + Clone;
+
+    fn parser_for_message(bytes: &'a [u8]) -> Self::Parser;
 }
 
 /// The flavor for owned DNS data.
@@ -56,6 +60,11 @@ impl<'a> Flavor for Ref<'a> {
 
 impl<'a> FlatFlavor<'a> for Ref<'a> {
     type FlatNest = nest::NestRef<'a>;
+    type Parser = parse::SliceParser<'a>;
+
+    fn parser_for_message(bytes: &'a [u8]) -> Self::Parser {
+        parse::SliceParser::new(bytes)
+    }
 }
 
 
@@ -73,4 +82,9 @@ impl<'a> Flavor for Lazy<'a> {
 
 impl<'a> FlatFlavor<'a> for Lazy<'a> {
     type FlatNest = nest::LazyNest<'a>;
+    type Parser = parse::ContextParser<'a>;
+
+    fn parser_for_message(bytes: &'a [u8]) -> Self::Parser {
+        parse::ContextParser::new(bytes, bytes)
+    }
 }

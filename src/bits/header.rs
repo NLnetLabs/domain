@@ -396,48 +396,4 @@ impl FullHeader {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use super::super::iana::{Opcode, Rcode};
-
-    #[test]
-    fn getters() {
-        let (h, r) = Header::split_from(b"\xDE\x55\x01\x25\x00\x01\
-                                          \x00\x02\x03\x00\x04\x04\
-                                          abc").unwrap();
-        assert_eq!(h.id(), 0xDE55); 
-        assert_eq!(h.qr(), false);
-        assert_eq!(h.opcode(), Opcode::Query);
-        assert_eq!(h.aa(), false);
-        assert_eq!(h.tc(), false);
-        assert_eq!(h.rd(), true);
-        assert_eq!(h.ra(), false);
-        assert_eq!(h.ad(), true);
-        assert_eq!(h.cd(), false);
-        assert_eq!(h.rcode(), Rcode::Refused);
-
-        let (h, r) = HeaderCounts::split_from(r).unwrap();
-        assert_eq!(h.qdcount(), 0x0001);
-        assert_eq!(h.ancount(), 0x0002);
-        assert_eq!(h.nscount(), 0x0300);
-        assert_eq!(h.arcount(), 0x0404);
-
-        assert_eq!(r, &b"abc"[..]);
-    }
-
-    #[test]
-    fn setters() {
-        let mut h = Header::new();
-        h.set_id(0xDE55);
-        h.set_rd(true);
-        h.set_ad(true);
-        h.set_rcode(Rcode::Refused);
-        assert_eq!(h.as_bytes(), b"\xDE\x55\x01\x25");
-
-        let mut h = HeaderCounts::new();
-        h.set_qdcount(0x0001);
-        h.set_ancount(0x0002);
-        h.set_nscount(0x0300);
-        h.set_arcount(0x0404);
-        assert_eq!(h.as_bytes(), b"\x00\x01\x00\x02\x03\x00\x04\x04");
-    }
 }

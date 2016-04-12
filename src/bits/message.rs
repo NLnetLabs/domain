@@ -6,7 +6,6 @@ use super::compose::ComposeBytes;
 use super::error::{ComposeError, ComposeResult, ParseResult};
 use super::flavor::{self, FlatFlavor};
 use super::header::{Header, HeaderCounts, FullHeader};
-use super::nest::{self, FlatNest, Nest};
 use super::parse::ParseBytes;
 use super::question::{ComposeQuestion, Question};
 use super::rdata::{GenericRecordData, FlatRecordData};
@@ -15,56 +14,45 @@ use super::record::{ComposeRecord, Record};
 
 //============ Disecting Existing Messages ==================================
 
-//============ Message ======================================================
+//------------ Message ------------------------------------------------------
 
 /// A DNS message.
 #[derive(Clone, Debug)]
 pub struct Message<'a, F: FlatFlavor<'a>> {
-    nest: F::FlatNest
+    bytes: &'a [u8],
+    marker: PhantomData<F>,
 }
 
-pub type OwnedMessage<'a> = Message<'a, flavor::Owned>;
 pub type MessageRef<'a> = Message<'a, flavor::Ref<'a>>;
 pub type LazyMessage<'a> = Message<'a, flavor::Lazy<'a>>;
+
 
 /// # Creation and Conversion
 ///
 impl<'a, F: FlatFlavor<'a>> Message<'a, F> {
-    /// Creates a message from a nest.
-    pub fn from_nest(nest: F::FlatNest) -> Self {
-        Message { nest: nest }
-    }
-}
-
-impl<'a> Message<'a, flavor::Ref<'a>> {
+    /// Creates a message from a bytes slice.
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
-        Message::from_nest(nest::NestRef::from_bytes(bytes))
-    }
-}
-
-impl<'a> Message<'a, flavor::Lazy<'a>> {
-    pub fn from_bytes(bytes: &'a [u8]) -> Self {
-        Message::from_nest(nest::LazyNest::new(bytes, bytes))
+        Message { bytes: bytes, marker: PhantomData }
     }
 }
 
 
-// # Header Access
-//
+/// # Header Access
+///
 impl<'a, F: FlatFlavor<'a>> Message<'a, F> {
     /// Returns a reference to the message header.
     pub fn header<'b: 'a>(&'b self) -> &'a Header {
-        unsafe { Header::from_message(self.nest.as_slice()) }
+        unsafe { Header::from_message(self.bytes) }
     }
 
     /// Returns a reference to the header counts of the message.
     pub fn counts<'b: 'a>(&'b self) -> &'a HeaderCounts {
-        unsafe { HeaderCounts::from_message(self.nest.as_slice()) }
+        unsafe { HeaderCounts::from_message(self.bytes) }
     }
 
     /// Returns an iterator over the question section
     pub fn question<'b: 'a>(&'b self) -> QuestionSection<'a, F> {
-        let mut parser = self.nest.parser();
+        let mut parser = F::parser_for_message(self.bytes);
         parser.skip(mem::size_of::<FullHeader>()).unwrap(); // XXX Hmm.
         QuestionSection::new(parser, (*self.counts()).clone())
     }
@@ -75,14 +63,13 @@ impl<'a, F: FlatFlavor<'a>> Message<'a, F> {
 
 #[derive(Clone, Debug)]
 pub struct QuestionSection<'a, F: FlatFlavor<'a>> {
-    parser: <F::FlatNest as FlatNest<'a, F>>::Parser,
+    parser: F::Parser,
     counts: HeaderCounts,
     count: u16
 }
 
 impl<'a, F: FlatFlavor<'a>> QuestionSection<'a, F> {
-    fn new(parser: <F::FlatNest as FlatNest<'a, F>>::Parser,
-           counts: HeaderCounts) -> Self {
+    fn new(parser: F::Parser, counts: HeaderCounts) -> Self {
         let count = counts.qdcount();
         QuestionSection { parser: parser, counts: counts, count: count }
     }
@@ -118,13 +105,12 @@ impl<'a, F: FlatFlavor<'a>> Iterator for QuestionSection<'a, F> {
 /// The answer section of a message.
 #[derive(Clone, Debug)]
 pub struct AnswerSection<'a, F: FlatFlavor<'a>> {
-    parser: <F::FlatNest as FlatNest<'a, F>>::Parser,
+    parser: F::Parser,
     counts: HeaderCounts,
 }
 
 impl<'a, F: FlatFlavor<'a>> AnswerSection<'a, F> {
-    fn new(parser: <F::FlatNest as FlatNest<'a, F>>::Parser,
-           counts: HeaderCounts) -> Self {
+    fn new(parser: F::Parser, counts: HeaderCounts) -> Self {
         AnswerSection { parser: parser, counts: counts }
     }
 
@@ -145,13 +131,12 @@ impl<'a, F: FlatFlavor<'a>> AnswerSection<'a, F> {
 /// The authority section of a message.
 #[derive(Clone, Debug)]
 pub struct AuthoritySection<'a, F: FlatFlavor<'a>> {
-    parser: <F::FlatNest as FlatNest<'a, F>>::Parser,
+    parser: F::Parser,
     counts: HeaderCounts,
 }
 
 impl<'a, F: FlatFlavor<'a>> AuthoritySection<'a, F> {
-    fn new(parser: <F::FlatNest as FlatNest<'a, F>>::Parser,
-           counts: HeaderCounts) -> Self {
+    fn new(parser: F::Parser, counts: HeaderCounts) -> Self {
         AuthoritySection { parser: parser, counts: counts }
     }
 
@@ -172,13 +157,12 @@ impl<'a, F: FlatFlavor<'a>> AuthoritySection<'a, F> {
 /// The additional section of a message.
 #[derive(Clone, Debug)]
 pub struct AdditionalSection<'a, F: FlatFlavor<'a>> {
-    parser: <F::FlatNest as FlatNest<'a, F>>::Parser,
+    parser: F::Parser,
     counts: HeaderCounts,
 }
 
 impl<'a, F: FlatFlavor<'a>> AdditionalSection<'a, F> {
-    fn new(parser: <F::FlatNest as FlatNest<'a, F>>::Parser,
-           counts: HeaderCounts) -> Self {
+    fn new(parser: F::Parser, counts: HeaderCounts) -> Self {
         AdditionalSection { parser: parser, counts: counts }
     }
 
@@ -187,19 +171,19 @@ impl<'a, F: FlatFlavor<'a>> AdditionalSection<'a, F> {
     }
 }
 
+
 //------------ RecordIter ---------------------------------------------------
 
 /// An iterator over the records in one of a record section.
 #[derive(Clone, Debug)]
 pub struct RecordIter<'a, F: FlatFlavor<'a>, D: FlatRecordData<'a, F>> {
-    parser: <F::FlatNest as FlatNest<'a, F>>::Parser,
+    parser: F::Parser,
     count: u16,
     marker: PhantomData<D>
 }
 
 impl<'a, F: FlatFlavor<'a>, D: FlatRecordData<'a, F>> RecordIter<'a, F, D> {
-    fn new(parser: <F::FlatNest as FlatNest<'a, F>>::Parser, count: u16)
-           -> Self {
+    fn new(parser: F::Parser, count: u16) -> Self {
         RecordIter { parser: parser, count: count, marker: PhantomData }
     }
 
