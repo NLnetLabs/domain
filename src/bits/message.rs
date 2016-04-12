@@ -1,60 +1,147 @@
 //! DNS messages.
 
+use std::borrow::Borrow;
 use std::marker::PhantomData;
 use std::mem;
+use std::ops::Deref;
 use super::compose::ComposeBytes;
-use super::error::{ComposeError, ComposeResult, ParseResult};
-use super::flavor::{self, FlatFlavor};
+use super::error::{ComposeError, ComposeResult, ParseError, ParseResult};
+use super::flavor;
 use super::header::{Header, HeaderCounts, FullHeader};
-use super::parse::ParseBytes;
-use super::question::{ComposeQuestion, Question};
+use super::parse::{ContextParser, ParseBytes};
+use super::question::{ComposeQuestion, LazyQuestion};
 use super::rdata::{GenericRecordData, FlatRecordData};
-use super::record::{ComposeRecord, Record};
+use super::record::{ComposeRecord, LazyRecord};
 
 
 //============ Disecting Existing Messages ==================================
 
 //------------ Message ------------------------------------------------------
 
-/// A DNS message.
-#[derive(Clone, Debug)]
-pub struct Message<'a, F: FlatFlavor<'a>> {
-    bytes: &'a [u8],
-    marker: PhantomData<F>,
+/// A bytes slice containing a DNS message.
+///
+/// Everything parsed out of a message will be of the lazy flavor.
+///
+/// This is an unsized type.
+#[derive(Debug)]
+pub struct Message {
+    slice: [u8]
 }
-
-pub type MessageRef<'a> = Message<'a, flavor::Ref<'a>>;
-pub type LazyMessage<'a> = Message<'a, flavor::Lazy<'a>>;
-
 
 /// # Creation and Conversion
 ///
-impl<'a, F: FlatFlavor<'a>> Message<'a, F> {
+impl Message {
     /// Creates a message from a bytes slice.
-    pub fn from_bytes(bytes: &'a [u8]) -> Self {
-        Message { bytes: bytes, marker: PhantomData }
+    pub fn from_bytes(slice: &[u8]) -> ParseResult<&Self> {
+        if slice.len() < mem::size_of::<FullHeader>() {
+            Err(ParseError::UnexpectedEnd)
+        }
+        else {
+            Ok(unsafe { Message::from_bytes_unsafe(slice) })
+        }
+    }
+
+    unsafe fn from_bytes_unsafe(slice: &[u8]) -> &Self {
+        mem::transmute(slice)
+    }
+
+    /// Returns an owned copy of this message.
+    pub fn to_owned(&self) -> MessageBuf {
+        unsafe { MessageBuf::from_bytes_unsafe(&self.slice) }
+    }
+
+    /// Returns the underlying bytes slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.slice
     }
 }
 
 
 /// # Header Access
 ///
-impl<'a, F: FlatFlavor<'a>> Message<'a, F> {
+impl Message {
     /// Returns a reference to the message header.
-    pub fn header<'b: 'a>(&'b self) -> &'a Header {
-        unsafe { Header::from_message(self.bytes) }
+    pub fn header(&self) -> &Header {
+        unsafe { Header::from_message(&self.slice) }
     }
 
     /// Returns a reference to the header counts of the message.
-    pub fn counts<'b: 'a>(&'b self) -> &'a HeaderCounts {
-        unsafe { HeaderCounts::from_message(self.bytes) }
+    pub fn counts(&self) -> &HeaderCounts {
+        unsafe { HeaderCounts::from_message(&self.slice) }
     }
 
     /// Returns an iterator over the question section
-    pub fn question<'b: 'a>(&'b self) -> QuestionSection<'a, F> {
-        let mut parser = F::parser_for_message(self.bytes);
-        parser.skip(mem::size_of::<FullHeader>()).unwrap(); // XXX Hmm.
-        QuestionSection::new(parser, (*self.counts()).clone())
+    pub fn question(&self) -> QuestionSection {
+        let mut parser = ContextParser::new(&self.slice, &self.slice);
+        parser.skip(mem::size_of::<FullHeader>()).unwrap();
+        QuestionSection::new(parser, self.counts())
+    }
+}
+
+
+//--- AsRef
+
+impl AsRef<Message> for Message {
+    fn as_ref(&self) -> &Message { self }
+}
+
+
+//--- ToOwned
+
+impl ToOwned for Message {
+    type Owned = MessageBuf;
+
+    fn to_owned(&self) -> Self::Owned { self.to_owned() }
+}
+
+
+//------------ MessageBuf ---------------------------------------------------
+
+/// An owned DNS message.
+#[derive(Clone, Debug)]
+pub struct MessageBuf {
+    inner: Vec<u8>
+}
+
+
+/// # Creation and Conversion
+///
+impl MessageBuf {
+    /// Creates a new owned message from a bytes slice.
+    pub fn from_bytes(slice: &[u8]) -> ParseResult<Self> {
+        let msg = try!(Message::from_bytes(slice));
+        Ok(MessageBuf { inner: Vec::from(&msg.slice) })
+    }
+
+    unsafe fn from_bytes_unsafe(slice: &[u8]) -> Self {
+        MessageBuf { inner: Vec::from(slice) }
+    }
+
+    pub fn as_slice(&self) -> &Message {
+        self
+    }
+}
+
+
+//--- Deref, Borrow, and AsRef
+
+impl Deref for MessageBuf {
+    type Target = Message;
+
+    fn deref(&self) -> &Message {
+        unsafe { Message::from_bytes_unsafe(&self.inner) }
+    }
+}
+
+impl Borrow<Message> for MessageBuf {
+    fn borrow(&self) -> &Message {
+        self.deref()
+    }
+}
+
+impl AsRef<Message> for MessageBuf {
+    fn as_ref(&self) -> &Message {
+        self
     }
 }
 
@@ -62,14 +149,14 @@ impl<'a, F: FlatFlavor<'a>> Message<'a, F> {
 //------------ QuestionSection ----------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct QuestionSection<'a, F: FlatFlavor<'a>> {
-    parser: F::Parser,
-    counts: HeaderCounts,
+pub struct QuestionSection<'a> {
+    parser: ContextParser<'a>,
+    counts: &'a HeaderCounts,
     count: u16
 }
 
-impl<'a, F: FlatFlavor<'a>> QuestionSection<'a, F> {
-    fn new(parser: F::Parser, counts: HeaderCounts) -> Self {
+impl<'a> QuestionSection<'a> {
+    fn new(parser: ContextParser<'a>, counts: &'a HeaderCounts) -> Self {
         let count = counts.qdcount();
         QuestionSection { parser: parser, counts: counts, count: count }
     }
@@ -79,7 +166,7 @@ impl<'a, F: FlatFlavor<'a>> QuestionSection<'a, F> {
     }
 
     /// Continues to the answer section.
-    pub fn answer(mut self) -> ParseResult<AnswerSection<'a, F>> {
+    pub fn answer(mut self) -> ParseResult<AnswerSection<'a>> {
         for question in self.iter() {
             if let Err(e) = question {
                 return Err(e)
@@ -89,12 +176,12 @@ impl<'a, F: FlatFlavor<'a>> QuestionSection<'a, F> {
     }
 }
 
-impl<'a, F: FlatFlavor<'a>> Iterator for QuestionSection<'a, F> {
-    type Item = ParseResult<Question<F>>;
+impl<'a> Iterator for QuestionSection<'a> {
+    type Item = ParseResult<LazyQuestion<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.count == 0 { return None }
-        Some(Question::parse(&mut self.parser)
+        Some(LazyQuestion::parse(&mut self.parser)
                       .map(|res| { self.count -= 1; res }))
     }
 }
@@ -104,22 +191,23 @@ impl<'a, F: FlatFlavor<'a>> Iterator for QuestionSection<'a, F> {
 
 /// The answer section of a message.
 #[derive(Clone, Debug)]
-pub struct AnswerSection<'a, F: FlatFlavor<'a>> {
-    parser: F::Parser,
-    counts: HeaderCounts,
+pub struct AnswerSection<'a> {
+    parser: ContextParser<'a>,
+    counts: &'a HeaderCounts,
 }
 
-impl<'a, F: FlatFlavor<'a>> AnswerSection<'a, F> {
-    fn new(parser: F::Parser, counts: HeaderCounts) -> Self {
+impl<'a> AnswerSection<'a> {
+    fn new(parser: ContextParser<'a>, counts: &'a HeaderCounts) -> Self {
         AnswerSection { parser: parser, counts: counts }
     }
 
-    pub fn iter<D: FlatRecordData<'a, F>>(&self) -> RecordIter<'a, F, D> {
+    pub fn iter<D>(&self) -> RecordIter<'a, D>
+                where D: FlatRecordData<'a, flavor::Lazy<'a>> {
         RecordIter::new(self.parser.clone(), self.counts.ancount())
     }
 
-    pub fn authority(self) -> ParseResult<AuthoritySection<'a, F>> {
-        let mut iter = self.iter::<GenericRecordData<'a, F>>();
+    pub fn authority(self) -> ParseResult<AuthoritySection<'a>> {
+        let mut iter = self.iter::<GenericRecordData<'a, flavor::Lazy<'a>>>();
         try!(iter.exhaust());
         Ok(AuthoritySection::new(iter.parser, self.counts))
     }
@@ -130,22 +218,23 @@ impl<'a, F: FlatFlavor<'a>> AnswerSection<'a, F> {
 
 /// The authority section of a message.
 #[derive(Clone, Debug)]
-pub struct AuthoritySection<'a, F: FlatFlavor<'a>> {
-    parser: F::Parser,
-    counts: HeaderCounts,
+pub struct AuthoritySection<'a> {
+    parser: ContextParser<'a>,
+    counts: &'a HeaderCounts,
 }
 
-impl<'a, F: FlatFlavor<'a>> AuthoritySection<'a, F> {
-    fn new(parser: F::Parser, counts: HeaderCounts) -> Self {
+impl<'a> AuthoritySection<'a> {
+    fn new(parser: ContextParser<'a>, counts: &'a HeaderCounts) -> Self {
         AuthoritySection { parser: parser, counts: counts }
     }
 
-    pub fn iter<D: FlatRecordData<'a, F>>(&self) -> RecordIter<'a, F, D> {
-        RecordIter::new(self.parser.clone(), self.counts.nscount())
+    pub fn iter<D>(&self) -> RecordIter<'a, D>
+                where D: FlatRecordData<'a, flavor::Lazy<'a>> {
+        RecordIter::new(self.parser.clone(), self.counts.ancount())
     }
 
-    pub fn additional(self) -> ParseResult<AdditionalSection<'a, F>> {
-        let mut iter = self.iter::<GenericRecordData<'a, F>>();
+    pub fn additional(self) -> ParseResult<AdditionalSection<'a>> {
+        let mut iter = self.iter::<GenericRecordData<'a, flavor::Lazy<'a>>>();
         try!(iter.exhaust());
         Ok(AdditionalSection::new(iter.parser, self.counts))
     }
@@ -156,17 +245,18 @@ impl<'a, F: FlatFlavor<'a>> AuthoritySection<'a, F> {
 
 /// The additional section of a message.
 #[derive(Clone, Debug)]
-pub struct AdditionalSection<'a, F: FlatFlavor<'a>> {
-    parser: F::Parser,
-    counts: HeaderCounts,
+pub struct AdditionalSection<'a> {
+    parser: ContextParser<'a>,
+    counts: &'a HeaderCounts,
 }
 
-impl<'a, F: FlatFlavor<'a>> AdditionalSection<'a, F> {
-    fn new(parser: F::Parser, counts: HeaderCounts) -> Self {
+impl<'a> AdditionalSection<'a> {
+    fn new(parser: ContextParser<'a>, counts: &'a HeaderCounts) -> Self {
         AdditionalSection { parser: parser, counts: counts }
     }
 
-    pub fn iter<D: FlatRecordData<'a, F>>(&self) -> RecordIter<'a, F, D> {
+    pub fn iter<D>(&self) -> RecordIter<'a, D>
+                where D: FlatRecordData<'a, flavor::Lazy<'a>> {
         RecordIter::new(self.parser.clone(), self.counts.ancount())
     }
 }
@@ -176,14 +266,14 @@ impl<'a, F: FlatFlavor<'a>> AdditionalSection<'a, F> {
 
 /// An iterator over the records in one of a record section.
 #[derive(Clone, Debug)]
-pub struct RecordIter<'a, F: FlatFlavor<'a>, D: FlatRecordData<'a, F>> {
-    parser: F::Parser,
+pub struct RecordIter<'a, D: FlatRecordData<'a, flavor::Lazy<'a>>> {
+    parser: ContextParser<'a>,
     count: u16,
     marker: PhantomData<D>
 }
 
-impl<'a, F: FlatFlavor<'a>, D: FlatRecordData<'a, F>> RecordIter<'a, F, D> {
-    fn new(parser: F::Parser, count: u16) -> Self {
+impl<'a, D: FlatRecordData<'a, flavor::Lazy<'a>>> RecordIter<'a, D> {
+    fn new(parser: ContextParser<'a>, count: u16) -> Self {
         RecordIter { parser: parser, count: count, marker: PhantomData }
     }
 
@@ -198,14 +288,14 @@ impl<'a, F: FlatFlavor<'a>, D: FlatRecordData<'a, F>> RecordIter<'a, F, D> {
         Ok(())
     }
 
-    fn step(&mut self) -> ParseResult<Option<Record<F, D>>> {
-        Record::parse(&mut self.parser).map(|res| { self.count -= 1; res })
+    fn step(&mut self) -> ParseResult<Option<LazyRecord<'a, D>>> {
+        LazyRecord::parse(&mut self.parser).map(|res| { self.count -= 1; res })
     }
 }
 
-impl<'a, F, D> Iterator for RecordIter<'a, F, D> 
-     where F: FlatFlavor<'a>, D: FlatRecordData<'a, F> {
-    type Item = ParseResult<Record<F, D>>;
+impl<'a, D> Iterator for RecordIter<'a, D>
+            where D: FlatRecordData<'a, flavor::Lazy<'a>> {
+    type Item = ParseResult<LazyRecord<'a, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.count == 0 { return None }

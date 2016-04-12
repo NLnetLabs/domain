@@ -3,7 +3,7 @@
 use std::fmt;
 use super::compose::ComposeBytes;
 use super::error::{ComposeError, ComposeResult, ParseResult};
-use super::flavor::{FlatFlavor, Flavor};
+use super::flavor::{self, FlatFlavor, Flavor};
 use super::iana::{Class, RRType};
 use super::parse::ParseFlavor;
 use super::rdata::{FlatRecordData, RecordData};
@@ -17,6 +17,10 @@ pub struct Record<F: Flavor, D: RecordData<F>> {
     ttl: u32,
     rdata: D
 }
+
+pub type OwnedRecord<D> = Record<flavor::Owned, D>;
+pub type RecordRef<'a, D> = Record<flavor::Ref<'a>, D>;
+pub type LazyRecord<'a, D> = Record<flavor::Lazy<'a>, D>;
 
 
 /// # Creation and Conversion
