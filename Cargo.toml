@@ -13,6 +13,8 @@ path = "examples/dig.rs"
 
 [dependencies]
 rand     = "0.3"
+rotor    = "0.6"
+vecio    = "0.1"
 
 [dev-dependencies]
 argparse     = "0.2"

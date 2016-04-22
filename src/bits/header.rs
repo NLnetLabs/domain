@@ -75,9 +75,13 @@ impl Header {
     pub fn set_random_id(&mut self) { self.set_id(::rand::random()) }
 
     /// Returns the value of the QR bit.
+    ///
+    /// Remember that `false` means query and `true` means response.
     pub fn qr(&self) -> bool { self.get_bit(2, 7) }
 
     /// Sets the value of the QR bit.
+    ///
+    /// Remember that `false` means query and `true` means response.
     pub fn set_qr(&mut self, set: bool) { self.set_bit(2, 7, set) }
 
     /// Returns the Opcode field.

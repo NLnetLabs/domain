@@ -3,8 +3,8 @@
 use std::borrow::Borrow;
 use std::marker::PhantomData;
 use std::mem;
-use std::ops::Deref;
-use super::compose::ComposeBytes;
+use std::ops::{Deref, DerefMut};
+use super::compose::{ComposeBytes, ComposeVec};
 use super::error::{ComposeError, ComposeResult, ParseError, ParseResult};
 use super::flavor;
 use super::header::{Header, HeaderCounts, FullHeader};
@@ -45,6 +45,10 @@ impl Message {
         mem::transmute(slice)
     }
 
+    unsafe fn from_bytes_unsafe_mut(slice: &mut [u8]) ->&mut Self {
+        mem::transmute(slice)
+    }
+
     /// Returns an owned copy of this message.
     pub fn to_owned(&self) -> MessageBuf {
         unsafe { MessageBuf::from_bytes_unsafe(&self.slice) }
@@ -65,6 +69,15 @@ impl Message {
         unsafe { Header::from_message(&self.slice) }
     }
 
+    /// Returns a mutable reference to the message header.
+    ///
+    /// The header is the only part of an already constructed message that
+    /// can be safely manipulated without extra ado, so this is the only
+    /// mutable method.
+    pub fn header_mut(&mut self) -> &mut Header {
+        unsafe { Header::from_message_mut(&mut self.slice) }
+    }
+
     /// Returns a reference to the header counts of the message.
     pub fn counts(&self) -> &HeaderCounts {
         unsafe { HeaderCounts::from_message(&self.slice) }
@@ -75,6 +88,18 @@ impl Message {
         let mut parser = ContextParser::new(&self.slice, &self.slice);
         parser.skip(mem::size_of::<FullHeader>()).unwrap();
         QuestionSection::new(parser, self.counts())
+    }
+}
+
+
+/// # Miscellaneous
+///
+impl Message {
+    /// Returns whether this the answer to some other message.
+    pub fn is_answer(&self, query: &Message) -> bool {
+        if !self.header().qr() { false }
+        else if self.counts().qdcount() != query.counts().qdcount() { false }
+        else { self.question().eq(query.question()) }
     }
 }
 
@@ -107,6 +132,12 @@ pub struct MessageBuf {
 /// # Creation and Conversion
 ///
 impl MessageBuf {
+    /// Creates a new owned message from the underlying vec.
+    pub fn from_vec(vec: Vec<u8>) -> ParseResult<Self> {
+        let _ = try!(Message::from_bytes(&vec));
+        Ok(MessageBuf { inner: vec })
+    }
+
     /// Creates a new owned message from a bytes slice.
     pub fn from_bytes(slice: &[u8]) -> ParseResult<Self> {
         let msg = try!(Message::from_bytes(slice));
@@ -120,16 +151,33 @@ impl MessageBuf {
     pub fn as_slice(&self) -> &Message {
         self
     }
+
+    pub fn query_from_question<C: ComposeQuestion>(question: &C)
+            -> ComposeResult<MessageBuf> {
+        let mut msg = try!(MessageBuilder::new(
+                                          ComposeVec::new(Some(512), true)));
+        msg.header_mut().set_rd(true);
+        msg.header_mut().set_ad(true);
+        let mut q = msg.question();
+        try!(q.push(question));
+        Ok(try!(MessageBuf::from_vec(try!(q.finish()).finish())))
+    }
 }
 
 
-//--- Deref, Borrow, and AsRef
+//--- Deref, DerefMut, Borrow, and AsRef
 
 impl Deref for MessageBuf {
     type Target = Message;
 
     fn deref(&self) -> &Message {
         unsafe { Message::from_bytes_unsafe(&self.inner) }
+    }
+}
+
+impl DerefMut for MessageBuf {
+    fn deref_mut(&mut self) -> &mut Message {
+        unsafe { Message::from_bytes_unsafe_mut(&mut self.inner) }
     }
 }
 

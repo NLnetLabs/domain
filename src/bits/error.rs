@@ -1,4 +1,4 @@
-//! Errors and results
+//! Errors and results.
 //!
 //! There are three different pairs of errors and results related to the
 //! three different operations that can fail:
@@ -55,7 +55,7 @@ pub type ComposeResult<T> = Result<T, ComposeError>;
 
 //------------ ParseError and ParseResult -----------------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
     UnexpectedEnd,
     UnknownLabel,

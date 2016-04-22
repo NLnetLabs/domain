@@ -72,6 +72,16 @@ impl<F: Flavor> Question<F> {
 }
 
 
+//--- PartialEq
+
+impl<F: Flavor> PartialEq for Question<F> {
+    fn eq(&self, other: &Self) -> bool {
+        self.qname == other.qname && self.qtype == other.qtype
+             && self.qclass == other.qclass
+    }
+}
+
+
 //------------ ComposeQuestion ----------------------------------------------
 
 /// Helper trait to allow composing questions from tuples.

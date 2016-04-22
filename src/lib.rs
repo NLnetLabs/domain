@@ -1,4 +1,6 @@
 extern crate rand;
+extern crate rotor;
+extern crate vecio;
 
 /*
 #[macro_use]

@@ -21,7 +21,7 @@ use super::u8::{BytesExt, BytesVecExt};
 ///
 /// This trait makes it possible to define types that are generic over all
 /// three types of domain names.
-pub trait DName: fmt::Display + Sized {
+pub trait DName: fmt::Display + Sized + PartialEq {
     /// Return a cow to a domain name slice.
     fn to_cow(&self) -> ParseResult<Cow<DNameSlice>>;
 

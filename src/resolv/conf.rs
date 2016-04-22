@@ -135,7 +135,12 @@ pub struct ResolvConf {
     pub attempts: usize,
 
     /// Default options.
-    pub options: ResolvOptions
+    pub options: ResolvOptions,
+
+    //--- New config not in glibc
+    
+    /// Default idle timeout for stream oriented transports.
+    pub idle_timeout: Duration,
 }
 
 
@@ -154,6 +159,7 @@ impl ResolvConf {
             ndots: 1,
             timeout: Duration::new(5,0),
             attempts: 2,
+            idle_timeout: Duration::new(3,0), // XXX Guesswork
             options: ResolvOptions::default()
         }
     }
