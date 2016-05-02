@@ -1,8 +1,7 @@
 //! Query related things for the rotor-based DNS transport.
 
-use std::mem;
 use bits::message::MessageBuf;
-use super::sync::MaybeRotorSender;
+use super::sync::RotorSender;
 use resolv::error::Result;
 
 
@@ -92,13 +91,14 @@ pub struct Query {
     state: QueryState,
     request: MessageBuf,
     response: Option<Result<MessageBuf>>,
-    sender: Option<MaybeRotorSender<Query>>,
+    sender: RotorSender<Result<MessageBuf>>,
 }
 
 impl Query {
-    pub fn new(request: MessageBuf, sender: MaybeRotorSender<Query>) -> Query {
+    pub fn new(request: MessageBuf,
+               sender: RotorSender<Result<MessageBuf>>) -> Query {
         Query { state: QueryState::new(), request: request, response: None,
-                sender: Some(sender) }
+                sender: sender }
     }
 
     pub fn id(&self) -> u16 {
@@ -157,14 +157,10 @@ impl Query {
         self.state.attempt < attempts
     }
 
-    pub fn send(mut self) {
-        // XXX Alternatively we could clone the sender. But assuming
-        //     requeueing isn’t necessary, I think we are fine this way.
-        let sender = mem::replace(&mut self.sender, None).unwrap();
-
+    pub fn send(self) {
         // XXX We drop unsendable queries on the floor. Perhaps we should
         //     log or something?
-        let _ = sender.send(self);
+        let _ = self.sender.send(self.response.unwrap());
     }
 }
 

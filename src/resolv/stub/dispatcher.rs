@@ -53,7 +53,7 @@ impl<X> Dispatcher<X> {
                                 -> Dispatcher<X> {
         let mut res = Dispatcher {
             conf: conf,
-            queries: RotorReceiver::new(scope.notifier()),
+            queries: RotorReceiver::new(Some(scope.notifier())),
             bootstrap: None,
             dgram_servers: Vec::new(),
             dgram_start: 0,

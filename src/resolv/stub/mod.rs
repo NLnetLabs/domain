@@ -9,11 +9,18 @@ mod tcp;
 mod timeout;
 mod udp;
 
-use rotor::{EventSet, GenericScope, Machine, Response, Scope, Void};
+use std::io;
+use std::sync::mpsc::TryRecvError;
+use std::thread;
+use rotor::{self, EventSet, GenericScope, Machine, Notifier, Response,
+            Scope, Void};
+use bits::message::MessageBuf;
 use resolv::conf::ResolvConf;
+use resolv::error::{Error, Result};
+use resolv::tasks::{Progress, Task};
 use self::dispatcher::{BootstrapItem, Dispatcher};
 use self::query::Query;
-use self::sync::RotorSender;
+use self::sync::{RotorReceiver, RotorSender};
 use self::tcp::TcpTransport;
 use self::udp::UdpTransport;
 
@@ -24,12 +31,33 @@ use self::udp::UdpTransport;
 pub struct DnsTransport<X>(Composition<X>);
 
 impl<X> DnsTransport<X> {
-    pub fn new_sync<S: GenericScope>(conf: ResolvConf, scope: &mut S)
+    /// Creates a new DNS transport.
+    ///
+    /// Returns the transport and a resolver.
+    pub fn new<S: GenericScope>(conf: ResolvConf, scope: &mut S)
                                 -> (Self, Resolver) {
         let dispatcher = Dispatcher::new(conf, scope);
         let resolver = Resolver::new(dispatcher.query_sender());
         (DnsTransport(Composition::Dispatcher(dispatcher)),
          resolver)
+    }
+
+    /// Spawns a new DNS transport in a new thread.
+    ///
+    /// Returns the `JoinHandle` for this new thread and a resolver.
+    pub fn spawn(conf: ResolvConf)
+                 -> io::Result<(thread::JoinHandle<()>, Resolver)> {
+        let mut loop_creator = try!(rotor::Loop::new(&rotor::Config::new()));
+        let mut res = None;
+        loop_creator.add_machine_with(|scope| {
+            let (transport, resolver) = DnsTransport::new(conf, scope);
+            res = Some(resolver);
+            Response::ok(transport)
+        }).unwrap(); // Only NoSlabSpace can happen which is fatal ...
+        let child = thread::spawn(move || {
+            loop_creator.run(()).ok();
+        });
+        Ok((child, res.unwrap()))
     }
 }
 
@@ -135,5 +163,101 @@ impl Resolver {
         Resolver { requests: requests }
     }
 
+    /// Processes a task synchronously, ie., waits for an answer.
+    pub fn sync_task<T: Task>(&self, task: T) -> Result<T::Success> {
+        let mut machine = try!(ResolverMachine::new(&self, task, None));
+        loop {
+            match machine.step() {
+                Progress::Continue(m) => machine = m,
+                Progress::Success(s) => return Ok(s),
+                Progress::Error(e) => return Err(e)
+            }
+        }
+    }
+
+    /// Processes a task asynchronously by returning a machine.
+    pub fn task<T: Task, X>(&self, task: T, scope: &mut Scope<X>)
+                            -> Result<ResolverMachine<T>> {
+        ResolverMachine::new(self, task, Some(scope.notifier()))
+    }
+}
+
+
+//------------ ResolverMachine ----------------------------------------------
+
+pub struct ResolverMachine<T: Task> {
+    requests: RotorSender<Query>,
+    receiver: RotorReceiver<Result<MessageBuf>>,
+    task: T,
+}
+
+impl<T: Task> ResolverMachine<T> {
+    fn new(resolver: &Resolver, mut task: T, notifier: Option<Notifier>)
+           -> Result<Self> {
+        let requests = resolver.requests.clone();
+        let receiver = RotorReceiver::new(notifier);
+        let mut res = Ok(());
+        task = task.start(|qname, qtype, qclass| {
+            let message = match MessageBuf::query_from_question(
+                                                    &(qname, qtype, qclass)) {
+                Ok(message) => message,
+                Err(err) => { res = Err(err); return }
+            };
+            let query = Query::new(message, receiver.sender());
+            requests.send(query).unwrap(); // XXX Handle error.
+        });
+        if let Err(err) = res {
+            return Err(err.into());
+        }
+        Ok(ResolverMachine { requests: requests, receiver: receiver,
+                             task: task })
+    }
+
+    pub fn wakeup(self) -> Progress<Self, T::Success> {
+        let response = match self.receiver.try_recv() {
+            Ok(response) => response,
+            Err(TryRecvError::Empty) => return Progress::Continue(self),
+            Err(TryRecvError::Disconnected) => {
+                return Progress::Error(Error::Timeout) // XXX Hmm.
+            }
+        };
+        self.progress(response)
+    }
+
+    pub fn step(self) -> Progress<Self, T::Success> {
+        let response = match self.receiver.recv() {
+            Ok(response) => response,
+            Err(..) => return Progress::Error(Error::Timeout),
+        };
+        self.progress(response)
+    }
+
+    fn progress(self, response: Result<MessageBuf>)
+                -> Progress<Self, T::Success> {
+        let (task, receiver, requests) = (self.task, self.receiver,
+                                          self.requests);
+        let mut res = Ok(());
+        let progress = task.progress(response, |qname, qtype, qclass| {
+            let message = match MessageBuf::query_from_question(
+                                                   &(qname, qtype, qclass)) {
+                Ok(message) => message,
+                Err(err) => { res = Err(err); return }
+            };
+            let query = Query::new(message, receiver.sender());
+            requests.send(query).unwrap(); // XXX Handle error.
+        });
+        if let Err(err) = res {
+            return Progress::Error(err.into())
+        }
+        match progress {
+            Progress::Continue(t) => {
+                Progress::Continue(ResolverMachine { receiver: receiver,
+                                                     requests: requests,
+                                                     task: t })
+            }
+            Progress::Success(s) => Progress::Success(s),
+            Progress::Error(e) => Progress::Error(e),
+        }
+    }
 }
 

@@ -4,12 +4,16 @@ use std::error;
 use std::io;
 use std::fmt;
 use std::result;
+use bits::error::ComposeError;
 
 
 //------------ Error --------------------------------------------------------
 
 #[derive(Debug)]
 pub enum Error {
+    /// The question was all broken.
+    QuestionError(ComposeError),
+
     /// All responses for a query were negative.
     NoName,
 
@@ -31,12 +35,19 @@ impl error::Error for Error {
         use self::Error::*;
 
         match *self {
+            QuestionError(ref error) => error.description(),
             NoName => "all responses were negative",
             Timeout => "all queries timed out",
             NoSecureAnswers => "no received response was secure",
             AllBogusAnswers => "all received responses were bogus",
             IoError(ref error) => error.description()
         }
+    }
+}
+
+impl From<ComposeError> for Error {
+    fn from(error: ComposeError) -> Error {
+        Error::QuestionError(error)
     }
 }
 

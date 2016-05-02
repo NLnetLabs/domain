@@ -1,5 +1,6 @@
 //! Helper types for the rotor-based DNS transport.
 
+use std::clone::Clone;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
@@ -50,17 +51,21 @@ impl SharedNotifier {
 pub struct RotorReceiver<T> {
     receiver: mpsc::Receiver<T>,
     sender: mpsc::Sender<T>,
-    notifier: Notifier,
+    notifier: Option<Notifier>,
 }
 
 impl<T> RotorReceiver<T> {
-    pub fn new(notifier: Notifier) -> RotorReceiver<T> {
+    pub fn new(notifier: Option<Notifier>) -> RotorReceiver<T> {
         let (tx, rx) = mpsc::channel();
         RotorReceiver { receiver: rx, sender: tx, notifier: notifier }
     }
 
     pub fn try_recv(&self) -> Result<T, mpsc::TryRecvError> {
         self.receiver.try_recv()
+    }
+
+    pub fn recv(&self) -> Result<T, mpsc::RecvError> {
+        self.receiver.recv()
     }
 
     pub fn sender(&self) -> RotorSender<T> {
@@ -75,44 +80,12 @@ impl<T> RotorReceiver<T> {
 #[derive(Debug)]
 pub struct RotorSender<T> {
     sender: mpsc::Sender<T>,
-    notifier: Notifier
-}
-
-impl<T> RotorSender<T> {
-    pub fn new(sender: mpsc::Sender<T>, notifier: Notifier) -> Self {
-        RotorSender { sender: sender, notifier: notifier }
-    }
-
-    pub fn send(&self, t: T) -> Result<(), mpsc::SendError<T>> {
-        try!(self.sender.send(t));
-        let _ = self.notifier.wakeup();
-        Ok(())
-    }
-}
-
-impl<T> Clone for RotorSender<T> {
-    fn clone(&self) -> Self {
-        RotorSender::new(self.sender.clone(), self.notifier.clone())
-    }
-}
-
-//------------ MaybeRotorSender ---------------------------------------------
-
-/// A sender to an mpsc channel that may need to be woken up.
-#[derive(Clone, Debug)]
-pub struct MaybeRotorSender<T> {
-    sender: mpsc::Sender<T>,
     notifier: Option<Notifier>
 }
 
-impl<T> MaybeRotorSender<T> {
+impl<T> RotorSender<T> {
     pub fn new(sender: mpsc::Sender<T>, notifier: Option<Notifier>) -> Self {
-        MaybeRotorSender { sender: sender, notifier: notifier }
-    }
-
-    pub fn channel() -> (Self, mpsc::Receiver<T>) {
-        let (tx, rx) = mpsc::channel();
-        (MaybeRotorSender::new(tx, None), rx)
+        RotorSender { sender: sender, notifier: notifier }
     }
 
     pub fn send(&self, t: T) -> Result<(), mpsc::SendError<T>> {
@@ -121,6 +94,12 @@ impl<T> MaybeRotorSender<T> {
             let _ = notifier.wakeup();
         }
         Ok(())
+    }
+}
+
+impl<T> Clone for RotorSender<T> {
+    fn clone(&self) -> Self {
+        RotorSender::new(self.sender.clone(), self.notifier.clone())
     }
 }
 

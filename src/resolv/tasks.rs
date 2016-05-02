@@ -9,10 +9,10 @@ use super::{Error, Result};
 //------------ Progress -----------------------------------------------------
 
 /// A type for a task indicating how to proceed.
-pub enum Progress<T: Task> {
+pub enum Progress<T, S, E=Error> {
     Continue(T),
-    Success(T::Success),
-    Error(Error)
+    Success(S),
+    Error(E)
 }
 
 
@@ -41,14 +41,15 @@ pub trait Task: Sized {
     /// through calls of *f*. If it wants answers to these questions, it
     /// should return `Progress::Continue(Self)`. Returning anything else
     /// will end processing.
-    fn progress<F>(self, response: Result<MessageBuf>, f: F) -> Progress<Self>
+    fn progress<F>(self, response: Result<MessageBuf>, f: F)
+                   -> Progress<Self, Self::Success>
                 where F: FnMut(&DNameSlice, RRType, Class);
 }
 
 
 //------------ Query --------------------------------------------------------
 
-/// A basic query
+/// A basic query.
 pub enum Query<'a> {
     Early(&'a DNameSlice, RRType, Class),
     Started,
@@ -74,7 +75,8 @@ impl<'a> Task for Query<'a> {
         }
     }
 
-    fn progress<F>(self, response: Result<MessageBuf>, _f: F) -> Progress<Self>
+    fn progress<F>(self, response: Result<MessageBuf>, _f: F)
+                   -> Progress<Self, Self::Success>
                 where F: FnMut(&DNameSlice, RRType, Class) {
         match self {
             Query::Started => {
@@ -87,5 +89,4 @@ impl<'a> Task for Query<'a> {
         }
     }
 }
-
 
