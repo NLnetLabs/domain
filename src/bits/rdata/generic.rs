@@ -2,7 +2,7 @@
 
 use std::fmt;
 use super::super::compose::ComposeBytes;
-use super::super::flavor::FlatFlavor;
+use super::super::flavor::{FlatFlavor, Lazy};
 use super::super::error::{ComposeResult, ParseResult};
 use super::super::iana::RRType;
 use super::super::nest::{FlatNest, Nest};
@@ -14,6 +14,8 @@ pub struct GenericRecordData<'a, F: FlatFlavor<'a>> {
     rtype: RRType,
     data: F::FlatNest,
 }
+
+pub type LazyGenericRecordData<'a> = GenericRecordData<'a, Lazy<'a>>;
 
 impl<'a, F: FlatFlavor<'a>> GenericRecordData<'a, F> {
     pub fn new(rtype: RRType, data: F::FlatNest) -> Self {

@@ -1,21 +1,27 @@
 extern crate argparse;
 extern crate domain;
+extern crate rotor;
 
 use std::convert;
 use std::error;
 use std::fmt;
 use std::io;
-use std::net::{SocketAddr, UdpSocket};
 use std::result;
 use std::str::FromStr;
+use rotor::Void;
+/*
 use domain::bits::compose::ComposeVec;
-use domain::bits::error::{ComposeError, FromStrError, ParseError};
 use domain::bits::flavor::Lazy;
-use domain::bits::iana::{Class, RRType};
 use domain::bits::message::{LazyMessage, MessageBuilder, RecordIter};
+*/
+use domain::bits::error::{ComposeError, FromStrError, ParseError};
+use domain::bits::iana::{Class, RRType};
+use domain::bits::message::{MessageBuf, RecordIter};
 use domain::bits::name::OwnedDName;
-use domain::bits::rdata::generic::GenericRecordData;
+use domain::bits::rdata::generic::LazyGenericRecordData;
 use domain::resolv::conf::ResolvConf;
+use domain::resolv::stub::DnsTransport;
+use domain::resolv::tasks::Query;
 
 
 //------------ Options ------------------------------------------------------
@@ -153,46 +159,10 @@ impl fmt::Display for Error {
 
 type Result<T> = result::Result<T, Error>;
 
+
 //------------ Processing Steps ---------------------------------------------
 
-fn create_query(options: &Options) -> Result<Vec<u8>> {
-    let mut msg = try!(MessageBuilder::new(ComposeVec::new(Some(512), true)));
-
-    // XXX make a header
-    msg.header_mut().set_random_id();
-    msg.header_mut().set_rd(true);
-    msg.header_mut().set_ad(true);
-
-    let mut question = msg.question();
-    try!(question.push(&(try!(options.name()), try!(options.qtype()),
-                                try!(options.qclass()))));
-
-    // XXX set prefix
-    Ok(try!(question.finish()).finish())
-}
-
-fn send_query(options: &Options, query: &Vec<u8>)
-              -> Result<(Vec<u8>, SocketAddr)> {
-    send_query_udp(options, query)
-}
-
-fn send_query_udp(options: &Options, query: &Vec<u8>)
-                  -> Result<(Vec<u8>, SocketAddr)> {
-    let sock = try!(UdpSocket::bind("0.0.0.0:0"));
-    try!(sock.set_read_timeout(Some(options.conf().timeout)));
-    for server in options.conf().servers.iter() {
-        try!(sock.send_to(&query, server));
-        let mut buf = Vec::new();
-        buf.resize(2000, 0);
-        let (len, from) = try!(sock.recv_from(&mut buf));
-        buf.truncate(len);
-        return Ok((buf, from));
-    }
-    Err(io::Error::new(io::ErrorKind::Other, "No more servers").into())
-}
-
-fn print_result(response: Vec<u8>) {
-    let response = LazyMessage::from_bytes(&response);
+fn print_result(response: MessageBuf) {
     println!(";; Got answer:");
     println!(";; ->>HEADER<<- opcode: {}, status: {}, id: {}",
              response.header().opcode(), response.header().rcode(),
@@ -243,22 +213,27 @@ fn print_result(response: Vec<u8>) {
     }
 }
 
-fn print_records<'a>(iter: RecordIter<'a, Lazy<'a>, GenericRecordData<'a, Lazy<'a>>>) {
+fn print_records<'a>(iter: RecordIter<'a, LazyGenericRecordData<'a>>) {
     for record in iter {
         println!("{}", record.unwrap());
     }
 }
 
+
 //------------ Main Function ------------------------------------------------
 
 fn main() {
     let options = Options::from_args();
-    let query = create_query(&options).unwrap();    
-    let (response, server) = send_query(&options, &query).unwrap();
+    let (_join, resolver) = DnsTransport::<Void>::spawn(options.conf().clone())
+                                                .unwrap();
+    let name = options.name().unwrap();
+    let query = Query::new(&name, options.qtype().unwrap(),
+                           options.qclass().unwrap());
+    let response = resolver.sync_task(query).unwrap();
     let len = response.len();
     print_result(response);
     println!(";; Query time: not yet available.");
-    println!(";; SERVER: {}", server);
+    println!(";; SERVER: we don't currently know.");
     println!(";; WHEN: not yet available.");
     println!(";; MSG SIZE  rcvd: {} bytes", len);
     println!("");

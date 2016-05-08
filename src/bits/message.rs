@@ -58,6 +58,11 @@ impl Message {
     pub fn as_bytes(&self) -> &[u8] {
         &self.slice
     }
+
+    /// Returns the length of the underlying bytes slice.
+    pub fn len(&self) -> usize {
+        self.slice.len()
+    }
 }
 
 

@@ -248,7 +248,7 @@ impl<X> Machine for Dispatcher<X> {
 
     fn spawned(self, _scope: &mut Scope<Self::Context>)
                -> Response<Self, Self::Seed> {
-        unreachable!();
+        Response::ok(self)
     }
 
     fn timeout(self, _scope: &mut Scope<Self::Context>)
