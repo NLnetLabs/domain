@@ -253,14 +253,21 @@ impl<X> UdpTransport<X> {
     }
 
     /// Returns an ok response.
-    fn ok(self) -> Response<Self, UdpTransportSeed> {
+    fn ok(mut self) -> Response<Self, UdpTransportSeed> {
+        {
+            let (timeouts, queries) = (&mut self.timeouts, &self.queries);
+            timeouts.clean_head(|x| !queries.contains_key(&x));
+        }
         if self.closing && self.queries.is_empty() {
             Response::done()
         }
         else {
             match self.timeouts.next_timeout() {
                 None => Response::ok(self),
-                Some(timeout) => Response::ok(self).deadline(timeout)
+                Some(timeout) => {
+                    println!("TIMEOUT: {:?}", timeout);
+                    Response::ok(self).deadline(timeout)
+                }
             }
         }
     }

@@ -224,7 +224,7 @@ fn print_records<'a>(iter: RecordIter<'a, LazyGenericRecordData<'a>>) {
 
 fn main() {
     let options = Options::from_args();
-    let (_join, resolver) = DnsTransport::<Void>::spawn(options.conf().clone())
+    let (join, resolver) = DnsTransport::<Void>::spawn(options.conf().clone())
                                                 .unwrap();
     let name = options.name().unwrap();
     let query = Query::new(&name, options.qtype().unwrap(),
@@ -237,4 +237,7 @@ fn main() {
     println!(";; WHEN: not yet available.");
     println!(";; MSG SIZE  rcvd: {} bytes", len);
     println!("");
+
+    drop(resolver);
+    join.join().unwrap();
 }

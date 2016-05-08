@@ -137,6 +137,10 @@ impl StreamTransportInfo {
     }
 
     pub fn next_timeout(&mut self) -> Option<Time> {
+        {
+            let (timeouts, queries) = (&mut self.timeouts, &self.queries);
+            timeouts.clean_head(|x| !queries.contains_key(&x));
+        }
         self.timeouts.next_timeout()
     }
 

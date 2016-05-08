@@ -71,7 +71,28 @@ impl<T> TimeoutQueue<T> {
         self.0.pop().map(|x| x.1)
     }
 
+    /// Removes invalid items from the head of the queue.
+    ///
+    /// Keeps looking at the first item in the queue. Hands a reference for
+    /// the first item to `invalid()`. If that returns `true`, the item is
+    /// dropped.
+    /// 
+    /// Call this before asking `self.next_timeout()` for the timeout if
+    /// your items may actually have disappeared before timing out.
+    pub fn clean_head<F: Fn(&T) -> bool>(&mut self, invalid: F) {
+        loop {
+            match self.0.peek() {
+                None => return,
+                Some(t) => {
+                    if !invalid(&t.1) { return }
+                }
+            }
+            self.pop();
+        }
+    }
+
     /// Returns the time of the next timeout or `None` if empty.
+    ///
     pub fn next_timeout(&self) -> Option<Time> {
         self.0.peek().map(|x| x.0)
     }

@@ -283,7 +283,7 @@ impl<'a> AuthoritySection<'a> {
 
     pub fn iter<D>(&self) -> RecordIter<'a, D>
                 where D: FlatRecordData<'a, flavor::Lazy<'a>> {
-        RecordIter::new(self.parser.clone(), self.counts.ancount())
+        RecordIter::new(self.parser.clone(), self.counts.nscount())
     }
 
     pub fn additional(self) -> ParseResult<AdditionalSection<'a>> {
@@ -310,7 +310,7 @@ impl<'a> AdditionalSection<'a> {
 
     pub fn iter<D>(&self) -> RecordIter<'a, D>
                 where D: FlatRecordData<'a, flavor::Lazy<'a>> {
-        RecordIter::new(self.parser.clone(), self.counts.ancount())
+        RecordIter::new(self.parser.clone(), self.counts.arcount())
     }
 }
 
