@@ -17,10 +17,8 @@ path = "examples/reversed.rs"
 
 [dependencies]
 rand     = "0.3"
-rotor    = "0.6"
+rotor    = { git = "https://github.com/partim/rotor.git", branch = "auto-shutdown" }
 vecio    = "0.1"
 
 [dev-dependencies]
 argparse     = "0.2"
-rotor        = "0.6"
-rotor-stream = "0.6"
