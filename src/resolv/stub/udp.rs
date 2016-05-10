@@ -53,12 +53,16 @@ impl UdpTransportSeed {
 //------------ UdpCommand ---------------------------------------------------
 
 /// A command for the UDP transport.
-pub enum UdpCommand {
-    /// Perform the given query.
-    Query(Query, SocketAddr),
+pub struct UdpCommand(Query, SocketAddr);
 
-    /// Close the transport.
-    Close
+impl UdpCommand {
+    pub fn new(query: Query, addr: SocketAddr) -> UdpCommand {
+        UdpCommand(query, addr)
+    }
+
+    pub fn query(&self) -> &Query { &self.0 }
+
+    pub fn addr(&self) -> &SocketAddr { &self.1 }
 }
 
 
@@ -154,26 +158,20 @@ impl<X> UdpTransport<X> {
     /// Processes all commands in the command queues.
     fn command(&mut self, scope: &mut Scope<X>) {
         loop {
-            let command = match self.commands.try_recv() {
-                Ok(command) => command,
+            match self.commands.try_recv() {
+                Ok(command) => self.send_query(command, scope),
                 Err(mpsc::TryRecvError::Disconnected) => {
                     self.close(scope);
-                    break;
+                    return;
                 }
-                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Empty) => return,
             };
-            match command {
-                UdpCommand::Query(query, addr)
-                    => self.send_query(query, addr, scope),
-                UdpCommand::Close
-                    => self.close(scope),
-            }
         }
     }
 
     /// Processes `UdpCommand::Query`.
-    fn send_query(&mut self, mut query: Query, addr: SocketAddr,
-                  scope: &mut Scope<X>) {
+    fn send_query(&mut self, command: UdpCommand, scope: &mut Scope<X>) {
+        let (mut query, addr) = (command.0, command.1);
         if self.sock.is_none() {
             self.failed.send(query).ok();
         }
@@ -197,15 +195,14 @@ impl<X> UdpTransport<X> {
         }
     }
 
-    /// Processes `UdpCommand::Close`.
+    /// Processes a close.
     fn close(&mut self, _scope: &mut Scope<X>) {
         if !self.closing {
             loop {
                 match self.commands.try_recv() {
-                    Ok(UdpCommand::Query(query, _)) => {
+                    Ok(UdpCommand(query, _)) => {
                         self.failed.send(query).ok();
                     }
-                    Ok(_) => (),
                     Err(_) => break,
                 }
             }

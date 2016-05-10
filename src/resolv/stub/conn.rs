@@ -18,7 +18,7 @@ pub struct ConnTransportSeed {
     pub conf: ResolvConf,
 
     /// The receiving end of the command queue.
-    pub commands: mpsc::Receiver<ConnCommand>,
+    pub commands: mpsc::Receiver<Query>,
 
     /// A sending end of the query queue.
     pub queries: RotorSender<Query>,
@@ -30,7 +30,7 @@ pub struct ConnTransportSeed {
 impl ConnTransportSeed {
     pub fn new(conf: ResolvConf, addr: SocketAddr,
                queries: RotorSender<Query>)
-               -> (ConnTransportSeed, mpsc::Sender<ConnCommand>) {
+               -> (ConnTransportSeed, mpsc::Sender<Query>) {
         let (tx, rx) = mpsc::channel();
         (ConnTransportSeed { conf: conf, addr: addr, commands: rx,
                              queries: queries,
@@ -41,17 +41,5 @@ impl ConnTransportSeed {
     pub fn notifier(&self) -> SharedNotifier {
         self.notifier.clone()
     }
-}
-
-
-//------------ ConnCommand --------------------------------------------------
-
-/// A command for any connection-oriented transport.
-pub enum ConnCommand {
-    /// Perform the given query.
-    Query(Query),
-
-    /// Close the transport.
-    Close,
 }
 

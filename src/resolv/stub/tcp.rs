@@ -131,17 +131,15 @@ impl<X> Idle<X> {
 
     fn wakeup(mut self, scope: &mut Scope<X>)
               -> Response<TcpTransport<X>, ConnTransportSeed> {
-        if self.info.process_commands() {
-            // We got a close command and can shut down right away.
+        let close = self.info.process_commands();
+        if self.info.can_write() {
+            Response::ok(Connecting::new(self.info, scope))
+        }
+        else if close {
             Response::done()
         }
         else {
-            if self.info.can_write() {
-                Response::ok(Connecting::new(self.info, scope))
-            }
-            else {
-                Response::ok(self.into())
-            }
+            Response::ok(self.into())
         }
     }
 }

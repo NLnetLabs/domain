@@ -10,7 +10,7 @@ use bits::message::MessageBuf;
 use rand::random;
 use resolv::conf::ResolvConf;
 use rotor::Time;
-use super::conn::{ConnCommand, ConnTransportSeed};
+use super::conn::ConnTransportSeed;
 use super::query::Query;
 use super::sync::RotorSender;
 use super::timeout::TimeoutQueue;
@@ -35,8 +35,8 @@ pub struct StreamTransportInfo {
     /// Incidentally, these are also the queries waiting for a response.
     timeouts: TimeoutQueue<u16>,
 
-    /// The receiving end of the command queue.
-    commands: mpsc::Receiver<ConnCommand>,
+    /// The receiving end of the incoming queue.
+    commands: mpsc::Receiver<Query>,
 
     /// The sending end of the dispatcher’s query queue.
     failed: RotorSender<Query>,
@@ -74,8 +74,7 @@ impl StreamTransportInfo {
     pub fn process_commands(&mut self) -> bool {
         loop {
             match self.commands.try_recv() {
-                Ok(ConnCommand::Query(query)) => self.incoming_query(query),
-                Ok(ConnCommand::Close) => return true,
+                Ok(query) => self.incoming_query(query),
                 Err(mpsc::TryRecvError::Empty) => return false,
                 Err(mpsc::TryRecvError::Disconnected) => return true,
             }
@@ -99,8 +98,7 @@ impl StreamTransportInfo {
         let mut close = false;
         loop {
             match self.commands.try_recv() {
-                Ok(ConnCommand::Query(query)) => query.send(),
-                Ok(ConnCommand::Close) => close = true,
+                Ok(query) => query.send(),
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => close = true,
             }

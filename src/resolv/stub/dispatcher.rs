@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use rotor::{EventSet, GenericScope, Machine, Response, Scope, Void};
 use resolv::conf::ResolvConf;
 use resolv::error::Error;
-use super::conn::{ConnCommand, ConnTransportSeed};
+use super::conn::ConnTransportSeed;
 use super::query::Query;
 use super::sync::{RotorReceiver, RotorSender, SharedNotifier, channel};
 use super::udp::{UdpCommand, UdpTransportSeed};
@@ -345,7 +345,7 @@ enum Server {
     /// An server on any other transport.
     ///
     /// Contains the queue and the notifier for waking up the state machine.
-    Other(mpsc::Sender<ConnCommand>, SharedNotifier),
+    Other(mpsc::Sender<Query>, SharedNotifier),
 }
 
 impl Server {
@@ -353,11 +353,11 @@ impl Server {
     fn query(&self, query: Query) {
         match self {
             &Server::Udp(ref sender, ref addr, ref notifier) => {
-                sender.send(UdpCommand::Query(query, addr.clone())).unwrap();
+                sender.send(UdpCommand::new(query, addr.clone())).unwrap();
                 notifier.wakeup();
             }
             &Server::Other(ref sender, ref notifier) => {
-                sender.send(ConnCommand::Query(query)).unwrap();
+                sender.send(query).unwrap();
                 notifier.wakeup();
             }
         }
@@ -367,15 +367,12 @@ impl Server {
     fn close(self) {
         match self {
             Server::Udp(sender, _, notifier) => {
-                if let Ok(_) = sender.send(UdpCommand::Close) {
-                    notifier.wakeup();
-                }
-
+                drop(sender);
+                notifier.wakeup();
             }
             Server::Other(sender, notifier) => {
-                if let Ok(_) = sender.send(ConnCommand::Close) {
-                    notifier.wakeup();
-                }
+                drop(sender);
+                notifier.wakeup();
             }
         }
     }
