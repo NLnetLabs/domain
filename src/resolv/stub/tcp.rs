@@ -133,7 +133,6 @@ impl<X> Idle<X> {
               -> Response<TcpTransport<X>, ConnTransportSeed> {
         if self.info.process_commands() {
             // We got a close command and can shut down right away.
-            println!("TCP transport done");
             Response::done()
         }
         else {
@@ -384,7 +383,6 @@ impl<X> Closing<X> {
               -> Response<TcpTransport<X>, ConnTransportSeed> {
         self.info.flush_timeouts();
         scope.deregister(&self.sock).ok();
-            println!("TCP transport done");
         Response::done()
     }
 
@@ -421,7 +419,6 @@ impl<X> Closing<X> {
             }
         }
         else {
-            println!("TCP transport done");
             Response::done()
         }
     }
@@ -458,7 +455,6 @@ impl<X> Failed<X> {
     fn wakeup(mut self, _scope: &mut Scope<X>)
               -> Response<TcpTransport<X>, ConnTransportSeed> {
         if self.info.reject_commands() {
-            println!("TCP transport done");
             Response::done()
         }
         else {
