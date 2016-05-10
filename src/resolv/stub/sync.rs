@@ -48,6 +48,9 @@ impl SharedNotifier {
 //------------ RotorReceiver ------------------------------------------------
 
 /// An `mpsc::Receiver` that can produce a `RotorSender` if necessary.
+///
+/// Note that because the receiver internally holds a sender for later
+/// cloning, it will never disconnect.
 pub struct RotorReceiver<T> {
     receiver: mpsc::Receiver<T>,
     sender: mpsc::Sender<T>,
@@ -79,27 +82,54 @@ impl<T> RotorReceiver<T> {
 /// A sender to a mpsc channel waking up the receiver.
 #[derive(Debug)]
 pub struct RotorSender<T> {
-    sender: mpsc::Sender<T>,
+    sender: Option<mpsc::Sender<T>>,
     notifier: Option<Notifier>
 }
 
 impl<T> RotorSender<T> {
     pub fn new(sender: mpsc::Sender<T>, notifier: Option<Notifier>) -> Self {
-        RotorSender { sender: sender, notifier: notifier }
+        RotorSender { sender: Some(sender), notifier: notifier }
     }
 
     pub fn send(&self, t: T) -> Result<(), mpsc::SendError<T>> {
-        try!(self.sender.send(t));
-        if let Some(ref notifier) = self.notifier {
-            let _ = notifier.wakeup();
+        match self.sender {
+            None => Err(mpsc::SendError(t)),
+            Some(ref sender) => {
+                try!(sender.send(t));
+                if let Some(ref notifier) = self.notifier {
+                    let _ = notifier.wakeup();
+                }
+                Ok(())
+            }
         }
-        Ok(())
     }
 }
 
 impl<T> Clone for RotorSender<T> {
     fn clone(&self) -> Self {
-        RotorSender::new(self.sender.clone(), self.notifier.clone())
+        RotorSender {
+            sender: self.sender.clone(),
+            notifier: self.notifier.clone(),
+        }
     }
+}
+
+impl<T> Drop for RotorSender<T> {
+    fn drop(&mut self) {
+        self.sender = None;
+        match self.notifier {
+            None => None,
+            Some(ref notifier) => notifier.wakeup().ok()
+        };
+    }
+}
+
+
+//------------ Functions ----------------------------------------------------
+
+pub fn channel<T>(notifier: Option<Notifier>)
+                  -> (RotorSender<T>, mpsc::Receiver<T>)  {
+    let (tx, rx) = mpsc::channel();
+    (RotorSender::new(tx, notifier), rx)
 }
 

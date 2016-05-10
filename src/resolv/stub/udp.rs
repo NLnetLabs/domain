@@ -265,7 +265,6 @@ impl<X> UdpTransport<X> {
             match self.timeouts.next_timeout() {
                 None => Response::ok(self),
                 Some(timeout) => {
-                    println!("TIMEOUT: {:?}", timeout);
                     Response::ok(self).deadline(timeout)
                 }
             }

@@ -36,8 +36,8 @@ impl<X> DnsTransport<X> {
     /// Returns the transport and a resolver.
     pub fn new<S: GenericScope>(conf: ResolvConf, scope: &mut S)
                                 -> (Self, Resolver) {
-        let dispatcher = Dispatcher::new(conf, scope);
-        let resolver = Resolver::new(dispatcher.query_sender());
+        let (dispatcher, tx) = Dispatcher::new(conf, scope);
+        let resolver = Resolver::new(tx);
         (DnsTransport(Composition::Dispatcher(dispatcher)),
          resolver)
     }

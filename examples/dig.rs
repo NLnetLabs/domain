@@ -230,6 +230,8 @@ fn main() {
     let query = Query::new(&name, options.qtype().unwrap(),
                            options.qclass().unwrap());
     let response = resolver.sync_task(query).unwrap();
+    println!("Done with task");
+    /*
     let len = response.len();
     print_result(response);
     println!(";; Query time: not yet available.");
@@ -237,7 +239,8 @@ fn main() {
     println!(";; WHEN: not yet available.");
     println!(";; MSG SIZE  rcvd: {} bytes", len);
     println!("");
-
+    */
+    println!("Dropping resolver");
     drop(resolver);
     join.join().unwrap();
 }

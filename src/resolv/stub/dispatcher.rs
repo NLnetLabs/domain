@@ -8,7 +8,7 @@ use resolv::conf::ResolvConf;
 use resolv::error::Error;
 use super::conn::{ConnCommand, ConnTransportSeed};
 use super::query::Query;
-use super::sync::{RotorReceiver, RotorSender, SharedNotifier};
+use super::sync::{RotorReceiver, RotorSender, SharedNotifier, channel};
 use super::udp::{UdpCommand, UdpTransportSeed};
 
 
@@ -21,9 +21,17 @@ pub struct Dispatcher<X> {
 
     /// The query queue.
     ///
-    /// Resolvers will place their queries here and transports will return
-    /// unanswered queries here, too.
-    queries: RotorReceiver<Query>,
+    /// Resolvers will place their queries here. If this queue disconnects,
+    /// the dispatcher will close.
+    queries: mpsc::Receiver<Query>,
+
+    /// The failed query queue.
+    ///
+    /// Transports will return failed queries into here. We need a
+    /// separate queue for this since we need to be able to spawn new
+    /// transports and, subsequently, need to hold a sender to clone in
+    /// this case. Because of that, the queue will never disconnect.
+    failed: RotorReceiver<Query>,
 
     /// Are we in bootstrap state?
     bootstrap: Option<DispatcherBootstrap>,
@@ -50,10 +58,12 @@ pub struct Dispatcher<X> {
 impl<X> Dispatcher<X> {
     /// Creates a new dispatcher from the given configuration.
     pub fn new<S: GenericScope>(conf: ResolvConf, scope: &mut S)
-                                -> Dispatcher<X> {
+                                -> (Self, RotorSender<Query>) {
+        let (tx, rx) = channel(Some(scope.notifier()));
         let mut res = Dispatcher {
             conf: conf,
-            queries: RotorReceiver::new(Some(scope.notifier())),
+            queries: rx,
+            failed: RotorReceiver::new(Some(scope.notifier())),
             bootstrap: None,
             dgram_servers: Vec::new(),
             dgram_start: 0,
@@ -63,12 +73,7 @@ impl<X> Dispatcher<X> {
         };
         res.configure();
         scope.notifier().wakeup().unwrap();
-        res
-    }
-
-    /// Returns a sender for the query queue
-    pub fn query_sender(&self) -> RotorSender<Query> {
-        self.queries.sender()
+        (res, tx)
     }
 
     /*
@@ -108,17 +113,17 @@ impl<X> Dispatcher<X> {
     fn configure(&mut self) {
         let mut bs = DispatcherBootstrap::new();
         let (udp4, udp4_tx) = UdpTransportSeed::new(self.conf.clone(),
-                                                    self.queries.sender(),
+                                                    self.failed.sender(),
                                                     false);
         let mut use_udp4 = false;
         let (udp6, udp6_tx) = UdpTransportSeed::new(self.conf.clone(),
-                                                    self.queries.sender(),
+                                                    self.failed.sender(),
                                                     true);
         let mut use_udp6 = false;
         for addr in self.conf.servers.iter() {
             let (tcp, tcp_tx) = ConnTransportSeed::new(self.conf.clone(),
                                                        addr.clone(),
-                                                       self.queries.sender());
+                                                       self.failed.sender());
             self.stream_servers.push(Server::Other(tcp_tx.clone(),
                                                    tcp.notifier()));
             let server = match addr {
@@ -265,18 +270,21 @@ impl<X> Machine for Dispatcher<X> {
         else {
             loop {
                 match self.queries.try_recv() {
-                    Ok(query) => {
-                        self.dispatch(query);
-                    }
+                    Ok(query) => self.dispatch(query),
+                    Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
                         self.close();
                         return Response::done();
                     }
-                    Err(mpsc::TryRecvError::Empty) => {
-                        return Response::ok(self);
-                    }
                 }
             }
+            loop {
+                match self.failed.try_recv() {
+                    Ok(query) => self.dispatch(query),
+                    _ => break,
+                }
+            }
+            return Response::ok(self);
         }
     }
 }

@@ -66,8 +66,8 @@ impl StreamTransportInfo {
     pub fn conf(&self) -> &ResolvConf { &self.conf }
 
     pub fn can_read(&self) -> bool { !self.timeouts.is_empty() }
-    pub fn can_write(&self) -> bool { !self.send_queue.can_write() }
-    
+    pub fn can_write(&self) -> bool { self.send_queue.can_write() }
+
     /// Processes the command queue.
     ///
     /// Returns whether a close command was received.

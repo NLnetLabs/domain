@@ -16,7 +16,8 @@ pub struct TcpTransport<X>(State<X>);
 
 
 impl<X> TcpTransport<X> {
-    pub fn new(seed: ConnTransportSeed, _scope: &mut Scope<X>) -> Self {
+    pub fn new(seed: ConnTransportSeed, scope: &mut Scope<X>) -> Self {
+        seed.notifier.set(scope.notifier());
         Idle::new(StreamTransportInfo::new(seed))
     }
 }
@@ -128,10 +129,26 @@ impl<X> Idle<X> {
         unreachable!()
     }
 
-    fn wakeup(self, scope: &mut Scope<X>)
+    fn wakeup(mut self, scope: &mut Scope<X>)
               -> Response<TcpTransport<X>, ConnTransportSeed> {
-        Response::ok(Connecting::new(self.info, scope))
+        if self.info.process_commands() {
+            // We got a close command and can shut down right away.
+            println!("TCP transport done");
+            Response::done()
+        }
+        else {
+            if self.info.can_write() {
+                Response::ok(Connecting::new(self.info, scope))
+            }
+            else {
+                Response::ok(self.into())
+            }
+        }
     }
+}
+
+impl<X> From<Idle<X>> for TcpTransport<X> {
+    fn from(idle: Idle<X>) -> Self { TcpTransport(State::Idle(idle)) }
 }
 
 
@@ -367,6 +384,7 @@ impl<X> Closing<X> {
               -> Response<TcpTransport<X>, ConnTransportSeed> {
         self.info.flush_timeouts();
         scope.deregister(&self.sock).ok();
+            println!("TCP transport done");
         Response::done()
     }
 
@@ -403,6 +421,7 @@ impl<X> Closing<X> {
             }
         }
         else {
+            println!("TCP transport done");
             Response::done()
         }
     }
@@ -439,6 +458,7 @@ impl<X> Failed<X> {
     fn wakeup(mut self, _scope: &mut Scope<X>)
               -> Response<TcpTransport<X>, ConnTransportSeed> {
         if self.info.reject_commands() {
+            println!("TCP transport done");
             Response::done()
         }
         else {
