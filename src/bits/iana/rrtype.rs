@@ -8,7 +8,6 @@ use super::super::error::{FromStrError, FromStrResult};
 
 
 /// Resource Record Types.
-///
 #[derive(Clone, Copy, Debug)]
 pub enum RRType {
     /// A host address.
@@ -396,6 +395,7 @@ pub enum RRType {
 }
 
 impl RRType {
+    /// Creates a type value from an integer value.
     pub fn from_int(value: u16) -> RRType {
         use self::RRType::*;
 
@@ -492,6 +492,7 @@ impl RRType {
         }
     }
 
+    /// Returns an integer value for this type value.
     pub fn to_int(self) -> u16 {
         use self::RRType::*;
 
@@ -600,6 +601,11 @@ impl convert::From<RRType> for u16 {
 impl str::FromStr for RRType {
     type Err = FromStrError;
 
+    /// Creates a type value from a string.
+    ///
+    /// Recognises the mnemonics (ie., the ‘TYPE’ field in the IANA
+    /// registry) as well as the generic type value defined in RFC 3597,
+    /// ie., the string `TYPE` followed by the decimal type value.
     fn from_str(s: &str) -> FromStrResult<Self> {
         use std::ascii::AsciiExt;
         use self::RRType::*;
@@ -799,7 +805,12 @@ impl fmt::Display for RRType {
             AVC => "AVC".fmt(f),
             TA => "TA".fmt(f),
             DLV => "DLV".fmt(f),
-            Int(value) => write!(f, "TYPE{}", value)
+            Int(value) => {
+                match RRType::from_int(value) {
+                    Int(value) => write!(f, "TYPE{}", value),
+                    value @ _ => value.fmt(f)
+                }
+            }
         }
     }
 }

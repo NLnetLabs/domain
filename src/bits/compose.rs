@@ -1,8 +1,12 @@
 //! Building of wire-format DNS data.
+//!
+//! This module provides a trait for types implementing wire message
+//! composition as well as such a type operating on a byte vector.
 
 use std::collections::HashMap;
 use std::fmt;
 use std::mem;
+use std::ops::Deref;
 use std::ptr;
 use super::cstring::CString;
 use super::error::{ComposeError, ComposeResult};
@@ -17,37 +21,42 @@ use super::name::{DName, DNameSlice, Label, OwnedDName};
 /// However, in order to avoid having to preassemble length-value parts of
 /// the message such as record data, there is an option to update previously
 /// written data.
+///
+/// Additionally, the length can be limited and the resulting message
+/// truncated when it exceeds this limit. In order to provide for controlled
+/// truncation at well defined points (normally, between resource records),
+/// truncation points can be set. Whenever writing goes past the predefined
+/// length, the message is automatically cut back to the last such
+/// truncation point and nothing is added anymore.
 pub trait ComposeBytes: Sized + fmt::Debug {
     type Pos: Copy + fmt::Debug;
 
     //--- Appending of basic types
 
-    /// Pushes a bytes slice to the end of the builder.
+    /// Pushes a bytes slice to the end of the message.
     fn push_bytes(&mut self, data: &[u8]) -> ComposeResult<()>;
 
-    /// Pushes placeholder bytes to the end of the target.
+    /// Pushes placeholder bytes to the end of the message.
     fn push_empty(&mut self, len: usize) -> ComposeResult<()>;
 
-    /// Pushes a single octet to the end of the builder.
+    /// Pushes a single octet to the end of the message.
     fn push_u8(&mut self, data: u8) -> ComposeResult<()> {
         let bytes: [u8; 1] = unsafe { mem::transmute(data) };
         self.push_bytes(&bytes)
     }
 
-    /// Pushes an unsigned 16-bit word to the end of the builder.
+    /// Pushes an unsigned 16-bit word to the end of the message.
     ///
-    /// The word is converted to network byte order before writing if
-    /// necessary.
+    /// The word is converted to network byte order if necessary.
     fn push_u16(&mut self, data: u16) -> ComposeResult<()> {
         let data = data.to_be();
         let bytes: [u8; 2] = unsafe { mem::transmute(data) };
         self.push_bytes(&bytes)
     }
 
-    /// Pushes a unsigned 32-bit word to the end of the builder.
+    /// Pushes a unsigned 32-bit word to the end of the message.
     ///
-    /// The word is converted to network byte order before writing if
-    /// necessary.
+    /// The word is converted to network byte order if necessary.
     fn push_u32(&mut self, data: u32) -> ComposeResult<()> {
         let data = data.to_be();
         let bytes: [u8; 4] = unsafe { mem::transmute(data) };
@@ -56,13 +65,17 @@ pub trait ComposeBytes: Sized + fmt::Debug {
 
     //--- Appending of domain names.
 
-    /// Pushes a domain name to the end of the builder.
+    /// Pushes a domain name to the end of the message.
     fn push_dname<D: DName>(&mut self, name: &D) -> ComposeResult<()>;
 
-    /// Pushes a domain name to the end of the builder using compression.
+    /// Pushes a domain name to the end of the message using name compression.
+    ///
+    /// Since compression is only allowed in a few well-known places per
+    /// RFC 1123 and RFC 3597, this isn’t the default behaviour.
     fn push_dname_compressed<D: DName>(&mut self, name: &D)
                                        -> ComposeResult<()>;
 
+    /// Pushes a character string to the end of the message.
     fn push_cstring<S: CString>(&mut self, cstring: &S) -> ComposeResult<()> {
         cstring.compose(self)
     }
@@ -70,6 +83,10 @@ pub trait ComposeBytes: Sized + fmt::Debug {
     //--- Checkpoint and rollback.
 
     /// Mark the current position as a point for truncation.
+    ///
+    /// If the length of the resulting message exceeds its predefined
+    /// maximum size for the first time and a truncation point was set, it
+    /// will be cut back to that point.
     fn truncation_point(&mut self);
 
     /// Returns whether the target has been truncated.
@@ -127,27 +144,65 @@ pub trait ComposeBytes: Sized + fmt::Debug {
 //------------ ComposeVec -----------------------------------------------------
 
 /// A compose target based on a simple vector.
+///
+/// You can get to the underlying bytes vector by calling `finish()`
+/// which will transform into a vector. Alternatively, the type derefs to
+/// a bytes vector.
 #[derive(Clone, Debug)]
 pub struct ComposeVec {
+    /// The vector holding the bytes.
     vec: Vec<u8>,
+
+    /// The index in `vec` where the message started.
+    ///
+    /// All message compression indexes will be relative to this value.
     start: usize,
+
+    /// The optional maximum length of `vec`.
     maxlen: Option<usize>,
+
+    /// The truncation point if set.
     checkpoint: Option<usize>,
+
+    /// Has the vector been truncated yet?
     truncated: bool,
+
+    /// A hashmap storing the indexes of domain names for compression.
+    ///
+    /// If this is `None`, we don’t do compression at all.
     compress: Option<HashMap<OwnedDName, u16>>,
 }
 
 
+/// # Creation and Finalization
+///
 impl ComposeVec {
+    /// Creates a new compose vector.
+    ///
+    /// If `maxlen` is not `None`, the resulting message’s length will
+    /// never exceed the given amount of bytes. If `compress` is `true`,
+    /// name compression will be available for domain names. Otherwise,
+    /// all names will always be uncompressed.
     pub fn new(maxlen: Option<usize>, compress: bool) -> ComposeVec {
         ComposeVec::with_vec(Vec::new(), maxlen, compress)
     }
 
+    /// Create a new compose vector based on an existing vector.
+    ///
+    /// The existing content of `vec` will be used as a prefix to the
+    /// message and the actual DNS message will start after it.
+    ///
+    /// If `maxlen` is not `None`, the resulting vector’s length will not
+    /// exceed the given amount of bytes. This value is including the
+    /// length of the prefix if any.
+    ///
+    /// If `compress` is `true`, name compression will be used if requested.
+    /// Otherwise, all domain names are always uncompressed.
     pub fn with_vec(vec: Vec<u8>, maxlen: Option<usize>, compress: bool)
                     -> ComposeVec {
         let start = vec.len();
         ComposeVec {
-            vec: Vec::new(),
+            vec: vec,
             start: start,
             maxlen: maxlen,
             checkpoint: None,
@@ -157,13 +212,19 @@ impl ComposeVec {
         }
     }
 
+    /// Returns a bytes vector with the final data.
     pub fn finish(self) -> Vec<u8> {
         self.vec
     }
 }
 
 
+/// # Internal Helpers
+///
 impl ComposeVec {
+    /// Checks whether `len` bytes can be pushed to the message.
+    ///
+    /// This method can be used with `try!` for convenience.
     fn keep_pushing(&mut self, len: usize) -> ComposeResult<()> {
         if self.truncated { return Err(ComposeError::SizeExceeded) }
         else if let Some(maxlen) = self.maxlen {
@@ -176,17 +237,23 @@ impl ComposeVec {
         Ok(())
     }
 
+    /// Pushes a domain name ignoring compression entirely.
+    ///
+    /// The name will be pushed uncompressed and no entries will be made
+    /// to the compression hashmap.
     fn push_dname_simple<D: DName>(&mut self, name: &D) -> ComposeResult<()> {
         for label in try!(name.to_cow()).iter() {
-            try!(label.compose(self))
+            try!(label.compose(self));
         }
         Ok(())
     }
 
+    /// Returns the compression index for the current position.
     fn compress_pos(&self) -> usize {
         self.vec.len() - self.start
     }
 
+    /// Adds `name` to the compression hashmap with `pos` as its index.
     fn add_compress_target(&mut self, name: OwnedDName, pos: usize) {
         if let Some(ref mut compress) = self.compress {
             if pos <= ::std::u16::MAX as usize {
@@ -195,6 +262,7 @@ impl ComposeVec {
         }
     }
 
+    /// Returns the compression index for the given name if any.
     fn get_compress_target(&self, name: &DNameSlice) -> Option<u16> {
         if let Some(ref compress) = self.compress {
             compress.get(name).map(|v| *v)
@@ -222,10 +290,14 @@ impl ComposeBytes for ComposeVec {
 
     fn push_dname<D: DName>(&mut self, name: &D) -> ComposeResult<()> {
         if self.compress.is_some() {
-            let name = try!(name.to_owned());
-            let pos = self.compress_pos();
-            try!(self.push_dname_simple(&name));
-            self.add_compress_target(name, pos);
+            let name = try!(name.to_cow());
+            let mut name_ref = name.deref();
+            while let Some((label, tail)) = name_ref.split_first() {
+                let pos = self.compress_pos();
+                try!(label.compose(self));
+                self.add_compress_target(name_ref.to_owned(), pos);
+                name_ref = tail;
+            }
             Ok(())
         }
         else {
@@ -288,4 +360,105 @@ impl ComposeBytes for ComposeVec {
     }
 }
 
+
+impl Deref for ComposeVec {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Vec<u8> {
+        &self.vec
+    }
+}
+
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use bits::error::ComposeError;
+    use bits::name::OwnedDName;
+
+    #[test]
+    fn simple_push() {
+        let mut c = ComposeVec::new(None, false);
+        c.push_bytes(b"foo").unwrap();
+        c.push_u8(0x07).unwrap();
+        c.push_u16(0x1234).unwrap();
+        c.push_u32(0xdeadbeef).unwrap();
+        assert_eq!(c.finish(),
+                   b"foo\x07\x12\x34\xde\xad\xbe\xef");
+    }
+
+    #[test]
+    fn push_name() {
+        let mut c = ComposeVec::new(None, false);
+        c.push_dname(&OwnedDName::from_str("foo.bar.").unwrap()).unwrap();
+        assert_eq!(c.finish(),
+                   b"\x03foo\x03bar\x00");
+    }
+
+    #[test]
+    fn push_compressed_name() {
+        // Same name again.
+        let mut c = ComposeVec::new(None, true);
+        c.push_u8(0x07).unwrap();
+        c.push_dname(&OwnedDName::from_str("foo.bar.").unwrap()).unwrap();
+        c.push_dname_compressed(&OwnedDName::from_str("foo.bar.").unwrap())
+         .unwrap();
+        assert_eq!(c.finish(),
+                   b"\x07\x03foo\x03bar\x00\xC0\x01");
+
+        // Prefixed name.
+        let mut c = ComposeVec::new(None, true);
+        c.push_u8(0x07).unwrap();
+        c.push_dname(&OwnedDName::from_str("foo.bar.").unwrap()).unwrap();
+        c.push_dname_compressed(&OwnedDName::from_str("baz.foo.bar.").unwrap())
+         .unwrap();
+        assert_eq!(c.finish(),
+                   b"\x07\x03foo\x03bar\x00\x03baz\xC0\x01");
+
+        // Suffixed name.
+        let mut c = ComposeVec::new(None, true);
+        c.push_u8(0x07).unwrap();
+        c.push_dname(&OwnedDName::from_str("foo.bar.").unwrap()).unwrap();
+        c.push_dname_compressed(&OwnedDName::from_str("bar.").unwrap())
+         .unwrap();
+        assert_eq!(c.finish(),
+                   b"\x07\x03foo\x03bar\x00\xC0\x05");
+    }
+
+    #[test]
+    fn update() {
+        let mut c = ComposeVec::new(None, false);
+        c.push_bytes(b"foo").unwrap();
+        let p8 = c.pos();
+        c.push_u8(0x00).unwrap();
+        let p16 = c.pos();
+        c.push_u16(0x83c7).unwrap();
+        let p32 = c.pos();
+        c.push_u32(0x12312819).unwrap();
+
+        c.update_u8(p8, 0x07).unwrap();
+        c.update_u16(p16, 0x1234).unwrap();
+        c.update_u32(p32, 0xdeadbeef).unwrap();
+        assert_eq!(c.finish(),
+                   b"foo\x07\x12\x34\xde\xad\xbe\xef");
+    }
+
+    #[test]
+    fn truncation() {
+        let mut c = ComposeVec::new(Some(4), false);
+        assert!(!c.truncated());
+        c.push_u16(0).unwrap();
+        assert!(!c.truncated());
+        c.truncation_point();
+        c.push_u8(0).unwrap();
+        assert!(!c.truncated());
+        assert_eq!(c.push_u16(0), Err(ComposeError::SizeExceeded));
+        assert_eq!(c.push_u16(0), Err(ComposeError::SizeExceeded));
+        assert!(c.truncated());
+        assert_eq!(c.finish(),
+                   b"\0\0");
+    }
+}
 

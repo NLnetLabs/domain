@@ -1,5 +1,6 @@
 //! A single question of a DNS message.
 
+use std::fmt;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
 use super::flavor::{self, Flavor, FlatFlavor};
@@ -27,6 +28,11 @@ pub type LazyQuestion<'a> = Question<flavor::Lazy<'a>>;
 impl<F: Flavor> Question<F> {
     pub fn new(qname: F::DName, qtype: RRType, qclass: Class) -> Self {
         Question { qname: qname, qtype: qtype, qclass: qclass }
+    }
+
+    pub fn to_owned(&self) -> ParseResult<OwnedQuestion> {
+        Ok(OwnedQuestion::new(try!(self.qname.to_owned()),
+                              self.qtype, self.qclass))
     }
 }
 
@@ -81,6 +87,24 @@ impl<F: Flavor> PartialEq for Question<F> {
     }
 }
 
+/*
+impl<F: Flavor, G: Flavor> PartialEq<Question<G>> for Question<F> {
+    fn eq(&self, other: &Question<G>) -> bool {
+        self.qname == other.qname && self.qtype == other.qtype
+             && self.qclass == other.qclass
+    }
+}
+*/
+
+
+//--- Display
+
+impl<F: Flavor> fmt::Display for Question<F> {
+    fn fmt(&self, f: &mut fmt::Formatter) ->  fmt::Result {
+        write!(f, "{}\t{}\t{}", self.qname, self.qtype, self.qclass)
+    }
+}
+
 
 //------------ ComposeQuestion ----------------------------------------------
 
@@ -102,3 +126,12 @@ impl<D: DName> ComposeQuestion for (D, RRType, Class) {
         target.push_u16(self.2.into())
     }
 }
+
+impl<'a, D: DName> ComposeQuestion for (&'a D, RRType) {
+    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
+        try!(target.push_dname_compressed(self.0));
+        try!(target.push_u16(self.1.into()));
+        target.push_u16(Class::IN.into())
+    }
+}
+

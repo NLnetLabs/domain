@@ -77,6 +77,11 @@ impl A {
         A { addr: addr }
     }
 
+    /// Creates a new A record from the IPv4 address components.
+    pub fn from_octets(a: u8, b: u8, c: u8, d: u8) -> A {
+        A::new(Ipv4Addr::new(a, b, c, d))
+    }
+
     pub fn addr(&self) -> &Ipv4Addr { &self.addr }
     pub fn addr_mut(&mut self) -> &mut Ipv4Addr { &mut self.addr }
 }

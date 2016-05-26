@@ -1,4 +1,7 @@
 //! Domain names.
+//!
+//! TODO: Enforce that domain name types are always absolute and introduce
+//!       separate types for relative domain names.
 
 use std::ascii::AsciiExt;
 use std::borrow::{Borrow, Cow};
@@ -21,7 +24,7 @@ use super::u8::{BytesExt, BytesVecExt};
 ///
 /// This trait makes it possible to define types that are generic over all
 /// three types of domain names.
-pub trait DName: fmt::Display + Sized + PartialEq {
+pub trait DName: fmt::Display + PartialEq + Sized {
     /// Return a cow to a domain name slice.
     fn to_cow(&self) -> ParseResult<Cow<DNameSlice>>;
 
@@ -564,6 +567,10 @@ impl OwnedDName {
 
     pub fn as_slice(&self) -> &DNameSlice {
         self
+    }
+
+    pub fn as_ref(&self) -> DNameRef {
+        unsafe { DNameRef::from_bytes(&self.inner) }
     }
 }
 

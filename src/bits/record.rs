@@ -89,7 +89,7 @@ impl<F: Flavor, D: RecordData<F>> Record<F, D> {
         let pos = target.pos();
         try!(target.push_u16(0));
         try!(self.rdata.compose(target));
-        let delta = target.delta(pos);
+        let delta = target.delta(pos) - 2;
         if delta > (::std::u16::MAX as usize) {
             return Err(ComposeError::Overflow)
         }

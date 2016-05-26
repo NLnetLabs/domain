@@ -7,48 +7,103 @@ use std::fmt;
 
 /// DNS RCODEs.
 ///
+/// The response code of a response indicates what happend on the server
+/// when trying to answer the query.
 #[derive(Clone, Copy, Debug)]
 pub enum Rcode {
-    /// no error condition [RFC1035]
+    /// No error condition.
+    ///
+    /// Defined in RFC1035.
+    /// (Otherwise known as success.)
     NoError,
 
-    /// format error [RFC1035]
+    /// Format error.
+    ///
+    /// The name server was unable to interpret the query.
+    ///
+    /// Defined in RFC 1035.
     FormErr,
 
-    /// server failure [RFC1035]
+    /// Server failure.
+    ///
+    /// The name server was unable to process this query due to a problem
+    /// with the name server.
+    ///
+    /// Defined in RFC 1035.
     ServFail,
 
-    /// name error [RFC1035]
+    /// Name error.
+    ///
+    /// The domain name given in the query does not exist at the name server.
+    ///
+    /// Defined in RFC 1035.
     NXDomain,
 
-    /// not implemented [RFC1035]
+    /// Not implemented.
+    ///
+    /// The name server does not support the requested kind of query.
+    ///
+    /// Defined in RFC 1035.
     NotImp,
 
-    /// query refused [RFC1035]
+    /// Query refused.
+    ///
+    /// The name server refused to perform the operation requested by the
+    /// query for policy reasons.
+    ///
+    /// Defined in RFC 1035.
     Refused,
 
-    /// name exists when it should not [RFC2136]
+    /// Name exists when it should not.
+    ///
+    /// Returned for an UPDATE query when a domain requested to not exist
+    /// does in fact exist.
+    ///
+    /// Defined in RFC 2136.
     YXDomain,
 
-    /// RR set exists when it should not [RFC2136]
+    /// RR set exists when it should not.
+    ///
+    /// Returned for an UPDATE query when an RRset requested to not exist
+    /// does in fact exist.
+    ///
+    /// Defined in RFC 2136.
     YXRRSet,
 
-    /// RR set that should exist does not [RFC2136]
+    /// RR set that should exist does not.
+    ///
+    /// Returned for an UPDATE query when an RRset requested to exist
+    /// does not.
+    ///
+    /// Defined in RFC 2136.
     NXRRSet,
 
-    /// server not authoritative for zone [RFC2136] or not authorized [RFC2845]
+    /// Server not authoritative for zone [RFC2136] or not authorized [RFC2845]
+    ///
+    /// Returned for an UPDATE query when the server is not an authoritative
+    /// name server for the requested domain.
+    ///
+    /// Returned for queries using TSIG when authorisation failed.
+    ///
+    /// Defined in RFC 2136 for UPDATE and RFC 2845 for TSIG.
     NotAuth,
 
-    /// name not contained in zone [RFC2136]
+    /// Name not contained in zone.
+    ///
+    /// A name used in the prerequisite or update section is not within the
+    /// zone given in the zone section.
+    ///
+    /// Defined in RFC 2136.
     NotZone,
 
-    /// a raw, integer rcode value.
+    /// A raw, integer rcode value.
     ///
     /// When converting to an `u8`, only the lower four bits are used.
     Int(u8)
 }
 
 impl Rcode {
+    /// Creates an rcode from an integer.
     pub fn from_int(value: u8) -> Rcode {
         match value & 0x0F {
             0 => Rcode::NoError,
@@ -66,6 +121,7 @@ impl Rcode {
         }
     }
 
+    /// Returns the integer value for this rcode.
     pub fn to_int(self) -> u8 {
         match self {
             Rcode::NoError => 0,
@@ -102,7 +158,12 @@ impl fmt::Display for Rcode {
             Rcode::NXRRSet => "NXRRSET".fmt(f),
             Rcode::NotAuth => "NOAUTH".fmt(f),
             Rcode::NotZone => "NOTZONE".fmt(f),
-            Rcode::Int(i) => i.fmt(f)
+            Rcode::Int(i) => {
+                match Rcode::from_int(i) {
+                    Rcode::Int(i) => i.fmt(f),
+                    value @ _ => value.fmt(f)
+                }
+            }
         }
     }
 }

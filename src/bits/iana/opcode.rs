@@ -6,31 +6,33 @@ use std::fmt;
 
 
 /// DNS OpCodes
-///
 #[derive(Clone, Copy, Debug)]
 pub enum Opcode {
-    /// a standard query [RFC1035]
+    /// A standard query [RFC1035]
     Query,
 
-    /// a inverse query [RFC1035]
+    /// A inverse query [RFC1035]
     IQuery,
 
-    /// a server status request [RFC1035]
+    /// A server status request [RFC1035]
     Status,
 
-    /// a NOTIFY query [RFC1996]
+    /// A NOTIFY query [RFC1996]
     Notify,
 
-    /// an UPDATE query [RFC2136]
+    /// An UPDATE query [RFC2136]
     Update,
 
-    /// a raw integer opcode value.
+    /// A raw integer opcode value.
     ///
     /// When converting to an `u8`, only the lower four bits are used.
     Int(u8)
 }
 
 impl Opcode {
+    /// Creates an Opcode value from an integer value.
+    ///
+    /// Only considers the lower four bits of `value`.
     pub fn from_int(value: u8) -> Opcode {
         match value & 0x0F {
             0 => Opcode::Query,
@@ -42,7 +44,8 @@ impl Opcode {
         }
     }
 
-    pub fn to_int(self) -> u8{
+    /// Returns the integer value for this opcode.
+    pub fn to_int(self) -> u8 {
         match self {
             Opcode::Query => 0,
             Opcode::IQuery => 1,

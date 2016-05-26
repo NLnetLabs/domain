@@ -23,6 +23,9 @@ use super::iana::{Opcode, Rcode};
 ///
 #[derive(Clone, Debug, PartialEq)]
 pub struct Header {
+    /// The actual header in its wire format representation.
+    ///
+    /// This means that data is in big endian.
     inner: [u8; 4]
 }
 
@@ -66,6 +69,9 @@ impl Header {
 ///
 impl Header {
     /// Returns the ID field.
+    ///
+    /// The ID field is an identifier chosen by whoever created a query
+    /// and is copied into a response.
     pub fn id(&self) -> u16 { self.get_u16(0) }
 
     /// Sets the ID field.
@@ -76,15 +82,20 @@ impl Header {
 
     /// Returns the value of the QR bit.
     ///
-    /// Remember that `false` means query and `true` means response.
+    /// The QR bit specifies whether this message is a query (`false`) or
+    /// a response (`true`). In other words, this bit is actually stating
+    /// whether the message is *not* a query.
     pub fn qr(&self) -> bool { self.get_bit(2, 7) }
 
     /// Sets the value of the QR bit.
     ///
-    /// Remember that `false` means query and `true` means response.
     pub fn set_qr(&mut self, set: bool) { self.set_bit(2, 7, set) }
 
     /// Returns the Opcode field.
+    ///
+    /// This field specifies the kind of query this message contains. See
+    /// the `Opcode` type for more information on the possible values and
+    /// their meaning.
     pub fn opcode(&self) -> Opcode {
         Opcode::from_int((self.inner[2] >> 3) & 0x0F)
     }
@@ -95,48 +106,79 @@ impl Header {
     }
 
     /// Returns the value of the AA bit.
+    ///
+    /// Using this field, a name server generating a response states whether
+    /// it is authoritative for the requested domain name, ie., whether this
+    /// response is a *authoritative answer.* The field has no meaning in 
+    /// a query.
     pub fn aa(&self) -> bool { self.get_bit(2, 2) }
 
     /// Sets the value of the AA bit.
     pub fn set_aa(&mut self, set: bool) { self.set_bit(2, 2, set) }
 
     /// Returns the value of the TC bit.
+    ///
+    /// The *truncation* bit is set if there was more data then fit into the
+    /// message.
     pub fn tc(&self) -> bool { self.get_bit(2, 1) }
 
     /// Sets the value of the TC bit.
     pub fn set_tc(&mut self, set: bool) { self.set_bit(2, 1, set) }
 
     /// Returns the value of the RD bit.
+    ///
+    /// The *recursion desired* bit may be set in a query to ask the name
+    /// server to try and recursively gather a response if it doesn’t have
+    /// the data available locally. The bit’s value is copied into the
+    /// response.
     pub fn rd(&self) -> bool { self.get_bit(2, 0) }
 
     /// Sets the value of the RD bit.
     pub fn set_rd(&mut self, set: bool) { self.set_bit(2, 0, set) }
 
     /// Returns the value of the RA bit.
+    ///
+    /// In a response, the *recursion available* bit denotes whether the
+    /// responding name server supports recursion. It has no meaning in
+    /// a query.
     pub fn ra(&self) -> bool { self.get_bit(3, 7) }
 
     /// Sets the value of the RA bit.
     pub fn set_ra(&mut self, set: bool) { self.set_bit(3, 7, set) }
 
     /// Returns the value of the reserved bit.
+    ///
+    /// This bit must be `false` in all queries and responses.
     pub fn z(&self) -> bool { self.get_bit(3, 6) }
 
     /// Sets the value of the reserved bit.
     pub fn set_z(&mut self, set: bool) { self.set_bit(3, 6, set) }
 
     /// Returns the value of the AD bit.
+    ///
+    /// The *authentic data* bit is used by security-aware recursive name
+    /// servers to indicate that it considers all RRsets in its response to
+    /// be authentic.
     pub fn ad(&self) -> bool { self.get_bit(3, 5) }
 
     /// Sets the value of the AD bit.
     pub fn set_ad(&mut self, set: bool) { self.set_bit(3, 5, set) }
 
     /// Returns the value of the CD bit.
+    ///
+    /// The *checking disabled* bit is used by security-aware resolvers
+    /// to indicate that it does not want upstream name servers to perform
+    /// verification bit will do all that itself.
     pub fn cd(&self) -> bool { self.get_bit(3, 4) }
 
     /// Sets the value of the CD bit.
     pub fn set_cd(&mut self, set: bool) { self.set_bit(3, 4, set) }
 
     /// Returns the RCODE field.
+    ///
+    /// The *response code* is used in a response to indicate what happened
+    /// when processing the query. See the `Rcode` type for information on
+    /// possible values and their meaning.
     pub fn rcode(&self) -> Rcode {
         Rcode::from_int(self.inner[3] & 0x0F)
     }
@@ -180,6 +222,8 @@ impl Header {
 
 /// The section count part of the header of a DNS message.
 ///
+/// It consists of four counters for the number of resource records in the
+/// four sections of a DNS message.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeaderCounts {
     inner: [u8; 8]
@@ -222,6 +266,9 @@ impl HeaderCounts {
     //--- Count fields in regular messages
 
     /// Returns the QDCOUNT field.
+    ///
+    /// This field contains the number of questions in the first
+    /// section of the message, normally the question section.
     pub fn qdcount(&self) -> u16 {
         self.get_u16(0)
     }
@@ -237,6 +284,9 @@ impl HeaderCounts {
     }
 
     /// Returns the ANCOUNT field.
+    ///
+    /// This field contains the number of resource records in the second
+    /// section of the message, normally the answer section.
     pub fn ancount(&self) -> u16 {
         self.get_u16(2)
     }
@@ -252,6 +302,9 @@ impl HeaderCounts {
     }
 
     /// Returns the NSCOUNT field.
+    ///
+    /// This field contains the number of resource records in the third
+    /// section of the message, normally the authority section.
     pub fn nscount(&self) -> u16 {
         self.get_u16(4)
     }
@@ -267,6 +320,9 @@ impl HeaderCounts {
     }
 
     /// Returns the ARCOUNT field.
+    ///
+    /// This field contains the number of resource records in the fourth
+    /// section of the message, normally the additional section.
     pub fn arcount(&self) -> u16 {
         self.get_u16(6)
     }
@@ -282,24 +338,36 @@ impl HeaderCounts {
     }
 
 
-    ///--- Count fields in UPDATE messages
+    //--- Count fields in UPDATE messages
 
     /// Returns the ZOCOUNT field.
+    ///
+    /// This is the same as the `qdcount()`. It is used in UPDATE queries
+    /// where the first section is the zone section.
     pub fn zocount(&self) -> u16 {
         self.get_u16(0)
     }
 
     /// Returns the PRCOUNT field.
+    ///
+    /// This is the same as the `ancount()`. It is used in UPDATE queries
+    /// where the first section is the prerequisite section.
     pub fn prcount(&self) -> u16 {
         self.get_u16(2)
     }
 
     /// Returns the UPCOUNT field.
+    ///
+    /// This is the same as the `nscount()`. It is used in UPDATE queries
+    /// where the first section is the update section.
     pub fn upcount(&self) -> u16 {
         self.get_u16(4)
     }
 
     /// Returns the ADCOUNT field.
+    ///
+    /// This is the same as the `arcount()`. It is used in UPDATE queries
+    /// where the first section is the additional section.
     pub fn adcount(&self) -> u16 {
         self.get_u16(6)
     }
@@ -334,7 +402,6 @@ impl HeaderCounts {
 //------------ FullHeader ---------------------------------------------------
 
 /// The complete header of a DNS message.
-///
 #[derive(Clone, Debug, PartialEq)]
 pub struct FullHeader {
     inner: [u8; 12]
@@ -371,7 +438,7 @@ impl FullHeader {
 }
 
 
-/// # Access to Header and Dounts
+/// # Access to Header and Counts
 ///
 impl FullHeader {
     /// Returns a reference to the header.
@@ -400,4 +467,27 @@ impl FullHeader {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+
+    // XXX TODO: test header.
+
+    #[test]
+    fn counts() {
+        let mut c = HeaderCounts { inner: [ 1, 2, 3, 4, 5, 6, 7, 8 ] };
+        assert_eq!(c.qdcount(), 0x0102);
+        assert_eq!(c.ancount(), 0x0304);
+        assert_eq!(c.nscount(), 0x0506);
+        assert_eq!(c.arcount(), 0x0708);
+        c.inc_qdcount(1).unwrap();
+        c.inc_ancount(1).unwrap();
+        c.inc_nscount(0x0100).unwrap();
+        c.inc_arcount(0x0100).unwrap();
+        assert_eq!(c.inner, [ 1, 3, 3, 5, 6, 6, 8, 8 ]);
+        c.set_qdcount(0x0807);
+        c.set_ancount(0x0605);
+        c.set_nscount(0x0403);
+        c.set_arcount(0x0201);
+        assert_eq!(c.inner, [ 8, 7, 6, 5, 4, 3, 2, 1 ]);
+    }
 }
+

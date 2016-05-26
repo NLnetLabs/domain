@@ -11,9 +11,9 @@ path = "src/lib.rs"
 name = "dig"
 path = "examples/dig.rs"
 
-[[example]]
-name = "reversed"
-path = "examples/reversed.rs"
+#[[example]]
+#name = "reversed"
+#path = "examples/reversed.rs"
 
 [dependencies]
 rand     = "0.3"

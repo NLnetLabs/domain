@@ -7,25 +7,30 @@ use super::super::error::{FromStrError, FromStrResult};
 
 
 /// DNS CLASSes.
-///
 #[derive(Clone, Copy, Debug)]
 pub enum Class {
-    /// Internet
+    /// Internet (IN).
+    ///
+    /// This class is defined in RFC 1035 and really the only one relevant
+    /// at all.
     IN,
 
-    /// Chaos
+    /// Chaos (CH)
     CH,
 
-    /// Hesiod
-    ///
+    /// Hesiod (HS)
     HS,
 
     /// Query class None
     ///
-    /// See RFC 2136.
+    /// Defined in RFC 2136, this class is used in UPDATE queries to
+    /// require that an RRset does not exist prior to the update.
     NONE,
 
-    /// Query class *
+    /// Query class * (ANY)
+    ///
+    /// This class can be used in a query to indicate that records for the
+    /// given name from any class are requested.
     ANY,
 
     /// A raw class value given through its integer. 
@@ -33,6 +38,7 @@ pub enum Class {
 }
 
 impl Class {
+    /// Returns the class value for the given raw integer class value.
     pub fn from_int(value: u16) -> Class {
         use self::Class::*;
 
@@ -47,6 +53,7 @@ impl Class {
         }
     }
 
+    /// Returns the raw integer class value for this class.
     pub fn to_int(self) -> u16 {
         use self::Class::*;
 
@@ -76,6 +83,12 @@ impl convert::From<Class> for u16 {
 impl str::FromStr for Class {
     type Err = FromStrError;
 
+    /// Returns the class value for the given string.
+    ///
+    /// Recognized are the mnemonics equivalent to the variant names, an
+    /// asterisk for `Class::ANY`, and the generic class names from RFC 3597
+    /// in the form of the string `CLASS` followed immediately by decimal
+    /// class number.
     fn from_str(s: &str) -> FromStrResult<Self> {
         use std::ascii::AsciiExt;
         use self::Class::*;
@@ -117,7 +130,13 @@ impl fmt::Display for Class {
             HS => "HS".fmt(f),
             NONE => "NONE".fmt(f),
             ANY => "ANY".fmt(f),
-            Int(value) => value.fmt(f)
+            Int(value) => {
+                // Maybe value is actually for a well-known variant.
+                match Class::from_int(value) {
+                    Int(value) => write!(f, "CLASS{}", value),
+                    value @ _ => value.fmt(f),
+                }
+            }
         }
     }
 }
