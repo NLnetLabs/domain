@@ -20,7 +20,7 @@ use std::str::{self, FromStr, SplitWhitespace};
 use std::result;
 use std::time::Duration;
 use ::bits::error::FromStrError;
-use ::bits::name::OwnedDName;
+use ::bits::name::DNameBuf;
 
 
 //------------ ResolvOptions ------------------------------------------------
@@ -120,7 +120,7 @@ pub struct ResolvConf {
     pub servers: Vec<SocketAddr>,
 
     /// Search list for host-name lookup.
-    pub search: Vec<OwnedDName>,
+    pub search: Vec<DNameBuf>,
 
     /// TODO Sortlist
     /// sortlist: ??
@@ -178,7 +178,7 @@ impl ResolvConf {
             self.servers.push(SocketAddr::new(addr, 53));
         }
         if self.search.is_empty() {
-            self.search.push(OwnedDName::root())
+            self.search.push(DNameBuf::root())
         }
     }
 
@@ -243,7 +243,7 @@ impl ResolvConf {
     }
 
     fn parse_domain(&mut self, mut words: SplitWhitespace) -> Result<()> {
-        let domain = try!(OwnedDName::from_str(try!(next_word(&mut words))));
+        let domain = try!(DNameBuf::from_str(try!(next_word(&mut words))));
         self.search = Vec::new();
         self.search.push(domain);
         no_more_words(words)
@@ -252,7 +252,7 @@ impl ResolvConf {
     fn parse_search(&mut self, words: SplitWhitespace) -> Result<()> {
         let mut search = Vec::new();
         for word in words {
-            search.push(try!(OwnedDName::from_str(word)))
+            search.push(try!(DNameBuf::from_str(word)))
         }
         self.search = search;
         Ok(())

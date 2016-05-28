@@ -8,9 +8,11 @@ use std::fmt;
 use std::mem;
 use std::ops::Deref;
 use std::ptr;
-use super::cstring::CString;
+use super::charstr::CharStr;
 use super::error::{ComposeError, ComposeResult};
-use super::name::{DName, DNameSlice, Label, OwnedDName};
+use super::name::{AsDName, DNameSlice, Label, DNameBuf};
+use super::nest::Nest;
+use super::octets::Octets;
 
 
 //------------ ComposeBytes ---------------------------------------------------
@@ -66,18 +68,28 @@ pub trait ComposeBytes: Sized + fmt::Debug {
     //--- Appending of domain names.
 
     /// Pushes a domain name to the end of the message.
-    fn push_dname<D: DName>(&mut self, name: &D) -> ComposeResult<()>;
+    fn push_dname<D: AsDName>(&mut self, name: &D) -> ComposeResult<()>;
 
     /// Pushes a domain name to the end of the message using name compression.
     ///
     /// Since compression is only allowed in a few well-known places per
     /// RFC 1123 and RFC 3597, this isn’t the default behaviour.
-    fn push_dname_compressed<D: DName>(&mut self, name: &D)
-                                       -> ComposeResult<()>;
+    fn push_dname_compressed<D: AsDName>(&mut self, name: &D)
+                                         -> ComposeResult<()>;
 
     /// Pushes a character string to the end of the message.
-    fn push_cstring<S: CString>(&mut self, cstring: &S) -> ComposeResult<()> {
+    fn push_charstr(&mut self, cstring: &CharStr) -> ComposeResult<()> {
         cstring.compose(self)
+    }
+
+    /// Pushes a nest to the end of the message.
+    fn push_nest(&mut self, nest: &Nest) -> ComposeResult<()> {
+        nest.compose(self)
+    }
+
+    /// Pushes arbitrary bytes data to the end of the message.
+    fn push_octets(&mut self, octets: &Octets) -> ComposeResult<()> {
+        octets.compose(self)
     }
 
     //--- Checkpoint and rollback.
@@ -170,7 +182,7 @@ pub struct ComposeVec {
     /// A hashmap storing the indexes of domain names for compression.
     ///
     /// If this is `None`, we don’t do compression at all.
-    compress: Option<HashMap<OwnedDName, u16>>,
+    compress: Option<HashMap<DNameBuf, u16>>,
 }
 
 
@@ -241,8 +253,9 @@ impl ComposeVec {
     ///
     /// The name will be pushed uncompressed and no entries will be made
     /// to the compression hashmap.
-    fn push_dname_simple<D: DName>(&mut self, name: &D) -> ComposeResult<()> {
-        for label in try!(name.to_cow()).iter() {
+    fn push_dname_simple<D: AsDName>(&mut self, name: &D)
+                                     -> ComposeResult<()> {
+        for label in name.as_dname().iter() {
             try!(label.compose(self));
         }
         Ok(())
@@ -254,7 +267,7 @@ impl ComposeVec {
     }
 
     /// Adds `name` to the compression hashmap with `pos` as its index.
-    fn add_compress_target(&mut self, name: OwnedDName, pos: usize) {
+    fn add_compress_target(&mut self, name: DNameBuf, pos: usize) {
         if let Some(ref mut compress) = self.compress {
             if pos <= ::std::u16::MAX as usize {
                 let _ = compress.insert(name, pos as u16);
@@ -288,9 +301,9 @@ impl ComposeBytes for ComposeVec {
         Ok(())
     }
 
-    fn push_dname<D: DName>(&mut self, name: &D) -> ComposeResult<()> {
+    fn push_dname<D: AsDName>(&mut self, name: &D) -> ComposeResult<()> {
         if self.compress.is_some() {
-            let name = try!(name.to_cow());
+            let name = name.as_dname().into_cow();
             let mut name_ref = name.deref();
             while let Some((label, tail)) = name_ref.split_first() {
                 let pos = self.compress_pos();
@@ -305,10 +318,10 @@ impl ComposeBytes for ComposeVec {
         }
     }
 
-    fn push_dname_compressed<D: DName>(&mut self, name: &D)
-                                       -> ComposeResult<()> {
+    fn push_dname_compressed<D: AsDName>(&mut self, name: &D)
+                                         -> ComposeResult<()> {
         if self.compress.is_some() {
-            let name = try!(name.to_cow());
+            let name = name.as_dname().into_cow();
             let mut iter = name.iter();
             loop {
                 let name = iter.as_name();
@@ -376,7 +389,7 @@ impl Deref for ComposeVec {
 mod test {
     use super::*;
     use bits::error::ComposeError;
-    use bits::name::OwnedDName;
+    use bits::name::DNameBuf;
 
     #[test]
     fn simple_push() {
@@ -392,7 +405,7 @@ mod test {
     #[test]
     fn push_name() {
         let mut c = ComposeVec::new(None, false);
-        c.push_dname(&OwnedDName::from_str("foo.bar.").unwrap()).unwrap();
+        c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
         assert_eq!(c.finish(),
                    b"\x03foo\x03bar\x00");
     }
@@ -402,8 +415,8 @@ mod test {
         // Same name again.
         let mut c = ComposeVec::new(None, true);
         c.push_u8(0x07).unwrap();
-        c.push_dname(&OwnedDName::from_str("foo.bar.").unwrap()).unwrap();
-        c.push_dname_compressed(&OwnedDName::from_str("foo.bar.").unwrap())
+        c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
+        c.push_dname_compressed(&DNameBuf::from_str("foo.bar.").unwrap())
          .unwrap();
         assert_eq!(c.finish(),
                    b"\x07\x03foo\x03bar\x00\xC0\x01");
@@ -411,8 +424,8 @@ mod test {
         // Prefixed name.
         let mut c = ComposeVec::new(None, true);
         c.push_u8(0x07).unwrap();
-        c.push_dname(&OwnedDName::from_str("foo.bar.").unwrap()).unwrap();
-        c.push_dname_compressed(&OwnedDName::from_str("baz.foo.bar.").unwrap())
+        c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
+        c.push_dname_compressed(&DNameBuf::from_str("baz.foo.bar.").unwrap())
          .unwrap();
         assert_eq!(c.finish(),
                    b"\x07\x03foo\x03bar\x00\x03baz\xC0\x01");
@@ -420,8 +433,8 @@ mod test {
         // Suffixed name.
         let mut c = ComposeVec::new(None, true);
         c.push_u8(0x07).unwrap();
-        c.push_dname(&OwnedDName::from_str("foo.bar.").unwrap()).unwrap();
-        c.push_dname_compressed(&OwnedDName::from_str("bar.").unwrap())
+        c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
+        c.push_dname_compressed(&DNameBuf::from_str("bar.").unwrap())
          .unwrap();
         assert_eq!(c.finish(),
                    b"\x07\x03foo\x03bar\x00\xC0\x05");

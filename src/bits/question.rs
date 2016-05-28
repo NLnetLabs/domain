@@ -3,45 +3,35 @@
 use std::fmt;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
-use super::flavor::{self, Flavor, FlatFlavor};
+//use super::flavor::{self, Flavor, FlatFlavor};
 use super::iana::{Class, RRType};
 use super::name::DName;
-use super::parse::ParseFlavor;
+use super::parse::ParseBytes;
 
 
 //------------ Question -----------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct Question<F: Flavor> {
-    qname: F::DName,
+pub struct Question<'a> {
+    qname: DName<'a>,
     qtype: RRType,
     qclass: Class,
 }
 
-pub type OwnedQuestion = Question<flavor::Owned>;
-pub type QuestionRef<'a> = Question<flavor::Ref<'a>>;
-pub type LazyQuestion<'a> = Question<flavor::Lazy<'a>>;
-
-
 /// # Creation and Conversion
 ///
-impl<F: Flavor> Question<F> {
-    pub fn new(qname: F::DName, qtype: RRType, qclass: Class) -> Self {
+impl<'a> Question<'a> {
+    pub fn new(qname: DName<'a>, qtype: RRType, qclass: Class) -> Self {
         Question { qname: qname, qtype: qtype, qclass: qclass }
-    }
-
-    pub fn to_owned(&self) -> ParseResult<OwnedQuestion> {
-        Ok(OwnedQuestion::new(try!(self.qname.to_owned()),
-                              self.qtype, self.qclass))
     }
 }
 
 
 /// # Element Access
 ///
-impl<F: Flavor> Question<F> {
+impl<'a> Question<'a> {
     /// Returns the requested domain name.
-    pub fn qname(&self) -> &F::DName {
+    pub fn qname(&self) -> &DName<'a> {
         &self.qname
     }
 
@@ -59,16 +49,13 @@ impl<F: Flavor> Question<F> {
 
 /// Parsing and Composing
 ///
-impl<'a, F: FlatFlavor<'a>> Question<F> {
-    pub fn parse<P>(parser: &mut P) -> ParseResult<Self>
-                 where P: ParseFlavor<'a, F> {
+impl<'a> Question<'a> {
+    pub fn parse<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
         Ok(Question::new(try!(parser.parse_dname()),
                          try!(parser.parse_u16()).into(),
                          try!(parser.parse_u16()).into()))
     }
-}
 
-impl<F: Flavor> Question<F> {
     pub fn compose<C: ComposeBytes>(&self, target: &mut C)
                                     -> ComposeResult<()> {
         try!(target.push_dname_compressed(&self.qname));
@@ -80,32 +67,24 @@ impl<F: Flavor> Question<F> {
 
 //--- PartialEq
 
-impl<F: Flavor> PartialEq for Question<F> {
-    fn eq(&self, other: &Self) -> bool {
+impl<'a, 'b> PartialEq<Question<'b>> for Question<'a> {
+    fn eq(&self, other: &Question<'b>) -> bool {
         self.qname == other.qname && self.qtype == other.qtype
              && self.qclass == other.qclass
     }
 }
-
-/*
-impl<F: Flavor, G: Flavor> PartialEq<Question<G>> for Question<F> {
-    fn eq(&self, other: &Question<G>) -> bool {
-        self.qname == other.qname && self.qtype == other.qtype
-             && self.qclass == other.qclass
-    }
-}
-*/
 
 
 //--- Display
 
-impl<F: Flavor> fmt::Display for Question<F> {
+impl<'a> fmt::Display for Question<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) ->  fmt::Result {
         write!(f, "{}\t{}\t{}", self.qname, self.qtype, self.qclass)
     }
 }
 
 
+/*
 //------------ ComposeQuestion ----------------------------------------------
 
 /// Helper trait to allow composing questions from tuples.
@@ -134,4 +113,4 @@ impl<'a, D: DName> ComposeQuestion for (&'a D, RRType) {
         target.push_u16(Class::IN.into())
     }
 }
-
+*/

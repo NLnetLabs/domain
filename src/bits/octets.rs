@@ -1,75 +1,65 @@
 //! Arbitrary bytes data.
 
-use std::borrow::Borrow;
-use std::fmt::{self, Debug};
+use std::borrow::{Borrow, Cow};
+use std::fmt;
 use std::ops::Deref;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
 use super::parse::{ParseBytes, SliceParser};
 
+
 //------------ Octets --------------------------------------------------------
 
-/// A trait common to all bytes types.
-pub trait Octets: Deref<Target=[u8]> + Sized + Clone + Debug {
-    fn parser(&self) -> SliceParser;
-    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()>;
-}
+/// Arbitrary bytes data.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Octets<'a>(Cow<'a, [u8]>);
 
-
-//------------ OctetsRef -----------------------------------------------------
-
-/// A bytes reference.
-#[derive(Clone, Debug)]
-pub struct OctetsRef<'a> {
-    inner: &'a [u8]
-}
-
-impl<'a> OctetsRef<'a> {
+impl<'a> Octets<'a> {
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
-        OctetsRef { inner: bytes }
+        Octets(Cow::Borrowed(bytes))
     }
 
-    pub fn to_owned(&self) -> OwnedOctets {
-        OwnedOctets::from_bytes(self.inner)
+    pub fn new() -> Self {
+        Octets(Cow::Owned(Vec::new()))
+    }
+
+    pub fn into_owned(self) -> Vec<u8> {
+        self.0.into_owned()
     }
 
     pub fn parse<P: ParseBytes<'a>>(parser: &mut P, len: usize)
                                     -> ParseResult<Self> {
-        Ok(OctetsRef { inner: try!(parser.parse_bytes(len)) })
-    }
-}
-
-
-//--- Octets
-
-impl<'a> Octets for OctetsRef<'a> {
-    fn parser(&self) -> SliceParser {
-        SliceParser::new(self.inner)
+        Ok(Octets::from_bytes(try!(parser.parse_bytes(len))))
     }
 
-    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
-        target.push_bytes(self.inner)
+    pub fn parser(&self) -> SliceParser {
+        SliceParser::new(self)
+    }
+
+    pub fn compose<C: ComposeBytes>(&self, target: &mut C)
+                                    -> ComposeResult<()> {
+        target.push_bytes(self)
     }
 }
 
 
 //--- Deref, Borrow, AsRef
 
-impl<'a> Deref for OctetsRef<'a> {
+impl<'a> Deref for Octets<'a> {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        self.inner
+        &self.0
     }
 }
 
-impl<'a> Borrow<[u8]> for OctetsRef<'a> {
+impl<'a> Borrow<[u8]> for Octets<'a> {
     fn borrow(&self) -> &[u8] {
         self.deref()
     }
 }
 
-impl<'a> AsRef<[u8]> for OctetsRef<'a> {
+impl<'a> AsRef<[u8]> for Octets<'a> {
     fn as_ref(&self) -> &[u8] {
         self.deref()
     }
@@ -78,9 +68,9 @@ impl<'a> AsRef<[u8]> for OctetsRef<'a> {
 
 //--- Display
 
-impl<'a> fmt::Display for OctetsRef<'a> {
+impl<'a> fmt::Display for Octets<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for &ch in self.inner.iter() {
+        for &ch in self.0.iter() {
             if ch == b' ' || ch == b'\\' {
                 try!(write!(f, "\\{}", ch as char));
             }
@@ -95,71 +85,4 @@ impl<'a> fmt::Display for OctetsRef<'a> {
     }
 } 
 
-//------------ OwnedOctets ---------------------------------------------------
-
-/// An owned bytes.
-#[derive(Clone, Debug)]
-pub struct OwnedOctets {
-    inner: Vec<u8>
-}
-
-impl OwnedOctets {
-    pub fn new() -> Self {
-        OwnedOctets { inner: Vec::new() }
-    }
-
-    pub fn from_bytes(slice: &[u8]) -> Self {
-        OwnedOctets { inner: Vec::from(slice) }
-    }
-
-    pub fn parse<'a, P>(p: &mut P, len: usize) -> ParseResult<Self>
-                 where P: ParseBytes<'a> {
-        Ok(OwnedOctets::from_bytes(try!(p.parse_bytes(len))))
-    }
-}
-
-
-//--- Octets
-
-impl Octets for OwnedOctets {
-    fn parser(&self) -> SliceParser {
-        SliceParser::new(&self.inner)
-    }
-
-    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
-        target.push_bytes(&self.inner)
-    }
-}
-
-
-//--- Deref, Borrow, AsRef
-
-impl Deref for OwnedOctets {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        &self.inner
-    }
-}
-
-impl Borrow<[u8]> for OwnedOctets {
-    fn borrow(&self) -> &[u8] {
-        self.deref()
-    }
-}
-
-impl AsRef<[u8]> for OwnedOctets {
-    fn as_ref(&self) -> &[u8] {
-        self.deref()
-    }
-}
-
-
-//--- Display
-
-impl fmt::Display for OwnedOctets {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(&OctetsRef::from_bytes(&self.inner), f)
-    }
-}
 

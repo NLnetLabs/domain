@@ -1,12 +1,11 @@
 //! Parsing of wire-format DNS data.
 
 use std::mem;
-use super::cstring::CStringRef;
+use super::charstr::CharStr;
 use super::error::{ParseResult, ParseError};
-use super::flavor::{self, FlatFlavor};
-use super::name::{DNameRef, LazyDName};
-use super::nest::{NestRef, LazyNest};
-use super::octets::OctetsRef;
+use super::name::{DName, DNameSlice, PackedDName};
+use super::nest::{Nest, NestSlice, PackedNest};
+use super::octets::Octets;
 
 
 //------------ Traits -------------------------------------------------------
@@ -53,13 +52,30 @@ pub trait ParseBytes<'a>: Sized {
 
     /// Returns the length of the data left.
     fn left(&self) -> usize;
+
+    /// Parses a domain name.
+    fn parse_dname(&mut self) -> ParseResult<DName<'a>>;
+
+    /// Parses a character string.
+    fn parse_charstr(&mut self) -> ParseResult<CharStr<'a>> {
+        CharStr::parse(self)
+    }
+
+    /// Parses a nest.
+    fn parse_nest(&mut self, len: usize) -> ParseResult<Nest<'a>>;
+
+    /// Parses arbitrary bytes data.
+    fn parse_octets(&mut self, len: usize) -> ParseResult<Octets<'a>> {
+        Octets::parse(self, len)
+    }
 }
 
-pub trait ParseLazy<'a>: ParseBytes<'a> {
+pub trait ParsePacked<'a>: ParseBytes<'a> {
     fn context(&self) -> &'a[u8];
 }
 
 
+/*
 /// A trait for parsing wire-format DNS data.
 ///
 /// While the basic types are implemented for every parser through the
@@ -108,7 +124,7 @@ impl<'a> ParseFlavor<'a, flavor::Lazy<'a>> for ContextParser<'a> {
         LazyNest::parse(self, len)
     }
 }
-
+*/
 
 //------------ SliceParser --------------------------------------------------
 
@@ -164,6 +180,14 @@ impl<'a> ParseBytes<'a> for SliceParser<'a> {
 
     fn left(&self) -> usize {
         self.slice.len()
+    }
+
+    fn parse_dname(&mut self) -> ParseResult<DName<'a>> {
+        DNameSlice::parse(self).map(|name| name.into())
+    }
+
+    fn parse_nest(&mut self, len: usize) -> ParseResult<Nest<'a>> {
+        NestSlice::parse(self, len).map(|nest| nest.into())
     }
 }
 
@@ -222,11 +246,18 @@ impl<'a> ParseBytes<'a> for ContextParser<'a> {
     fn left(&self) -> usize {
         self.parser.left()
     }
+
+    fn parse_dname(&mut self) -> ParseResult<DName<'a>> {
+        PackedDName::parse(self).map(|name| name.into())
+    }
+
+    fn parse_nest(&mut self, len: usize) -> ParseResult<Nest<'a>> {
+        PackedNest::parse(self, len).map(|nest| nest.into())
+    }
 }
 
-impl<'a> ParseLazy<'a> for ContextParser<'a> {
+impl<'a> ParsePacked<'a> for ContextParser<'a> {
     fn context(&self) -> &'a [u8] {
         self.context
     }
 }
-

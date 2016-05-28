@@ -11,15 +11,15 @@ use std::path::Path;
 use std::str::FromStr;
 use std::result;
 use bits::error::FromStrError;
-use bits::name::{DNameSlice, OwnedDName};
+use bits::name::{DNameSlice, DNameBuf};
 
 
 //------------ Hosts --------------------------------------------------------
 
 #[derive(Clone, Debug)]
 pub struct Hosts {
-    forward: HashMap<OwnedDName, IpAddr>,
-    reverse: HashMap<IpAddr, OwnedDName>,
+    forward: HashMap<DNameBuf, IpAddr>,
+    reverse: HashMap<IpAddr, DNameBuf>,
 }
 
 
@@ -44,12 +44,12 @@ impl Hosts {
     }
  
     /// Adds a host to IP mapping.
-    pub fn add_forward(&mut self, name: OwnedDName, addr: IpAddr) {
+    pub fn add_forward(&mut self, name: DNameBuf, addr: IpAddr) {
         self.forward.insert(name, addr);
     }
 
     /// Adds a IP to host mapping.
-    pub fn add_reverse(&mut self, addr: IpAddr, name: OwnedDName) {
+    pub fn add_reverse(&mut self, addr: IpAddr, name: DNameBuf) {
         self.reverse.insert(addr, name);
     }
 }
@@ -68,7 +68,7 @@ impl Hosts {
     }
 
     /// Looks up the hostname of an address.
-    pub fn lookup_addr(&self, addr: &IpAddr) -> Option<&OwnedDName> {
+    pub fn lookup_addr(&self, addr: &IpAddr) -> Option<&DNameBuf> {
         self.reverse.get(addr)
     }
 }
@@ -111,13 +111,13 @@ impl Hosts {
         let addr = try!(IpAddr::from_str(addr));
 
         let cname = try!(words.next().ok_or(Error::ParseError));
-        let cname = try!(OwnedDName::from_str(cname));
+        let cname = try!(DNameBuf::from_str(cname));
 
         self.forward.insert(cname.clone(), addr.clone());
         self.reverse.insert(addr.clone(), cname);
 
         for name in words {
-            let name = try!(OwnedDName::from_str(name));
+            let name = try!(DNameBuf::from_str(name));
             self.forward.insert(name, addr.clone());
         }
         Ok(())

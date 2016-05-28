@@ -1,7 +1,5 @@
 //! Domain names.
 //!
-//! TODO: Enforce that domain name types are always absolute and introduce
-//!       separate types for relative domain names.
 
 use std::ascii::AsciiExt;
 use std::borrow::{Borrow, Cow};
@@ -14,23 +12,166 @@ use std::str;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, FromStrError, FromStrResult, ParseError,
                    ParseResult};
-use super::parse::{ParseBytes, ParseLazy};
+use super::parse::{ParseBytes, ParsePacked};
 use super::u8::{BytesExt, BytesVecExt};
+
+
+//------------ AsDName ------------------------------------------------------
+
+/// A trait for any type that can be expressed as a `DName` value.
+///
+/// This is a helper trait for allowing `ComposeBytes::push_dname()` to be
+/// generic over all kinds of domain name values.
+pub trait AsDName {
+    fn as_dname(&self) -> DName;
+}
 
 
 //------------ DName --------------------------------------------------------
 
-/// A trait common to all domain name types.
+/// A domain name.
 ///
-/// This trait makes it possible to define types that are generic over all
-/// three types of domain names.
-pub trait DName: fmt::Display + PartialEq + Sized {
-    /// Return a cow to a domain name slice.
-    fn to_cow(&self) -> ParseResult<Cow<DNameSlice>>;
+/// This type is similar to a cow of a domain name slice except that it can
+/// also be a lazy domain name.
+#[derive(Clone, Debug)]
+pub enum DName<'a> {
+    Slice(&'a DNameSlice),
+    Owned(DNameBuf),
+    Packed(PackedDName<'a>)
+}
 
-    /// Return an owned domain name.
-    fn to_owned(&self) -> ParseResult<OwnedDName> {
-        Ok(try!(self.to_cow()).into_owned())
+impl<'a> DName<'a> {
+    /// Creates a new domain name from a slice.
+    pub fn slice(name: &'a DNameSlice) -> Self {
+        DName::Slice(name)
+    }
+
+    /// Creates a new domain name from an owned name.
+    pub fn owned(name: DNameBuf) -> Self {
+        DName::Owned(name)
+    }
+
+    /// Creates a new domain name from a lazy name.
+    pub fn lazy(name: PackedDName<'a>) -> Self {
+        DName::Packed(name)
+    }
+
+    /// Extracts an owned name.
+    ///
+    /// Clones the data if it isn’t already owned.
+    pub fn into_owned(self) -> DNameBuf {
+        match self {
+            DName::Slice(name) => name.to_owned(),
+            DName::Owned(name) => name,
+            DName::Packed(name) => name.to_owned(),
+        }
+    }
+
+    /// Extracts a cow of the name.
+    ///
+    /// Clones a lazy name.
+    pub fn into_cow(self) -> Cow<'a, DNameSlice> {
+        match self {
+            DName::Slice(name) => Cow::Borrowed(name),
+            DName::Owned(name) => Cow::Owned(name),
+            DName::Packed(name) => name.decompress()
+        }
+    }
+
+    /// Returns an iterator over the labels of the name.
+    pub fn iter<'b: 'a>(&'b self) -> DNameIter<'b> {
+        match *self {
+            DName::Slice(ref name) => DNameIter::Slice(name.iter()),
+            DName::Owned(ref name) => DNameIter::Slice(name.iter()),
+            DName::Packed(ref name) => DNameIter::Packed(name.iter())
+        }
+    }
+}
+
+
+//--- From
+
+impl<'a> From<&'a DNameSlice> for DName<'a> {
+    fn from(t: &'a DNameSlice) -> DName<'a> {
+        DName::Slice(t)
+    }
+}
+
+impl<'a> From<DNameBuf> for DName<'a> {
+    fn from(t: DNameBuf) -> DName<'a> {
+        DName::Owned(t)
+    }
+}
+
+impl<'a> From<PackedDName<'a>> for DName<'a> {
+    fn from(t: PackedDName<'a>) -> DName<'a> {
+        DName::Packed(t)
+    }
+}
+
+
+//--- FromStr
+
+impl<'a> str::FromStr for DName<'a> {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> FromStrResult<Self> {
+        DNameBuf::from_str(s).map(|x| x.into())
+    }
+}
+
+
+//--- AsDName
+
+impl<'a> AsDName for DName<'a> {
+    fn as_dname(&self) -> DName {
+        self.clone()
+    }
+}
+
+
+//--- PartialEq
+
+impl<'a, T: AsRef<DNameSlice> + ?Sized> PartialEq<T> for DName<'a> {
+    fn eq(&self, other: &T) -> bool {
+        match *self {
+            DName::Slice(ref name) => name.eq(&other),
+            DName::Owned(ref name) => name.eq(other),
+            DName::Packed(ref name) => name.eq(other),
+        }
+    }
+}
+
+impl<'a, 'b> PartialEq<PackedDName<'b>> for DName<'a> {
+    fn eq(&self, other: &PackedDName<'b>) -> bool {
+        match *self {
+            DName::Slice(ref name) => name.eq(&other),
+            DName::Owned(ref name) => name.eq(other),
+            DName::Packed(ref name) => name.eq(other),
+        }
+    }
+}
+
+impl<'a, 'b> PartialEq<DName<'b>> for DName<'a> {
+    fn eq(&self, other: &DName<'b>) -> bool {
+        match *other {
+            DName::Slice(ref name) => self.eq(name),
+            DName::Owned(ref name) => self.eq(name),
+            DName::Packed(ref name) => self.eq(name)
+        }
+    }
+}
+
+
+//--- Display
+
+impl<'a> fmt::Display for DName<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DName::Slice(ref name) => name.fmt(f),
+            DName::Owned(ref name) => name.fmt(f),
+            DName::Packed(ref name) => name.fmt(f)
+        }
     }
 }
 
@@ -39,7 +180,7 @@ pub trait DName: fmt::Display + PartialEq + Sized {
 
 /// Unsized type for a complete domain name.
 ///
-/// This type implements functionality common to `DNameRef` and `OwnedDName`
+/// This type implements functionality common to `DNameRef` and `DNameBuf`
 /// both of which deref to it.
 ///
 /// A domain name slice is a bytes slice encoded following the domain name
@@ -60,14 +201,28 @@ impl DNameSlice {
         mem::transmute(slice)
     }
 
+    /// Parses a domain name slice.
+    ///
+    /// This fails if the name is actually compressed.
+    pub fn parse<'a, P: ParseBytes<'a>>(parser: &mut P)
+                                        -> ParseResult<&'a DNameSlice> {
+        let mut sub = parser.sub();
+        loop {
+            if try!(Label::skip_complete(&mut sub)) {
+                let bytes = try!(parser.parse_bytes(sub.seen()));
+                return Ok(unsafe { DNameSlice::from_bytes(bytes) })
+            }
+        }
+    }
+
     /// Returns the underlying bytes slice.
     pub fn as_bytes(&self) -> &[u8] {
         &self.slice
     }
 
     /// Converts `self` into an owned domain name.
-    pub fn to_owned(&self) -> OwnedDName {
-        OwnedDName::from(self)
+    pub fn to_owned(&self) -> DNameBuf {
+        DNameBuf::from(self)
     }
 
     /// Converts `self` to a string.
@@ -233,23 +388,14 @@ impl DNameSlice {
     }
 
     /// Creates an owned domain name with `base` adjoined to `self`.
-    pub fn join<N: AsRef<Self>>(&self, base: N) -> OwnedDName {
+    pub fn join<N: AsRef<Self>>(&self, base: N) -> DNameBuf {
         self._join(base.as_ref())
     }
 
-    fn _join(&self, base: &Self) -> OwnedDName {
+    fn _join(&self, base: &Self) -> DNameBuf {
         let mut res = self.to_owned();
         res.append(base);
         res
-    }
-}
-
-
-//--- DName
-
-impl<'a> DName for &'a DNameSlice {
-    fn to_cow(&self) -> ParseResult<Cow<DNameSlice>> {
-        Ok(Cow::Borrowed(self))
     }
 }
 
@@ -261,10 +407,19 @@ impl AsRef<DNameSlice> for DNameSlice {
 }
 
 
+//--- AsDName
+
+impl AsDName for DNameSlice {
+    fn as_dname(&self) -> DName {
+        DName::Slice(self)
+    }
+}
+
+
 //--- ToOwned
 
 impl ToOwned for DNameSlice {
-    type Owned = OwnedDName;
+    type Owned = DNameBuf;
 
     fn to_owned(&self) -> Self::Owned { self.to_owned() }
 }
@@ -278,11 +433,11 @@ impl<T: AsRef<DNameSlice> + ?Sized> PartialEq<T> for DNameSlice {
     }
 }
 
-impl<'a> PartialEq<LazyDName<'a>> for DNameSlice {
+impl<'a> PartialEq<PackedDName<'a>> for DNameSlice {
     /// Test whether `self` and `other` are equal.
     ///
     /// An unparsable `other` always compares false.
-    fn eq(&self, other: &LazyDName<'a>) -> bool {
+    fn eq(&self, other: &PackedDName<'a>) -> bool {
         self.iter().eq(other.iter())
     }
 }
@@ -320,8 +475,8 @@ impl<T: AsRef<DNameSlice> + ?Sized> PartialOrd<T> for DNameSlice {
     }
 }
 
-impl<'a> PartialOrd<LazyDName<'a>> for DNameSlice {
-    fn partial_cmp(&self, other: &LazyDName) -> Option<cmp::Ordering> {
+impl<'a> PartialOrd<PackedDName<'a>> for DNameSlice {
+    fn partial_cmp(&self, other: &PackedDName) -> Option<cmp::Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }
@@ -355,164 +510,36 @@ impl fmt::Display for DNameSlice {
 }
 
 
-//------------ DNameRef -----------------------------------------------------
-
-/// A reference to a complete domain name.
-///
-/// This is nothing more than a wrapper around a `&DNameSlice` to provide a
-/// drop-in type with the same semantics as the other two domain name types.
-/// It derefs to a `DNameSlice`, thus providing all the methods that type
-/// provides.
-#[derive(Clone, Debug)]
-pub struct DNameRef<'a> {
-    inner: &'a DNameSlice
-}
-
-impl<'a> DNameRef<'a> {
-    unsafe fn from_bytes(bytes: &'a [u8]) -> Self {
-        DNameRef::from_slice(DNameSlice::from_bytes(bytes))
-    }
-
-    pub fn from_slice(slice: &'a DNameSlice) -> Self {
-        DNameRef { inner: slice }
-    }
-
-    pub fn as_slice(&self) -> &DNameSlice {
-        self
-    }
-
-    pub fn to_owned(&self) -> OwnedDName {
-        self.inner.to_owned()
-    }
-
-    pub fn parse<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
-        let mut sub = parser.sub();
-        loop {
-            let label = try!(Label::parse_complete(&mut sub));
-            if label.is_root() {
-                let bytes = try!(parser.parse_bytes(sub.seen()));
-                return Ok(unsafe { DNameRef::from_bytes(bytes) })
-            }
-        }
-    }
-}
-
-
-//--- DName
-
-impl<'a> DName for DNameRef<'a> {
-    fn to_cow(&self) -> ParseResult<Cow<DNameSlice>> {
-        Ok(Cow::Borrowed(self.inner))
-    }
-}
-
-
-//--- From
-
-impl<'a> From<&'a DNameSlice> for DNameRef<'a> {
-    fn from(slice: &'a DNameSlice) -> Self {
-        Self::from_slice(slice)
-    }
-}
-
-
-//--- Deref, Borrow, AsRef
-
-impl<'a> Deref for DNameRef<'a> {
-    type Target = DNameSlice;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner
-    }
-}
-
-impl<'a> Borrow<DNameSlice> for DNameRef<'a> {
-    fn borrow(&self) -> &DNameSlice {
-        self.deref()
-    }
-}
-
-impl<'a> AsRef<DNameSlice> for DNameRef<'a> {
-    fn as_ref(&self) -> &DNameSlice {
-        self.deref()
-    }
-}
-
-
-//--- PartialEq, Eq
-
-impl<'a, T: AsRef<DNameSlice>> PartialEq<T> for DNameRef<'a> {
-    fn eq(&self, other: &T) -> bool {
-        self.deref().eq(other.as_ref())
-    }
-}
-
-impl<'a> Eq for DNameRef<'a> { }
-
-
-//--- PartialOrd, Ord
-
-impl<'a, T: AsRef<DNameSlice>> PartialOrd<T> for DNameRef<'a> {
-    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
-        self.deref().partial_cmp(other.as_ref())
-    }
-}
-
-impl<'a> Ord for DNameRef<'a> {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.deref().cmp(other.deref())
-    }
-}
-
-
-//--- Hash
-
-impl<'a> hash::Hash for DNameRef<'a> {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.deref().hash(state)
-    }
-}
-
-
-//--- Display
-
-impl<'a> fmt::Display for DNameRef<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.deref().fmt(f)
-    }
-}
-
-
-//------------ OwnedDName ---------------------------------------------------
+//------------ DNameBuf ---------------------------------------------------
 
 /// An owned complete domain name.
 ///
 /// This type derefs to `DNameSlice` and therefore provides all its
 /// methods.
 #[derive(Clone, Debug)]
-pub struct OwnedDName {
+pub struct DNameBuf {
     inner: Vec<u8>
 }
 
 /// # Creation and Conversion
 ///
-impl OwnedDName {
+impl DNameBuf {
     /// Creates an owned domain name from a bytes slice.
     ///
     /// This is only safe if the slice followes the domain name encoding
     /// rules and does not contain a compressed label.
     unsafe fn from_bytes(slice: &[u8]) -> Self {
-        OwnedDName { inner: Vec::from(slice) }
+        DNameBuf { inner: Vec::from(slice) }
     }
 
     /// Creates a new empty domain name.
-    pub fn new() -> OwnedDName {
-        OwnedDName { inner: Vec::new() }
+    pub fn new() -> DNameBuf {
+        DNameBuf { inner: Vec::new() }
     }
 
     /// Creates a new domain name with only the root label.
-    pub fn root() -> OwnedDName {
-        let mut res = OwnedDName::new();
+    pub fn root() -> DNameBuf {
+        let mut res = DNameBuf::new();
         res.push(&Label::root());
         res
     }
@@ -525,7 +552,7 @@ impl OwnedDName {
     /// that is a `0`, `1`, or `2`, in which case the next three characters
     /// are the byte value in decimal representation.
     pub fn from_str(s: &str) -> FromStrResult<Self> {
-        let mut res = OwnedDName::new();
+        let mut res = DNameBuf::new();
         let mut label = Vec::new();
         let mut chars = s.chars();
         loop {
@@ -555,29 +582,27 @@ impl OwnedDName {
         Ok(res)
     }
 
+    /*
     pub fn parse_complete<'a, P: ParseBytes<'a>>(parser: &mut P)
                                                  -> ParseResult<Self> {
         Ok(try!(DNameRef::parse(parser)).to_owned())
     }
 
-    pub fn parse_compressed<'a, P: ParseLazy<'a>>(parser: &mut P)
+    pub fn parse_compressed<'a, P: ParsePacked<'a>>(parser: &mut P)
                                                   -> ParseResult<Self> {
-        Ok(try!(try!(LazyDName::parse(parser)).to_owned()))
+        Ok(try!(try!(PackedDName::parse(parser)).to_owned()))
     }
+    */
 
     pub fn as_slice(&self) -> &DNameSlice {
         self
-    }
-
-    pub fn as_ref(&self) -> DNameRef {
-        unsafe { DNameRef::from_bytes(&self.inner) }
     }
 }
 
 
 /// # Manipulation
 ///
-impl OwnedDName {
+impl DNameBuf {
     /// Extends the name with a label.
     pub fn push(&mut self, label: &Label) {
         label.push_vec(&mut self.inner);
@@ -601,35 +626,35 @@ impl OwnedDName {
 }
 
 
-//--- DName
-
-impl DName for OwnedDName {
-    fn to_cow(&self) -> ParseResult<Cow<DNameSlice>> {
-        Ok(Cow::Borrowed(self))
-    }
-}
-
-
 //--- From and FromStr
 
-impl<'a> From<&'a DNameSlice> for OwnedDName {
-    fn from(name: &'a DNameSlice) -> OwnedDName {
-        unsafe { OwnedDName::from_bytes(&name.slice) }
+impl<'a> From<&'a DNameSlice> for DNameBuf {
+    fn from(name: &'a DNameSlice) -> DNameBuf {
+        unsafe { DNameBuf::from_bytes(&name.slice) }
     }
 }
 
-impl str::FromStr for OwnedDName {
+impl str::FromStr for DNameBuf {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> FromStrResult<Self> {
-        OwnedDName::from_str(s)
+        DNameBuf::from_str(s)
+    }
+}
+
+
+//--- AsDName
+
+impl AsDName for DNameBuf {
+    fn as_dname(&self) -> DName {
+        DName::Slice(self)
     }
 }
 
 
 //--- Deref, Borrow, and AsRef
 
-impl Deref for OwnedDName {
+impl Deref for DNameBuf {
     type Target = DNameSlice;
 
     fn deref(&self) -> &Self::Target {
@@ -637,13 +662,13 @@ impl Deref for OwnedDName {
     }
 }
 
-impl Borrow<DNameSlice> for OwnedDName {
+impl Borrow<DNameSlice> for DNameBuf {
     fn borrow(&self) -> &DNameSlice {
         self.deref()
     }
 }
 
-impl AsRef<DNameSlice> for OwnedDName {
+impl AsRef<DNameSlice> for DNameBuf {
     fn as_ref(&self) -> &DNameSlice {
         self
     }
@@ -652,24 +677,30 @@ impl AsRef<DNameSlice> for OwnedDName {
 
 //--- PartialEq and Eq
 
-impl<T: AsRef<DNameSlice>> PartialEq<T> for OwnedDName {
+impl<T: AsRef<DNameSlice> + ?Sized> PartialEq<T> for DNameBuf {
     fn eq(&self, other: &T) -> bool {
         self.deref().eq(other.as_ref())
     }
 }
 
-impl Eq for OwnedDName { }
+impl<'a> PartialEq<PackedDName<'a>> for DNameBuf {
+    fn eq(&self, other: &PackedDName<'a>) -> bool {
+        other.eq(self)
+    }
+}
+
+impl Eq for DNameBuf { }
 
 
 //--- PartialOrd and Ord
 
-impl<T: AsRef<DNameSlice>> PartialOrd<T> for OwnedDName {
+impl<T: AsRef<DNameSlice>> PartialOrd<T> for DNameBuf {
     fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
         self.deref().partial_cmp(other.as_ref())
     }
 }
 
-impl Ord for OwnedDName {
+impl Ord for DNameBuf {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.deref().cmp(other.deref())
     }
@@ -678,7 +709,7 @@ impl Ord for OwnedDName {
 
 //--- Hash
 
-impl hash::Hash for OwnedDName {
+impl hash::Hash for DNameBuf {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.deref().hash(state)
     }
@@ -687,26 +718,27 @@ impl hash::Hash for OwnedDName {
 
 //--- Display
 
-impl fmt::Display for OwnedDName {
+impl fmt::Display for DNameBuf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.deref().fmt(f)
     }
 }
 
 
-//------------ LazyDName ----------------------------------------------------
+//------------ PackedDName ----------------------------------------------------
 
 /// A possibly compressed domain name.
 ///
 /// In order to avoid allocations, compression is only resolved when needed.
 /// The consequence of this is that a lazy domain name needs to have a
 /// reference to the original message handy. To avoid too many type
-/// parameters, this reference, called context, is always to a bytes slice.
-/// Another consequence is that format errors may only surface when
-/// using the name. Thus, there is `ParseResult<T>` return types all over
-/// the place.
+/// parameters, this reference, called context, is always a bytes slice.
+///
+/// Values of this type are guaranteed to resolve successfully. While this
+/// incures a bit of overhead during parsing, it protects from late
+/// surprises.
 #[derive(Clone, Debug)]
-pub struct LazyDName<'a> {
+pub struct PackedDName<'a> {
     slice: &'a [u8],
     context: &'a [u8]
 }
@@ -714,12 +746,13 @@ pub struct LazyDName<'a> {
 
 /// # Creation and Conversion
 ///
-impl<'a> LazyDName<'a> {
+impl<'a> PackedDName<'a> {
     /// Creates a lazy domain name from its components.
     pub fn new(slice: &'a[u8], context: &'a[u8]) -> Self {
-        LazyDName { slice: slice, context: context }
+        PackedDName { slice: slice, context: context }
     }
 
+    /*
     /// Splits a lazy domain name from the beginning of a bytes slice.
     pub fn split_from(slice: &'a [u8], context: &'a [u8])
                       -> ParseResult<(Self, &'a[u8])> {
@@ -735,25 +768,26 @@ impl<'a> LazyDName<'a> {
         loop {
             let (end, head) = try!(Label::peek(slice, pos));
             if head.is_final() {
-                return Ok((LazyDName::new(&slice[..end], context), end))
+                return Ok((PackedDName::new(&slice[..end], context), end))
             }
             pos = end;
         }
     }
+    */
 
-    pub fn parse<P: ParseLazy<'a>>(parser: &mut P) -> ParseResult<Self> {
+    pub fn parse<P: ParsePacked<'a>>(parser: &mut P) -> ParseResult<Self> {
         let mut sub = parser.sub();
         loop {
             if try!(Label::skip(&mut sub)) {
                 let bytes = try!(parser.parse_bytes(sub.seen()));
-                return Ok(LazyDName::new(bytes, parser.context()))
+                return Ok(PackedDName::new(bytes, parser.context()))
             }
         }
     }
 
     /// Converts the lazy domain name into an owned complete domain name.
-    pub fn to_owned(&self) -> ParseResult<OwnedDName> {
-        Ok(try!(self.decompress()).into_owned())
+    pub fn to_owned(&self) -> DNameBuf {
+        self.decompress().into_owned()
     }
 
     /// Decompress the lazy domain name,
@@ -761,17 +795,17 @@ impl<'a> LazyDName<'a> {
     /// If `self` does not contain any compressed labels, it will be
     /// coerced into a regular domain name slice. If it does, it will be
     /// converted into an owned domain name.
-    pub fn decompress(&self) -> ParseResult<Cow<'a, DNameSlice>> {
+    pub fn decompress(&self) -> Cow<'a, DNameSlice> {
         // Walk over the name and return it if it ends without compression.
         let mut pos = 0;
         loop {
-            let (end, head) = try!(Label::peek(self.slice, pos));
+            let (end, head) = Label::peek(self.slice, pos).unwrap();
             match head {
                 LabelHead::Normal(0) => {
                     let name = unsafe { 
                         DNameSlice::from_bytes(&self.slice[..end])
                     };
-                    return Ok(Cow::Borrowed(name));
+                    return Cow::Borrowed(name);
                 }
                 LabelHead::Compressed(..) => {
                     break;
@@ -781,22 +815,20 @@ impl<'a> LazyDName<'a> {
         }
         // We have compression. Copy all until the compressed label, then
         // iterate over the rest and append each label.
-        let (bytes, slice) = try!(self.slice.split_bytes(pos));
-        let mut res = unsafe { OwnedDName::from_bytes(bytes) };
-        for label in LazyIter::new(slice, self.context) {
-            let label = try!(label);
+        let (bytes, slice) = self.slice.split_bytes(pos).unwrap();
+        let mut res = unsafe { DNameBuf::from_bytes(bytes) };
+        for label in PackedIter::new(slice, self.context) {
             res.push(&label)
         }
-        Ok(Cow::Owned(res))
+        Cow::Owned(res)
     }
 
-    /// Converts the lazy domain name into a string.
+    /// Converts the packed domain name into a string.
     pub fn to_string(&self) -> ParseResult<String> {
         // Assuming a properly parsed out slice, the resulting string is
         // at least its size.
         let mut res = String::with_capacity(self.slice.len());
         for label in self.iter() {
-            let label = try!(label);
             if !res.is_empty() { res.push('.') }
             label.push_string(&mut res)
         }
@@ -807,47 +839,32 @@ impl<'a> LazyDName<'a> {
 
 /// # Iteration over Labels
 ///
-impl<'a> LazyDName<'a> {
+impl<'a> PackedDName<'a> {
     /// Returns an iterator over the labels.
-    pub fn iter(&self) -> LazyIter<'a> {
-        LazyIter::from_name(self)
+    pub fn iter(&self) -> PackedIter<'a> {
+        PackedIter::from_name(self)
     }
 }
 
 
-//--- DName
+//--- AsDName
 
-impl<'a> DName for LazyDName<'a> {
-    fn to_cow(&self) -> ParseResult<Cow<DNameSlice>> {
-        self.decompress()
+impl<'a> AsDName for PackedDName<'a> {
+    fn as_dname(&self) -> DName {
+        DName::Packed(self.clone())
     }
 }
 
 
 //--- PartialEq
 
-impl<'a, 'b> PartialEq<LazyDName<'b>> for LazyDName<'a> {
-    /// Check for equality.
-    ///
-    /// Lazy domain names that result in a parse error always compare
-    /// unequal. Which is also why `LazyDName` does not implement `Eq`
-    /// or `Ord`. (Hey, it ain’t called lazy for no reason!)
-    fn eq(&self, other: &LazyDName<'b>) -> bool {
-        // The orphan rule prohibits us using Iterator::eq() here.
-        let mut self_iter = self.iter();
-        let mut other_iter = other.iter();
-
-        loop {
-            match (self_iter.next(), other_iter.next()) {
-                (Some(Ok(x)), Some(Ok(y))) => if x != y { return false },
-                (None, None) => return true,
-                _ => return false,
-            }
-        }
+impl<'a, 'b> PartialEq<PackedDName<'b>> for PackedDName<'a> {
+    fn eq(&self, other: &PackedDName<'b>) -> bool {
+        self.iter().eq(other.iter())
     }
 }
 
-impl<'a, T: AsRef<DNameSlice>> PartialEq<T> for LazyDName<'a> {
+impl<'a, T: AsRef<DNameSlice> + ?Sized> PartialEq<T> for PackedDName<'a> {
     fn eq(&self, other: &T) -> bool {
         self.iter().eq(other.as_ref().iter())
     }
@@ -856,34 +873,16 @@ impl<'a, T: AsRef<DNameSlice>> PartialEq<T> for LazyDName<'a> {
 
 //--- PartialOrd
 
-impl<'a, 'b> PartialOrd<LazyDName<'b>> for LazyDName<'a> {
+impl<'a, 'b> PartialOrd<PackedDName<'b>> for PackedDName<'a> {
     /// Compare.
     ///
     /// This will return `None` if either the names is broken.
-    fn partial_cmp(&self, other: &LazyDName<'b>) -> Option<cmp::Ordering> {
-        // Orphan rule strikes again.
-        use std::cmp::Ordering::*;
-
-        let mut self_iter = self.iter();
-        let mut other_iter = other.iter();
-
-        loop {
-            match (self_iter.next(), other_iter.next()) {
-                (Some(Ok(x)), Some(Ok(y))) => match x.partial_cmp(&y) {
-                    Some(Equal) => (),
-                    non_eq => return non_eq
-                },
-                (Some(Err(..)), _) => return None,
-                (_, Some(Err(..))) => return None,
-                (None, None) => return Some(Equal),
-                (None, _) => return Some(Less),
-                (_, None) => return Some(Greater)
-            }
-        }
+    fn partial_cmp(&self, other: &PackedDName<'b>) -> Option<cmp::Ordering> {
+        self.iter().partial_cmp(other.iter())
     }
 }
 
-impl<'a, T: AsRef<DNameSlice>> PartialOrd<T> for LazyDName<'a> {
+impl<'a, T: AsRef<DNameSlice>> PartialOrd<T> for PackedDName<'a> {
     fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
         self.iter().partial_cmp(other.as_ref().iter())
     }
@@ -892,21 +891,16 @@ impl<'a, T: AsRef<DNameSlice>> PartialOrd<T> for LazyDName<'a> {
 
 //--- Display
 
-impl<'a> fmt::Display for LazyDName<'a> {
+impl<'a> fmt::Display for PackedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut empty = true;
         for label in self.iter() {
-            match label {
-                Err(..) => { try!("<PARSEERR>".fmt(f)); break }
-                Ok(label) => {
-                    if !empty { try!('.'.fmt(f)) }
-                    else {
-                        if label.is_root() { try!('.'.fmt(f)) }
-                        empty = false;
-                    }
-                    try!(label.fmt(f))
-                }
+            if !empty { try!('.'.fmt(f)) }
+            else {
+                if label.is_root() { try!('.'.fmt(f)) }
+                empty = false;
             }
+            try!(label.fmt(f))
         }
         Ok(())
     }
@@ -952,41 +946,59 @@ impl<'a> Iterator for SliceIter<'a> {
 }
 
 
-//------------ LazyIter -----------------------------------------------------
+//------------ PackedIter ---------------------------------------------------
 
 /// An iterator over the labels of a lazy domain name.
 #[derive(Clone, Debug)]
-pub struct LazyIter<'a> {
+pub struct PackedIter<'a> {
     slice: &'a[u8],
     context: &'a[u8]
 }
 
-impl<'a> LazyIter<'a> {
+impl<'a> PackedIter<'a> {
     fn new(slice: &'a[u8], context: &'a[u8]) -> Self {
-        LazyIter { slice: slice, context: context }
+        PackedIter { slice: slice, context: context }
     }
 
-    fn from_name(name: &LazyDName<'a>) -> Self {
-        LazyIter::new(name.slice, name.context)
+    fn from_name(name: &PackedDName<'a>) -> Self {
+        PackedIter::new(name.slice, name.context)
     }
 
-    pub fn as_name(&self) -> ParseResult<Cow<'a, DNameSlice>> {
-        LazyDName::new(self.slice, self.context).decompress()
+    pub fn as_name(&self) -> Cow<'a, DNameSlice> {
+        PackedDName::new(self.slice, self.context).decompress()
     }
 }
 
-impl<'a> Iterator for LazyIter<'a> {
-    type Item = ParseResult<Label<'a>>;
+impl<'a> Iterator for PackedIter<'a> {
+    type Item = Label<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.slice.is_empty() { return None }
-        match Label::split_compressed(self.slice, self.context) {
-            Err(e) => Some(Err(e)),
-            Ok((label, slice)) => {
-                self.slice = if label.is_root() { b"" }
-                             else { slice };
-                Some(Ok(label))
-            }
+        let (label, slice) = Label::split_compressed(self.slice, self.context)
+                                   .unwrap();
+        self.slice = if label.is_root() { b"" }
+                     else { slice };
+        Some(label)
+    }
+}
+
+
+//------------ DNameIter ----------------------------------------------------
+
+/// An iterator over the labels in a `DName`.
+#[derive(Clone, Debug)]
+pub enum DNameIter<'a> {
+    Slice(SliceIter<'a>),
+    Packed(PackedIter<'a>)
+}
+
+impl<'a> Iterator for DNameIter<'a> {
+    type Item = Label<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match *self {
+            DNameIter::Slice(ref mut iter) => iter.next(),
+            DNameIter::Packed(ref mut iter) => iter.next()
         }
     }
 }
@@ -1030,6 +1042,7 @@ impl<'a> Label<'a> {
         Label(LabelContent::Normal(b""))
     }
 
+    /*
     fn parse_complete<P: ParseBytes<'a>>(parser: &mut P)
                                          -> ParseResult<Self> {
         match try!(LabelHead::parse(parser)) {
@@ -1048,6 +1061,7 @@ impl<'a> Label<'a> {
             }
         }
     }
+    */
 
     /// Skips over a label and returns whether it was the final label.
     fn skip<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<bool> {
@@ -1064,6 +1078,24 @@ impl<'a> Label<'a> {
             LabelHead::Compressed(_) => {
                 try!(parser.skip(1));
                 Ok(true)
+            }
+        }
+    }
+
+    /// Skips over a real label and returns whether it was the final label.
+    fn skip_complete<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<bool> {
+        match try!(LabelHead::parse(parser)) {
+            LabelHead::Normal(len) => {
+                try!(parser.skip(len as usize));
+                Ok(len == 0)
+            }
+            LabelHead::Binary => {
+                let len = Label::binary_len(try!(parser.parse_u8()));
+                try!(parser.skip(len));
+                Ok(false)
+            }
+            LabelHead::Compressed(_) => {
+                Err(ParseError::CompressedLabel)
             }
         }
     }
@@ -1502,6 +1534,7 @@ impl LabelHead {
         }
     }
 
+    /*
     fn is_final(&self) -> bool {
         match *self {
             LabelHead::Normal(0) => true,
@@ -1509,6 +1542,7 @@ impl LabelHead {
             _ => false
         }
     }
+    */
 }
 
 
@@ -1568,12 +1602,4 @@ fn parse_escape(chars: &mut str::Chars) -> FromStrResult<u8> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::ops::Deref;
-
-    #[test]
-    fn bogus() {
-        let name = OwnedDName::from_str("foo.bar.").unwrap();
-        let nameref = DNameRef::from_slice(name.deref());
-        println!("{}", nameref.parent().unwrap())
-    }
 }

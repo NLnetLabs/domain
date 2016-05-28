@@ -15,6 +15,7 @@ use std::thread;
 use rotor::{self, EventSet, GenericScope, Machine, Notifier, Response,
             Scope, Void};
 use bits::message::MessageBuf;
+use bits::question::Question;
 use resolv::conf::ResolvConf;
 use resolv::error::{Error, Result};
 use resolv::tasks::{Progress, Task};
@@ -199,7 +200,7 @@ impl<T: Task> ResolverMachine<T> {
         let mut res = Ok(());
         task = task.start(|qname, qtype, qclass| {
             let message = match MessageBuf::query_from_question(
-                                                    &(qname, qtype, qclass)) {
+                                                    &Question::new(qname.into(), qtype, qclass)) {
                 Ok(message) => message,
                 Err(err) => { res = Err(err); return }
             };
@@ -239,7 +240,7 @@ impl<T: Task> ResolverMachine<T> {
         let mut res = Ok(());
         let progress = task.progress(response, |qname, qtype, qclass| {
             let message = match MessageBuf::query_from_question(
-                                                   &(qname, qtype, qclass)) {
+                                                   &Question::new(qname.into(), qtype, qclass)) {
                 Ok(message) => message,
                 Err(err) => { res = Err(err); return }
             };

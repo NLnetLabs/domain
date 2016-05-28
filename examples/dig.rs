@@ -17,8 +17,8 @@ use domain::bits::message::{LazyMessage, MessageBuilder, RecordIter};
 use domain::bits::error::{ComposeError, FromStrError, ParseError};
 use domain::bits::iana::{Class, RRType};
 use domain::bits::message::{MessageBuf, RecordIter};
-use domain::bits::name::OwnedDName;
-use domain::bits::rdata::generic::LazyGenericRecordData;
+use domain::bits::name::DNameBuf;
+use domain::bits::rdata::GenericRecordData;
 use domain::resolv::conf::ResolvConf;
 use domain::resolv::stub::DnsTransport;
 use domain::resolv::tasks::Query;
@@ -84,13 +84,13 @@ impl Options {
 }
 
 impl Options {
-    fn name(&self) -> Result<OwnedDName> {
+    fn name(&self) -> Result<DNameBuf> {
         if self.name.is_empty() {
-            Ok(OwnedDName::root())
+            Ok(DNameBuf::root())
         }
         else {
-            let mut res = try!(OwnedDName::from_str(&self.name));
-            res.append(OwnedDName::root());
+            let mut res = try!(DNameBuf::from_str(&self.name));
+            res.append(DNameBuf::root());
             Ok(res)
         }
     }
@@ -213,7 +213,7 @@ fn print_result(response: MessageBuf) {
     }
 }
 
-fn print_records<'a>(iter: RecordIter<'a, LazyGenericRecordData<'a>>) {
+fn print_records<'a>(iter: RecordIter<'a, GenericRecordData<'a>>) {
     for record in iter {
         println!("{}", record.unwrap());
     }

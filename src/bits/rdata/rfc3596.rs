@@ -6,15 +6,14 @@ use std::fmt;
 use std::net::Ipv6Addr;
 use super::super::compose::ComposeBytes;
 use super::super::error::{ComposeResult, ParseResult};
-use super::super::flavor::{FlatFlavor, Flavor};
 use super::super::iana::RRType;
-use super::super::parse::ParseFlavor;
-use super::{FlatRecordData, RecordData};
+use super::super::parse::ParseBytes;
+use super::RecordData;
 
 
 //------------ AAAA ---------------------------------------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AAAA {
     addr: Ipv6Addr
 }
@@ -28,7 +27,7 @@ impl AAAA {
     pub fn addr_mut(&mut self) -> &mut Ipv6Addr {&mut self.addr }
 }
 
-impl <F: Flavor> RecordData<F> for AAAA {
+impl<'a> RecordData<'a> for AAAA {
     fn rtype(&self) -> RRType { RRType::AAAA }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
@@ -37,11 +36,9 @@ impl <F: Flavor> RecordData<F> for AAAA {
         }
         Ok(())
     }
-}
 
-impl<'a, F: FlatFlavor<'a>> FlatRecordData<'a, F> for AAAA {
     fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
-             where P: ParseFlavor<'a, F> {
+             where P: ParseBytes<'a> {
         if rtype != RRType::AAAA { return Ok(None) }
         Ok(Some(AAAA::new(Ipv6Addr::new(try!(parser.parse_u16()),
                                         try!(parser.parse_u16()),

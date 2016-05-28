@@ -41,37 +41,7 @@
 //!
 //! As an example, let’s put together a message and then parse it.
 //!
-//! ```
-//! use domain::bits::message::{MessageBuilder, Message};
-//! use domain::bits::name::OwnedDName;
-//! use domain::bits::iana::{Class, RRType};
-//! use domain::bits::rdata::A;
-//! use domain::bits::record::RecordRef;
-//!
-//! let mut msg = MessageBuilder::new(Some(512), true).unwrap();
-//! let name = OwnedDName::from_str("example.com.").unwrap();
-//! msg.header_mut().set_qr(true);
-//! let mut q = msg.question();
-//! q.push(&(&name, RRType::A)).unwrap();
-//! let mut a = q.answer(); 
-//! a.push(&RecordRef::new(name.as_ref(), Class::IN, 86400,
-//!                        A::from_octets(192, 0, 2, 1)))
-//!  .unwrap();
-//! a.push(&RecordRef::new(name.as_ref(), Class::IN, 86400,
-//!                        A::from_octets(192, 0, 2, 2)))
-//!  .unwrap();
-//! let bytes = a.finish().unwrap();
-//!
-//! let msg = Message::from_bytes(&bytes).unwrap();
-//! let mut q = msg.question();
-//! for item in q.iter() {
-//!     println!("Question: {}", item.unwrap());
-//! }
-//! let a = q.answer().unwrap();
-//! for item in a.iter::<A>() {
-//!     println!("Answer: {}", item.unwrap());
-//! }
-//! ```
+
 
 use std::borrow::Borrow;
 use std::marker::PhantomData;
@@ -79,12 +49,11 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use super::compose::{ComposeBytes, ComposeVec};
 use super::error::{ComposeError, ComposeResult, ParseError, ParseResult};
-use super::flavor;
 use super::header::{Header, HeaderCounts, FullHeader};
 use super::parse::{ContextParser, ParseBytes};
-use super::question::{ComposeQuestion, LazyQuestion};
-use super::rdata::{GenericRecordData, FlatRecordData};
-use super::record::{ComposeRecord, LazyRecord};
+use super::question::Question;
+use super::rdata::{GenericRecordData, RecordData};
+use super::record::Record;
 
 
 //============ Disecting Existing Messages ==================================
@@ -261,7 +230,7 @@ impl MessageBuf {
     /// implemented by the question types as well as a tuple of name, class,
     /// and type. In the latter case, note that the method takes a reference,
     /// so you have to add the `&` in front of the tuple for this to work.
-    pub fn query_from_question<C: ComposeQuestion>(question: &C)
+    pub fn query_from_question(question: &Question)
             -> ComposeResult<MessageBuf> {
         let mut msg = try!(MessageBuilder::new(Some(512), true));
         msg.header_mut().set_rd(true);
@@ -350,12 +319,12 @@ impl<'a> QuestionSection<'a> {
 }
 
 impl<'a> Iterator for QuestionSection<'a> {
-    type Item = ParseResult<LazyQuestion<'a>>;
+    type Item = ParseResult<Question<'a>>;
 
     /// Returns the next question if there are any left.
     fn next(&mut self) -> Option<Self::Item> {
         if self.count == 0 { return None }
-        Some(LazyQuestion::parse(&mut self.parser)
+        Some(Question::parse(&mut self.parser)
                       .map(|res| { self.count -= 1; res }))
     }
 }
@@ -384,14 +353,13 @@ impl<'a> AnswerSection<'a> {
     }
 
     /// Returns an iterator over records covered by `D`.
-    pub fn iter<D>(&self) -> RecordIter<'a, D>
-                where D: FlatRecordData<'a, flavor::Lazy<'a>> {
+    pub fn iter<D: RecordData<'a>>(&self) -> RecordIter<'a, D> {
         RecordIter::new(self.parser.clone(), self.counts.ancount())
     }
 
     /// Proceeds to the authority section of the message.
     pub fn authority(self) -> ParseResult<AuthoritySection<'a>> {
-        let mut iter = self.iter::<GenericRecordData<'a, flavor::Lazy<'a>>>();
+        let mut iter = self.iter::<GenericRecordData<'a>>();
         try!(iter.exhaust());
         Ok(AuthoritySection::new(iter.parser, self.counts))
     }
@@ -419,14 +387,13 @@ impl<'a> AuthoritySection<'a> {
     }
 
     /// Returns an iterator over records covered by `D`.
-    pub fn iter<D>(&self) -> RecordIter<'a, D>
-                where D: FlatRecordData<'a, flavor::Lazy<'a>> {
+    pub fn iter<D: RecordData<'a>>(&self) -> RecordIter<'a, D> {
         RecordIter::new(self.parser.clone(), self.counts.nscount())
     }
 
     /// Proceeds to the additional section of the message.
     pub fn additional(self) -> ParseResult<AdditionalSection<'a>> {
-        let mut iter = self.iter::<GenericRecordData<'a, flavor::Lazy<'a>>>();
+        let mut iter = self.iter::<GenericRecordData<'a>>();
         try!(iter.exhaust());
         Ok(AdditionalSection::new(iter.parser, self.counts))
     }
@@ -454,8 +421,7 @@ impl<'a> AdditionalSection<'a> {
     }
 
     /// Returns an iterator over records covered by `D`.
-    pub fn iter<D>(&self) -> RecordIter<'a, D>
-                where D: FlatRecordData<'a, flavor::Lazy<'a>> {
+    pub fn iter<D: RecordData<'a>>(&self) -> RecordIter<'a, D> {
         RecordIter::new(self.parser.clone(), self.counts.arcount())
     }
 }
@@ -468,7 +434,7 @@ impl<'a> AdditionalSection<'a> {
 /// Iterates over all the records in the section that `D` feels responsible
 /// for.
 #[derive(Clone, Debug)]
-pub struct RecordIter<'a, D: FlatRecordData<'a, flavor::Lazy<'a>>> {
+pub struct RecordIter<'a, D: RecordData<'a>> {
     /// The message’s parser.
     parser: ContextParser<'a>,
 
@@ -479,7 +445,7 @@ pub struct RecordIter<'a, D: FlatRecordData<'a, flavor::Lazy<'a>>> {
     marker: PhantomData<D>
 }
 
-impl<'a, D: FlatRecordData<'a, flavor::Lazy<'a>>> RecordIter<'a, D> {
+impl<'a, D: RecordData<'a>> RecordIter<'a, D> {
     /// Creates a new iterator using the given parser and record count.
     fn new(parser: ContextParser<'a>, count: u16) -> Self {
         RecordIter { parser: parser, count: count, marker: PhantomData }
@@ -503,14 +469,13 @@ impl<'a, D: FlatRecordData<'a, flavor::Lazy<'a>>> RecordIter<'a, D> {
     }
 
     /// Returns the parse result for the next record.
-    fn step(&mut self) -> ParseResult<Option<LazyRecord<'a, D>>> {
-        LazyRecord::parse(&mut self.parser).map(|res| { self.count -= 1; res })
+    fn step(&mut self) -> ParseResult<Option<Record<'a, D>>> {
+        Record::parse(&mut self.parser).map(|res| { self.count -= 1; res })
     }
 }
 
-impl<'a, D> Iterator for RecordIter<'a, D>
-            where D: FlatRecordData<'a, flavor::Lazy<'a>> {
-    type Item = ParseResult<LazyRecord<'a, D>>;
+impl<'a, D: RecordData<'a>> Iterator for RecordIter<'a, D> {
+    type Item = ParseResult<Record<'a, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.count == 0 { return None }
@@ -611,8 +576,7 @@ impl<C: ComposeBytes> QuestionBuilder<C> {
     }
 
     /// Appends a new question to the message.
-    pub fn push<Q: ComposeQuestion>(&mut self, question: &Q)
-                                   -> ComposeResult<()> {
+    pub fn push(&mut self, question: &Question) -> ComposeResult<()> {
         self.target.push(|target| question.compose(target),
                          |counts| counts.inc_qdcount(1))
     }
@@ -657,7 +621,8 @@ impl<C: ComposeBytes> AnswerBuilder<C> {
     }
 
     /// Appends a new resource record to the answer section.
-    pub fn push<R: ComposeRecord>(&mut self, record: &R) -> ComposeResult<()> {
+    pub fn push<'a, D: RecordData<'a>>(&mut self, record: &Record<'a, D>)
+                                       -> ComposeResult<()> {
         self.target.push(|target| record.compose(target),
                          |counts| counts.inc_ancount(1))
     }
@@ -702,10 +667,11 @@ impl<C: ComposeBytes> AuthorityBuilder<C> {
         self.target.header_mut()
     }
 
-    /// Appends a new resource record to the authority section.
-    pub fn push<R: ComposeRecord>(&mut self, record: &R) -> ComposeResult<()> {
+    /// Appends a new resource record to the answer section.
+    pub fn push<'a, D: RecordData<'a>>(&mut self, record: &Record<'a, D>)
+                                       -> ComposeResult<()> {
         self.target.push(|target| record.compose(target),
-                         |counts| counts.inc_nscount(1))
+                         |counts| counts.inc_ancount(1))
     }
 
     /// Proceeds to building the additional section.
@@ -747,10 +713,11 @@ impl<C: ComposeBytes> AdditionalBuilder<C> {
         self.target.header_mut()
     }
 
-    /// Appends a new resource record to the additional section.
-    pub fn push<R: ComposeRecord>(&mut self, record: &R) -> ComposeResult<()> {
+    /// Appends a new resource record to the answer section.
+    pub fn push<'a, D: RecordData<'a>>(&mut self, record: &Record<'a, D>)
+                                       -> ComposeResult<()> {
         self.target.push(|target| record.compose(target),
-                         |counts| counts.inc_nscount(1))
+                         |counts| counts.inc_ancount(1))
     }
 
     /// Finishes the message.
@@ -835,33 +802,33 @@ impl<C: ComposeBytes> MessageTarget<C> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use bits::name::OwnedDName;
+    use std::str::FromStr;
+    use bits::name::DName;
     use bits::iana::{Class, RRType};
-    use bits::question::OwnedQuestion;
+    use bits::question::Question;
     use bits::rdata::A;
-    use bits::record::OwnedRecord;
+    use bits::record::Record;
+    use super::*;
 
-    struct ExampleMessage {
+    struct ExampleMessage<'a> {
         bytes: Vec<u8>,
-        name: OwnedDName,
-        question: OwnedQuestion,
-        rec1: OwnedRecord<A>,
-        rec2: OwnedRecord<A>,
-        rec3: OwnedRecord<A>
+        name: DName<'a>,
+        question: Question<'a>,
+        rec1: Record<'a, A>,
+        rec2: Record<'a, A>,
+        rec3: Record<'a, A>
     }
 
-    impl ExampleMessage {
+    impl<'a> ExampleMessage<'a> {
         fn new() -> Self {
-            let name = OwnedDName::from_str("example.com.").unwrap();
-            let question = OwnedQuestion::new(name.clone(), RRType::A,
-                                              Class::IN);
-            let rec1 = OwnedRecord::new(name.clone(), Class::IN, 86400,
-                                        A::from_octets(192, 0, 2, 1));
-            let rec2 = OwnedRecord::new(name.clone(), Class::IN, 86400,
-                                        A::from_octets(192, 0, 2, 2));
-            let rec3 = OwnedRecord::new(name.clone(), Class::IN, 86400,
-                                        A::from_octets(192, 0, 2, 3));
+            let name = DName::from_str("example.com.").unwrap();
+            let question = Question::new(name.clone(), RRType::A, Class::IN);
+            let rec1 = Record::new(name.clone(), Class::IN, 86400,
+                                   A::from_octets(192, 0, 2, 1));
+            let rec2 = Record::new(name.clone(), Class::IN, 86400,
+                                   A::from_octets(192, 0, 2, 2));
+            let rec3 = Record::new(name.clone(), Class::IN, 86400,
+                                   A::from_octets(192, 0, 2, 3));
             
             let mut msg = MessageBuilder::new(None, true).unwrap();
             msg.header_mut().set_qr(true);
@@ -895,13 +862,18 @@ mod test {
 
         let mut q = msg.question();
         let item = q.next().unwrap().unwrap();
-        assert_eq!(item.to_owned().unwrap(), x.question);
+        assert_eq!(item, x.question);
         assert!(q.next().is_none());
 
-        let mut s = q.answer();
-        let iter = s.iter::<A>();
+        let s = q.answer().unwrap();
+        let mut iter = s.iter::<A>();
         let item = iter.next().unwrap().unwrap();
-        assert_eq!(item.to_owned().unwrap(), x.rec1);
+        assert_eq!(item, x.rec1);
+        let item = iter.next().unwrap().unwrap();
+        assert_eq!(item, x.rec2);
+        let item = iter.next().unwrap().unwrap();
+        assert_eq!(item, x.rec3);
+        assert!(iter.next().is_none())
     }
 }
 
