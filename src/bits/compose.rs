@@ -29,7 +29,8 @@ use super::octets::Octets;
 /// truncation at well defined points (normally, between resource records),
 /// truncation points can be set. Whenever writing goes past the predefined
 /// length, the message is automatically cut back to the last such
-/// truncation point and nothing is added anymore.
+/// truncation point and nothing is added anymore–all push operations will
+/// result in `Err(ComposeError::SizeExceeded)`.
 pub trait ComposeBytes: Sized + fmt::Debug {
     type Pos: Copy + fmt::Debug;
 
@@ -153,7 +154,7 @@ pub trait ComposeBytes: Sized + fmt::Debug {
 }
 
 
-//------------ ComposeVec -----------------------------------------------------
+//------------ ComposeBuf -----------------------------------------------------
 
 /// A compose target based on a simple vector.
 ///
@@ -161,7 +162,7 @@ pub trait ComposeBytes: Sized + fmt::Debug {
 /// which will transform into a vector. Alternatively, the type derefs to
 /// a bytes vector.
 #[derive(Clone, Debug)]
-pub struct ComposeVec {
+pub struct ComposeBuf {
     /// The vector holding the bytes.
     vec: Vec<u8>,
 
@@ -188,15 +189,15 @@ pub struct ComposeVec {
 
 /// # Creation and Finalization
 ///
-impl ComposeVec {
+impl ComposeBuf {
     /// Creates a new compose vector.
     ///
     /// If `maxlen` is not `None`, the resulting message’s length will
     /// never exceed the given amount of bytes. If `compress` is `true`,
     /// name compression will be available for domain names. Otherwise,
     /// all names will always be uncompressed.
-    pub fn new(maxlen: Option<usize>, compress: bool) -> ComposeVec {
-        ComposeVec::with_vec(Vec::new(), maxlen, compress)
+    pub fn new(maxlen: Option<usize>, compress: bool) -> ComposeBuf {
+        ComposeBuf::with_vec(Vec::new(), maxlen, compress)
     }
 
     /// Create a new compose vector based on an existing vector.
@@ -211,9 +212,9 @@ impl ComposeVec {
     /// If `compress` is `true`, name compression will be used if requested.
     /// Otherwise, all domain names are always uncompressed.
     pub fn with_vec(vec: Vec<u8>, maxlen: Option<usize>, compress: bool)
-                    -> ComposeVec {
+                    -> ComposeBuf {
         let start = vec.len();
-        ComposeVec {
+        ComposeBuf {
             vec: vec,
             start: start,
             maxlen: maxlen,
@@ -233,7 +234,7 @@ impl ComposeVec {
 
 /// # Internal Helpers
 ///
-impl ComposeVec {
+impl ComposeBuf {
     /// Checks whether `len` bytes can be pushed to the message.
     ///
     /// This method can be used with `try!` for convenience.
@@ -285,7 +286,9 @@ impl ComposeVec {
 }
 
 
-impl ComposeBytes for ComposeVec {
+//--- ComposeBytes
+
+impl ComposeBytes for ComposeBuf {
     type Pos = usize;
 
     fn push_bytes(&mut self, data: &[u8]) -> ComposeResult<()> {
@@ -374,7 +377,9 @@ impl ComposeBytes for ComposeVec {
 }
 
 
-impl Deref for ComposeVec {
+//--- Deref
+
+impl Deref for ComposeBuf {
     type Target = Vec<u8>;
 
     fn deref(&self) -> &Vec<u8> {
@@ -393,7 +398,7 @@ mod test {
 
     #[test]
     fn simple_push() {
-        let mut c = ComposeVec::new(None, false);
+        let mut c = ComposeBuf::new(None, false);
         c.push_bytes(b"foo").unwrap();
         c.push_u8(0x07).unwrap();
         c.push_u16(0x1234).unwrap();
@@ -404,7 +409,7 @@ mod test {
 
     #[test]
     fn push_name() {
-        let mut c = ComposeVec::new(None, false);
+        let mut c = ComposeBuf::new(None, false);
         c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
         assert_eq!(c.finish(),
                    b"\x03foo\x03bar\x00");
@@ -413,7 +418,7 @@ mod test {
     #[test]
     fn push_compressed_name() {
         // Same name again.
-        let mut c = ComposeVec::new(None, true);
+        let mut c = ComposeBuf::new(None, true);
         c.push_u8(0x07).unwrap();
         c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
         c.push_dname_compressed(&DNameBuf::from_str("foo.bar.").unwrap())
@@ -422,7 +427,7 @@ mod test {
                    b"\x07\x03foo\x03bar\x00\xC0\x01");
 
         // Prefixed name.
-        let mut c = ComposeVec::new(None, true);
+        let mut c = ComposeBuf::new(None, true);
         c.push_u8(0x07).unwrap();
         c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
         c.push_dname_compressed(&DNameBuf::from_str("baz.foo.bar.").unwrap())
@@ -431,7 +436,7 @@ mod test {
                    b"\x07\x03foo\x03bar\x00\x03baz\xC0\x01");
 
         // Suffixed name.
-        let mut c = ComposeVec::new(None, true);
+        let mut c = ComposeBuf::new(None, true);
         c.push_u8(0x07).unwrap();
         c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
         c.push_dname_compressed(&DNameBuf::from_str("bar.").unwrap())
@@ -442,7 +447,7 @@ mod test {
 
     #[test]
     fn update() {
-        let mut c = ComposeVec::new(None, false);
+        let mut c = ComposeBuf::new(None, false);
         c.push_bytes(b"foo").unwrap();
         let p8 = c.pos();
         c.push_u8(0x00).unwrap();
@@ -460,7 +465,7 @@ mod test {
 
     #[test]
     fn truncation() {
-        let mut c = ComposeVec::new(Some(4), false);
+        let mut c = ComposeBuf::new(Some(4), false);
         assert!(!c.truncated());
         c.push_u16(0).unwrap();
         assert!(!c.truncated());

@@ -5,7 +5,7 @@ use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
 //use super::flavor::{self, Flavor, FlatFlavor};
 use super::iana::{Class, RRType};
-use super::name::DName;
+use super::name::{AsDName, DName};
 use super::parse::ParseBytes;
 
 
@@ -62,6 +62,22 @@ impl<'a> Question<'a> {
         try!(target.push_u16(self.qtype.into()));
         target.push_u16(self.qclass.into())
     }
+
+    pub fn push<C, T, N>(target: &mut T, qname: N, qtype: RRType,
+                         qclass: Class) -> ComposeResult<()>
+                where C: ComposeBytes, T: QuestionTarget<C>, N: AsDName {
+        target.compose(|target| {
+            try!(target.push_dname_compressed(&qname.as_dname()));
+            try!(target.push_u16(qtype.into()));
+            target.push_u16(qclass.into())
+        })
+    }
+
+    pub fn push_in<C, T, N>(target: &mut T, qname: N, qtype: RRType)
+                            -> ComposeResult<()>
+                where C: ComposeBytes, T: QuestionTarget<C>, N: AsDName {
+        Question::push(target, qname, qtype, Class::IN)
+    }
 }
 
 
@@ -81,6 +97,14 @@ impl<'a> fmt::Display for Question<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) ->  fmt::Result {
         write!(f, "{}\t{}\t{}", self.qname, self.qtype, self.qclass)
     }
+}
+
+
+//------------ QuestionTarget -----------------------------------------------
+
+pub trait QuestionTarget<C: ComposeBytes> {
+    fn compose<F>(&mut self, push: F) -> ComposeResult<()>
+               where F: Fn(&mut C) -> ComposeResult<()>;
 }
 
 

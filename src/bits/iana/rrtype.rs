@@ -1,13 +1,25 @@
 //! Resource Record (RR) TYPEs
 //!
 
+use std::cmp;
 use std::convert;
 use std::fmt;
+use std::hash;
 use std::str;
 use super::super::error::{FromStrError, FromStrResult};
 
 
 /// Resource Record Types.
+///
+/// Each resource records has a 16 bit type value indicating what kind of
+/// information is represented by the record. Normal query includes the type
+/// of record information is requested for. A few aditional types, called
+/// query types, are defined as well and can only be used in questions. This
+/// type represents both these types.
+///
+/// Record types are defined in RFC 1035. The registry of currently assigned
+/// values can be found at
+/// http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
 #[derive(Clone, Copy, Debug)]
 pub enum RRType {
     /// A host address.
@@ -586,6 +598,9 @@ impl RRType {
     }
 }
 
+
+//--- From
+
 impl convert::From<u16> for RRType {
     fn from(value: u16) -> RRType {
         RRType::from_int(value)
@@ -597,6 +612,9 @@ impl convert::From<RRType> for u16 {
         value.to_int()
     }
 }
+
+
+//--- FromStr
 
 impl str::FromStr for RRType {
     type Err = FromStrError;
@@ -716,6 +734,8 @@ impl str::FromStr for RRType {
 }
 
 
+//--- Display
+
 impl fmt::Display for RRType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::RRType::*;
@@ -816,6 +836,8 @@ impl fmt::Display for RRType {
 }
 
 
+//--- PartialEq and Eq
+
 impl PartialEq for RRType {
     fn eq(&self, other: &Self) -> bool {
         self.to_int() == other.to_int()
@@ -835,4 +857,40 @@ impl PartialEq<RRType> for u16 {
 }
 
 impl Eq for RRType { }
+
+
+//--- PartialOrd and Ord
+
+impl PartialOrd for RRType {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.to_int().partial_cmp(&other.to_int())
+    }
+}
+
+impl PartialOrd<u16> for RRType {
+    fn partial_cmp(&self, other: &u16) -> Option<cmp::Ordering> {
+        self.to_int().partial_cmp(other)
+    }
+}
+
+impl PartialOrd<RRType> for u16 {
+    fn partial_cmp(&self, other: &RRType) -> Option<cmp::Ordering> {
+        self.partial_cmp(&other.to_int())
+    }
+}
+
+impl Ord for RRType {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.to_int().cmp(&other.to_int())
+    }
+}
+
+
+//--- Hash
+
+impl hash::Hash for RRType {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.to_int().hash(state)
+    }
+}
 

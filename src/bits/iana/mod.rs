@@ -7,7 +7,7 @@
 //!
 //! All types defined hereunder follow the same basic structure. They are
 //! all enums with all well-defined values as variants. In addition they
-//! have a `Int` variant that contains a raw integer value. Since we cannot
+//! have an `Int` variant that contains a raw integer value. Since we cannot
 //! restrict that integer to only the undefined values, we generally allow
 //! the full set of possible values. We treat this correctly, meaning that
 //! the well-defined variant and the `Int` variant with the same integer
@@ -27,8 +27,8 @@ pub use self::opcode::Opcode;
 pub use self::rcode::Rcode;
 pub use self::rrtype::RRType;
 
-pub mod class;
-pub mod opcode;
-pub mod rcode;
-pub mod rrtype;
+mod class;
+mod opcode;
+mod rcode;
+mod rrtype;
 

@@ -14,8 +14,8 @@ use domain::bits::compose::ComposeVec;
 use domain::bits::flavor::Lazy;
 use domain::bits::message::{LazyMessage, MessageBuilder, RecordIter};
 */
-use domain::bits::error::{ComposeError, FromStrError, ParseError};
-use domain::bits::iana::{Class, RRType};
+use domain::bits::{ComposeError, FromStrError, ParseError};
+use domain::bits::{Class, RRType};
 use domain::bits::message::{MessageBuf, RecordIter};
 use domain::bits::name::DNameBuf;
 use domain::bits::rdata::GenericRecordData;
@@ -198,14 +198,14 @@ fn print_result(response: MessageBuf) {
         println!("");
     }
 
-    let authority = answer.authority().unwrap();
+    let authority = answer.next_section().unwrap().unwrap();
     if response.counts().nscount() > 0 {
         println!(";; AUTHORITY SECTION");
         print_records(authority.iter());
         println!("");
     }
 
-    let additional = authority.additional().unwrap();
+    let additional = authority.next_section().unwrap().unwrap();
     if response.counts().arcount() > 0 {
         println!(";; ADDITIONAL SECTION");
         print_records(additional.iter());

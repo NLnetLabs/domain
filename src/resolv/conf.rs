@@ -19,7 +19,7 @@ use std::path::Path;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::result;
 use std::time::Duration;
-use ::bits::error::FromStrError;
+use ::bits::FromStrError;
 use ::bits::name::DNameBuf;
 
 

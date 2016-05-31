@@ -1,10 +1,10 @@
 //! The header of a DNS message.
 //!
 //! The message header has been split into two parts represented by two
-//! separate types: `Header` contains the first 32 bits with the ID, opcode,
-//! response code, and the various bits, while `HeaderCounts` contains the
-//! item counts for the four message sections. A `FullHeader` type is
-//! available that combines the both.
+//! separate types: `Header` contains the first 32 bits with the ID,
+//! opcode, response code, and the various flags, while `HeaderCounts`
+//! contains the item counts for the four message sections. A `FullHeader`
+//! type is available that combines the two.
 //!
 //! The split has been done to reflect that when building a message you
 //! should be able to freely manipulate the former part whereas the counts
@@ -17,10 +17,27 @@ use super::error::{ComposeError, ComposeResult};
 use super::iana::{Opcode, Rcode};
 
 
-//------------ Header -------------------------------------------------------
+//------------ Header --------------------------------------------------
 
 /// The first part of the header of a DNS message.
 ///
+/// This type represents the information contained in the first four bytes of
+/// the header: the message ID, opcode, rcode, and the various flags.
+///
+/// The header is layed out like this:
+///
+/// ```text
+///                                 1  1  1  1  1  1
+///   0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
+/// +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+/// |                      ID                       |
+/// +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+/// |QR|   Opcode  |AA|TC|RD|RA|Z |AD|CD|   RCODE   |
+/// +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+/// ```
+///
+/// Most of this is defined in RFC 1035, except for the AD and CD flags,
+/// which are defined in RFC 4035.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Header {
     /// The actual header in its wire format representation.
@@ -222,8 +239,22 @@ impl Header {
 
 /// The section count part of the header of a DNS message.
 ///
-/// It consists of four counters for the number of resource records in the
-/// four sections of a DNS message.
+/// This part consists of four 16 bit counters for the number of entries in
+/// the four sections of a DNS message.
+///
+/// The counters are arranged in the
+/// same order as the sections themselves: QDCOUNT for the question section,
+/// ANCOUNT for the answer section, NSCOUNT for the authority section, and
+/// ARCOUNT for the additional section. These are defined in RFC 1035.
+///
+/// RFC 2136 defines the UPDATE method and reuses the four section for
+/// different purposes. Here the counters are ZOCOUNT for the zone section,
+/// PRCOUNT for the prerequisite section, UPCOUNT for the update section,
+/// and ADCOUNT for the additional section. The type has convenience methods
+/// for these fields as well so you don’t have to remember which is which.
+///
+/// For each field there are three methods for getting, setting, and
+/// incrementing by one.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeaderCounts {
     inner: [u8; 8]
@@ -278,7 +309,7 @@ impl HeaderCounts {
         self.set_u16(0, value)
     }
 
-    /// Increase the QDCOUNT field.
+    /// Increase the QDCOUNT field by one.
     pub fn inc_qdcount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(0, inc)
     }
@@ -348,12 +379,32 @@ impl HeaderCounts {
         self.get_u16(0)
     }
 
+    /// Sets the ZOCOUNT field.
+    pub fn set_zocount(&mut self, value: u16) {
+        self.set_u16(0, value)
+    }
+
+    /// Increments the ZOCOUNT field.
+    pub fn inc_zocount(&mut self, inc: u16) -> ComposeResult<()> {
+        self.inc_u16(0, inc)
+    }
+
     /// Returns the PRCOUNT field.
     ///
     /// This is the same as the `ancount()`. It is used in UPDATE queries
     /// where the first section is the prerequisite section.
     pub fn prcount(&self) -> u16 {
         self.get_u16(2)
+    }
+
+    /// Sete the PRCOUNT field.
+    pub fn set_prcount(&mut self, value: u16) {
+        self.set_u16(2, value)
+    }
+
+    /// Increments the PRCOUNT field,
+    pub fn inc_prcount(&mut self, inc: u16) -> ComposeResult<()> {
+        self.inc_u16(2, inc)
     }
 
     /// Returns the UPCOUNT field.
@@ -364,12 +415,32 @@ impl HeaderCounts {
         self.get_u16(4)
     }
 
+    /// Sets the UPCOUNT field.
+    pub fn set_upcount(&mut self, value: u16) {
+        self.set_u16(4, value)
+    }
+
+    /// Increments the UPCOUNT field.
+    pub fn inc_upcount(&mut self, inc: u16) -> ComposeResult<()> {
+        self.inc_u16(4, inc)
+    }
+
     /// Returns the ADCOUNT field.
     ///
     /// This is the same as the `arcount()`. It is used in UPDATE queries
     /// where the first section is the additional section.
     pub fn adcount(&self) -> u16 {
         self.get_u16(6)
+    }
+
+    /// Sets the ADCOUNT field.
+    pub fn set_adcount(&mut self, value: u16) {
+        self.set_u16(6, value)
+    }
+
+    /// Increments the ADCOUNT field.
+    pub fn inc_adcount(&mut self, inc: u16) -> ComposeResult<()> {
+        self.inc_u16(6, inc)
     }
 
 
@@ -402,6 +473,8 @@ impl HeaderCounts {
 //------------ FullHeader ---------------------------------------------------
 
 /// The complete header of a DNS message.
+///
+/// Consists of a `Header` and a `HeaderCounts`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FullHeader {
     inner: [u8; 12]
@@ -468,8 +541,33 @@ impl FullHeader {
 #[cfg(test)]
 mod test {
     use super::*;
+    use super::super::iana::{Opcode, Rcode};
 
-    // XXX TODO: test header.
+    macro_rules! test_field {
+        ($get:ident, $set:ident, $default:expr, $($value:expr),*) => {
+            $({
+                let mut h = Header::new();
+                assert_eq!(h.$get(), $default);
+                h.$set($value);
+                assert_eq!(h.$get(), $value);
+            })*
+        }
+    }
+
+    #[test]
+    fn header() {
+        test_field!(id, set_id, 0, 0x1234);
+        test_field!(qr, set_qr, false, true, false);
+        test_field!(opcode, set_opcode, Opcode::Query, Opcode::Notify);
+        test_field!(aa, set_aa, false, true, false);
+        test_field!(tc, set_tc, false, true, false);
+        test_field!(rd, set_rd, false, true, false);
+        test_field!(ra, set_ra, false, true, false);
+        test_field!(z, set_z, false, true, false);
+        test_field!(ad, set_ad, false, true, false);
+        test_field!(cd, set_cd, false, true, false);
+        test_field!(rcode, set_rcode, Rcode::NoError, Rcode::Refused);
+    }
 
     #[test]
     fn counts() {
@@ -487,6 +585,25 @@ mod test {
         c.set_ancount(0x0605);
         c.set_nscount(0x0403);
         c.set_arcount(0x0201);
+        assert_eq!(c.inner, [ 8, 7, 6, 5, 4, 3, 2, 1 ]);
+    }
+
+    #[test]
+    fn update_counts() {
+        let mut c = HeaderCounts { inner: [ 1, 2, 3, 4, 5, 6, 7, 8 ] };
+        assert_eq!(c.zocount(), 0x0102);
+        assert_eq!(c.prcount(), 0x0304);
+        assert_eq!(c.upcount(), 0x0506);
+        assert_eq!(c.adcount(), 0x0708);
+        c.inc_zocount(1).unwrap();
+        c.inc_prcount(1).unwrap();
+        c.inc_upcount(0x0100).unwrap();
+        c.inc_adcount(0x0100).unwrap();
+        assert_eq!(c.inner, [ 1, 3, 3, 5, 6, 6, 8, 8 ]);
+        c.set_zocount(0x0807);
+        c.set_prcount(0x0605);
+        c.set_upcount(0x0403);
+        c.set_adcount(0x0201);
         assert_eq!(c.inner, [ 8, 7, 6, 5, 4, 3, 2, 1 ]);
     }
 }

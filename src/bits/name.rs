@@ -651,6 +651,12 @@ impl AsDName for DNameBuf {
     }
 }
 
+impl<'a> AsDName for &'a DNameBuf {
+    fn as_dname(&self) -> DName {
+        DName::Slice(self)
+    }
+}
+
 
 //--- Deref, Borrow, and AsRef
 

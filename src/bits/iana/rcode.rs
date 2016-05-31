@@ -3,18 +3,27 @@
 use std::cmp;
 use std::convert;
 use std::fmt;
+use std::hash;
 
 
 /// DNS RCODEs.
 ///
 /// The response code of a response indicates what happend on the server
-/// when trying to answer the query.
+/// when trying to answer the query. The code is a 4 bit value.
+///
+/// See RFC 1035 for response codes in general and 
+/// http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
+/// for all currently assigned values. Not that this registry shows a 16
+/// bit response code. This is because it includes codes used in the TSIG,
+/// TKEY, and OPT resource records as well. We will define separate types
+/// for these.
 #[derive(Clone, Copy, Debug)]
 pub enum Rcode {
     /// No error condition.
     ///
-    /// Defined in RFC1035.
     /// (Otherwise known as success.)
+    ///
+    /// Defined in RFC1035.
     NoError,
 
     /// Format error.
@@ -104,6 +113,8 @@ pub enum Rcode {
 
 impl Rcode {
     /// Creates an rcode from an integer.
+    ///
+    /// Only the lower four bits of `value` are considered.
     pub fn from_int(value: u8) -> Rcode {
         match value & 0x0F {
             0 => Rcode::NoError,
@@ -140,9 +151,19 @@ impl Rcode {
     }
 }
 
+
+//--- From
+
 impl convert::From<u8> for Rcode {
     fn from(value: u8) -> Rcode { Rcode::from_int(value) }
 }
+
+impl convert::From<Rcode> for u8 {
+    fn from(value: Rcode) -> u8 { Rcode::to_int(value) }
+}
+
+
+//--- Display
 
 impl fmt::Display for Rcode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -169,6 +190,8 @@ impl fmt::Display for Rcode {
 }
 
 
+//--- PartialEq and Eq
+
 impl cmp::PartialEq for Rcode {
     fn eq(&self, other: &Rcode) -> bool {
         self.to_int() == other.to_int()
@@ -189,3 +212,38 @@ impl cmp::PartialEq<Rcode> for u8 {
 
 impl cmp::Eq for Rcode { }
 
+
+//--- PartialOrd and Ord
+
+impl cmp::PartialOrd for Rcode {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.to_int().partial_cmp(&other.to_int())
+    }
+}
+
+impl cmp::PartialOrd<u8> for Rcode {
+    fn partial_cmp(&self, other: &u8) -> Option<cmp::Ordering> {
+        self.to_int().partial_cmp(other)
+    }
+}
+
+impl cmp::PartialOrd<Rcode> for u8 {
+    fn partial_cmp(&self, other: &Rcode) -> Option<cmp::Ordering> {
+        self.partial_cmp(&other.to_int())
+    }
+}
+
+impl cmp::Ord for Rcode {
+    fn cmp(&self, other: &Rcode) -> cmp::Ordering {
+        self.to_int().cmp(&other.to_int())
+    }
+}
+
+
+//--- Hash
+
+impl hash::Hash for Rcode {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.to_int().hash(state)
+    }
+}

@@ -10,7 +10,7 @@ use std::net::{self, IpAddr};
 use std::path::Path;
 use std::str::FromStr;
 use std::result;
-use bits::error::FromStrError;
+use bits::FromStrError;
 use bits::name::{DNameSlice, DNameBuf};
 
 

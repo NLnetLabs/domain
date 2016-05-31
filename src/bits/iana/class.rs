@@ -1,12 +1,25 @@
 //! DNS CLASSes.
 
+use std::cmp;
 use std::convert;
 use std::fmt;
+use std::hash;
 use std::str;
 use super::super::error::{FromStrError, FromStrResult};
 
 
+//------------ Class --------------------------------------------------------
+
 /// DNS CLASSes.
+///
+/// The domain name space is partitioned into separate classes for different
+/// network types. Classes are represented by a 16 bit value. This type
+/// wraps these values. It includes the query classes that can only be used
+/// in a question.
+///
+/// See RFC 1034 for classes in general and
+/// http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-2
+/// for all currently assigned classes.
 #[derive(Clone, Copy, Debug)]
 pub enum Class {
     /// Internet (IN).
@@ -38,7 +51,7 @@ pub enum Class {
 }
 
 impl Class {
-    /// Returns the class value for the given raw integer class value.
+    /// Returns the class value for the given raw integer value.
     pub fn from_int(value: u16) -> Class {
         use self::Class::*;
 
@@ -53,7 +66,7 @@ impl Class {
         }
     }
 
-    /// Returns the raw integer class value for this class.
+    /// Returns the raw integer value for this class value.
     pub fn to_int(self) -> u16 {
         use self::Class::*;
 
@@ -68,6 +81,9 @@ impl Class {
     }
 }
 
+
+//--- From
+
 impl convert::From<u16> for Class {
     fn from(value: u16) -> Class {
         Class::from_int(value)
@@ -80,6 +96,9 @@ impl convert::From<Class> for u16 {
     }
 }
 
+
+//--- FromStr
+
 impl str::FromStr for Class {
     type Err = FromStrError;
 
@@ -88,7 +107,9 @@ impl str::FromStr for Class {
     /// Recognized are the mnemonics equivalent to the variant names, an
     /// asterisk for `Class::ANY`, and the generic class names from RFC 3597
     /// in the form of the string `CLASS` followed immediately by decimal
-    /// class number.
+    /// class number. Case is ignored in all these, er, cases.
+    ///
+    /// Returns either the class value or `FromStrError::UnknownClass`.
     fn from_str(s: &str) -> FromStrResult<Self> {
         use std::ascii::AsciiExt;
         use self::Class::*;
@@ -120,7 +141,15 @@ impl str::FromStr for Class {
 }
 
 
+//--- Display
+
 impl fmt::Display for Class {
+    /// Formats the class using the given formatter.
+    ///
+    /// Uses the standard mnemonic for all known classes, even if they are
+    /// hidden behind `Class::Int`. Uses the generic class value `CLASS`
+    /// followed directly by the decimal representation of the value for
+    /// any unknown value.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::Class::*;
 
@@ -129,7 +158,7 @@ impl fmt::Display for Class {
             CH => "CH".fmt(f),
             HS => "HS".fmt(f),
             NONE => "NONE".fmt(f),
-            ANY => "ANY".fmt(f),
+            ANY => "*".fmt(f),
             Int(value) => {
                 // Maybe value is actually for a well-known variant.
                 match Class::from_int(value) {
@@ -141,6 +170,8 @@ impl fmt::Display for Class {
     }
 }
 
+
+//--- PartialEq and Eq
 
 impl PartialEq for Class {
     fn eq(&self, other: &Class) -> bool {
@@ -161,4 +192,40 @@ impl PartialEq<Class> for u16 {
 }
 
 impl Eq for Class { }
+
+
+//--- PartialOrd and Ord
+
+impl PartialOrd for Class {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.to_int().partial_cmp(&other.to_int())
+    }
+}
+
+impl PartialOrd<u16> for Class {
+    fn partial_cmp(&self, other: &u16) -> Option<cmp::Ordering> {
+        self.to_int().partial_cmp(other)
+    }
+}
+
+impl PartialOrd<Class> for u16 {
+    fn partial_cmp(&self, other: &Class) -> Option<cmp::Ordering> {
+        self.partial_cmp(&other.to_int())
+    }
+}
+
+impl Ord for Class {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.to_int().cmp(&other.to_int())
+    }
+}
+
+
+//--- Hash
+
+impl hash::Hash for Class {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.to_int().hash(state)
+    }
+}
 

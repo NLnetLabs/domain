@@ -84,3 +84,43 @@ impl<'a> fmt::Display for GenericRecordData<'a> {
         }
     }
 }
+
+
+impl<'a> PartialEq for GenericRecordData<'a> {
+    /// Compares two generic record data values for equality.
+    ///
+    /// Almost all record types can be compared bitwise. However, record
+    /// types from RFC 1035 may employ name compression if they contain
+    /// domain names. For these we need to actually check.
+    fn eq(&self, other: &Self) -> bool {
+        if self.rtype != other.rtype { false }
+        else {
+            use super::rfc1035::*;
+
+            match self.rtype {
+                RRType::CNAME => rdata_eq::<CName>(self, other),
+                RRType::MB => rdata_eq::<MB>(self, other),
+                RRType::MD => rdata_eq::<MD>(self, other),
+                RRType::MF => rdata_eq::<MF>(self, other),
+                RRType::MG => rdata_eq::<MG>(self, other),
+                RRType::MINFO => rdata_eq::<MInfo>(self, other),
+                RRType::MR => rdata_eq::<MR>(self, other),
+                RRType::MX => rdata_eq::<MX>(self, other),
+                RRType::NS => rdata_eq::<NS>(self, other),
+                RRType::PTR => rdata_eq::<Ptr>(self, other),
+                RRType::SOA => rdata_eq::<SOA>(self, other),
+                RRType::TXT => rdata_eq::<Txt>(self, other),
+                _ => self.data.as_slice() == other.data.as_slice()
+            }
+        }
+    }
+}
+
+fn rdata_eq<'a, D>(left: &'a GenericRecordData<'a>,
+                   right: &'a GenericRecordData<'a>) -> bool
+            where D: RecordData<'a> + PartialEq {
+    D::parse(left.rtype, &mut left.data.parser())
+        == D::parse(right.rtype, &mut right.data.parser())
+}
+
+impl<'a> Eq for GenericRecordData<'a> { }

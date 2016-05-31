@@ -4,7 +4,7 @@ use std::fmt;
 use super::compose::ComposeBytes;
 use super::error::{ComposeError, ComposeResult, ParseResult};
 use super::iana::{Class, RRType};
-use super::name::DName;
+use super::name::{AsDName, DName};
 use super::parse::ParseBytes;
 use super::rdata::RecordData;
 
@@ -89,6 +89,7 @@ impl<'a, D: RecordData<'a>> Record<'a, D> {
         }
         target.update_u16(pos, delta as u16)
     }
+
 }
 
 
@@ -101,6 +102,38 @@ impl<'a, D: RecordData<'a>> fmt::Display for Record<'a, D> {
                self.rdata)
     }
 }
+
+
+//------------ RecordTarget -------------------------------------------------
+
+pub trait RecordTarget<C: ComposeBytes> {
+    fn compose<F>(&mut self, push: F) -> ComposeResult<()>
+               where F: Fn(&mut C) -> ComposeResult<()>;
+}
+
+
+pub fn push_record<C, T, N, F>(target: &mut T, name: N, rtype: RRType,
+                        class: Class, ttl: u32, data: F)
+                        -> ComposeResult<()>
+            where C: ComposeBytes, T: RecordTarget<C>, N: AsDName,
+                  F: Fn(&mut C) -> ComposeResult<()> {
+    target.compose(|target| {
+        try!(target.push_dname_compressed(&name.as_dname()));
+        try!(target.push_u16(rtype.into()));
+        try!(target.push_u16(class.into()));
+        try!(target.push_u32(ttl));
+        let pos = target.pos();
+        try!(target.push_u16(0));
+        try!(data(target));
+        let delta = target.delta(pos) - 2;
+        if delta > (::std::u16::MAX as usize) {
+            return Err(ComposeError::Overflow)
+        }
+        target.update_u16(pos, delta as u16)
+    })
+}
+
+
 
 
 /*

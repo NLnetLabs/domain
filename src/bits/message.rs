@@ -5,55 +5,18 @@
 //! types, `Message` and `MessageBuf` for message slices and owned messages
 //! respectively. For building messages, there is only one type
 //! `MessageBuilder` that is generic over an underlying composer.
-//!
-//! # Parsing Messages
-//!
-//! Once you obtained the wire-representation of a message you can parse its
-//! content with the `Message` or `MessageBuf` types. The difference is that
-//! the former operates on a bytes slice while the latter owns that slice
-//! through a bytes vector and then derefs into the former.
-//!
-//! Each DNS message consists of a header and four sections. In order to
-//! allow the parser to be lazy, you will have to iterate over the sections
-//! in their order. That is, to get to the answer section, you first have to
-//! walk over all the questions. The header is an exception. Since it is of
-//! a fixed length and placed at the beginning of the message, it is always
-//! accessible through the message type.
-//!
-//! While iterating over the questions is trivial, things are a little more
-//! difficult for the record sections. Here the iterators are generic over
-//! the `FlatRecordData` trait. You can either look for records of a certain
-//! type or use the LazyGenericRecordData type for all the records. Or, if
-//! you are looking for a specific set of types, define an enum for them and
-//! implement `FlatRecordData` for it.
-//!
-//! # Building Messages
-//!
-//! Building messages is relatively straightforward. You create a message
-//! builder either by supplying a target or, if using a byte vector as the
-//! ultimate target sounds good enough, with the size and whether you want
-//! compression.
-//!
-//! Then you can go from section to section and append items. At each step
-//! you can finalize the message, leaving the following sections empty.
-//!
-//! # Example
-//!
-//! As an example, let’s put together a message and then parse it.
-//!
-
 
 use std::borrow::Borrow;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
-use super::compose::{ComposeBytes, ComposeVec};
+use super::compose::{ComposeBytes, ComposeBuf};
 use super::error::{ComposeError, ComposeResult, ParseError, ParseResult};
 use super::header::{Header, HeaderCounts, FullHeader};
 use super::parse::{ContextParser, ParseBytes};
-use super::question::Question;
+use super::question::{Question, QuestionTarget};
 use super::rdata::{GenericRecordData, RecordData};
-use super::record::Record;
+use super::record::{Record, RecordTarget};
 
 
 //============ Disecting Existing Messages ==================================
@@ -62,14 +25,16 @@ use super::record::Record;
 
 /// A bytes slice containing a DNS message.
 ///
-/// This type allows access to the header of the message directly. To start
-/// looking at the content of the message, you acquire a `QuestionSection`
-/// by calling the `question()` method. The question section can then be
-/// converted further into the three record sections.
+/// You can acccess the header and each of the sections through dedicated
+/// methods. Access to the three resource record sections happens lazily.
+/// That is, each of those methods iterates over the previous sections to
+/// find where the respective section starts. Because of this, it will be
+/// more efficient to either use the `next_section()` method on the section
+/// or get all sections at once with `Message`’s `sections()` method.
 ///
-/// Everything parsed out of a message will be of the lazy flavor.
-///
-/// This is an unsized type.
+/// In addition, since the type is a thin wrapper around the underlying
+/// bytes slice, it deref to `[u8]`, so you get to play with all of slice’s
+/// methods.
 #[derive(Debug)]
 pub struct Message {
     /// The underlying bytes slice.
@@ -80,6 +45,10 @@ pub struct Message {
 ///
 impl Message {
     /// Creates a message from a bytes slice.
+    ///
+    /// This fails if the slice is too short to even contain the full header.
+    /// No further checks are done, though, so if this function returns `Ok`,
+    /// the message may still be broken.
     pub fn from_bytes(slice: &[u8]) -> ParseResult<&Self> {
         if slice.len() < mem::size_of::<FullHeader>() {
             Err(ParseError::UnexpectedEnd)
@@ -114,11 +83,6 @@ impl Message {
     pub fn as_bytes(&self) -> &[u8] {
         &self.slice
     }
-
-    /// Returns the length of the underlying bytes slice.
-    pub fn len(&self) -> usize {
-        self.slice.len()
-    }
 }
 
 
@@ -143,12 +107,63 @@ impl Message {
     pub fn counts(&self) -> &HeaderCounts {
         unsafe { HeaderCounts::from_message(&self.slice) }
     }
+}
 
-    /// Returns an iterator over the question section
+/// # Sections
+///
+impl Message {
+    /// Returns the question section.
     pub fn question(&self) -> QuestionSection {
         let mut parser = ContextParser::new(&self.slice, &self.slice);
         parser.skip(mem::size_of::<FullHeader>()).unwrap();
         QuestionSection::new(parser, self.counts())
+    }
+
+    /// Returns the zone section of a UPDATE message.
+    ///
+    /// This is identical to `self.question()`.
+    pub fn zone(&self) -> QuestionSection { self.question() }
+
+    /// Returns the answer section.
+    pub fn answer(&self) -> ParseResult<RecordSection> {
+        self.question().next_section()
+    }
+
+    /// Returns the prerequisite section of an UPDATE message.
+    ///
+    /// This is identical to `self.answer()`.
+    pub fn prerequisite(&self) -> ParseResult<RecordSection> {
+        self.answer()
+    }
+
+    /// Returns the authority section.
+    pub fn authority(&self) -> ParseResult<RecordSection> {
+        try!(self.answer()).next_section().unwrap()
+    }
+
+    /// Returns the update section of an UPDATE message.
+    ///
+    /// This is identical to `self.authority()`.
+    pub fn update(&self) -> ParseResult<RecordSection> {
+        self.authority()
+    }
+
+    /// Returns the additional section.
+    pub fn additional(&self) -> ParseResult<RecordSection> {
+        try!(self.authority()).next_section().unwrap()
+    }
+
+    /// Returns all four sections in one fell swoop.
+    ///
+    /// This is the most effective way if you need more than one of the
+    /// record sections.
+    pub fn sections(&self) -> ParseResult<(QuestionSection, RecordSection,
+                                           RecordSection, RecordSection)> {
+        let question = self.question();
+        let answer = try!(question.clone().next_section());
+        let authority = try!(answer.next_section().unwrap());
+        let additional = try!(authority.next_section().unwrap());
+        Ok((question, answer, authority, additional))
     }
 }
 
@@ -157,6 +172,9 @@ impl Message {
 ///
 impl Message {
     /// Returns whether this is the answer to some other message.
+    ///
+    /// This checks whether the ID fields of the header are the same,
+    /// whether the QR flag is set and whether the questions are the same.
     pub fn is_answer(&self, query: &Message) -> bool {
         if !self.header().qr() { false }
         else if self.counts().qdcount() != query.counts().qdcount() { false }
@@ -165,10 +183,26 @@ impl Message {
 }
 
 
-//--- AsRef
+//--- Deref, Borrow, and AsRef
+
+impl Deref for Message {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.slice
+    }
+}
+
+impl Borrow<[u8]> for Message {
+    fn borrow(&self) -> &[u8] { self.deref() }
+}
 
 impl AsRef<Message> for Message {
     fn as_ref(&self) -> &Message { self }
+}
+
+impl AsRef<[u8]> for Message {
+    fn as_ref(&self) -> &[u8] { self.deref() }
 }
 
 
@@ -181,12 +215,61 @@ impl ToOwned for Message {
 }
 
 
+//--- PartialEq
+//
+// Note: We can’t be Eq because anything with parse errors always is unequal.
+
+impl PartialEq for Message {
+    fn eq(&self, other: &Self) -> bool {
+        if self.header() != other.header()
+                || self.counts() != other.counts() {
+            return false
+        }
+
+        let mut me = self.question();
+        let mut you = other.question();
+        loop {
+            match (me.next(), you.next()) {
+                (None, None) => break,
+                (_, None) | (None, _) => return false,
+                (Some(me), Some(you)) => if me != you { return false }
+            }
+        }
+
+        let mut me = match me.answer() {
+            Err(..) => return false,
+            Ok(me) => me
+        };
+        let mut you = match you.answer() {
+            Err(..) => return false,
+            Ok(you) => you
+        };
+        loop {
+            if me != you { return false }
+            me = match me.next_section() {
+                None => break,
+                Some(Err(..)) => return false,
+                Some(Ok(me)) => me
+            };
+            you = match you.next_section() {
+                None => break, // XXX Wait a second!
+                Some(Err(..)) => return false,
+                Some(Ok(you)) => you
+            };
+        }
+        true
+    }
+}
+
+
 //------------ MessageBuf ---------------------------------------------------
 
 /// An owned DNS message.
 ///
 /// Contains the underlying bytes of the message as a vector. Derefs to
-/// `Message` for all actual work.
+/// `Message` for all actual functionality.
+///
+/// This is not the type for building messages. Use `MessageBuilder` instead.
 #[derive(Clone, Debug)]
 pub struct MessageBuf {
     /// The underlying bytes vector.
@@ -197,13 +280,19 @@ pub struct MessageBuf {
 /// # Creation and Conversion
 ///
 impl MessageBuf {
-    /// Creates a new owned message using the given vec.
+    /// Creates a new owned message using the given vector.
+    ///
+    /// If the content of the vector is to short to even contain a full
+    /// header, the function fails.
     pub fn from_vec(vec: Vec<u8>) -> ParseResult<Self> {
         let _ = try!(Message::from_bytes(&vec));
         Ok(MessageBuf { inner: vec })
     }
 
     /// Creates a new owned message with the data from the given bytes slice.
+    ///
+    /// If the content of the vector is to short to even contain a full
+    /// header, the function fails.
     pub fn from_bytes(slice: &[u8]) -> ParseResult<Self> {
         let msg = try!(Message::from_bytes(slice));
         Ok(MessageBuf { inner: Vec::from(&msg.slice) })
@@ -225,18 +314,12 @@ impl MessageBuf {
     ///
     /// The resulting query will have the RD bit set and will contain exactly
     /// one entry in the question section with the given question.
-    ///
-    /// The method is generic over the `ComposeQuestion` trait which is
-    /// implemented by the question types as well as a tuple of name, class,
-    /// and type. In the latter case, note that the method takes a reference,
-    /// so you have to add the `&` in front of the tuple for this to work.
     pub fn query_from_question(question: &Question)
-            -> ComposeResult<MessageBuf> {
+                               -> ComposeResult<MessageBuf> {
         let mut msg = try!(MessageBuilder::new(Some(512), true));
         msg.header_mut().set_rd(true);
-        let mut q = msg.question();
-        try!(q.push(question));
-        Ok(try!(MessageBuf::from_vec(try!(q.finish()).finish())))
+        try!(msg.push(question));
+        Ok(try!(MessageBuf::from_vec(try!(msg.finish()).finish())))
     }
 }
 
@@ -272,10 +355,26 @@ impl AsRef<Message> for MessageBuf {
 
 //------------ QuestionSection ----------------------------------------------
 
-/// An iterator over the questions in a `Message`.
-/// 
-/// You can iterate over the questions in the usual way. At any point, you
-/// can call `answer()` to proceed to the answer section of the message.
+/// The question section of a `Message`.
+///
+/// This type is an iterator over the questions. Since parsing questions can
+/// fail, it actually iterates over `ParseResult<Question>`. If a parse error
+/// is encountered, iteration will return that error and then stop. In other
+/// words, the end of iteration (or a for loop) does not mean the section
+/// was successfully parsed. Ideally, you bail out of iteration like so:
+///
+/// ```no_run
+/// use domain::bits::ParseResult;
+/// use domain::bits::message::QuestionSection;
+///
+/// fn print_questions(section: QuestionSection) -> ParseResult<()> {
+///     for question in section {
+///         let question = try!(question);
+///         println!("{}", question);
+///     }
+///     Ok(())
+/// }
+/// ```
 #[derive(Clone, Debug)]
 pub struct QuestionSection<'a> {
     /// The parser for generating the questions.
@@ -287,13 +386,17 @@ pub struct QuestionSection<'a> {
     counts: &'a HeaderCounts,
 
     /// The remaining number of questions.
-    count: u16
+    ///
+    /// The `ParseResult` is here to monitor an error during iteration.
+    /// This error will be returned when encountered and by `answer()`
+    /// should that be called after an error.
+    count: ParseResult<u16>
 }
 
 impl<'a> QuestionSection<'a> {
     /// Creates a new question section from a parser and the section count.
     fn new(parser: ContextParser<'a>, counts: &'a HeaderCounts) -> Self {
-        let count = counts.qdcount();
+        let count = Ok(counts.qdcount());
         QuestionSection { parser: parser, counts: counts, count: count }
     }
 
@@ -307,122 +410,164 @@ impl<'a> QuestionSection<'a> {
     /// Proceeds to the answer section.
     ///
     /// Skips the remaining questions, if any, and then converts `self` into
-    /// an `AnswerSection`.
-    pub fn answer(mut self) -> ParseResult<AnswerSection<'a>> {
+    /// the first `RecordSection`.
+    pub fn answer(mut self) -> ParseResult<RecordSection<'a>> {
         for question in self.iter() {
-            if let Err(e) = question {
-                return Err(e)
-            }
+            let _ = try!(question);
         }
-        Ok(AnswerSection::new(self.parser, self.counts))
+        match self.count {
+            Ok(..) => Ok(RecordSection::new(self.parser, self.counts,
+                                            Section::first())),
+            Err(err) => Err(err)
+        }
+    }
+
+    /// Proceeds to the answer section.
+    ///
+    /// This is the same as `self.answer()`.
+    pub fn next_section(self) -> ParseResult<RecordSection<'a>> {
+        self.answer()
     }
 }
 
 impl<'a> Iterator for QuestionSection<'a> {
     type Item = ParseResult<Question<'a>>;
 
-    /// Returns the next question if there are any left.
     fn next(&mut self) -> Option<Self::Item> {
-        if self.count == 0 { return None }
-        Some(Question::parse(&mut self.parser)
-                      .map(|res| { self.count -= 1; res }))
+        match self.count {
+            Ok(count) if count > 0 => {
+                match Question::parse(&mut self.parser) {
+                    Ok(question) => {
+                        self.count = Ok(count - 1);
+                        Some(Ok(question))
+                    }
+                    Err(err) => {
+                        self.count = Err(err.clone());
+                        Some(Err(err))
+                    }
+                }
+            }
+            _ => None
+        }
     }
 }
 
 
-//------------ AnswerSection ------------------------------------------------
+//------------ Section ------------------------------------------------------
 
-/// The answer section of a message.
+/// A helper type enumerating which section a `RecordSection` is currently in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Section {
+    Answer,
+    Authority,
+    Additional
+}
+
+impl Section {
+    /// Returns the first section.
+    fn first() -> Self { Section::Answer }
+
+    /// Returns the correct record count for this section.
+    fn count(&self, counts: &HeaderCounts) -> u16 {
+        match *self {
+            Section::Answer => counts.ancount(),
+            Section::Authority => counts.nscount(),
+            Section::Additional => counts.arcount()
+        }
+    }
+
+    /// Returns the value for the following section or `None` if this is last.
+    fn next_section(self) -> Option<Self> {
+        match self {
+            Section::Answer => Some(Section::Authority),
+            Section::Authority => Some(Section::Additional),
+            Section::Additional => None
+        }
+    }
+}
+
+
+//------------ RecordSection -----------------------------------------------
+
+/// One of the three sections containing resource records.
 ///
-/// This type isn’t an interator itself but the `iter()` method can be used
-/// to fetch an iterator for a specific record type, ie., anything that
-/// implements the `FlatRecordData` trait.
+/// Since resource records are generic over the `RecordData` trait, this type
+/// isn’t an iterator over the records. Instead, the method `iter()` can be
+/// used to request an iterator for a specific implementation. For instance,
+/// the following function prints all the A records:
+///
+/// ```no_run
+/// use domain::bits::ParseResult;
+/// use domain::bits::message::RecordSection;
+/// use domain::bits::rdata::A;
+///
+/// fn print_a(section: &RecordSection) -> ParseResult<()> {
+///     for record in section.iter::<A>() {
+///         let record = try!(record);
+///         println!("{}", record);
+///     }
+///     Ok(())
+/// }
+/// ```
 #[derive(Clone, Debug)]
-pub struct AnswerSection<'a> {
+pub struct RecordSection<'a> {
     /// The message’s parser.
     parser: ContextParser<'a>,
 
     /// A reference to the message’s section counts.
     counts: &'a HeaderCounts,
+
+    /// Which section are we, actually?
+    section: Section
 }
 
-impl<'a> AnswerSection<'a> {
-    /// Creates a new answer section from parser and counts.
-    fn new(parser: ContextParser<'a>, counts: &'a HeaderCounts) -> Self {
-        AnswerSection { parser: parser, counts: counts }
+impl<'a> RecordSection<'a> {
+    /// Creates a new section from its components.
+    fn new(parser: ContextParser<'a>, counts: &'a HeaderCounts,
+           section: Section) -> Self {
+        RecordSection { parser: parser, counts: counts, section: section }
     }
 
-    /// Returns an iterator over records covered by `D`.
+    /// Returns an iterator over records of a record data implementation. 
+    ///
+    /// In most cases, you will have to call this function with the record
+    /// data implementation as a type parameter, such as
+    /// `section.iter::<A>()` for A records.
+    ///
+    /// The returned value will be an iterator over all records the
+    /// record data implementation feels responsible for. You can use
+    /// `GenericRecordData` if you want all records or use the
+    /// `generic_iter()` convenience method.
     pub fn iter<D: RecordData<'a>>(&self) -> RecordIter<'a, D> {
-        RecordIter::new(self.parser.clone(), self.counts.ancount())
+        RecordIter::new(self.parser.clone(),
+                        self.section.count(&self.counts))
     }
 
-    /// Proceeds to the authority section of the message.
-    pub fn authority(self) -> ParseResult<AuthoritySection<'a>> {
-        let mut iter = self.iter::<GenericRecordData<'a>>();
-        try!(iter.exhaust());
-        Ok(AuthoritySection::new(iter.parser, self.counts))
-    }
-}
-
-
-//------------ AuthoritySection ---------------------------------------------
-
-/// The authority section of a message.
-///
-/// This is mostly identical to `AnswerSection`, see there for more details.
-#[derive(Clone, Debug)]
-pub struct AuthoritySection<'a> {
-    /// The message’s parser.
-    parser: ContextParser<'a>,
-
-    /// A reference to the message’s section counts.
-    counts: &'a HeaderCounts,
-}
-
-impl<'a> AuthoritySection<'a> {
-    /// Creates a new answer section from parser and counts.
-    fn new(parser: ContextParser<'a>, counts: &'a HeaderCounts) -> Self {
-        AuthoritySection { parser: parser, counts: counts }
+    /// Returns an iterator over all records in the section.
+    ///
+    /// The records will be represented using the `GenericRecordData` type
+    /// for the record data.
+    pub fn generic_iter(&self) -> RecordIter<'a, GenericRecordData<'a>> {
+        self.iter()
     }
 
-    /// Returns an iterator over records covered by `D`.
-    pub fn iter<D: RecordData<'a>>(&self) -> RecordIter<'a, D> {
-        RecordIter::new(self.parser.clone(), self.counts.nscount())
-    }
-
-    /// Proceeds to the additional section of the message.
-    pub fn additional(self) -> ParseResult<AdditionalSection<'a>> {
-        let mut iter = self.iter::<GenericRecordData<'a>>();
-        try!(iter.exhaust());
-        Ok(AdditionalSection::new(iter.parser, self.counts))
+    /// Returns the next section if there is one.
+    pub fn next_section(&self) -> Option<ParseResult<Self>> {
+        self.section.next_section().map(|section| {
+            let mut iter = self.iter::<GenericRecordData<'a>>();
+            try!(iter.exhaust());
+            Ok(RecordSection::new(iter.parser, self.counts, section))
+        })
     }
 }
 
 
-//------------ AdditionalSection --------------------------------------------
+//--- PartialEq
 
-/// The additional section of a message.
-///
-/// This is mostly identical to `AnswerSection`, see there for more details.
-#[derive(Clone, Debug)]
-pub struct AdditionalSection<'a> {
-    /// The message’s parser.
-    parser: ContextParser<'a>,
-
-    /// A reference to the message’s section counts.
-    counts: &'a HeaderCounts,
-}
-
-impl<'a> AdditionalSection<'a> {
-    /// Creates a new answer section from parser and counts.
-    fn new(parser: ContextParser<'a>, counts: &'a HeaderCounts) -> Self {
-        AdditionalSection { parser: parser, counts: counts }
-    }
-
-    /// Returns an iterator over records covered by `D`.
-    pub fn iter<D: RecordData<'a>>(&self) -> RecordIter<'a, D> {
-        RecordIter::new(self.parser.clone(), self.counts.arcount())
+impl<'a> PartialEq for RecordSection<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter::<GenericRecordData<'a>>().eq(
+            other.iter::<GenericRecordData<'a>>())
     }
 }
 
@@ -431,15 +576,18 @@ impl<'a> AdditionalSection<'a> {
 
 /// An iterator over the records in one of a record section.
 ///
-/// Iterates over all the records in the section that `D` feels responsible
-/// for.
+/// The type is generic over a a record data implementation and iterates over
+/// all records in the section this implementation feels responsible for.
+/// Since parsing resource records can fail, the type iterates over
+/// `ParseResult`s. If an error is encountered, the error is the last step
+/// in the iteration.
 #[derive(Clone, Debug)]
 pub struct RecordIter<'a, D: RecordData<'a>> {
     /// The message’s parser.
     parser: ContextParser<'a>,
 
     /// The number of records remaining in the section.
-    count: u16,
+    count: ParseResult<u16>,
 
     /// A phantom.
     marker: PhantomData<D>
@@ -448,7 +596,7 @@ pub struct RecordIter<'a, D: RecordData<'a>> {
 impl<'a, D: RecordData<'a>> RecordIter<'a, D> {
     /// Creates a new iterator using the given parser and record count.
     fn new(parser: ContextParser<'a>, count: u16) -> Self {
-        RecordIter { parser: parser, count: count, marker: PhantomData }
+        RecordIter { parser: parser, count: Ok(count), marker: PhantomData }
     }
 
     /// Returns an iterator.
@@ -461,45 +609,114 @@ impl<'a, D: RecordData<'a>> RecordIter<'a, D> {
     /// Walks over all the records in the iterator.
     fn exhaust(&mut self) -> ParseResult<()> {
         for record in self.iter() {
-            if let Err(e) = record {
-                return Err(e)
-            }
+            let _ = try!(record);
         }
         Ok(())
     }
-
-    /// Returns the parse result for the next record.
-    fn step(&mut self) -> ParseResult<Option<Record<'a, D>>> {
-        Record::parse(&mut self.parser).map(|res| { self.count -= 1; res })
-    }
 }
+
+
+//--- Iterator
 
 impl<'a, D: RecordData<'a>> Iterator for RecordIter<'a, D> {
     type Item = ParseResult<Record<'a, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.count == 0 { return None }
         loop {
-            match self.step() {
-                Ok(Some(record)) => return Some(Ok(record)),
-                Ok(None) => (),
-                Err(e) => return Some(Err(e)),
+            match self.count {
+                Ok(count) if count > 0 => {
+                    match Record::parse(&mut self.parser) {
+                        Ok(result) => {
+                            self.count = Ok(count - 1);
+                            if let Some(record) = result {
+                                return Some(Ok(record))
+                            }
+                        }
+                        Err(err) => {
+                            self.count = Err(err.clone());
+                            return Some(Err(err))
+                        }
+                    }
+                }
+                _ => return None
             }
         }
     }
 }
 
 
-//============ Building New Message =========================================
+//============ Building a New Message =======================================
 
 //------------ MessageBuilder -----------------------------------------------
 
 /// A builder for constructing a DNS message.
 ///
-/// This is generic over the composer trait but defaults to the bytes vector
-/// backed composer.
+/// Message are being built in place. This requires that they are being
+/// assembled section by section. To make sure this is done correctly, each
+/// section has its own type that allows you to either add elements to its
+/// section, progress to the next one, or finish up, leaving the following
+/// sections empty.
+///
+/// Adding elements happens in one of two ways. The types all have a `push()`
+/// method that takes a reference to a value of the element type—either
+/// `Question` or `Record`. Alternatively, there is a shortcut through the
+/// `QuestionTarget` and `RecordTarget` traits one of which is implemented
+/// by the section types. These traits are used by `Question::push()` and
+/// various `push()` functions of concrete record data types (such as
+/// `A::push()`) to allow you to build elements on the fly without building
+/// element values first.
+///
+/// Since the header is of fixed size and at the beginning of the assembled
+/// message, there is no need to have a separate section type for it. Instead,
+/// each section types allows access to it through the `header()` and
+/// `header_mut()` methods.
+///
+/// The `MessageBuilder` type also represents the first section, the
+/// question section. You can add questions as described above. Once you
+/// are done with the question section, you either call the `answer()` method
+/// to proceed to the answer section or `finish()` to finalize the message
+/// and retrieve the underlying data.
+///
+/// This underlying data alway is a value of a type implementing the
+/// `ComposeBytes` trait. The default type is `ComposeBuf` which becomes a
+/// simple bytes vector.
+///
+/// If you call `answer()` to progress to building the answer section, you
+/// trace the `MessageBuilder` for an `AnswerBuilder`. This new value
+/// behaves similarly. You can access the header via `header()` and
+/// `header_mut()`, add resource records through the `push()` method or
+/// the `RecordTarget` shortcut, and finalize message building via `finish()`.
+/// Additionally, you can call `authority()` to trade once more for the next
+/// section and an `AuthorityBuilder`. Same deal except that `additional()`
+/// takes you to the additional section and a `AdditionalBuilder`. This is
+/// the final section so once you added all records, you call `finsih()` to
+/// trade the builder for the final message.
+///
+///
+/// # Example
+///
+/// To summarize building of messages, here is an example that builds a
+/// response to an A query for example.com that contains two A records and
+/// nothing else.
+///
+/// ```
+/// use std::str::FromStr;
+/// use domain::bits::{DNameBuf, MessageBuilder, Question};
+/// use domain::bits::rdata::A;
+///
+/// let name = DNameBuf::from_str("example.com.").unwrap();
+/// let mut msg = MessageBuilder::new(Some(512), true).unwrap();
+/// msg.header_mut().set_rd(true);
+/// Question::push_in(&mut msg, &name, A::rtype()).unwrap();
+/// let mut msg = msg.answer();
+/// A::push_from_octets(&mut msg, &name, 86400, 192, 0, 2, 1).unwrap();
+/// A::push_from_octets(&mut msg, &name, 86400, 192, 0, 2, 2).unwrap();
+/// let _ = msg.finish().unwrap().finish(); // get the Vec<u8>
+/// ```
+///
+/// ```
 #[derive(Clone, Debug)]
-pub struct MessageBuilder<C: ComposeBytes=ComposeVec> {
+pub struct MessageBuilder<C: ComposeBytes=ComposeBuf> {
     /// The actual message being built.
     target: MessageTarget<C>
 }
@@ -514,12 +731,26 @@ impl<C: ComposeBytes> MessageBuilder<C> {
     }
 }
 
-/// # Creation for ComposeVec-backed builder.
+/// # Creation for ComposeBuf-backed builder.
 ///
-impl MessageBuilder<ComposeVec> {
-    /// Creates a new message builder.
+impl MessageBuilder<ComposeBuf> {
+    /// Creates a new message builder using a new `ComposeBuf` as target.
+    ///
+    /// If `maxlen` is not `None`, the resulting message’s length will never
+    /// exceed the given amount of bytes. If too much data is being added,
+    /// the message will be cut back a quesiton or record boundary and the
+    /// TC flag will be set.
+    ///
+    /// If `compress` is `true`, domain name compression will be activated
+    /// for the resulting message. Not all domain names are compressed,
+    /// though, only the question names, record names, and names embedded
+    /// in resource data of well-known record types (those defined in RFC
+    /// 1035).
+    ///
+    /// This function can fail if `maxlen` is chosen too small to even
+    /// accomodate the full header, ie., it is less than 12.
     pub fn new(maxlen: Option<usize>, compress: bool) -> ComposeResult<Self> {
-        MessageBuilder::from_target(ComposeVec::new(maxlen, compress))
+        MessageBuilder::from_target(ComposeBuf::new(maxlen, compress))
     }
 }
 
@@ -536,45 +767,6 @@ impl<C: ComposeBytes> MessageBuilder<C> {
         self.target.header_mut()
     }
 
-    /// Finishes building the message and returns the underlying composition.
-    ///
-    /// This will result in a message with four empty sections.
-    pub fn finish(self) -> ComposeResult<C> {
-        self.target.finish()
-    }
-
-    /// Proceeds to building the question section.
-    pub fn question(self) -> QuestionBuilder<C> {
-        QuestionBuilder::new(self.target)
-    }
-}
-
-
-//------------ QuestionBuilder ----------------------------------------------
-
-/// A builder for the question section of a message.
-#[derive(Clone, Debug)]
-pub struct QuestionBuilder<C: ComposeBytes> {
-    /// The actual message being built.
-    target: MessageTarget<C>
-}
-
-impl<C: ComposeBytes> QuestionBuilder<C> {
-    /// Creates a question builder appending questions to the target.
-    fn new(target: MessageTarget<C>) -> Self {
-        QuestionBuilder { target: target }
-    }
-
-    /// Returns a reference to the messages header.
-    pub fn header(&self) -> &Header {
-        self.target.header()
-    }
-
-    /// Returns a mutable reference to the messages header.
-    pub fn header_mut(&mut self) -> &mut Header {
-        self.target.header_mut()
-    }
-
     /// Appends a new question to the message.
     pub fn push(&mut self, question: &Question) -> ComposeResult<()> {
         self.target.push(|target| question.compose(target),
@@ -586,11 +778,21 @@ impl<C: ComposeBytes> QuestionBuilder<C> {
         AnswerBuilder::new(self.target)
     }
 
-    /// Finishes the message.
+    /// Finishes the message and returns the underlying target.
     ///
-    /// This will result in a message with empty record sections.
+    /// This will result in a message with all three record sections empty.
     pub fn finish(self) -> ComposeResult<C> {
         self.target.finish()
+    }
+}
+
+
+//--- QuestionTarget
+
+impl<C: ComposeBytes> QuestionTarget<C> for MessageBuilder<C> {
+    fn compose<F>(&mut self, push: F) -> ComposeResult<()>
+               where F: Fn(&mut C) -> ComposeResult<()> {
+        self.target.push(push, |counts| counts.inc_qdcount(1))
     }
 }
 
@@ -598,6 +800,8 @@ impl<C: ComposeBytes> QuestionBuilder<C> {
 //------------ AnswerBuilder ------------------------------------------------
 
 /// A builder for the answer section of a message.
+///
+/// See `MessageBuilder` for more information.
 #[derive(Clone, Debug)]
 pub struct AnswerBuilder<C: ComposeBytes> {
     /// The actual message being built.
@@ -642,9 +846,20 @@ impl<C: ComposeBytes> AnswerBuilder<C> {
 }
 
 
+impl<C: ComposeBytes> RecordTarget<C> for AnswerBuilder<C> {
+    fn compose<F>(&mut self, push: F) -> ComposeResult<()>
+               where F: Fn(&mut C) -> ComposeResult<()> {
+        self.target.push(push, |counts| counts.inc_ancount(1))
+    }
+}
+
+
+
 //------------ AuthorityBuilder ---------------------------------------------
 
 /// A builder for the authority section of a message.
+///
+/// See `MessageBuilder` for more information.
 #[derive(Clone, Debug)]
 pub struct AuthorityBuilder<C: ComposeBytes> {
     /// The actual message being built.
@@ -688,9 +903,19 @@ impl<C: ComposeBytes> AuthorityBuilder<C> {
 }
 
 
+impl<C: ComposeBytes> RecordTarget<C> for AuthorityBuilder<C> {
+    fn compose<F>(&mut self, push: F) -> ComposeResult<()>
+               where F: Fn(&mut C) -> ComposeResult<()> {
+        self.target.push(push, |counts| counts.inc_nscount(1))
+    }
+}
+
+
 //------------ AdditionalBuilder --------------------------------------------
 
 /// A builder for the additional section of a message.
+///
+/// See `MessageBuilder` for more information.
 #[derive(Clone, Debug)]
 pub struct AdditionalBuilder<C: ComposeBytes> {
     /// The actual message being built.
@@ -723,6 +948,14 @@ impl<C: ComposeBytes> AdditionalBuilder<C> {
     /// Finishes the message.
     pub fn finish(self) -> ComposeResult<C> {
         self.target.finish()
+    }
+}
+
+
+impl<C: ComposeBytes> RecordTarget<C> for AdditionalBuilder<C> {
+    fn compose<F>(&mut self, push: F) -> ComposeResult<()>
+               where F: Fn(&mut C) -> ComposeResult<()> {
+        self.target.push(push, |counts| counts.inc_arcount(1))
     }
 }
 
@@ -812,7 +1045,6 @@ mod test {
 
     struct ExampleMessage<'a> {
         bytes: Vec<u8>,
-        name: DName<'a>,
         question: Question<'a>,
         rec1: Record<'a, A>,
         rec2: Record<'a, A>,
@@ -832,16 +1064,15 @@ mod test {
             
             let mut msg = MessageBuilder::new(None, true).unwrap();
             msg.header_mut().set_qr(true);
-            let mut q = msg.question();
-            q.push(&question).unwrap();
-            let mut a = q.answer();
-            a.push(&rec1).unwrap();
-            a.push(&rec2).unwrap();
-            let mut a = a.authority().additional();
-            a.push(&rec3).unwrap();
-            let bytes = a.finish().unwrap().finish();
+            msg.push(&question).unwrap();
+            let mut msg = msg.answer();
+            msg.push(&rec1).unwrap();
+            msg.push(&rec2).unwrap();
+            let mut msg = msg.authority().additional();
+            msg.push(&rec3).unwrap();
+            let bytes = msg.finish().unwrap().finish();
 
-            ExampleMessage { bytes: bytes, name: name, question: question,
+            ExampleMessage { bytes: bytes, question: question,
                              rec1: rec1, rec2: rec2, rec3: rec3 }
         }
     }

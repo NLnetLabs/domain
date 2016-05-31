@@ -2,7 +2,7 @@
 
 use bits::message::MessageBuf;
 use bits::name::DNameSlice;
-use bits::iana::{RRType, Class};
+use bits::{RRType, Class};
 use super::{Error, Result};
 
 

@@ -8,10 +8,11 @@ use std::net::Ipv4Addr;
 use super::super::compose::ComposeBytes;
 use super::super::charstr::CharStr;
 use super::super::error::{ComposeResult, ParseResult};
-use super::super::iana::RRType;
-use super::super::name::DName;
+use super::super::iana::{Class, RRType};
+use super::super::name::{AsDName, DName};
 use super::super::octets::Octets;
 use super::super::parse::ParseBytes;
+use super::super::record::{push_record, RecordTarget};
 use super::traits::RecordData;
 
 
@@ -82,10 +83,30 @@ impl A {
 
     pub fn addr(&self) -> &Ipv4Addr { &self.addr }
     pub fn addr_mut(&mut self) -> &mut Ipv4Addr { &mut self.addr }
+
+    pub fn push<C, T, N>(target: &mut T, name: N, ttl: u32,
+                         addr: &Ipv4Addr) -> ComposeResult<()>
+                where C: ComposeBytes, T: RecordTarget<C>, N: AsDName {
+        push_record(target, name, RRType::A, Class::IN, ttl, |target| {
+            for i in addr.octets().iter() {
+                try!(target.push_u8(*i))
+            }
+            Ok(())
+        })
+    }
+
+    pub fn push_from_octets<C, T, N>(target: &mut T, name: N, ttl: u32,
+                                     a: u8, b: u8, c: u8, d: u8)
+                                     -> ComposeResult<()>
+                where C: ComposeBytes, T: RecordTarget<C>, N: AsDName {
+        A::push(target, name, ttl, &Ipv4Addr::new(a, b, c, d))
+    }
+
+    pub fn rtype() -> RRType { RRType::A }
 }
 
 impl<'a> RecordData<'a> for A {
-    fn rtype(&self) -> RRType { RRType::A }
+    fn rtype(&self) -> RRType { A::rtype() }
     
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         for i in self.addr.octets().iter() {

@@ -4,7 +4,7 @@ use std::error;
 use std::io;
 use std::fmt;
 use std::result;
-use bits::error::ComposeError;
+use bits::ComposeError;
 
 
 //------------ Error --------------------------------------------------------

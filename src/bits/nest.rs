@@ -31,6 +31,14 @@ pub enum Nest<'a> {
 }
 
 impl<'a> Nest<'a> {
+    pub fn as_slice(&self) -> &[u8] {
+        match *self {
+            Nest::Slice(nest) => nest,
+            Nest::Owned(ref nest) => nest,
+            Nest::Packed(ref nest) => &nest,
+        }
+    }
+
     pub fn len(&self) -> usize {
         match *self {
             Nest::Slice(ref nest) => nest.len(),
