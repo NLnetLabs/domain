@@ -30,6 +30,17 @@ pub enum ComposeError {
     /// message header.
     Overflow,
 
+    /// A domain name is too long.
+    ///
+    /// Domain names within messages are limited to 255 bytes overall.
+    LongName,
+
+    /// A domain name was relative.
+    ///
+    /// Since domain names are implicitely terminated by the root label
+    /// within messages, only absolute names are acceptable for composing.
+    RelativeName,
+
     /// A `ParseError` has happened while preparing data for composing.
     ///
     /// Since we are trying to be as lazy as possible, parse errors can
@@ -46,6 +57,8 @@ impl Error for ComposeError {
         match *self {
             SizeExceeded => "message size has been exceeded",
             Overflow => "a counter has overflown",
+            LongName => "a domain name was too long",
+            RelativeName => "a relative domain name was encountered",
             ParseError(ref error) => error.description(),
         }
     }

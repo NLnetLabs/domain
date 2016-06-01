@@ -257,6 +257,7 @@ impl ComposeBuf {
     fn push_dname_simple<D: AsDName>(&mut self, name: &D)
                                      -> ComposeResult<()> {
         for label in name.as_dname().iter() {
+            let label = try!(label);
             try!(label.compose(self));
         }
         Ok(())
@@ -306,7 +307,7 @@ impl ComposeBytes for ComposeBuf {
 
     fn push_dname<D: AsDName>(&mut self, name: &D) -> ComposeResult<()> {
         if self.compress.is_some() {
-            let name = name.as_dname().into_cow();
+            let name = try!(name.as_dname().into_cow());
             let mut name_ref = name.deref();
             while let Some((label, tail)) = name_ref.split_first() {
                 let pos = self.compress_pos();
@@ -324,7 +325,7 @@ impl ComposeBytes for ComposeBuf {
     fn push_dname_compressed<D: AsDName>(&mut self, name: &D)
                                          -> ComposeResult<()> {
         if self.compress.is_some() {
-            let name = name.as_dname().into_cow();
+            let name = try!(name.as_dname().into_cow());
             let mut iter = name.iter();
             loop {
                 let name = iter.as_name();
@@ -392,9 +393,10 @@ impl Deref for ComposeBuf {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::str::FromStr;
     use bits::error::ComposeError;
     use bits::name::DNameBuf;
+    use super::*;
 
     #[test]
     fn simple_push() {
