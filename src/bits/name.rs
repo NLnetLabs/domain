@@ -1017,7 +1017,7 @@ impl<'a> PackedDName<'a> {
     /// Unpacks the packed domain name into a cow of a domain name slice.
     ///
     /// If the name is not compressed, a borrow of the underlying slice is
-    /// returned. If it is compressed, allocations have to happend and
+    /// returned. If it is compressed, allocations have to happen and
     /// owned data is returned.
     pub fn unpack(&self) -> ParseResult<Cow<'a, DNameSlice>> {
         // Walk over the name and return it if it ends without compression.
@@ -1958,9 +1958,11 @@ fn parse_escape(chars: &mut str::Chars) -> FromStrResult<u8> {
 
 #[cfg(test)]
 mod test {
+    use std::borrow::Cow;
+    use std::ops::Deref;
     use std::str::FromStr;
     use bits::ParseError;
-    use bits::parse::{ParseBytes, SliceParser};
+    use bits::parse::{ParseBytes, SliceParser, ContextParser};
     use super::*;
 
     fn slice(slice: &[u8]) -> &DNameSlice {
@@ -2162,6 +2164,80 @@ mod test {
         let mut name = DNameBuf::from_str("foo.bar.").unwrap();
         name.append(&suffix);
         assert_eq!(name.to_string(), "foo.bar.");
+    }
+
+    #[test]
+    fn packed_split_from() {
+        let (name, tail) = PackedDName::split_from(b"\x03foo\x03bar\x00baz",
+                                                   b"").unwrap();
+        assert_eq!(name.slice, b"\x03foo\x03bar\x00");
+        assert_eq!(tail, b"baz");
+
+        let (name, tail) = PackedDName::split_from(b"\x03foo\xC0\0baz", b"")
+                                       .unwrap();
+        assert_eq!(name.slice, b"\x03foo\xC0\0");
+        assert_eq!(tail, b"baz");
+
+        assert!(PackedDName::split_from(b"\x03foo\x03bar", b"").is_err());
+        assert!(PackedDName::split_from(b"\x70foo", b"").is_err());
+    }
+
+    fn good_packed_parse(message: &[u8], name: &[u8], tail: &[u8]) {
+        let mut parser = ContextParser::new(message);
+        let parsed = PackedDName::parse(&mut parser).unwrap();
+        assert_eq!(parsed.slice, name);
+        assert_eq!(parsed.context, message);
+        assert_eq!(parser.left(), tail.len());
+        assert_eq!(parser.parse_bytes(tail.len()).unwrap(), tail);
+    }
+
+    fn bad_packed_parse(message: &[u8], err: ParseError) {
+        let mut parser = ContextParser::new(message);
+        assert_eq!(PackedDName::parse(&mut parser), Err(err));
+    }
+
+    #[test]
+    fn packed_parse() {
+        good_packed_parse(b"\x03foo\x03bar\x00baz", b"\x03foo\x03bar\x00",
+                          b"baz");
+        good_packed_parse(b"\x03foo\xc0\x00baz", b"\x03foo\xc0\x00",
+                          b"baz");
+
+        bad_packed_parse(b"\x03foo\x03ba", ParseError::UnexpectedEnd);
+        bad_packed_parse(b"\x03foo\x70ba", ParseError::UnknownLabel);
+    }
+
+    #[test]
+    fn packed_unpack() {
+        assert_eq!(PackedDName::new(b"\x03foo\x03bar\x00", b"")
+                               .unpack().unwrap(),
+                   Cow::Borrowed(
+                      DNameSlice::from_bytes(b"\x03foo\x03bar\x00").unwrap()));
+        assert_eq!(PackedDName::new(b"\x03foo\xc0\x02",b"xx\x03bar\x00")
+                               .unpack().unwrap().deref(),
+                   DNameSlice::from_bytes(b"\x03foo\x03bar\x00").unwrap());
+        assert_eq!(PackedDName::new(b"\x03foo\xc0\x03",
+                                    b"xx\x00\x03bar\xc0\x02")
+                               .unpack().unwrap().deref(),
+                   DNameSlice::from_bytes(b"\x03foo\x03bar\x00").unwrap());
+        assert_eq!(PackedDName::new(b"\x03foo\xc0\x03", b"xx").unpack(),
+                   Err(ParseError::UnexpectedEnd));
+    }
+
+    #[test]
+    fn packed_to_string() {
+        assert_eq!(PackedDName::new(b"\x03foo\x03bar\x00", b"")
+                               .to_string().unwrap(),
+                   "foo.bar.");
+        assert_eq!(PackedDName::new(b"\x03foo\xc0\x02",b"xx\x03bar\x00")
+                               .to_string().unwrap(),
+                   "foo.bar.");
+        assert_eq!(PackedDName::new(b"\x03foo\xc0\x03",
+                                    b"xx\x00\x03bar\xc0\x02")
+                               .to_string().unwrap(),
+                   "foo.bar.");
+        assert_eq!(PackedDName::new(b"\x03foo\xc0\x03", b"xx").to_string(),
+                   Err(ParseError::UnexpectedEnd));
     }
 }
 

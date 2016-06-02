@@ -201,17 +201,17 @@ pub struct ContextParser<'a> {
 }
 
 impl<'a> ContextParser<'a> {
-    pub fn new(slice: &'a[u8], context: &'a[u8]) -> Self {
-        ContextParser {
-            parser: SliceParser::new(slice),
-            context: context
-        }
-    }
-
-    pub fn from_message(message: &'a [u8]) -> Self {
+    pub fn new(message: &'a [u8]) -> Self {
         ContextParser {
             parser: SliceParser::new(message),
             context: message
+        }
+    }
+
+    pub fn from_parts(slice: &'a[u8], context: &'a[u8]) -> Self {
+        ContextParser {
+            parser: SliceParser::new(slice),
+            context: context
         }
     }
 }

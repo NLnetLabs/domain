@@ -114,7 +114,7 @@ impl Message {
 impl Message {
     /// Returns the question section.
     pub fn question(&self) -> QuestionSection {
-        let mut parser = ContextParser::new(&self.slice, &self.slice);
+        let mut parser = ContextParser::new(&self.slice);
         parser.skip(mem::size_of::<FullHeader>()).unwrap();
         QuestionSection::new(parser, self.counts())
     }

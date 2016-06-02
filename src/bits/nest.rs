@@ -243,7 +243,7 @@ impl<'a> PackedNest<'a> {
     }
 
     pub fn parser(&self) -> ContextParser<'a> {
-        ContextParser::new(self.bytes, self.context)
+        ContextParser::from_parts(self.bytes, self.context)
     }
 }
 
