@@ -66,7 +66,7 @@ pub trait ParseBytes<'a>: Sized {
 
     /// Parses arbitrary bytes data.
     fn parse_octets(&mut self, len: usize) -> ParseResult<Octets<'a>> {
-        Octets::parse(self, len)
+        Ok(Octets::from_bytes(try!(self.parse_bytes(len))))
     }
 }
 
