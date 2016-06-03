@@ -1,4 +1,8 @@
 //! Arbitrary sequences of embedded DNS data.
+//!
+//! This module defines the `Nest` type that is being used to include unparsed
+//! DNS data in composite data structures. It is mainly used by
+//! `GenericRecordData`.
 
 use std::borrow::Borrow;
 use std::mem;
@@ -9,20 +13,23 @@ use super::name::DName;
 use super::parse::{ParseBytes, ParsePacked, SliceParser, ContextParser};
 
 
-//------------ AsNest ------------------------------------------------------
-
-/// A trait for any type that can be expressed as a `Nest` value.
-///
-/// This is a helper trait for allowing `ComposeBytes::push_nest()` to be
-/// generic over all types of nests.
-pub trait AsNest {
-    fn as_nest(&self) -> Nest;
-}
-
-
 //------------ Nest --------------------------------------------------------
 
-/// A nest.
+/// A sequence of arbitrary unparsed DNS data.
+///
+/// This type allows storing or referencing DNS data and delay parsing until
+/// later. Since such data may contain domain names which may be compressed,
+/// the type resembles the `DName` type in that actually contains one of
+/// three nest variants: `Nest::Slice` for a slice of DNS data that is known
+/// to not contain compressed names, `Nest::Owned` for an owned version of
+/// that, and `Nest::Packed` for a slice of DNS data that may in fact
+/// contain compressed names and therefore also carries a reference to the
+/// entire DNS message.
+///
+/// The functionality of this type is very limited. The most practical thing
+/// to do is to acquire a parser for parse out the data though the `parser()`
+/// method. The resulting parser will be able to parse names correctly for
+/// each underyling type.
 #[derive(Clone, Debug)]
 pub enum Nest<'a> {
     Slice(&'a NestSlice),
@@ -31,7 +38,11 @@ pub enum Nest<'a> {
 }
 
 impl<'a> Nest<'a> {
-    pub fn as_slice(&self) -> &[u8] {
+    /// Returns the bytes slice with the nest’s data.
+    ///
+    /// If the nest is of the packed variant, this data may contain
+    /// compressed domain names and therefore may not be useful on its own.
+    pub fn as_bytes(&self) -> &[u8] {
         match *self {
             Nest::Slice(nest) => nest,
             Nest::Owned(ref nest) => nest,
@@ -39,6 +50,7 @@ impl<'a> Nest<'a> {
         }
     }
 
+    /// Returns the size in bytes of the nest.
     pub fn len(&self) -> usize {
         match *self {
             Nest::Slice(ref nest) => nest.len(),
@@ -47,6 +59,12 @@ impl<'a> Nest<'a> {
         }
     }
 
+    /// Returns a parser for the data of the nest.
+    ///
+    /// The returned parser can correctly deal with domain names embedded in
+    /// the data. That is, for the slice and owned variants it will fail if
+    /// it encounters compressed names, whereas for the packed variant it
+    /// happily returns the packed variant of `DName`.
     pub fn parser(&self) -> NestParser {
         match *self {
             Nest::Slice(ref nest) => nest.parser().into(),
@@ -55,14 +73,25 @@ impl<'a> Nest<'a> {
         }
     }
 
-    pub fn compose<C: ComposeBytes>(&self, c: &mut C) -> ComposeResult<()> {
+    /// Appends the nest to the end of the compose target.
+    ///
+    /// Note that using this method for the packed variant will result in a
+    /// corrupt message if the nest’s data contains compressed domain names.
+    /// Use with care!
+    ///
+    /// XXX Because of this, perhaps the method should be removed?
+    pub fn compose<C: ComposeBytes>(&self, target: &mut C)
+                                    -> ComposeResult<()> {
         match *self {
-            Nest::Slice(ref nest) => nest.compose(c),
-            Nest::Owned(ref nest) => nest.compose(c),
-            Nest::Packed(ref nest) => nest.compose(c)
+            Nest::Slice(ref nest) => nest.compose(target),
+            Nest::Owned(ref nest) => nest.compose(target),
+            Nest::Packed(ref nest) => nest.compose(target)
         }
     }
 }
+
+
+//--- From
 
 impl<'a> From<&'a NestSlice> for Nest<'a> {
     fn from(nest: &'a NestSlice) -> Nest<'a> {
@@ -86,36 +115,47 @@ impl<'a> From<PackedNest<'a>> for Nest<'a> {
 //------------ NestSlice ---------------------------------------------------
 
 /// A nest on top of a bytes slice.
+///
+/// This type is a very thin wrapper on top of the underlying bytes slice.
+/// It even derefs into it, so you get to use all of a bytes slice’s
+/// methods.
 #[derive(Debug)]
 pub struct NestSlice([u8]);
 
 impl NestSlice {
+    /// Creates a new nest slice from a bytes slice.
     pub fn from_bytes(bytes: &[u8]) -> &Self {
         unsafe { mem::transmute(bytes) }
     }
 
-    pub fn as_slice(&self) -> &[u8] {
+    /// Returns a reference underlying bytes slice.
+    pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
+    /// Clones an owned nest from the nest slice.
     pub fn to_owned(&self) -> NestBuf {
         NestBuf::from_bytes(&self.0)
     }
 
+    /// Parses a nest slice of `len` bytes length.
     pub fn parse<'a, P: ParseBytes<'a>>(parser: &mut P, len: usize)
                                     -> ParseResult<&'a Self> {
         Ok(NestSlice::from_bytes(try!(parser.parse_bytes(len))))
     }
 
+    /// Returns the size of the nest in bytes.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Appends the nest’s data to the end of the compose target.
     pub fn compose<C: ComposeBytes>(&self, target: &mut C)
                                     -> ComposeResult<()> {
         target.push_bytes(&self.0)
     }
 
+    /// Returns a parser for the nest’s data.
     pub fn parser(&self) -> SliceParser {
         SliceParser::new(&self.0)
     }
@@ -153,24 +193,43 @@ impl AsRef<[u8]> for NestSlice {
     }
 }
 
+impl AsRef<NestSlice> for NestSlice {
+    fn as_ref(&self) -> &Self { self }
+}
+
+//--- ToOwned
+
+impl ToOwned for NestSlice {
+    type Owned = NestBuf;
+
+    fn to_owned(&self) -> Self::Owned { self.to_owned() }
+}
+
 
 //------------ NestBuf ---------------------------------------------------
 
 /// An owned nest.
 ///
-/// This type derefs to `Vec<u8>` for all bytes slice methods.
+/// This is a thin wrapper over a bytes vector. It does, however, deref
+/// into a `NestSlice` in order to support `Cow<NestSlice>`. A subset of
+/// `Vec`’s methods is available, though.
+///
+/// XXX Actually, it isn’t right now. We’ll add them as needed.
 #[derive(Clone, Debug)]
 pub struct NestBuf(Vec<u8>);
 
 impl NestBuf {
+    /// Creates a new empty owned nest.
     pub fn new() -> Self {
         NestBuf(Vec::new())
     }
 
+    /// Creates a nest as a copy of the given bytes slice.
     pub fn from_bytes(slice: &[u8]) -> Self {
         NestBuf(Vec::from(slice))
     }
 
+    /// Parses an owned nest.
     pub fn parse<'a, P>(p: &mut P, len: usize) -> ParseResult<Self>
                  where P: ParseBytes<'a> {
         Ok(try!(NestSlice::parse(p, len)).to_owned())
@@ -187,7 +246,7 @@ impl<'a> From<&'a [u8]> for NestBuf {
 }
 
 
-//--- Deref, AsRef
+//--- Deref, Borrow, and AsRef
 
 impl Deref for NestBuf {
     type Target = NestSlice;
@@ -201,12 +260,16 @@ impl Borrow<NestSlice> for NestBuf {
     fn borrow(&self) -> &NestSlice { self.deref() }
 }
 
+impl AsRef<NestSlice> for NestBuf {
+    fn as_ref(&self) -> &NestSlice { self }
+}
+
 
 //------------ PackedNest ----------------------------------------------------
 
 /// A bytes sequence possibly containing compressed domain names.
 ///
-/// For most purposes, this is identical to a `NestSlice` except that it
+/// For most purposes, this is identical to a `&NestSlice` except that it
 /// carries the context for decompressing domain names around.
 #[derive(Clone, Debug)]
 pub struct PackedNest<'a> {
@@ -215,33 +278,43 @@ pub struct PackedNest<'a> {
 }
 
 impl<'a> PackedNest<'a> {
+    /// Creates a new packed nest from data and context.
     pub fn new(bytes: &'a[u8], context: &'a[u8]) -> Self {
         PackedNest { bytes: bytes, context: context }
     }
 
+    /// Parses a packed nest.
     pub fn parse<P: ParsePacked<'a>>(parser: &mut P, len: usize)
                                    -> ParseResult<Self> {
         Ok(PackedNest::new(try!(parser.parse_bytes(len)),
                           parser.context()))
     }
 
-    pub fn to_owned(&self) -> NestBuf {
-        NestBuf::from_bytes(self.bytes)
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
+    /// Returns the data of the packed nest.
+    ///
+    /// Note that using this data for parsing may result in parse errors if
+    /// it does contain compressed domain names.
+    pub fn as_bytes(&self) -> &[u8] {
         self.bytes
     }
 
+    /// Returns the size in bytes of the nest’s data.
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
 
+    /// Append the nest’s data to the end of the compose target.
+    ///
+    /// Note that the resulting message will be corrupt if the nest does
+    /// contain compressed names. Use with care!
+    ///
+    /// XXX Perhaps we should not allow composing packed nests at all?
     pub fn compose<C: ComposeBytes>(&self, target: &mut C)
                                     -> ComposeResult<()> {
         target.push_bytes(self.bytes)
     }
 
+    /// Returns a parser for the nest’s data.
     pub fn parser(&self) -> ContextParser<'a> {
         ContextParser::from_parts(self.bytes, self.context)
     }
@@ -338,4 +411,11 @@ impl<'a> From<ContextParser<'a>> for NestParser<'a> {
     fn from(p: ContextParser<'a>) -> Self {
         NestParser::Context(p)
     }
+}
+
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+mod test {
 }

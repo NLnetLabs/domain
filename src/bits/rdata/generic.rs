@@ -110,7 +110,7 @@ impl<'a> PartialEq for GenericRecordData<'a> {
                 RRType::PTR => rdata_eq::<Ptr>(self, other),
                 RRType::SOA => rdata_eq::<SOA>(self, other),
                 RRType::TXT => rdata_eq::<Txt>(self, other),
-                _ => self.data.as_slice() == other.data.as_slice()
+                _ => self.data.as_bytes() == other.data.as_bytes()
             }
         }
     }

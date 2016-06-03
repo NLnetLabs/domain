@@ -1,4 +1,7 @@
 //! Character strings.
+//!
+//! This module provides the `CharStr` type which represents DNS character
+//! strings.
 
 use std::borrow::{Borrow, Cow};
 use std::error;
