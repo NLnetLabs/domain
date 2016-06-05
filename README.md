@@ -19,6 +19,10 @@ Then, add this to your crate root:
 extern crate domain;
 ```
 
+Please be aware that the crate is currently in a very early state and all
+things can change without notice.
+
+
 ## Features (aka TODO)
 
 Eventually, this crate will provide the following functions:
@@ -51,3 +55,13 @@ It will provide for the following DNS extensions and applications:
 * [ ] DANE.
 
 * and probably more.
+
+
+## Contributing
+
+If you have comments, proposed changes, or would like to contribute,
+please open an issue. Given that things are very early and in flux, a
+PR without an issue first may or may not be a good idea. The current code
+may lag behind the several changes of mind I’ve had in figuring out the
+best way to do thing.
+
