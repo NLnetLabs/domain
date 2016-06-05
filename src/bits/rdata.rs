@@ -136,9 +136,9 @@ impl<'a> fmt::Display for GenericRecordData<'a> {
             RRType::NS => self.fmt::<NS>(f),
             RRType::NULL => self.fmt::<Null>(f),
             RRType::PTR => self.fmt::<Ptr>(f),
-            RRType::SOA => self.fmt::<SOA>(f),
+            RRType::SOA => self.fmt::<Soa>(f),
             RRType::TXT => self.fmt::<Txt>(f),
-            RRType::WKS => self.fmt::<WKS>(f),
+            RRType::WKS => self.fmt::<Wks>(f),
 
             // RFC 3596
             RRType::AAAA => self.fmt::<AAAA>(f),
@@ -172,7 +172,7 @@ impl<'a> PartialEq for GenericRecordData<'a> {
                 RRType::MX => rdata_eq::<MX>(self, other),
                 RRType::NS => rdata_eq::<NS>(self, other),
                 RRType::PTR => rdata_eq::<Ptr>(self, other),
-                RRType::SOA => rdata_eq::<SOA>(self, other),
+                RRType::SOA => rdata_eq::<Soa>(self, other),
                 RRType::TXT => rdata_eq::<Txt>(self, other),
                 _ => self.data.as_bytes() == other.data.as_bytes()
             }

@@ -535,16 +535,16 @@ pub struct Ptr<'a> {
 dname_type!(Ptr, PTR, ptrdname);
 
 
-//------------ SOA ----------------------------------------------------------
+//------------ Soa ----------------------------------------------------------
 
-/// SOA record data.
+/// Soa record data.
 ///
-/// SOA records mark the top of a zone and contain information pertinent for
+/// Soa records mark the top of a zone and contain information pertinent for
 /// name server maintenance operations.
 ///
-/// The SOA record type is defined in RFC 1035, section 3.3.13.
+/// The Soa record type is defined in RFC 1035, section 3.3.13.
 #[derive(Clone, Debug, PartialEq)]
-pub struct SOA<'a> {
+pub struct Soa<'a> {
     mname: DName<'a>,
     rname: DName<'a>,
     serial: u32,
@@ -554,11 +554,11 @@ pub struct SOA<'a> {
     minimum: u32
 }
 
-impl<'a> SOA<'a> {
-    /// Creates new SOA record data from content.
+impl<'a> Soa<'a> {
+    /// Creates new Soa record data from content.
     pub fn new(mname: DName<'a>, rname: DName<'a>, serial: u32,
                refresh: u32, retry: u32, expire: u32, minimum: u32) -> Self {
-        SOA { mname: mname, rname: rname, serial: serial,
+        Soa { mname: mname, rname: rname, serial: serial,
               refresh: refresh, retry: retry, expire: expire,
               minimum: minimum }
     }
@@ -599,14 +599,14 @@ impl<'a> SOA<'a> {
     }
 
     fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
-        Ok(SOA::new(try!(parser.parse_dname()), try!(parser.parse_dname()),
+        Ok(Soa::new(try!(parser.parse_dname()), try!(parser.parse_dname()),
                     try!(parser.parse_u32()), try!(parser.parse_u32()),
                     try!(parser.parse_u32()), try!(parser.parse_u32()),
                     try!(parser.parse_u32())))
     }
 }
 
-impl<'a> RecordData<'a> for SOA<'a> {
+impl<'a> RecordData<'a> for Soa<'a> {
     fn rtype(&self) -> RRType { RRType::SOA }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
@@ -622,12 +622,12 @@ impl<'a> RecordData<'a> for SOA<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::SOA { Some(SOA::parse_always(parser)) }
+        if rtype == RRType::SOA { Some(Soa::parse_always(parser)) }
         else { None }
     }
 }
 
-impl<'a> fmt::Display for SOA<'a> {
+impl<'a> fmt::Display for Soa<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {} {} {} {} {} {}", self.mname, self.rname,
                self.serial, self.refresh, self.retry, self.expire,
@@ -746,26 +746,26 @@ impl<'a> Iterator for TxtIter<'a> {
 }
 
 
-//------------ WKS ----------------------------------------------------------
+//------------ Wks ----------------------------------------------------------
 
-/// WKS record data.
+/// Wks record data.
 ///
-/// WKS records describe the well-known services supported by a particular
+/// Wks records describe the well-known services supported by a particular
 /// protocol on a particular internet address.
 ///
-/// The WKS record type is defined in RFC 1035, section 3.4.2.
+/// The Wks record type is defined in RFC 1035, section 3.4.2.
 #[derive(Clone, Debug, PartialEq)]
-pub struct WKS<'a> {
+pub struct Wks<'a> {
     address: Ipv4Addr,
     protocol: u8,
     bitmap: Cow<'a, [u8]>
 }
 
-impl<'a> WKS<'a> {
+impl<'a> Wks<'a> {
     /// Creates a new record data from components.
     pub fn new(address: Ipv4Addr, protocol: u8, bitmap: Cow<'a, [u8]>)
                -> Self {
-        WKS { address: address, protocol: protocol, bitmap: bitmap }
+        Wks { address: address, protocol: protocol, bitmap: bitmap }
     }
 
     /// The IPv4 address of the host this record refers to.
@@ -806,12 +806,12 @@ impl<'a> WKS<'a> {
         let proto = try!(parser.parse_u8());
         let len = parser.left();
         let bitmap = Cow::Borrowed(try!(parser.parse_bytes(len)));
-        Ok(WKS::new(addr, proto, bitmap))
+        Ok(Wks::new(addr, proto, bitmap))
     }
 }
 
 
-impl<'a> RecordData<'a> for WKS<'a> {
+impl<'a> RecordData<'a> for Wks<'a> {
     fn rtype(&self) -> RRType { RRType::WKS }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
@@ -824,12 +824,12 @@ impl<'a> RecordData<'a> for WKS<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::WKS { Some(WKS::parse_always(parser)) }
+        if rtype == RRType::WKS { Some(Wks::parse_always(parser)) }
         else { None }
     }
 }
 
-impl<'a> fmt::Display for WKS<'a> {
+impl<'a> fmt::Display for Wks<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "{} {}", self.address, self.protocol));
         for port in self.iter() {
@@ -842,7 +842,7 @@ impl<'a> fmt::Display for WKS<'a> {
 
 //--- WksIter
 
-/// An iterator over the services active in a WKS record.
+/// An iterator over the services active in a Wks record.
 ///
 /// This iterates over the port numbers in growing order.
 #[derive(Clone, Debug, PartialEq)]
