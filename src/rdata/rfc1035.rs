@@ -5,15 +5,15 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::net::Ipv4Addr;
-use super::super::compose::ComposeBytes;
-use super::super::charstr::CharStr;
-use super::super::error::{ComposeResult, ParseResult};
-use super::super::iana::{Class, RRType};
-use super::super::name::{AsDName, DName};
-use super::super::octets::Octets;
-use super::super::parse::ParseBytes;
-use super::super::record::{push_record, RecordTarget};
-use super::traits::RecordData;
+use bits::compose::ComposeBytes;
+use bits::charstr::CharStr;
+use bits::error::{ComposeResult, ParseResult};
+use bits::iana::{Class, RRType};
+use bits::name::{AsDName, DName};
+use bits::octets::Octets;
+use bits::parse::ParseBytes;
+use bits::record::{push_record, RecordTarget};
+use bits::rdata::RecordData;
 
 
 //------------ dname_type! --------------------------------------------------

@@ -1,12 +1,29 @@
-//! Generic Record Data Types
+//! Basic resource data handling.
 
 use std::fmt;
-use super::super::compose::ComposeBytes;
-use super::super::error::{ComposeResult, ParseResult};
-use super::super::iana::RRType;
-use super::super::nest::Nest;
-use super::super::parse::ParseBytes;
-use super::traits::RecordData;
+use super::compose::ComposeBytes;
+use super::error::{ComposeResult, ParseResult};
+use super::iana::RRType;
+use super::nest::Nest;
+use super::parse::ParseBytes;
+
+
+/// A trait for creating record data.
+pub trait RecordData<'a>: fmt::Display + Sized {
+    /// Returns the record type for this record data instance.
+    fn rtype(&self) -> RRType;
+
+    /// Appends the record data to the end of a buffer.
+    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()>;
+
+    /// Parse the record data from a cursor if the type is right.
+    ///
+    /// If this record data type does not feel responsible for records of
+    /// type `rtype`, it should return `Ok(None)`. Otherwise it should
+    /// return something or an error if parsing fails.
+    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+             where P: ParseBytes<'a>;
+}
 
 #[derive(Clone, Debug)]
 pub struct GenericRecordData<'a> {
@@ -54,8 +71,7 @@ impl<'a> RecordData<'a> for GenericRecordData<'a> {
 
 impl<'a> fmt::Display for GenericRecordData<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use super::rfc1035::*;
-        use super::rfc3596::*;
+        use rdata::*;
 
         match self.rtype {
             // RFC 1035
@@ -95,7 +111,7 @@ impl<'a> PartialEq for GenericRecordData<'a> {
     fn eq(&self, other: &Self) -> bool {
         if self.rtype != other.rtype { false }
         else {
-            use super::rfc1035::*;
+            use rdata::rfc1035::*;
 
             match self.rtype {
                 RRType::CNAME => rdata_eq::<CName>(self, other),
@@ -124,3 +140,4 @@ fn rdata_eq<'a, D>(left: &'a GenericRecordData<'a>,
 }
 
 impl<'a> Eq for GenericRecordData<'a> { }
+

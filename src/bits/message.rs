@@ -1039,8 +1039,8 @@ mod test {
     use bits::name::DName;
     use bits::iana::{Class, RRType};
     use bits::question::Question;
-    use bits::rdata::A;
     use bits::record::Record;
+    use rdata::A;
     use super::*;
 
     struct ExampleMessage<'a> {

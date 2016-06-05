@@ -8,5 +8,6 @@ mod macros;
 */
 
 pub mod bits;
+pub mod rdata;
 pub mod resolv;
 

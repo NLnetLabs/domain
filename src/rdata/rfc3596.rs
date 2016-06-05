@@ -4,11 +4,11 @@
 
 use std::fmt;
 use std::net::Ipv6Addr;
-use super::super::compose::ComposeBytes;
-use super::super::error::{ComposeResult, ParseResult};
-use super::super::iana::RRType;
-use super::super::parse::ParseBytes;
-use super::RecordData;
+use bits::compose::ComposeBytes;
+use bits::error::{ComposeResult, ParseResult};
+use bits::iana::RRType;
+use bits::parse::ParseBytes;
+use bits::rdata::RecordData;
 
 
 //------------ AAAA ---------------------------------------------------------
