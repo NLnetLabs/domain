@@ -60,7 +60,7 @@ use std::str;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, FromStrError, FromStrResult, ParseError,
                    ParseResult};
-use super::parse::{ParseBytes, ParsePacked};
+use super::parse::ParseBytes;
 use super::u8::{BytesExt, BytesVecExt};
 
 
@@ -727,9 +727,10 @@ impl DNameBuf {
     }
 
     /// Parses a packed domain name and clones it into an owned name.
-    pub fn parse_compressed<'a, P: ParsePacked<'a>>(parser: &mut P)
-                                                  -> ParseResult<Self> {
-        Ok(try!(try!(PackedDName::parse(parser)).to_owned()))
+    pub fn parse_compressed<'a, P>(parser: &mut P, context: &'a [u8])
+                                   -> ParseResult<Self>
+                            where P: ParseBytes<'a> {
+        Ok(try!(try!(PackedDName::parse(parser, context)).to_owned()))
     }
 
     /// Returns a reference to a domain name slice of this domain name.
@@ -999,12 +1000,13 @@ impl<'a> PackedDName<'a> {
     }
 
     /// Parses a packed domain name.
-    pub fn parse<P: ParsePacked<'a>>(parser: &mut P) -> ParseResult<Self> {
+    pub fn parse<P: ParseBytes<'a>>(parser: &mut P, context: &'a [u8])
+                                    -> ParseResult<Self> {
         let mut sub = parser.sub();
         loop {
             if try!(Label::skip(&mut sub)) {
                 let bytes = try!(parser.parse_bytes(sub.seen()));
-                return Ok(PackedDName::new(bytes, parser.context()))
+                return Ok(PackedDName::new(bytes, context))
             }
         }
     }
@@ -1962,7 +1964,7 @@ mod test {
     use std::ops::Deref;
     use std::str::FromStr;
     use bits::ParseError;
-    use bits::parse::{ParseBytes, SliceParser, ContextParser};
+    use bits::parse::{ParseBytes, ContextParser};
     use super::*;
 
     fn slice(slice: &[u8]) -> &DNameSlice {
@@ -1998,15 +2000,7 @@ mod test {
         // XXX TODO: Binary labels.
     }
 
-    #[test]
-    fn slice_parse() {
-        let mut parser = SliceParser::new(b"\x03foo\x03bar\x00foo");
-        assert_eq!(DNameSlice::parse(&mut parser).unwrap().as_bytes(),
-                   b"\x03foo\x03bar\x00");
-        assert_eq!(parser.left(), 3);
-
-        // XXX MOAR!!!
-    }
+    // DNameSlice::parse: see bits::parse::test.
 
     #[test]
     fn slice_methods() {
@@ -2182,29 +2176,34 @@ mod test {
         assert!(PackedDName::split_from(b"\x70foo", b"").is_err());
     }
 
-    fn good_packed_parse(message: &[u8], name: &[u8], tail: &[u8]) {
+    fn context_parse_dname_ok(message: &[u8], name: &[u8], tail: &[u8]) {
         let mut parser = ContextParser::new(message);
-        let parsed = PackedDName::parse(&mut parser).unwrap();
-        assert_eq!(parsed.slice, name);
-        assert_eq!(parsed.context, message);
-        assert_eq!(parser.left(), tail.len());
-        assert_eq!(parser.parse_bytes(tail.len()).unwrap(), tail);
+        let parsed = parser.parse_dname().unwrap();
+        if let DName::Packed(parsed) = parsed {
+            assert_eq!(parsed.slice, name);
+            assert_eq!(parsed.context, message);
+            assert_eq!(parser.left(), tail.len());
+            assert_eq!(parser.parse_bytes(tail.len()).unwrap(), tail);
+        }
+        else {
+            panic!("Not a packed name");
+        }
     }
 
-    fn bad_packed_parse(message: &[u8], err: ParseError) {
+    fn context_parse_dname_err(message: &[u8], err: ParseError) {
         let mut parser = ContextParser::new(message);
-        assert_eq!(PackedDName::parse(&mut parser), Err(err));
+        assert_eq!(parser.parse_dname(), Err(err));
     }
 
     #[test]
-    fn packed_parse() {
-        good_packed_parse(b"\x03foo\x03bar\x00baz", b"\x03foo\x03bar\x00",
+    fn context_parse_dname() {
+        context_parse_dname_ok(b"\x03foo\x03bar\x00baz", b"\x03foo\x03bar\x00",
                           b"baz");
-        good_packed_parse(b"\x03foo\xc0\x00baz", b"\x03foo\xc0\x00",
+        context_parse_dname_ok(b"\x03foo\xc0\x00baz", b"\x03foo\xc0\x00",
                           b"baz");
 
-        bad_packed_parse(b"\x03foo\x03ba", ParseError::UnexpectedEnd);
-        bad_packed_parse(b"\x03foo\x70ba", ParseError::UnknownLabel);
+        context_parse_dname_err(b"\x03foo\x03ba", ParseError::UnexpectedEnd);
+        context_parse_dname_err(b"\x03foo\x70ba", ParseError::UnknownLabel);
     }
 
     #[test]

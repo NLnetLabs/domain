@@ -47,6 +47,11 @@ impl<'a> Octets<'a> {
     pub fn clone_bytes(bytes: &[u8]) -> Self {
         Octets::from_vec(bytes.to_owned())
     }
+
+    /// Returns an the underlying bytes slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        self
+    }
 }
 
 /// # Parsing and Composing

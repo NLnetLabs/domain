@@ -10,7 +10,7 @@ use std::ops::Deref;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
 use super::name::DName;
-use super::parse::{ParseBytes, ParsePacked, SliceParser, ContextParser};
+use super::parse::{ParseBytes, SliceParser, ContextParser};
 
 
 //------------ Nest --------------------------------------------------------
@@ -284,10 +284,9 @@ impl<'a> PackedNest<'a> {
     }
 
     /// Parses a packed nest.
-    pub fn parse<P: ParsePacked<'a>>(parser: &mut P, len: usize)
-                                   -> ParseResult<Self> {
-        Ok(PackedNest::new(try!(parser.parse_bytes(len)),
-                          parser.context()))
+    pub fn parse<P: ParseBytes<'a>>(parser: &mut P, context: &'a [u8],
+                                    len: usize) -> ParseResult<Self> {
+        Ok(PackedNest::new(try!(parser.parse_bytes(len)), context))
     }
 
     /// Returns the data of the packed nest.

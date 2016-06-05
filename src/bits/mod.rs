@@ -9,6 +9,7 @@ pub use self::message::{Message, MessageBuf, MessageBuilder};
 pub use self::name::{DName, DNameSlice, DNameBuf, PackedDName};
 pub use self::nest::Nest;
 pub use self::octets::Octets;
+pub use self::parse::{ParseBytes};
 pub use self::question::Question;
 
 pub mod charstr;

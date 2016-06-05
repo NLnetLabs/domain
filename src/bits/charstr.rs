@@ -60,7 +60,7 @@ impl<'a> CharStr<'a> {
     }
 
     /// Returns a bytes slice of the data.
-    pub fn as_slice(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
@@ -283,9 +283,9 @@ mod test {
         
         let mut p = SliceParser::new(b"\x03foo\x03baroo");
         let r = CharStr::parse(&mut p).unwrap();
-        assert_eq!(r.as_slice(), &b"foo"[..]);
+        assert_eq!(r.as_bytes(), &b"foo"[..]);
         let o = CharStr::parse(&mut p).unwrap();
-        assert_eq!(o.as_slice(), &b"bar"[..]);
+        assert_eq!(o.as_bytes(), &b"bar"[..]);
         assert_eq!(p.left(), 2);
 
         let mut c = ComposeBuf::new(None, false);
@@ -300,7 +300,7 @@ mod test {
         o.push(b'f').unwrap(); 
         o.push(b'o').unwrap(); 
         o.push(b'o').unwrap(); 
-        assert_eq!(o.as_slice(), b"foo");
+        assert_eq!(o.as_bytes(), b"foo");
 
         let s = [0u8; 254];
         let mut o = unsafe { CharStr::from_bytes(&s) };
@@ -314,7 +314,7 @@ mod test {
     fn extend() {
         let mut o = CharStr::borrowed(b"foo").unwrap();
         o.extend(b"bar").unwrap();
-        assert_eq!(o.as_slice(), b"foobar");
+        assert_eq!(o.as_bytes(), b"foobar");
         assert!(o.clone().extend(&[0u8; 250]).is_err());
         o.extend(&[0u8; 249]).unwrap();
         assert_eq!(o.len(), 255);
@@ -324,11 +324,11 @@ mod test {
     fn from_str() {
         use std::str::FromStr;
 
-        assert_eq!(CharStr::from_str("foo").unwrap().as_slice(),
+        assert_eq!(CharStr::from_str("foo").unwrap().as_bytes(),
                    b"foo");
-        assert_eq!(CharStr::from_str("f\\oo").unwrap().as_slice(),
+        assert_eq!(CharStr::from_str("f\\oo").unwrap().as_bytes(),
                    b"foo");
-        assert_eq!(CharStr::from_str("foo\\112").unwrap().as_slice(),
+        assert_eq!(CharStr::from_str("foo\\112").unwrap().as_bytes(),
                    b"foo\x70");
         assert!(CharStr::from_str("ö").is_err());
         assert!(CharStr::from_str("\x06").is_err());
