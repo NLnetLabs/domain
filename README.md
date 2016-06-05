@@ -27,36 +27,51 @@ things can change without notice.
 
 Eventually, this crate will provide the following functions:
 
-* [ ] Types for DNS data.
+* [ ] DNS data handling
     
     * [X] Basic types.
+
     * [ ] Implementations for all IANA-registered record type.
 
-* [X] Wire-format parsing and constructing.
+    * [X] Wire-format parsing and constructing.
 
-* [ ] Zonefile parsing and constructing.
+    * [ ] Zonefile parsing and constructing.
 
 * [ ] Stub resolver.
 
-* [ ] Recursive resolver.
+    * [X] [rotor](https://github.com/tailhook/rotor)-based asynchronous
+          stub resolver.
 
-* [ ] Authoritative name server.
+    * [ ] rich set of DNS applications:
 
-It will provide for the following DNS extensions and applications:
+        * [X] querying for raw DNS records.
 
-* [ ] EDNS0.
+        * [ ] querying for host names.
 
-* [ ] NOTIFY and zone transfer.
+        * [ ] querying for mail servers (MX records).
 
-* [ ] UPDATE.
+        * [ ] querying for server addresses based on SRV.
 
-* [ ] DNSSEC verification.
+        * [ ] verification of server certificates based on TLSA.
 
-* [ ] DNSSEC signing.
+        * [ ] verification of PGP keys based on OPENPGPKEY.
 
-* [ ] DANE.
+        * [ ] verification of S/MIME certificates based on SMIMEA.
 
-* and probably more.
+    * [ ] EDNS support.
+
+    * [ ] DNSSEC verification of records.
+
+    * [ ] DTLS- and TLS-secured connections to upstream resolver.
+
+* [ ] Recursive resolver (details TBD).
+
+* [ ] Authoritative name server (details TBD).
+
+The idea for both the recursive resolver and the authoritative name server
+currently is to supply libraries that allow including this functionality
+in programs instead of building general purpose products. We may split
+the four top-level points into separate crates along the way.
 
 
 ## Contributing
