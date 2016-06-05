@@ -11,6 +11,7 @@ pub use self::nest::Nest;
 pub use self::octets::Octets;
 pub use self::parse::{ParseBytes};
 pub use self::question::Question;
+pub use self::rdata::{GenericRecordData, RecordData};
 
 pub mod charstr;
 pub mod compose;

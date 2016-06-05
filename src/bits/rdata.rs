@@ -180,12 +180,11 @@ impl<'a> PartialEq for GenericRecordData<'a> {
     }
 }
 
+/// Parse and then compare with concrete type.
 fn rdata_eq<'a, D>(left: &'a GenericRecordData<'a>,
                    right: &'a GenericRecordData<'a>) -> bool
             where D: RecordData<'a> + PartialEq {
     D::parse(left.rtype, &mut left.data.parser())
         == D::parse(right.rtype, &mut right.data.parser())
 }
-
-impl<'a> Eq for GenericRecordData<'a> { }
 

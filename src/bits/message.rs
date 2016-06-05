@@ -626,16 +626,15 @@ impl<'a, D: RecordData<'a>> Iterator for RecordIter<'a, D> {
             match self.count {
                 Ok(count) if count > 0 => {
                     match Record::parse(&mut self.parser) {
-                        Some(Ok(record)) => {
+                        Ok(result) => {
                             self.count = Ok(count - 1);
-                            return Some(Ok(record))
+                            if let Some(record) = result {
+                                return Some(Ok(record))
+                            }
                         }
-                        Some(Err(err)) => {
+                        Err(err) => {
                             self.count = Err(err.clone());
                             return Some(Err(err))
-                        }
-                        None => {
-                            self.count = Ok(count - 1);
                         }
                     }
                 }
