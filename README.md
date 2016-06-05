@@ -44,6 +44,8 @@ Eventually, this crate will provide the following functions:
 
 It will provide for the following DNS extensions and applications:
 
+* [ ] EDNS0.
+
 * [ ] NOTIFY and zone transfer.
 
 * [ ] UPDATE.
@@ -63,5 +65,5 @@ If you have comments, proposed changes, or would like to contribute,
 please open an issue. Given that things are very early and in flux, a
 PR without an issue first may or may not be a good idea. The current code
 may lag behind the several changes of mind I’ve had in figuring out the
-best way to do thing.
+best way to do things.
 
