@@ -1,4 +1,4 @@
-# domain-rs
+# domain
 A DNS library for Rust.
 
 [![Travis Build Status](https://travis-ci.org/cloudshipping/domain.svg?branch=master)](https://travis-ci.org/cloudshipping/domain)
@@ -10,7 +10,7 @@ feel like using it anyway, add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-domain-rs = { git = "https://github.com/cloudshipping/domain.git" }
+domain = { git = "https://github.com/cloudshipping/domain.git" }
 ```
 
 Then, add this to your crate root:
