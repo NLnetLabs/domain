@@ -25,6 +25,18 @@ impl AAAA {
 
     pub fn addr(&self) -> &Ipv6Addr { &self.addr }
     pub fn addr_mut(&mut self) -> &mut Ipv6Addr {&mut self.addr }
+
+    fn parse_always<'a, P>(parser: &mut P) -> ParseResult<Self>
+                    where P: ParseBytes<'a> {
+        Ok(AAAA::new(Ipv6Addr::new(try!(parser.parse_u16()),
+                                   try!(parser.parse_u16()),
+                                   try!(parser.parse_u16()),
+                                   try!(parser.parse_u16()),
+                                   try!(parser.parse_u16()),
+                                   try!(parser.parse_u16()),
+                                   try!(parser.parse_u16()),
+                                   try!(parser.parse_u16()))))
+    }
 }
 
 impl<'a> RecordData<'a> for AAAA {
@@ -37,17 +49,10 @@ impl<'a> RecordData<'a> for AAAA {
         Ok(())
     }
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype != RRType::AAAA { return Ok(None) }
-        Ok(Some(AAAA::new(Ipv6Addr::new(try!(parser.parse_u16()),
-                                        try!(parser.parse_u16()),
-                                        try!(parser.parse_u16()),
-                                        try!(parser.parse_u16()),
-                                        try!(parser.parse_u16()),
-                                        try!(parser.parse_u16()),
-                                        try!(parser.parse_u16()),
-                                        try!(parser.parse_u16())))))
+        if rtype == RRType::AAAA { Some(AAAA::parse_always(parser)) }
+        else { None }
     }
 }
 

@@ -32,6 +32,11 @@ macro_rules! dname_type {
             pub fn $field(&self) -> &DName<'a> {
                 &self.$field
             }
+
+            fn parse_always<P>(parser: &mut P) -> ParseResult<Self>
+                            where P: ParseBytes<'a> {
+                Ok($target::new(try!(parser.parse_dname())))
+            }
         }
 
         impl<'a> RecordData<'a> for $target<'a> {
@@ -43,10 +48,12 @@ macro_rules! dname_type {
             }
         
             fn parse<P>(rtype: RRType, parser: &mut P)
-                        -> ParseResult<Option<Self>>
+                        -> Option<ParseResult<Self>>
                      where P: ParseBytes<'a> {
-                if rtype != RRType::$rtype { Ok(None) }
-                else { Ok(Some($target::new(try!(parser.parse_dname())))) }
+                if rtype == RRType::$rtype {
+                    Some($target::parse_always(parser))
+                }
+                else { None }
             }
         }
 
@@ -103,6 +110,14 @@ impl A {
     }
 
     pub fn rtype() -> RRType { RRType::A }
+
+    fn parse_always<'a, P>(parser: &mut P) -> ParseResult<Self>
+                    where P: ParseBytes<'a> {
+        Ok(A::new(Ipv4Addr::new(try!(parser.parse_u8()),
+                                try!(parser.parse_u8()),
+                                try!(parser.parse_u8()),
+                                try!(parser.parse_u8()))))
+    }
 }
 
 impl<'a> RecordData<'a> for A {
@@ -115,13 +130,10 @@ impl<'a> RecordData<'a> for A {
         Ok(())
     }
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype != RRType::A { return Ok(None) }
-        Ok(Some(A::new(Ipv4Addr::new(try!(parser.parse_u8()),
-                                     try!(parser.parse_u8()),
-                                     try!(parser.parse_u8()),
-                                     try!(parser.parse_u8())))))
+        if rtype == RRType::A { Some(A::parse_always(parser)) }
+        else { None }
     }
 }
 
@@ -177,6 +189,11 @@ impl<'a> HInfo<'a> {
     pub fn os(&self) -> &CharStr<'a> {
         &self.os
     }
+
+    fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
+        Ok(HInfo::new(try!(parser.parse_charstr()),
+                      try!(parser.parse_charstr())))
+    }
 }
 
 impl<'a> RecordData<'a> for HInfo<'a> {
@@ -188,13 +205,10 @@ impl<'a> RecordData<'a> for HInfo<'a> {
         Ok(())
     }
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype != RRType::HINFO { Ok(None) }
-        else {
-            Ok(Some(HInfo::new(try!(parser.parse_charstr()),
-                               try!(parser.parse_charstr()))))
-        }
+        if rtype == RRType::HINFO { Some(HInfo::parse_always(parser)) }
+        else { None }
     }
 }
 
@@ -318,6 +332,11 @@ impl<'a> MInfo<'a> {
     pub fn emailbx(&self) -> &DName<'a> {
         &self.emailbx
     }
+
+    fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
+        Ok(MInfo::new(try!(parser.parse_dname()),
+                      try!(parser.parse_dname())))
+    }
 }
 
 impl<'a> RecordData<'a> for MInfo<'a> {
@@ -330,13 +349,10 @@ impl<'a> RecordData<'a> for MInfo<'a> {
         Ok(())
     }
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype != RRType::MINFO { Ok(None) }
-        else {
-            Ok(Some(MInfo::new(try!(parser.parse_dname()),
-                               try!(parser.parse_dname()))))
-        }
+        if rtype == RRType::MINFO { Some(MInfo::parse_always(parser)) }
+        else { None }
     }
 }
 
@@ -397,6 +413,11 @@ impl<'a> MX<'a> {
     pub fn exchange(&self) -> &DName<'a> {
         &self.exchange
     }
+
+    fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
+        Ok(MX::new(try!(parser.parse_u16()),
+                   try!(parser.parse_dname())))
+    }
 }
 
 impl<'a> RecordData<'a> for MX<'a> {
@@ -409,13 +430,10 @@ impl<'a> RecordData<'a> for MX<'a> {
         Ok(())
     }
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype != RRType::MX { Ok(None) }
-        else {
-            Ok(Some(MX::new(try!(parser.parse_u16()),
-                            try!(parser.parse_dname()))))
-        }
+        if rtype == RRType::MX { Some(MX::parse_always(parser)) }
+        else { None }
     }
 }
 
@@ -464,6 +482,11 @@ impl<'a> Null<'a> {
     pub fn data(&self) -> &[u8] {
         &self.data
     }
+
+    fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
+        let len = parser.left();
+        Ok(Null::new(try!(parser.parse_octets(len))))
+    }
 }
 
 impl<'a> RecordData<'a> for Null<'a> {
@@ -473,13 +496,10 @@ impl<'a> RecordData<'a> for Null<'a> {
         target.push_octets(&self.data)
     }
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype != RRType::NULL { Ok(None) }
-        else {
-            let len = parser.left();
-            Ok(Some(Null::new(try!(parser.parse_octets(len)))))
-        }
+        if rtype == RRType::NULL { Some(Null::parse_always(parser)) }
+        else { None }
     }
 }
 
@@ -577,6 +597,13 @@ impl<'a> SOA<'a> {
     pub fn minimum(&self) -> u32 {
         self.minimum
     }
+
+    fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
+        Ok(SOA::new(try!(parser.parse_dname()), try!(parser.parse_dname()),
+                    try!(parser.parse_u32()), try!(parser.parse_u32()),
+                    try!(parser.parse_u32()), try!(parser.parse_u32()),
+                    try!(parser.parse_u32())))
+    }
 }
 
 impl<'a> RecordData<'a> for SOA<'a> {
@@ -593,18 +620,10 @@ impl<'a> RecordData<'a> for SOA<'a> {
         Ok(())
     }
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype != RRType::SOA { Ok(None) }
-        else {
-            Ok(Some(SOA::new(try!(parser.parse_dname()),
-                             try!(parser.parse_dname()),
-                             try!(parser.parse_u32()),
-                             try!(parser.parse_u32()),
-                             try!(parser.parse_u32()),
-                             try!(parser.parse_u32()),
-                             try!(parser.parse_u32()))))
-        }
+        if rtype == RRType::SOA { Some(SOA::parse_always(parser)) }
+        else { None }
     }
 }
 
@@ -662,6 +681,11 @@ impl<'a> Txt<'a> {
             Cow::Owned(res)
         }
     }
+
+    fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
+        let len = parser.left();
+        Ok(Txt::new(Cow::Borrowed(try!(parser.parse_bytes(len)))))
+    }
 }
 
 impl<'a> RecordData<'a> for Txt<'a> {
@@ -671,13 +695,10 @@ impl<'a> RecordData<'a> for Txt<'a> {
         target.push_bytes(&self.text)
     }
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype != RRType::TXT { Ok(None) }
-        else {
-            let len = parser.left();
-            Ok(Some(Txt::new(Cow::Borrowed(try!(parser.parse_bytes(len))))))
-        }
+        if rtype == RRType::TXT { Some(Txt::parse_always(parser)) }
+        else { None }
     }
 }
 
@@ -776,6 +797,17 @@ impl<'a> WKS<'a> {
     pub fn iter(&self) -> WksIter {
         WksIter::new(&self.bitmap)
     }
+
+    fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
+        let addr = Ipv4Addr::new(try!(parser.parse_u8()),
+                                 try!(parser.parse_u8()),
+                                 try!(parser.parse_u8()),
+                                 try!(parser.parse_u8()));
+        let proto = try!(parser.parse_u8());
+        let len = parser.left();
+        let bitmap = Cow::Borrowed(try!(parser.parse_bytes(len)));
+        Ok(WKS::new(addr, proto, bitmap))
+    }
 }
 
 
@@ -790,19 +822,10 @@ impl<'a> RecordData<'a> for WKS<'a> {
         target.push_bytes(&self.bitmap)
     }
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> ParseResult<Option<Self>>
+    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype != RRType::WKS { Ok(None) }
-        else {
-            let addr = Ipv4Addr::new(try!(parser.parse_u8()),
-                                     try!(parser.parse_u8()),
-                                     try!(parser.parse_u8()),
-                                     try!(parser.parse_u8()));
-            let proto = try!(parser.parse_u8());
-            let len = parser.left();
-            let bitmap = Cow::Borrowed(try!(parser.parse_bytes(len)));
-            Ok(Some(WKS::new(addr, proto, bitmap)))
-        }
+        if rtype == RRType::WKS { Some(WKS::parse_always(parser)) }
+        else { None }
     }
 }
 

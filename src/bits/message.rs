@@ -499,7 +499,7 @@ impl Section {
 /// ```no_run
 /// use domain::bits::ParseResult;
 /// use domain::bits::message::RecordSection;
-/// use domain::bits::rdata::A;
+/// use domain::rdata::A;
 ///
 /// fn print_a(section: &RecordSection) -> ParseResult<()> {
 ///     for record in section.iter::<A>() {
@@ -626,15 +626,16 @@ impl<'a, D: RecordData<'a>> Iterator for RecordIter<'a, D> {
             match self.count {
                 Ok(count) if count > 0 => {
                     match Record::parse(&mut self.parser) {
-                        Ok(result) => {
+                        Some(Ok(record)) => {
                             self.count = Ok(count - 1);
-                            if let Some(record) = result {
-                                return Some(Ok(record))
-                            }
+                            return Some(Ok(record))
                         }
-                        Err(err) => {
+                        Some(Err(err)) => {
                             self.count = Err(err.clone());
                             return Some(Err(err))
+                        }
+                        None => {
+                            self.count = Ok(count - 1);
                         }
                     }
                 }
@@ -702,7 +703,7 @@ impl<'a, D: RecordData<'a>> Iterator for RecordIter<'a, D> {
 /// ```
 /// use std::str::FromStr;
 /// use domain::bits::{DNameBuf, MessageBuilder, Question};
-/// use domain::bits::rdata::A;
+/// use domain::rdata::A;
 ///
 /// let name = DNameBuf::from_str("example.com.").unwrap();
 /// let mut msg = MessageBuilder::new(Some(512), true).unwrap();

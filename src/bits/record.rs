@@ -58,20 +58,31 @@ impl<'a, D: RecordData<'a>> Record<'a, D> {
     }
 }
 
+macro_rules! try_opt {
+    ( $expr:expr ) => {
+        match $expr {
+            Ok(some) => some,
+            Err(err) => return Some(Err(err.into()))
+        }
+    }
+}
 
 /// Parsing and Composing
 ///
 impl<'a, D: RecordData<'a>> Record<'a, D> {
-    pub fn parse<P>(parser: &mut P) -> ParseResult<Option<Self>>
+    pub fn parse<P>(parser: &mut P) -> Option<ParseResult<Self>>
                  where P: ParseBytes<'a> {
-        let name = try!(parser.parse_dname());
-        let rtype = try!(parser.parse_u16()).into();
-        let class = try!(parser.parse_u16()).into();
-        let ttl = try!(parser.parse_u32());
-        let rdlen = try!(parser.parse_u16()) as usize;
-        let mut rdata_sub = try!(parser.parse_sub(rdlen));
-        Ok(try!(D::parse(rtype, &mut rdata_sub))
-                  .map(|rdata| Record::new(name, class, ttl, rdata)))
+        let name = try_opt!(parser.parse_dname());
+        let rtype = try_opt!(parser.parse_u16()).into();
+        let class = try_opt!(parser.parse_u16()).into();
+        let ttl = try_opt!(parser.parse_u32());
+        let rdlen = try_opt!(parser.parse_u16()) as usize;
+        let mut rdata_sub = try_opt!(parser.parse_sub(rdlen));
+        match D::parse(rtype, &mut rdata_sub) {
+            Some(Ok(data)) => Some(Ok(Record::new(name, class, ttl, data))),
+            Some(Err(err)) => Some(Err(err)),
+            None => None
+        }
     }
 
     pub fn compose<C: ComposeBytes>(&self, target: &mut C)
