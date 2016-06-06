@@ -31,7 +31,7 @@ Eventually, this crate will provide the following functions:
     
     * [X] Basic types.
 
-    * [ ] Implementations for all IANA-registered record type.
+    * [ ] Implementations for all IANA-registered record types.
 
     * [X] Wire-format parsing and constructing.
 
@@ -39,24 +39,26 @@ Eventually, this crate will provide the following functions:
 
 * [ ] Stub resolver.
 
-    * [X] [rotor](https://github.com/tailhook/rotor)-based asynchronous
+    * [X] [Rotor](https://github.com/tailhook/rotor)-based asynchronous
           stub resolver.
 
-    * [ ] rich set of DNS applications:
+    * [ ] Rich set of DNS applications:
 
-        * [X] querying for raw DNS records.
+        * [X] querying for raw DNS records,
 
-        * [ ] querying for host names.
+        * [ ] querying for host names,
 
-        * [ ] querying for mail servers (MX records).
+        * [ ] reverse host name queries,
 
-        * [ ] querying for server addresses based on SRV.
+        * [ ] querying for mail servers (MX records),
 
-        * [ ] verification of server certificates based on TLSA.
+        * [ ] querying for server addresses based on SRV,
 
-        * [ ] verification of PGP keys based on OPENPGPKEY.
+        * [ ] verification of server certificates based on TLSA,
 
-        * [ ] verification of S/MIME certificates based on SMIMEA.
+        * [ ] verification of PGP keys based on OPENPGPKEY,
+
+        * [ ] verification of S/MIME certificates based on SMIMEA,
 
     * [ ] EDNS support.
 
