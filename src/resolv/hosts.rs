@@ -1,4 +1,7 @@
-//! Static host table
+//! Static host table.
+//!
+//! This module implements `Hosts` representing the static host table
+//! commonly stored in `/etc/hosts`.
 
 use std::collections::HashMap;
 use std::convert;
@@ -16,6 +19,25 @@ use bits::name::{DNameSlice, DNameBuf};
 
 //------------ Hosts --------------------------------------------------------
 
+/// A type for the static host table.
+///
+/// The static host table maps host names to IP addresses. It is used to
+/// either give names to addresses that do not appear in DNS or to overide
+/// address information from DNS.
+///
+/// The type implements two lookup functions: `lookup_host()` takes a host
+/// name and tries to find an IP address for it, and `lookup_addr()` takes
+/// an IP address and tries to find a canonical host name for it.
+///
+/// You can create an empty host map to start with using `Hosts::new()`,
+/// create one by parsing a hosts file with `Hosts::parse()` or
+/// `Hosts::parse_file()`, or start with the system’s configure map by
+/// calling `Hosts::default()`.
+///
+/// You then can add entries using `add_forward()` and `add_reverse()`. Note
+/// that these calls don’t have to add matching information but rather
+/// the forward (host name to address) and reverse (address to host name)
+/// are independent.
 #[derive(Clone, Debug)]
 pub struct Hosts {
     forward: HashMap<DNameBuf, IpAddr>,
@@ -59,7 +81,8 @@ impl Hosts {
 ///
 impl Hosts {
     /// Looks up the address of a host.
-    pub fn lookup_host<N: AsRef<DNameSlice>>(&self, name: N) -> Option<IpAddr> {
+    pub fn lookup_host<N: AsRef<DNameSlice>>(&self, name: N)
+                                             -> Option<IpAddr> {
         self._lookup_host(name.as_ref())
     }
 
@@ -127,9 +150,13 @@ impl Hosts {
 
 //------------ Error and Result ---------------------------------------------
 
+/// An error happend during parsing a hosts file.
 #[derive(Debug)]
 pub enum Error {
+    /// The host file is kaputt.
     ParseError,
+
+    /// Reading failed.
     IoError(io::Error),
 }
 

@@ -25,6 +25,13 @@ use ::bits::name::DNameBuf;
 
 //------------ ResolvOptions ------------------------------------------------
 
+/// Options for the resolver configuration.
+///
+/// This type contains a lot of flags that influence the resolver
+/// configuration. It collects all the flags that glibc’s resolver
+/// supports. Not all of them are currently supported by this implementation.
+///
+/// XXX TODO Say which are not yet supported.
 #[derive(Clone, Debug)]
 pub struct ResolvOptions {
     /// Accept authoritative answers only.
@@ -113,7 +120,25 @@ impl Default for ResolvOptions {
 
 //------------ ResolvConf ---------------------------------------------------
 
-/// Resolver configuration
+/// Resolver configuration.
+///
+/// This type collects all information necessary to configure how a stub
+/// resolver talks to its upstream resolvers.
+///
+/// The type follows the builder pattern. After creating a value with
+/// `ResolvConf::new()` you can manipulate the members. Once you are happy
+/// with them, you call `finalize()` to make sure the configuration is valid.
+/// It mostly just fixes the `servers`.
+///
+/// Additionally, the type can parse a glibc-style configuration file,
+/// commonly known as `/etc/resolv.conf` through the `parse()` and
+/// `parse_file()` methods. You still need to call `finalize()` after
+/// parsing.
+///
+/// The easiest way, however, to get the system resolver configuration is
+/// through `ResolvConf::default()`. This will parse the configuration file
+/// or return a default configuration if that fails.
+///
 #[derive(Clone, Debug)]
 pub struct ResolvConf {
     /// Addresses of servers to query.
@@ -319,8 +344,84 @@ impl ResolvConf {
 }
 
 
-//------------ Private Helpers ----------------------------------------------
+//--- Display
 
+impl fmt::Display for ResolvConf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for server in self.servers.iter() {
+            try!("nameserver ".fmt(f));
+            if server.port() == 53 { try!(server.ip().fmt(f)); }
+            else { try!(server.fmt(f)); }
+        }
+        if self.search.len() == 1 {
+            try!(write!(f, "domain {}\n", self.search[0]));
+        }
+        else if self.search.len() > 1 {
+            try!("search".fmt(f));
+            for name in self.search.iter() {
+                try!(write!(f, " {}", name));
+            }
+            try!("\n".fmt(f));
+        }
+
+        // Collect options so we only print them if there are any non-default
+        // ones.
+        let mut options = Vec::new();
+        
+        if self.ndots != 1 {
+            options.push(format!("ndots:{}", self.ndots));
+        }
+        if self.timeout != Duration::new(5,0) {
+            // XXX This ignores fractional seconds.
+            options.push(format!("timeout:{}", self.timeout.as_secs()));
+        }
+        if self.attempts != 2 {
+            options.push(format!("attempts:{}", self.attempts));
+        }
+        if self.options.aa_only { options.push("aa-only".into()) }
+        if self.options.use_vc { options.push("use-vc".into()) }
+        if self.options.primary { options.push("primary".into()) }
+        if self.options.ign_tc { options.push("ign-tc".into()) }
+        if !self.options.recurse { options.push("no-recurse".into()) }
+        if !self.options.default_names {
+            options.push("no-default-names".into())
+        }
+        if self.options.stay_open { options.push("stay-open".into()) }
+        if !self.options.dn_search { options.push("no-dn-search".into()) }
+        if self.options.use_inet6 { options.push("use-inet6".into()) }
+        if self.options.rotate { options.push("rotate".into()) }
+        if self.options.no_check_name { options.push("no-check-name".into()) }
+        if self.options.keep_tsig { options.push("keep-tsig".into()) }
+        if self.options.blast { options.push("blast".into()) }
+        if self.options.use_bstring { options.push("use-bstring".into()) }
+        if self.options.use_ip6dotint { options.push("ip6dotint".into()) }
+        if self.options.use_edns0 { options.push("use-edns0".into()) }
+        if self.options.single_request {
+            options.push("single-request".into())
+        }
+        if self.options.single_request_reopen {
+            options.push("single-request-reopen".into())
+        }
+        if self.options.no_tld_query { options.push("no-tld-query".into()) }
+
+        if !options.is_empty() {
+            try!("options".fmt(f));
+            for option in options {
+                try!(write!(f, " {}", option));
+            }
+            try!("\n".fmt(f));
+        }
+
+        Ok(())
+    }
+}
+
+
+//------------ Private Helpers ----------------------------------------------
+//
+// These are here to wrap stuff into Results.
+
+/// Returns a reference to the next word or an error.
 fn next_word<'a>(words: &'a mut str::SplitWhitespace) -> Result<&'a str> {
     match words.next() {
         Some(word) => Ok(word),
@@ -328,6 +429,7 @@ fn next_word<'a>(words: &'a mut str::SplitWhitespace) -> Result<&'a str> {
     }
 }
 
+/// Returns nothing but errors out if there are words left.
 fn no_more_words(mut words: str::SplitWhitespace) -> Result<()> {
     match words.next() {
         Some(..) => Err(Error::ParseError),
@@ -335,11 +437,15 @@ fn no_more_words(mut words: str::SplitWhitespace) -> Result<()> {
     }
 }
 
+/// Splits the name and argument from an option with arguments.
+///
+/// These options consist of a name followed by a colon followed by a
+/// value, which so far is only `usize`, so we do that.
 fn split_arg<'a>(s: &'a str) -> Result<(&'a str, Option<usize>)> {
     match s.find(':') {
         Some(idx) => {
             let (left, right) = s.split_at(idx);
-            Ok((left, Some(try!(usize::from_str_radix(right, 10)))))
+            Ok((left, Some(try!(usize::from_str_radix(&right[1..], 10)))))
         }
         None => Ok((s, None))
     }
@@ -348,9 +454,13 @@ fn split_arg<'a>(s: &'a str) -> Result<(&'a str, Option<usize>)> {
 
 //------------ Error and Result ---------------------------------------------
 
+/// The error that can happen when parsing `resolv.conf`.
 #[derive(Debug)]
 pub enum Error {
+    /// The file is not a proper file.
     ParseError,
+
+    /// Something happend while reading.
     IoError(io::Error),
 }
 
@@ -389,6 +499,7 @@ impl fmt::Display for Error {
     }
 }
 
+/// The result from parsing `resolv.conf`.
 pub type Result<T> = result::Result<T, Error>;
 
 
@@ -404,8 +515,9 @@ mod test {
         let mut conf = ResolvConf::new();
         let data = "nameserver 192.0.2.0\n\
                     nameserver 192.0.2.1\n\
-                    options use-vc".to_string();
+                    options use-vc ndots:122\n".to_string();
         assert!(conf.parse(&mut io::Cursor::new(data)).is_ok());
         assert!(conf.options.use_vc);
+        assert_eq!(conf.ndots, 122);
     }
 }

@@ -1,4 +1,4 @@
-//! Errors and results.
+//! Resolver errors and results.
 
 use std::error;
 use std::io;
@@ -9,6 +9,7 @@ use bits::ComposeError;
 
 //------------ Error --------------------------------------------------------
 
+/// An error happened when processing a task.
 #[derive(Debug)]
 pub enum Error {
     /// The question was all broken.
@@ -68,4 +69,6 @@ impl fmt::Display for Error {
 
 //------------ Result -------------------------------------------------------
 
+/// The result of processing a task.
 pub type Result<T> = result::Result<T, Error>;
+

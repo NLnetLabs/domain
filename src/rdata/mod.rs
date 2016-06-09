@@ -12,41 +12,43 @@
 //! of all the record data types defined somewhere in this module in
 //! alphabetic order.
 //!
-//! * <tt>[rfc1035](rfc1035/index.html)::[A](rfc1035/struct.A.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[A](rfc1035/struct.A.html)
 //!   (a host address),
-//! * <tt>[rfc3596](rfc3596/index.html)::[AAAA](rfc3596/struct.AAAA.html)</tt>
+//! * [rfc3596](rfc3596/index.html)::[AAAA](rfc3596/struct.AAAA.html)
 //!   (IPv6 address),
-//! * <tt>[rfc1035](rfc1035/index.html)::[CName](rfc1035/struct.CName.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[CName](rfc1035/struct.CName.html)
 //!   (the canonical name for an alias),
-//! * <tt>[rfc1035](rfc1035/index.html)::[HInfo](rfc1035/struct.HInfo.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[HInfo](rfc1035/struct.HInfo.html)
 //!   (host information),
-//! * <tt>[rfc1035](rfc1035/index.html)::[MB](rfc1035/struct.MB.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[MB](rfc1035/struct.MB.html)
 //!   (a mailbox domain name; experimental),
-//! * <tt>[rfc1035](rfc1035/index.html)::[MD](rfc1035/struct.MD.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[MD](rfc1035/struct.MD.html)
 //!   (a mail destination; obsolete – use MX),
-//! * <tt>[rfc1035](rfc1035/index.html)::[MF](rfc1035/struct.MF.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[MF](rfc1035/struct.MF.html)
 //!   (a mail forwarder; obsolete – use MX),
-//! * <tt>[rfc1035](rfc1035/index.html)::[MG](rfc1035/struct.MG.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[MG](rfc1035/struct.MG.html)
 //!   (a mail group member; experimental),
-//! * <tt>[rfc1035](rfc1035/index.html)::[MInfo](rfc1035/struct.MInfo.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[MInfo](rfc1035/struct.MInfo.html)
 //!   (mailbox or mail list information),
-//! * <tt>[rfc1035](rfc1035/index.html)::[MR](rfc1035/struct.MR.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[MR](rfc1035/struct.MR.html)
 //!   (a mail rename domain name; experimental),
-//! * <tt>[rfc1035](rfc1035/index.html)::[MX](rfc1035/struct.MX.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[MX](rfc1035/struct.MX.html)
 //!   (mail exchange),
-//! * <tt>[rfc1035](rfc1035/index.html)::[NS](rfc1035/struct.NS.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[NS](rfc1035/struct.NS.html)
 //!   (an authoritative name server),
-//! * <tt>[rfc1035](rfc1035/index.html)::[Null](rfc1035/struct.Null.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[Null](rfc1035/struct.Null.html)
 //!   (a null RR; experimental),
-//! * <tt>[rfc1035](rfc1035/index.html)::[Ptr](rfc1035/struct.Ptr.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[Ptr](rfc1035/struct.Ptr.html)
 //!   (a domain name pointer),
-//! * <tt>[rfc1035](rfc1035/index.html)::[Soa](rfc1035/struct.Soa.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[Soa](rfc1035/struct.Soa.html)
 //!   (marks the start of a zone of authority),
-//! * <tt>[rfc1035](rfc1035/index.html)::[Txt](rfc1035/struct.Txt.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[Txt](rfc1035/struct.Txt.html)
 //!   (text strings),
-//! * <tt>[rfc1035](rfc1035/index.html)::[Wks](rfc1035/struct.Wks.html)</tt>
+//! * [rfc1035](rfc1035/index.html)::[Wks](rfc1035/struct.Wks.html)
 //!   (a well known service description).
 //!   
+//! See the [RRType](../bits/iana/enum.RRType.html) type for the complete set
+//! of record types and, consequently, those types that are still missing.
 
 pub use self::rfc1035::*;
 pub use self::rfc3596::*;

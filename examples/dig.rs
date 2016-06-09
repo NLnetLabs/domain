@@ -8,20 +8,12 @@ use std::fmt;
 use std::io;
 use std::result;
 use std::str::FromStr;
-use rotor::Void;
-/*
-use domain::bits::compose::ComposeVec;
-use domain::bits::flavor::Lazy;
-use domain::bits::message::{LazyMessage, MessageBuilder, RecordIter};
-*/
 use domain::bits::{ComposeError, FromStrError, ParseError};
 use domain::bits::{Class, RRType};
 use domain::bits::message::{MessageBuf, RecordIter};
-use domain::bits::name::DNameBuf;
+use domain::bits::name::{DName, DNameBuf};
 use domain::bits::rdata::GenericRecordData;
-use domain::resolv::conf::ResolvConf;
-use domain::resolv::stub::DnsTransport;
-use domain::resolv::tasks::Query;
+use domain::resolv::{ResolvConf, Resolver, Query};
 
 
 //------------ Options ------------------------------------------------------
@@ -84,14 +76,14 @@ impl Options {
 }
 
 impl Options {
-    fn name(&self) -> Result<DNameBuf> {
+    fn name(&self) -> Result<DName> {
         if self.name.is_empty() {
-            Ok(DNameBuf::root())
+            Ok(DNameBuf::root().into())
         }
         else {
             let mut res = try!(DNameBuf::from_str(&self.name));
             res.append(DNameBuf::root());
-            Ok(res)
+            Ok(res.into())
         }
     }
 
@@ -224,13 +216,10 @@ fn print_records<'a>(iter: RecordIter<'a, GenericRecordData<'a>>) {
 
 fn main() {
     let options = Options::from_args();
-    let (join, resolver) = DnsTransport::<Void>::spawn(options.conf().clone())
-                                                .unwrap();
-    let name = options.name().unwrap();
-    let query = Query::new(&name, options.qtype().unwrap(),
+    let (join, resolver) = Resolver::spawn(options.conf().clone()).unwrap();
+    let query = Query::new(options.name().unwrap(), options.qtype().unwrap(),
                            options.qclass().unwrap());
     let response = resolver.sync_task(query).unwrap();
-    println!("Done with task");
     let len = response.len();
     print_result(response);
     println!(";; Query time: not yet available.");

@@ -70,6 +70,12 @@ use super::u8::{BytesExt, BytesVecExt};
 ///
 /// This is a helper trait for allowing functions to be generic over all
 /// types of domain names.
+///
+/// Note that because of lifetime restrictions, you cannot use this trait if
+/// the name is supposed to be kept around beyond the scope of a function
+/// (such as for creating types containing the domain name). In these cases,
+/// use `DName` directly and, when calling the function, the `into()`
+/// method.
 pub trait AsDName {
     /// Converts `self` into a `DName`.
     fn as_dname(&self) -> DName;

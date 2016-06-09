@@ -1,14 +1,5 @@
 //! A DNS Resolver using rotor.
 
-mod conn;
-mod dispatcher;
-mod query;
-mod stream;
-mod sync;
-mod tcp;
-mod timeout;
-mod udp;
-
 use std::io;
 use std::sync::mpsc::TryRecvError;
 use std::thread;
@@ -18,18 +9,18 @@ use bits::message::MessageBuf;
 use bits::question::Question;
 use resolv::conf::ResolvConf;
 use resolv::error::{Error, Result};
-use resolv::tasks::{Progress, Task};
-use self::dispatcher::{BootstrapItem, Dispatcher};
-use self::query::Query;
-use self::sync::{RotorReceiver, RotorSender};
-use self::tcp::TcpTransport;
-use self::udp::UdpTransport;
+use resolv::tasks::traits::{Progress, Task, TaskRunner};
+use super::dispatcher::{BootstrapItem, Dispatcher};
+use super::query::Query;
+use super::sync::{RotorReceiver, RotorSender};
+use super::tcp::TcpTransport;
+use super::udp::UdpTransport;
 
 
 //------------ DnsTransport -------------------------------------------------
 
 /// The rotor state machine for the DNS transport.
-pub struct DnsTransport<X>(Composition<X>);
+pub struct DnsTransport<X=Void>(Composition<X>);
 
 impl<X> DnsTransport<X> {
     /// Creates a new DNS transport.
@@ -42,24 +33,6 @@ impl<X> DnsTransport<X> {
         (DnsTransport(Composition::Dispatcher(dispatcher)),
          resolver)
     }
-
-    /// Spawns a new DNS transport in a new thread.
-    ///
-    /// Returns the `JoinHandle` for this new thread and a resolver.
-    pub fn spawn(conf: ResolvConf)
-                 -> io::Result<(thread::JoinHandle<()>, Resolver)> {
-        let mut loop_creator = try!(rotor::Loop::new(&rotor::Config::new()));
-        let mut res = None;
-        loop_creator.add_machine_with(|scope| {
-            let (transport, resolver) = DnsTransport::new(conf, scope);
-            res = Some(resolver);
-            Response::ok(transport)
-        }).unwrap(); // Only NoSlabSpace can happen which is fatal ...
-        let child = thread::spawn(move || {
-            loop_creator.run(()).ok();
-        });
-        Ok((child, res.unwrap()))
-    }
 }
 
 
@@ -69,7 +42,7 @@ impl<X> Machine for DnsTransport<X> {
 
     fn create(seed: Self::Seed, scope: &mut Scope<Self::Context>)
               -> Response<Self, Void> {
-        use self::dispatcher::BootstrapItem::*;
+        use super::dispatcher::BootstrapItem::*;
 
         match seed {
             Udp(s) => UdpTransport::create(s, scope)
@@ -164,8 +137,27 @@ impl Resolver {
         Resolver { requests: requests }
     }
 
+    /// Spawns a new DNS transport in a new thread.
+    ///
+    /// Returns the `JoinHandle` for this new thread and a resolver.
+    pub fn spawn(conf: ResolvConf)
+                 -> io::Result<(thread::JoinHandle<()>, Resolver)> {
+        let mut loop_creator = try!(rotor::Loop::new(&rotor::Config::new()));
+        let mut res = None;
+        loop_creator.add_machine_with(|scope| {
+            let (transport, resolver) = DnsTransport::new(conf, scope);
+            res = Some(resolver);
+            Response::ok(transport)
+        }).unwrap(); // Only NoSlabSpace can happen which is fatal ...
+        let child = thread::spawn(move || {
+            loop_creator.run(()).ok();
+        });
+        Ok((child, res.unwrap()))
+    }
+
     /// Processes a task synchronously, ie., waits for an answer.
-    pub fn sync_task<T: Task>(&self, task: T) -> Result<T::Success> {
+    pub fn sync_task<T: Task>(&self, task: T)
+                              -> Result<<T::Runner as TaskRunner>::Success> {
         let mut machine = try!(ResolverMachine::new(&self, task, None));
         loop {
             match machine.step() {
@@ -189,18 +181,18 @@ impl Resolver {
 pub struct ResolverMachine<T: Task> {
     requests: RotorSender<Query>,
     receiver: RotorReceiver<Result<MessageBuf>>,
-    task: T,
+    runner: T::Runner,
 }
 
 impl<T: Task> ResolverMachine<T> {
-    fn new(resolver: &Resolver, mut task: T, notifier: Option<Notifier>)
+    fn new(resolver: &Resolver, task: T, notifier: Option<Notifier>)
            -> Result<Self> {
         let requests = resolver.requests.clone();
         let receiver = RotorReceiver::new(notifier);
         let mut res = Ok(());
-        task = task.start(|qname, qtype, qclass| {
+        let runner = task.start(|qname, qtype, qclass| {
             let message = match MessageBuf::query_from_question(
-                                                    &Question::new(qname.into(), qtype, qclass)) {
+                               &Question::new(qname.into(), qtype, qclass)) {
                 Ok(message) => message,
                 Err(err) => { res = Err(err); return }
             };
@@ -211,10 +203,10 @@ impl<T: Task> ResolverMachine<T> {
             return Err(err.into());
         }
         Ok(ResolverMachine { requests: requests, receiver: receiver,
-                             task: task })
+                             runner: runner })
     }
 
-    pub fn wakeup(self) -> Progress<Self, T::Success> {
+    pub fn wakeup(self) -> Progress<Self, <T::Runner as TaskRunner>::Success> {
         let response = match self.receiver.try_recv() {
             Ok(response) => response,
             Err(TryRecvError::Empty) => return Progress::Continue(self),
@@ -225,7 +217,7 @@ impl<T: Task> ResolverMachine<T> {
         self.progress(response)
     }
 
-    pub fn step(self) -> Progress<Self, T::Success> {
+    fn step(self) -> Progress<Self, <T::Runner as TaskRunner>::Success> {
         let response = match self.receiver.recv() {
             Ok(response) => response,
             Err(..) => return Progress::Error(Error::Timeout),
@@ -234,13 +226,13 @@ impl<T: Task> ResolverMachine<T> {
     }
 
     fn progress(self, response: Result<MessageBuf>)
-                -> Progress<Self, T::Success> {
-        let (task, receiver, requests) = (self.task, self.receiver,
+                -> Progress<Self, <T::Runner as TaskRunner>::Success> {
+        let (runner, receiver, requests) = (self.runner, self.receiver,
                                           self.requests);
         let mut res = Ok(());
-        let progress = task.progress(response, |qname, qtype, qclass| {
+        let progress = runner.progress(response, |qname, qtype, qclass| {
             let message = match MessageBuf::query_from_question(
-                                                   &Question::new(qname.into(), qtype, qclass)) {
+                                &Question::new(qname.into(), qtype, qclass)) {
                 Ok(message) => message,
                 Err(err) => { res = Err(err); return }
             };
@@ -251,13 +243,13 @@ impl<T: Task> ResolverMachine<T> {
             return Progress::Error(err.into())
         }
         match progress {
-            Progress::Continue(t) => {
+            Progress::Continue(runner) => {
                 Progress::Continue(ResolverMachine { receiver: receiver,
                                                      requests: requests,
-                                                     task: t })
+                                                     runner: runner })
             }
-            Progress::Success(s) => Progress::Success(s),
-            Progress::Error(e) => Progress::Error(e),
+            Progress::Success(success) => Progress::Success(success),
+            Progress::Error(err) => Progress::Error(err),
         }
     }
 }
