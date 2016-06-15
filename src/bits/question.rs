@@ -94,11 +94,11 @@ impl<'a> Question<'a> {
     /// them to the message directly. In order to allow the message builder
     /// to increase the quesiton counter once pushing is done, this happens
     /// through the `QuestionTarget` trait which `MessageBuilder` implements.
-    pub fn push<C, T, N>(target: &mut T, qname: N, qtype: RRType,
+    pub fn push<C, T, N>(target: &mut T, qname: &N, qtype: RRType,
                          qclass: Class) -> ComposeResult<()>
                 where C: ComposeBytes, T: QuestionTarget<C>, N: AsDName {
         target.compose(|target| {
-            try!(target.push_dname_compressed(&qname.as_dname()));
+            try!(target.push_dname_compressed(qname));
             try!(target.push_u16(qtype.into()));
             target.push_u16(qclass.into())
         })
@@ -108,7 +108,7 @@ impl<'a> Question<'a> {
     ///
     /// This is the same as `Question::push()` with `Class::IN` as this is
     /// the most common class.
-    pub fn push_in<C, T, N>(target: &mut T, qname: N, qtype: RRType)
+    pub fn push_in<C, T, N>(target: &mut T, qname: &N, qtype: RRType)
                             -> ComposeResult<()>
                 where C: ComposeBytes, T: QuestionTarget<C>, N: AsDName {
         Question::push(target, qname, qtype, Class::IN)

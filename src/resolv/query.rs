@@ -1,8 +1,10 @@
 //! Query related things for the rotor-based DNS transport.
 
+use std::mem;
 use bits::message::MessageBuf;
 use super::sync::RotorSender;
-use resolv::error::Result;
+use resolv::error::{Error, Result};
+use resolv::tasks::traits::Progress;
 
 
 //------------ QueryState ---------------------------------------------------
@@ -91,14 +93,13 @@ pub struct Query {
     state: QueryState,
     request: MessageBuf,
     response: Option<Result<MessageBuf>>,
-    sender: RotorSender<Result<MessageBuf>>,
+    sender: Option<RotorSender<Query>>,
 }
 
 impl Query {
-    pub fn new(request: MessageBuf,
-               sender: RotorSender<Result<MessageBuf>>) -> Query {
+    pub fn new(request: MessageBuf, sender: RotorSender<Query>) -> Query {
         Query { state: QueryState::new(), request: request, response: None,
-                sender: sender }
+                sender: Some(sender) }
     }
 
     pub fn id(&self) -> u16 {
@@ -157,10 +158,27 @@ impl Query {
         self.state.attempt < attempts
     }
 
-    pub fn send(self) {
+    pub fn send(mut self) {
         // XXX We drop unsendable queries on the floor. Perhaps we should
         //     log or something?
-        let _ = self.sender.send(self.response.unwrap());
+        let sender = mem::replace(&mut self.sender, None);
+        let _ = sender.unwrap().send(self);
+    }
+
+    /// Deconstructs the query after it has been returned.
+    ///
+    /// Abuses `Progress` to do so. If the result is `Progress::Continue`
+    /// there is no response and the enclosed message is the original request.
+    /// If the result is `Progress::Success`, a response was returned and it
+    /// is included. If the result is `Progress::Error`, the enclosed pair
+    /// is the original request and the error.
+    pub fn unravel(self) -> Progress<MessageBuf, MessageBuf,
+                                     (MessageBuf, Error)> {
+        match self.response {
+            None => Progress::Continue(self.request),
+            Some(Ok(message)) => Progress::Success(message),
+            Some(Err(error)) => Progress::Error((self.request, error))
+        }
     }
 }
 

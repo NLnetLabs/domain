@@ -46,7 +46,7 @@ Eventually, this crate will provide the following functions:
 
         * [X] querying for raw DNS records,
 
-        * [ ] querying for host names,
+        * [X] querying for host names,
 
         * [ ] reverse host name queries,
 

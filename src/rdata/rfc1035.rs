@@ -37,6 +37,14 @@ macro_rules! dname_type {
                             where P: ParseBytes<'a> {
                 Ok($target::new(try!(parser.parse_dname())))
             }
+
+            pub fn push<C, T, N, V>(target: &mut T, name: &N, class: Class,
+                                    ttl: u32, value: &V) -> ComposeResult<()>
+                        where C: ComposeBytes, T: RecordTarget<C>, N: AsDName,
+                              V: AsDName {
+                push_record(target, name, RRType::$rtype, class, ttl,
+                            |target| target.push_dname_compressed(value))
+            }
         }
 
         impl<'a> RecordData<'a> for $target<'a> {
@@ -88,10 +96,10 @@ impl A {
         A::new(Ipv4Addr::new(a, b, c, d))
     }
 
-    pub fn addr(&self) -> &Ipv4Addr { &self.addr }
-    pub fn addr_mut(&mut self) -> &mut Ipv4Addr { &mut self.addr }
+    pub fn addr(&self) -> Ipv4Addr { self.addr }
+    pub fn set_addr(&mut self, addr: Ipv4Addr) { self.addr = addr }
 
-    pub fn push<C, T, N>(target: &mut T, name: N, ttl: u32,
+    pub fn push<C, T, N>(target: &mut T, name: &N, ttl: u32,
                          addr: &Ipv4Addr) -> ComposeResult<()>
                 where C: ComposeBytes, T: RecordTarget<C>, N: AsDName {
         push_record(target, name, RRType::A, Class::IN, ttl, |target| {
@@ -102,7 +110,7 @@ impl A {
         })
     }
 
-    pub fn push_from_octets<C, T, N>(target: &mut T, name: N, ttl: u32,
+    pub fn push_from_octets<C, T, N>(target: &mut T, name: &N, ttl: u32,
                                      a: u8, b: u8, c: u8, d: u8)
                                      -> ComposeResult<()>
                 where C: ComposeBytes, T: RecordTarget<C>, N: AsDName {

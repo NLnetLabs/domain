@@ -34,8 +34,8 @@
 //! let go of references as soon as the task has been started, avoiding
 //! having to clone the domain name.
 
-use bits::{Class, DName, MessageBuf, RRType};
-use resolv::error::{Error, Result};
+use bits::{Class, DName, MessageBuf, Question, RRType};
+use resolv::error::Error;
 
 //------------ Progress -----------------------------------------------------
 
@@ -56,6 +56,26 @@ pub enum Progress<T, S, E=Error> {
     Error(E)
 }
 
+impl<T, S, E> Progress<T, S, E> {
+    pub fn map_continue<U, F: FnOnce(T) -> U>(self, op: F)
+                                              -> Progress<U,S, E> {
+        match self {
+            Progress::Continue(c) => Progress::Continue(op(c)),
+            Progress::Success(s) => Progress::Success(s),
+            Progress::Error(e) => Progress::Error(e)
+        }
+    }
+}
+
+impl<T, S, E> From<Result<S, E>> for Progress<T, S, E> {
+    fn from(res: Result<S, E>) -> Progress<T, S, E> {
+        match res {
+            Ok(s) => Progress::Success(s),
+            Err(e) => Progress::Error(e)
+        }
+    }
+}
+
 
 //------------ Task ---------------------------------------------------------
 
@@ -69,7 +89,7 @@ pub trait Task: Sized {
     /// Implementations should call `f` once for each question they have
     /// and then return their task runner.
     fn start<F>(self, f: F) -> Self::Runner 
-             where F: FnMut(DName, RRType, Class);
+             where F: FnMut(&DName, RRType, Class);
 }
 
 /// The interface of a started task towards a resolver.
@@ -78,15 +98,22 @@ pub trait TaskRunner: Sized {
     type Success;
 
 
-    /// Process a response or error.
+    /// Process a response.
+    ///
+    /// The response is guaranteed to contain exactly one question. It is
+    /// therefore save to call `response.first_question().unwrap()`.
     ///
     /// Any response is being moved to the task. If processing the response
     /// results in further questions, these can be given to the resolver
     /// through calls of `f`. If it wants answers to these questions, it
     /// should return `Progress::Continue(Self)`. Returning anything else
     /// will end processing.
-    fn progress<F>(self, response: Result<MessageBuf>, f: F)
+    fn progress<F>(self, response: MessageBuf, f: F)
                    -> Progress<Self, Self::Success>
-                where F: FnMut(DName, RRType, Class);
+                where F: FnMut(&DName, RRType, Class);
+
+    fn error<'a, F>(self, question: &Question<'a>, error: Error, f: F)
+                    -> Progress<Self, Self::Success>
+             where F: FnMut(&DName, RRType, Class);
 }
 

@@ -6,13 +6,17 @@
 //! respectively. For building messages, there is only one type
 //! `MessageBuilder` that is generic over an underlying composer.
 
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
+use rdata::CName;
 use super::compose::{ComposeBytes, ComposeBuf};
 use super::error::{ComposeError, ComposeResult, ParseError, ParseResult};
 use super::header::{Header, HeaderCounts, FullHeader};
+use super::iana::{Class, Rcode, RRType};
+use super::name::{AsDName, DNameSlice};
 use super::parse::{ContextParser, ParseBytes};
 use super::question::{Question, QuestionTarget};
 use super::rdata::{GenericRecordData, RecordData};
@@ -107,6 +111,11 @@ impl Message {
     pub fn counts(&self) -> &HeaderCounts {
         unsafe { HeaderCounts::from_message(&self.slice) }
     }
+
+    /// Returns whether the rcode is NoError.
+    pub fn no_error(&self) -> bool {
+        self.header().rcode() == Rcode::NoError
+    }
 }
 
 /// # Sections
@@ -168,7 +177,7 @@ impl Message {
 }
 
 
-/// # Miscellaneous
+/// # Helpers for Common Tasks
 ///
 impl Message {
     /// Returns whether this is the answer to some other message.
@@ -179,6 +188,72 @@ impl Message {
         if !self.header().qr() { false }
         else if self.counts().qdcount() != query.counts().qdcount() { false }
         else { self.question().eq(query.question()) }
+    }
+
+    /// Returns the first question, if there is any.
+    pub fn first_question(&self) -> Option<Question> {
+        match self.question().next() {
+            None | Some(Err(..)) => None,
+            Some(Ok(question)) => Some(question)
+        }
+    }
+
+    /// Returns the query type of the first question, if any.
+    pub fn qtype(&self) -> Option<RRType> {
+        self.first_question().map(|x| x.qtype())
+    }
+
+    /// Returns whether the message contains answers of a given type.
+    pub fn contains_answer<'a, D: RecordData<'a>>(&'a self) -> bool {
+        let answer = match self.answer() {
+            Ok(answer) => answer,
+            Err(..) => return false
+        };
+        answer.iter::<D>().next().is_some()
+    }
+
+    /// Resolves the canonical name of the answer.
+    ///
+    /// Returns `None` if either the message doesn’t have a question or there
+    /// was a parse error. Otherwise starts with the question’s name,
+    /// follows any CNAME trail and returns the name answers should be for.
+    pub fn canonical_name<'a>(&self) -> Option<Cow<DNameSlice>> {
+        // XXX There may be cheaper ways to do this ...
+        let question = match self.first_question() {
+            None => return None,
+            Some(question) => question
+        };
+        let mut name = match question.qname().clone().into_cow() {
+            Err(..) => return None,
+            Ok(qname) => qname
+        };
+        let mut map = HashMap::new();
+        let answer = match self.answer() {
+            Err(..) => return None,
+            Ok(answer) => answer
+        };
+        for record in answer.iter::<CName>() {
+            let record = match record {
+                Err(..) => break,
+                Ok(record) => record
+            };
+            let from = match record.name().clone().into_cow() {
+                Err(..) => continue,
+                Ok(from) => from
+            };
+            let to = match record.rdata().cname().clone().into_cow() {
+                Err(..) => continue,
+                Ok(to) => to
+            };
+            map.insert(from, to);
+        }
+
+        loop {
+            match map.remove(&name) {
+                None => return Some(name),
+                Some(new_name) => name = new_name
+            }
+        }
     }
 }
 
@@ -314,11 +389,12 @@ impl MessageBuf {
     ///
     /// The resulting query will have the RD bit set and will contain exactly
     /// one entry in the question section with the given question.
-    pub fn query_from_question(question: &Question)
-                               -> ComposeResult<MessageBuf> {
+    pub fn query_from_question<N: AsDName>(qname: &N, qtype: RRType,
+                                           qclass: Class)
+                                           -> ComposeResult<MessageBuf> {
         let mut msg = try!(MessageBuilder::new(Some(512), true));
         msg.header_mut().set_rd(true);
-        try!(msg.push(question));
+        try!(Question::push(&mut msg, qname, qtype, qclass));
         Ok(try!(MessageBuf::from_vec(try!(msg.finish()).finish())))
     }
 }
@@ -1040,7 +1116,7 @@ mod test {
     use bits::iana::{Class, RRType};
     use bits::question::Question;
     use bits::record::Record;
-    use rdata::A;
+    use rdata::{A, CName};
     use super::*;
 
     struct ExampleMessage<'a> {
@@ -1105,6 +1181,38 @@ mod test {
         let item = iter.next().unwrap().unwrap();
         assert_eq!(item, x.rec3);
         assert!(iter.next().is_none())
+    }
+
+    #[test]
+    fn canonical_name() {
+        // Message without CNAMEs.
+        let mut msg = MessageBuilder::new(None, true).unwrap();
+        Question::push_in(&mut msg, &DName::from_str("example.com.").unwrap(),
+                                    RRType::A).unwrap();
+        let msg = MessageBuf::from_vec(msg.finish().unwrap().finish())
+                             .unwrap();
+        assert_eq!(DName::from_str("example.com.").unwrap(),
+                   msg.canonical_name().unwrap());
+                   
+        // Message with CNAMEs.
+        let mut msg = MessageBuilder::new(None, true).unwrap();
+        Question::push_in(&mut msg, &DName::from_str("example.com.").unwrap(),
+                                    RRType::A).unwrap();
+        let mut answer = msg.answer();
+        CName::push(&mut answer, &DName::from_str("bar.example.com.").unwrap(),
+                    Class::IN, 86400,
+                    &DName::from_str("baz.example.com.").unwrap()).unwrap();
+        CName::push(&mut answer, &DName::from_str("example.com.").unwrap(),
+                    Class::IN, 86400,
+                    &DName::from_str("foo.example.com.").unwrap()).unwrap();
+        CName::push(&mut answer, &DName::from_str("foo.example.com.").unwrap(),
+                    Class::IN, 86400,
+                    &DName::from_str("bar.example.com.").unwrap()).unwrap();
+        let msg = MessageBuf::from_vec(answer.finish().unwrap().finish())
+                             .unwrap();
+        assert_eq!(DName::from_str("baz.example.com.").unwrap(),
+                   msg.canonical_name().unwrap());
+                   
     }
 }
 

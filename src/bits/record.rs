@@ -206,13 +206,13 @@ pub trait RecordTarget<C: ComposeBytes> {
 /// record data type.
 ///
 /// Yes, it really needs all these type parameters. Sorry about that.
-pub fn push_record<C, T, N, F>(target: &mut T, name: N, rtype: RRType,
+pub fn push_record<C, T, N, F>(target: &mut T, name: &N, rtype: RRType,
                         class: Class, ttl: u32, data: F)
                         -> ComposeResult<()>
             where C: ComposeBytes, T: RecordTarget<C>, N: AsDName,
                   F: Fn(&mut C) -> ComposeResult<()> {
     target.compose(|target| {
-        try!(target.push_dname_compressed(&name.as_dname()));
+        try!(target.push_dname_compressed(name));
         try!(target.push_u16(rtype.into()));
         try!(target.push_u16(class.into()));
         try!(target.push_u32(ttl));

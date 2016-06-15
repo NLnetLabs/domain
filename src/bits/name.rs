@@ -331,6 +331,11 @@ impl DNameSlice {
         mem::transmute(slice)
     }
 
+    /// Returns a domain name slice for the root domain name.
+    pub fn root() -> &'static DNameSlice {
+        unsafe { DNameSlice::from_bytes_unsafe(b"\x00") }
+    }
+
     /// Parses a domain name slice.
     ///
     /// Since a domain name slice cannot be compressed, the function fails
@@ -719,13 +724,6 @@ impl DNameBuf {
         DNameBuf { inner: Vec::with_capacity(capacity) }
     }
 
-    /// Creates a new domain name with only the root label.
-    pub fn root() -> DNameBuf {
-        let mut res = DNameBuf::with_capacity(1);
-        res.push(&Label::root());
-        res
-    }
-
     /// Parses a complete domain name and clones it into an owned name.
     pub fn parse_complete<'a, P: ParseBytes<'a>>(parser: &mut P)
                                                  -> ParseResult<Self> {
@@ -765,11 +763,10 @@ impl DNameBuf {
     ///
     /// ```
     /// use std::str::FromStr;
-    /// use domain::bits::DNameBuf;
+    /// use domain::bits::{DNameBuf, DNameSlice};
     ///
-    /// let root = DNameBuf::root();
     /// let mut some_name = DNameBuf::from_str("example.com").unwrap();
-    /// some_name.append(&root);
+    /// some_name.append(DNameSlice::root());
     /// assert_eq!(some_name.to_string(), "example.com.");
     /// ```
     pub fn append<N: AsRef<DNameSlice>>(&mut self, name: N) {
@@ -780,6 +777,11 @@ impl DNameBuf {
         if self.is_relative() {
             self.inner.extend(&name.slice)
         }
+    }
+
+    /// Makes a domain name absolute if it isn’t yet by appending root.
+    pub fn append_root(&mut self) {
+        self._append(DNameSlice::root())
     }
 }
 

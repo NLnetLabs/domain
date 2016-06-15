@@ -11,7 +11,7 @@ use std::str::FromStr;
 use domain::bits::{ComposeError, FromStrError, ParseError};
 use domain::bits::{Class, RRType};
 use domain::bits::message::{MessageBuf, RecordIter};
-use domain::bits::name::{DName, DNameBuf};
+use domain::bits::name::{DName, DNameBuf, DNameSlice};
 use domain::bits::rdata::GenericRecordData;
 use domain::resolv::{ResolvConf, Resolver, Query};
 
@@ -78,11 +78,11 @@ impl Options {
 impl Options {
     fn name(&self) -> Result<DName> {
         if self.name.is_empty() {
-            Ok(DNameBuf::root().into())
+            Ok(DNameSlice::root().into())
         }
         else {
             let mut res = try!(DNameBuf::from_str(&self.name));
-            res.append(DNameBuf::root());
+            res.append_root();
             Ok(res.into())
         }
     }

@@ -20,7 +20,7 @@ use std::str::{self, FromStr, SplitWhitespace};
 use std::result;
 use std::time::Duration;
 use ::bits::FromStrError;
-use ::bits::name::DNameBuf;
+use ::bits::name::{DNameBuf, DNameSlice};
 
 
 //------------ ResolvOptions ------------------------------------------------
@@ -203,7 +203,7 @@ impl ResolvConf {
             self.servers.push(SocketAddr::new(addr, 53));
         }
         if self.search.is_empty() {
-            self.search.push(DNameBuf::root())
+            self.search.push(DNameSlice::root().to_owned())
         }
     }
 
@@ -212,7 +212,7 @@ impl ResolvConf {
     /// XXX This currently only works for Unix-y systems.
     pub fn default() -> Self {
         let mut res = ResolvConf::new();
-        let _ = res.parse_file("/etc/resolv.con");
+        let _ = res.parse_file("/etc/resolv.conf");
         res.finalize();
         res
     }
@@ -268,7 +268,8 @@ impl ResolvConf {
     }
 
     fn parse_domain(&mut self, mut words: SplitWhitespace) -> Result<()> {
-        let domain = try!(DNameBuf::from_str(try!(next_word(&mut words))));
+        let mut domain = try!(DNameBuf::from_str(try!(next_word(&mut words))));
+        domain.append(DNameSlice::root());
         self.search = Vec::new();
         self.search.push(domain);
         no_more_words(words)
@@ -277,7 +278,9 @@ impl ResolvConf {
     fn parse_search(&mut self, words: SplitWhitespace) -> Result<()> {
         let mut search = Vec::new();
         for word in words {
-            search.push(try!(DNameBuf::from_str(word)))
+            let mut name = try!(DNameBuf::from_str(word));
+            name.append(DNameSlice::root());
+            search.push(name)
         }
         self.search = search;
         Ok(())
@@ -352,6 +355,7 @@ impl fmt::Display for ResolvConf {
             try!("nameserver ".fmt(f));
             if server.port() == 53 { try!(server.ip().fmt(f)); }
             else { try!(server.fmt(f)); }
+            try!("\n".fmt(f));
         }
         if self.search.len() == 1 {
             try!(write!(f, "domain {}\n", self.search[0]));

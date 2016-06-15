@@ -23,8 +23,8 @@ impl AAAA {
         AAAA { addr: addr }
     }
 
-    pub fn addr(&self) -> &Ipv6Addr { &self.addr }
-    pub fn addr_mut(&mut self) -> &mut Ipv6Addr {&mut self.addr }
+    pub fn addr(&self) -> Ipv6Addr { self.addr }
+    pub fn set_addr(&mut self, addr: Ipv6Addr) { self.addr = addr }
 
     fn parse_always<'a, P>(parser: &mut P) -> ParseResult<Self>
                     where P: ParseBytes<'a> {

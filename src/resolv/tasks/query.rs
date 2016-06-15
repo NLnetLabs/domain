@@ -1,7 +1,7 @@
 //! A task for a simple, raw DNS query.
 
-use bits::{Class, DName, MessageBuf, RRType};
-use resolv::error::Result;
+use bits::{Class, DName, MessageBuf, Question, RRType};
+use resolv::error::Error;
 use resolv::tasks::traits::{Progress, Task, TaskRunner};
 
 //------------ Query --------------------------------------------------------
@@ -46,8 +46,8 @@ impl<'a> Task for Query<'a> {
     type Runner = QueryRunner;
 
     fn start<F>(self, mut f: F) -> Self::Runner
-             where F: FnMut(DName, RRType, Class) {
-        f(self.name, self.rtype, self.class);
+             where F: FnMut(&DName, RRType, Class) {
+        f(&self.name, self.rtype, self.class);
         QueryRunner
     }
 }
@@ -58,13 +58,16 @@ pub struct QueryRunner;
 impl TaskRunner for QueryRunner {
     type Success = MessageBuf;
 
-    fn progress<F>(self, response: Result<MessageBuf>, _f: F)
+    fn progress<F>(self, response: MessageBuf, _f: F)
                    -> Progress<Self, Self::Success>
-                where F: FnMut(DName, RRType, Class) {
-        match response {
-            Ok(msg) => Progress::Success(msg),
-            Err(err) => Progress::Error(err)
-        }
+                where F: FnMut(&DName, RRType, Class) {
+        Progress::Success(response)
+    }
+
+    fn error<'a, F>(self, _question: &Question<'a>, error: Error, _f: F)
+                    -> Progress<Self, Self::Success>
+             where F: FnMut(&DName, RRType, Class) {
+        Progress::Error(error)
     }
 }
 

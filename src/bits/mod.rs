@@ -40,7 +40,7 @@ pub use self::error::{ComposeError, ComposeResult, ParseError, ParseResult,
                       FromStrError, FromStrResult};
 pub use self::iana::{Class, Opcode, Rcode, RRType};
 pub use self::message::{Message, MessageBuf, MessageBuilder};
-pub use self::name::{DName, DNameSlice, DNameBuf, PackedDName};
+pub use self::name::{AsDName, DName, DNameSlice, DNameBuf, PackedDName};
 pub use self::nest::Nest;
 pub use self::octets::Octets;
 pub use self::parse::{ParseBytes};

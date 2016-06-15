@@ -6,7 +6,6 @@ use std::thread;
 use rotor::{self, EventSet, GenericScope, Machine, Notifier, Response,
             Scope, Void};
 use bits::message::MessageBuf;
-use bits::question::Question;
 use resolv::conf::ResolvConf;
 use resolv::error::{Error, Result};
 use resolv::tasks::traits::{Progress, Task, TaskRunner};
@@ -180,7 +179,7 @@ impl Resolver {
 
 pub struct ResolverMachine<T: Task> {
     requests: RotorSender<Query>,
-    receiver: RotorReceiver<Result<MessageBuf>>,
+    receiver: RotorReceiver<Query>,
     runner: T::Runner,
 }
 
@@ -191,8 +190,8 @@ impl<T: Task> ResolverMachine<T> {
         let receiver = RotorReceiver::new(notifier);
         let mut res = Ok(());
         let runner = task.start(|qname, qtype, qclass| {
-            let message = match MessageBuf::query_from_question(
-                               &Question::new(qname.into(), qtype, qclass)) {
+            let message = match MessageBuf::query_from_question(qname, qtype,
+                                                                qclass) {
                 Ok(message) => message,
                 Err(err) => { res = Err(err); return }
             };
@@ -207,37 +206,81 @@ impl<T: Task> ResolverMachine<T> {
     }
 
     pub fn wakeup(self) -> Progress<Self, <T::Runner as TaskRunner>::Success> {
-        let response = match self.receiver.try_recv() {
-            Ok(response) => response,
+        let query = match self.receiver.try_recv() {
+            Ok(query) => query,
             Err(TryRecvError::Empty) => return Progress::Continue(self),
             Err(TryRecvError::Disconnected) => {
                 return Progress::Error(Error::Timeout) // XXX Hmm.
             }
         };
-        self.progress(response)
+        self.process(query)
     }
 
     fn step(self) -> Progress<Self, <T::Runner as TaskRunner>::Success> {
-        let response = match self.receiver.recv() {
-            Ok(response) => response,
+        let query = match self.receiver.recv() {
+            Ok(query) => query,
             Err(..) => return Progress::Error(Error::Timeout),
         };
-        self.progress(response)
+        self.process(query)
     }
 
-    fn progress(self, response: Result<MessageBuf>)
+    fn process(self, query: Query)
+               -> Progress<Self, <T::Runner as TaskRunner>::Success> {
+        match query.unravel() {
+            Progress::Continue(request) => {
+                let query = Query::new(request, self.receiver.sender());
+                self.requests.send(query).unwrap(); // XXX
+                Progress::Continue(self)
+            }
+            Progress::Success(response) => self.progress(response),
+            Progress::Error((request, error)) => self.error(request, error),
+        }
+    }
+
+    fn progress(self, response: MessageBuf)
                 -> Progress<Self, <T::Runner as TaskRunner>::Success> {
         let (runner, receiver, requests) = (self.runner, self.receiver,
                                           self.requests);
         let mut res = Ok(());
         let progress = runner.progress(response, |qname, qtype, qclass| {
-            let message = match MessageBuf::query_from_question(
-                                &Question::new(qname.into(), qtype, qclass)) {
-                Ok(message) => message,
-                Err(err) => { res = Err(err); return }
-            };
-            let query = Query::new(message, receiver.sender());
-            requests.send(query).unwrap(); // XXX Handle error.
+                let message = match MessageBuf::query_from_question(qname,
+                                                                    qtype,
+                                                                    qclass) {
+                    Ok(message) => message,
+                    Err(err) => { res = Err(err); return }
+                };
+                let query = Query::new(message, receiver.sender());
+                requests.send(query).unwrap(); // XXX Handle error.
+        });
+        if let Err(err) = res {
+            return Progress::Error(err.into())
+        }
+        match progress {
+            Progress::Continue(runner) => {
+                Progress::Continue(ResolverMachine { receiver: receiver,
+                                                     requests: requests,
+                                                     runner: runner })
+            }
+            Progress::Success(success) => Progress::Success(success),
+            Progress::Error(err) => Progress::Error(err),
+        }
+    }
+
+    fn error(self, request: MessageBuf, error: Error)
+                -> Progress<Self, <T::Runner as TaskRunner>::Success> {
+        let (runner, receiver, requests) = (self.runner, self.receiver,
+                                          self.requests);
+        let mut res = Ok(());
+        let progress = runner.error(&request.first_question().unwrap(), error,
+                                    |qname, qtype, qclass| {
+                let message = match MessageBuf::query_from_question(qname,
+                                                                    qtype,
+                                                                    qclass) {
+                    Ok(message) => message,
+                    Err(err) => { res = Err(err); return }
+                };
+                let query = Query::new(message, receiver.sender());
+                requests.send(query).unwrap(); // XXX Handle error.
         });
         if let Err(err) = res {
             return Progress::Error(err.into())

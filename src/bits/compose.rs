@@ -259,8 +259,11 @@ impl ComposeBuf {
         for label in name.as_dname().iter() {
             let label = try!(label);
             try!(label.compose(self));
+            if label.is_root() {
+                return Ok(())
+            }
         }
-        Ok(())
+        Err(ComposeError::RelativeName)
     }
 
     /// Returns the compression index for the current position.
@@ -308,6 +311,9 @@ impl ComposeBytes for ComposeBuf {
     fn push_dname<D: AsDName>(&mut self, name: &D) -> ComposeResult<()> {
         if self.compress.is_some() {
             let name = try!(name.as_dname().into_cow());
+            if name.is_relative() {
+                return Err(ComposeError::RelativeName);
+            }
             let mut name_ref = name.deref();
             while let Some((label, tail)) = name_ref.split_first() {
                 let pos = self.compress_pos();
@@ -326,6 +332,9 @@ impl ComposeBytes for ComposeBuf {
                                          -> ComposeResult<()> {
         if self.compress.is_some() {
             let name = try!(name.as_dname().into_cow());
+            if name.is_relative() {
+                return Err(ComposeError::RelativeName);
+            }
             let mut iter = name.iter();
             loop {
                 let name = iter.as_name();

@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "dig"
 path = "examples/dig.rs"
 
+[[example]]
+name = "host"
+path = "examples/host.rs"
+
 #[[example]]
 #name = "reversed"
 #path = "examples/reversed.rs"

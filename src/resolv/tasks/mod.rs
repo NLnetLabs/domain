@@ -14,7 +14,9 @@
 //! the documentation of the [traits](traits/index.html) module for more
 //! details.
 
+pub use self::host::{LookupHost, HostSuccess, SearchHost};
 pub use self::query::Query;
 
-pub mod traits;
+pub mod host;
 pub mod query;
+pub mod traits;
