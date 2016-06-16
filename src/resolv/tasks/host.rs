@@ -179,7 +179,7 @@ fn process_records<'a, R, F>(response: &'a MessageBuf, name: &DNameSlice,
 ///
 /// XXX Consider hosts file.
 pub struct SearchHost {
-    names: Vec<DNameBuf>
+    names: Vec<DNameBuf>,
 }
 
 impl SearchHost {

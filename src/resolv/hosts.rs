@@ -11,6 +11,7 @@ use std::fs;
 use std::io;
 use std::net::{self, IpAddr};
 use std::path::Path;
+use std::slice;
 use std::str::FromStr;
 use std::result;
 use bits::FromStrError;
@@ -26,8 +27,9 @@ use bits::name::{DNameSlice, DNameBuf};
 /// address information from DNS.
 ///
 /// The type implements two lookup functions: `lookup_host()` takes a host
-/// name and tries to find an IP address for it, and `lookup_addr()` takes
-/// an IP address and tries to find a canonical host name for it.
+/// name and returns an iterator over the IP addresses assigned to it, and
+/// `lookup_addr()` takes an IP address and returns an iterator over the
+/// host names for that address.
 ///
 /// You can create an empty host map to start with using `Hosts::new()`,
 /// create one by parsing a hosts file with `Hosts::parse()` or
@@ -40,8 +42,8 @@ use bits::name::{DNameSlice, DNameBuf};
 /// are independent.
 #[derive(Clone, Debug)]
 pub struct Hosts {
-    forward: HashMap<DNameBuf, IpAddr>,
-    reverse: HashMap<IpAddr, DNameBuf>,
+    forward: HashMap<DNameBuf, Vec<IpAddr>>,
+    reverse: HashMap<IpAddr, Vec<DNameBuf>>,
 }
 
 
@@ -66,13 +68,23 @@ impl Hosts {
     }
  
     /// Adds a host to IP mapping.
-    pub fn add_forward(&mut self, name: DNameBuf, addr: IpAddr) {
-        self.forward.insert(name, addr);
+    pub fn add_forward(&mut self, name: &DNameBuf, addr: IpAddr) {
+        if let Some(ref mut vec) = self.forward.get_mut(name) {
+            vec.push(addr);
+            return;
+        }
+        
+        self.forward.insert(name.clone(), vec!(addr));
     }
 
-    /// Adds a IP to host mapping.
+    /// Adds an IP to host mapping.
     pub fn add_reverse(&mut self, addr: IpAddr, name: DNameBuf) {
-        self.reverse.insert(addr, name);
+        if let Some(ref mut vec) = self.reverse.get_mut(&addr) {
+            vec.push(name);
+            return;
+        }
+
+        self.reverse.insert(addr, vec!(name));
     }
 }
 
@@ -82,17 +94,17 @@ impl Hosts {
 impl Hosts {
     /// Looks up the address of a host.
     pub fn lookup_host<N: AsRef<DNameSlice>>(&self, name: N)
-                                             -> Option<IpAddr> {
+                                             -> Option<slice::Iter<IpAddr>> {
         self._lookup_host(name.as_ref())
     }
 
-    fn _lookup_host(&self, name: &DNameSlice) -> Option<IpAddr> {
-        self.forward.get(name).map(|addr| addr.clone())
+    fn _lookup_host(&self, name: &DNameSlice) -> Option<slice::Iter<IpAddr>> {
+        self.forward.get(name).map(|vec| vec.iter())
     }
 
     /// Looks up the hostname of an address.
-    pub fn lookup_addr(&self, addr: &IpAddr) -> Option<&DNameBuf> {
-        self.reverse.get(addr)
+    pub fn lookup_addr(&self, addr: IpAddr) -> Option<slice::Iter<DNameBuf>> {
+        self.reverse.get(&addr).map(|vec| vec.iter())
     }
 }
 
@@ -136,12 +148,12 @@ impl Hosts {
         let cname = try!(words.next().ok_or(Error::ParseError));
         let cname = try!(DNameBuf::from_str(cname));
 
-        self.forward.insert(cname.clone(), addr.clone());
-        self.reverse.insert(addr.clone(), cname);
+        self.add_forward(&cname, addr);
+        self.add_reverse(addr, cname);
 
         for name in words {
             let name = try!(DNameBuf::from_str(name));
-            self.forward.insert(name, addr.clone());
+            self.add_forward(&name, addr);
         }
         Ok(())
     }
