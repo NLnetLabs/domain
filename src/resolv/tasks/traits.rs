@@ -34,7 +34,8 @@
 //! let go of references as soon as the task has been started, avoiding
 //! having to clone the domain name.
 
-use bits::{Class, DName, MessageBuf, Question, RRType};
+use bits::{DName, MessageBuf, Question};
+use iana::{Class, RRType};
 use resolv::error::Error;
 
 //------------ Progress -----------------------------------------------------

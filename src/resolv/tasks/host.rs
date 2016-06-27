@@ -2,8 +2,9 @@
 
 use std::net::IpAddr;
 use std::slice;
-use bits::{AsDName, Class, DName, DNameBuf, DNameSlice, MessageBuf, ParseResult,
-           Question, RecordData, RRType};
+use bits::{AsDName, DName, DNameBuf, DNameSlice, MessageBuf, ParseResult,
+           Question, RecordData};
+use iana::{Class, RRType};
 use rdata::{A, AAAA};
 use resolv::conf::ResolvConf;
 use resolv::tasks::traits::{Progress, Task, TaskRunner};

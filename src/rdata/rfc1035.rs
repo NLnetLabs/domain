@@ -8,7 +8,7 @@ use std::net::Ipv4Addr;
 use bits::compose::ComposeBytes;
 use bits::charstr::CharStr;
 use bits::error::{ComposeResult, ParseResult};
-use bits::iana::{Class, RRType};
+use iana::{Class, RRType};
 use bits::name::{AsDName, DName};
 use bits::octets::Octets;
 use bits::parse::ParseBytes;

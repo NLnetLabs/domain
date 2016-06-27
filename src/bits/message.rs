@@ -11,11 +11,11 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
+use iana::{Class, Rcode, RRType};
 use rdata::CName;
 use super::compose::{ComposeBytes, ComposeBuf};
 use super::error::{ComposeError, ComposeResult, ParseError, ParseResult};
 use super::header::{Header, HeaderCounts, FullHeader};
-use super::iana::{Class, Rcode, RRType};
 use super::name::{AsDName, DNameSlice};
 use super::parse::{ContextParser, ParseBytes};
 use super::question::{Question, QuestionTarget};
@@ -1118,9 +1118,9 @@ impl<C: ComposeBytes> MessageTarget<C> {
 mod test {
     use std::str::FromStr;
     use bits::name::DName;
-    use bits::iana::{Class, RRType};
     use bits::question::Question;
     use bits::record::Record;
+    use iana::{Class, RRType};
     use rdata::{A, CName};
     use super::*;
 

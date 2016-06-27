@@ -3,9 +3,9 @@
 //! This module defines the type `Record` that represents a resource record.
 
 use std::fmt;
+use iana::{Class, RRType};
 use super::compose::ComposeBytes;
 use super::error::{ComposeError, ComposeResult, ParseResult};
-use super::iana::{Class, RRType};
 use super::name::{AsDName, DName};
 use super::parse::ParseBytes;
 use super::rdata::RecordData;

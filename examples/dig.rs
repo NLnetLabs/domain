@@ -9,10 +9,10 @@ use std::io;
 use std::result;
 use std::str::FromStr;
 use domain::bits::{ComposeError, FromStrError, ParseError};
-use domain::bits::{Class, RRType};
 use domain::bits::message::{MessageBuf, RecordIter};
 use domain::bits::name::{DName, DNameBuf, DNameSlice};
 use domain::bits::rdata::GenericRecordData;
+use domain::iana::{Class, RRType};
 use domain::resolv::{ResolvConf, Resolver, Query};
 
 

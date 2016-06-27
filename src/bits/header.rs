@@ -13,8 +13,8 @@
 //!
 
 use std::mem;
+use iana::{Opcode, Rcode};
 use super::error::{ComposeError, ComposeResult};
-use super::iana::{Opcode, Rcode};
 
 
 //------------ Header --------------------------------------------------
@@ -541,7 +541,7 @@ impl FullHeader {
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::iana::{Opcode, Rcode};
+    use iana::{Opcode, Rcode};
 
     macro_rules! test_field {
         ($get:ident, $set:ident, $default:expr, $($value:expr),*) => {

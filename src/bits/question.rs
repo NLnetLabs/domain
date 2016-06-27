@@ -4,9 +4,9 @@
 //! the question section of a DNS message.
 
 use std::fmt;
+use iana::{Class, RRType};
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
-use super::iana::{Class, RRType};
 use super::name::{AsDName, DName};
 use super::parse::ParseBytes;
 

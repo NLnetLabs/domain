@@ -1,6 +1,7 @@
 //! A task for a simple, raw DNS query.
 
-use bits::{Class, DName, MessageBuf, Question, RRType};
+use bits::{DName, MessageBuf, Question};
+use iana::{Class, RRType};
 use resolv::error::Error;
 use resolv::tasks::traits::{Progress, Task, TaskRunner};
 

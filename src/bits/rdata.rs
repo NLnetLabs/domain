@@ -13,9 +13,9 @@
 //! type that can deal with all record types.
 
 use std::fmt;
+use iana::RRType;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
-use super::iana::RRType;
 use super::nest::Nest;
 use super::parse::ParseBytes;
 

@@ -2,8 +2,9 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-use bits::{AsDName, Class, DName, DNameBuf, MessageBuf, Question, RRType};
+use bits::{AsDName, DName, DNameBuf, MessageBuf, Question};
 use bits::name::Label;
+use iana::{Class, RRType};
 use rdata::Ptr;
 use resolv::Error;
 use resolv::tasks::traits::{Progress, Task, TaskRunner};

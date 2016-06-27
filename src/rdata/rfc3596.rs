@@ -6,7 +6,7 @@ use std::fmt;
 use std::net::Ipv6Addr;
 use bits::compose::ComposeBytes;
 use bits::error::{ComposeResult, ParseResult};
-use bits::iana::RRType;
+use iana::RRType;
 use bits::parse::ParseBytes;
 use bits::rdata::RecordData;
 

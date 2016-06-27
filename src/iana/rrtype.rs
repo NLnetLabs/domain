@@ -6,7 +6,7 @@ use std::convert;
 use std::fmt;
 use std::hash;
 use std::str;
-use super::super::error::{FromStrError, FromStrResult};
+use bits::error::{FromStrError, FromStrResult};
 
 
 /// Resource Record Types.
