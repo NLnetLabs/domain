@@ -38,6 +38,8 @@
 //!   (an authoritative name server),
 //! * [rfc1035](rfc1035/index.html)::[Null](rfc1035/struct.Null.html)
 //!   (a null RR; experimental),
+//! * [rfc6891](rfc6891/index.html)::[Opt](rfc6891/struct.Opt.html)
+//!   (OPT pseude-RR for EDNS),
 //! * [rfc1035](rfc1035/index.html)::[Ptr](rfc1035/struct.Ptr.html)
 //!   (a domain name pointer),
 //! * [rfc1035](rfc1035/index.html)::[Soa](rfc1035/struct.Soa.html)
@@ -52,6 +54,8 @@
 
 pub use self::rfc1035::*;
 pub use self::rfc3596::*;
+pub use self::rfc6891::*;
 
 pub mod rfc1035;
 pub mod rfc3596;
+pub mod rfc6891;

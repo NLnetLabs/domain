@@ -42,7 +42,7 @@ Eventually, this crate will provide the following functions:
     * [X] [Rotor](https://github.com/tailhook/rotor)-based asynchronous
           stub resolver.
 
-    * [ ] Rich set of DNS applications:
+    * [ ] Rich set of DNS tasks:
 
         * [X] querying for raw DNS records,
 

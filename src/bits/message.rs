@@ -5,6 +5,12 @@
 //! types, `Message` and `MessageBuf` for message slices and owned messages
 //! respectively. For building messages, there is only one type
 //! `MessageBuilder` that is generic over an underlying composer.
+//!
+//! # Todo
+//!
+//! - Have `Message` remember the start positions of the sections. This needs
+//!   interior mutability (we need to update the positions even if we only
+//!   have a `&self`), so let’s put this off until interfaces have stabilized.
 
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
@@ -115,6 +121,11 @@ impl Message {
     /// Returns whether the rcode is NoError.
     pub fn no_error(&self) -> bool {
         self.header().rcode() == Rcode::NoError
+    }
+
+    /// Returns whether the rcode is one of the error values.
+    pub fn is_error(&self) -> bool {
+        self.header().rcode() != Rcode::NoError
     }
 }
 

@@ -177,7 +177,12 @@ fn process_records<'a, R, F>(response: &'a MessageBuf, name: &DNameSlice,
 
 /// Searches for all IP addresses for the given host.
 ///
-/// XXX Consider hosts file.
+/// This task allows looking up relative names. These are considered based on
+/// the resolver configuration. If the name has less dots than set in the
+/// `ndots` attribute of the configuration (the default is one), then each
+/// domain name in the configuration’s `search` list is appened to the name
+/// and the result looked up. Otherwise, the root label is added to the name
+/// and that is looked up.
 pub struct SearchHost {
     names: Vec<DNameBuf>,
 }

@@ -118,14 +118,12 @@ pub enum DName<'a> {
 ///  For creation, use the variants directly.
 ///
 impl<'a> DName<'a> {
-    /// Extracts an owned name.
-    ///
-    /// Clones the data if it isn’t already owned.
-    pub fn into_owned(self) -> ParseResult<DNameBuf> {
-        match self {
+    /// Returns a new owned name with this name’s content.
+    pub fn to_owned(&self) -> ParseResult<DNameBuf> {
+        match *self {
             DName::Slice(name) => Ok(name.to_owned()),
-            DName::Owned(name) => Ok(name),
-            DName::Packed(name) => name.to_owned(),
+            DName::Owned(ref name) => Ok(name.clone()),
+            DName::Packed(ref name) => name.to_owned(),
         }
     }
 
@@ -1402,8 +1400,17 @@ enum LabelContent<'a> {
 
 
 impl<'a> Label<'a> {
+    /// Returns a root label.
     pub fn root() -> Self {
         Label(LabelContent::Normal(b""))
+    }
+
+    /// Returns a normal label.
+    ///
+    /// This will panic (!) if `bytes` is longer than 63 characters.
+    pub fn normal(bytes: &'a [u8]) -> Self {
+        assert!(bytes.len() <= 63);
+        Label(LabelContent::Normal(bytes))
     }
 
     /// Skips over a label and returns whether it was the final label.

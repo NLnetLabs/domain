@@ -24,11 +24,13 @@
 
 pub use self::class::Class;
 pub use self::opcode::Opcode;
+pub use self::opt::OptionCode;
 pub use self::rcode::Rcode;
 pub use self::rrtype::RRType;
 
 mod class;
 mod opcode;
+mod opt;
 mod rcode;
 mod rrtype;
 
