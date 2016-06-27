@@ -1,7 +1,6 @@
 //! DNS CLASSes.
 
 use std::cmp;
-use std::convert;
 use std::fmt;
 use std::hash;
 use std::str;
@@ -84,13 +83,13 @@ impl Class {
 
 //--- From
 
-impl convert::From<u16> for Class {
+impl From<u16> for Class {
     fn from(value: u16) -> Class {
         Class::from_int(value)
     }
 }
 
-impl convert::From<Class> for u16 {
+impl From<Class> for u16 {
     fn from(value: Class) -> u16 {
         value.to_int()
     }

@@ -1,6 +1,7 @@
 //! IANA Definitions for DNS.
 //!
 //! See http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+//! and http://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xhtml
 //! for the canonical source of these definitions.
 //!
 //! This module represents the state of the source as per 2016-03-10.
@@ -27,10 +28,12 @@ pub use self::opcode::Opcode;
 pub use self::opt::OptionCode;
 pub use self::rcode::Rcode;
 pub use self::rrtype::RRType;
+pub use self::secalg::SecAlg;
 
 mod class;
 mod opcode;
 mod opt;
 mod rcode;
 mod rrtype;
+mod secalg;
 

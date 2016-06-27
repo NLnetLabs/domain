@@ -155,6 +155,9 @@ pub enum FromStrError {
 
     /// An unknown class name was encountered.
     UnknownClass,
+
+    /// An unknown security algorithm was encountered.
+    UnknownAlgorithm,
 }
 
 impl Error for FromStrError {
@@ -169,6 +172,7 @@ impl Error for FromStrError {
             IllegalCharacter => "illegal character",
             UnknownType => "unknown type",
             UnknownClass => "unknown class",
+            UnknownAlgorithm => "unknown security algorithm",
         }
     }
 }
