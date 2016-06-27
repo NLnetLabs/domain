@@ -5,12 +5,6 @@
 //! types, `Message` and `MessageBuf` for message slices and owned messages
 //! respectively. For building messages, there is only one type
 //! `MessageBuilder` that is generic over an underlying composer.
-//!
-//! # Todo
-//!
-//! - Have `Message` remember the start positions of the sections. This needs
-//!   interior mutability (we need to update the positions even if we only
-//!   have a `&self`), so let’s put this off until interfaces have stabilized.
 
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
