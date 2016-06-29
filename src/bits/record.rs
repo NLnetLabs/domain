@@ -30,7 +30,7 @@ use super::rdata::RecordData;
 /// the type is generic over a `RecordData` trait that represents the
 /// concrete record data of the type.
 ///
-/// Thus, most often when using records, you use specify it in terms of the
+/// Thus, most often when using records, you specify it in terms of the
 /// record data it contains. For instance, a resource record of type
 /// `RRType::A`, generally called an A record, can be given as `Record<A>`
 /// (with the type `A` actually being `domain::rdata::A`).
@@ -113,6 +113,11 @@ impl<'a, D: RecordData<'a>> Record<'a, D> {
     /// Returns a mutable reference to the record data.
     pub fn rdata_mut(&mut self) -> &mut D {
         &mut self.rdata
+    }
+
+    /// Converts the record into its record data.
+    pub fn into_rdata(self) -> D {
+        self.rdata
     }
 }
 

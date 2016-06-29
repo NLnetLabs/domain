@@ -98,6 +98,9 @@ pub enum ParseError {
 
     /// A compressed label was encountered in a `DNameRef` or `OwnedDName`.
     CompressedLabel,
+
+    /// A format error was encountered.
+    FormErr,
 }
 
 impl Error for ParseError {
@@ -108,6 +111,7 @@ impl Error for ParseError {
             UnexpectedEnd => "unexpected end of data",
             UnknownLabel => "unknown label type in domain name",
             CompressedLabel => "a compressed label was encountered",
+            FormErr => "format error",
         }
     }
 }

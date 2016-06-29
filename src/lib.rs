@@ -4,8 +4,8 @@
 //! System. Currently, these are:
 //!
 //! * fundamental types, traits, and implementations for dealing with DNS
-//!   data through the modules [bits](bits/index.html) and
-//!   [rdata](rdata/index.html),
+//!   data through the modules [bits](bits/index.html),
+//!   [rdata](rdata/index.html), and [iana](iana/index.html),
 //! * an asynchronous stub resolver implementation for querying the DNS
 //!   in [resolv](resolv/index.html).
 

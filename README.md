@@ -48,7 +48,7 @@ Eventually, this crate will provide the following functions:
 
         * [X] querying for host names,
 
-        * [ ] reverse host name queries,
+        * [X] reverse host name queries,
 
         * [ ] querying for mail servers (MX records),
 

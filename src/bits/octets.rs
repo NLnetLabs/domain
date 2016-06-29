@@ -14,9 +14,9 @@ use super::parse::ParseBytes;
 
 /// Arbitrary bytes data.
 ///
-/// This type can be used to refer an arbitrary sequence of bytes in DNS data.
-/// Such a sequence is often used by record data definitions and cover the
-/// remainder of the record data. Under the hood, this type is actually a
+/// This type can be used to refer to an arbitrary sequence of bytes in DNS
+/// data. Such a sequence is often used by record data definitions and cover
+/// the remainder of the record data. Under the hood, this type is actually a
 /// `Cow<[u8]>` and derefs into one, giving you all of `Cow`’s methods and,
 /// transitively, all of bytes slice’s methods.
 ///

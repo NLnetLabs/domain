@@ -67,6 +67,12 @@ pub trait ParseBytes<'a>: Sized + Clone {
         })
     }
 
+    /// Parses the rest of the parser.
+    fn parse_left(&mut self) -> ParseResult<&'a [u8]> {
+        let len = self.left();
+        self.parse_bytes(len)
+    }
+
     /// Creates a sup-parser starting a the current position.
     ///
     /// XXX This is identical to `clone()`, so maybe we should ditch it?

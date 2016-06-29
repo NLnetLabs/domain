@@ -20,7 +20,7 @@ use super::nest::Nest;
 use super::parse::ParseBytes;
 
 
-///----------- RecordData ------------------------------------------------
+//----------- RecordData ------------------------------------------------
 
 /// A trait for parsing and composing record data.
 pub trait RecordData<'a>: fmt::Display + Sized {
