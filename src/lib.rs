@@ -4,10 +4,16 @@
 //! System. Currently, these are:
 //!
 //! * fundamental types, traits, and implementations for dealing with DNS
-//!   data through the modules [bits](bits/index.html),
-//!   [rdata](rdata/index.html), and [iana](iana/index.html),
+//!   data through the modules [bits], [rdata], and [iana],
 //! * an asynchronous stub resolver implementation for querying the DNS
-//!   in [resolv](resolv/index.html).
+//!   in [resolv],
+//! * facilities to build a name server in the [server] module.
+//!
+//! [bits]: bits/index.html
+//! [iana]: iana/index.html
+//! [rdata]: rdata/index.html
+//! [resolv]: resolv/index.html
+//! [server]: server/index.html
 
 extern crate rand;
 extern crate rotor;
@@ -17,4 +23,5 @@ pub mod bits;
 pub mod iana;
 pub mod rdata;
 pub mod resolv;
+pub mod server;
 
