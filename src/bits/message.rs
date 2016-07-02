@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use iana::{Class, Rcode, RRType};
-use rdata::CName;
+use rdata::Cname;
 use super::compose::{ComposeBytes, ComposeBuf};
 use super::error::{ComposeError, ComposeResult, ParseError, ParseResult};
 use super::header::{Header, HeaderCounts, FullHeader};
@@ -237,7 +237,7 @@ impl Message {
             Err(..) => return None,
             Ok(answer) => answer
         };
-        for record in answer.iter::<CName>() {
+        for record in answer.iter::<Cname>() {
             let record = match record {
                 Err(..) => break,
                 Ok(record) => record
@@ -1121,7 +1121,7 @@ mod test {
     use bits::question::Question;
     use bits::record::Record;
     use iana::{Class, RRType};
-    use rdata::{A, CName};
+    use rdata::{A, Cname};
     use super::*;
 
     struct ExampleMessage<'a> {
@@ -1135,12 +1135,12 @@ mod test {
     impl<'a> ExampleMessage<'a> {
         fn new() -> Self {
             let name = DName::from_str("example.com.").unwrap();
-            let question = Question::new(name.clone(), RRType::A, Class::IN);
-            let rec1 = Record::new(name.clone(), Class::IN, 86400,
+            let question = Question::new(name.clone(), RRType::A, Class::In);
+            let rec1 = Record::new(name.clone(), Class::In, 86400,
                                    A::from_octets(192, 0, 2, 1));
-            let rec2 = Record::new(name.clone(), Class::IN, 86400,
+            let rec2 = Record::new(name.clone(), Class::In, 86400,
                                    A::from_octets(192, 0, 2, 2));
-            let rec3 = Record::new(name.clone(), Class::IN, 86400,
+            let rec3 = Record::new(name.clone(), Class::In, 86400,
                                    A::from_octets(192, 0, 2, 3));
             
             let mut msg = MessageBuilder::new(None, true).unwrap();
@@ -1204,14 +1204,14 @@ mod test {
         Question::push_in(&mut msg, &DName::from_str("example.com.").unwrap(),
                                     RRType::A).unwrap();
         let mut answer = msg.answer();
-        CName::push(&mut answer, &DName::from_str("bar.example.com.").unwrap(),
-                    Class::IN, 86400,
+        Cname::push(&mut answer, &DName::from_str("bar.example.com.").unwrap(),
+                    Class::In, 86400,
                     &DName::from_str("baz.example.com.").unwrap()).unwrap();
-        CName::push(&mut answer, &DName::from_str("example.com.").unwrap(),
-                    Class::IN, 86400,
+        Cname::push(&mut answer, &DName::from_str("example.com.").unwrap(),
+                    Class::In, 86400,
                     &DName::from_str("foo.example.com.").unwrap()).unwrap();
-        CName::push(&mut answer, &DName::from_str("foo.example.com.").unwrap(),
-                    Class::IN, 86400,
+        Cname::push(&mut answer, &DName::from_str("foo.example.com.").unwrap(),
+                    Class::In, 86400,
                     &DName::from_str("bar.example.com.").unwrap()).unwrap();
         let msg = MessageBuf::from_vec(answer.finish().unwrap().finish())
                              .unwrap();

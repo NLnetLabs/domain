@@ -39,7 +39,7 @@ impl<'a> Query<'a> {
 
     /// Creates a new query in the IN class with the given name and type.
     pub fn new_in(name: DName<'a>, rtype: RRType) -> Self {
-        Query::new(name, rtype, Class::IN)
+        Query::new(name, rtype, Class::In)
     }
 }
 

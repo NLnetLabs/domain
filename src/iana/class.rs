@@ -25,25 +25,25 @@ pub enum Class {
     ///
     /// This class is defined in RFC 1035 and really the only one relevant
     /// at all.
-    IN,
+    In,
 
     /// Chaos (CH)
-    CH,
+    Ch,
 
     /// Hesiod (HS)
-    HS,
+    Hs,
 
     /// Query class None
     ///
     /// Defined in RFC 2136, this class is used in UPDATE queries to
     /// require that an RRset does not exist prior to the update.
-    NONE,
+    None,
 
     /// Query class * (ANY)
     ///
     /// This class can be used in a query to indicate that records for the
     /// given name from any class are requested.
-    ANY,
+    Any,
 
     /// A raw class value given through its integer. 
     Int(u16),
@@ -55,11 +55,11 @@ impl Class {
         use self::Class::*;
 
         match value {
-            0x0001 => IN,
-            0x0003 => CH,
-            0x0004 => HS,
-            0x00FE => NONE,
-            0x00FF => ANY,
+            0x0001 => In,
+            0x0003 => Ch,
+            0x0004 => Hs,
+            0x00FE => None,
+            0x00FF => Any,
             _ => Int(value)
             
         }
@@ -70,11 +70,11 @@ impl Class {
         use self::Class::*;
 
         match self {
-            IN => 0x0001,
-            CH => 0x0003,
-            HS => 0x0004,
-            NONE => 0x00FE,
-            ANY => 0x00FF,
+            In => 0x0001,
+            Ch => 0x0003,
+            Hs => 0x0004,
+            None => 0x00FE,
+            Any => 0x00FF,
             Int(value) => value
         }
     }
@@ -113,11 +113,11 @@ impl str::FromStr for Class {
         use std::ascii::AsciiExt;
         use self::Class::*;
 
-        if s.eq_ignore_ascii_case("IN") { Ok(IN) }
-        else if s.eq_ignore_ascii_case("CH") { Ok(CH) }
-        else if s.eq_ignore_ascii_case("HS") { Ok(HS) }
-        else if s.eq_ignore_ascii_case("NONE") { Ok(NONE) }
-        else if s.eq_ignore_ascii_case("*") { Ok(ANY) }
+        if s.eq_ignore_ascii_case("IN") { Ok(In) }
+        else if s.eq_ignore_ascii_case("CH") { Ok(Ch) }
+        else if s.eq_ignore_ascii_case("HS") { Ok(Hs) }
+        else if s.eq_ignore_ascii_case("NONE") { Ok(None) }
+        else if s.eq_ignore_ascii_case("*") { Ok(Any) }
         else {
             if let Some((n, _)) = s.char_indices().nth(5) {
                 let (l, r) = s.split_at(n);
@@ -153,11 +153,11 @@ impl fmt::Display for Class {
         use self::Class::*;
 
         match *self {
-            IN => "IN".fmt(f),
-            CH => "CH".fmt(f),
-            HS => "HS".fmt(f),
-            NONE => "NONE".fmt(f),
-            ANY => "*".fmt(f),
+            In => "IN".fmt(f),
+            Ch => "CH".fmt(f),
+            Hs => "HS".fmt(f),
+            None => "NONE".fmt(f),
+            Any => "*".fmt(f),
             Int(value) => {
                 // Maybe value is actually for a well-known variant.
                 match Class::from_int(value) {

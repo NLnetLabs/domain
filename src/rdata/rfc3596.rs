@@ -1,6 +1,6 @@
 //! Record data from RFC 3596.
 //!
-//! This RFC defines the AAAA record type.
+//! This RFC defines the Aaaa record type.
 
 use std::fmt;
 use std::net::Ipv6Addr;
@@ -11,16 +11,16 @@ use bits::parse::ParseBytes;
 use bits::rdata::RecordData;
 
 
-//------------ AAAA ---------------------------------------------------------
+//------------ Aaaa ---------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AAAA {
+pub struct Aaaa {
     addr: Ipv6Addr
 }
 
-impl AAAA {
-    pub fn new(addr: Ipv6Addr) -> AAAA {
-        AAAA { addr: addr }
+impl Aaaa {
+    pub fn new(addr: Ipv6Addr) -> Aaaa {
+        Aaaa { addr: addr }
     }
 
     pub fn addr(&self) -> Ipv6Addr { self.addr }
@@ -28,7 +28,7 @@ impl AAAA {
 
     fn parse_always<'a, P>(parser: &mut P) -> ParseResult<Self>
                     where P: ParseBytes<'a> {
-        Ok(AAAA::new(Ipv6Addr::new(try!(parser.parse_u16()),
+        Ok(Aaaa::new(Ipv6Addr::new(try!(parser.parse_u16()),
                                    try!(parser.parse_u16()),
                                    try!(parser.parse_u16()),
                                    try!(parser.parse_u16()),
@@ -39,8 +39,8 @@ impl AAAA {
     }
 }
 
-impl<'a> RecordData<'a> for AAAA {
-    fn rtype(&self) -> RRType { RRType::AAAA }
+impl<'a> RecordData<'a> for Aaaa {
+    fn rtype(&self) -> RRType { RRType::Aaaa }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         for i in self.addr.segments().iter() {
@@ -51,12 +51,12 @@ impl<'a> RecordData<'a> for AAAA {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::AAAA { Some(AAAA::parse_always(parser)) }
+        if rtype == RRType::Aaaa { Some(Aaaa::parse_always(parser)) }
         else { None }
     }
 }
 
-impl fmt::Display for AAAA {
+impl fmt::Display for Aaaa {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.addr.fmt(f)
     }

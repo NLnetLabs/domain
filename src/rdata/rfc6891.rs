@@ -74,7 +74,7 @@ impl<'a> Opt<'a> {
     }
 
     /// Returns the record type of OPT records.
-    pub fn rtype() -> RRType { RRType::OPT }
+    pub fn rtype() -> RRType { RRType::Opt }
 }
 
 /// # Building OPT Records on the Fly
@@ -378,7 +378,7 @@ impl<'a> RecordData<'a> for Opt<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::OPT {
+        if rtype == RRType::Opt {
             Some(OptSlice::parse(parser).map(|x| Opt(Cow::Borrowed(x))))
         }
         else { None }
@@ -1185,7 +1185,7 @@ impl<'a> OptRecord<'a> {
                       F: Fn(&mut C) -> ComposeResult<()> {
         target.compose(|target| {
             try!(target.push_u8(0));
-            try!(target.push_u16(RRType::OPT.into()));
+            try!(target.push_u16(RRType::Opt.into()));
             try!(target.push_u16(udp_size));
             try!(target.push_u8(extended_rcode));
             try!(target.push_u8(version));

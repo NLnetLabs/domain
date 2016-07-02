@@ -5,7 +5,7 @@ use std::slice;
 use bits::{AsDName, DName, DNameBuf, DNameSlice, MessageBuf, ParseResult,
            Question, RecordData};
 use iana::{Class, RRType};
-use rdata::{A, AAAA};
+use rdata::{A, Aaaa};
 use resolv::conf::ResolvConf;
 use resolv::tasks::traits::{Progress, Task, TaskRunner};
 use resolv::error::{Error, Result};
@@ -15,7 +15,7 @@ use resolv::error::{Error, Result};
 
 /// Looks up all IP addresses for the given host.
 ///
-/// This task does a DNS query for A and AAAA records of the domain name
+/// This task does a DNS query for A and Aaaa records of the domain name
 /// given to the `LookupHost::new()` function. This differs from the usual
 /// address lookup function such as POSIX’s `gethostbyname()`. The task
 /// does not consider the hosts file nor does it care about the search
@@ -36,8 +36,8 @@ impl<'a> Task for LookupHost<'a> {
     fn start<F>(self, mut f: F) -> Self::Runner
              where F: FnMut(&DName, RRType, Class) {
         {
-            f(&self.name, RRType::A, Class::IN);
-            f(&self.name, RRType::AAAA, Class::IN);
+            f(&self.name, RRType::A, Class::In);
+            f(&self.name, RRType::Aaaa, Class::In);
         }
         LookupHostRunner::new()
     }
@@ -50,7 +50,7 @@ pub struct LookupHostRunner {
     /// The response to our A query, if it has arrived yet.
     a: Option<Result<MessageBuf>>,
 
-    /// The response to our AAAA query, if it has arrived yet.
+    /// The response to our Aaaa query, if it has arrived yet.
     aaaa: Option<Result<MessageBuf>>
 }
 
@@ -78,7 +78,7 @@ impl TaskRunner for LookupHostRunner {
         let qtype = response.qtype();
         match qtype {
             Some(RRType::A) => self.a = Some(Ok(response)),
-            Some(RRType::AAAA) => self.aaaa = Some(Ok(response)),
+            Some(RRType::Aaaa) => self.aaaa = Some(Ok(response)),
             _ => { }
         };
         self.process()
@@ -89,7 +89,7 @@ impl TaskRunner for LookupHostRunner {
              where F: FnMut(&DName, RRType, Class) {
         match question.qtype() {
             RRType::A => self.a = Some(Err(error)),
-            RRType::AAAA => self.aaaa = Some(Err(error)),
+            RRType::Aaaa => self.aaaa = Some(Err(error)),
             _ => { }
         };
         self.process()
@@ -105,7 +105,7 @@ pub struct HostSuccess {
 }
 
 impl HostSuccess {
-    /// Create a new value from A and AAAA results.
+    /// Create a new value from A and Aaaa results.
     fn new(mut a: Result<MessageBuf>, mut aaaa: Result<MessageBuf>)
            -> Result<Self> {
         // Turn any error response into an error.
@@ -125,7 +125,7 @@ impl HostSuccess {
                             |r: &A| IpAddr::V4(r.addr())).ok();
             if let Ok(aaaa) = aaaa {
                 process_records(&aaaa, &name, &mut addrs,
-                                |r: &AAAA| IpAddr::V6(r.addr())).ok();
+                                |r: &Aaaa| IpAddr::V6(r.addr())).ok();
             }
             Ok(HostSuccess { canonical: name.into_owned(),
                                    addrs: addrs })
@@ -134,7 +134,7 @@ impl HostSuccess {
             let name = aaaa.canonical_name().unwrap();
             let mut addrs = Vec::new();
             process_records(&aaaa, &name, &mut addrs,
-                            |r: &AAAA| IpAddr::V6(r.addr())).ok();
+                            |r: &Aaaa| IpAddr::V6(r.addr())).ok();
             Ok(HostSuccess { canonical: name.into_owned(),
                                    addrs: addrs })
         }

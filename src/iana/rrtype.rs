@@ -20,77 +20,81 @@ use bits::error::{FromStrError, FromStrResult};
 /// Record types are defined in RFC 1035. The registry of currently assigned
 /// values can be found at
 /// http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
+/// 
+/// In order to avoid confusion over capitalization, the mnemonics are
+/// treated as single acronyms and therefore all variant names are spelled
+/// with an initial capital letter in accordance with Rust naming guidelines.
 #[derive(Clone, Copy, Debug)]
 pub enum RRType {
     /// A host address.
     A,
 
     /// An authoritative name server.
-    NS,
+    Ns,
 
     /// A mail destination.
     ///
     /// (Obsolete – use MX)
-    MD,
+    Md,
 
     /// A mail forwarder.
     ///
     /// (Obsolete – use MX)
-    MF,
+    Mf,
 
     /// The canonical name for an alias
-    CNAME,
+    Cname,
 
     /// Marks the start of a zone of authority.
-    SOA,
+    Soa,
 
     /// A mailbox domain name.
     ///
     /// (Experimental.)
-    MB,
+    Mb,
 
     /// A mail group member
     ///
     /// (Experimental.)
-    MG,
+    Mg,
 
     /// A mail rename domain name.
     ///
     /// (Experimental.)
-    MR,
+    Mr,
     
     /// A null resource record.
     ///
     /// (Experimental.)
-    NULL,
+    Null,
 
     /// A well known service description.
-    WKS,
+    Wks,
 
     /// A domain name pointer.
-    PTR,
+    Ptr,
 
     /// Host information.
-    HINFO,
+    Hinfo,
 
     /// Mailbox or mail list information.
-    MINFO,
+    Minfo,
 
     /// Mail exchange.
-    MX,
+    Mx,
 
     /// Text strings.
-    TXT,
+    Txt,
     
     /// For Responsible Person.
     ///
     /// See RFC 1183
-    RP,
+    Rp,
 
     /// For AFS Data Base location.
     ///
     /// See RFC 1183 and RFC 5864.
-    AFSDB,
+    Afsdb,
 
     /// For X.25 PSDN address.
     ///
@@ -100,84 +104,84 @@ pub enum RRType {
     /// For ISDN address.
     ///
     /// See RFC 1183.
-    ISDN,
+    Isdn,
 
     /// For Route Through.
     ///
     /// See RFC 1183
-    RT,
+    Rt,
 
     /// For SNAP address, NSAP style A record.
     ///
     /// See RFC 1706.
-    NSAP,
+    Nsap,
     
     /// For domain name pointer, NSAP style.
     ///
     /// See RFC 1348, RFC 1637, RFC 1706.
-    NSAPPTR,
+    Nsapptr,
 
     /// For security signature.
-    SIG,
+    Sig,
 
     /// For security key.
-    KEY,
+    Key,
 
     /// X.400 mail mapping information.
     ///
     /// See RFC 2163.
-    PX,
+    Px,
 
     /// Geographical position.
     ///
     /// See RFC 1712
-    GPOS,
+    Gpos,
     
     /// IPv6 address.
     ///
     /// See RFC 3596.
-    AAAA,
+    Aaaa,
 
     /// Location information.
     ///
     /// See RFC 1876.
-    LOC,
+    Loc,
 
     /// Next domain.
     ///
     /// (Obsolete.)
     ///
     /// See RFC 3755 and RFC 2535.
-    NXT,
+    Nxt,
 
     /// Endpoint identifier.
-    EID,
+    Eid,
 
     /// Nimrod locator.
-    NIMLOC,
+    Nimloc,
 
     /// Server selection.
     ///
     /// See RFC 2782.
-    SRV,
+    Srv,
 
     /// ATM address.
-    ATMA,
+    Atma,
 
     /// Naming authority pointer.
     ///
     /// See RFC 2915, RFC 2168, and RFC 3403.
-    NAPTR,
+    Naptr,
 
     /// Key exchanger.
     ///
     /// See RFC 2230.
-    KX,
+    Kx,
 
     /// CERT
     ///
     /// See RFC 4398.
-    CERT,
+    Cert,
 
     /// A6.
     ///
@@ -189,139 +193,139 @@ pub enum RRType {
     /// DNAME.
     ///
     /// See RFC 6672.
-    DNAME,
+    Dname,
 
     /// SINK.
-    SINK,
+    Sink,
 
     /// OPT.
     ///
     /// See RFC 6891 and RFC 3225.
-    OPT,
+    Opt,
 
     /// APL.
     ///
     /// See RFC 3123.
-    APL,
+    Apl,
 
     /// Delegation signer.
     ///
     /// See RFC 4034 and RFC 3658.
-    DS,
+    Ds,
 
     /// SSH key fingerprint.
     ///
     /// See RFC 4255.
-    SSHFP,
+    Sshfp,
 
     /// IPSECKEY
     ///
     /// See RFC 4255.
-    IPSECKEY,
+    Ipseckey,
 
     /// RRSIG.
     ///
     /// See RFC 4034 and RFC 3755.
-    RRSIG,
+    Rrsig,
 
     /// NSEC.
     ///
     /// See RFC 4034 and RFC 3755.
-    NSEC,
+    Nsec,
 
     /// DNSKEY.
     ///
     /// See RFC 4034 and RFC 3755.
-    DNSKEY,
+    Dnskey,
 
     /// DHCID.
     ///
     /// See RFC 4701.
-    DHCID,
+    Dhcid,
 
     /// NSEC3
     ///
     /// See RFC 5155.
-    NSEC3,
+    Nsec3,
 
     /// NSEC3PARAM.
     ///
     /// See RFC 5155.
-    NSEC3PARAM,
+    Nsec3param,
     
     /// TLSA.
     ///
     /// See RFC 6698.
-    TLSA,
+    Tlsa,
 
     /// S/MIME cert association.
     ///
     /// See draft-ietf-dane-smime.
-    SMIMEA,
+    Smimea,
 
     /// Host Identity Protocol.
     ///
     /// See RFC 5205.
-    HIP,
+    Hip,
 
     /// NINFO.
-    NINFO,
+    Ninfo,
 
     /// RKEY.
-    RKEY,
+    Rkey,
 
     /// Trust Anchor Link
-    TALINK,
+    Talink,
 
     /// Child DS.
     ///
     /// See RFC 7344.
-    CDS,
+    Cds,
 
     /// DNSKEY(s) the child wants reflected in DS.
     ///
     /// See RFC 7344.
-    CDNSKEY,
+    Cdnskey,
     
     /// OpenPGP key.
     ///
     /// See draft-ietf-dane-openpgpkey.
-    OPENPGPKEY,
+    Openpgpkey,
 
     /// Child-to-parent synchronization.
     ///
     /// See RFC 7477.
-    CSYNC,
+    Csync,
 
     /// SPF.
     ///
     /// RFC 7208.
-    SPF,
+    Spf,
 
     /// UINFO.
     ///
     /// IANA-Reserved.
-    UINFO,
+    Uinfo,
     
     /// UID.
     ///
     /// IANA-Reserved.
-    UID,
+    Uid,
 
     /// GID.
     ///
     /// IANA-Reserved.
-    GID,
+    Gid,
 
     /// UNSPEC.
     ///
     /// IANA-Reserved.
-    UNSPEC,
+    Unspec,
 
     /// NID.
     ///
     /// See RFC 6742.
-    NID,
+    Nid,
 
     /// L32.
     ///
@@ -336,71 +340,71 @@ pub enum RRType {
     /// LP.
     ///
     /// See RFC 6742.
-    LP,
+    Lp,
 
     /// An EUI-48 address.
     ///
     /// See RFC 7043.
-    EUI48,
+    Eui48,
 
     /// An EUI-64 address.
     ///
     /// See RFC 7043.
-    EUI64,
+    Eui64,
     
     /// Transaction key.
     ///
     /// See RFC 2930.
-    TKEY,
+    Tkey,
     
     /// Transaction signature.
     ///
     /// See RFC 2845.
-    TSIG,
+    Tsig,
 
     /// Incremental transfer.
     ///
     /// See RFC 1995.
-    IXFR,
+    Ixfr,
     
     /// Transfer of entire zone.
     ///
     /// See RFC 1035 and RFC 5936.
-    AXFR,
+    Axfr,
 
     /// Mailbox-related RRs (MB, MG, or MR).
-    MAILB,
+    Mailb,
 
     /// Mail agent RRS.
     ///
     /// (Obsolete – see MX.)
-    MAILA,
+    Maila,
 
     /// A request for all records the server/cache has available.
     ///
     /// See RFC 1035 and RFC 6895.
-    ANY,
+    Any,
 
     /// URI.
     ///
     /// See RFC 7553.
-    URI,
+    Uri,
 
     /// Certification Authority Restriction.
     ///
     /// See RFC 6844.
-    CAA,
+    Caa,
 
     /// Application visibility and control.
-    AVC,
+    Avc,
 
     /// DNSSEC trust authorities.
-    TA,
+    Ta,
 
     /// DNSSEC lookaside validation.
     ///
     /// See RFC 4431
-    DLV,
+    Dlv,
 
     /// A raw integer RR type value.
     Int(u16)
@@ -413,93 +417,93 @@ impl RRType {
 
         match value {
             1 => A,
-            2 => NS,
-            3 => MD,
-            4 => MF,
-            5 => CNAME,
-            6 => SOA,
-            7 => MB,
-            8 => MG,
-            9 => MR,
-            10 => NULL,
-            11 => WKS,
-            12 => PTR,
-            13 => HINFO,
-            14 => MINFO,
-            15 => MX,
-            16 => TXT,
-            17 => RP,
-            18 => AFSDB,
+            2 => Ns,
+            3 => Md,
+            4 => Mf,
+            5 => Cname,
+            6 => Soa,
+            7 => Mb,
+            8 => Mg,
+            9 => Mr,
+            10 => Null,
+            11 => Wks,
+            12 => Ptr,
+            13 => Hinfo,
+            14 => Minfo,
+            15 => Mx,
+            16 => Txt,
+            17 => Rp,
+            18 => Afsdb,
             19 => X25,
-            20 => ISDN,
-            21 => RT,
-            22 => NSAP,
-            23 => NSAPPTR,
-            24 => SIG,
-            25 => KEY,
-            26 => PX,
-            27 => GPOS,
-            28 => AAAA,
-            29 => LOC,
-            30 => NXT,
-            31 => EID,
-            32 => NIMLOC,
-            33 => SRV,
-            34 => ATMA,
-            35 => NAPTR,
-            36 => KX,
-            37 => CERT,
+            20 => Isdn,
+            21 => Rt,
+            22 => Nsap,
+            23 => Nsapptr,
+            24 => Sig,
+            25 => Key,
+            26 => Px,
+            27 => Gpos,
+            28 => Aaaa,
+            29 => Loc,
+            30 => Nxt,
+            31 => Eid,
+            32 => Nimloc,
+            33 => Srv,
+            34 => Atma,
+            35 => Naptr,
+            36 => Kx,
+            37 => Cert,
             38 => A6,
-            39 => DNAME,
-            40 => SINK,
-            41 => OPT,
-            42 => APL,
-            43 => DS,
-            44 => SSHFP,
-            45 => IPSECKEY,
-            46 => RRSIG,
-            47 => NSEC,
-            48 => DNSKEY,
-            49 => DHCID,
-            50 => NSEC3,
-            51 => NSEC3PARAM,
-            52 => TLSA,
-            53 => SMIMEA,
+            39 => Dname,
+            40 => Sink,
+            41 => Opt,
+            42 => Apl,
+            43 => Ds,
+            44 => Sshfp,
+            45 => Ipseckey,
+            46 => Rrsig,
+            47 => Nsec,
+            48 => Dnskey,
+            49 => Dhcid,
+            50 => Nsec3,
+            51 => Nsec3param,
+            52 => Tlsa,
+            53 => Smimea,
             // 54
-            55 => HIP,
-            56 => NINFO,
-            57 => RKEY,
-            58 => TALINK,
-            59 => CDS,
-            60 => CDNSKEY,
-            61 => OPENPGPKEY,
-            62 => CSYNC,
+            55 => Hip,
+            56 => Ninfo,
+            57 => Rkey,
+            58 => Talink,
+            59 => Cds,
+            60 => Cdnskey,
+            61 => Openpgpkey,
+            62 => Csync,
             // 63-98
-            99 => SPF,
-            100 => UINFO,
-            101 => UID,
-            102 => GID,
-            103 => UNSPEC,
-            104 => NID,
+            99 => Spf,
+            100 => Uinfo,
+            101 => Uid,
+            102 => Gid,
+            103 => Unspec,
+            104 => Nid,
             105 => L32,
             106 => L64,
-            107 => LP,
-            108 => EUI48,
-            109 => EUI64,
+            107 => Lp,
+            108 => Eui48,
+            109 => Eui64,
             // 110-248
-            249 => TKEY,
-            250 => TSIG,
-            251 => IXFR,
-            252 => AXFR,
-            253 => MAILB,
-            254 => MAILA,
-            255 => ANY,
-            256 => URI,
-            257 => CAA,
-            258 => AVC,
+            249 => Tkey,
+            250 => Tsig,
+            251 => Ixfr,
+            252 => Axfr,
+            253 => Mailb,
+            254 => Maila,
+            255 => Any,
+            256 => Uri,
+            257 => Caa,
+            258 => Avc,
             // 259-32767
-            32768 => TA,
-            32769 => DLV,
+            32768 => Ta,
+            32769 => Dlv,
             _ => Int(value)
         }
     }
@@ -510,89 +514,89 @@ impl RRType {
 
         match self {
             A => 1,
-            NS => 2,
-            MD => 3,
-            MF => 4,
-            CNAME => 5,
-            SOA => 6,
-            MB => 7,
-            MG => 8,
-            MR => 9,
-            NULL => 10,
-            WKS => 11,
-            PTR => 12,
-            HINFO => 13,
-            MINFO => 14,
-            MX => 15,
-            TXT => 16,
-            RP => 17,
-            AFSDB => 18,
+            Ns => 2,
+            Md => 3,
+            Mf => 4,
+            Cname => 5,
+            Soa => 6,
+            Mb => 7,
+            Mg => 8,
+            Mr => 9,
+            Null => 10,
+            Wks => 11,
+            Ptr => 12,
+            Hinfo => 13,
+            Minfo => 14,
+            Mx => 15,
+            Txt => 16,
+            Rp => 17,
+            Afsdb => 18,
             X25 => 19,
-            ISDN => 20,
-            RT => 21,
-            NSAP => 22,
-            NSAPPTR => 23,
-            SIG => 24,
-            KEY => 25,
-            PX => 26,
-            GPOS => 27,
-            AAAA => 28,
-            LOC => 29,
-            NXT => 30,
-            EID => 31,
-            NIMLOC => 32,
-            SRV => 33,
-            ATMA => 34,
-            NAPTR => 35,
-            KX => 36,
-            CERT => 37,
+            Isdn => 20,
+            Rt => 21,
+            Nsap => 22,
+            Nsapptr => 23,
+            Sig => 24,
+            Key => 25,
+            Px => 26,
+            Gpos => 27,
+            Aaaa => 28,
+            Loc => 29,
+            Nxt => 30,
+            Eid => 31,
+            Nimloc => 32,
+            Srv => 33,
+            Atma => 34,
+            Naptr => 35,
+            Kx => 36,
+            Cert => 37,
             A6 => 38,
-            DNAME => 39,
-            SINK => 40,
-            OPT => 41,
-            APL => 42,
-            DS => 43,
-            SSHFP => 44,
-            IPSECKEY => 45,
-            RRSIG => 46,
-            NSEC => 47,
-            DNSKEY => 48,
-            DHCID => 49,
-            NSEC3 => 50,
-            NSEC3PARAM => 51,
-            TLSA => 52,
-            SMIMEA => 53,
-            HIP => 55,
-            NINFO => 56,
-            RKEY => 57,
-            TALINK => 58,
-            CDS => 59,
-            CDNSKEY => 60,
-            OPENPGPKEY => 61,
-            CSYNC => 62,
-            SPF => 99,
-            UINFO => 100,
-            UID => 101,
-            GID => 102,
-            UNSPEC => 103,
-            NID => 104,
+            Dname => 39,
+            Sink => 40,
+            Opt => 41,
+            Apl => 42,
+            Ds => 43,
+            Sshfp => 44,
+            Ipseckey => 45,
+            Rrsig => 46,
+            Nsec => 47,
+            Dnskey => 48,
+            Dhcid => 49,
+            Nsec3 => 50,
+            Nsec3param => 51,
+            Tlsa => 52,
+            Smimea => 53,
+            Hip => 55,
+            Ninfo => 56,
+            Rkey => 57,
+            Talink => 58,
+            Cds => 59,
+            Cdnskey => 60,
+            Openpgpkey => 61,
+            Csync => 62,
+            Spf => 99,
+            Uinfo => 100,
+            Uid => 101,
+            Gid => 102,
+            Unspec => 103,
+            Nid => 104,
             L32 => 105,
             L64 => 106,
-            LP => 107,
-            EUI48 => 108,
-            EUI64 => 109,
-            TKEY => 249,
-            TSIG => 250,
-            IXFR => 251,
-            AXFR => 252,
-            MAILB => 253,
-            MAILA => 254,
-            ANY => 255,
-            URI => 256,
-            CAA => 257,
-            AVC => 258,
-            TA => 32768,
-            DLV => 32769,
+            Lp => 107,
+            Eui48 => 108,
+            Eui64 => 109,
+            Tkey => 249,
+            Tsig => 250,
+            Ixfr => 251,
+            Axfr => 252,
+            Mailb => 253,
+            Maila => 254,
+            Any => 255,
+            Uri => 256,
+            Caa => 257,
+            Avc => 258,
+            Ta => 32768,
+            Dlv => 32769,
             Int(value) => value
         }
     }
@@ -629,89 +633,89 @@ impl str::FromStr for RRType {
         use self::RRType::*;
 
         if s.eq_ignore_ascii_case("A") { Ok(A) }
-        else if s.eq_ignore_ascii_case("NS") { Ok(NS) }
-        else if s.eq_ignore_ascii_case("MD") { Ok(MD) }
-        else if s.eq_ignore_ascii_case("MF") { Ok(MF) }
-        else if s.eq_ignore_ascii_case("CNAME") { Ok(CNAME) }
-        else if s.eq_ignore_ascii_case("SOA") { Ok(SOA) }
-        else if s.eq_ignore_ascii_case("MB") { Ok(MB) }
-        else if s.eq_ignore_ascii_case("MG") { Ok(MG) }
-        else if s.eq_ignore_ascii_case("MR") { Ok(MR) }
-        else if s.eq_ignore_ascii_case("NULL") { Ok(NULL) }
-        else if s.eq_ignore_ascii_case("WKS") { Ok(WKS) }
-        else if s.eq_ignore_ascii_case("PTR") { Ok(PTR) }
-        else if s.eq_ignore_ascii_case("HINFO") { Ok(HINFO) }
-        else if s.eq_ignore_ascii_case("MINFO") { Ok(MINFO) }
-        else if s.eq_ignore_ascii_case("MX") { Ok(MX) }
-        else if s.eq_ignore_ascii_case("TXT") { Ok(TXT) }
-        else if s.eq_ignore_ascii_case("RP") { Ok(RP) }
-        else if s.eq_ignore_ascii_case("AFSDB") { Ok(AFSDB) }
+        else if s.eq_ignore_ascii_case("NS") { Ok(Ns) }
+        else if s.eq_ignore_ascii_case("MD") { Ok(Md) }
+        else if s.eq_ignore_ascii_case("MF") { Ok(Mf) }
+        else if s.eq_ignore_ascii_case("CNAME") { Ok(Cname) }
+        else if s.eq_ignore_ascii_case("SOA") { Ok(Soa) }
+        else if s.eq_ignore_ascii_case("MB") { Ok(Mb) }
+        else if s.eq_ignore_ascii_case("MG") { Ok(Mg) }
+        else if s.eq_ignore_ascii_case("MR") { Ok(Mr) }
+        else if s.eq_ignore_ascii_case("NULL") { Ok(Null) }
+        else if s.eq_ignore_ascii_case("WKS") { Ok(Wks) }
+        else if s.eq_ignore_ascii_case("PTR") { Ok(Ptr) }
+        else if s.eq_ignore_ascii_case("HINFO") { Ok(Hinfo) }
+        else if s.eq_ignore_ascii_case("MINFO") { Ok(Minfo) }
+        else if s.eq_ignore_ascii_case("MX") { Ok(Mx) }
+        else if s.eq_ignore_ascii_case("TXT") { Ok(Txt) }
+        else if s.eq_ignore_ascii_case("RP") { Ok(Rp) }
+        else if s.eq_ignore_ascii_case("AFSDB") { Ok(Afsdb) }
         else if s.eq_ignore_ascii_case("X25") { Ok(X25) }
-        else if s.eq_ignore_ascii_case("ISDN") { Ok(ISDN) }
-        else if s.eq_ignore_ascii_case("RT") { Ok(RT) }
-        else if s.eq_ignore_ascii_case("NSAP") { Ok(NSAP) }
-        else if s.eq_ignore_ascii_case("NSAP-PTR") { Ok(NSAPPTR) }
-        else if s.eq_ignore_ascii_case("SIG") { Ok(SIG) }
-        else if s.eq_ignore_ascii_case("KEY") { Ok(KEY) }
-        else if s.eq_ignore_ascii_case("PX") { Ok(PX) }
-        else if s.eq_ignore_ascii_case("GPOS") { Ok(GPOS) }
-        else if s.eq_ignore_ascii_case("AAAA") { Ok(AAAA) }
-        else if s.eq_ignore_ascii_case("LOC") { Ok(LOC) }
-        else if s.eq_ignore_ascii_case("NXT") { Ok(NXT) }
-        else if s.eq_ignore_ascii_case("EID") { Ok(EID) }
-        else if s.eq_ignore_ascii_case("NIMLOC") { Ok(NIMLOC) }
-        else if s.eq_ignore_ascii_case("SRV") { Ok(SRV) }
-        else if s.eq_ignore_ascii_case("ATMA") { Ok(ATMA) }
-        else if s.eq_ignore_ascii_case("NAPTR") { Ok(NAPTR) }
-        else if s.eq_ignore_ascii_case("KX") { Ok(KX) }
-        else if s.eq_ignore_ascii_case("CERT") { Ok(CERT) }
+        else if s.eq_ignore_ascii_case("ISDN") { Ok(Isdn) }
+        else if s.eq_ignore_ascii_case("RT") { Ok(Rt) }
+        else if s.eq_ignore_ascii_case("NSAP") { Ok(Nsap) }
+        else if s.eq_ignore_ascii_case("NSAP-PTR") { Ok(Nsapptr) }
+        else if s.eq_ignore_ascii_case("SIG") { Ok(Sig) }
+        else if s.eq_ignore_ascii_case("KEY") { Ok(Key) }
+        else if s.eq_ignore_ascii_case("PX") { Ok(Px) }
+        else if s.eq_ignore_ascii_case("GPOS") { Ok(Gpos) }
+        else if s.eq_ignore_ascii_case("AAAA") { Ok(Aaaa) }
+        else if s.eq_ignore_ascii_case("LOC") { Ok(Loc) }
+        else if s.eq_ignore_ascii_case("NXT") { Ok(Nxt) }
+        else if s.eq_ignore_ascii_case("EID") { Ok(Eid) }
+        else if s.eq_ignore_ascii_case("NIMLOC") { Ok(Nimloc) }
+        else if s.eq_ignore_ascii_case("SRV") { Ok(Srv) }
+        else if s.eq_ignore_ascii_case("ATMA") { Ok(Atma) }
+        else if s.eq_ignore_ascii_case("NAPTR") { Ok(Naptr) }
+        else if s.eq_ignore_ascii_case("KX") { Ok(Kx) }
+        else if s.eq_ignore_ascii_case("CERT") { Ok(Cert) }
         else if s.eq_ignore_ascii_case("A6") { Ok(A6) }
-        else if s.eq_ignore_ascii_case("DNAME") { Ok(DNAME) }
-        else if s.eq_ignore_ascii_case("SINK") { Ok(SINK) }
-        else if s.eq_ignore_ascii_case("OPT") { Ok(OPT) }
-        else if s.eq_ignore_ascii_case("APL") { Ok(APL) }
-        else if s.eq_ignore_ascii_case("DS") { Ok(DS) }
-        else if s.eq_ignore_ascii_case("SSHFP") { Ok(SSHFP) }
-        else if s.eq_ignore_ascii_case("IPSECKEY") { Ok(IPSECKEY) }
-        else if s.eq_ignore_ascii_case("RRSIG") { Ok(RRSIG) }
-        else if s.eq_ignore_ascii_case("NSEC") { Ok(NSEC) }
-        else if s.eq_ignore_ascii_case("DNSKEY") { Ok(DNSKEY) }
-        else if s.eq_ignore_ascii_case("DHCID") { Ok(DHCID) }
-        else if s.eq_ignore_ascii_case("NSEC3") { Ok(NSEC3) }
-        else if s.eq_ignore_ascii_case("NSEC3PARAM") { Ok(NSEC3PARAM) }
-        else if s.eq_ignore_ascii_case("TLSA") { Ok(TLSA) }
-        else if s.eq_ignore_ascii_case("SMIMEA") { Ok(SMIMEA) }
-        else if s.eq_ignore_ascii_case("HIP") { Ok(HIP) }
-        else if s.eq_ignore_ascii_case("NINFO") { Ok(NINFO) }
-        else if s.eq_ignore_ascii_case("RKEY") { Ok(RKEY) }
-        else if s.eq_ignore_ascii_case("TALINK") { Ok(TALINK) }
-        else if s.eq_ignore_ascii_case("CDS") { Ok(CDS) }
-        else if s.eq_ignore_ascii_case("CDNSKEY") { Ok(CDNSKEY) }
-        else if s.eq_ignore_ascii_case("OPENPGPKEY") { Ok(OPENPGPKEY) }
-        else if s.eq_ignore_ascii_case("CSYNC") { Ok(CSYNC) }
-        else if s.eq_ignore_ascii_case("SPF") { Ok(SPF) }
-        else if s.eq_ignore_ascii_case("UINFO") { Ok(UINFO) }
-        else if s.eq_ignore_ascii_case("UID") { Ok(UID) }
-        else if s.eq_ignore_ascii_case("GID") { Ok(GID) }
-        else if s.eq_ignore_ascii_case("UNSPEC") { Ok(UNSPEC) }
-        else if s.eq_ignore_ascii_case("NID") { Ok(NID) }
+        else if s.eq_ignore_ascii_case("DNAME") { Ok(Dname) }
+        else if s.eq_ignore_ascii_case("SINK") { Ok(Sink) }
+        else if s.eq_ignore_ascii_case("OPT") { Ok(Opt) }
+        else if s.eq_ignore_ascii_case("APL") { Ok(Apl) }
+        else if s.eq_ignore_ascii_case("DS") { Ok(Ds) }
+        else if s.eq_ignore_ascii_case("SSHFP") { Ok(Sshfp) }
+        else if s.eq_ignore_ascii_case("IPSECKEY") { Ok(Ipseckey) }
+        else if s.eq_ignore_ascii_case("RRSIG") { Ok(Rrsig) }
+        else if s.eq_ignore_ascii_case("NSEC") { Ok(Nsec) }
+        else if s.eq_ignore_ascii_case("DNSKEY") { Ok(Dnskey) }
+        else if s.eq_ignore_ascii_case("DHCID") { Ok(Dhcid) }
+        else if s.eq_ignore_ascii_case("NSEC3") { Ok(Nsec3) }
+        else if s.eq_ignore_ascii_case("NSEC3PARAM") { Ok(Nsec3param) }
+        else if s.eq_ignore_ascii_case("TLSA") { Ok(Tlsa) }
+        else if s.eq_ignore_ascii_case("SMIMEA") { Ok(Smimea) }
+        else if s.eq_ignore_ascii_case("HIP") { Ok(Hip) }
+        else if s.eq_ignore_ascii_case("NINFO") { Ok(Ninfo) }
+        else if s.eq_ignore_ascii_case("RKEY") { Ok(Rkey) }
+        else if s.eq_ignore_ascii_case("TALINK") { Ok(Talink) }
+        else if s.eq_ignore_ascii_case("CDS") { Ok(Cds) }
+        else if s.eq_ignore_ascii_case("CDNSKEY") { Ok(Cdnskey) }
+        else if s.eq_ignore_ascii_case("OPENPGPKEY") { Ok(Openpgpkey) }
+        else if s.eq_ignore_ascii_case("CSYNC") { Ok(Csync) }
+        else if s.eq_ignore_ascii_case("SPF") { Ok(Spf) }
+        else if s.eq_ignore_ascii_case("UINFO") { Ok(Uinfo) }
+        else if s.eq_ignore_ascii_case("UID") { Ok(Uid) }
+        else if s.eq_ignore_ascii_case("GID") { Ok(Gid) }
+        else if s.eq_ignore_ascii_case("UNSPEC") { Ok(Unspec) }
+        else if s.eq_ignore_ascii_case("NID") { Ok(Nid) }
         else if s.eq_ignore_ascii_case("L32") { Ok(L32) }
         else if s.eq_ignore_ascii_case("L64") { Ok(L64) }
-        else if s.eq_ignore_ascii_case("LP") { Ok(LP) }
-        else if s.eq_ignore_ascii_case("EUI48") { Ok(EUI48) }
-        else if s.eq_ignore_ascii_case("EUI64") { Ok(EUI64) }
-        else if s.eq_ignore_ascii_case("TKEY") { Ok(TKEY) }
-        else if s.eq_ignore_ascii_case("TSIG") { Ok(TSIG) }
-        else if s.eq_ignore_ascii_case("IXFR") { Ok(IXFR) }
-        else if s.eq_ignore_ascii_case("AXFR") { Ok(AXFR) }
-        else if s.eq_ignore_ascii_case("MAILB") { Ok(MAILB) }
-        else if s.eq_ignore_ascii_case("MAILA") { Ok(MAILA) }
-        else if s.eq_ignore_ascii_case("ANY") { Ok(ANY) }
-        else if s.eq_ignore_ascii_case("URI") { Ok(URI) }
-        else if s.eq_ignore_ascii_case("CAA") { Ok(CAA) }
-        else if s.eq_ignore_ascii_case("AVC") { Ok(AVC) }
-        else if s.eq_ignore_ascii_case("TA") { Ok(TA) }
-        else if s.eq_ignore_ascii_case("DLV") { Ok(DLV) }
+        else if s.eq_ignore_ascii_case("LP") { Ok(Lp) }
+        else if s.eq_ignore_ascii_case("EUI48") { Ok(Eui48) }
+        else if s.eq_ignore_ascii_case("EUI64") { Ok(Eui64) }
+        else if s.eq_ignore_ascii_case("TKEY") { Ok(Tkey) }
+        else if s.eq_ignore_ascii_case("TSIG") { Ok(Tsig) }
+        else if s.eq_ignore_ascii_case("IXFR") { Ok(Ixfr) }
+        else if s.eq_ignore_ascii_case("AXFR") { Ok(Axfr) }
+        else if s.eq_ignore_ascii_case("MAILB") { Ok(Mailb) }
+        else if s.eq_ignore_ascii_case("MAILA") { Ok(Maila) }
+        else if s.eq_ignore_ascii_case("ANY") { Ok(Any) }
+        else if s.eq_ignore_ascii_case("URI") { Ok(Uri) }
+        else if s.eq_ignore_ascii_case("CAA") { Ok(Caa) }
+        else if s.eq_ignore_ascii_case("AVC") { Ok(Avc) }
+        else if s.eq_ignore_ascii_case("TA") { Ok(Ta) }
+        else if s.eq_ignore_ascii_case("DLV") { Ok(Dlv) }
         else {
             if let Some((n, _)) = s.char_indices().nth(4) {
                 let (l, r) = s.split_at(n);
@@ -742,89 +746,89 @@ impl fmt::Display for RRType {
 
         match *self {
             A => "A".fmt(f),
-            NS => "NS".fmt(f),
-            MD => "MD".fmt(f),
-            MF => "MF".fmt(f),
-            CNAME => "CNAME".fmt(f),
-            SOA => "SOA".fmt(f),
-            MB => "MB".fmt(f),
-            MG => "MG".fmt(f),
-            MR => "MR".fmt(f),
-            NULL => "NULL".fmt(f),
-            WKS => "WKS".fmt(f),
-            PTR => "PTR".fmt(f),
-            HINFO => "HINFO".fmt(f),
-            MINFO => "MINFO".fmt(f),
-            MX => "MX".fmt(f),
-            TXT => "TXT".fmt(f),
-            RP => "RP".fmt(f),
-            AFSDB => "AFSDB".fmt(f),
+            Ns => "NS".fmt(f),
+            Md => "MD".fmt(f),
+            Mf => "MF".fmt(f),
+            Cname => "CNAME".fmt(f),
+            Soa => "SOA".fmt(f),
+            Mb => "MB".fmt(f),
+            Mg => "MG".fmt(f),
+            Mr => "MR".fmt(f),
+            Null => "NULL".fmt(f),
+            Wks => "WKS".fmt(f),
+            Ptr => "PTR".fmt(f),
+            Hinfo => "HINFO".fmt(f),
+            Minfo => "MINFO".fmt(f),
+            Mx => "MX".fmt(f),
+            Txt => "TXT".fmt(f),
+            Rp => "RP".fmt(f),
+            Afsdb => "AFSDB".fmt(f),
             X25 => "X25".fmt(f),
-            ISDN => "ISDN".fmt(f),
-            RT => "RT".fmt(f),
-            NSAP => "NSAP".fmt(f),
-            NSAPPTR => "NSAP-PTR".fmt(f),
-            SIG => "SIG".fmt(f),
-            KEY => "KEY".fmt(f),
-            PX => "PX".fmt(f),
-            GPOS => "GPOS".fmt(f),
-            AAAA => "AAAA".fmt(f),
-            LOC => "LOC".fmt(f),
-            NXT => "NXT".fmt(f),
-            EID => "EID".fmt(f),
-            NIMLOC => "NIMLOC".fmt(f),
-            SRV => "SRV".fmt(f),
-            ATMA => "ATMA".fmt(f),
-            NAPTR => "NAPTR".fmt(f),
-            KX => "KX".fmt(f),
-            CERT => "CERT".fmt(f),
+            Isdn => "ISDN".fmt(f),
+            Rt => "RT".fmt(f),
+            Nsap => "NSAP".fmt(f),
+            Nsapptr => "NSAP-PTR".fmt(f),
+            Sig => "SIG".fmt(f),
+            Key => "KEY".fmt(f),
+            Px => "PX".fmt(f),
+            Gpos => "GPOS".fmt(f),
+            Aaaa => "AAAA".fmt(f),
+            Loc => "LOC".fmt(f),
+            Nxt => "NXT".fmt(f),
+            Eid => "EID".fmt(f),
+            Nimloc => "NIMLOC".fmt(f),
+            Srv => "SRV".fmt(f),
+            Atma => "ATMA".fmt(f),
+            Naptr => "NAPTR".fmt(f),
+            Kx => "KX".fmt(f),
+            Cert => "CERT".fmt(f),
             A6 => "A6".fmt(f),
-            DNAME => "DNAME".fmt(f),
-            SINK => "SINK".fmt(f),
-            OPT => "OPT".fmt(f),
-            APL => "APL".fmt(f),
-            DS => "DS".fmt(f),
-            SSHFP => "SSHFP".fmt(f),
-            IPSECKEY => "IPSECKEY".fmt(f),
-            RRSIG => "RRSIG".fmt(f),
-            NSEC => "NSEC".fmt(f),
-            DNSKEY => "DNSKEY".fmt(f),
-            DHCID => "DHCID".fmt(f),
-            NSEC3 => "NSEC3".fmt(f),
-            NSEC3PARAM => "NSEC3PARAM".fmt(f),
-            TLSA => "TLSA".fmt(f),
-            SMIMEA => "SMIMEA".fmt(f),
-            HIP => "HIP".fmt(f),
-            NINFO => "NINFO".fmt(f),
-            RKEY => "RKEY".fmt(f),
-            TALINK => "TALINK".fmt(f),
-            CDS => "CDS".fmt(f),
-            CDNSKEY => "CDNSKEY".fmt(f),
-            OPENPGPKEY => "OPENPGPKEY".fmt(f),
-            CSYNC => "CSYNC".fmt(f),
-            SPF => "SPF".fmt(f),
-            UINFO => "UINFO".fmt(f),
-            UID => "UID".fmt(f),
-            GID => "GID".fmt(f),
-            UNSPEC => "UNSPEC".fmt(f),
-            NID => "NID".fmt(f),
+            Dname => "DNAME".fmt(f),
+            Sink => "SINK".fmt(f),
+            Opt => "OPT".fmt(f),
+            Apl => "APL".fmt(f),
+            Ds => "DS".fmt(f),
+            Sshfp => "SSHFP".fmt(f),
+            Ipseckey => "IPSECKEY".fmt(f),
+            Rrsig => "RRSIG".fmt(f),
+            Nsec => "NSEC".fmt(f),
+            Dnskey => "DNSKEY".fmt(f),
+            Dhcid => "DHCID".fmt(f),
+            Nsec3 => "NSEC3".fmt(f),
+            Nsec3param => "NSEC3PARAM".fmt(f),
+            Tlsa => "TLSA".fmt(f),
+            Smimea => "SMIMEA".fmt(f),
+            Hip => "HIP".fmt(f),
+            Ninfo => "NINFO".fmt(f),
+            Rkey => "RKEY".fmt(f),
+            Talink => "TALINK".fmt(f),
+            Cds => "CDS".fmt(f),
+            Cdnskey => "CDNSKEY".fmt(f),
+            Openpgpkey => "OPENPGPKEY".fmt(f),
+            Csync => "CSYNC".fmt(f),
+            Spf => "SPF".fmt(f),
+            Uinfo => "UINFO".fmt(f),
+            Uid => "UID".fmt(f),
+            Gid => "GID".fmt(f),
+            Unspec => "UNSPEC".fmt(f),
+            Nid => "NID".fmt(f),
             L32 => "L32".fmt(f),
             L64 => "L64".fmt(f),
-            LP => "LP".fmt(f),
-            EUI48 => "EUI48".fmt(f),
-            EUI64 => "EUI64".fmt(f),
-            TKEY => "TKEY".fmt(f),
-            TSIG => "TSIG".fmt(f),
-            IXFR => "IXFR".fmt(f),
-            AXFR => "AXFR".fmt(f),
-            MAILB => "MAILB".fmt(f),
-            MAILA => "MAILA".fmt(f),
-            ANY => "ANY".fmt(f),
-            URI => "URI".fmt(f),
-            CAA => "CAA".fmt(f),
-            AVC => "AVC".fmt(f),
-            TA => "TA".fmt(f),
-            DLV => "DLV".fmt(f),
+            Lp => "LP".fmt(f),
+            Eui48 => "EUI48".fmt(f),
+            Eui64 => "EUI64".fmt(f),
+            Tkey => "TKEY".fmt(f),
+            Tsig => "TSIG".fmt(f),
+            Ixfr => "IXFR".fmt(f),
+            Axfr => "AXFR".fmt(f),
+            Mailb => "MAILB".fmt(f),
+            Maila => "MAILA".fmt(f),
+            Any => "ANY".fmt(f),
+            Uri => "URI".fmt(f),
+            Caa => "CAA".fmt(f),
+            Avc => "AVC".fmt(f),
+            Ta => "TA".fmt(f),
+            Dlv => "DLV".fmt(f),
             Int(value) => {
                 match RRType::from_int(value) {
                     Int(value) => write!(f, "TYPE{}", value),

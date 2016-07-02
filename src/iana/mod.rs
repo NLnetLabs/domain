@@ -19,9 +19,6 @@
 //! for these. `FromStr` and `Display` are implemented to convert from
 //! the string codes to the values and back. All of these are essentially
 //! giant matches which may or may not be the smartest way to do this.
-//!
-//! Contrary to Rust customs, the variants are using all-caps identifiers
-//! because camel case looks wrong.
 
 pub use self::class::Class;
 pub use self::opcode::Opcode;

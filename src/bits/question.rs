@@ -106,12 +106,12 @@ impl<'a> Question<'a> {
 
     /// Builds a question in IN class and pushes it to a target.
     ///
-    /// This is the same as `Question::push()` with `Class::IN` as this is
+    /// This is the same as `Question::push()` with `Class::In` as this is
     /// the most common class.
     pub fn push_in<C, T, N>(target: &mut T, qname: &N, qtype: RRType)
                             -> ComposeResult<()>
                 where C: ComposeBytes, T: QuestionTarget<C>, N: AsDName {
-        Question::push(target, qname, qtype, Class::IN)
+        Question::push(target, qname, qtype, Class::In)
     }
 }
 

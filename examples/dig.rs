@@ -89,7 +89,7 @@ impl Options {
 
     fn qtype(&self) -> Result<RRType> {
         if self.qtype.is_empty() {
-            Ok((if self.name.is_empty() { RRType::NS } else { RRType::A }))
+            Ok((if self.name.is_empty() { RRType::Ns } else { RRType::A }))
         }
         else {
             Ok(try!(RRType::from_str(&self.qtype)))
@@ -97,7 +97,7 @@ impl Options {
     }
 
     fn qclass(&self) -> Result<Class> {
-        Ok((Class::IN))
+        Ok((Class::In))
     }
     
     fn conf(&self) -> &ResolvConf { &self.conf }

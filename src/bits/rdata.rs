@@ -124,24 +124,24 @@ impl<'a> fmt::Display for GenericRecordData<'a> {
         match self.rtype {
             // RFC 1035
             RRType::A => self.fmt::<A>(f),
-            RRType::CNAME => self.fmt::<CName>(f),
-            RRType::HINFO => self.fmt::<HInfo>(f),
-            RRType::MB => self.fmt::<MB>(f),
-            RRType::MD => self.fmt::<MD>(f),
-            RRType::MF => self.fmt::<MF>(f),
-            RRType::MG => self.fmt::<MG>(f),
-            RRType::MINFO => self.fmt::<MInfo>(f),
-            RRType::MR => self.fmt::<MR>(f),
-            RRType::MX => self.fmt::<MX>(f),
-            RRType::NS => self.fmt::<NS>(f),
-            RRType::NULL => self.fmt::<Null>(f),
-            RRType::PTR => self.fmt::<Ptr>(f),
-            RRType::SOA => self.fmt::<Soa>(f),
-            RRType::TXT => self.fmt::<Txt>(f),
-            RRType::WKS => self.fmt::<Wks>(f),
+            RRType::Cname => self.fmt::<Cname>(f),
+            RRType::Hinfo => self.fmt::<Hinfo>(f),
+            RRType::Mb => self.fmt::<Mb>(f),
+            RRType::Md => self.fmt::<Md>(f),
+            RRType::Mf => self.fmt::<Mf>(f),
+            RRType::Mg => self.fmt::<Mg>(f),
+            RRType::Minfo => self.fmt::<Minfo>(f),
+            RRType::Mr => self.fmt::<Mr>(f),
+            RRType::Mx => self.fmt::<Mx>(f),
+            RRType::Ns => self.fmt::<Ns>(f),
+            RRType::Null => self.fmt::<Null>(f),
+            RRType::Ptr => self.fmt::<Ptr>(f),
+            RRType::Soa => self.fmt::<Soa>(f),
+            RRType::Txt => self.fmt::<Txt>(f),
+            RRType::Wks => self.fmt::<Wks>(f),
 
             // RFC 3596
-            RRType::AAAA => self.fmt::<AAAA>(f),
+            RRType::Aaaa => self.fmt::<Aaaa>(f),
 
             // Unknown
             _ => "...".fmt(f)
@@ -162,18 +162,18 @@ impl<'a> PartialEq for GenericRecordData<'a> {
             use rdata::rfc1035::*;
 
             match self.rtype {
-                RRType::CNAME => rdata_eq::<CName>(self, other),
-                RRType::MB => rdata_eq::<MB>(self, other),
-                RRType::MD => rdata_eq::<MD>(self, other),
-                RRType::MF => rdata_eq::<MF>(self, other),
-                RRType::MG => rdata_eq::<MG>(self, other),
-                RRType::MINFO => rdata_eq::<MInfo>(self, other),
-                RRType::MR => rdata_eq::<MR>(self, other),
-                RRType::MX => rdata_eq::<MX>(self, other),
-                RRType::NS => rdata_eq::<NS>(self, other),
-                RRType::PTR => rdata_eq::<Ptr>(self, other),
-                RRType::SOA => rdata_eq::<Soa>(self, other),
-                RRType::TXT => rdata_eq::<Txt>(self, other),
+                RRType::Cname => rdata_eq::<Cname>(self, other),
+                RRType::Mb => rdata_eq::<Mb>(self, other),
+                RRType::Md => rdata_eq::<Md>(self, other),
+                RRType::Mf => rdata_eq::<Mf>(self, other),
+                RRType::Mg => rdata_eq::<Mg>(self, other),
+                RRType::Minfo => rdata_eq::<Minfo>(self, other),
+                RRType::Mr => rdata_eq::<Mr>(self, other),
+                RRType::Mx => rdata_eq::<Mx>(self, other),
+                RRType::Ns => rdata_eq::<Ns>(self, other),
+                RRType::Ptr => rdata_eq::<Ptr>(self, other),
+                RRType::Soa => rdata_eq::<Soa>(self, other),
+                RRType::Txt => rdata_eq::<Txt>(self, other),
                 _ => self.data.as_bytes() == other.data.as_bytes()
             }
         }

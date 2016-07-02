@@ -102,7 +102,7 @@ impl A {
     pub fn push<C, T, N>(target: &mut T, name: &N, ttl: u32,
                          addr: &Ipv4Addr) -> ComposeResult<()>
                 where C: ComposeBytes, T: RecordTarget<C>, N: AsDName {
-        push_record(target, name, RRType::A, Class::IN, ttl, |target| {
+        push_record(target, name, RRType::A, Class::In, ttl, |target| {
             for i in addr.octets().iter() {
                 try!(target.push_u8(*i))
             }
@@ -152,7 +152,7 @@ impl fmt::Display for A {
 }
 
 
-//------------ CName --------------------------------------------------------
+//------------ Cname --------------------------------------------------------
 
 /// CNAME record data.
 ///
@@ -161,31 +161,31 @@ impl fmt::Display for A {
 ///
 /// The CNAME type is defined in RFC 1035, section 3.3.1.
 #[derive(Clone, Debug, PartialEq)]
-pub struct CName<'a> {
+pub struct Cname<'a> {
     cname: DName<'a>
 }
 
-dname_type!(CName, CNAME, cname);
+dname_type!(Cname, Cname, cname);
 
 
-//------------ HInfo --------------------------------------------------------
+//------------ Hinfo --------------------------------------------------------
 
-/// HINFO record data.
+/// Hinfo record data.
 ///
-/// HINFO records are used to acquire general information about a host,
+/// Hinfo records are used to acquire general information about a host,
 /// specifically the CPU type and operating system type.
 ///
-/// The HINFO type is defined in RFC 1035, section 3.3.2.
+/// The Hinfo type is defined in RFC 1035, section 3.3.2.
 #[derive(Clone, Debug, PartialEq)]
-pub struct HInfo<'a> {
+pub struct Hinfo<'a> {
     cpu: CharStr<'a>,
     os: CharStr<'a>
 }
 
-impl<'a> HInfo<'a> {
-    /// Creates a new HINFO record data from the components.
+impl<'a> Hinfo<'a> {
+    /// Creates a new Hinfo record data from the components.
     pub fn new(cpu: CharStr<'a>, os: CharStr<'a>) -> Self {
-        HInfo { cpu: cpu, os: os }
+        Hinfo { cpu: cpu, os: os }
     }
 
     /// The CPU type of the host.
@@ -199,13 +199,13 @@ impl<'a> HInfo<'a> {
     }
 
     fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
-        Ok(HInfo::new(try!(parser.parse_charstr()),
+        Ok(Hinfo::new(try!(parser.parse_charstr()),
                       try!(parser.parse_charstr())))
     }
 }
 
-impl<'a> RecordData<'a> for HInfo<'a> {
-    fn rtype(&self) -> RRType { RRType::HINFO }
+impl<'a> RecordData<'a> for Hinfo<'a> {
+    fn rtype(&self) -> RRType { RRType::Hinfo }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         try!(target.push_charstr(&self.cpu));
@@ -215,20 +215,20 @@ impl<'a> RecordData<'a> for HInfo<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::HINFO { Some(HInfo::parse_always(parser)) }
+        if rtype == RRType::Hinfo { Some(Hinfo::parse_always(parser)) }
         else { None }
     }
 }
 
 
-impl<'a> fmt::Display for HInfo<'a> {
+impl<'a> fmt::Display for Hinfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.cpu, self.os)
     }
 }
 
 
-//------------ MB -----------------------------------------------------------
+//------------ Mb -----------------------------------------------------------
 
 /// MB record data.
 ///
@@ -236,14 +236,14 @@ impl<'a> fmt::Display for HInfo<'a> {
 ///
 /// The MB record type is defined in RFC 1035, section 3.3.3.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MB<'a> {
+pub struct Mb<'a> {
     madname: DName<'a>
 }
 
-dname_type!(MB, MB, madname);
+dname_type!(Mb, Mb, madname);
 
 
-//------------ MD -----------------------------------------------------------
+//------------ Md -----------------------------------------------------------
 
 /// MD record data.
 ///
@@ -251,18 +251,18 @@ dname_type!(MB, MB, madname);
 /// the domain which should be able to deliver mail for the domain.
 /// 
 /// The MD record is obsolete. It is recommended to either reject the record
-/// or convert them into an MX record at preference 0.
+/// or convert them into an Mx record at preference 0.
 ///
 /// The MD record type is defined in RFC 1035, section 3.3.4.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MD<'a> {
+pub struct Md<'a> {
     madname: DName<'a>
 }
 
-dname_type!(MD, MD, madname);
+dname_type!(Md, Md, madname);
 
 
-//------------ MF -----------------------------------------------------------
+//------------ Mf -----------------------------------------------------------
 
 /// MF record data.
 ///
@@ -270,18 +270,18 @@ dname_type!(MD, MD, madname);
 /// the domain which will be accept mail for forwarding to the domain.
 /// 
 /// The MF record is obsolete. It is recommended to either reject the record
-/// or convert them into an MX record at preference 10.
+/// or convert them into an Mx record at preference 10.
 ///
 /// The MF record type is defined in RFC 1035, section 3.3.5.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MF<'a> {
+pub struct Mf<'a> {
     madname: DName<'a>
 }
 
-dname_type!(MF, MF, madname);
+dname_type!(Mf, Mf, madname);
 
 
-//------------ MG -----------------------------------------------------------
+//------------ Mg -----------------------------------------------------------
 
 /// MG record data.
 ///
@@ -292,41 +292,41 @@ dname_type!(MF, MF, madname);
 ///
 /// The MG record type is defined in RFC 1035, section 3.3.6.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MG<'a> {
+pub struct Mg<'a> {
     madname: DName<'a>
 }
 
-dname_type!(MG, MG, madname);
+dname_type!(Mg, Mg, madname);
 
 
-//------------ MINFO --------------------------------------------------------
+//------------ Minfo --------------------------------------------------------
 
-/// MINFO record data.
+/// Minfo record data.
 ///
-/// The MINFO record specifies a mailbox which is responsible for the mailing
+/// The Minfo record specifies a mailbox which is responsible for the mailing
 /// list or mailbox and a mailbox that receives error messages related to the
 /// list or box.
 ///
-/// The MINFO record is experimental.
+/// The Minfo record is experimental.
 ///
-/// The MINFO record type is defined in RFC 1035, section 3.3.7.
+/// The Minfo record type is defined in RFC 1035, section 3.3.7.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MInfo<'a> {
+pub struct Minfo<'a> {
     rmailbx: DName<'a>,
     emailbx: DName<'a>
 }
 
-impl<'a> MInfo<'a> {
-    /// Creates a new MINFO record data from the components.
+impl<'a> Minfo<'a> {
+    /// Creates a new Minfo record data from the components.
     pub fn new(rmailbx: DName<'a>, emailbx: DName<'a>) -> Self {
-        MInfo { rmailbx: rmailbx, emailbx: emailbx }
+        Minfo { rmailbx: rmailbx, emailbx: emailbx }
     }
 
     /// The responsible mail box.
     ///
     /// The domain name specifies the mailbox which is responsible for the
     /// mailing list or mailbox. If this domain name is the root, the owner
-    /// of the MINFO record is responsible for itself.
+    /// of the Minfo record is responsible for itself.
     pub fn rmailbx(&self) -> &DName<'a> {
         &self.rmailbx
     }
@@ -342,13 +342,13 @@ impl<'a> MInfo<'a> {
     }
 
     fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
-        Ok(MInfo::new(try!(parser.parse_dname()),
+        Ok(Minfo::new(try!(parser.parse_dname()),
                       try!(parser.parse_dname())))
     }
 }
 
-impl<'a> RecordData<'a> for MInfo<'a> {
-    fn rtype(&self) -> RRType { RRType::MINFO }
+impl<'a> RecordData<'a> for Minfo<'a> {
+    fn rtype(&self) -> RRType { RRType::Minfo }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C)
                                 -> ComposeResult<()> {
@@ -359,19 +359,19 @@ impl<'a> RecordData<'a> for MInfo<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::MINFO { Some(MInfo::parse_always(parser)) }
+        if rtype == RRType::Minfo { Some(Minfo::parse_always(parser)) }
         else { None }
     }
 }
 
-impl<'a> fmt::Display for MInfo<'a> {
+impl<'a> fmt::Display for Minfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.rmailbx, self.emailbx)
     }
 }
 
 
-//------------ MR -----------------------------------------------------------
+//------------ Mr -----------------------------------------------------------
 
 /// MR record data.
 ///
@@ -382,36 +382,36 @@ impl<'a> fmt::Display for MInfo<'a> {
 ///
 /// The MR record type is defined in RFC 1035, section 3.3.8.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MR<'a> {
+pub struct Mr<'a> {
     newname: DName<'a>
 }
 
-dname_type!(MR, MR, newname);
+dname_type!(Mr, Mr, newname);
 
 
-//------------ MX -----------------------------------------------------------
+//------------ Mx -----------------------------------------------------------
 
-/// MX record data.
+/// Mx record data.
 ///
-/// The MX record specifies a host willing to serve as a mail exchange for
+/// The Mx record specifies a host willing to serve as a mail exchange for
 /// the owner name.
 ///
-/// The MX record type is defined in RFC 1035, section 3.3.9.
+/// The Mx record type is defined in RFC 1035, section 3.3.9.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MX<'a> {
+pub struct Mx<'a> {
     preference: u16,
     exchange: DName<'a>,
 }
 
-impl<'a> MX<'a> {
-    /// Creates a new MX record data from the components.
+impl<'a> Mx<'a> {
+    /// Creates a new Mx record data from the components.
     pub fn new(preference: u16, exchange: DName<'a>) -> Self {
-        MX { preference: preference, exchange: exchange }
+        Mx { preference: preference, exchange: exchange }
     }
 
     /// The preference for this record.
     ///
-    /// Defines an order if there are several MX records for the same owner.
+    /// Defines an order if there are several Mx records for the same owner.
     /// Lower values are preferred.
     pub fn preference(&self) -> u16 {
         self.preference
@@ -423,13 +423,13 @@ impl<'a> MX<'a> {
     }
 
     fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
-        Ok(MX::new(try!(parser.parse_u16()),
+        Ok(Mx::new(try!(parser.parse_u16()),
                    try!(parser.parse_dname())))
     }
 }
 
-impl<'a> RecordData<'a> for MX<'a> {
-    fn rtype(&self) -> RRType { RRType::MX }
+impl<'a> RecordData<'a> for Mx<'a> {
+    fn rtype(&self) -> RRType { RRType::Mx }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C)
                                 -> ComposeResult<()> {
@@ -440,19 +440,19 @@ impl<'a> RecordData<'a> for MX<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::MX { Some(MX::parse_always(parser)) }
+        if rtype == RRType::Mx { Some(Mx::parse_always(parser)) }
         else { None }
     }
 }
 
-impl<'a> fmt::Display for MX<'a> {
+impl<'a> fmt::Display for Mx<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.preference, self.exchange)
     }
 }
 
 
-//------------ NS -----------------------------------------------------------
+//------------ Ns -----------------------------------------------------------
 
 /// NS record data.
 ///
@@ -460,28 +460,28 @@ impl<'a> fmt::Display for MX<'a> {
 ///
 /// The NS record type is defined in RFC 1035, section 3.3.11.
 #[derive(Clone, Debug, PartialEq)]
-pub struct NS<'a> {
+pub struct Ns<'a> {
     nsdname: DName<'a>
 }
 
-dname_type!(NS, NS, nsdname);
+dname_type!(Ns, Ns, nsdname);
 
 
 //------------ Null ---------------------------------------------------------
 
-/// NULL record data.
+/// Null record data.
 ///
-/// NULL records can contain whatever data. They are experimental, not
+/// Null records can contain whatever data. They are experimental, not
 /// allowed in master files.
 ///
-/// The NULL record type is defined in RFC 1035, section 3.3.10.
+/// The Null record type is defined in RFC 1035, section 3.3.10.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Null<'a> {
     data: Octets<'a>
 }
 
 impl<'a> Null<'a> {
-    /// Creates new, empty owned NULL record data.
+    /// Creates new, empty owned Null record data.
     pub fn new(data: Octets<'a>) -> Self {
         Null { data: data }
     }
@@ -498,7 +498,7 @@ impl<'a> Null<'a> {
 }
 
 impl<'a> RecordData<'a> for Null<'a> {
-    fn rtype(&self) -> RRType { RRType::NULL }
+    fn rtype(&self) -> RRType { RRType::Null }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         target.push_octets(&self.data)
@@ -506,7 +506,7 @@ impl<'a> RecordData<'a> for Null<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::NULL { Some(Null::parse_always(parser)) }
+        if rtype == RRType::Null { Some(Null::parse_always(parser)) }
         else { None }
     }
 }
@@ -540,7 +540,7 @@ pub struct Ptr<'a> {
     ptrdname: DName<'a>
 }
 
-dname_type!(Ptr, PTR, ptrdname);
+dname_type!(Ptr, Ptr, ptrdname);
 
 
 //------------ Soa ----------------------------------------------------------
@@ -615,7 +615,7 @@ impl<'a> Soa<'a> {
 }
 
 impl<'a> RecordData<'a> for Soa<'a> {
-    fn rtype(&self) -> RRType { RRType::SOA }
+    fn rtype(&self) -> RRType { RRType::Soa }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         try!(target.push_dname(&self.mname));
@@ -630,7 +630,7 @@ impl<'a> RecordData<'a> for Soa<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::SOA { Some(Soa::parse_always(parser)) }
+        if rtype == RRType::Soa { Some(Soa::parse_always(parser)) }
         else { None }
     }
 }
@@ -646,25 +646,25 @@ impl<'a> fmt::Display for Soa<'a> {
 
 //------------ Txt ----------------------------------------------------------
 
-/// TXT record data.
+/// Txt record data.
 ///
-/// TXT records hold descriptive text.
+/// Txt records hold descriptive text.
 ///
-/// The TXT record type is defined in RFC 1035, section 3.3.14.
+/// The Txt record type is defined in RFC 1035, section 3.3.14.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Txt<'a> {
     text: Cow<'a, [u8]>
 }
 
 impl<'a> Txt<'a> {
-    /// Creates a new TXT record from content.
+    /// Creates a new Txt record from content.
     pub fn new(text: Cow<'a, [u8]>) -> Self {
         Txt { text: text }
     }
 
     /// Returns an iterator over the text items.
     ///
-    /// The TXT format contains one or more length-delimited byte strings.
+    /// The Txt format contains one or more length-delimited byte strings.
     /// This method returns an iterator over each of them.
     pub fn iter(&self) -> TxtIter {
         TxtIter::new(&self.text)
@@ -697,7 +697,7 @@ impl<'a> Txt<'a> {
 }
 
 impl<'a> RecordData<'a> for Txt<'a> {
-    fn rtype(&self) -> RRType { RRType::TXT }
+    fn rtype(&self) -> RRType { RRType::Txt }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         target.push_bytes(&self.text)
@@ -705,7 +705,7 @@ impl<'a> RecordData<'a> for Txt<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::TXT { Some(Txt::parse_always(parser)) }
+        if rtype == RRType::Txt { Some(Txt::parse_always(parser)) }
         else { None }
     }
 }
@@ -722,7 +722,7 @@ impl<'a> fmt::Display for Txt<'a> {
 
 //--- TxtIter
 
-/// An iterator over the character strings of a TXT record.
+/// An iterator over the character strings of a Txt record.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TxtIter<'a> {
     text: &'a [u8],
@@ -820,7 +820,7 @@ impl<'a> Wks<'a> {
 
 
 impl<'a> RecordData<'a> for Wks<'a> {
-    fn rtype(&self) -> RRType { RRType::WKS }
+    fn rtype(&self) -> RRType { RRType::Wks }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
         for i in self.address.octets().iter() {
@@ -832,7 +832,7 @@ impl<'a> RecordData<'a> for Wks<'a> {
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
              where P: ParseBytes<'a> {
-        if rtype == RRType::WKS { Some(Wks::parse_always(parser)) }
+        if rtype == RRType::Wks { Some(Wks::parse_always(parser)) }
         else { None }
     }
 }

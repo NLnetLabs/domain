@@ -27,7 +27,7 @@ impl Task for LookupAddr {
     fn start<F>(self, mut f: F) -> Self::Runner
              where F: FnMut(&DName, RRType, Class) {
         let name = dname_from_addr(self.addr);
-        f(&name.as_dname(), RRType::PTR, Class::IN);
+        f(&name.as_dname(), RRType::Ptr, Class::In);
         LookupAddrRunner { name: name }
     }
 }
@@ -54,7 +54,7 @@ impl TaskRunner for LookupAddrRunner {
         };
         for record in answer.iter::<Ptr>() {
             if let Ok(record) = record {
-                if record.class() == Class::IN && self.name == *record.name() {
+                if record.class() == Class::In && self.name == *record.name() {
                     if let Ok(name) = record.rdata().ptrdname().to_owned() {
                         return Progress::Success(name)
                     }
