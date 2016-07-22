@@ -15,12 +15,14 @@
 //! [resolv]: resolv/index.html
 //! [server]: server/index.html
 
+#[macro_use] extern crate chomp;
 extern crate rand;
 extern crate rotor;
 extern crate vecio;
 
 pub mod bits;
 pub mod iana;
+pub mod master;
 pub mod rdata;
 pub mod resolv;
 pub mod server;

@@ -27,6 +27,8 @@ pub use self::rcode::Rcode;
 pub use self::rrtype::RRType;
 pub use self::secalg::SecAlg;
 
+#[macro_use] mod macros;
+
 mod class;
 mod opcode;
 mod opt;

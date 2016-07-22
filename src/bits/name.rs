@@ -54,14 +54,16 @@ use std::borrow::{Borrow, Cow};
 use std::cmp;
 use std::fmt;
 use std::hash;
+use std::io;
 use std::mem;
 use std::ops::Deref;
 use std::str;
-use super::compose::ComposeBytes;
-use super::error::{ComposeResult, FromStrError, FromStrResult, ParseError,
-                   ParseResult};
-use super::parse::ParseBytes;
-use super::u8::{BytesExt, BytesVecExt};
+use ::bits::compose::ComposeBytes;
+use ::bits::error::{ComposeResult, FromStrError, FromStrResult, ParseError,
+                    ParseResult};
+use ::bits::parse::ParseBytes;
+use ::bits::u8::{BytesExt, BytesVecExt};
+use ::master;
 
 
 //------------ AsDName ------------------------------------------------------
@@ -645,8 +647,6 @@ impl Ord for DNameSlice {
 
 impl hash::Hash for DNameSlice {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        use std::hash::Hash;
-
         for label in self.iter() {
             label.hash(state)
         }
@@ -733,6 +733,72 @@ impl DNameBuf {
                                    -> ParseResult<Self>
                             where P: ParseBytes<'a> {
         Ok(try!(try!(PackedDName::parse(parser, context)).to_owned()))
+    }
+
+    /// Scans a domain name from a master file stream.
+    pub fn scan<R: io::Read>(stream: &mut master::Stream<R>)
+                             -> master::Result<Self> {
+        let res = try!(DNameBuf::_scan(stream));
+        stream.ok(res)
+    }
+
+    pub fn scan_absolute<R: io::Read>(stream: &mut master::Stream<R>)
+                                      -> master::Result<Self> {
+        let res = try!(DNameBuf::_scan(stream));
+        if res.is_relative() {
+            stream.err(master::SyntaxError::RelativeName)
+        }
+        else {
+            stream.ok(res)
+        }
+    }
+
+    pub fn scan_with_origin<R, N>(stream: &mut master::Stream<R>,
+                                  origin: Option<N>) -> master::Result<Self>
+                            where R: io::Read,
+                                  N: AsRef<DNameSlice> {
+        let mut res = try!(DNameBuf::_scan(stream));
+        if let Some(origin) = origin {
+            res.append(origin)
+        }
+        if res.is_relative() {
+            stream.err(master::SyntaxError::RelativeName)
+        }
+        else {
+            stream.ok(res)
+        }
+    }
+
+    pub fn _scan<R: io::Read>(stream: &mut master::Stream<R>)
+                             -> master::Result<Self> {
+        let mut res = DNameBuf::new();
+        let mut label = Vec::new();
+        loop {
+            match try!(stream.read_word_char()) {
+                Some(b'.') => {
+                    if label.len() > 63 {
+                        return stream.err(master::SyntaxError::LongLabel)
+                    }
+                    res.inner.push(label.len() as u8);
+                    res.inner.extend(&label);
+                    label.clear();
+                }
+                Some(b'\\') => label.push(try!(stream.scan_escape())),
+                Some(ch) => label.push(ch),
+                None => break,
+            }
+        }
+        if label.len() > 63 {
+            return stream.err(master::SyntaxError::LongLabel)
+        }
+        res.inner.push(label.len() as u8);
+        res.inner.extend(&label);
+        if res.inner.len() > 255 {
+            stream.err(master::SyntaxError::LongName)
+        }
+        else {
+            Ok(res)
+        }
     }
 
     /// Returns a reference to a domain name slice of this domain name.
@@ -827,6 +893,9 @@ impl str::FromStr for DNameBuf {
                 }
                 None => break
             }
+        }
+        if label.len() > 63 {
+            return Err(FromStrError::LongLabel)
         }
         res.inner.push(label.len() as u8);
         res.inner.extend(&label);

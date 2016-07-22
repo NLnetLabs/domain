@@ -20,9 +20,12 @@ path = "examples/host.rs"
 #path = "examples/reversed.rs"
 
 [dependencies]
-rand     = "0.3"
-rotor    = { git = "https://github.com/partim/rotor.git", branch = "auto-shutdown" }
-vecio    = "0.1"
+bytes       = "0.3"
+chomp       = "0.2"
+netmachines = { git = "https://github.com/cloudshipping/netmachines.git" }
+rand        = "0.3"
+rotor       = "0.6"
+vecio       = "0.1"
 
 [dev-dependencies]
 argparse     = "0.2"
