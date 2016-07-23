@@ -113,8 +113,6 @@ struct Error {
 
 impl error::Error for Error {
     fn description(&self) -> &str {
-        use ::std::error::Error;
-
         self.inner.description()
     }
 }

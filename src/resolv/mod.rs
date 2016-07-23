@@ -30,7 +30,7 @@
 //! it from the system’s `/etc/resolv.conf` file. The type understands the
 //! contents of this file, so this is easy:
 //!
-//! ```
+//! ```norun
 //! use domain::resolv::ResolvConf;
 //!
 //! let conf = ResolvConf::default();
@@ -75,7 +75,7 @@
 //! of `resolv` before calling `join()` on `join`. You can either move
 //! `resolv` into a function or simply `drop()` it.
 //!
-//! ```
+//! ```norun
 //! use std::mem;
 //! use domain::resolv::{Resolver, ResolvConf};
 //!
