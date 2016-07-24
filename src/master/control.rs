@@ -77,7 +77,7 @@ fn scan_include<R: io::Read>(stream: &mut Stream<R>,
     try!(stream.skip_opt_space());
     let path = try!(stream.scan_phrase(|path| Ok(Vec::from(path))));
     try!(stream.skip_opt_space());
-    let origin = DNameBuf::scan_with_origin(stream, file.origin()).ok();
+    let origin = DNameBuf::scan(stream, file.origin()).ok();
     let res = try!(stream.scan_newline());
     file.add_include(path, origin);
     Ok(res)

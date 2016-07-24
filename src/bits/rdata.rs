@@ -13,17 +13,20 @@
 //! type that can deal with all record types.
 
 use std::fmt;
+use std::io;
 use iana::RRType;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
 use super::nest::Nest;
 use super::parse::ParseBytes;
+use ::bits::bytes::PushBytes;
+use ::master;
 
 
 //----------- RecordData ------------------------------------------------
 
 /// A trait for parsing and composing record data.
-pub trait RecordData<'a>: fmt::Display + Sized {
+pub trait RecordData<'a>: Sized {
     /// Returns the record type for this record data instance.
     fn rtype(&self) -> RRType;
 
@@ -84,9 +87,37 @@ impl<'a> GenericRecordData<'a> {
         R::parse(self.rtype, &mut parser)
     }
 
+    /// Scan generic master format record data into a bytes buf.
+    ///
+    /// This function *only* scans the generic record data format defined
+    /// in [RFC 3597]. Use [domain::rdata::scan_into()] for a function that
+    /// tries to also scan the specific record data format for record type
+    /// `rtype`.
+    ///
+    /// [RFC 3597]: https:://tools.ietf.org/html/rfc3597
+    /// [domain::rdata::scan_into()]: ../../rdata/fn.scan_into.html
+    pub fn scan_into<R, B>(stream: &mut master::Stream<R>, target: &mut B)
+                           -> master::Result<()>
+                     where R: io::Read, B: PushBytes {
+        try!(stream.skip_literal(b"\\#"));
+        let mut len = try!(stream.scan_u16());
+        target.reserve(len as usize);
+        while len > 0 {
+            try!(stream.scan_hex_word(|v| {
+                if len == 0 { Err(master::SyntaxError::LongGenericData) }
+                else {
+                    target.push_u8(v);
+                    len -= 1;
+                    Ok(())
+                }
+            }))
+        }
+        Ok(())
+    }
+
     /// Formats the record data as if it were of concrete type `R`.
-    pub fn fmt<'b: 'a, R: RecordData<'a>>(&'b self, f: &mut fmt::Formatter)
-                                  -> fmt::Result {
+    pub fn fmt<'b: 'a, R>(&'b self, f: &mut fmt::Formatter) -> fmt::Result
+               where R: RecordData<'a> + fmt::Display {
         let mut parser = self.data.parser();
         match R::parse(self.rtype, &mut parser) {
             Some(Ok(data)) => data.fmt(f),

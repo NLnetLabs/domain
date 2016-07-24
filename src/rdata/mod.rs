@@ -3,59 +3,34 @@
 //! This module will eventually contain implementations for the record data
 //! for all defined resource record types.
 //!
-//! The types are grouped by the RFCs they are defined in. All types are also
-//! reimported into the top level here. Ie., for the A record type, you can
-//! simple `use domain::rdata::AAAA` instead of
-//! `use domain::rdata::rfc3596::AAAA` which nobody could possibly remember.
+//! The types are named identically to the [RRType] variant they implement.
+//! They are grouped into submodules for the RFCs they are defined in. All
+//! types are also re-exported at the top level here. Ie., for the AAAA
+//! record type, you can simple `use domain::rdata::Aaaa` instead of
+//! `use domain::rdata::rfc3596::Aaaa` which nobody could possibly remember.
+//! There are, however, some helper data types defined here and there which
+//! are not re-exported to keep things somewhat tidy.
 //!
-//! Since rustdoc doesn’t list the types for a glob re-import, here is a list
-//! of all the record data types defined somewhere in this module in
-//! alphabetic order.
+//! See the [RRType] enum for the complete set of record types and,
+//! consequently, those types that are still missing.
 //!
-//! * [rfc1035](rfc1035/index.html)::[A](rfc1035/struct.A.html)
-//!   (a host address),
-//! * [rfc3596](rfc3596/index.html)::[AAAA](rfc3596/struct.AAAA.html)
-//!   (IPv6 address),
-//! * [rfc1035](rfc1035/index.html)::[CName](rfc1035/struct.CName.html)
-//!   (the canonical name for an alias),
-//! * [rfc1035](rfc1035/index.html)::[HInfo](rfc1035/struct.HInfo.html)
-//!   (host information),
-//! * [rfc1035](rfc1035/index.html)::[MB](rfc1035/struct.MB.html)
-//!   (a mailbox domain name; experimental),
-//! * [rfc1035](rfc1035/index.html)::[MD](rfc1035/struct.MD.html)
-//!   (a mail destination; obsolete – use MX),
-//! * [rfc1035](rfc1035/index.html)::[MF](rfc1035/struct.MF.html)
-//!   (a mail forwarder; obsolete – use MX),
-//! * [rfc1035](rfc1035/index.html)::[MG](rfc1035/struct.MG.html)
-//!   (a mail group member; experimental),
-//! * [rfc1035](rfc1035/index.html)::[MInfo](rfc1035/struct.MInfo.html)
-//!   (mailbox or mail list information),
-//! * [rfc1035](rfc1035/index.html)::[MR](rfc1035/struct.MR.html)
-//!   (a mail rename domain name; experimental),
-//! * [rfc1035](rfc1035/index.html)::[MX](rfc1035/struct.MX.html)
-//!   (mail exchange),
-//! * [rfc1035](rfc1035/index.html)::[NS](rfc1035/struct.NS.html)
-//!   (an authoritative name server),
-//! * [rfc1035](rfc1035/index.html)::[Null](rfc1035/struct.Null.html)
-//!   (a null RR; experimental),
-//! * [rfc6891](rfc6891/index.html)::[Opt](rfc6891/struct.Opt.html)
-//!   (OPT pseude-RR for EDNS),
-//! * [rfc1035](rfc1035/index.html)::[Ptr](rfc1035/struct.Ptr.html)
-//!   (a domain name pointer),
-//! * [rfc1035](rfc1035/index.html)::[Soa](rfc1035/struct.Soa.html)
-//!   (marks the start of a zone of authority),
-//! * [rfc1035](rfc1035/index.html)::[Txt](rfc1035/struct.Txt.html)
-//!   (text strings),
-//! * [rfc1035](rfc1035/index.html)::[Wks](rfc1035/struct.Wks.html)
-//!   (a well known service description).
-//!   
-//! See the [RRType](../bits/iana/enum.RRType.html) type for the complete set
-//! of record types and, consequently, those types that are still missing.
-
-pub use self::rfc1035::*;
-pub use self::rfc3596::*;
-pub use self::rfc6891::*;
+//! [RRType]: ../iana/enum.RRType.html
 
 pub mod rfc1035;
 pub mod rfc3596;
 pub mod rfc6891;
+
+#[macro_use] mod macros;
+
+
+
+master_types!{
+    rfc1035::{A, Cname, Hinfo, Mb, Md, Mf, Mg, Minfo, Mr, Mx, Ns, Ptr,
+              Soa, Txt, Wks};
+    rfc3596::{Aaaa};
+}
+
+pseudo_types!{
+    rfc1035::{Null};
+    rfc6891::{Opt};
+}

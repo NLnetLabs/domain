@@ -1,7 +1,9 @@
 
 use std::io;
+use std::net::AddrParseError;
 use std::num::ParseIntError;
 use std::result;
+use std::str::Utf8Error;
 use ::master::Pos;
 
 
@@ -10,10 +12,15 @@ use ::master::Pos;
 pub enum SyntaxError {
     Expected(Vec<u8>),
     ExpectedNewline,
+    ExpectedSpace,
     IllegalEscape,
     IllegalInteger,
+    IllegalAddr(AddrParseError),
+    IllegalString(Utf8Error),
+    LongCharStr,
     LongLabel,
     LongName,
+    LongGenericData,
     NestedParentheses,
     NoDefaultTtl,
     NoLastClass,
@@ -22,6 +29,8 @@ pub enum SyntaxError {
     Unexpected(u8),
     UnexpectedEof,
     UnknownClass(Vec<u8>),
+    UnknownProto(String),
+    UnknownServ(String),
 }
 
 impl From<ParseIntError> for SyntaxError {
@@ -30,6 +39,17 @@ impl From<ParseIntError> for SyntaxError {
     }
 }
 
+impl From<AddrParseError> for SyntaxError {
+    fn from(err: AddrParseError) -> SyntaxError {
+        SyntaxError::IllegalAddr(err)
+    }
+}
+
+impl From<Utf8Error> for SyntaxError {
+    fn from(err: Utf8Error) -> SyntaxError {
+        SyntaxError::IllegalString(err)
+    }
+}
 
 //------------ Error ---------------------------------------------------------
 

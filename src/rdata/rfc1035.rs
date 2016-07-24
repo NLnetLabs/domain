@@ -1,19 +1,26 @@
-//! Record data from RFC 1035.
+//! Record data from [RFC 1035].
 //!
 //! This RFC defines the initial set of record types.
+//!
+//! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use std::borrow::Cow;
 use std::fmt;
+use std::io;
 use std::net::Ipv4Addr;
-use bits::compose::ComposeBytes;
-use bits::charstr::CharStr;
-use bits::error::{ComposeResult, ParseResult};
-use iana::{Class, RRType};
-use bits::name::{AsDName, DName};
-use bits::octets::Octets;
-use bits::parse::ParseBytes;
-use bits::record::{push_record, RecordTarget};
-use bits::rdata::RecordData;
+use std::str::FromStr;
+use ::bits::bytes::PushBytes;
+use ::bits::compose::ComposeBytes;
+use ::bits::charstr::CharStr;
+use ::bits::error::{ComposeResult, ParseResult};
+use ::bits::name::{AsDName, DName, DNameBuf, DNameSlice};
+use ::bits::octets::Octets;
+use ::bits::parse::ParseBytes;
+use ::bits::record::{push_record, RecordTarget};
+use ::bits::rdata::RecordData;
+use ::iana::{Class, RRType};
+use ::master;
+use ::utils::netdb::{ProtoEnt, ServEnt};
 
 
 //------------ dname_type! --------------------------------------------------
@@ -44,6 +51,13 @@ macro_rules! dname_type {
                               V: AsDName {
                 push_record(target, name, RRType::$rtype, class, ttl,
                             |target| target.push_dname_compressed(value))
+            }
+
+            pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
+                                   origin: &DNameSlice, target: &mut B)
+                                      -> master::Result<()>
+                             where R: io::Read, B: PushBytes {
+                DNameBuf::scan_into(stream, origin, target)
             }
         }
 
@@ -77,7 +91,9 @@ macro_rules! dname_type {
 
 /// A record data.
 ///
-/// A records convey the IPv4 address of a host.
+/// A records convey the IPv4 address of a host. The wire format is the 32
+/// bit IPv4 address in network byte order. The master file format is the
+/// usual dotted notation.
 ///
 /// The A record type is defined in RFC 1035, section 3.4.1.
 #[derive(Clone, Debug, PartialEq)]
@@ -125,6 +141,17 @@ impl A {
                                 try!(parser.parse_u8()),
                                 try!(parser.parse_u8()),
                                 try!(parser.parse_u8()))))
+    }
+
+    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
+                           _origin: &DNameSlice, target: &mut B)
+                              -> master::Result<()>
+                     where R: io::Read, B: PushBytes {
+        stream.scan_str_phrase(|slice| {
+            let addr = try!(Ipv4Addr::from_str(slice));
+            target.push_bytes(&addr.octets()[..]);
+            Ok(())
+        })
     }
 }
 
@@ -201,6 +228,14 @@ impl<'a> Hinfo<'a> {
     fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
         Ok(Hinfo::new(try!(parser.parse_charstr()),
                       try!(parser.parse_charstr())))
+    }
+
+    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
+                           _origin: &DNameSlice, target: &mut B)
+                           -> master::Result<()>
+                     where R: io::Read, B: PushBytes {
+        try!(CharStr::scan_into(stream, target));
+        CharStr::scan_into(stream, target)
     }
 }
 
@@ -345,6 +380,14 @@ impl<'a> Minfo<'a> {
         Ok(Minfo::new(try!(parser.parse_dname()),
                       try!(parser.parse_dname())))
     }
+
+    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
+                           origin: &DNameSlice, target: &mut B)
+                           -> master::Result<()>
+                     where R: io::Read, B: PushBytes {
+        try!(DNameBuf::scan_into(stream, origin, target));
+        DNameBuf::scan_into(stream, origin, target)
+    }
 }
 
 impl<'a> RecordData<'a> for Minfo<'a> {
@@ -425,6 +468,14 @@ impl<'a> Mx<'a> {
     fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
         Ok(Mx::new(try!(parser.parse_u16()),
                    try!(parser.parse_dname())))
+    }
+
+    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
+                           origin: &DNameSlice, target: &mut B)
+                           -> master::Result<()>
+                     where R: io::Read, B: PushBytes {
+        target.push_u16(try!(stream.scan_u16()));
+        DNameBuf::scan_into(stream, origin, target)
     }
 }
 
@@ -612,6 +663,20 @@ impl<'a> Soa<'a> {
                     try!(parser.parse_u32()), try!(parser.parse_u32()),
                     try!(parser.parse_u32())))
     }
+
+    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
+                           origin: &DNameSlice, target: &mut B)
+                           -> master::Result<()>
+                     where R: io::Read, B: PushBytes {
+        try!(DNameBuf::scan_into(stream, origin, target));
+        try!(DNameBuf::scan_into(stream, origin, target));
+        target.push_u32(try!(stream.scan_u32()));
+        target.push_u32(try!(stream.scan_u32()));
+        target.push_u32(try!(stream.scan_u32()));
+        target.push_u32(try!(stream.scan_u32()));
+        target.push_u32(try!(stream.scan_u32()));
+        Ok(())
+    }
 }
 
 impl<'a> RecordData<'a> for Soa<'a> {
@@ -694,6 +759,24 @@ impl<'a> Txt<'a> {
         let len = parser.left();
         Ok(Txt::new(Cow::Borrowed(try!(parser.parse_bytes(len)))))
     }
+
+    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
+                           _origin: &DNameSlice, target: &mut B)
+                           -> master::Result<()>
+                     where R: io::Read, B: PushBytes {
+        // XXX Try to get rid of the allocation, please.
+        let text = try!(stream.scan_phrase_copy());
+        let mut text = &text[..];
+        while text.len() > 255 {
+            target.push_u8(255);
+            let (l, r) = text.split_at(255);
+            target.push_bytes(l);
+            text = r;
+        }
+        target.push_u8(text.len() as u8);
+        target.push_bytes(text);
+        Ok(())
+    }
 }
 
 impl<'a> RecordData<'a> for Txt<'a> {
@@ -766,12 +849,12 @@ impl<'a> Iterator for TxtIter<'a> {
 pub struct Wks<'a> {
     address: Ipv4Addr,
     protocol: u8,
-    bitmap: Cow<'a, [u8]>
+    bitmap: WksBitmap<'a>
 }
 
 impl<'a> Wks<'a> {
     /// Creates a new record data from components.
-    pub fn new(address: Ipv4Addr, protocol: u8, bitmap: Cow<'a, [u8]>)
+    pub fn new(address: Ipv4Addr, protocol: u8, bitmap: WksBitmap<'a>)
                -> Self {
         Wks { address: address, protocol: protocol, bitmap: bitmap }
     }
@@ -789,22 +872,10 @@ impl<'a> Wks<'a> {
     }
 
     /// A bitmap indicating the ports where service is being provided.
-    pub fn bitmap(&self) -> &[u8] {
+    pub fn bitmap(&self) -> &WksBitmap {
         &self.bitmap
     }
 
-    /// Returns whether a certain service is being provided.
-    pub fn serves(&self, port: u16) -> bool {
-        let octet = (port / 8) as usize;
-        let bit = (port % 8) as usize;
-        if self.bitmap.len() <= octet { false }
-        else { (self.bitmap[octet] >> bit) > 0 }
-    }
-
-    /// Returns an iterator over the served ports.
-    pub fn iter(&self) -> WksIter {
-        WksIter::new(&self.bitmap)
-    }
 
     fn parse_always<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
         let addr = Ipv4Addr::new(try!(parser.parse_u8()),
@@ -813,8 +884,57 @@ impl<'a> Wks<'a> {
                                  try!(parser.parse_u8()));
         let proto = try!(parser.parse_u8());
         let len = parser.left();
-        let bitmap = Cow::Borrowed(try!(parser.parse_bytes(len)));
+        let bitmap = try!(WksBitmap::parse(parser, len));
         Ok(Wks::new(addr, proto, bitmap))
+    }
+
+    /// Returns whether a certain service is being provided.
+    pub fn serves(&self, port: u16) -> bool {
+        self.bitmap.serves(port)
+    }
+
+    /// Returns an iterator over the served ports.
+    pub fn iter(&self) -> WksIter {
+        self.bitmap.iter()
+    }
+
+    /// Scan the master file representation of a WKS record into a target.
+    ///
+    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
+                           _origin: &DNameSlice, target: &mut B)
+                           -> master::Result<()>
+                     where R: io::Read, B: PushBytes {
+        try!(A::scan_into(stream, _origin, target));
+        try!(stream.scan_str_phrase(|s| {
+            if let Some(ent) = ProtoEnt::by_name(s) {
+                target.push_u8(ent.proto);
+                Ok(())
+            }
+            else if let Ok(number) = u8::from_str_radix(s, 10) {
+                target.push_u8(number);
+                Ok(())
+            }
+            else {
+                Err(master::SyntaxError::UnknownProto(s.into()))
+            }
+        }));
+
+        let mut bitmap = WksBitmap::new();
+        while let Ok(()) = stream.scan_str_phrase(|s| {
+            if let Some(ent) = ServEnt::by_name(s) {
+                bitmap.set_serves(ent.port, true);
+                Ok(())
+            }
+            else if let Ok(number) = u16::from_str_radix(s, 10) {
+                bitmap.set_serves(number, true);
+                Ok(())
+            }
+            else {
+                Err(master::SyntaxError::UnknownServ(s.into()))
+            }
+        }) { }
+        target.push_bytes(bitmap.as_bytes());
+        Ok(())
     }
 }
 
@@ -827,7 +947,7 @@ impl<'a> RecordData<'a> for Wks<'a> {
             try!(target.push_u8(*i))
         }
         try!(target.push_u8(self.protocol));
-        target.push_bytes(&self.bitmap)
+        self.bitmap.compose(target)
     }
 
     fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
@@ -844,6 +964,81 @@ impl<'a> fmt::Display for Wks<'a> {
             try!(write!(f, " {}", port));
         }
         Ok(())
+    }
+}
+
+
+//--- WksBitmap
+
+/// The type of the bitmap of a WKS record.
+#[derive(Clone, Debug)]
+pub struct WksBitmap<'a>(Cow<'a, [u8]>);
+
+impl<'a> WksBitmap<'a> {
+    pub fn new() -> Self {
+        WksBitmap(Cow::Owned(Vec::new()))
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Returns whether a certain service is being provided.
+    pub fn serves(&self, port: u16) -> bool {
+        let (octet, bit) = WksBitmap::port_location(port);
+        if self.0.len() <= octet { false }
+        else { (self.0[octet] >> bit) > 0 }
+    }
+
+    /// Enables or disables the given service.
+    pub fn set_serves(&mut self, port: u16, enable: bool) {
+        let (octet, bit) = WksBitmap::port_location(port);
+        let bitmap = self.0.to_mut();
+        if bitmap.len() <= octet {
+            bitmap.resize(octet + 1, 0);
+        }
+        if enable {
+            bitmap[octet] |= 1 << bit
+        }
+        else {
+            bitmap[octet] &= 0xFF ^ (1 << bit)
+        }
+    }
+
+    /// Returns an iterator over the served ports.
+    pub fn iter(&self) -> WksIter {
+        WksIter::new(&self.0)
+    }
+
+    /// Translates a port number to where it’ll be in the bitmap.
+    ///
+    /// Returns a pair of the index in the bytes slice and the bit number in
+    /// that slice.
+    fn port_location(port: u16) -> (usize, usize) {
+        ((port / 8) as usize, (port % 8) as usize)
+    }
+
+    pub fn parse<P: ParseBytes<'a>>(parser: &mut P, len: usize)
+                                    -> ParseResult<Self> {
+        Ok(WksBitmap(Cow::Borrowed(try!(parser.parse_bytes(len)))))
+    }
+
+    pub fn compose<C: ComposeBytes>(&self, target: &mut C)
+                                    -> ComposeResult<()> {
+        target.push_bytes(&self.0)
+    }
+}
+
+impl<'a, 'b> PartialEq<WksBitmap<'b>> for WksBitmap<'a> {
+    fn eq(&self, other: &WksBitmap<'b>) -> bool {
+        use std::ops::Deref;
+
+        // Drop any trailing zeros from the slices, the compare those.
+        let mut s = self.0.deref();
+        while let Some((&0, head)) = s.split_last() { s = head }
+        let mut o = other.0.deref();
+        while let Some((&0, head)) = o.split_last() { o = head }
+        s == o
     }
 }
  

@@ -7,8 +7,9 @@ use iana::{Class, RRType};
 use super::compose::ComposeBytes;
 use super::error::{ComposeError, ComposeResult, ParseResult};
 use super::name::{AsDName, DName};
+use super::nest::Nest;
 use super::parse::ParseBytes;
-use super::rdata::RecordData;
+use super::rdata::{GenericRecordData, RecordData};
 
 //------------ Record -------------------------------------------------------
 
@@ -182,7 +183,7 @@ impl<'a, D: RecordData<'a>> Record<'a, D> {
 
 //--- Display
 
-impl<'a, D: RecordData<'a>> fmt::Display for Record<'a, D> {
+impl<'a, D: RecordData<'a> + fmt::Display> fmt::Display for Record<'a, D> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\t{}\t{}\t{}\t{}",
                self.name, self.ttl, self.class, self.rdata.rtype(),
@@ -190,6 +191,17 @@ impl<'a, D: RecordData<'a>> fmt::Display for Record<'a, D> {
     }
 }
 
+
+//------------ GenericRecord -------------------------------------------------
+
+pub type GenericRecord<'a> = Record<'a, GenericRecordData<'a>>;
+
+impl<'a> Record<'a, GenericRecordData<'a>> {
+    pub fn new_generic(name: DName<'a>, class: Class, rtype: RRType,
+                       ttl: u32, rdata: Nest<'a>) -> Self {
+        Record::new(name, class, ttl, GenericRecordData::new(rtype, rdata))
+    }
+}
 
 //------------ RecordTarget -------------------------------------------------
 

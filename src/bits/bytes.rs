@@ -1,9 +1,7 @@
-//! Dealing with bytes slices
-//!
-//! XXX This is an obsolete module and will be removed.
+//! Dealing with bytes slices and vec.
 
 use std::mem;
-use super::error::{ParseError, ParseResult};
+use ::bits::error::{ParseError, ParseResult};
 
 
 //------------ BytesExt -----------------------------------------------------
@@ -59,20 +57,13 @@ impl BytesExt for [u8] {
 }
 
 
-//------------ BytesVecExt --------------------------------------------------
+//------------ PushBytes ----------------------------------------------------
 
-/// A trait extending a bytes vec for pushing DNS data to its end.
-pub trait BytesVecExt {
+/// A trait for something that can have raw DNS data pushed to its end.
+pub trait PushBytes {
+    fn reserve(&mut self, additional: usize);
+
     fn push_bytes(&mut self, data: &[u8]);
-    fn push_u8(&mut self, data: u8);
-    fn push_u16(&mut self, data: u16);
-    fn push_u32(&mut self, data: u32);
-}
-
-impl BytesVecExt for Vec<u8> {
-    fn push_bytes(&mut self, data: &[u8]) {
-        self.extend(data)
-    }
 
     fn push_u8(&mut self, data: u8) {
         let bytes: [u8; 1] = unsafe { mem::transmute(data) };
@@ -89,6 +80,13 @@ impl BytesVecExt for Vec<u8> {
         let data = data.to_be();
         let bytes: [u8; 4] = unsafe { mem::transmute(data) };
         self.push_bytes(&bytes);
+    }
+}
+
+impl PushBytes for Vec<u8> {
+    fn reserve(&mut self, additional: usize) { self.reserve(additional) }
+    fn push_bytes(&mut self, data: &[u8]) {
+        self.extend(data)
     }
 }
 

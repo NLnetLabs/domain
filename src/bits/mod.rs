@@ -47,6 +47,7 @@ pub use self::question::Question;
 pub use self::rdata::{GenericRecordData, RecordData};
 pub use self::record::Record;
 
+pub mod bytes;
 pub mod charstr;
 pub mod compose;
 pub mod error;
@@ -59,5 +60,4 @@ pub mod parse;
 pub mod question;
 pub mod rdata;
 pub mod record;
-mod u8;
 

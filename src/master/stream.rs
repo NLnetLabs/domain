@@ -26,6 +26,10 @@ impl<R: io::Read> Stream<R> {
         self.buf.read_char()
     }
 
+    pub fn peek_char(&mut self) -> io::Result<Option<u8>> {
+        self.buf.peek_char()
+    }
+
     pub fn cond_read_char<F>(&mut self, f: F) -> Result<Option<u8>>
                           where F: Fn(u8) -> bool {
         match try!(self.buf.peek_char()) {
@@ -62,15 +66,6 @@ impl<R: io::Read> Stream<R> {
         else { self.err(SyntaxError::Expected(vec![ch])) }
     }
 
-    /*
-    pub fn read_ichar(&mut self, ch: u8) -> io::Result<Option<u8>> {
-        self.read_char().map(|res| {
-            if res.eq_ignore_ascii_case(&ch) { Some(res) }
-            else { None }
-        })
-    }
-    */
-
     pub fn skip_while<F>(&mut self, f: F) -> Result<()>
                            where F: Fn(u8) -> bool {
         loop {
@@ -100,21 +95,25 @@ impl<R: io::Read> Stream<R> {
             Some(ch) if is_digit(ch) => {
                 let ch2 = match try!(self.read_char()) {
                     Some(ch) if is_digit(ch) => ch,
-                    Some(_) => return self.err(SyntaxError::IllegalEscape),
+                    Some(_) => {
+                        return self.err(SyntaxError::IllegalEscape)
+                    }
                     None => return self.eof()
                 };
                 let ch3 = match try!(self.read_char()) {
                     Some(ch) if is_digit(ch) => ch,
-                    Some(_) => return self.err(SyntaxError::IllegalEscape),
+                    Some(_) => {
+                        return self.err(SyntaxError::IllegalEscape)
+                    }
                     None => return self.eof()
                 };
                 let res = ((ch - b'0') as u16) * 100
                         + ((ch2 - b'0') as u16) * 10
                         + ((ch3 - b'0') as u16);
                 if res > 255 { self.err(SyntaxError::IllegalEscape) }
-                else { self.ok(res as u8) }
+                else { Ok(res as u8) }
             }
-            Some(ch) => self.ok(ch),
+            Some(ch) => Ok(ch),
             None => self.eof()
         }
     }
@@ -139,39 +138,6 @@ impl<R: io::Read> Stream<R> {
         }
     }
 
-    /*
-    pub fn skip_literal(&mut self, literal: &[u8]) -> io::Result<Option<()>> {
-        for ch in literal.iter() {
-            if let None = try!(self.skip_char(*ch)) {
-                return Ok(None)
-            }
-        }
-        Ok(Some(()))
-    }
-
-    pub fn skip_iliteral(&mut self, literal: &[u8]) -> io::Result<Option<()>> {
-        for ch in literal.iter() {
-            if let None = try!(self.read_ichar(*ch)) {
-                return Ok(None)
-            }
-        }
-        Ok(Some(()))
-    }
-
-    /// Read an unquoted, unescaped non-whitespace token.
-    ///
-    /// The regular expression for this would be `[^ \t\r\n();"\\]+`.
-    pub fn read_word(&mut self) -> io::Result<Option<&[u8]>> {
-        
-        let curr = self.buf.curr();
-        if let None = try!(self.read_range(is_word_char)) {
-            return Ok(None)
-        }
-        while let Some(_) = try!(self.read_opt_range(is_word_char)) { }
-        Ok(Some(self.buf.slice_since(curr)))
-    }
-    */
-
     pub fn scan_word<T, F>(&mut self, f: F) -> Result<T>
                      where F: FnOnce(&[u8]) -> SyntaxResult<T> {
         let curr = self.buf.curr();
@@ -186,9 +152,29 @@ impl<R: io::Read> Stream<R> {
             f(word)
         };
         match res {
-            Ok(res) => self.ok(res),
+            Ok(res) => self.skip_space().map(|_| res),
             Err(err) => self.err(err)
         }
+    }
+
+    pub fn scan_word_chars<F>(&mut self, mut f: F) -> Result<()>
+                           where F: FnMut(u8, bool) -> SyntaxResult<()> {
+        match try!(self.peek_char()) {
+            Some(ch) if is_word_char(ch) => { }
+            Some(ch) => return self.err(SyntaxError::Unexpected(ch)),
+            None => return self.err(SyntaxError::UnexpectedEof)
+        };
+        while let Some(ch) = try!(self.cond_read_char(is_word_char)) {
+            if ch == b'\\' {
+                if let Err(err) = f(try!(self.scan_escape()), true) {
+                    return self.err(err)
+                }
+            }
+            else if let Err(err) = f(ch, false) {
+                return self.err(err)
+            }
+        }
+        self.ok(())
     }
 
     pub fn scan_quoted<T, F>(&mut self, f: F) -> Result<T>
@@ -207,9 +193,31 @@ impl<R: io::Read> Stream<R> {
             f(&slice[..slice.len() - 1])
         };
         match res {
-            Ok(res) => self.ok(res),
+            Ok(res) => self.skip_space().map(|_| res),
             Err(err) => self.err(err)
         }
+    }
+
+    pub fn scan_quoted_chars<F>(&mut self, mut f: F) -> Result<()>
+                             where F: FnMut(u8, bool) -> SyntaxResult<()> {
+        try!(self.skip_char(b'"'));
+        loop {
+            match try!(self.read_char()) {
+                Some(b'\\') => {
+                    if let Err(err) = f(try!(self.scan_escape()), true) {
+                        return self.err(err)
+                    }
+                }
+                Some(b'"') => break,
+                Some(ch) => {
+                    if let Err(err) = f(ch, false) {
+                        return self.err(err)
+                    }
+                }
+                None => return self.err(SyntaxError::UnexpectedEof)
+            }
+        }
+        self.ok(())
     }
 
     pub fn scan_phrase<T, F>(&mut self, f: F) -> Result<T>
@@ -222,6 +230,39 @@ impl<R: io::Read> Stream<R> {
         }
     }
 
+    pub fn scan_str_phrase<T, F>(&mut self, f: F) -> Result<T>
+                           where F: FnOnce(&str) -> SyntaxResult<T> {
+        self.scan_phrase(|slice| {
+            f(try!(str::from_utf8(slice)))
+        })
+    }
+
+    pub fn scan_phrase_chars<F>(&mut self, f: F) -> Result<()>
+                             where F: FnMut(u8, bool) -> SyntaxResult<()> {
+        if let Some(b'"') = try!(self.peek_char()) {
+            self.scan_quoted_chars(f)
+        }
+        else {
+            self.scan_word_chars(f)
+        }
+    }
+
+    pub fn scan_phrase_copy(&mut self) -> Result<Vec<u8>> {
+        let mut res = Vec::new();
+        try!(self.scan_phrase_chars(|ch, _| { res.push(ch); Ok(()) }));
+        Ok(res)
+    }
+
+    pub fn scan_u16(&mut self) -> Result<u16> {
+        self.scan_phrase(|slice| {
+            let slice = match str::from_utf8(slice) {
+                Ok(slice) => slice,
+                Err(_) => return Err(SyntaxError::IllegalInteger)
+            };
+            Ok(try!(u16::from_str_radix(slice, 10)))
+        })
+    }
+
     pub fn scan_u32(&mut self) -> Result<u32> {
         self.scan_phrase(|slice| {
             let slice = match str::from_utf8(slice) {
@@ -230,6 +271,50 @@ impl<R: io::Read> Stream<R> {
             };
             Ok(try!(u32::from_str_radix(slice, 10)))
         })
+    }
+
+    /// Skips the word (!) in `literal` followed by space.
+    ///
+    /// Does not decode escapes.
+    pub fn skip_literal(&mut self, literal: &[u8]) -> Result<()> {
+        try!(self.scan_word(|s| {
+            if s == literal {
+                Ok(())
+            }
+            else {
+                Err(SyntaxError::Expected(literal.into()))
+            }
+        }));
+        self.skip_space()
+    }
+
+    pub fn scan_hex_word<F>(&mut self, mut f: F) -> Result<()>
+                         where F: FnMut(u8) -> SyntaxResult<()> {
+        self.scan_word(|mut slice| {
+            while slice.len() >=2 {
+                let (l, r) = slice.split_at(2);
+                let res = try!(trans_hexdig(l[0])) << 4
+                        | try!(trans_hexdig(l[1]));
+                try!(f(res));
+                slice = r;
+            }
+            if slice.len() == 1 {
+                Err(SyntaxError::Unexpected(slice[0]))
+            }
+            else {
+                Ok(())
+            }
+        })
+    }
+
+
+    pub fn skip_space(&mut self) -> Result<()> {
+        if try!(self.skip_opt_space()) {
+            Ok(())
+        }
+        else {
+            self.err(SyntaxError::ExpectedSpace)
+        }
     }
 
     pub fn skip_opt_space(&mut self) -> Result<bool> {
@@ -429,5 +514,17 @@ fn is_newline(ch: u8) -> bool {
 fn is_word_char(ch: u8) -> bool {
     ch != b' ' && ch != b'\t' && ch != b'\r' && ch != b'\n' &&
     ch != b'(' && ch != b')' && ch != b';' && ch != b'"'
+}
+
+
+//------------ Translation Functions ----------------------------------------
+
+fn trans_hexdig(dig: u8) -> SyntaxResult<u8> {
+    match dig {
+        b'0' ... b'9' => Ok(dig - b'0'),
+        b'A' ... b'F' => Ok(dig - b'A' + 10),
+        b'a' ... b'f' => Ok(dig - b'a' + 10),
+        _ => Err(SyntaxError::Unexpected(dig))
+    }
 }
 

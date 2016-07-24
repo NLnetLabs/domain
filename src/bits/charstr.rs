@@ -6,11 +6,14 @@
 use std::borrow::{Borrow, Cow};
 use std::error;
 use std::fmt;
+use std::io;
 use std::ops::Deref;
 use std::str;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, FromStrError, FromStrResult, ParseResult};
 use super::parse::ParseBytes;
+use ::bits::bytes::PushBytes;
+use ::master;
 
 
 //------------ CharStr ------------------------------------------------------
@@ -36,6 +39,10 @@ impl<'a> CharStr<'a> {
     /// unsafe.
     unsafe fn from_bytes(bytes: &'a [u8]) -> Self {
         CharStr(Cow::Borrowed(bytes))
+    }
+
+    unsafe fn from_vec(vec: Vec<u8>) -> Self {
+        CharStr(Cow::Owned(vec))
     }
 
     /// Creates a new empty owned character string.
@@ -69,6 +76,26 @@ impl<'a> CharStr<'a> {
         self.0.into_owned()
     }
 
+    pub fn scan<R: io::Read>(stream: &mut master::Stream<R>)
+                             -> master::Result<Self> {
+        let mut res = Vec::new();
+        try!(CharStr::scan_into(stream, &mut res));
+        Ok(unsafe { CharStr::from_vec(res) })
+    }
+
+    pub fn scan_into<R, B>(stream: &mut master::Stream<R>, target: &mut B)
+                             -> master::Result<()>
+                     where R: io::Read, B: PushBytes {
+        let mut len = 0;
+        stream.scan_phrase_chars(|ch, _| {
+            if len == 255 { Err(master::SyntaxError::LongCharStr) }
+            else {
+                target.push_u8(ch);
+                len += 1;
+                Ok(())
+            }
+        })
+    }
 }
 
 

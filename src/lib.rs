@@ -26,4 +26,5 @@ pub mod master;
 pub mod rdata;
 pub mod resolv;
 pub mod server;
+pub mod utils;
 

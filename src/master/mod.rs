@@ -1,9 +1,10 @@
 
 use ::bits::{DNameBuf, DNameSlice};
+use ::bits::record::GenericRecord;
 use ::iana::Class;
 
 pub use self::error::{Error, Result, SyntaxError, SyntaxResult};
-pub use self::stream::Stream;
+pub use self::stream::{Newline, Stream};
 
 
 pub mod control;
@@ -14,23 +15,21 @@ pub mod stream;
 
 //------------ Zonefile ------------------------------------------------------
 
-pub struct Zonefile {
-    origin: Option<DNameBuf>,
+pub struct Zonefile<'a> {
     includes: Vec<Include>,
+    records: Vec<GenericRecord<'a>>,
+    origin: DNameBuf,
     ttl: Option<u32>,
     warnings: Vec<(Pos, String)>
 }
 
-impl Zonefile {
-    pub fn origin(&self) -> Option<&DNameSlice> {
-        match self.origin {
-            Some(ref name) => Some(name),
-            None => None
-        }
+impl<'a> Zonefile<'a> {
+    pub fn origin(&self) -> &DNameSlice {
+        &self.origin
     }
 
     pub fn set_origin(&mut self, origin: DNameBuf) {
-        self.origin = Some(origin)
+        self.origin = origin
     }
 
     pub fn ttl(&self) -> Option<u32> {
@@ -49,6 +48,10 @@ impl Zonefile {
         unimplemented!()
     }
 
+    
+    pub fn add_record(&mut self, record: GenericRecord<'a>) {
+        self.records.push(record)
+    }
 
     pub fn add_include(&mut self, path: Vec<u8>, origin: Option<DNameBuf>) {
         self.includes.push(Include { path: path, origin: origin })

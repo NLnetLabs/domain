@@ -1,17 +1,24 @@
 
 use std::io;
-use ::bits::DNameBuf;
+use ::bits::{DName, DNameBuf};
+use ::bits::nest::{Nest, NestBuf};
+use ::bits::record::GenericRecord;
 use ::iana::{Class, RRType};
-use ::master::{Result, Stream, SyntaxError, Zonefile,};
+use ::master::{Newline, Result, Stream, SyntaxError, Zonefile,};
+use ::rdata;
 
 
 pub fn scan_record<R: io::Read>(stream: &mut Stream<R>, file: &mut Zonefile)
-                                -> Result<()> {
-    let _owner = try!(scan_owner(stream, file));
-    let (_ttl, _class) = try!(scan_ttl_class(stream, file));
-    let _rtype = try!(RRType::scan(stream));
-    try!(stream.skip_opt_space());
-    unimplemented!()
+                                -> Result<Newline> {
+    let owner = DName::Owned(try!(scan_owner(stream, file)));
+    let (ttl, class) = try!(scan_ttl_class(stream, file));
+    let rtype = try!(RRType::scan(stream));
+    let mut rdata = NestBuf::new();
+    try!(rdata::scan_into(rtype, stream, file.origin(), &mut rdata));
+    let res = try!(stream.scan_newline());
+    file.add_record(GenericRecord::new_generic(owner, class, rtype, ttl, 
+                                               Nest::Owned(rdata)));
+    Ok(res)
 }
 
 fn scan_owner<R: io::Read>(stream: &mut Stream<R>, file: &mut Zonefile)
@@ -25,7 +32,7 @@ fn scan_owner<R: io::Read>(stream: &mut Stream<R>, file: &mut Zonefile)
         }
     }
     else {
-        let res = try!(DNameBuf::scan_with_origin(stream, file.origin()));
+        let res = try!(DNameBuf::scan(stream, file.origin()));
         try!(stream.skip_opt_space());
         Ok(res)
     }

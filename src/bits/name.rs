@@ -62,7 +62,7 @@ use ::bits::compose::ComposeBytes;
 use ::bits::error::{ComposeResult, FromStrError, FromStrResult, ParseError,
                     ParseResult};
 use ::bits::parse::ParseBytes;
-use ::bits::u8::{BytesExt, BytesVecExt};
+use ::bits::bytes::{BytesExt, PushBytes};
 use ::master;
 
 
@@ -735,13 +735,6 @@ impl DNameBuf {
         Ok(try!(try!(PackedDName::parse(parser, context)).to_owned()))
     }
 
-    /// Scans a domain name from a master file stream.
-    pub fn scan<R: io::Read>(stream: &mut master::Stream<R>)
-                             -> master::Result<Self> {
-        let res = try!(DNameBuf::_scan(stream));
-        stream.ok(res)
-    }
-
     pub fn scan_absolute<R: io::Read>(stream: &mut master::Stream<R>)
                                       -> master::Result<Self> {
         let res = try!(DNameBuf::_scan(stream));
@@ -753,14 +746,11 @@ impl DNameBuf {
         }
     }
 
-    pub fn scan_with_origin<R, N>(stream: &mut master::Stream<R>,
-                                  origin: Option<N>) -> master::Result<Self>
-                            where R: io::Read,
-                                  N: AsRef<DNameSlice> {
+    pub fn scan<R, N>(stream: &mut master::Stream<R>, origin: N)
+                      -> master::Result<Self>
+                where R: io::Read, N: AsRef<DNameSlice> {
         let mut res = try!(DNameBuf::_scan(stream));
-        if let Some(origin) = origin {
-            res.append(origin)
-        }
+        res.append(origin);
         if res.is_relative() {
             stream.err(master::SyntaxError::RelativeName)
         }
@@ -771,6 +761,7 @@ impl DNameBuf {
 
     pub fn _scan<R: io::Read>(stream: &mut master::Stream<R>)
                              -> master::Result<Self> {
+        // XXX TODO Rewrite using Stream::scan_word_chars().
         let mut res = DNameBuf::new();
         let mut label = Vec::new();
         loop {
@@ -799,6 +790,16 @@ impl DNameBuf {
         else {
             Ok(res)
         }
+    }
+
+    pub fn scan_into<R, N, B>(stream: &mut master::Stream<R>, origin: N,
+                              target: &mut B) -> master::Result<()>
+                     where R: io::Read, N: AsRef<DNameSlice>,
+                           B: PushBytes {
+        // XXX TODO Rewrite without extra allocation.
+        let name = try!(DNameBuf::scan(stream, origin));
+        target.push_bytes(&name.as_bytes());
+        Ok(())
     }
 
     /// Returns a reference to a domain name slice of this domain name.
