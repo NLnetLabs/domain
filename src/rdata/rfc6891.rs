@@ -84,7 +84,7 @@ impl<'a> Opt<'a> {
 ///
 /// ```rust
 /// use domain::bits::MessageBuilder;
-/// use domain::rdata::{Opt, OptRecord};
+/// use domain::rdata::rfc6891::{Opt, OptRecord};
 ///
 /// let mut msg = MessageBuilder::new(Some(512), true).unwrap();
 /// // Add more resource records here ...
@@ -1165,7 +1165,7 @@ impl<'a> OptRecord<'a> {
     ///
     /// ```rust
     /// use domain::bits::MessageBuilder;
-    /// use domain::rdata::{Opt, OptRecord};
+    /// use domain::rdata::rfc6891::{Opt, OptRecord};
     ///
     /// let mut msg = MessageBuilder::new(Some(512), true).unwrap();
     /// // Add more resource records here ...
