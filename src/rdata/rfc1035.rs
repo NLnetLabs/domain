@@ -9,7 +9,7 @@ use std::fmt;
 use std::io;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
-use ::bits::bytes::PushBytes;
+use ::bits::bytes::BytesBuf;
 use ::bits::compose::ComposeBytes;
 use ::bits::charstr::CharStr;
 use ::bits::error::{ComposeResult, ParseResult};
@@ -56,7 +56,7 @@ macro_rules! dname_type {
             pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
                                    origin: &DNameSlice, target: &mut B)
                                       -> master::Result<()>
-                             where R: io::Read, B: PushBytes {
+                             where R: io::Read, B: BytesBuf {
                 DNameBuf::scan_into(stream, origin, target)
             }
         }
@@ -146,7 +146,7 @@ impl A {
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
                            _origin: &DNameSlice, target: &mut B)
                               -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         stream.scan_str_phrase(|slice| {
             let addr = try!(Ipv4Addr::from_str(slice));
             target.push_bytes(&addr.octets()[..]);
@@ -233,7 +233,7 @@ impl<'a> Hinfo<'a> {
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
                            _origin: &DNameSlice, target: &mut B)
                            -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         try!(CharStr::scan_into(stream, target));
         CharStr::scan_into(stream, target)
     }
@@ -384,7 +384,7 @@ impl<'a> Minfo<'a> {
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
                            origin: &DNameSlice, target: &mut B)
                            -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         try!(DNameBuf::scan_into(stream, origin, target));
         DNameBuf::scan_into(stream, origin, target)
     }
@@ -473,7 +473,7 @@ impl<'a> Mx<'a> {
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
                            origin: &DNameSlice, target: &mut B)
                            -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         target.push_u16(try!(stream.scan_u16()));
         DNameBuf::scan_into(stream, origin, target)
     }
@@ -667,7 +667,7 @@ impl<'a> Soa<'a> {
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
                            origin: &DNameSlice, target: &mut B)
                            -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         try!(DNameBuf::scan_into(stream, origin, target));
         try!(DNameBuf::scan_into(stream, origin, target));
         target.push_u32(try!(stream.scan_u32()));
@@ -763,7 +763,7 @@ impl<'a> Txt<'a> {
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
                            _origin: &DNameSlice, target: &mut B)
                            -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         // XXX Try to get rid of the allocation, please.
         let text = try!(stream.scan_phrase_copy());
         let mut text = &text[..];
@@ -903,7 +903,7 @@ impl<'a> Wks<'a> {
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
                            _origin: &DNameSlice, target: &mut B)
                            -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         try!(A::scan_into(stream, _origin, target));
         try!(stream.scan_str_phrase(|s| {
             if let Some(ent) = ProtoEnt::by_name(s) {

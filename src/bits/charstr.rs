@@ -12,7 +12,7 @@ use std::str;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, FromStrError, FromStrResult, ParseResult};
 use super::parse::ParseBytes;
-use ::bits::bytes::PushBytes;
+use ::bits::bytes::BytesBuf;
 use ::master;
 
 
@@ -85,7 +85,7 @@ impl<'a> CharStr<'a> {
 
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>, target: &mut B)
                              -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         let mut len = 0;
         stream.scan_phrase_chars(|ch, _| {
             if len == 255 { Err(master::SyntaxError::LongCharStr) }

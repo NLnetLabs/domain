@@ -12,7 +12,7 @@ macro_rules! master_types {
                                target: &mut B)
                                -> ::master::Result<()>
                          where R: ::std::io::Read,
-                               B: ::bits::bytes::PushBytes {
+                               B: ::bits::bytes::BytesBuf {
             use ::bits::rdata::GenericRecordData;
 
             // First try the generic format for everything.

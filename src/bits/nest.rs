@@ -11,7 +11,7 @@ use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
 use super::name::DName;
 use super::parse::{ParseBytes, SliceParser, ContextParser};
-use super::bytes::PushBytes;
+use super::bytes::BytesBuf;
 
 
 //------------ Nest --------------------------------------------------------
@@ -266,9 +266,9 @@ impl AsRef<NestSlice> for NestBuf {
 }
 
 
-//--- PushBytes
+//--- BytesBuf
 
-impl PushBytes for NestBuf {
+impl BytesBuf for NestBuf {
     fn reserve(&mut self, additional: usize) { self.0.reserve(additional) }
     fn push_bytes(&mut self, data: &[u8]) {
         self.0.push_bytes(data)

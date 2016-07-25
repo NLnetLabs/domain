@@ -19,7 +19,7 @@ use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
 use super::nest::Nest;
 use super::parse::ParseBytes;
-use ::bits::bytes::PushBytes;
+use ::bits::bytes::BytesBuf;
 use ::master;
 
 
@@ -98,7 +98,7 @@ impl<'a> GenericRecordData<'a> {
     /// [domain::rdata::scan_into()]: ../../rdata/fn.scan_into.html
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>, target: &mut B)
                            -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         try!(stream.skip_literal(b"\\#"));
         let mut len = try!(stream.scan_u16());
         target.reserve(len as usize);

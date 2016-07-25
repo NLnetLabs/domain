@@ -62,7 +62,7 @@ use ::bits::compose::ComposeBytes;
 use ::bits::error::{ComposeResult, FromStrError, FromStrResult, ParseError,
                     ParseResult};
 use ::bits::parse::ParseBytes;
-use ::bits::bytes::{BytesExt, PushBytes};
+use ::bits::bytes::{BytesSlice, BytesBuf};
 use ::master;
 
 
@@ -795,7 +795,7 @@ impl DNameBuf {
     pub fn scan_into<R, N, B>(stream: &mut master::Stream<R>, origin: N,
                               target: &mut B) -> master::Result<()>
                      where R: io::Read, N: AsRef<DNameSlice>,
-                           B: PushBytes {
+                           B: BytesBuf {
         // XXX TODO Rewrite without extra allocation.
         let name = try!(DNameBuf::scan(stream, origin));
         target.push_bytes(&name.as_bytes());

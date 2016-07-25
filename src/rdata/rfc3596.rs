@@ -8,7 +8,7 @@ use std::fmt;
 use std::net::Ipv6Addr;
 use std::io;
 use std::str::FromStr;
-use ::bits::bytes::PushBytes;
+use ::bits::bytes::BytesBuf;
 use ::bits::compose::ComposeBytes;
 use ::bits::error::{ComposeResult, ParseResult};
 use ::bits::name::{AsDName, DNameSlice};
@@ -48,7 +48,7 @@ impl Aaaa {
     pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
                            _origin: &DNameSlice, target: &mut B)
                               -> master::Result<()>
-                     where R: io::Read, B: PushBytes {
+                     where R: io::Read, B: BytesBuf {
         stream.scan_str_phrase(|slice| {
             let addr = try!(Ipv6Addr::from_str(slice));
             for i in addr.segments().iter() {

@@ -4,11 +4,11 @@ use std::mem;
 use ::bits::error::{ParseError, ParseResult};
 
 
-//------------ BytesExt -----------------------------------------------------
+//------------ BytesSlice ---------------------------------------------------
 
 /// A trait extending a bytes slice for reading of DNS data.
 ///
-pub trait BytesExt {
+pub trait BytesSlice {
     fn split_u8(&self) -> ParseResult<(u8, &Self)>;
     fn split_u16(&self) -> ParseResult<(u16, &Self)>;
     fn split_u32(&self) -> ParseResult<(u32, &Self)>;
@@ -17,7 +17,7 @@ pub trait BytesExt {
     fn check_len(&self, len: usize) -> ParseResult<()>;
 }
 
-impl BytesExt for [u8] {
+impl BytesSlice for [u8] {
     fn split_u8(&self) -> ParseResult<(u8, &[u8])> {
         self.split_first().map(|(l,r)| (*l, r)).ok_or(ParseError::UnexpectedEnd)
     }
@@ -57,10 +57,10 @@ impl BytesExt for [u8] {
 }
 
 
-//------------ PushBytes ----------------------------------------------------
+//------------ BytesBuf -----------------------------------------------------
 
 /// A trait for something that can have raw DNS data pushed to its end.
-pub trait PushBytes {
+pub trait BytesBuf {
     fn reserve(&mut self, additional: usize);
 
     fn push_bytes(&mut self, data: &[u8]);
@@ -83,7 +83,7 @@ pub trait PushBytes {
     }
 }
 
-impl PushBytes for Vec<u8> {
+impl BytesBuf for Vec<u8> {
     fn reserve(&mut self, additional: usize) { self.reserve(additional) }
     fn push_bytes(&mut self, data: &[u8]) {
         self.extend(data)
