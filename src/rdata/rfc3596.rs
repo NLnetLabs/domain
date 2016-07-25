@@ -45,19 +45,6 @@ impl Aaaa {
         })
     }
 
-    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
-                           _origin: &DNameSlice, target: &mut B)
-                              -> master::Result<()>
-                     where R: io::Read, B: BytesBuf {
-        stream.scan_str_phrase(|slice| {
-            let addr = try!(Ipv6Addr::from_str(slice));
-            for i in addr.segments().iter() {
-                target.push_u16(*i)
-            }
-            Ok(())
-        })
-    }
-
     fn parse_always<'a, P>(parser: &mut P) -> ParseResult<Self>
                     where P: ParseBytes<'a> {
         Ok(Aaaa::new(Ipv6Addr::new(try!(parser.parse_u16()),
@@ -68,6 +55,19 @@ impl Aaaa {
                                    try!(parser.parse_u16()),
                                    try!(parser.parse_u16()),
                                    try!(parser.parse_u16()))))
+    }
+
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                              _origin: Option<&DNameSlice>,
+                              target: &mut Vec<u8>)
+                              -> master::Result<()> {
+        stream.scan_str_phrase(|slice| {
+            let addr = try!(Ipv6Addr::from_str(slice));
+            for i in addr.segments().iter() {
+                target.push_u16(*i)
+            }
+            Ok(())
+        })
     }
 }
 

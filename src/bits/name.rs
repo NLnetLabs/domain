@@ -178,6 +178,15 @@ impl<'a> From<PackedDName<'a>> for DName<'a> {
     }
 }
 
+impl<'a> From<Cow<'a, DNameSlice>> for DName<'a> {
+    fn from(name: Cow<'a, DNameSlice>) -> DName<'a> {
+        match name {
+            Cow::Borrowed(name) => DName::Slice(name),
+            Cow::Owned(name) => DName::Owned(name)
+        }
+    }
+}
+
 
 //--- FromStr
 
@@ -543,6 +552,29 @@ impl DNameSlice {
 }
 
 
+/// # Scanning from Master Format
+///
+impl DNameSlice {
+    pub fn scan<'a, R: io::Read>(stream: &mut master::Stream<R>,
+                             origin: Option<&'a DNameSlice>)
+                             -> master::Result<Cow<'a, DNameSlice>> {
+        if let Ok(()) = stream.skip_literal(b"@") {
+            if let Some(origin) = origin {
+                stream.ok(Cow::Borrowed(origin))
+            }
+            else {
+                stream.err(master::SyntaxError::NoOrigin)
+            }
+        }
+        else {
+            let mut res = DNameBuf::new();
+            try!(DNameBuf::scan_into(stream, origin, &mut res.inner));
+            Ok(Cow::Owned(res))
+        }
+    }
+}
+
+
 //--- AsRef
 
 impl AsRef<DNameSlice> for DNameSlice {
@@ -735,76 +767,90 @@ impl DNameBuf {
         Ok(try!(try!(PackedDName::parse(parser, context)).to_owned()))
     }
 
-    pub fn scan_absolute<R: io::Read>(stream: &mut master::Stream<R>)
-                                      -> master::Result<Self> {
-        let res = try!(DNameBuf::_scan(stream));
-        if res.is_relative() {
-            stream.err(master::SyntaxError::RelativeName)
-        }
-        else {
-            stream.ok(res)
-        }
-    }
-
-    pub fn scan<R, N>(stream: &mut master::Stream<R>, origin: N)
-                      -> master::Result<Self>
-                where R: io::Read, N: AsRef<DNameSlice> {
-        let mut res = try!(DNameBuf::_scan(stream));
-        res.append(origin);
-        if res.is_relative() {
-            stream.err(master::SyntaxError::RelativeName)
-        }
-        else {
-            stream.ok(res)
-        }
-    }
-
-    pub fn _scan<R: io::Read>(stream: &mut master::Stream<R>)
-                             -> master::Result<Self> {
-        // XXX TODO Rewrite using Stream::scan_word_chars().
-        let mut res = DNameBuf::new();
-        let mut label = Vec::new();
-        loop {
-            match try!(stream.read_word_char()) {
-                Some(b'.') => {
-                    if label.len() > 63 {
-                        return stream.err(master::SyntaxError::LongLabel)
+    /// Scans from `stream` into `target`.
+    ///
+    /// Does not progress the stream on success so you can still error out
+    /// at the beginning of the name. Returns whether the resulting
+    /// domain name is absolute.
+    pub fn _scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                                   target: &mut Vec<u8>)
+                                   -> master::Result<bool> {
+        let name_start = target.len();
+        let mut label_start = name_start;
+        target.push_u8(0);
+        try!(stream.scan_word_chars(|ch, escape| {
+            match (ch, escape) {
+                (b'.', false) => {
+                    let label_len = target.len() - label_start - 1;
+                    if label_len > 63 {
+                        return Err(master::SyntaxError::LongLabel)
                     }
-                    res.inner.push(label.len() as u8);
-                    res.inner.extend(&label);
-                    label.clear();
+                    target[label_start] = label_len as u8;
+                    label_start = target.len();
+                    target.push_u8(0);
                 }
-                Some(b'\\') => label.push(try!(stream.scan_escape())),
-                Some(ch) => label.push(ch),
-                None => break,
+                (ch, _) => {
+                    target.push_u8(ch)
+                }
             }
-        }
-        if label.len() > 63 {
-            return stream.err(master::SyntaxError::LongLabel)
-        }
-        res.inner.push(label.len() as u8);
-        res.inner.extend(&label);
-        if res.inner.len() > 255 {
+            Ok(())
+        }));
+        if target.len() - name_start > 255 {
             stream.err(master::SyntaxError::LongName)
         }
         else {
-            Ok(res)
+            Ok(label_start == target.len() -1)
         }
     }
 
-    pub fn scan_into<R, N, B>(stream: &mut master::Stream<R>, origin: N,
-                              target: &mut B) -> master::Result<()>
-                     where R: io::Read, N: AsRef<DNameSlice>,
-                           B: BytesBuf {
-        // XXX TODO Rewrite without extra allocation.
-        let name = try!(DNameBuf::scan(stream, origin));
-        target.push_bytes(&name.as_bytes());
-        Ok(())
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                                  origin: Option<&DNameSlice>,
+                                  target: &mut Vec<u8>)
+                                  -> master::Result<()> {
+        if let Ok(()) = stream.skip_literal(b"@") {
+            if let Some(origin) = origin {
+                target.push_bytes(&origin.as_bytes());
+            }
+            else {
+                return stream.err(master::SyntaxError::NoOrigin)
+            }
+        }
+        else if let false = try!(DNameBuf::_scan_into(stream, target)) {
+            if let Some(origin) = origin {
+                target.push_bytes(&origin.as_bytes());
+            }
+            else {
+                return stream.err(master::SyntaxError::RelativeName)
+            }
+        }
+        stream.ok(())
+    }
+
+    pub fn scan<R: io::Read>(stream: &mut master::Stream<R>,
+                             origin: Option<&DNameSlice>)
+                             -> master::Result<DNameBuf> {
+        if let Ok(()) = stream.skip_literal(b"@") {
+            if let Some(origin) = origin {
+                stream.ok(origin.to_owned())
+            }
+            else {
+                stream.err(master::SyntaxError::NoOrigin)
+            }
+        }
+        else {
+            let mut res = DNameBuf::new();
+            try!(DNameBuf::scan_into(stream, origin, &mut res.inner));
+            Ok(res)
+        }
     }
 
     /// Returns a reference to a domain name slice of this domain name.
     pub fn as_slice(&self) -> &DNameSlice {
         self
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        self.inner
     }
 }
 

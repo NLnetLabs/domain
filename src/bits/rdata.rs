@@ -19,7 +19,7 @@ use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
 use super::nest::Nest;
 use super::parse::ParseBytes;
-use ::bits::bytes::BytesBuf;
+use bits::bytes::BytesBuf;
 use ::master;
 
 
@@ -96,9 +96,9 @@ impl<'a> GenericRecordData<'a> {
     ///
     /// [RFC 3597]: https:://tools.ietf.org/html/rfc3597
     /// [domain::rdata::scan_into()]: ../../rdata/fn.scan_into.html
-    pub fn scan_into<R, B>(stream: &mut master::Stream<R>, target: &mut B)
-                           -> master::Result<()>
-                     where R: io::Read, B: BytesBuf {
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                                  target: &mut Vec<u8>)
+                                  -> master::Result<()> {
         try!(stream.skip_literal(b"\\#"));
         let mut len = try!(stream.scan_u16());
         target.reserve(len as usize);
@@ -113,6 +113,13 @@ impl<'a> GenericRecordData<'a> {
             }))
         }
         Ok(())
+    }
+
+    pub fn scan<R: io::Read>(stream: &mut master::Stream<R>)
+                             -> master::Result<Vec<u8>> {
+        let mut res = Vec::new();
+        try!(GenericRecordData::scan_into(stream, &mut res));
+        Ok(res)
     }
 
     /// Formats the record data as if it were of concrete type `R`.

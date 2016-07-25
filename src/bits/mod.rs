@@ -45,7 +45,7 @@ pub use self::octets::Octets;
 pub use self::parse::{ParseBytes};
 pub use self::question::Question;
 pub use self::rdata::{GenericRecordData, RecordData};
-pub use self::record::Record;
+pub use self::record::{GenericRecord, Record};
 
 pub mod bytes;
 pub mod charstr;

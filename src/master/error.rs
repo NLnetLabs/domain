@@ -25,6 +25,7 @@ pub enum SyntaxError {
     NoDefaultTtl,
     NoLastClass,
     NoLastOwner,
+    NoOrigin,
     RelativeName,
     Unexpected(u8),
     UnexpectedEof,

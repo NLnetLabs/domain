@@ -225,10 +225,18 @@ impl NestBuf {
         NestBuf(Vec::new())
     }
 
-    /// Creates a nest as a copy of the given bytes slice.
+    /// Creates an owned nest as a copy of the given bytes slice.
     pub fn from_bytes(slice: &[u8]) -> Self {
         NestBuf(Vec::from(slice))
     }
+
+    /// Creates an owned nest from the given vec.
+    pub fn from_vec(vec: Vec<u8>) -> Self {
+        NestBuf(vec)
+    }
+
+    /// Returns a mutable reference to the nest’s content.
+    pub fn as_mut_vec(&mut self) -> &mut Vec<u8> { &mut self.0 }
 
     /// Parses an owned nest.
     pub fn parse<'a, P>(p: &mut P, len: usize) -> ParseResult<Self>

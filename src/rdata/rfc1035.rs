@@ -53,10 +53,10 @@ macro_rules! dname_type {
                             |target| target.push_dname_compressed(value))
             }
 
-            pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
-                                   origin: &DNameSlice, target: &mut B)
-                                      -> master::Result<()>
-                             where R: io::Read, B: BytesBuf {
+            pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                                      origin: Option<&DNameSlice>,
+                                      target: &mut Vec<u8>)
+                                      -> master::Result<()> {
                 DNameBuf::scan_into(stream, origin, target)
             }
         }
@@ -78,6 +78,7 @@ macro_rules! dname_type {
                 else { None }
             }
         }
+
 
         impl<'a> fmt::Display for $target<'a> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -143,10 +144,10 @@ impl A {
                                 try!(parser.parse_u8()))))
     }
 
-    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
-                           _origin: &DNameSlice, target: &mut B)
-                              -> master::Result<()>
-                     where R: io::Read, B: BytesBuf {
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                              _origin: Option<&DNameSlice>,
+                              target: &mut Vec<u8>)
+                              -> master::Result<()> {
         stream.scan_str_phrase(|slice| {
             let addr = try!(Ipv4Addr::from_str(slice));
             target.push_bytes(&addr.octets()[..]);
@@ -171,6 +172,7 @@ impl<'a> RecordData<'a> for A {
         else { None }
     }
 }
+
 
 impl fmt::Display for A {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -230,10 +232,10 @@ impl<'a> Hinfo<'a> {
                       try!(parser.parse_charstr())))
     }
 
-    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
-                           _origin: &DNameSlice, target: &mut B)
-                           -> master::Result<()>
-                     where R: io::Read, B: BytesBuf {
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                              _origin: Option<&DNameSlice>,
+                              target: &mut Vec<u8>)
+                              -> master::Result<()> {
         try!(CharStr::scan_into(stream, target));
         CharStr::scan_into(stream, target)
     }
@@ -254,7 +256,6 @@ impl<'a> RecordData<'a> for Hinfo<'a> {
         else { None }
     }
 }
-
 
 impl<'a> fmt::Display for Hinfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -381,10 +382,10 @@ impl<'a> Minfo<'a> {
                       try!(parser.parse_dname())))
     }
 
-    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
-                           origin: &DNameSlice, target: &mut B)
-                           -> master::Result<()>
-                     where R: io::Read, B: BytesBuf {
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                              origin: Option<&DNameSlice>,
+                              target: &mut Vec<u8>)
+                              -> master::Result<()> {
         try!(DNameBuf::scan_into(stream, origin, target));
         DNameBuf::scan_into(stream, origin, target)
     }
@@ -470,10 +471,10 @@ impl<'a> Mx<'a> {
                    try!(parser.parse_dname())))
     }
 
-    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
-                           origin: &DNameSlice, target: &mut B)
-                           -> master::Result<()>
-                     where R: io::Read, B: BytesBuf {
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                              origin: Option<&DNameSlice>,
+                              target: &mut Vec<u8>)
+                              -> master::Result<()> {
         target.push_u16(try!(stream.scan_u16()));
         DNameBuf::scan_into(stream, origin, target)
     }
@@ -664,10 +665,10 @@ impl<'a> Soa<'a> {
                     try!(parser.parse_u32())))
     }
 
-    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
-                           origin: &DNameSlice, target: &mut B)
-                           -> master::Result<()>
-                     where R: io::Read, B: BytesBuf {
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                                  origin: Option<&DNameSlice>,
+                                  target: &mut Vec<u8>)
+                                  -> master::Result<()> {
         try!(DNameBuf::scan_into(stream, origin, target));
         try!(DNameBuf::scan_into(stream, origin, target));
         target.push_u32(try!(stream.scan_u32()));
@@ -760,10 +761,10 @@ impl<'a> Txt<'a> {
         Ok(Txt::new(Cow::Borrowed(try!(parser.parse_bytes(len)))))
     }
 
-    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
-                           _origin: &DNameSlice, target: &mut B)
-                           -> master::Result<()>
-                     where R: io::Read, B: BytesBuf {
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                              _origin: Option<&DNameSlice>,
+                              target: &mut Vec<u8>)
+                              -> master::Result<()> {
         // XXX Try to get rid of the allocation, please.
         let text = try!(stream.scan_phrase_copy());
         let mut text = &text[..];
@@ -900,10 +901,10 @@ impl<'a> Wks<'a> {
 
     /// Scan the master file representation of a WKS record into a target.
     ///
-    pub fn scan_into<R, B>(stream: &mut master::Stream<R>,
-                           _origin: &DNameSlice, target: &mut B)
-                           -> master::Result<()>
-                     where R: io::Read, B: BytesBuf {
+    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
+                              _origin: Option<&DNameSlice>,
+                              target: &mut Vec<u8>)
+                              -> master::Result<()> {
         try!(A::scan_into(stream, _origin, target));
         try!(stream.scan_str_phrase(|s| {
             if let Some(ent) = ProtoEnt::by_name(s) {
@@ -937,7 +938,6 @@ impl<'a> Wks<'a> {
         Ok(())
     }
 }
-
 
 impl<'a> RecordData<'a> for Wks<'a> {
     fn rtype(&self) -> RRType { RRType::Wks }

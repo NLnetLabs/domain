@@ -3,7 +3,6 @@
 use std::io;
 use std::str;
 use ::master::error::{Error, Result, SyntaxError, SyntaxResult};
-use ::master::Pos;
 
 
 //------------ Stream ---------------------------------------------------
@@ -13,6 +12,11 @@ pub struct Stream<R: io::Read> {
     paren: bool,
 }
 
+impl<R: io::Read> Stream<R> {
+    pub fn new(reader: R) -> Self {
+        Stream { buf: Buffer::new(reader), paren: false }
+    }
+}
 
 /// Reading.
 ///
@@ -28,6 +32,11 @@ impl<R: io::Read> Stream<R> {
 
     pub fn peek_char(&mut self) -> io::Result<Option<u8>> {
         self.buf.peek_char()
+    }
+
+    pub fn is_eof(&mut self) -> io::Result<bool> {
+        if let Some(_) = try!(self.peek_char()) { Ok(false) }
+        else { Ok(true) }
     }
 
     pub fn cond_read_char<F>(&mut self, f: F) -> Result<Option<u8>>
@@ -332,9 +341,7 @@ impl<R: io::Read> Stream<R> {
                         self.paren = false
                     }
                     Some(b';') => {
-                        if let Newline::Eof = try!(self.skip_comment()) {
-                            return self.ok(true)
-                        }
+                        try!(self.skip_comment());
                     }
                     _ => { }
                 }
@@ -355,27 +362,27 @@ impl<R: io::Read> Stream<R> {
         }
     }
 
-    fn skip_comment(&mut self) -> Result<Newline> {
+    fn skip_comment(&mut self) -> Result<()> {
         match self.skip_until(is_newline) {
-            Ok(_) => self.ok(Newline::Real),
-            Err(ref err) if err.is_eof() => self.ok(Newline::Eof),
+            Ok(_) => self.ok(()),
+            Err(ref err) if err.is_eof() => self.ok(()),
             Err(err) => Err(err)
         }
     }
 
-    pub fn scan_newline(&mut self) -> Result<Newline> {
+    pub fn scan_newline(&mut self) -> Result<()> {
         try!(self.skip_opt_space());
         match try!(self.read_char()) {
             Some(b';') => {
                 self.skip_comment()
             }
-            Some(ch) if is_newline(ch) => self.ok(Newline::Real),
-            None => self.ok(Newline::Eof),
+            Some(ch) if is_newline(ch) => self.ok(()),
+            None => self.ok(()),
             _ => self.err(SyntaxError::ExpectedNewline)
         }
     }
 
-    pub fn skip_entry(&mut self) -> Result<Newline> {
+    pub fn skip_entry(&mut self) -> Result<()> {
         // We try to skip over space, then break if we find a newline
         // or try to scan a phrase and start again.
         //
@@ -386,8 +393,8 @@ impl<R: io::Read> Stream<R> {
             try!(self.skip_opt_space());
             match try!(self.read_char()) {
                 Some(b';') => return self.skip_comment(),
-                Some(ch) if is_newline(ch) => return self.ok(Newline::Real),
-                None => return self.ok(Newline::Eof),
+                Some(ch) if is_newline(ch) => return self.ok(()),
+                None => return self.ok(()),
                 _ => { }
             }
             try!(self.scan_phrase(|_| Ok(())));
@@ -417,14 +424,6 @@ impl<R: io::Read> Stream<R> {
 }
 
 
-//------------ Newline -------------------------------------------------------
-
-pub enum Newline {
-    Real,
-    Eof
-}
-
-
 //------------ Buffer --------------------------------------------------------
 
 pub struct Buffer<R: io::Read> {
@@ -434,6 +433,13 @@ pub struct Buffer<R: io::Read> {
     curr: usize,
     start_pos: Pos,
     curr_pos: Pos
+}
+
+impl<R: io::Read> Buffer<R> {
+    pub fn new(reader: R) -> Self {
+        Buffer { reader: reader, buf: Vec::new(), start: 0, curr: 0,
+                 start_pos: Pos::new(), curr_pos: Pos::new() }
+    }
 }
 
 impl<R: io::Read> Buffer<R> {
@@ -480,6 +486,28 @@ impl<R: io::Read> Buffer<R> {
 
     pub fn slice_since(&self, since: usize) -> &[u8] {
         &self.buf[since..self.curr]
+    }
+}
+
+
+//------------ Pos -----------------------------------------------------------
+
+#[derive(Clone, Copy, Debug)]
+pub struct Pos {
+    line: usize,
+    col: usize
+}
+
+impl Pos {
+    pub fn new() -> Pos {
+        Pos { line: 1, col: 1 }
+    }
+
+    pub fn update(&mut self, ch: u8) {
+        match ch {
+            b'\n' => self.line += 1,
+            _ => self.col += 1
+        }
     }
 }
 

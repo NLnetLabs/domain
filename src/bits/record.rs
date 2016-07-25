@@ -11,6 +11,7 @@ use super::nest::Nest;
 use super::parse::ParseBytes;
 use super::rdata::{GenericRecordData, RecordData};
 
+
 //------------ Record -------------------------------------------------------
 
 /// A resource record.
@@ -202,6 +203,7 @@ impl<'a> Record<'a, GenericRecordData<'a>> {
         Record::new(name, class, ttl, GenericRecordData::new(rtype, rdata))
     }
 }
+
 
 //------------ RecordTarget -------------------------------------------------
 
