@@ -4,18 +4,20 @@ use std::io;
 use std::rc::Rc;
 use ::bits::DNameBuf;
 use ::iana::Class;
-use ::master::{Error, Pos, Result, Stream};
+use ::master::{Pos, Result, Stream};
 use ::master::record::{MasterRecord, map_origin};
 
 
 //------------ Entry ---------------------------------------------------------
 
+#[derive(Clone, Debug)]
 pub enum Entry {
     Origin(Rc<DNameBuf>),
     Include { path: Vec<u8>, origin: Option<Rc<DNameBuf>> },
     Ttl(u32),
     Control { name: Vec<u8>, start: Pos },
-    Record(MasterRecord)
+    Record(MasterRecord),
+    Blank
 }
 
 impl Entry {
@@ -25,42 +27,58 @@ impl Entry {
                              origin: &Option<Rc<DNameBuf>>,
                              default_ttl: Option<u32>)
                              -> Result<Option<Self>> {
-        while let Ok(()) = stream.scan_newline() { }
         if let Ok(true) = stream.is_eof() {
-            return Ok(None)
+            Ok(None)
         }
-        let res = match try!(ControlType::scan_opt(stream)) {
-            Some(ControlType::Origin) => {
+        else if let Ok(entry) = Entry::scan_control(stream, origin) {
+            Ok(Some(entry))
+        }
+        else if let Ok(record) = MasterRecord::scan(stream, last_owner,
+                                                    last_class, origin,
+                                                    default_ttl) {
+            Ok(Some(Entry::Record(record)))
+        }
+        else {
+            try!(stream.skip_space());
+            try!(stream.scan_newline());
+            Ok(Some(Entry::Blank))
+        }
+    }
+
+    fn scan_control<R: io::Read>(stream: &mut Stream<R>,
+                                 origin: &Option<Rc<DNameBuf>>)
+                                 -> Result<Self> {
+        match try!(ControlType::scan(stream)) {
+            ControlType::Origin => {
                 let origin = map_origin(origin);
-                Entry::Origin(Rc::new(try!(DNameBuf::scan(stream, origin))))
+                let name = try!(DNameBuf::scan(stream, origin));
+                try!(stream.scan_newline());
+                Ok(Entry::Origin(Rc::new(name)))
             }
-            Some(ControlType::Include) => {
-                Entry::Include {
-                    path: try!(stream.scan_phrase_copy()),
-                    origin: DNameBuf::scan(stream, map_origin(origin))
-                                     .map(|n| Rc::new(n)).ok()
-                }
+            ControlType::Include => {
+                let path = try!(stream.scan_phrase_copy());
+                let origin = DNameBuf::scan(stream, map_origin(origin))
+                                      .map(|n| Rc::new(n)).ok();
+                try!(stream.scan_newline());
+                Ok(Entry::Include { path: path, origin: origin })
             }
-            Some(ControlType::Ttl) => {
-                Entry::Ttl(try!(stream.scan_u32()))
+            ControlType::Ttl => {
+                let ttl = try!(stream.scan_u32());
+                try!(stream.scan_newline());
+                Ok(Entry::Ttl(ttl))
             }
-            Some(ControlType::Other(name, pos)) => {
-                Entry::Control { name: name, start: pos }
+            ControlType::Other(name, pos) => {
+                try!(stream.skip_entry());
+                Ok(Entry::Control { name: name, start: pos })
             }
-            None => {
-                Entry::Record(try!(MasterRecord::scan(stream, last_owner,
-                                                      last_class, origin,
-                                                      default_ttl)))
-            }
-        };
-        try!(stream.scan_newline());
-        Ok(Some(res))
+        }
     }
 }
 
 
 //------------ ControlType ---------------------------------------------------
 
+#[derive(Clone, Debug)]
 enum ControlType {
     Origin,
     Include,
@@ -69,14 +87,9 @@ enum ControlType {
 }
 
 impl ControlType {
-    pub fn scan_opt<R: io::Read>(stream: &mut Stream<R>)
-                                 -> Result<Option<Self>> {
+    pub fn scan<R: io::Read>(stream: &mut Stream<R>) -> Result<Self> {
         let pos = stream.pos();
-        match stream.skip_char(b'$') {
-            Ok(()) => { }
-            Err(Error::Syntax(..)) => return Ok(None),
-            Err(err) => return Err(err)
-        }
+        try!(stream.skip_char(b'$'));
         stream.scan_word(|word| {
             if word.eq_ignore_ascii_case(b"ORIGIN") {
                 Ok(ControlType::Origin)
@@ -88,10 +101,9 @@ impl ControlType {
                 Ok(ControlType::Ttl)
             }
             else {
-                // XXX Master-encode non-ASCII characters.
                 Ok(ControlType::Other(word.to_owned(), pos))
             }
-        }).map(|x| Some(x))
+        })
     }
 }
 

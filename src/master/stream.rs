@@ -31,12 +31,12 @@ impl<R: io::Read> Stream<R> {
     }
 
     pub fn peek_char(&mut self) -> io::Result<Option<u8>> {
-        self.buf.peek_char()
+        let res = self.buf.peek_char();
+        res
     }
 
     pub fn is_eof(&mut self) -> io::Result<bool> {
-        if let Some(_) = try!(self.peek_char()) { Ok(false) }
-        else { Ok(true) }
+        self.peek_char().map(|x| x.is_none())
     }
 
     pub fn cond_read_char<F>(&mut self, f: F) -> Result<Option<u8>>
@@ -71,7 +71,7 @@ impl<R: io::Read> Stream<R> {
     }
 
     pub fn skip_char(&mut self, ch: u8) -> Result<()> {
-        if let Some(_) = try!(self.read_char()) { self.ok(()) }
+        if Some(ch) == try!(self.read_char()) { self.ok(()) }
         else { self.err(SyntaxError::Expected(vec![ch])) }
     }
 
@@ -183,6 +183,7 @@ impl<R: io::Read> Stream<R> {
                 return self.err(err)
             }
         }
+        try!(self.skip_space());
         self.ok(())
     }
 
@@ -286,15 +287,14 @@ impl<R: io::Read> Stream<R> {
     ///
     /// Does not decode escapes.
     pub fn skip_literal(&mut self, literal: &[u8]) -> Result<()> {
-        try!(self.scan_word(|s| {
+        self.scan_word(|s| {
             if s == literal {
                 Ok(())
             }
             else {
                 Err(SyntaxError::Expected(literal.into()))
             }
-        }));
-        self.skip_space()
+        })
     }
 
     pub fn scan_hex_word<F>(&mut self, mut f: F) -> Result<()>
@@ -333,7 +333,7 @@ impl<R: io::Read> Stream<R> {
         loop {
             if self.paren {
                 match try!(self.cond_read_char(is_paren_space)) {
-                    None => return self.ok(res),
+                    None => break,
                     Some(b'(') => {
                         return self.err(SyntaxError::NestedParentheses)
                     }
@@ -348,7 +348,7 @@ impl<R: io::Read> Stream<R> {
             }
             else {
                 match try!(self.cond_read_char(is_non_paren_space)) {
-                    None => return self.ok(res),
+                    None => break,
                     Some(b'(') => {
                         self.paren = true
                     }
@@ -360,6 +360,16 @@ impl<R: io::Read> Stream<R> {
             }
             res = true;
         }
+        // If we haven’t read any characters, we are still to return true if
+        // the next character is possibly part of a newline or we have EOF.
+        if !res {
+            match try!(self.peek_char()) {
+                Some(ch) if is_newline_ahead(ch) => res = true,
+                Some(_) => { }
+                None => res = true,
+            }
+        }
+        self.ok(res)
     }
 
     fn skip_comment(&mut self) -> Result<()> {
@@ -371,7 +381,6 @@ impl<R: io::Read> Stream<R> {
     }
 
     pub fn scan_newline(&mut self) -> Result<()> {
-        try!(self.skip_opt_space());
         match try!(self.read_char()) {
             Some(b';') => {
                 self.skip_comment()
@@ -450,6 +459,10 @@ impl<R: io::Read> Buffer<R> {
             self.curr = 0;
             self.start_pos = self.curr_pos;
         }
+        else {
+            self.start = self.curr;
+            self.start_pos = self.curr_pos;
+        }
     }
 
     pub fn err(&mut self) -> Pos {
@@ -492,7 +505,7 @@ impl<R: io::Read> Buffer<R> {
 
 //------------ Pos -----------------------------------------------------------
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Pos {
     line: usize,
     col: usize
@@ -503,11 +516,20 @@ impl Pos {
         Pos { line: 1, col: 1 }
     }
 
+    pub fn line(&self) -> usize { self.line }
+    pub fn col(&self) -> usize { self.col }
+
     pub fn update(&mut self, ch: u8) {
         match ch {
-            b'\n' => self.line += 1,
+            b'\n' => { self.line += 1; self.col = 1 }
             _ => self.col += 1
         }
+    }
+}
+
+impl PartialEq<(usize, usize)> for Pos {
+    fn eq(&self, other: &(usize, usize)) -> bool {
+        self.line == other.0 && self.col == other.1
     }
 }
 
@@ -539,6 +561,10 @@ fn is_newline(ch: u8) -> bool {
     ch == b'\r' || ch == b'\n'
 }
 
+fn is_newline_ahead(ch: u8) -> bool {
+    ch == b'\r' || ch == b'\n' || ch == b';'
+}
+
 fn is_word_char(ch: u8) -> bool {
     ch != b' ' && ch != b'\t' && ch != b'\r' && ch != b'\n' &&
     ch != b'(' && ch != b')' && ch != b';' && ch != b'"'
@@ -554,5 +580,72 @@ fn trans_hexdig(dig: u8) -> SyntaxResult<u8> {
         b'a' ... b'f' => Ok(dig - b'a' + 10),
         _ => Err(SyntaxError::Unexpected(dig))
     }
+}
+
+
+//============ Test ==========================================================
+
+#[cfg(test)]
+mod test {
+    use std::io::Cursor;
+    use super::*;
+
+
+    #[test]
+    fn buffer_read() {
+        let mut buf = Buffer::new(Cursor::new(Vec::from(&b"foo"[..])));
+        assert_eq!(buf.read_char().unwrap(), Some(b'f'));
+        assert_eq!(buf.peek_char().unwrap(), Some(b'o'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'o'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'o'));
+        assert_eq!(buf.read_char().unwrap(), None);
+    }
+
+    #[test]
+    fn buffer_ok() {
+        let mut buf = Buffer::new(Cursor::new(Vec::from(&b"fob"[..])));
+        assert_eq!(buf.read_char().unwrap(), Some(b'f'));
+        assert_eq!(buf.peek_char().unwrap(), Some(b'o'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'o'));
+        buf.ok();
+        assert_eq!(buf.read_char().unwrap(), Some(b'b'));
+        assert_eq!(buf.read_char().unwrap(), None);
+    }
+
+    #[test]
+    fn buffer_err() {
+        let mut buf = Buffer::new(Cursor::new(Vec::from(&b"fob"[..])));
+        assert_eq!(buf.read_char().unwrap(), Some(b'f'));
+        assert_eq!(buf.peek_char().unwrap(), Some(b'o'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'o'));
+        buf.err();
+        assert_eq!(buf.read_char().unwrap(), Some(b'f'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'o'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'b'));
+        assert_eq!(buf.read_char().unwrap(), None);
+
+        let mut buf = Buffer::new(Cursor::new(Vec::from(&b"fob"[..])));
+        assert_eq!(buf.read_char().unwrap(), Some(b'f'));
+        assert_eq!(buf.peek_char().unwrap(), Some(b'o'));
+        buf.ok();
+        assert_eq!(buf.peek_char().unwrap(), Some(b'o'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'o'));
+        buf.err();
+        assert_eq!(buf.read_char().unwrap(), Some(b'o'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'b'));
+        assert_eq!(buf.read_char().unwrap(), None);
+    }
+
+    /*
+    #[test]
+    fn buffer_pos() {
+        let mut buf = Buffer::new(Cursor::new(Vec::from(&b"fo\nb"[..])));
+        assert_eq!(buf.read_char().unwrap(), Some(b'f'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'o'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'\n'));
+        assert_eq!(buf.read_char().unwrap(), Some(b'b'));
+        assert_eq!(buf.read_char().unwrap(), None);
+    }
+    */
 }
 

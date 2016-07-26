@@ -795,6 +795,11 @@ impl DNameBuf {
             }
             Ok(())
         }));
+        let label_len = target.len() - label_start - 1;
+        if label_len > 63 {
+            return stream.err(master::SyntaxError::LongLabel)
+        }
+        target[label_start] = label_len as u8;
         if target.len() - name_start > 255 {
             stream.err(master::SyntaxError::LongName)
         }

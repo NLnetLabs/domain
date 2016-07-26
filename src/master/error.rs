@@ -9,6 +9,7 @@ use ::master::Pos;
 
 //------------ SyntaxError ---------------------------------------------------
 
+#[derive(Clone, Debug)]
 pub enum SyntaxError {
     Expected(Vec<u8>),
     ExpectedNewline,
@@ -54,6 +55,7 @@ impl From<Utf8Error> for SyntaxError {
 
 //------------ Error ---------------------------------------------------------
 
+#[derive(Debug)]
 pub enum Error {
     Io(io::Error),
     Syntax(SyntaxError, Pos)

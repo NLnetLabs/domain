@@ -1,7 +1,10 @@
 
+use std::fmt;
 use std::io;
 use std::rc::Rc;
 use ::bits::{DNameBuf, DNameSlice};
+use ::bits::nest::NestSlice;
+use ::bits::rdata::GenericRecordData;
 use ::iana::{Class, RRType};
 use ::rdata;
 use super::{Result, Stream, SyntaxError};
@@ -9,11 +12,11 @@ use super::{Result, Stream, SyntaxError};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MasterRecord {
-    owner: Rc<DNameBuf>,
-    rtype: RRType,
-    class: Class,
-    ttl: u32,
-    rdata: Vec<u8>,
+    pub owner: Rc<DNameBuf>,
+    pub rtype: RRType,
+    pub class: Class,
+    pub ttl: u32,
+    pub rdata: Vec<u8>,
 }
 
 impl MasterRecord {
@@ -67,10 +70,8 @@ impl MasterRecord {
                                    -> Result<(u32, Class)> {
         let (ttl, class) = match stream.scan_u32() {
             Ok(ttl) => {
-                try!(stream.skip_opt_space());
                 match Class::scan(stream) {
                     Ok(class) => {
-                        try!(stream.skip_opt_space());
                         (Some(ttl), Some(class))
                     }
                     Err(_) => (Some(ttl), None)
@@ -79,10 +80,8 @@ impl MasterRecord {
             Err(_) => {
                 match Class::scan(stream) {
                     Ok(class) => {
-                        try!(stream.skip_opt_space());
                         match stream.scan_u32() {
                             Ok(ttl) => {
-                                try!(stream.skip_opt_space());
                                 (Some(ttl), Some(class))
                             }
                             Err(_) => (None, Some(class))
@@ -101,6 +100,15 @@ impl MasterRecord {
             None => return stream.err(SyntaxError::NoLastClass)
         };
         Ok((ttl, class))
+    }
+}
+
+impl fmt::Display for MasterRecord {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {} {} {} {}",
+               self.owner, self.ttl, self.class, self.rtype,
+               GenericRecordData::new(self.rtype,
+                                      NestSlice::from_bytes(&self.rdata).into()))
     }
 }
 
