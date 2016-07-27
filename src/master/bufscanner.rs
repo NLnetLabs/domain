@@ -515,7 +515,8 @@ mod test {
     use std::fmt::Debug;
     use std::io::Read;
     use std::str;
-    use ::master::{Pos, ScanError, ScanResult, SyntaxError};
+    use ::master::{Pos, ScanError, SyntaxError};
+    use ::master::scanner::Scanner;
     use super::*;
 
     fn syntax_err<T: Debug>(err: Result<T, ScanError>) -> (SyntaxError, Pos) {
