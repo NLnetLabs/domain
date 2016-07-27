@@ -1371,7 +1371,6 @@ impl<'a> Iterator for DNameIter<'a> {
     }
 }
 
-
 //------------ DNameBuilder --------------------------------------------------
 
 /// Builds a DNameBuf step by step from bytes.
@@ -1380,45 +1379,24 @@ impl<'a> Iterator for DNameIter<'a> {
 /// used internally by `DNameBuf'’s `FromStr` implementation and the master
 /// format scanner.
 #[derive(Clone, Debug)]
-pub struct DNameBuilder {
-    /// The vector into which we assemble the name.
-    buf: Vec<u8>,
+pub struct DNameBuilder<'a>(DNameBuildInto<'a, Vec<u8>>);
 
-    /// The position of the last label head.
-    head: usize,
-}
-
-impl DNameBuilder {
-    pub fn new() -> Self {
-        DNameBuilder { buf: vec![0], head: 0 }
+impl<'a> DNameBuilder<'a> {
+    pub fn new(origin: Option<&'a DNameSlice>) -> Self {
+        DNameBuilder(DNameBuildInto::new(Vec::new(), origin))
     }
 
     pub fn push(&mut self, b: u8) -> Result<(), NameError> {
-        if self.buf.len() - self.head == 63 {
-            Err(NameError::LongLabel)
-        }
-        else if self.buf.len() == 254 {
-            Err(NameError::LongName)
-        }
-        else {
-            self.buf.push(b);
-            Ok(())
-        }
+        self.0.push(b)
     }
 
     pub fn end_label(&mut self) {
-        self.buf[self.head] = (self.buf.len() - self.head - 1) as u8;
-        self.head = self.buf.len();
-        self.buf.push(0);
+        self.0.end_label()
     }
 
-    pub fn into_vec(self) -> Vec<u8> {
-        self.buf
-    }
-
-    pub fn finish(mut self) -> DNameBuf {
-        self.buf[self.head] = (self.buf.len() - self.head - 1) as u8;
-        unsafe { DNameBuf::from_vec_unsafe(self.buf) }
+    pub fn done(self) -> Result<DNameBuf, NameError> {
+        let res = try!(self.0.done());
+        Ok(unsafe { DNameBuf::from_vec_unsafe(res) })
     }
 }
 
@@ -1434,12 +1412,12 @@ pub enum NameError {
 }
 
 
-//------------ PushDName -----------------------------------------------------
+//------------ DNameBuildInto ------------------------------------------------
 
 /// A type for iteratively pushing a domain name into a bytes vec.
-#[derive(Debug)]
-pub struct PushDName<'a, 'b> {
-    target: &'a mut Vec<u8>,
+#[derive(Clone, Debug)]
+pub struct DNameBuildInto<'a, V: AsMut<Vec<u8>>> {
+    target: V,
 
     /// The position in `buf` where we start.
     start: usize,
@@ -1448,19 +1426,19 @@ pub struct PushDName<'a, 'b> {
     head: usize,
 
     /// The origin to append to the name if it is relative.
-    origin: Option<&'b DNameSlice>,
+    origin: Option<&'a DNameSlice>,
 
     /// The name is absolute and we are done.
     absolute: bool,
 }
 
-impl<'a, 'b> PushDName<'a, 'b> {
-    pub fn new(target: &'a mut Vec<u8>, origin: Option<&'b DNameSlice>)
+impl<'a, V: AsMut<Vec<u8>>> DNameBuildInto<'a, V> {
+    pub fn new(mut target: V, origin: Option<&'a DNameSlice>)
                -> Self {
-        let len = target.len();
-        let mut res = PushDName { target: target, start: len, head: len,
+        let len = target.as_mut().len();
+        let mut res = DNameBuildInto { target: target, start: len, head: len,
                                   origin: origin, absolute: false };
-        res.target.push(0);
+        res.target.as_mut().push(0);
         res
     }
 
@@ -1469,14 +1447,14 @@ impl<'a, 'b> PushDName<'a, 'b> {
             Err(NameError::EmptyLabel)
         }
         else {
-            if self.target.len() - self.head == 63 {
+            if self.target.as_mut().len() - self.head == 63 {
                 Err(NameError::LongLabel)
             }
-            else if self.target.len() - self.start == 254 {
+            else if self.target.as_mut().len() - self.start == 254 {
                 Err(NameError::LongName)
             }
             else {
-                self.target.push(b);
+                self.target.as_mut().push(b);
                 Ok(())
             }
         }
@@ -1484,27 +1462,27 @@ impl<'a, 'b> PushDName<'a, 'b> {
 
     pub fn end_label(&mut self) {
         if !self.absolute {
-            if self.target.len() == self.head + 1 {
+            if self.target.as_mut().len() == self.head + 1 {
                 // Empty label is root label. We are done here.
                 self.absolute = true
             }
             else {
-                self.target[self.head]
-                        = (self.target.len() - self.head - 1) as u8;
-                self.head = self.target.len();
-                self.target.push(0);
+                self.target.as_mut()[self.head]
+                        = (self.target.as_mut().len() - self.head - 1) as u8;
+                self.head = self.target.as_mut().len();
+                self.target.as_mut().push(0);
             }
         }
     }
 
-    pub fn done(&mut self) -> Result<(), NameError> {
+    pub fn done(mut self) -> Result<V, NameError> {
         if !self.absolute {
-            if self.target.len() > self.head + 1 {
-                self.target[self.head]
-                        = (self.target.len() - self.head - 1) as u8;
+            if self.target.as_mut().len() > self.head + 1 {
+                self.target.as_mut()[self.head]
+                        = (self.target.as_mut().len() - self.head - 1) as u8;
                 if let Some(origin) = self.origin {
-                    self.target.extend(origin.as_bytes());
-                    if self.target.len() - self.start > 255 {
+                    self.target.as_mut().extend(origin.as_bytes());
+                    if self.target.as_mut().len() - self.start > 255 {
                         return Err(NameError::LongName)
                     }
                 }
@@ -1513,7 +1491,7 @@ impl<'a, 'b> PushDName<'a, 'b> {
                 }
             }
         }
-        Ok(())
+        Ok(self.target)
     }
 }
 

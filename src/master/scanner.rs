@@ -3,7 +3,7 @@ use std::str;
 use ::bits::CharStr;
 use ::bits::{DNameBuf, DNameSlice};
 use ::bits::bytes::BytesBuf;
-use ::bits::name::{DNameBuilder, PushDName};
+use ::bits::name::{DNameBuilder, DNameBuildInto};
 use super::error::{Pos, ScanResult, SyntaxError, SyntaxResult};
 
 
@@ -69,13 +69,15 @@ pub trait Scanner {
     /// content character or, if there are no more characters, itself returns
     /// `Ok(())`. If the closure returns an error, the method returns to the
     /// start of the token and returns the error with that position.
-    fn scan_word_bytes<F>(&mut self, f: F) -> ScanResult<()>
-                       where F: FnMut(u8, bool) -> SyntaxResult<()>;
+    fn scan_word_bytes<F>(&mut self, mut f: F) -> ScanResult<()>
+                       where F: FnMut(u8, bool) -> SyntaxResult<()> {
+        self.scan_word_into((), |_, b, escape| f(b, escape), |_| Ok(()))
+    }
 
-    fn scan_word_into<T, F, G>(&mut self, target: &mut T, f: F, g: G)
-                               -> ScanResult<()>
+    fn scan_word_into<T, U, F, G>(&mut self, target: T, f: F, g: G)
+                               -> ScanResult<U>
                       where F: FnMut(&mut T, u8, bool) -> SyntaxResult<()>,
-                            G: FnOnce(&mut T) -> SyntaxResult<()>;
+                            G: FnOnce(T) -> SyntaxResult<U>;
 
     /// Scans a quoted word.
     ///
@@ -243,29 +245,28 @@ pub trait Scanner {
     /// If there is no origin given, a syntax error is returned.
     fn scan_dname(&mut self, origin: Option<&DNameSlice>)
                   -> ScanResult<DNameBuf> {
-        let mut res = DNameBuilder::new();
-        try!(self.scan_word_bytes(|b, escaped| {
+        let target = DNameBuilder::new(origin);
+        self.scan_word_into(target, |target, b, escaped| {
             if b == b'.' && !escaped {
-                res.end_label()
+                target.end_label()
             }
             else {
-                try!(res.push(b))
+                try!(target.push(b))
             }
             Ok(())
-        }));
-        Ok(res.finish())
+        }, |target| { Ok(try!(target.done())) })
     }
 
     /// Scans a domain name into a bytes vec.
     ///
     /// The name is scanned and its wire format representation is appened
     /// to the end of `target`. If the scanned name is relative, it is made
-    /// absolute by appending `origin`.  If there is no origin given, a
+    /// absolute by appending `origin`. If there is no origin given, a
     /// syntax error is returned.
     fn scan_dname_into(&mut self, origin: Option<&DNameSlice>,
                        target: &mut Vec<u8>) -> ScanResult<()> {
-        let mut target = PushDName::new(target, origin);
-        try!(self.scan_word_into(&mut target, |target, b, escaped| {
+        let target = DNameBuildInto::new(target, origin);
+        try!(self.scan_word_into(target, |target, b, escaped| {
             if b == b'.' && !escaped {
                 target.end_label()
             }

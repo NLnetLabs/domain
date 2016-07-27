@@ -3,7 +3,6 @@
 use std::fs::File;
 use std::io;
 use std::path::Path;
-use std::str;
 use super::error::{ScanError, ScanResult, SyntaxError, SyntaxResult, Pos};
 use super::scanner::Scanner;
 
@@ -280,47 +279,11 @@ impl<R: io::Read> BufScanner<R> {
         }
         Ok(res)
     }
-
-    fn skip_entry(&mut self) -> ScanResult<()> {
-        let mut quote = false;
-        loop {
-            match try!(self.read_byte()) {
-                None => break,
-                Some(ch) if is_newline(ch) => {
-                    if !quote && !self.paren {
-                        break
-                    }
-                }
-                Some(b'"') => quote = !quote,
-                Some(b'\\') => { try!(self.read_byte()); },
-                Some(b'(') => {
-                    if !quote {
-                        if self.paren {
-                            return self.err(SyntaxError::NestedParentheses)
-                        }
-                        self.paren = true
-                    }
-                }
-                Some(b')') => {
-                    if !quote {
-                        if !self.paren {
-                            return self.err(SyntaxError::Unexpected(b')'))
-                        }
-                        self.paren = false
-                    }
-                }
-                _ => { }
-            }
-        }
-        self.ok(())
-    }
 }
 
 //--- Scanner
-/*
+
 impl<R: io::Read> Scanner for BufScanner<R> {
-*/
-impl<R: io::Read> BufScanner<R> {
     fn is_eof(&mut self) -> bool {
         match self.peek_byte() {
             Ok(Some(_)) => false,
@@ -350,34 +313,10 @@ impl<R: io::Read> BufScanner<R> {
         }
     }
 
-    fn scan_word_bytes<F>(&mut self, mut f: F) -> ScanResult<()>
-                           where F: FnMut(u8, bool) -> SyntaxResult<()> {
-        match try!(self.peek_byte()) {
-            Some(ch) if is_word_char(ch) => { }
-            Some(ch) => return self.err(SyntaxError::Unexpected(ch)),
-            None => return self.err(SyntaxError::UnexpectedEof)
-        };
-        while let Some(ch) = try!(self.cond_read_byte(is_word_char)) {
-            if ch == b'\\' {
-                // Escapes should be rare enough that copying the position
-                // for possible error reporting should be fine.
-                let pos = self.cur_pos;
-                if let Err(err) = f(try!(self.scan_escape()), true) {
-                    return self.err_at(err, pos)
-                }
-            }
-            else if let Err(err) = f(ch, false) {
-                let pos = self.cur_pos.prev();
-                return self.err_at(err, pos)
-            }
-        }
-        self.skip_delimiter()
-    }
-
-    fn scan_word_into<T, F, G>(&mut self, target: &mut T, mut f: F, g: G)
-                               -> ScanResult<()>
+    fn scan_word_into<T, U, F, G>(&mut self, mut target: T, mut f: F, g: G)
+                               -> ScanResult<U>
                       where F: FnMut(&mut T, u8, bool) -> SyntaxResult<()>,
-                            G: FnOnce(&mut T) -> SyntaxResult<()> {
+                            G: FnOnce(T) -> SyntaxResult<U> {
         match try!(self.peek_byte()) {
             Some(ch) if is_word_char(ch) => { }
             Some(ch) => return self.err(SyntaxError::Unexpected(ch)),
@@ -388,21 +327,21 @@ impl<R: io::Read> BufScanner<R> {
                 // Escapes should be rare enough that copying the position
                 // for possible error reporting should be fine.
                 let pos = self.cur_pos;
-                if let Err(err) = f(target, try!(self.scan_escape()), true) {
+                if let Err(err) = f(&mut target, try!(self.scan_escape()), true) {
                     return self.err_at(err, pos)
                 }
             }
-            else if let Err(err) = f(target, ch, false) {
+            else if let Err(err) = f(&mut target, ch, false) {
                 let pos = self.cur_pos.prev();
                 return self.err_at(err, pos)
             }
         }
-        if let Err(err) = g(target) {
-            self.err(err)
-        }
-        else {
-            self.skip_delimiter()
-        }
+        let res = match g(target) {
+            Ok(res) => res,
+            Err(err) => return self.err(err)
+        };
+        try!(self.skip_delimiter());
+        Ok(res)
     }
 
     fn scan_quoted<T, F>(&mut self, f: F) -> ScanResult<T>
@@ -495,6 +434,40 @@ impl<R: io::Read> BufScanner<R> {
             true => self.ok(()),
             false => self.err(SyntaxError::ExpectedSpace)
         }
+    }
+
+    fn skip_entry(&mut self) -> ScanResult<()> {
+        let mut quote = false;
+        loop {
+            match try!(self.read_byte()) {
+                None => break,
+                Some(ch) if is_newline(ch) => {
+                    if !quote && !self.paren {
+                        break
+                    }
+                }
+                Some(b'"') => quote = !quote,
+                Some(b'\\') => { try!(self.read_byte()); },
+                Some(b'(') => {
+                    if !quote {
+                        if self.paren {
+                            return self.err(SyntaxError::NestedParentheses)
+                        }
+                        self.paren = true
+                    }
+                }
+                Some(b')') => {
+                    if !quote {
+                        if !self.paren {
+                            return self.err(SyntaxError::Unexpected(b')'))
+                        }
+                        self.paren = false
+                    }
+                }
+                _ => { }
+            }
+        }
+        self.ok(())
     }
 }
 
