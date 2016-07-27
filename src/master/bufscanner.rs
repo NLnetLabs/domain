@@ -327,7 +327,8 @@ impl<R: io::Read> Scanner for BufScanner<R> {
                 // Escapes should be rare enough that copying the position
                 // for possible error reporting should be fine.
                 let pos = self.cur_pos;
-                if let Err(err) = f(&mut target, try!(self.scan_escape()), true) {
+                if let Err(err) = f(&mut target, try!(self.scan_escape()),
+                                    true) {
                     return self.err_at(err, pos)
                 }
             }
@@ -434,6 +435,11 @@ impl<R: io::Read> Scanner for BufScanner<R> {
             true => self.ok(()),
             false => self.err(SyntaxError::ExpectedSpace)
         }
+    }
+
+    fn scan_opt_space(&mut self) -> ScanResult<()> {
+        try!(self.skip_space());
+        Ok(())
     }
 
     fn skip_entry(&mut self) -> ScanResult<()> {

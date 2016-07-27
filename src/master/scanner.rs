@@ -170,6 +170,9 @@ pub trait Scanner {
     /// accordingly.
     fn scan_space(&mut self) -> ScanResult<()>;
 
+    /// Scans a possibly empty sequence of space.
+    fn scan_opt_space(&mut self) -> ScanResult<()>;
+
     /// Skips over an entry.
     ///
     /// Keeps reading until it successfully scans a newline. The method

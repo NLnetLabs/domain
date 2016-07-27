@@ -38,7 +38,7 @@ impl Entry {
             Ok(Some(Entry::Record(record)))
         }
         else {
-            try!(stream.scan_space());
+            try!(stream.scan_opt_space());
             try!(stream.scan_newline());
             Ok(Some(Entry::Blank))
         }

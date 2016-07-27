@@ -1443,7 +1443,7 @@ impl<'a, V: AsMut<Vec<u8>>> DNameBuildInto<'a, V> {
     }
 
     pub fn push(&mut self, b: u8) -> Result<(), NameError> {
-        if !self.absolute {
+        if self.absolute {
             Err(NameError::EmptyLabel)
         }
         else {

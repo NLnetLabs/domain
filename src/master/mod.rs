@@ -6,7 +6,7 @@ pub use self::scanner::Scanner;
 pub mod bufscanner;
 pub mod entry;
 pub mod error;
-//pub mod reader;
+pub mod reader;
 pub mod record;
 pub mod scanner;
 

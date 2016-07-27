@@ -6,6 +6,7 @@ use std::path::Path;
 use std::rc::Rc;
 use ::bits::name::DNameBuf;
 use ::iana::Class;
+use ::master::bufscanner::BufScanner;
 use ::master::entry::Entry;
 use ::master::error::ScanResult;
 use ::master::record::MasterRecord;
@@ -19,11 +20,10 @@ pub struct Reader<S: Scanner> {
     last: Option<(Rc<DNameBuf>, Class)>,
 }
 
-/*
-impl<R: io::Read> Reader<R> {
-    pub fn new(reader: R) -> Self {
+impl<S: Scanner> Reader<S> {
+    pub fn new(scanner: S) -> Self {
         Reader {
-            stream: Some(Stream::new(reader)),
+            scanner: Some(scanner),
             origin: None,
             ttl: None,
             last: None
@@ -31,18 +31,17 @@ impl<R: io::Read> Reader<R> {
     }
 }
 
-impl Reader<File> {
+impl Reader<BufScanner<File>> {
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        Ok(Reader::new(try!(File::open(path))))
+        Ok(Reader::new(try!(BufScanner::open(path))))
     }
 }
 
-impl<T: AsRef<[u8]>> Reader<io::Cursor<T>> {
+impl<T: AsRef<[u8]>> Reader<BufScanner<io::Cursor<T>>> {
     pub fn create(t: T) -> Self {
-        Reader::new(io::Cursor::new(t))
+        Reader::new(BufScanner::create(t))
     }
 }
-*/
 
 impl<S: Scanner> Reader<S> {
     fn last_owner(&self) -> Option<Rc<DNameBuf>> {
@@ -136,7 +135,7 @@ impl fmt::Display for ReaderItem {
 #[cfg(test)]
 mod test {
     use super::*;
-    use ::master::error::Error;
+    use ::master::error::ScanError;
 
     #[test]
     fn print() {
@@ -169,7 +168,7 @@ $INCLUDE <SUBSYS>ISI-MAILBOXES.TXT"[..]);
         for item in reader {
             match item {
                 Ok(item) => println!("{}", item),
-                Err(Error::Syntax(err, pos)) => {
+                Err(ScanError::Syntax(err, pos)) => {
                     println!("{}:{}:  {:?}", pos.line(), pos.col(), err);
                 }
                 Err(err) => println!("{:?}", err)
