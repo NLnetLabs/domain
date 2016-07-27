@@ -1,10 +1,9 @@
 
 use std::ascii::AsciiExt;
-use std::io;
 use std::rc::Rc;
 use ::bits::DNameBuf;
 use ::iana::Class;
-use ::master::{Pos, Result, Stream};
+use ::master::{Pos, ScanResult, Scanner, SyntaxError};
 use ::master::record::{MasterRecord, map_origin};
 
 
@@ -21,13 +20,13 @@ pub enum Entry {
 }
 
 impl Entry {
-    pub fn scan<R: io::Read>(stream: &mut Stream<R>,
+    pub fn scan<S: Scanner>(stream: &mut S,
                              last_owner: Option<Rc<DNameBuf>>,
                              last_class: Option<Class>,
                              origin: &Option<Rc<DNameBuf>>,
                              default_ttl: Option<u32>)
-                             -> Result<Option<Self>> {
-        if let Ok(true) = stream.is_eof() {
+                             -> ScanResult<Option<Self>> {
+        if stream.is_eof() {
             Ok(None)
         }
         else if let Ok(entry) = Entry::scan_control(stream, origin) {
@@ -39,25 +38,24 @@ impl Entry {
             Ok(Some(Entry::Record(record)))
         }
         else {
-            try!(stream.skip_space());
+            try!(stream.scan_space());
             try!(stream.scan_newline());
             Ok(Some(Entry::Blank))
         }
     }
 
-    fn scan_control<R: io::Read>(stream: &mut Stream<R>,
-                                 origin: &Option<Rc<DNameBuf>>)
-                                 -> Result<Self> {
+    fn scan_control<S: Scanner>(stream: &mut S, origin: &Option<Rc<DNameBuf>>)
+                                -> ScanResult<Self> {
         match try!(ControlType::scan(stream)) {
             ControlType::Origin => {
                 let origin = map_origin(origin);
-                let name = try!(DNameBuf::scan(stream, origin));
+                let name = try!(stream.scan_dname(origin));
                 try!(stream.scan_newline());
                 Ok(Entry::Origin(Rc::new(name)))
             }
             ControlType::Include => {
                 let path = try!(stream.scan_phrase_copy());
-                let origin = DNameBuf::scan(stream, map_origin(origin))
+                let origin = stream.scan_dname(map_origin(origin))
                                       .map(|n| Rc::new(n)).ok();
                 try!(stream.scan_newline());
                 Ok(Entry::Include { path: path, origin: origin })
@@ -87,21 +85,23 @@ enum ControlType {
 }
 
 impl ControlType {
-    pub fn scan<R: io::Read>(stream: &mut Stream<R>) -> Result<Self> {
+    pub fn scan<S: Scanner>(stream: &mut S) -> ScanResult<Self> {
         let pos = stream.pos();
-        try!(stream.skip_char(b'$'));
         stream.scan_word(|word| {
-            if word.eq_ignore_ascii_case(b"ORIGIN") {
+            if word.eq_ignore_ascii_case(b"$ORIGIN") {
                 Ok(ControlType::Origin)
             }
-            else if word.eq_ignore_ascii_case(b"INCLUDE") {
+            else if word.eq_ignore_ascii_case(b"$INCLUDE") {
                 Ok(ControlType::Include)
             }
-            else if word.eq_ignore_ascii_case(b"TTL") {
+            else if word.eq_ignore_ascii_case(b"$TTL") {
                 Ok(ControlType::Ttl)
             }
-            else {
+            else if let Some(&b'$') = word.get(0) {
                 Ok(ControlType::Other(word.to_owned(), pos))
+            }
+            else {
+                Err(SyntaxError::Expected(vec![b'$']))
             }
         })
     }

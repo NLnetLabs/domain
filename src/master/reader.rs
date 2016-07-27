@@ -7,18 +7,19 @@ use std::rc::Rc;
 use ::bits::name::DNameBuf;
 use ::iana::Class;
 use ::master::entry::Entry;
-use ::master::error::Result;
+use ::master::error::ScanResult;
 use ::master::record::MasterRecord;
-use ::master::stream::Stream;
+use ::master::scanner::Scanner;
 
 
-pub struct Reader<R: io::Read> {
-    stream: Option<Stream<R>>,
+pub struct Reader<S: Scanner> {
+    scanner: Option<S>,
     origin: Option<Rc<DNameBuf>>,
     ttl: Option<u32>,
     last: Option<(Rc<DNameBuf>, Class)>,
 }
 
+/*
 impl<R: io::Read> Reader<R> {
     pub fn new(reader: R) -> Self {
         Reader {
@@ -41,8 +42,9 @@ impl<T: AsRef<[u8]>> Reader<io::Cursor<T>> {
         Reader::new(io::Cursor::new(t))
     }
 }
+*/
 
-impl<R: io::Read> Reader<R> {
+impl<S: Scanner> Reader<S> {
     fn last_owner(&self) -> Option<Rc<DNameBuf>> {
         match &self.last {
             &Some((ref name, _)) => Some(name.clone()),
@@ -57,20 +59,19 @@ impl<R: io::Read> Reader<R> {
         }
     }
 
-    fn next_entry(&mut self) -> Result<Option<Entry>> {
+    fn next_entry(&mut self) -> ScanResult<Option<Entry>> {
         let last_owner = self.last_owner();
         let last_class = self.last_class();
-        if let Some(ref mut stream) = self.stream {
-            let res = Entry::scan(stream, last_owner, last_class, &self.origin,
-                        self.ttl);
-            res
+        if let Some(ref mut scanner) = self.scanner {
+            Entry::scan(scanner, last_owner, last_class, &self.origin,
+                        self.ttl)
         }
         else {
             Ok(None)
         }
     }
 
-    pub fn next_record(&mut self) -> Result<Option<ReaderItem>> {
+    pub fn next_record(&mut self) -> ScanResult<Option<ReaderItem>> {
         loop {
             match self.next_entry() {
                 Ok(Some(Entry::Origin(origin))) => self.origin = Some(origin),
@@ -87,7 +88,7 @@ impl<R: io::Read> Reader<R> {
                 Ok(Some(Entry::Blank)) => { }
                 Ok(None) => return Ok(None),
                 Err(err) => {
-                    self.stream = None;
+                    self.scanner = None;
                     return Err(err)
                 }
             }
@@ -95,10 +96,10 @@ impl<R: io::Read> Reader<R> {
      }
 }
 
-impl<R: io::Read> Iterator for Reader<R> {
-    type Item = Result<ReaderItem>;
+impl<S: Scanner> Iterator for Reader<S> {
+    type Item = ScanResult<ReaderItem>;
 
-    fn next(&mut self) -> Option<Result<ReaderItem>> {
+    fn next(&mut self) -> Option<ScanResult<ReaderItem>> {
         match self.next_record() {
             Ok(Some(res)) => Some(Ok(res)),
             Ok(None) => None,

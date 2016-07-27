@@ -1,13 +1,12 @@
 
 use std::fmt;
-use std::io;
 use std::rc::Rc;
 use ::bits::{DNameBuf, DNameSlice};
 use ::bits::nest::NestSlice;
 use ::bits::rdata::GenericRecordData;
 use ::iana::{Class, RRType};
 use ::rdata;
-use super::{Result, Stream, SyntaxError};
+use super::{ScanError, ScanResult, Scanner, SyntaxError};
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,11 +27,11 @@ impl MasterRecord {
 }
 
 impl MasterRecord {
-    pub fn scan<R: io::Read>(stream: &mut Stream<R>,
+    pub fn scan<S: Scanner>(stream: &mut S,
                              last_owner: Option<Rc<DNameBuf>>,
                              last_class: Option<Class>,
                              origin: &Option<Rc<DNameBuf>>,
-                             default_ttl: Option<u32>) -> Result<Self> {
+                             default_ttl: Option<u32>) -> ScanResult<Self> {
         let owner = try!(MasterRecord::scan_owner(stream, last_owner,
                                                   &origin));
         let (ttl, class) = try!(MasterRecord::scan_ttl_class(stream,
@@ -47,27 +46,28 @@ impl MasterRecord {
     /// Scans the owner.
     ///
     /// Returns new owner and origin.
-    fn scan_owner<R: io::Read>(stream: &mut Stream<R>,
+    fn scan_owner<S: Scanner>(stream: &mut S,
                                last_owner: Option<Rc<DNameBuf>>,
                                origin: &Option<Rc<DNameBuf>>)
-                               -> Result<Rc<DNameBuf>> {
-        if try!(stream.skip_opt_space()) {
+                               -> ScanResult<Rc<DNameBuf>> {
+        let pos = stream.pos();
+        if let Ok(()) = stream.scan_space() {
             if let Some(owner) = last_owner { Ok(owner) }
-            else { stream.err(SyntaxError::NoLastOwner) }
+            else { Err(ScanError::Syntax(SyntaxError::NoLastOwner, pos)) }
         }
         else if let Ok(()) = stream.skip_literal(b"@") {
             if let &Some(ref origin) = origin { Ok(origin.clone()) }
-            else { stream.err(SyntaxError::NoOrigin) }
+            else { Err(ScanError::Syntax(SyntaxError::NoOrigin, pos)) }
         }
         else {
-            Ok(Rc::new(try!(DNameBuf::scan(stream, map_origin(origin)))))
+            Ok(Rc::new(try!(stream.scan_dname(map_origin(origin)))))
         }
     }
 
-    fn scan_ttl_class<R: io::Read>(stream: &mut Stream<R>,
-                                   default_ttl: Option<u32>,
+    fn scan_ttl_class<S: Scanner>(stream: &mut S, default_ttl: Option<u32>,
                                    last_class: Option<Class>)
-                                   -> Result<(u32, Class)> {
+                                   -> ScanResult<(u32, Class)> {
+        let pos = stream.pos();
         let (ttl, class) = match stream.scan_u32() {
             Ok(ttl) => {
                 match Class::scan(stream) {
@@ -93,11 +93,15 @@ impl MasterRecord {
         };
         let ttl = match ttl.or(default_ttl) {
             Some(ttl) => ttl,
-            None => return stream.err(SyntaxError::NoDefaultTtl)
+            None => {
+                return Err(ScanError::Syntax(SyntaxError::NoDefaultTtl, pos))
+            }
         };
         let class = match class.or(last_class) {
             Some(class) => class,
-            None => return stream.err(SyntaxError::NoLastClass)
+            None => {
+                return Err(ScanError::Syntax(SyntaxError::NoLastClass, pos))
+            }
         };
         Ok((ttl, class))
     }

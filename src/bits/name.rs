@@ -19,10 +19,10 @@
 //! This is why there is four types in this module. Two types represent
 //! uncompressed domain names encoded in their wire format atop a bytes
 //! sequence. The `DNameSlice` type uses a bytes slice and is an unsized
-//! type similar essentially equivalent to `[u8]`. `DNameBuf` is an owned
-//! uncompressed domain name, similar to a `Vec<u8>`. Like that type it
-//! derefs into a `DNameSlice`. These two types can contain either absolute
-//! or relative domain names.
+//! type equivalent to `[u8]`. `DNameBuf` is an owned
+//! uncompressed domain name, similar to a `Vec<u8>`. Similarly to a vec,
+//! it derefs into a `DNameSlice`. These two types can contain either
+//! absolute or relative domain names.
 //!
 //! With a domain name slice you can do things like iterating over labels
 //! or splitting off parts of the name to form other names. The owned domain
@@ -46,15 +46,16 @@
 //!
 //! # TODO
 //!
-//! - Implement an optimization where the first byte of an owned domain
-//!   name encodes whether the name is absolute or relative. This will
-//!   speed up `DNameBuf::push()` and `DNameBuf::append()` significantly.
+//! - Implement an optimization where there is an optional first byte with
+//!   the unallocated label type 0b10 that indicates whether the name is
+//!   absolute or relative (ie., 0x80 means absolute and 0x81 relative and
+//!   everything else means this really is the first byte of the domain
+//!   name).
 use std::ascii::AsciiExt;
 use std::borrow::{Borrow, Cow};
 use std::cmp;
 use std::fmt;
 use std::hash;
-use std::io;
 use std::mem;
 use std::ops::Deref;
 use std::str;
@@ -63,7 +64,6 @@ use ::bits::error::{ComposeResult, FromStrError, FromStrResult, ParseError,
                     ParseResult};
 use ::bits::parse::ParseBytes;
 use ::bits::bytes::{BytesSlice, BytesBuf};
-use ::master;
 
 
 //------------ AsDName ------------------------------------------------------
@@ -552,29 +552,6 @@ impl DNameSlice {
 }
 
 
-/// # Scanning from Master Format
-///
-impl DNameSlice {
-    pub fn scan<'a, R: io::Read>(stream: &mut master::Stream<R>,
-                             origin: Option<&'a DNameSlice>)
-                             -> master::Result<Cow<'a, DNameSlice>> {
-        if let Ok(()) = stream.skip_literal(b"@") {
-            if let Some(origin) = origin {
-                stream.ok(Cow::Borrowed(origin))
-            }
-            else {
-                stream.err(master::SyntaxError::NoOrigin)
-            }
-        }
-        else {
-            let mut res = DNameBuf::new();
-            try!(DNameBuf::scan_into(stream, origin, &mut res.inner));
-            Ok(Cow::Owned(res))
-        }
-    }
-}
-
-
 //--- AsRef
 
 impl AsRef<DNameSlice> for DNameSlice {
@@ -736,6 +713,11 @@ impl DNameBuf {
         Ok(DNameBuf { inner: vec })
     }
 
+    /// Creates an owned domain name from a bytes vec without checking.
+    unsafe fn from_vec_unsafe(vec: Vec<u8>) -> Self {
+        DNameBuf { inner: vec }
+    }
+
     /// Creates an owned domain name by boldly cloing a bytes slice.
     ///
     /// This is only safe if the slice followes the domain name encoding
@@ -765,88 +747,6 @@ impl DNameBuf {
                                    -> ParseResult<Self>
                             where P: ParseBytes<'a> {
         Ok(try!(try!(PackedDName::parse(parser, context)).to_owned()))
-    }
-
-    /// Scans from `stream` into `target`.
-    ///
-    /// Does not progress the stream on success so you can still error out
-    /// at the beginning of the name. Returns whether the resulting
-    /// domain name is absolute.
-    pub fn _scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                                   target: &mut Vec<u8>)
-                                   -> master::Result<bool> {
-        let name_start = target.len();
-        let mut label_start = name_start;
-        target.push_u8(0);
-        try!(stream.scan_word_chars(|ch, escape| {
-            match (ch, escape) {
-                (b'.', false) => {
-                    let label_len = target.len() - label_start - 1;
-                    if label_len > 63 {
-                        return Err(master::SyntaxError::LongLabel)
-                    }
-                    target[label_start] = label_len as u8;
-                    label_start = target.len();
-                    target.push_u8(0);
-                }
-                (ch, _) => {
-                    target.push_u8(ch)
-                }
-            }
-            Ok(())
-        }));
-        let label_len = target.len() - label_start - 1;
-        if label_len > 63 {
-            return stream.err(master::SyntaxError::LongLabel)
-        }
-        target[label_start] = label_len as u8;
-        if target.len() - name_start > 255 {
-            stream.err(master::SyntaxError::LongName)
-        }
-        else {
-            Ok(label_start == target.len() -1)
-        }
-    }
-
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                                  origin: Option<&DNameSlice>,
-                                  target: &mut Vec<u8>)
-                                  -> master::Result<()> {
-        if let Ok(()) = stream.skip_literal(b"@") {
-            if let Some(origin) = origin {
-                target.push_bytes(&origin.as_bytes());
-            }
-            else {
-                return stream.err(master::SyntaxError::NoOrigin)
-            }
-        }
-        else if let false = try!(DNameBuf::_scan_into(stream, target)) {
-            if let Some(origin) = origin {
-                target.push_bytes(&origin.as_bytes());
-            }
-            else {
-                return stream.err(master::SyntaxError::RelativeName)
-            }
-        }
-        stream.ok(())
-    }
-
-    pub fn scan<R: io::Read>(stream: &mut master::Stream<R>,
-                             origin: Option<&DNameSlice>)
-                             -> master::Result<DNameBuf> {
-        if let Ok(()) = stream.skip_literal(b"@") {
-            if let Some(origin) = origin {
-                stream.ok(origin.to_owned())
-            }
-            else {
-                stream.err(master::SyntaxError::NoOrigin)
-            }
-        }
-        else {
-            let mut res = DNameBuf::new();
-            try!(DNameBuf::scan_into(stream, origin, &mut res.inner));
-            Ok(res)
-        }
     }
 
     /// Returns a reference to a domain name slice of this domain name.
@@ -916,7 +816,7 @@ impl str::FromStr for DNameBuf {
     /// Creates a new domain name from a string.
     ///
     /// The string must followed zone file conventions. It must only contain
-    /// of printable ASCII characters and no whitespace. Invidual labels are
+    /// printable ASCII characters and no whitespace. Invidual labels are
     /// separated by a dot. A backslash escapes the next character unless
     /// that is a `0`, `1`, or `2`, in which case the next three characters
     /// are the byte value in decimal representation.
@@ -1468,6 +1368,152 @@ impl<'a> Iterator for DNameIter<'a> {
             DNameIter::Slice(ref mut iter) => iter.next().map(|x| Ok(x)),
             DNameIter::Packed(ref mut iter) => iter.next()
         }
+    }
+}
+
+
+//------------ DNameBuilder --------------------------------------------------
+
+/// Builds a DNameBuf step by step from bytes.
+///
+/// This type allows it to build a `DNameBuf` slowly by feeding bytes. It is
+/// used internally by `DNameBuf'’s `FromStr` implementation and the master
+/// format scanner.
+#[derive(Clone, Debug)]
+pub struct DNameBuilder {
+    /// The vector into which we assemble the name.
+    buf: Vec<u8>,
+
+    /// The position of the last label head.
+    head: usize,
+}
+
+impl DNameBuilder {
+    pub fn new() -> Self {
+        DNameBuilder { buf: vec![0], head: 0 }
+    }
+
+    pub fn push(&mut self, b: u8) -> Result<(), NameError> {
+        if self.buf.len() - self.head == 63 {
+            Err(NameError::LongLabel)
+        }
+        else if self.buf.len() == 254 {
+            Err(NameError::LongName)
+        }
+        else {
+            self.buf.push(b);
+            Ok(())
+        }
+    }
+
+    pub fn end_label(&mut self) {
+        self.buf[self.head] = (self.buf.len() - self.head - 1) as u8;
+        self.head = self.buf.len();
+        self.buf.push(0);
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        self.buf
+    }
+
+    pub fn finish(mut self) -> DNameBuf {
+        self.buf[self.head] = (self.buf.len() - self.head - 1) as u8;
+        unsafe { DNameBuf::from_vec_unsafe(self.buf) }
+    }
+}
+
+
+//--- NameError
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NameError {
+    LongLabel,
+    LongName,
+    RelativeName,
+    EmptyLabel,
+}
+
+
+//------------ PushDName -----------------------------------------------------
+
+/// A type for iteratively pushing a domain name into a bytes vec.
+#[derive(Debug)]
+pub struct PushDName<'a, 'b> {
+    target: &'a mut Vec<u8>,
+
+    /// The position in `buf` where we start.
+    start: usize,
+
+    /// The position of the last label head.
+    head: usize,
+
+    /// The origin to append to the name if it is relative.
+    origin: Option<&'b DNameSlice>,
+
+    /// The name is absolute and we are done.
+    absolute: bool,
+}
+
+impl<'a, 'b> PushDName<'a, 'b> {
+    pub fn new(target: &'a mut Vec<u8>, origin: Option<&'b DNameSlice>)
+               -> Self {
+        let len = target.len();
+        let mut res = PushDName { target: target, start: len, head: len,
+                                  origin: origin, absolute: false };
+        res.target.push(0);
+        res
+    }
+
+    pub fn push(&mut self, b: u8) -> Result<(), NameError> {
+        if !self.absolute {
+            Err(NameError::EmptyLabel)
+        }
+        else {
+            if self.target.len() - self.head == 63 {
+                Err(NameError::LongLabel)
+            }
+            else if self.target.len() - self.start == 254 {
+                Err(NameError::LongName)
+            }
+            else {
+                self.target.push(b);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn end_label(&mut self) {
+        if !self.absolute {
+            if self.target.len() == self.head + 1 {
+                // Empty label is root label. We are done here.
+                self.absolute = true
+            }
+            else {
+                self.target[self.head]
+                        = (self.target.len() - self.head - 1) as u8;
+                self.head = self.target.len();
+                self.target.push(0);
+            }
+        }
+    }
+
+    pub fn done(&mut self) -> Result<(), NameError> {
+        if !self.absolute {
+            if self.target.len() > self.head + 1 {
+                self.target[self.head]
+                        = (self.target.len() - self.head - 1) as u8;
+                if let Some(origin) = self.origin {
+                    self.target.extend(origin.as_bytes());
+                    if self.target.len() - self.start > 255 {
+                        return Err(NameError::LongName)
+                    }
+                }
+                else {
+                    return Err(NameError::RelativeName)
+                }
+            }
+        }
+        Ok(())
     }
 }
 

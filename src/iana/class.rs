@@ -1,7 +1,6 @@
 //! DNS CLASSes.
 
-use std::io;
-use ::master;
+use ::master::{ScanResult, Scanner, SyntaxError};
 
 
 /// DNS CLASSes.
@@ -51,11 +50,11 @@ int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16,
                             ::bits::error::FromStrError::UnknownClass);
 
 impl Class {
-    pub fn scan<R: io::Read>(stream: &mut master::Stream<R>)
-                             -> master::Result<Self> {
-        stream.scan_word(|slice| {
+    pub fn scan<S: Scanner>(scanner: &mut S) -> ScanResult<Self> {
+        scanner.scan_word(|slice| {
             Class::from_bytes(slice)
-                  .ok_or(master::SyntaxError::UnknownClass(slice.into()))
+                  .ok_or(SyntaxError::UnknownClass(slice.into()))
         })
     }
 }
+

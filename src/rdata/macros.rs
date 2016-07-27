@@ -6,15 +6,14 @@ macro_rules! master_types {
             pub use self::$module::{ $( $rtype ),* };
         )*
 
-        pub fn scan<'a, R>(rtype: ::iana::RRType,
-                           stream: &mut ::master::Stream<R>,
-                           origin: Option<&'a ::bits::name::DNameSlice>)
-                           -> ::master::Result<Vec<u8>>
-                    where R: ::std::io::Read {
-            use ::bits::rdata::GenericRecordData;
+        pub fn scan<S>(rtype: ::iana::RRType, scanner: &mut S,
+                       origin: Option<&::bits::name::DNameSlice>)
+                           -> ::master::ScanResult<Vec<u8>>
+                    where S: ::master::Scanner {
+            use ::rdata::generic;
 
             // First try the generic format for everything.
-            let err = match GenericRecordData::scan(stream) {
+            let err = match generic::scan(scanner) {
                 Ok(some) => return Ok(some),
                 Err(err) => err 
             };
@@ -24,7 +23,7 @@ macro_rules! master_types {
                     $(
                         ::iana::RRType::$rtype => {
                             let mut res = Vec::new();
-                            try!($rtype::scan_into(stream, origin, &mut res));
+                            try!($rtype::scan_into(scanner, origin, &mut res));
                             Ok(res)
                         }
                     )*

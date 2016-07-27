@@ -4,12 +4,12 @@ use std::net::AddrParseError;
 use std::num::ParseIntError;
 use std::result;
 use std::str::Utf8Error;
-use ::master::Pos;
+use ::bits::name::NameError;
 
 
 //------------ SyntaxError ---------------------------------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SyntaxError {
     Expected(Vec<u8>),
     ExpectedNewline,
@@ -17,6 +17,7 @@ pub enum SyntaxError {
     IllegalEscape,
     IllegalInteger,
     IllegalAddr(AddrParseError),
+    IllegalName(NameError),
     IllegalString(Utf8Error),
     LongCharStr,
     LongLabel,
@@ -47,35 +48,87 @@ impl From<AddrParseError> for SyntaxError {
     }
 }
 
+impl From<NameError> for SyntaxError {
+    fn from(err: NameError) -> SyntaxError {
+        SyntaxError::IllegalName(err)
+    }
+}
+
 impl From<Utf8Error> for SyntaxError {
     fn from(err: Utf8Error) -> SyntaxError {
         SyntaxError::IllegalString(err)
     }
 }
 
-//------------ Error ---------------------------------------------------------
+//------------ ScanError -----------------------------------------------------
 
 #[derive(Debug)]
-pub enum Error {
+pub enum ScanError {
     Io(io::Error),
     Syntax(SyntaxError, Pos)
 }
 
-impl Error {
+impl ScanError {
     pub fn is_eof(&self) -> bool {
-        if let Error::Syntax(SyntaxError::UnexpectedEof, _) = *self { true }
+        if let ScanError::Syntax(SyntaxError::UnexpectedEof, _) = *self {
+            true
+        }
         else { false }
     }
 }
 
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Error {
-        Error::Io(err)
+impl From<io::Error> for ScanError {
+    fn from(err: io::Error) -> ScanError {
+        ScanError::Io(err)
     }
 }
 
 
-//------------ Result --------------------------------------------------------
+//------------ ScanResult ----------------------------------------------------
 
-pub type Result<T> = result::Result<T, Error>;
+pub type ScanResult<T> = result::Result<T, ScanError>;
 pub type SyntaxResult<T> = result::Result<T, SyntaxError>;
+
+
+//------------ Pos -----------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Pos {
+    line: usize,
+    col: usize
+}
+
+impl Pos {
+    pub fn new() -> Pos {
+        Pos { line: 1, col: 1 }
+    }
+
+    pub fn line(&self) -> usize { self.line }
+    pub fn col(&self) -> usize { self.col }
+
+    pub fn update(&mut self, ch: u8) {
+        match ch {
+            b'\n' => { self.line += 1; self.col = 1 }
+            _ => self.col += 1
+        }
+    }
+
+    pub fn prev(&self) -> Pos {
+        Pos { line: self.line,
+              col: if self.col <= 1 { 1 } else { self.col - 1 }
+        }
+    }
+}
+
+impl From<(usize, usize)> for Pos {
+    fn from(src: (usize, usize)) -> Pos {
+        Pos { line: src.0, col: src.1 }
+    }
+}
+
+impl PartialEq<(usize, usize)> for Pos {
+    fn eq(&self, other: &(usize, usize)) -> bool {
+        self.line == other.0 && self.col == other.1
+    }
+}
+

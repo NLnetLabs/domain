@@ -6,20 +6,19 @@
 
 use std::borrow::Cow;
 use std::fmt;
-use std::io;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use ::bits::bytes::BytesBuf;
 use ::bits::compose::ComposeBytes;
 use ::bits::charstr::CharStr;
 use ::bits::error::{ComposeResult, ParseResult};
-use ::bits::name::{AsDName, DName, DNameBuf, DNameSlice};
+use ::bits::name::{AsDName, DName, DNameSlice};
 use ::bits::octets::Octets;
 use ::bits::parse::ParseBytes;
 use ::bits::record::{push_record, RecordTarget};
 use ::bits::rdata::RecordData;
 use ::iana::{Class, RRType};
-use ::master;
+use ::master::{Scanner, ScanResult, SyntaxError};
 use ::utils::netdb::{ProtoEnt, ServEnt};
 
 
@@ -53,11 +52,11 @@ macro_rules! dname_type {
                             |target| target.push_dname_compressed(value))
             }
 
-            pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                                      origin: Option<&DNameSlice>,
-                                      target: &mut Vec<u8>)
-                                      -> master::Result<()> {
-                DNameBuf::scan_into(stream, origin, target)
+            pub fn scan_into<S: Scanner>(scanner: &mut S,
+                                         origin: Option<&DNameSlice>,
+                                         target: &mut Vec<u8>)
+                                         -> ScanResult<()> {
+                scanner.scan_dname_into(origin, target)
             }
         }
 
@@ -144,11 +143,11 @@ impl A {
                                 try!(parser.parse_u8()))))
     }
 
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                              _origin: Option<&DNameSlice>,
-                              target: &mut Vec<u8>)
-                              -> master::Result<()> {
-        stream.scan_str_phrase(|slice| {
+    pub fn scan_into<S: Scanner>(scanner: &mut S,
+                                 _origin: Option<&DNameSlice>,
+                                 target: &mut Vec<u8>)
+                                 -> ScanResult<()> {
+        scanner.scan_str_phrase(|slice| {
             let addr = try!(Ipv4Addr::from_str(slice));
             target.push_bytes(&addr.octets()[..]);
             Ok(())
@@ -232,12 +231,12 @@ impl<'a> Hinfo<'a> {
                       try!(parser.parse_charstr())))
     }
 
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                              _origin: Option<&DNameSlice>,
-                              target: &mut Vec<u8>)
-                              -> master::Result<()> {
-        try!(CharStr::scan_into(stream, target));
-        CharStr::scan_into(stream, target)
+    pub fn scan_into<S: Scanner>(scanner: &mut S,
+                                 _origin: Option<&DNameSlice>,
+                                 target: &mut Vec<u8>)
+                                 -> ScanResult<()> {
+        try!(scanner.scan_charstr_into(target));
+        scanner.scan_charstr_into(target)
     }
 }
 
@@ -382,12 +381,12 @@ impl<'a> Minfo<'a> {
                       try!(parser.parse_dname())))
     }
 
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                              origin: Option<&DNameSlice>,
-                              target: &mut Vec<u8>)
-                              -> master::Result<()> {
-        try!(DNameBuf::scan_into(stream, origin, target));
-        DNameBuf::scan_into(stream, origin, target)
+    pub fn scan_into<S: Scanner>(scanner: &mut S,
+                                 origin: Option<&DNameSlice>,
+                                 target: &mut Vec<u8>)
+                                 -> ScanResult<()> {
+        try!(scanner.scan_dname_into(origin, target));
+        scanner.scan_dname_into(origin, target)
     }
 }
 
@@ -471,12 +470,12 @@ impl<'a> Mx<'a> {
                    try!(parser.parse_dname())))
     }
 
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                              origin: Option<&DNameSlice>,
-                              target: &mut Vec<u8>)
-                              -> master::Result<()> {
-        target.push_u16(try!(stream.scan_u16()));
-        DNameBuf::scan_into(stream, origin, target)
+    pub fn scan_into<S: Scanner>(scanner: &mut S,
+                                 origin: Option<&DNameSlice>,
+                                 target: &mut Vec<u8>)
+                                 -> ScanResult<()> {
+        target.push_u16(try!(scanner.scan_u16()));
+        scanner.scan_dname_into(origin, target)
     }
 }
 
@@ -665,17 +664,17 @@ impl<'a> Soa<'a> {
                     try!(parser.parse_u32())))
     }
 
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                                  origin: Option<&DNameSlice>,
-                                  target: &mut Vec<u8>)
-                                  -> master::Result<()> {
-        try!(DNameBuf::scan_into(stream, origin, target));
-        try!(DNameBuf::scan_into(stream, origin, target));
-        target.push_u32(try!(stream.scan_u32()));
-        target.push_u32(try!(stream.scan_u32()));
-        target.push_u32(try!(stream.scan_u32()));
-        target.push_u32(try!(stream.scan_u32()));
-        target.push_u32(try!(stream.scan_u32()));
+    pub fn scan_into<S: Scanner>(scanner: &mut S,
+                                 origin: Option<&DNameSlice>,
+                                 target: &mut Vec<u8>)
+                                 -> ScanResult<()> {
+        try!(scanner.scan_dname_into(origin, target));
+        try!(scanner.scan_dname_into(origin, target));
+        target.push_u32(try!(scanner.scan_u32()));
+        target.push_u32(try!(scanner.scan_u32()));
+        target.push_u32(try!(scanner.scan_u32()));
+        target.push_u32(try!(scanner.scan_u32()));
+        target.push_u32(try!(scanner.scan_u32()));
         Ok(())
     }
 }
@@ -761,21 +760,27 @@ impl<'a> Txt<'a> {
         Ok(Txt::new(Cow::Borrowed(try!(parser.parse_bytes(len)))))
     }
 
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                              _origin: Option<&DNameSlice>,
-                              target: &mut Vec<u8>)
-                              -> master::Result<()> {
-        // XXX Try to get rid of the allocation, please.
-        let text = try!(stream.scan_phrase_copy());
-        let mut text = &text[..];
-        while text.len() > 255 {
-            target.push_u8(255);
-            let (l, r) = text.split_at(255);
-            target.push_bytes(l);
-            text = r;
-        }
-        target.push_u8(text.len() as u8);
-        target.push_bytes(text);
+    pub fn scan_into<S: Scanner>(scanner: &mut S,
+                                 _origin: Option<&DNameSlice>,
+                                 target: &mut Vec<u8>)
+                                 -> ScanResult<()> {
+        let mut len = 0;
+        let mut pos = target.len();
+        target.push_u8(0);
+        try!(scanner.scan_phrase_bytes(|ch, _| {
+            target.push_u8(ch);
+            if len == 254 {
+                target[pos] = 255;
+                len = 0;
+                pos = target.len();
+                target.push_u8(0);
+            }
+            else {
+                len += 1
+            }
+            Ok(())
+        }));
+        target[pos] = len;
         Ok(())
     }
 }
@@ -901,12 +906,12 @@ impl<'a> Wks<'a> {
 
     /// Scan the master file representation of a WKS record into a target.
     ///
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                              _origin: Option<&DNameSlice>,
-                              target: &mut Vec<u8>)
-                              -> master::Result<()> {
-        try!(A::scan_into(stream, _origin, target));
-        try!(stream.scan_str_phrase(|s| {
+    pub fn scan_into<S: Scanner>(scanner: &mut S,
+                                 origin: Option<&DNameSlice>,
+                                 target: &mut Vec<u8>)
+                                 -> ScanResult<()> {
+        try!(A::scan_into(scanner, origin, target));
+        try!(scanner.scan_str_phrase(|s| {
             if let Some(ent) = ProtoEnt::by_name(s) {
                 target.push_u8(ent.proto);
                 Ok(())
@@ -916,12 +921,12 @@ impl<'a> Wks<'a> {
                 Ok(())
             }
             else {
-                Err(master::SyntaxError::UnknownProto(s.into()))
+                Err(SyntaxError::UnknownProto(s.into()))
             }
         }));
 
         let mut bitmap = WksBitmap::new();
-        while let Ok(()) = stream.scan_str_phrase(|s| {
+        while let Ok(()) = scanner.scan_str_phrase(|s| {
             if let Some(ent) = ServEnt::by_name(s) {
                 bitmap.set_serves(ent.port, true);
                 Ok(())
@@ -931,7 +936,7 @@ impl<'a> Wks<'a> {
                 Ok(())
             }
             else {
-                Err(master::SyntaxError::UnknownServ(s.into()))
+                Err(SyntaxError::UnknownServ(s.into()))
             }
         }) { }
         target.push_bytes(bitmap.as_bytes());

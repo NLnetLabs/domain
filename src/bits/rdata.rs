@@ -13,14 +13,11 @@
 //! type that can deal with all record types.
 
 use std::fmt;
-use std::io;
 use iana::RRType;
 use super::compose::ComposeBytes;
 use super::error::{ComposeResult, ParseResult};
 use super::nest::Nest;
 use super::parse::ParseBytes;
-use bits::bytes::BytesBuf;
-use ::master;
 
 
 //----------- RecordData ------------------------------------------------
@@ -85,41 +82,6 @@ impl<'a> GenericRecordData<'a> {
     pub fn concrete<'b, R: RecordData<'b>>(&'b self) -> Option<ParseResult<R>> {
         let mut parser = self.data.parser();
         R::parse(self.rtype, &mut parser)
-    }
-
-    /// Scan generic master format record data into a bytes buf.
-    ///
-    /// This function *only* scans the generic record data format defined
-    /// in [RFC 3597]. Use [domain::rdata::scan_into()] for a function that
-    /// tries to also scan the specific record data format for record type
-    /// `rtype`.
-    ///
-    /// [RFC 3597]: https:://tools.ietf.org/html/rfc3597
-    /// [domain::rdata::scan_into()]: ../../rdata/fn.scan_into.html
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                                  target: &mut Vec<u8>)
-                                  -> master::Result<()> {
-        try!(stream.skip_literal(b"\\#"));
-        let mut len = try!(stream.scan_u16());
-        target.reserve(len as usize);
-        while len > 0 {
-            try!(stream.scan_hex_word(|v| {
-                if len == 0 { Err(master::SyntaxError::LongGenericData) }
-                else {
-                    target.push_u8(v);
-                    len -= 1;
-                    Ok(())
-                }
-            }))
-        }
-        Ok(())
-    }
-
-    pub fn scan<R: io::Read>(stream: &mut master::Stream<R>)
-                             -> master::Result<Vec<u8>> {
-        let mut res = Vec::new();
-        try!(GenericRecordData::scan_into(stream, &mut res));
-        Ok(res)
     }
 
     /// Formats the record data as if it were of concrete type `R`.

@@ -6,7 +6,6 @@
 
 use std::fmt;
 use std::net::Ipv6Addr;
-use std::io;
 use std::str::FromStr;
 use ::bits::bytes::BytesBuf;
 use ::bits::compose::ComposeBytes;
@@ -16,7 +15,7 @@ use ::bits::parse::ParseBytes;
 use ::bits::rdata::RecordData;
 use ::bits::record::{push_record, RecordTarget};
 use ::iana::{Class, RRType};
-use ::master;
+use ::master::{Scanner, ScanResult};
 
 
 //------------ Aaaa ---------------------------------------------------------
@@ -57,11 +56,11 @@ impl Aaaa {
                                    try!(parser.parse_u16()))))
     }
 
-    pub fn scan_into<R: io::Read>(stream: &mut master::Stream<R>,
-                              _origin: Option<&DNameSlice>,
-                              target: &mut Vec<u8>)
-                              -> master::Result<()> {
-        stream.scan_str_phrase(|slice| {
+    pub fn scan_into<S: Scanner>(scanner: &mut S,
+                                 _origin: Option<&DNameSlice>,
+                                 target: &mut Vec<u8>)
+                                 -> ScanResult<()> {
+        scanner.scan_str_phrase(|slice| {
             let addr = try!(Ipv6Addr::from_str(slice));
             for i in addr.segments().iter() {
                 target.push_u16(*i)

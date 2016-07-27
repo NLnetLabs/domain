@@ -1,7 +1,6 @@
 //! Resource Record (RR) TYPEs
 
-use std::io;
-use ::master;
+use ::master::{ScanResult, Scanner, SyntaxError};
 
 
 /// Resource Record Types.
@@ -408,11 +407,10 @@ int_enum_str_with_prefix!(RRType, "TYPE", b"TYPE", u16,
 
 
 impl RRType {
-    pub fn scan<R: io::Read>(stream: &mut master::Stream<R>)
-                             -> master::Result<Self> {
-        stream.scan_word(|slice| {
+    pub fn scan<S: Scanner>(scanner: &mut S) -> ScanResult<Self> {
+        scanner.scan_word(|slice| {
             RRType::from_bytes(slice)
-                   .ok_or(master::SyntaxError::UnknownClass(slice.into()))
+                   .ok_or(SyntaxError::UnknownClass(slice.into()))
         })
     }
 }

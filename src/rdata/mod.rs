@@ -21,7 +21,7 @@ pub mod rfc3596;
 pub mod rfc6891;
 
 #[macro_use] mod macros;
-
+mod generic;
 
 
 master_types!{
