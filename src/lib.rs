@@ -15,7 +15,6 @@
 //! [resolv]: resolv/index.html
 //! [server]: server/index.html
 
-#[macro_use] extern crate chomp;
 extern crate rand;
 extern crate rotor;
 extern crate vecio;

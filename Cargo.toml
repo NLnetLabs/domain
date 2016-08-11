@@ -15,14 +15,8 @@ path = "examples/dig.rs"
 name = "host"
 path = "examples/host.rs"
 
-#[[example]]
-#name = "reversed"
-#path = "examples/reversed.rs"
-
 [dependencies]
 bytes       = "0.3"
-chomp       = "0.2"
-netmachines = { git = "https://github.com/cloudshipping/netmachines.git" }
 rand        = "0.3"
 rotor       = "0.6"
 vecio       = "0.1"
