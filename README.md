@@ -10,7 +10,7 @@ feel like using it anyway, add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-domain = { git = "https://github.com/cloudshipping/domain.git" }
+domain = { git = "https://github.com/partim/domain.git" }
 ```
 
 Then, add this to your crate root:
