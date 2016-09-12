@@ -444,6 +444,18 @@ impl DNameSlice {
     pub fn last(&self) -> Option<Label> {
         self.iter().last()
     }
+
+    /// Returns the number of dots if this is a relative name.
+    pub fn ndots(&self) -> Option<usize> {
+        let mut res = 0;
+        for label in self.iter() {
+            if label.is_root() {
+                return None
+            }
+            res += 1;
+        }
+        Some(res)
+    }
 }
 
 

@@ -1,4 +1,4 @@
-//! All our lookups.
+//! Looking up host names.
 
 use std::net::IpAddr;
 use std::slice;
@@ -6,35 +6,26 @@ use futures::{BoxFuture, Future};
 use ::bits::{DNameBuf, DNameSlice, MessageBuf, ParseResult};
 use ::iana::{RRType, Class};
 use ::rdata::{A, Aaaa};
-use super::error::{Error, Result};
-use super::resolver::Resolver;
+use super::super::error::{Error, Result};
+use super::super::resolver::Resolver;
+use super::search::search;
 
-
-pub fn lookup_foo<N>(resolv: Resolver, name: N)
-                      -> BoxFuture<(), Error>
-                   where N: AsRef<DNameSlice> {
-    let name = name.as_ref().to_owned();
-    let a = resolv.query(&name, RRType::A, Class::In);
-    let aaaa = a.then(move |_| {
-        resolv.query(name, RRType::Aaaa, Class::In)
-              .map(|_| ())
-    });
-    aaaa.boxed()
-}
 
 pub fn lookup_host<N>(resolv: Resolver, name: N)
                       -> BoxFuture<LookupHost, Error>
                    where N: AsRef<DNameSlice> {
-    let a = resolv.query(&name, RRType::A, Class::In);
-    let both = a.select(resolv.query(name, RRType::Aaaa, Class::In));
-    let res = both.then(|res| {
-        let (a, b) = match res {
-            Ok((a, b)) => (Ok(a), b),
-            Err((a, b)) => (Err(a), b)
-        };
-        b.then(move |b| LookupHost::new(a, b))
-    });
-    res.boxed()
+    search(resolv, name, |resolv, name| {
+        let a = resolv.query(&name, RRType::A, Class::In);
+        let both = a.select(resolv.query(name, RRType::Aaaa, Class::In));
+        let res = both.then(|res| {
+            let (a, b) = match res {
+                Ok((a, b)) => (Ok(a), b),
+                Err((a, b)) => (Err(a), b)
+            };
+            b.then(move |b| LookupHost::new(a, b))
+        });
+        res.boxed()
+    }).boxed()
 }
 
 

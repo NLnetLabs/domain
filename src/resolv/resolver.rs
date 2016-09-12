@@ -28,6 +28,10 @@ impl Resolver {
         Resolver{core: Core::new(reactor, conf)}
     }
 
+    pub fn conf(&self) -> &ResolvConf {
+        &self.core.conf
+    }
+
     pub fn run<R, F>(conf: ResolvConf, f: F) -> Result<R::Item, R::Error>
                where R: Future, R::Error: From<io::Error>,
                      F: FnOnce(Resolver) -> R {
@@ -94,8 +98,8 @@ impl Query {
     fn start(core: &Core, question: Arc<Question>)
              -> (usize, bool,
                  BoxFuture<Result<MessageBuf, Error>, Error>) {
-        if !core.options.use_vc {
-            let index = if core.options.rotate {
+        if !core.options().use_vc {
+            let index = if core.options().rotate {
                 rand::random::<usize>() % core.udp.len()
             }
             else { 0 };
@@ -103,7 +107,7 @@ impl Query {
             (index, true, request)
         }
         else {
-            let index = if core.options.rotate {
+            let index = if core.options().rotate {
                 rand::random::<usize>() % core.tcp.len()
             }
             else { 0 };
@@ -128,7 +132,7 @@ impl Query {
     /// If the response is truncated and we are not ignoring that 
     fn response(&mut self, response: MessageBuf)
                 -> Poll<MessageBuf, Error> {
-        if response.header().tc() && self.dgram && !self.core.options.ign_tc {
+        if response.header().tc() && self.dgram && !self.core.options().ign_tc {
             self.start_stream()
         }
         else { Ok(response.into()) }
@@ -154,7 +158,7 @@ impl Query {
             let tcp_len = self.core.tcp.len();
             if (self.curr_index % tcp_len) == self.start_index {
                 self.attempt += 1;
-                if self.attempt == self.core.attempts {
+                if self.attempt == self.core.conf.attempts {
                     Err(Error::Timeout)
                 }
                 else {
@@ -173,7 +177,7 @@ impl Query {
     /// Switches to stream mode and starts the first request or errors out.
     fn start_stream(&mut self) -> Poll<MessageBuf, Error> {
         self.dgram = false;
-        self.start_index = if self.core.options.rotate {
+        self.start_index = if self.core.options().rotate {
             rand::random::<usize>() % self.core.tcp.len()
         }
         else { 0 };
@@ -191,8 +195,7 @@ impl Query {
 struct Core {
     udp: Vec<ServiceHandle>,
     tcp: Vec<ServiceHandle>,
-    options: ResolvOptions,
-    attempts: usize,
+    conf: ResolvConf,
 }
 
 
@@ -223,9 +226,12 @@ impl Core {
         Core {
             udp: udp,
             tcp: tcp,
-            options: conf.options.clone(),
-            attempts: conf.attempts,
+            conf: conf
         }
+    }
+
+    fn options(&self) -> &ResolvOptions {
+        &self.conf.options
     }
 }
 
