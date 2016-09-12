@@ -10,7 +10,8 @@ use tokio_core::reactor;
 use ::bits::{DNameSlice, MessageBuf};
 use ::iana::{RRType, Class};
 use super::conf::{ResolvConf, ResolvOptions};
-use super::request::{Question, Request, RequestError};
+use super::error::Error;
+use super::request::{Question, Request};
 use super::tcp::tcp_service;
 use super::udp::udp_service;
 
@@ -28,8 +29,7 @@ impl Resolver {
     }
 
     pub fn run<R, F>(conf: ResolvConf, f: F) -> Result<R::Item, R::Error>
-               where R: Future,
-                     R::Error: From<io::Error>,
+               where R: Future, R::Error: From<io::Error>,
                      F: FnOnce(Resolver) -> R {
         let mut reactor = try!(reactor::Core::new());
         let resolver = Resolver::new(reactor.handle(), conf);
@@ -50,7 +50,7 @@ impl Resolver {
 pub struct Query {
     core: Core,
     question: Arc<Question>,
-    request: BoxFuture<QueryResult<MessageBuf>, RequestError>,
+    request: BoxFuture<Result<MessageBuf, Error>, Error>,
 
     dgram: bool,
     start_index: usize,
@@ -73,9 +73,9 @@ impl Query {
 
 impl Future for Query {
     type Item = MessageBuf;
-    type Error = QueryError;
+    type Error = Error;
 
-    fn poll(&mut self) -> Poll<MessageBuf, QueryError> {
+    fn poll(&mut self) -> Poll<MessageBuf, Error> {
         match self.request.poll() {
             Ok(Async::Ready(Ok(response))) => {
                 self.response(response)
@@ -93,7 +93,7 @@ impl Future for Query {
 impl Query {
     fn start(core: &Core, question: Arc<Question>)
              -> (usize, bool,
-                 BoxFuture<QueryResult<MessageBuf>, RequestError>) {
+                 BoxFuture<Result<MessageBuf, Error>, Error>) {
         if !core.options.use_vc {
             let index = if core.options.rotate {
                 rand::random::<usize>() % core.udp.len()
@@ -112,7 +112,7 @@ impl Query {
         }
     }
 
-    fn restart(&mut self) -> Poll<MessageBuf, QueryError> {
+    fn restart(&mut self) -> Poll<MessageBuf, Error> {
         let (index, dgram, request) = Self::start(&self.core,
                                                   self.question.clone());
         self.dgram = dgram;
@@ -127,7 +127,7 @@ impl Query {
     ///
     /// If the response is truncated and we are not ignoring that 
     fn response(&mut self, response: MessageBuf)
-                -> Poll<MessageBuf, QueryError> {
+                -> Poll<MessageBuf, Error> {
         if response.header().tc() && self.dgram && !self.core.options.ign_tc {
             self.start_stream()
         }
@@ -135,7 +135,7 @@ impl Query {
     }
 
     /// Proceeds to the next request or errors out.
-    fn next_request(&mut self) -> Poll<MessageBuf, QueryError> {
+    fn next_request(&mut self) -> Poll<MessageBuf, Error> {
         if self.dgram {
             self.curr_index += 1;
             let udp_len = self.core.udp.len();
@@ -155,7 +155,7 @@ impl Query {
             if (self.curr_index % tcp_len) == self.start_index {
                 self.attempt += 1;
                 if self.attempt == self.core.attempts {
-                    Err(QueryError)
+                    Err(Error::Timeout)
                 }
                 else {
                     self.restart()
@@ -171,7 +171,7 @@ impl Query {
     }
 
     /// Switches to stream mode and starts the first request or errors out.
-    fn start_stream(&mut self) -> Poll<MessageBuf, QueryError> {
+    fn start_stream(&mut self) -> Poll<MessageBuf, Error> {
         self.dgram = false;
         self.start_index = if self.core.options.rotate {
             rand::random::<usize>() % self.core.tcp.len()
@@ -242,11 +242,11 @@ impl ServiceHandle {
     }
 
     pub fn request(&self, question: Arc<Question>)
-                   -> BoxFuture<QueryResult<MessageBuf>, RequestError> {
+                   -> BoxFuture<Result<MessageBuf, Error>, Error> {
         let (c, o) = oneshot();
         let request = Request::new(question, c);
         let sent = self.tx.send(request).into_future()
-                       .map_err(|_| RequestError::Local);
+                       .map_err(|_| Error::Timeout);
         
         let mapped_o = o.then(|res| {
             match res {
@@ -255,7 +255,7 @@ impl ServiceHandle {
                     if err.is_fatal() { Ok(Err(err.into())) }
                     else { Err(err) }
                 }
-                Err(_) => Err(RequestError::Local)
+                Err(_) => Err(Error::Timeout)
             }
         });
 
@@ -269,31 +269,3 @@ impl Clone for ServiceHandle {
     }
 }
 
-
-//------------ QueryError ---------------------------------------------------
-
-#[derive(Debug)]
-pub struct QueryError;
-
-impl QueryError {
-    pub fn merge(self, _other: QueryError) -> QueryError {
-        self
-    }
-}
-
-impl From<RequestError> for QueryError {
-    fn from(_: RequestError) -> Self {
-        QueryError
-    }
-}
-
-impl From<io::Error> for QueryError {
-    fn from(_: io::Error) -> Self {
-        QueryError
-    }
-}
-
-
-//------------ QueryResult ---------------------------------------------------
-
-pub type QueryResult<T> = Result<T, QueryError>;

@@ -9,8 +9,9 @@ use futures::stream::Stream;
 use tokio_core::channel::{Receiver, channel};
 use tokio_core::reactor;
 use ::bits::{ComposeResult, MessageBuf, MessageBuilder, Question};
+use super::error::Error;
 use super::pending::PendingRequests;
-use super::request::{Request, RequestError};
+use super::request::Request;
 use super::resolver::ServiceHandle;
 
 
@@ -128,7 +129,7 @@ impl<T: DgramTransport> DgramService<T> {
                 let written = match self.sock.send_to(request.buf(),
                                                       &self.peer) {
                     Ok(written) => written,
-                    Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock
                     => {
                         return Ok(())
                     }
@@ -144,7 +145,8 @@ impl<T: DgramTransport> DgramService<T> {
                     self.pending.push(request.id(), request)
                 }
                 else {
-                    request.fail(RequestError::NeedsStream);
+                    request.fail(io::Error::new(io::ErrorKind::Other,
+                                                "short write").into());
                 }
             }
         }
@@ -155,7 +157,7 @@ impl<T: DgramTransport> DgramService<T> {
             let mut buf = vec![0u8; self.msg_size];
             let (size, addr) = match self.sock.recv_from(&mut buf) {
                 Ok(some) => some,
-                Err(ref e) if e.kind() == ::std::io::ErrorKind::WouldBlock => {
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     return Ok(())
                 }
                 Err(err) => return Err(err)
@@ -192,14 +194,16 @@ impl DgramRequest {
         let id = match pending.reserve() {
             Ok(id) => id,
             Err(_) => {
-                request.fail(RequestError::Local);
+                request.fail(io::Error::new(io::ErrorKind::Other,
+                                            "too many pending queries")
+                                       .into());
                 return None
             }
         };
         let buf = match Self::new_buf(&request, id, msg_size) {
             Ok(buf) => buf,
-            Err(_) => {
-                request.fail(RequestError::Global);
+            Err(err) => {
+                request.fail(err.into());
                 return None
             }
         };
@@ -229,16 +233,17 @@ impl DgramRequest {
             self.request.succeed(response)
         }
         else {
-            self.request.fail(RequestError::Local)
+            self.request.fail(io::Error::new(io::ErrorKind::Other,
+                                             "server error").into())
         }
     }
 
-    fn fail(self, err: RequestError) {
+    fn fail(self, err: Error) {
         self.request.fail(err)
     }
 
     fn timeout(self) {
-        self.request.fail(RequestError::Timeout)
+        self.request.fail(Error::Timeout)
     }
 }
 

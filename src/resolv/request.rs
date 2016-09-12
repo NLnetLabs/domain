@@ -4,6 +4,7 @@ use std::sync::Arc;
 use futures::Complete;
 use ::bits::{DNameBuf, MessageBuf};
 use ::iana::{Class, RRType};
+use super::error::{Error, Result};
 
 /// The content of the query.
 #[derive(Debug)]
@@ -22,12 +23,12 @@ pub struct Request {
     ///
     /// Upon success, it should complete with the response. Upon failure,
     /// it should complete with a request error.
-    complete: Complete<Result<MessageBuf, RequestError>>
+    complete: Complete<Result<MessageBuf>>
 }
 
 impl Request {
     pub fn new(query: Arc<Question>,
-               complete: Complete<Result<MessageBuf, RequestError>>) -> Self {
+               complete: Complete<Result<MessageBuf>>) -> Self {
         Request{query: query, complete: complete}
     }
 
@@ -39,24 +40,8 @@ impl Request {
         self.complete.complete(Ok(response))
     }
     
-    pub fn fail(self, error: RequestError) {
+    pub fn fail(self, error: Error) {
         self.complete.complete(Err(error))
     }
 }
 
-#[derive(Debug)]
-pub enum RequestError {
-    Global,
-    Local,
-    Timeout,
-    NeedsStream,
-}
-
-impl RequestError {
-    pub fn is_fatal(&self) -> bool {
-        match *self {
-            RequestError::Global | RequestError::NeedsStream => true,
-            _ => false
-        }
-    }
-}

@@ -6,12 +6,12 @@ use futures::{BoxFuture, Future};
 use ::bits::{DNameBuf, DNameSlice, MessageBuf, ParseResult};
 use ::iana::{RRType, Class};
 use ::rdata::{A, Aaaa};
-use super::resolver::{Resolver, QueryError, QueryResult};
-
+use super::error::{Error, Result};
+use super::resolver::Resolver;
 
 
 pub fn lookup_foo<N>(resolv: Resolver, name: N)
-                      -> BoxFuture<(), QueryError>
+                      -> BoxFuture<(), Error>
                    where N: AsRef<DNameSlice> {
     let name = name.as_ref().to_owned();
     let a = resolv.query(&name, RRType::A, Class::In);
@@ -23,7 +23,7 @@ pub fn lookup_foo<N>(resolv: Resolver, name: N)
 }
 
 pub fn lookup_host<N>(resolv: Resolver, name: N)
-                      -> BoxFuture<LookupHost, QueryError>
+                      -> BoxFuture<LookupHost, Error>
                    where N: AsRef<DNameSlice> {
     let a = resolv.query(&name, RRType::A, Class::In);
     let both = a.select(resolv.query(name, RRType::Aaaa, Class::In));
@@ -44,8 +44,7 @@ pub struct LookupHost {
 }
 
 impl LookupHost {
-    fn new(a: QueryResult<MessageBuf>, b: QueryResult<MessageBuf>)
-           -> QueryResult<Self> {
+    fn new(a: Result<MessageBuf>, b: Result<MessageBuf>) -> Result<Self> {
         let (a, b) = match (a, b) {
             (Ok(a), b) => (a, b),
             (a, Ok(b)) => (b, a),

@@ -15,8 +15,9 @@ use tokio_core::io::IoFuture;
 use tokio_core::reactor;
 use ::bits::{ComposeBuf, ComposeBytes, ComposeResult, Message, MessageBuf,
              MessageBuilder, Question};
+use super::error::Error;
 use super::pending::PendingRequests;
-use super::request::{Request, RequestError};
+use super::request::Request;
 use super::resolver::ServiceHandle;
 
 
@@ -325,7 +326,8 @@ fn new_write(request: Request, pending: &mut PendingRequests<StreamRequest>)
             }
         },
         Err(_) => {
-            request.fail(RequestError::Local);
+            request.fail(io::Error::new(io::ErrorKind::Other,
+                                        "too many requests").into());
             None
         }
     }
@@ -477,8 +479,8 @@ impl StreamRequest {
     fn new(request: Request, id: u16) -> Option<Self> {
         let buf = match StreamRequest::new_buf(&request, id) {
             Ok(buf) => buf,
-            Err(_) => {
-                request.fail(RequestError::Global);
+            Err(err) => {
+                request.fail(Error::QuestionError(err));
                 return None
             }
         };
@@ -510,12 +512,13 @@ impl StreamRequest {
             self.request.succeed(response)
         }
         else {
-            self.request.fail(RequestError::Local)
+            self.request.fail(io::Error::new(io::ErrorKind::Other,
+                                             "server failure").into())
         }
     }
 
     fn timeout(self) {
-        self.request.fail(RequestError::Timeout)
+        self.request.fail(Error::Timeout)
     }
 }
 
