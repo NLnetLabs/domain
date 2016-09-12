@@ -16,10 +16,9 @@ name = "host"
 path = "examples/host.rs"
 
 [dependencies]
-bytes       = "0.3"
 rand        = "0.3"
-rotor       = "0.6"
-vecio       = "0.1"
+futures     = "0.1"
+tokio-core  = "0.1"
 
 [dev-dependencies]
 argparse     = "0.2"

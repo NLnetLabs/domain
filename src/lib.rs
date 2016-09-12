@@ -5,19 +5,21 @@
 //!
 //! * fundamental types, traits, and implementations for dealing with DNS
 //!   data through the modules [bits], [rdata], and [iana],
+//! * parsing of master file data (aka zonefiles) in [master],
+//! * data and master file access for various resource record types in
+//!   [rdata],
 //! * an asynchronous stub resolver implementation for querying the DNS
-//!   in [resolv],
-//! * facilities to build a name server in the [server] module.
+//!   in [resolv].
 //!
 //! [bits]: bits/index.html
 //! [iana]: iana/index.html
+//! [master]: master/index.html
 //! [rdata]: rdata/index.html
 //! [resolv]: resolv/index.html
-//! [server]: server/index.html
 
+#[macro_use] extern crate futures;
 extern crate rand;
-extern crate rotor;
-extern crate vecio;
+#[macro_use] extern crate tokio_core;
 
 pub mod bits;
 pub mod iana;
@@ -26,4 +28,3 @@ pub mod rdata;
 pub mod resolv;
 pub mod server;
 pub mod utils;
-

@@ -1,340 +1,529 @@
-//! Tools for building stream-oriented DNS transports.
+//! Service for stream transports.
+//!
+//! This implementation is seemingly too smart for some recursors
+//! (particularly whatever runs on FritzBoxen) that seem to expect a
+//! strict ping pong of requests and responses.
 
-use std::collections::{HashMap, VecDeque};
-use std::io;
+use std::fmt;
+use std::io::{self, Read, Write};
 use std::mem;
-use std::net::SocketAddr;
-use std::sync::mpsc;
-use vecio::Rawv;
-use bits::message::MessageBuf;
-use rand::random;
-use resolv::conf::ResolvConf;
-use rotor::Time;
-use super::conn::ConnTransportSeed;
-use super::query::Query;
-use super::sync::RotorSender;
-use super::timeout::TimeoutQueue;
+use std::time::Duration;
+use futures::{Async, Future, Poll};
+use futures::stream::Stream;
+use tokio_core::channel::{Receiver, channel};
+use tokio_core::io::IoFuture;
+use tokio_core::reactor;
+use ::bits::{ComposeBuf, ComposeBytes, ComposeResult, Message, MessageBuf,
+             MessageBuilder, Question};
+use super::pending::PendingRequests;
+use super::request::{Request, RequestError};
+use super::resolver::ServiceHandle;
 
 
-//------------ StreamTransportInfo ------------------------------------------
+//------------ StreamFactory -------------------------------------------------
 
-/// Information necessary for running a stream-based DNS transport.
-pub struct StreamTransportInfo {
-    /// Query map.
+pub trait StreamFactory: Send + 'static {
+    type Stream: Read + Write + Send + 'static;
+    type Future: Future<Item=Self::Stream, Error=io::Error> + Send + 'static;
+
+    fn connect(&self, reactor: &reactor::Handle) -> Self::Future;
+}
+
+
+//------------ StreamService ------------------------------------------------
+
+pub struct StreamService<S: StreamFactory> {
+    state: State<S>,
+    reactor: reactor::Handle,
+    factory: S,
+    keep_alive: Duration,
+    request_timeout: Duration,
+}
+
+enum State<S: StreamFactory> {
+    /// There is currently no request to work on and no open connection.
     ///
-    /// This actually contains all the IDs that are currently in use. If the
-    /// value is `None`, the respective query is still stuck in the send
-    /// queue.
-    queries: HashMap<u16, Option<Query>>,
+    /// In this state, we wait on the receiver for a request to come in. The
+    /// state either ends with a new request, in which case we go into active,
+    /// or the receiver having been closed, in which case we are done.
+    Idle(IoFuture<Option<(Request, Receiver<Request>)>>),
 
-    /// Send queue.
-    send_queue: StreamQueryWriter,
-
-    /// The timeouts for the pending queries represented by their ID.
+    /// There are requests to be worked on and we are connecting.
     ///
-    /// Incidentally, these are also the queries waiting for a response.
-    timeouts: TimeoutQueue<u16>,
+    /// We need this separate state here since making `State::Active` a
+    /// boxed future and chaining `ActiveStream` onto the connecting future
+    /// would require `ActiveStream` to be `Send` which it can’t be because
+    /// it contains a `reactor::Handle`. Spelling out the type doesn’t work
+    /// either because `futures::AndThen` is generic over the chaining
+    /// closure. (Or at least I think that’s what the compiler was trying
+    /// to tell me …)
+    Connecting(IoFuture<(S::Stream, Request, Receiver<Request>)>),
 
-    /// The receiving end of the incoming queue.
-    commands: mpsc::Receiver<Query>,
-
-    /// The sending end of the dispatcher’s query queue.
-    failed: RotorSender<Query>,
-
-    /// The socket address for connecting.
-    addr: SocketAddr,
-
-    /// The configuration.
-    conf: ResolvConf,
-} 
-
-
-impl StreamTransportInfo {
-    pub fn new(seed: ConnTransportSeed) -> Self {
-        StreamTransportInfo {
-            queries: HashMap::new(),
-            send_queue: StreamQueryWriter::new(),
-            timeouts: TimeoutQueue::new(),
-            commands: seed.commands,
-            failed: seed.queries,
-            addr: seed.addr,
-            conf: seed.conf,
-        }
-    }
-
-    pub fn addr(&self) -> &SocketAddr { &self.addr }
-    pub fn conf(&self) -> &ResolvConf { &self.conf }
-
-    pub fn can_read(&self) -> bool { !self.timeouts.is_empty() }
-    pub fn can_write(&self) -> bool { self.send_queue.can_write() }
-
-    /// Processes the command queue.
+    /// There are requests to be worked on.
     ///
-    /// Returns whether a close command was received.
-    pub fn process_commands(&mut self) -> bool {
-        loop {
-            match self.commands.try_recv() {
-                Ok(query) => self.incoming_query(query),
-                Err(mpsc::TryRecvError::Empty) => return false,
-                Err(mpsc::TryRecvError::Disconnected) => return true,
-            }
-        }
-    }
-
-    fn incoming_query(&mut self, mut query: Query) {
-        let mut id = random();
-        while self.queries.contains_key(&id) {
-            id = random();
-        }
-        query.request_mut().header_mut().set_id(id);
-        self.queries.insert(id, None);
-        self.send_queue.push(query);
-    }
-
-    /// Process the command queue by rejecting all queries.
+    /// When entering this state, we connect. Once that is successful, we
+    /// send out all requests coming in on the receiver, read responses and
+    /// match them to requests and thus complete them. We also keep a
+    /// keep-alive timeout that is refreshed on every received request. If
+    /// it triggers, we close the connection, fail all pending requests,
+    /// and go into idle state.
     ///
-    /// Returns whether a close command was received.
-    pub fn reject_commands(&mut self) -> bool {
-        let mut close = false;
-        loop {
-            match self.commands.try_recv() {
-                Ok(query) => query.send(),
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => close = true,
-            }
-        }
-        close
-    }
+    /// If the receiver disconnects, we clean out all cancelled pending
+    /// requests, wait for all remaining requests to either be answered or
+    /// time out, and then are done.
+    Active(ActiveStream<S::Stream>)
+}
 
-    pub fn write<W: Rawv>(&mut self, w: &mut W, now: Time) -> io::Result<()> {
-        try!(self.send_queue.write(w));
-        while let Some(query) = self.send_queue.done.pop_front() {
-            self.timeouts.push(now + self.conf.timeout, query.id());
-            self.queries.insert(query.id(), Some(query));
-        }
-        Ok(())
-    }
-
-    pub fn process_response(&mut self, response: MessageBuf) {
-        let mut query = match self.queries.remove(&response.header().id()) {
-            Some(Some(query)) => query,
-            _ => return, // XXX Log
+impl<S: StreamFactory> StreamService<S> {
+    pub fn new(reactor: reactor::Handle, factory: S, keep_alive: Duration,
+               request_timeout: Duration) -> io::Result<ServiceHandle> {
+        let (tx, rx) = try!(channel(&reactor));
+        let service = StreamService {
+            state: StreamService::<S>::idle(rx),
+            reactor: reactor.clone(),
+            factory: factory,
+            keep_alive: keep_alive,
+            request_timeout: request_timeout
         };
-        if !response.is_answer(&query.request()) {
-            self.queries.insert(query.request().header().id(), Some(query));
-            return;
-        }
-        query.set_response(Ok(response));
-        query.send()
-    }
-
-    pub fn process_timeouts(&mut self, now: Time) {
-        while let Some(id) = self.timeouts.pop_expired(now) {
-            self.failed.send(self.queries.remove(&id).unwrap().unwrap()).ok();
-        }
-    }
-
-    pub fn next_timeout(&mut self) -> Option<Time> {
-        {
-            let (timeouts, queries) = (&mut self.timeouts, &self.queries);
-            timeouts.clean_head(|x| !queries.contains_key(&x));
-        }
-        self.timeouts.next_timeout()
-    }
-
-    pub fn flush_timeouts(&mut self) {
-        while let Some(id) = self.timeouts.pop() {
-            self.failed.send(self.queries.remove(&id).unwrap().unwrap()).ok();
-        }
+        let service = service.map_err(|_| ());
+        reactor.spawn(service);
+        Ok(ServiceHandle::from_sender(tx))
     }
 }
 
 
-//------------ StreamQueryWriter --------------------------------------------
+impl<S: StreamFactory> Future for StreamService<S> {
+    type Item = ();
+    type Error = io::Error;
 
-pub struct StreamQueryWriter {
-    /// The queries we still need to write.
-    pending: VecDeque<WriterItem>,
-
-    /// How far into writing the head item of the queue are we?
-    written: usize,
-
-    /// The queries we are done with.
-    done: VecDeque<Query>,
-}
-
-impl StreamQueryWriter {
-    /// Creates a new writer.
-    pub fn new() -> StreamQueryWriter {
-        StreamQueryWriter {
-            pending: VecDeque::new(),
-            written: 0,
-            done: VecDeque::new(),
-        }
-    }
-
-    /// Pushes a new query to the end of the queue.
-    pub fn push(&mut self, query: Query) {
-        // XXX Deal with overlong messages.
-        let size = query.request_data().len() as u16;
-        self.pending.push_back(WriterItem::Size( unsafe {
-            mem::transmute(size.to_be())
-        }));
-        self.pending.push_back(WriterItem::Query(query));
-    }
-
-    /// Do we have something to sing about?
-    pub fn can_write(&self) -> bool {
-        !self.pending.is_empty()
-    }
-
-    /// Writes.
-    pub fn write<W: Rawv>(&mut self, w: &mut W) -> io::Result<()> {
-        let mut written = {
-            let mut buf = Vec::<&[u8]>::new();
-            let mut iter = self.pending.iter();
-            match iter.next() {
-                None => return Ok(()),
-                Some(item) => {
-                    assert!(item.len() > self.written);
-                    buf.push(&item.data()[self.written..]);
+    fn poll(&mut self) -> Poll<(), io::Error> {
+        let state = match self.state {
+            State::Idle(ref mut fut) => {
+                match try_ready!(fut.poll()) {
+                    Some((request, recv)) => {
+                        let connecting = self.factory.connect(&self.reactor);
+                        let fut = connecting.and_then(move |stream| {
+                            Ok((stream, request, recv))
+                        });
+                        State::Connecting(fut.boxed())
+                    }
+                    None => return Ok(Async::Ready(()))
                 }
             }
-            for item in iter {
-                buf.push(item.data());
+            State::Connecting(ref mut fut) => {
+                let (stream, request, recv) = try_ready!(fut.poll());
+                let active = ActiveStream::new(stream, self.reactor.clone(),
+                                               self.keep_alive,
+                                               self.request_timeout,
+                                               request, recv);
+                State::Active(active)
             }
-            try!(w.writev(&buf))
-        };
-        while written > 0 {
-            let item_len = self.pending.front().unwrap().len();
-            if item_len > written {
-                self.written = written;
-                break;
-            }
-            else {
-                written -= item_len;
-                match self.pending.pop_front().unwrap() {
-                    WriterItem::Query(query) => self.done.push_back(query),
-                    _ => ()
+            State::Active(ref mut fut) => {
+                match try_ready!(fut.poll()) {
+                    Some(recv) => Self::idle(recv),
+                    None => return Ok(Async::Ready(()))
                 }
             }
-        }
-        Ok(())
+        };
+        self.state = state;
+        self.poll()
+    }
+}
+
+impl<S: StreamFactory> StreamService<S> {
+    fn idle(recv: Receiver<Request>) -> State<S> {
+        let fut = recv.into_future().then(|res| {
+            match res {
+                Ok((Some(request), recv)) => Ok(Some((request, recv))),
+                Ok((None, _)) => Ok(None),
+                Err((err, _)) => Err(err)
+            }
+        });
+        State::Idle(fut.boxed())
     }
 }
 
 
-//------------ WriterItem ---------------------------------------------------
-
-enum WriterItem {
-    Size([u8; 2]),
-    Query(Query),
-}
-
-impl WriterItem {
-    fn data(&self) -> &[u8] {
+impl<S: StreamFactory> fmt::Debug for State<S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            WriterItem::Size(ref data) => &data[..],
-            WriterItem::Query(ref query) => query.request_data(),
+            State::Idle(_) => "idle".fmt(f),
+            State::Connecting(_) => "connecting".fmt(f),
+            State::Active(_) => "active".fmt(f)
+        }
+    }
+}
+
+//------------ ActiveStream --------------------------------------------------
+
+struct ActiveStream<T: Read + Write> {
+    recv: Option<Receiver<Request>>,
+    timeout: Option<reactor::Timeout>,
+    stream: T,
+    write: Option<WriteRequest>,
+    read: ReadResponse,
+    pending: PendingRequests<StreamRequest>,
+    reactor: reactor::Handle,
+    keep_alive: Duration,
+}
+
+impl<T: Read + Write> ActiveStream<T> {
+    fn new(stream: T, reactor: reactor::Handle, keep_alive: Duration,
+           request_timeout: Duration, request: Request,
+           recv: Receiver<Request>) -> Self {
+        let mut pending = PendingRequests::new(reactor.clone(),
+                                               request_timeout);
+        let write = new_write(request, &mut pending);
+        ActiveStream {
+            recv: Some(recv),
+            timeout: reactor::Timeout::new(keep_alive, &reactor).ok(),
+            stream: stream,
+            write: write,
+            read: ReadResponse::new(),
+            pending: pending,
+            reactor: reactor,
+            keep_alive: keep_alive
+        }
+    }
+}
+
+impl<T: Read + Write> Future for ActiveStream<T> {
+    type Item = Option<Receiver<Request>>;
+    type Error = io::Error;
+
+    /// Polls all our futures.
+    ///
+    /// We need to write as long as we can and have something, which may
+    /// involve polling the receiver. We need to poll our timeout after that
+    /// since the receiver may have changed the timeout and we need to
+    /// register a new one with the task by polling it at least once.
+    /// Additionally, we need to receive as long as there is something and
+    /// remove all expired requests.
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.poll_pending();
+        loop {
+            match try!(self.poll_write()) {
+                Async::Ready(()) => {
+                    match try!(self.poll_recv()) {
+                        Async::Ready(Some(())) => {
+                            // New request, try again right away.
+                        }
+                        Async::Ready(None) => {
+                            return Ok(Async::Ready(self.recv.take()))
+                        }
+                        Async::NotReady => break
+                    }
+                }
+                Async::NotReady => break
+            }
+        }
+        if let Async::Ready(()) = try!(self.poll_timeout()) {
+            return Ok(Async::Ready(self.recv.take()))
+        }
+        if let Async::Ready(()) = try!(self.poll_read()) {
+            return Ok(Async::Ready(self.recv.take()))
+        }
+        Ok(Async::NotReady)
+    }
+}
+
+impl<T: Read + Write> ActiveStream<T> {
+    /// Polls the timeout.
+    ///
+    /// If it has hit, we are done.
+    fn poll_timeout(&mut self) -> Poll<(), io::Error> {
+        if let Some(ref mut timeout) = self.timeout {
+            timeout.poll()
+        }
+        else {
+            Ok(Async::NotReady)
         }
     }
 
-    fn len(&self) -> usize {
-        self.data().len()
+    /// Drops all expired pending requests.
+    fn poll_pending(&mut self) {
+        self.pending.expire(|item| item.timeout());
+    }
+
+    /// Polls the receiver if necessary.
+    ///
+    /// Tries to get a new request from the receiver if we don’t
+    /// currently have anything to write. Or, if we don’t have a receiver
+    /// anymore and no more pending requests either, we are done.
+    ///
+    /// Returns some ready if there is something to write, returns
+    /// none ready if the receiver is disconnected and everything has
+    /// expired, not ready if we are waiting for a new request (which sorta
+    /// is also the case if the receiver has disconnected and there is still
+    /// pending requests left), and error for an error.
+    fn poll_recv(&mut self) -> Poll<Option<()>, io::Error> {
+        if let Some(ref mut recv) = self.recv {
+            if self.write.is_none() {
+                match try_ready!(recv.poll()) {
+                    Some(request) => {
+                        self.write = new_write(request, &mut self.pending);
+                        self.timeout = reactor::Timeout::new(self.keep_alive,
+                                                             &self.reactor)
+                                                        .ok();
+                        return Ok(Async::Ready(Some(())))
+                    }
+                    None => { }
+                }
+            }
+            else { return Ok(Async::Ready(Some(()))) }
+        }
+        else {
+            if self.pending.is_empty() { return Ok(Async::Ready(None)) }
+            else { return Ok(Async::NotReady) }
+        };
+        self.recv = None;
+        Ok(Async::NotReady)
+    }
+
+    /// Does the writing.
+    ///
+    /// Returns ready if it is done writing, not ready if it needs to write
+    /// some more but can’t and error if there is an error.
+    fn poll_write(&mut self) -> Poll<(), io::Error> {
+        match self.write {
+            Some(ref mut write) => try_ready!(write.write(&mut self.stream)),
+            None => return Ok(Async::Ready(()))
+        }
+        let request = self.write.take().unwrap().done();
+        self.pending.push(request.id(), request);
+        Ok(Async::Ready(()))
+    }
+
+    /// Does the reading.
+    ///
+    /// Tries to read a new message. If we receive one, find the request for
+    /// it and respond to it. If we receive `None`, the socket has been
+    /// closed normally and we are done.
+    fn poll_read(&mut self) -> Poll<(), io::Error> {
+        loop {
+            match try_ready!(self.read.read(&mut self.stream)) {
+                Some(response) => {
+                    let id = response.header().id();
+                    if let Some(request) = self.pending.pop(id) {
+                        request.respond(response)
+                    }
+                }
+                None => return Ok(Async::Ready(()))
+            }
+        }
+    }
+}
+
+fn new_write(request: Request, pending: &mut PendingRequests<StreamRequest>)
+             -> Option<WriteRequest> {
+    match pending.reserve() {
+        Ok(id) => match WriteRequest::new(request, id) {
+            Some(write) => Some(write),
+            None => {
+                pending.unreserve(id);
+                None
+            }
+        },
+        Err(_) => {
+            request.fail(RequestError::Local);
+            None
+        }
+    }
+}
+
+impl<T: Read + Write> Drop for ActiveStream<T> {
+    fn drop(&mut self) {
+        for item in self.pending.drain() {
+            item.timeout()
+        }
     }
 }
 
 
-//------------ StreamReader -------------------------------------------------
+//------------ WriteRequest --------------------------------------------------
 
-pub struct StreamReader {
-    item: ReaderItem,
-    read: usize,
+struct WriteRequest {
+    request: StreamRequest,
+    pos: usize
 }
 
-impl StreamReader {
-    pub fn new() -> Self {
-        StreamReader { item: ReaderItem::size(), read: 0 }
+impl WriteRequest {
+    fn new(request: Request, id: u16) -> Option<Self> {
+        if let Some(request) = StreamRequest::new(request, id) {
+            Some(WriteRequest { request: request, pos: 0 })
+        }
+        else { None }
     }
 
-    pub fn read<R: io::Read>(&mut self, r: &mut R)
-                             -> io::Result<Option<MessageBuf>> {
+    /// Tries to write the request to `stream`.
+    ///
+    /// Returns ready if the request was written completely, not ready if
+    /// there is some more writing necessary, and error if there is an error.
+    fn write<W: Write>(&mut self, stream: &mut W) -> Poll<(), io::Error> {
+        let buf = self.request.as_ref();
+        while self.pos < buf.len() {
+            let n = try_nb!(stream.write(&buf[self.pos..]));
+            self.pos += n;
+            if n == 0 {
+                return Err(io::Error::new(io::ErrorKind::WriteZero,
+                                          "zero-length write"))
+            }
+        }
+        Ok(Async::Ready(()))
+    }
+
+    fn done(self) -> StreamRequest {
+        self.request
+    }
+}
+
+
+//------------ ReadResponse --------------------------------------------------
+
+struct ReadResponse {
+    item: ReadItem,
+    pos: usize,
+}
+
+impl ReadResponse {
+    fn new() -> Self {
+        ReadResponse { item: ReadItem::size(), pos: 0 }
+    }
+
+    fn read<R: Read>(&mut self, stream: &mut R)
+                     -> Poll<Option<MessageBuf>, io::Error> {
         loop {
             let size = {
-                let buf = &mut self.item.buf()[self.read..];
-                match r.read(buf) {
-                    Ok(0) => {
-                        return Err(io::Error::new(
-                                            io::ErrorKind::ConnectionAborted,
-                                            "closed"))
-                    }
-                    Ok(size) => size,
-                    Err(ref err) if err.kind() == io::ErrorKind::WouldBlock
-                        => return Ok(None),
-                    Err(err) => return Err(err)
-                }
+                let buf = &mut self.item.buf()[self.pos..];
+                try_nb!(stream.read(buf))
             };
-            self.read += size;
-            if self.read == self.item.len() {
+            if size == 0 {
+                return Ok(Async::Ready(None))
+            }
+            self.pos += size;
+            if self.pos == self.item.len() {
                 let next_item = self.item.next_item();
+                self.pos = 0;
                 let item = mem::replace(&mut self.item, next_item);
                 match item.finish() {
-                    Some(message) => return Ok(Some(message)),
-                    None => ()
+                    Some(message) => return Ok(Async::Ready(Some(message))),
+                    None => { }
                 }
-            }
-            else {
-                return Ok(None)
             }
         }
     }
 }
 
-enum ReaderItem {
+
+//------------ ReadItem -----------------------------------------------------
+
+enum ReadItem {
     Size([u8; 2]),
     Message(Vec<u8>),
 }
 
-impl ReaderItem {
+impl ReadItem {
     fn size() -> Self {
-        ReaderItem::Size([0; 2])
+        ReadItem::Size([0; 2])
     }
 
     fn message(size: u16) -> Self {
-        ReaderItem::Message(vec![0; size as usize])
+        ReadItem::Message(vec![0; size as usize])
     }
 
     fn buf(&mut self) -> &mut [u8] {
         match *self {
-            ReaderItem::Size(ref mut data) => data,
-            ReaderItem::Message(ref mut data) => data,
+            ReadItem::Size(ref mut data) => data,
+            ReadItem::Message(ref mut data) => data,
         }
     }
 
     fn len(&self) -> usize {
         match *self {
-            ReaderItem::Size(_) => 2,
-            ReaderItem::Message(ref data) => data.len(),
+            ReadItem::Size(_) => 2,
+            ReadItem::Message(ref data) => data.len(),
         }
     }
 
     fn next_item(&self) -> Self {
         match *self {
-            ReaderItem::Size(ref data) => {
+            ReadItem::Size(ref data) => {
                 let size = u16::from_be(unsafe { mem::transmute(*data) });
-                ReaderItem::message(size)
+                ReadItem::message(size)
             }
-            ReaderItem::Message(_) => ReaderItem::size()
+            ReadItem::Message(_) => ReadItem::size()
         }
     }
 
     fn finish(self) -> Option<MessageBuf> {
         match self {
-            ReaderItem::Size(_) => None,
+            ReadItem::Size(_) => None,
             // XXX Simply drops short messages. Should we log?
-            ReaderItem::Message(data) => MessageBuf::from_vec(data).ok()
+            ReadItem::Message(data) => MessageBuf::from_vec(data).ok()
         }
     }
 }
+
+
+//------------ StreamRequest -------------------------------------------------
+
+struct StreamRequest {
+    request: Request,
+    id: u16,
+    buf: Vec<u8>,
+}
+
+impl StreamRequest {
+    fn new(request: Request, id: u16) -> Option<Self> {
+        let buf = match StreamRequest::new_buf(&request, id) {
+            Ok(buf) => buf,
+            Err(_) => {
+                request.fail(RequestError::Global);
+                return None
+            }
+        };
+        Some(StreamRequest{request: request, id: id, buf: buf})
+    }
+
+    fn new_buf(request: &Request, id: u16) -> ComposeResult<Vec<u8>> {
+        let mut buf = ComposeBuf::new(Some(0xFFFF), true);
+        let pos = buf.pos();
+        buf.push_u16(0).unwrap();
+        let mut buf = try!(MessageBuilder::from_target(buf));
+        buf.header_mut().set_id(id);
+        buf.header_mut().set_rd(true);
+        try!(Question::push(&mut buf, &request.query().name,
+                            request.query().rtype, request.query().class));
+        let mut buf = try!(buf.finish());
+        let size = buf.delta(pos) - 2;
+        try!(buf.update_u16(pos, size as u16));
+        Ok(buf.finish())
+    }
+
+    fn id(&self) -> u16 {
+        self.id
+    }
+
+    fn respond(self, response: MessageBuf) {
+        let request = Message::from_bytes(&self.buf[2..]).unwrap();
+        if response.is_answer(&request) {
+            self.request.succeed(response)
+        }
+        else {
+            self.request.fail(RequestError::Local)
+        }
+    }
+
+    fn timeout(self) {
+        self.request.fail(RequestError::Timeout)
+    }
+}
+
+impl AsRef<[u8]> for StreamRequest {
+    fn as_ref(&self) -> &[u8] {
+        &self.buf
+    }
+}
+
 
 

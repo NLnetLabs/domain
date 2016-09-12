@@ -1,6 +1,5 @@
 extern crate argparse;
 extern crate domain;
-extern crate rotor;
 
 use std::convert;
 use std::error;
@@ -10,10 +9,10 @@ use std::result;
 use std::str::FromStr;
 use domain::bits::{ComposeError, FromStrError, ParseError};
 use domain::bits::message::{MessageBuf, RecordIter};
-use domain::bits::name::{DName, DNameBuf, DNameSlice};
+use domain::bits::name::{DNameBuf, DNameSlice};
 use domain::bits::rdata::GenericRecordData;
 use domain::iana::{Class, RRType};
-use domain::resolv::{ResolvConf, Resolver, Query};
+use domain::resolv::{ResolvConf, Resolver};
 
 
 //------------ Options ------------------------------------------------------
@@ -76,14 +75,14 @@ impl Options {
 }
 
 impl Options {
-    fn name(&self) -> Result<DName> {
+    fn name(&self) -> Result<DNameBuf> {
         if self.name.is_empty() {
-            Ok(DNameSlice::root().into())
+            Ok(DNameSlice::root().to_owned())
         }
         else {
             let mut res = try!(DNameBuf::from_str(&self.name));
             res.append_root();
-            Ok(res.into())
+            Ok(res)
         }
     }
 
@@ -214,10 +213,10 @@ fn print_records<'a>(iter: RecordIter<'a, GenericRecordData<'a>>) {
 
 fn main() {
     let options = Options::from_args();
-    let (join, resolver) = Resolver::spawn(options.conf().clone()).unwrap();
-    let query = Query::new(options.name().unwrap(), options.qtype().unwrap(),
-                           options.qclass().unwrap());
-    let response = resolver.sync_task(query).unwrap();
+    let response = Resolver::run(options.conf().clone(), |resolv| {
+        resolv.query(options.name().unwrap(), options.qtype().unwrap(),
+                           options.qclass().unwrap())
+    }).unwrap();
     let len = response.len();
     print_result(response);
     println!(";; Query time: not yet available.");
@@ -225,6 +224,4 @@ fn main() {
     println!(";; WHEN: not yet available.");
     println!(";; MSG SIZE  rcvd: {} bytes", len);
     println!("");
-    drop(resolver);
-    join.join().unwrap();
 }
