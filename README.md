@@ -3,6 +3,8 @@ A DNS library for Rust.
 
 [![Travis Build Status](https://travis-ci.org/partim/domain.svg?branch=master)](https://travis-ci.org/partim/domain)
 
+[Documentation](https://partim.github.io/domain/domain/index.html)
+
 ## Usage
 
 Since it is wildly incomplete, this crate is not yet on crates.io. If you
@@ -39,16 +41,17 @@ Eventually, this crate will provide the following functions:
 
 * [ ] Stub resolver.
 
-    * [X] [Rotor](https://github.com/tailhook/rotor)-based asynchronous
-          stub resolver.
-
+    * [ ] Asynchronous stub resolver based on
+          [futures](https://github.com/alexcrichton/futures-rs) and
+          [tokio](https://github.com/tokio-rs/tokio-core).
+    
     * [ ] Rich set of DNS tasks:
 
-        * [X] querying for raw DNS records,
+        * [ ] querying for raw DNS records,
 
-        * [X] querying for host names,
+        * [ ] querying for host names,
 
-        * [X] reverse host name queries,
+        * [ ] reverse host name queries,
 
         * [ ] querying for mail servers (MX records),
 
