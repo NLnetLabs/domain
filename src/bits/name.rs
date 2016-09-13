@@ -1548,7 +1548,8 @@ enum LabelContent<'a> {
     ///
     /// The first element is the number of bits in the label with zero
     /// indicating 256 bits. The second element is the byte slice
-    /// representing the bit field padded to full octets.
+    /// representing the bit field padded to full octets with the most
+    /// significant bit first.
     ///
     /// This variant is historic and annoying and shouldn't really be
     /// encountered.
@@ -1568,6 +1569,24 @@ impl<'a> Label<'a> {
     pub fn normal(bytes: &'a [u8]) -> Self {
         assert!(bytes.len() <= 63);
         Label(LabelContent::Normal(bytes))
+    }
+
+    /// Returns a binary label with a mutliple of eight bits.
+    ///
+    /// The returned label will be a binary label with eight times the
+    /// length of the slice bits and the bits of the label taken from the
+    /// slice. The octets in the slice need to be in network byte order,
+    /// ie., if you that slice is actually an integer you have to convert
+    /// it into network byte order first.
+    ///
+    /// The function will panic if `bytes` is longer than 32 octets.
+    pub fn octo_binary(bytes: &'a [u8]) -> Self {
+        let len = match bytes.len() {
+            x if x > 32 => panic!("overlong binary label"),
+            32 => 0,
+            x => (x * 8) as u8
+        };
+        Label(LabelContent::Binary(len, bytes))
     }
 
     /// Skips over a label and returns whether it was the final label.

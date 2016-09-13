@@ -32,6 +32,10 @@ impl Resolver {
         &self.core.conf
     }
 
+    pub fn options(&self) -> &ResolvOptions {
+        &self.core.conf.options
+    }
+
     pub fn run<R, F>(conf: ResolvConf, f: F) -> Result<R::Item, R::Error>
                where R: Future, R::Error: From<io::Error>,
                      F: FnOnce(Resolver) -> R {

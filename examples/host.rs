@@ -6,12 +6,11 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use domain::bits::DNameBuf;
 use domain::resolv::{ResolvConf, Resolver};
-use domain::resolv::lookup::lookup_host;
+use domain::resolv::lookup::{lookup_addr, lookup_host};
 
 
 fn forward(name: DNameBuf, conf: ResolvConf) {
     match Resolver::run(conf, |resolv| lookup_host(resolv, &name)) {
-    //match resolver.sync_task(SearchHost::new(&name.clone(), conf)) {
         Ok(result) => {
             if name != result.canonical_name() {
                 println!("{} is an alias for {}",
@@ -27,17 +26,17 @@ fn forward(name: DNameBuf, conf: ResolvConf) {
     }
 }
 
-fn reverse(_addr: IpAddr, _conf: ResolvConf) {
-    /*
-    match resolver.sync_task(LookupAddr::new(addr)) {
+fn reverse(addr: IpAddr, conf: ResolvConf) {
+    match Resolver::run(conf, |resolv| lookup_addr(resolv, addr)) {
         Ok(result) => {
-            println!("Host {} has domain name pointer {}", addr, result);
+            for name in result.iter() {
+                println!("Host {} has domain name pointer {}", addr, name);
+            }
         },
         Err(err) => {
             println!("Error: {}", err);
         }
     }
-    */
 }
 
 fn main() {
