@@ -35,8 +35,8 @@ macro_rules! dname_type {
                 $target { $field: $field }
             }
 
-            pub fn $field(&self) -> &DName<'a> {
-                &self.$field
+            pub fn $field(&self) -> DName<'a> {
+                self.$field.clone()
             }
 
             fn parse_always<P>(parser: &mut P) -> ParseResult<Self>
