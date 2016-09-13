@@ -2,7 +2,7 @@
 
 use futures::{Async, Future, Poll};
 use ::bits::{DNameBuf, DNameSlice};
-use super::super::resolver::Resolver;
+use super::super::resolver::ResolverTask;
 
 /// Creates a future as a sequence of lookups according to the search list.
 ///
@@ -12,10 +12,10 @@ use super::super::resolver::Resolver;
 ///
 /// The closure `f` is used to create lookups trying to find the first
 /// name for which that lookup succeeds.
-pub fn search<N, R, F>(resolv: Resolver, name: N, f: F) -> Search<R, F>
+pub fn search<N, R, F>(resolv: ResolverTask, name: N, f: F) -> Search<R, F>
               where N: AsRef<DNameSlice>,
                     R: Future,
-                    F: Fn(&Resolver, &DNameSlice) -> R + Send + 'static {
+                    F: Fn(&ResolverTask, &DNameSlice) -> R + Send + 'static {
     let name = name.as_ref();
     match name.ndots() {
         None => {
@@ -34,14 +34,14 @@ pub fn search<N, R, F>(resolv: Resolver, name: N, f: F) -> Search<R, F>
 }
 
 pub struct Search<R, F>
-                  where R: Future, F: Fn(&Resolver, &DNameSlice) -> R {
+                  where R: Future, F: Fn(&ResolverTask, &DNameSlice) -> R {
     current: R,
     data: Option<SearchData<R,F>>
 }
 
 pub struct SearchData<R, F>
-                  where R: Future, F: Fn(&Resolver, &DNameSlice) -> R {
-    resolv: Resolver,
+                  where R: Future, F: Fn(&ResolverTask, &DNameSlice) -> R {
+    resolv: ResolverTask,
     op: F,
     name: DNameBuf,
     pos: usize,
@@ -49,8 +49,8 @@ pub struct SearchData<R, F>
 
 
 impl<R, F> Search<R, F>
-     where R: Future, F: Fn(&Resolver, &DNameSlice) -> R {
-    pub fn new(resolv: Resolver, op: F, name: DNameBuf) -> Self {
+     where R: Future, F: Fn(&ResolverTask, &DNameSlice) -> R {
+    pub fn new(resolv: ResolverTask, op: F, name: DNameBuf) -> Self {
         let mut abs_name = name.clone();
         abs_name.append(&resolv.conf().search[0]);
         let current = op(&resolv, &abs_name);
@@ -68,7 +68,7 @@ impl<R, F> Search<R, F>
 //--- Future
 
 impl<R, F> Future for Search<R, F>
-     where R: Future, F: Fn(&Resolver, &DNameSlice) -> R {
+     where R: Future, F: Fn(&ResolverTask, &DNameSlice) -> R {
     type Item = R::Item;
     type Error = R::Error;
 

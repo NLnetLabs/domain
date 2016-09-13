@@ -11,12 +11,12 @@ use ::iana::{Class, RRType};
 use ::rdata::Ptr;
 use super::super::conf::ResolvOptions;
 use super::super::error::Error;
-use super::super::resolver::Resolver;
+use super::super::resolver::ResolverTask;
 
 
-pub fn lookup_addr(resolv: Resolver, addr: IpAddr)
+pub fn lookup_addr(resolv: ResolverTask, addr: IpAddr)
                     -> BoxFuture<LookupAddr, Error> {
-    let ptr = resolv.query(dname_from_addr(addr, &resolv.options()),
+    let ptr = resolv.query(dname_from_addr(addr, &resolv.conf().options),
                            RRType::Ptr, Class::In);
     let res = ptr.map(|msg| LookupAddr(msg));
     res.boxed()

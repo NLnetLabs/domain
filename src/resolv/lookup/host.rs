@@ -7,11 +7,11 @@ use ::bits::{DNameBuf, DNameSlice, MessageBuf, ParseResult};
 use ::iana::{RRType, Class};
 use ::rdata::{A, Aaaa};
 use super::super::error::{Error, Result};
-use super::super::resolver::Resolver;
+use super::super::resolver::ResolverTask;
 use super::search::search;
 
 
-pub fn lookup_host<N>(resolv: Resolver, name: N)
+pub fn lookup_host<N>(resolv: ResolverTask, name: N)
                       -> BoxFuture<LookupHost, Error>
                    where N: AsRef<DNameSlice> {
     search(resolv, name, |resolv, name| {

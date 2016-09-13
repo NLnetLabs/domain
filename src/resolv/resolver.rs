@@ -3,7 +3,8 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use futures::{Async, BoxFuture, Future, IntoFuture, Poll, oneshot};
+use futures::{Async, BoxFuture, Future, IntoFuture, Poll, lazy, oneshot};
+use futures::task::TaskRc;
 use rand;
 use tokio_core::channel::Sender;
 use tokio_core::reactor;
@@ -15,6 +16,26 @@ use super::request::{Question, Request};
 use super::tcp::tcp_service;
 use super::udp::udp_service;
 
+
+//------------ ResolverTask -------------------------------------------------
+
+#[derive(Clone)]
+pub struct ResolverTask {
+    core: TaskRc<Core>
+}
+
+impl ResolverTask {
+    pub fn query<N>(&self, name: N, rtype: RRType, class: Class) -> Query
+                 where N: AsRef<DNameSlice> {
+        let question = Arc::new(Question{name: name.as_ref().to_owned(),
+                                         rtype: rtype, class: class});
+        Query::new(self.core.clone(), question)
+    }
+
+    pub fn conf(&self) -> Arc<ResolvConf> {
+        self.core.with(|core| core.conf.clone())
+    }
+}
 
 //------------ Resolver -----------------------------------------------------
 
@@ -37,18 +58,18 @@ impl Resolver {
     }
 
     pub fn run<R, F>(conf: ResolvConf, f: F) -> Result<R::Item, R::Error>
-               where R: Future, R::Error: From<io::Error>,
-                     F: FnOnce(Resolver) -> R {
+               where R: Future, R::Error: From<io::Error> + Send + 'static,
+                     F: FnOnce(ResolverTask) -> R {
         let mut reactor = try!(reactor::Core::new());
         let resolver = Resolver::new(reactor.handle(), conf);
-        reactor.run(f(resolver))
+        let fut = resolver.start().and_then(|resolv| f(resolv));
+        reactor.run(fut)
     }
-
-    pub fn query<N>(&self, name: N, rtype: RRType, class: Class) -> Query
-                 where N: AsRef<DNameSlice> {
-        let question = Arc::new(Question{name: name.as_ref().to_owned(),
-                                         rtype: rtype, class: class});
-        Query::new(self.core.clone(), question)
+    
+    pub fn start<E>(&self) -> BoxFuture<ResolverTask, E>
+                 where E: Send + 'static {
+        let core = self.core.clone();
+        lazy(move || Ok(ResolverTask{core: TaskRc::new(core)})).boxed()
     }
 }
 
@@ -56,7 +77,7 @@ impl Resolver {
 //------------ Query --------------------------------------------------------
 
 pub struct Query {
-    core: Core,
+    core: TaskRc<Core>,
     question: Arc<Question>,
     request: BoxFuture<Result<MessageBuf, Error>, Error>,
 
@@ -67,7 +88,7 @@ pub struct Query {
 }
 
 impl Query {
-    fn new(core: Core, question: Arc<Question>) -> Self {
+    fn new(core: TaskRc<Core>, question: Arc<Question>) -> Self {
         let (index, dgram, request) = Self::start(&core, question.clone());
         Query {
             core: core, question: question, request: request,
@@ -99,25 +120,27 @@ impl Future for Query {
 }
 
 impl Query {
-    fn start(core: &Core, question: Arc<Question>)
+    fn start(core: &TaskRc<Core>, question: Arc<Question>)
              -> (usize, bool,
                  BoxFuture<Result<MessageBuf, Error>, Error>) {
-        if !core.options().use_vc {
-            let index = if core.options().rotate {
-                rand::random::<usize>() % core.udp.len()
+        core.with(|core| {
+            if !core.options().use_vc {
+                let index = if core.options().rotate {
+                    rand::random::<usize>() % core.udp.len()
+                }
+                else { 0 };
+                let request = core.udp[index].request(question);
+                (index, true, request)
             }
-            else { 0 };
-            let request = core.udp[index].request(question);
-            (index, true, request)
-        }
-        else {
-            let index = if core.options().rotate {
-                rand::random::<usize>() % core.tcp.len()
+            else {
+                let index = if core.options().rotate {
+                    rand::random::<usize>() % core.tcp.len()
+                }
+                else { 0 };
+                let request = core.tcp[index].request(question);
+                (index, false, request)
             }
-            else { 0 };
-            let request = core.tcp[index].request(question);
-            (index, false, request)
-        }
+        })
     }
 
     fn restart(&mut self) -> Poll<MessageBuf, Error> {
@@ -136,7 +159,7 @@ impl Query {
     /// If the response is truncated and we are not ignoring that 
     fn response(&mut self, response: MessageBuf)
                 -> Poll<MessageBuf, Error> {
-        if response.header().tc() && self.dgram && !self.core.options().ign_tc {
+        if response.header().tc() && self.dgram && !self.core.with(|core| core.options().ign_tc) {
             self.start_stream()
         }
         else { Ok(response.into()) }
@@ -146,23 +169,24 @@ impl Query {
     fn next_request(&mut self) -> Poll<MessageBuf, Error> {
         if self.dgram {
             self.curr_index += 1;
-            let udp_len = self.core.udp.len();
+            let udp_len = self.core.with(|core| core.udp.len());
             if (self.curr_index % udp_len) == self.start_index {
                 self.start_stream()
             }
             else {
-                self.request = self.core.udp[self.curr_index]
-                                   .request(self.question.clone());
+                self.request = self.core.with(|core| {
+                    core.udp[self.curr_index].request(self.question.clone())
+                });
                 // Ok(Async::NotReady)
                 self.poll()
             }
         }
         else {
             self.curr_index += 1;
-            let tcp_len = self.core.tcp.len();
+            let tcp_len = self.core.with(|core| core.tcp.len());
             if (self.curr_index % tcp_len) == self.start_index {
                 self.attempt += 1;
-                if self.attempt == self.core.conf.attempts {
+                if self.attempt == self.core.with(|core| core.conf.attempts) {
                     Err(Error::Timeout)
                 }
                 else {
@@ -170,8 +194,9 @@ impl Query {
                 }
             }
             else {
-                self.request = self.core.tcp[self.curr_index]
-                                   .request(self.question.clone());
+                self.request = self.core.with(|core| {
+                    core.tcp[self.curr_index].request(self.question.clone())
+                });
                 //Ok(Async::NotReady)
                 self.poll()
             }
@@ -181,13 +206,14 @@ impl Query {
     /// Switches to stream mode and starts the first request or errors out.
     fn start_stream(&mut self) -> Poll<MessageBuf, Error> {
         self.dgram = false;
-        self.start_index = if self.core.options().rotate {
-            rand::random::<usize>() % self.core.tcp.len()
+        self.start_index = if self.core.with(|core| core.options().rotate) {
+            rand::random::<usize>() % self.core.with(|core| core.tcp.len())
         }
         else { 0 };
         self.curr_index = self.start_index;
-        self.request = self.core.tcp[self.curr_index]
-                           .request(self.question.clone());
+        self.request = self.core.with(|core| {
+            core.tcp[self.curr_index].request(self.question.clone())
+        });
         Ok(Async::NotReady)
     }
 }
@@ -199,7 +225,7 @@ impl Query {
 struct Core {
     udp: Vec<ServiceHandle>,
     tcp: Vec<ServiceHandle>,
-    conf: ResolvConf,
+    conf: Arc<ResolvConf>,
 }
 
 
@@ -230,7 +256,7 @@ impl Core {
         Core {
             udp: udp,
             tcp: tcp,
-            conf: conf
+            conf: Arc::new(conf)
         }
     }
 
