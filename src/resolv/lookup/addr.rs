@@ -5,7 +5,7 @@ use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use futures::{BoxFuture, Future};
-use ::bits::name::{DNameBuf, DNameSlice, Label};
+use ::bits::name::{DName, DNameBuf, DNameSlice, Label};
 use ::bits::message::{MessageBuf, RecordIter};
 use ::iana::{Class, RRType};
 use ::rdata::Ptr;
@@ -40,7 +40,7 @@ pub struct LookupAddrIter<'a> {
 }
 
 impl<'a> Iterator for LookupAddrIter<'a> {
-    type Item = DNameBuf;
+    type Item = DName<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let name = if let Some(ref name) = self.name { name }
@@ -49,9 +49,7 @@ impl<'a> Iterator for LookupAddrIter<'a> {
                      else { return None };
         while let Some(Ok(record)) = answer.next() {
             if record.name() == name {
-                if let Ok(name) = record.rdata().ptrdname().to_owned() {
-                    return Some(name)
-                }
+                return Some(record.rdata().ptrdname())
             }
         }
         None
