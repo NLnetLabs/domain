@@ -15,6 +15,10 @@ path = "examples/dig.rs"
 name = "host"
 path = "examples/host.rs"
 
+[[example]]
+name = "rusthome"
+path = "examples/rusthome.rs"
+
 [dependencies]
 rand        = "0.3"
 futures     = "0.1"
@@ -22,3 +26,4 @@ tokio-core  = "0.1"
 
 [dev-dependencies]
 argparse     = "0.2"
+tokio-tls    = { git = "https://github.com/tokio-rs/tokio-tls" }

@@ -37,6 +37,7 @@ impl ResolverTask {
     }
 }
 
+
 //------------ Resolver -----------------------------------------------------
 
 #[derive(Clone)]
@@ -45,8 +46,12 @@ pub struct Resolver {
 }
 
 impl Resolver {
-    pub fn new(reactor: reactor::Handle, conf: ResolvConf) -> Self {
+    pub fn new(reactor: &reactor::Handle, conf: ResolvConf) -> Self {
         Resolver{core: Core::new(reactor, conf)}
+    }
+
+    pub fn default(reactor: &reactor::Handle) -> Self {
+        Resolver{core: Core::new(reactor, ResolvConf::default())}
     }
 
     pub fn conf(&self) -> &ResolvConf {
@@ -61,11 +66,11 @@ impl Resolver {
                where R: Future, R::Error: From<io::Error> + Send + 'static,
                      F: FnOnce(ResolverTask) -> R {
         let mut reactor = try!(reactor::Core::new());
-        let resolver = Resolver::new(reactor.handle(), conf);
+        let resolver = Resolver::new(&reactor.handle(), conf);
         let fut = resolver.start().and_then(|resolv| f(resolv));
         reactor.run(fut)
     }
-    
+ 
     pub fn start<E>(&self) -> BoxFuture<ResolverTask, E>
                  where E: Send + 'static {
         let core = self.core.clone();
@@ -155,11 +160,11 @@ impl Query {
     }
 
     /// Processes a response.
-    ///
-    /// If the response is truncated and we are not ignoring that 
     fn response(&mut self, response: MessageBuf)
                 -> Poll<MessageBuf, Error> {
-        if response.header().tc() && self.dgram && !self.core.with(|core| core.options().ign_tc) {
+        if response.header().tc() && self.dgram
+                && !self.core.with(|core| core.options().ign_tc)
+        {
             self.start_stream()
         }
         else { Ok(response.into()) }
@@ -230,7 +235,7 @@ struct Core {
 
 
 impl Core {
-    fn new(reactor: reactor::Handle, conf: ResolvConf) -> Self {
+    fn new(reactor: &reactor::Handle, conf: ResolvConf) -> Self {
         let mut udp = Vec::new();
         let mut tcp = Vec::new();
 

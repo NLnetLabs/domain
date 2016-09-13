@@ -99,6 +99,15 @@ impl From<io::Error> for Error {
 }
 
 
+//--- From for io::Error
+
+impl From<Error> for io::Error {
+    fn from(error: Error) -> io::Error {
+        io::Error::new(io::ErrorKind::Other, error)
+    }
+}
+
+
 //--- Display
 
 impl fmt::Display for Error {
