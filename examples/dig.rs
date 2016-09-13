@@ -1,5 +1,6 @@
 extern crate argparse;
 extern crate domain;
+extern crate tokio_core;
 
 use std::convert;
 use std::error;
@@ -13,6 +14,7 @@ use domain::bits::name::{DNameBuf, DNameSlice};
 use domain::bits::rdata::GenericRecordData;
 use domain::iana::{Class, RRType};
 use domain::resolv::{ResolvConf, Resolver};
+use tokio_core::reactor::Core;
 
 
 //------------ Options ------------------------------------------------------
@@ -151,6 +153,18 @@ type Result<T> = result::Result<T, Error>;
 
 //------------ Processing Steps ---------------------------------------------
 
+fn query(options: Options) -> MessageBuf {
+    let mut core = Core::new().unwrap();
+    let resolver = Resolver::from_conf(&core.handle(), options.conf().clone());
+    //let fut = resolver.start().and_then(move |resolv| {
+    let fut = resolver.spawn(move |resolv| {
+        resolv.query(options.name().unwrap(), options.qtype().unwrap(),
+                           options.qclass().unwrap())
+    });
+
+    core.run(fut).unwrap()
+}
+
 fn print_result(response: MessageBuf) {
     println!(";; Got answer:");
     println!(";; ->>HEADER<<- opcode: {}, status: {}, id: {}",
@@ -213,10 +227,7 @@ fn print_records<'a>(iter: RecordIter<'a, GenericRecordData<'a>>) {
 
 fn main() {
     let options = Options::from_args();
-    let response = Resolver::run(options.conf().clone(), |resolv| {
-        resolv.query(options.name().unwrap(), options.qtype().unwrap(),
-                           options.qclass().unwrap())
-    }).unwrap();
+    let response = query(options);
     let len = response.len();
     print_result(response);
     println!(";; Query time: not yet available.");

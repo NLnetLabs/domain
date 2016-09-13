@@ -46,12 +46,12 @@ pub struct Resolver {
 }
 
 impl Resolver {
-    pub fn new(reactor: &reactor::Handle, conf: ResolvConf) -> Self {
-        Resolver{core: Core::new(reactor, conf)}
+    pub fn new(reactor: &reactor::Handle) -> Self {
+        Resolver{core: Core::new(reactor, ResolvConf::default())}
     }
 
-    pub fn default(reactor: &reactor::Handle) -> Self {
-        Resolver{core: Core::new(reactor, ResolvConf::default())}
+    pub fn from_conf(reactor: &reactor::Handle, conf: ResolvConf) -> Self {
+        Resolver{core: Core::new(reactor, conf)}
     }
 
     pub fn conf(&self) -> &ResolvConf {
@@ -62,11 +62,11 @@ impl Resolver {
         &self.core.conf.options
     }
 
-    pub fn run<R, F>(conf: ResolvConf, f: F) -> Result<R::Item, R::Error>
+    pub fn run<R, F>(f: F) -> Result<R::Item, R::Error>
                where R: Future, R::Error: From<io::Error> + Send + 'static,
                      F: FnOnce(ResolverTask) -> R {
         let mut reactor = try!(reactor::Core::new());
-        let resolver = Resolver::new(&reactor.handle(), conf);
+        let resolver = Resolver::new(&reactor.handle());
         let fut = resolver.start().and_then(|resolv| f(resolv));
         reactor.run(fut)
     }
@@ -75,6 +75,13 @@ impl Resolver {
                  where E: Send + 'static {
         let core = self.core.clone();
         lazy(move || Ok(ResolverTask{core: TaskRc::new(core)})).boxed()
+    }
+
+    pub fn spawn<R, F>(&self, f: F) -> BoxFuture<R::Item, R::Error>
+                 where R: Future + Send + 'static,
+                       R::Error: From<io::Error> + Send + 'static,
+                       F: FnOnce(ResolverTask) -> R + Send + 'static {
+        self.start().and_then(|resolv| f(resolv)).boxed()
     }
 }
 

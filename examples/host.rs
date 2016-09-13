@@ -5,12 +5,12 @@ use std::env;
 use std::net::IpAddr;
 use std::str::FromStr;
 use domain::bits::DNameBuf;
-use domain::resolv::{ResolvConf, Resolver};
+use domain::resolv::Resolver;
 use domain::resolv::lookup::{lookup_addr, lookup_host};
 
 
-fn forward(name: DNameBuf, conf: ResolvConf) {
-    match Resolver::run(conf, |resolv| lookup_host(resolv, &name)) {
+fn forward(name: DNameBuf) {
+    match Resolver::run(|resolv| lookup_host(resolv, &name)) {
         Ok(result) => {
             if name != result.canonical_name() {
                 println!("{} is an alias for {}",
@@ -26,8 +26,8 @@ fn forward(name: DNameBuf, conf: ResolvConf) {
     }
 }
 
-fn reverse(addr: IpAddr, conf: ResolvConf) {
-    match Resolver::run(conf, |resolv| lookup_addr(resolv, addr)) {
+fn reverse(addr: IpAddr) {
+    match Resolver::run(|resolv| lookup_addr(resolv, addr)) {
         Ok(result) => {
             for name in result.iter() {
                 println!("Host {} has domain name pointer {}", addr, name);
@@ -48,19 +48,11 @@ fn main() {
         Some(name) => name
     };
 
-    let conf = ResolvConf::default();
-    /*
-    let mut conf = ResolvConf::new();
-    let data = "nameserver 8.8.8.8\n\
-                options use-vc\n".to_string();
-    conf.parse(&mut io::Cursor::new(data)).unwrap();
-    */
- 
     if let Ok(addr) = IpAddr::from_str(&name) {
-        reverse(addr, conf)
+        reverse(addr)
     }
     else if let Ok(name) = DNameBuf::from_str(&name) {
-        forward(name, conf)
+        forward(name)
     }
     else {
         println!("Not a domain name: {}", name)
