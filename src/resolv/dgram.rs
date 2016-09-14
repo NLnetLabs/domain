@@ -115,9 +115,16 @@ impl<T: DgramTransport + 'static> DgramService<T> {
 impl<T: DgramTransport> DgramService<T> {
     /// Polls the request receiver.
     ///
-    /// Returns ready iff the receiver is gone and there are no more pending
-    /// requests.
-    fn poll_recv(&mut self) -> Async<()> {
+    /// Tries to get a new request from the receiver if we don’t
+    /// currently have anything to write. Or, if we don’t have a receiver
+    /// anymore and no more pending requests either, we are done.
+    ///
+    /// Returns some ready if there is something to write, returns
+    /// none ready if the receiver is disconnected and everything has
+    /// expired, not ready if we are waiting for a new request (which sorta
+    /// is also the case if the receiver has disconnected and there is still
+    /// pending requests left), and error for an error.
+    fn poll_recv(&mut self) -> Async<Option<()>> {
         if let Some(ref mut recv) = self.recv {
             if self.write.is_none() {
                 match recv.poll() {
@@ -125,7 +132,7 @@ impl<T: DgramTransport> DgramService<T> {
                         self.write = DgramRequest::new(request,
                                                        &mut self.pending,
                                                        self.msg_size);
-                        return Async::NotReady
+                        return Async::Ready(Some(()))
                     }
                     Ok(Async::NotReady) => return Async::NotReady,
                     Ok(Async::Ready(None)) | Err(_) => { }
@@ -134,50 +141,43 @@ impl<T: DgramTransport> DgramService<T> {
             else { return Async::NotReady }
         }
         else {
-            if self.pending.is_empty() { return Async::Ready(()) }
+            if self.pending.is_empty() { return Async::Ready(None) }
             else { return Async::NotReady }
         };
         self.recv = None;
         Async::NotReady
     }
 
-    /// Poll the pending requests.
+    /// Poll for writing.
     ///
-    /// That is, times out all expired requests.
-    fn poll_pending(&mut self) {
-        self.pending.expire(|item| item.timeout())
-    }
-
-
-    fn poll_write(&mut self) -> io::Result<()> {
-        loop {
-            let success = if let Some(ref mut request) = self.write {
-                let written = match self.sock.send_to(request.buf(),
-                                                      &self.peer) {
-                    Ok(written) => written,
-                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock
-                    => {
-                        return Ok(())
-                    }
-                    Err(err) => return Err(err)
-                };
+    /// Returns ready if it is done writing, not ready if it needs to write
+    /// some more but can’t and error if there is an error.
+    fn poll_write(&mut self) -> Poll<(), io::Error> {
+        let success = match self.write {
+            Some(ref mut request) => {
+                let written = try_nb!(self.sock.send_to(request.buf(),
+                                                        &self.peer));
                 written == request.buf().len()
             }
+            None => return Ok(Async::Ready(()))
+        };
+        if let Some(request) = mem::replace(&mut self.write, None) {
+            if success {
+                self.pending.push(request.id(), request)
+            }
             else {
-                return Ok(())
-            };
-            if let Some(request) = mem::replace(&mut self.write, None) {
-                if success {
-                    self.pending.push(request.id(), request)
-                }
-                else {
-                    request.fail(io::Error::new(io::ErrorKind::Other,
-                                                "short write").into());
-                }
+                request.fail(io::Error::new(io::ErrorKind::Other,
+                                            "short write").into());
             }
         }
+        Ok(Async::Ready(()))
     }
 
+    /// Polls for reading.
+    ///
+    /// Tries to read and dispatch messages. Returns `Ok()` if that ends
+    /// all well with waiting for more messages or `Err(_)` if reading fails
+    /// and this should be it.
     fn poll_read(&mut self) -> io::Result<()> {
         while let Async::Ready(()) = self.sock.poll_read() {
             let mut buf = vec![0u8; self.msg_size];
@@ -203,6 +203,14 @@ impl<T: DgramTransport> DgramService<T> {
         }
         Ok(())
     }
+
+    /// Poll the pending requests.
+    ///
+    /// That is, times out all expired requests.
+    fn poll_pending(&mut self) {
+        self.pending.expire(|item| item.timeout())
+    }
+
 }
 
 
@@ -212,18 +220,36 @@ impl<T: DgramTransport> Future for DgramService<T> {
     type Item = ();
     type Error = io::Error;
 
+    /// Polls all inner futures.
+    ///
+    /// We need to write as long as we can and either have or can get
+    /// something. We need to read as long as we can. And we need to ditch
+    /// all expired requests.
+    ///
+    /// We are done if the receiver is done and there are no more requests
+    /// left or if anything goes horribly wrong.
     fn poll(&mut self) -> Poll<(), io::Error> {
-        match self.poll_recv() {
-            Async::Ready(()) => return Ok(Async::Ready(())),
-            Async::NotReady => { }
-        }
         self.poll_pending();
-        try!(self.poll_write());
+        loop {
+            match try!(self.poll_write()) {
+                Async::Ready(()) => {
+                    match self.poll_recv() {
+                        Async::Ready(Some(())) => {
+                            // New request, try writing right again.
+                        }
+                        Async::Ready(None) => {
+                            return Ok(Async::Ready(()))
+                        }
+                        Async::NotReady => break
+                    }
+                }
+                Async::NotReady => break
+            }
+        }
         try!(self.poll_read());
         Ok(Async::NotReady)
     }
 }
-
 
 
 //------------ DgramRequest --------------------------------------------------
