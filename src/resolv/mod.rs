@@ -174,8 +174,8 @@
 //! # The Run Shortcut
 //!
 //! If you only want to do a DNS lookup and don’t otherwise use tokio, there
-//! is a nice shortcut through the [Resolver::run()] associated function. It
-//! takes a closure similar from a [ResolvTask] to a future and waits while
+//! is a shortcut through the [Resolver::run()] associated function. It
+//! takes a closure from a [ResolverTask] to a future and waits while
 //! driving the future to completing. In other words, it takes away all the
 //! boiler plate from above:
 //!
@@ -225,6 +225,7 @@ pub use self::resolver::{Resolver, ResolverTask, Query};
 
 pub mod conf;
 pub mod error;
+pub mod hosts;
 pub mod lookup;
 
 
