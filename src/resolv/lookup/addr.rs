@@ -14,6 +14,16 @@ use super::super::error::Error;
 use super::super::resolver::ResolverTask;
 
 
+//------------ lookup_addr ---------------------------------------------------
+
+/// Creates a future that resolves into the host names for an IP address. 
+///
+/// The future will query DNS using the resolver represented by `resolv`.
+/// It will query DNS only and not consider any other database the system
+/// may have.
+/// 
+/// The value returned upon success can be turned into an iterator over
+/// host names via its `iter()` method. This is due to lifetime issues.
 pub fn lookup_addr(resolv: ResolverTask, addr: IpAddr)
                     -> BoxFuture<LookupAddr, Error> {
     let ptr = resolv.query(dname_from_addr(addr, &resolv.conf().options),
@@ -23,9 +33,16 @@ pub fn lookup_addr(resolv: ResolverTask, addr: IpAddr)
 }
 
 
+//------------ LookupAddr ---------------------------------------------------
+
+/// The success type of the `lookup_addr()` function.
+///
+/// The only purpose of this type is to return an iterator over host names
+/// via its `iter()` method.
 pub struct LookupAddr(MessageBuf);
 
 impl LookupAddr {
+    /// Returns an iterator over the host names.
     pub fn iter(&self) -> LookupAddrIter {
         LookupAddrIter {
             name: self.0.canonical_name(),
@@ -34,6 +51,10 @@ impl LookupAddr {
     }
 }
 
+
+//------------ LookupAddrIter -----------------------------------------------
+
+/// An iterator over host names returned by address lookup.
 pub struct LookupAddrIter<'a> {
     name: Option<Cow<'a, DNameSlice>>,
     answer: Option<RecordIter<'a, Ptr<'a>>>
@@ -59,6 +80,7 @@ impl<'a> Iterator for LookupAddrIter<'a> {
 
 //------------ Helper Functions ---------------------------------------------
 
+/// Translates an IP address into a domain name.
 fn dname_from_addr(addr: IpAddr, opts: &ResolvOptions) -> DNameBuf {
     match addr {
         IpAddr::V4(addr) => dname_from_v4(addr),
@@ -66,6 +88,7 @@ fn dname_from_addr(addr: IpAddr, opts: &ResolvOptions) -> DNameBuf {
     }
 }
 
+/// Translates an IPv4 address into a domain name.
 fn dname_from_v4(addr: Ipv4Addr) -> DNameBuf {
     let octets = addr.octets();
     DNameBuf::from_str(&format!("{}.{}.{}.{}.in-addr.arpa.", octets[3],
@@ -75,7 +98,7 @@ fn dname_from_v4(addr: Ipv4Addr) -> DNameBuf {
 /// Translate an IPv6 address into a domain name.
 ///
 /// As there are several ways to do this, the functions depends on
-/// resolver options, name `use_bstring` and `use_ip6dotin`.
+/// resolver options, namely `use_bstring` and `use_ip6dotin`.
 fn dname_from_v6(addr: Ipv6Addr, opts: &ResolvOptions) -> DNameBuf {
     let mut res = DNameBuf::new();
     if opts.use_bstring {
@@ -107,3 +130,4 @@ fn dname_from_v6(addr: Ipv6Addr, opts: &ResolvOptions) -> DNameBuf {
     res.push(&Label::root());
     res
 }
+

@@ -74,4 +74,3 @@
 //! a random ID (which means that resends will have a new ID), keeps sent
 //! requests in a map, and matches incoming responses against that map.
 //! The map also serves to time out requests if they linger for too long.
-//!

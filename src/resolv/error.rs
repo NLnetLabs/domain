@@ -9,7 +9,7 @@ use ::bits::ComposeError;
 
 //------------ Error ---------------------------------------------------------
 
-/// An error happened during a lookup.
+/// An error happened during a query or lookup.
 #[derive(Debug)]
 pub enum Error {
     /// The question was broken.
@@ -33,7 +33,7 @@ pub enum Error {
 
 
 impl Error {
-    /// Returns whether this error spells the end of a lookup.
+    /// Returns whether this error spells the end of a query.
     pub fn is_fatal(&self) -> bool {
         match *self {
             Error::QuestionError(_) => true,
@@ -41,7 +41,7 @@ impl Error {
         }
     }
 
-    /// Finds the most appropriate error for two failed lookups.
+    /// Finds the most appropriate error for two failed queries.
     pub fn merge(self, other: Self) -> Self {
         use self::Error::*;
 
@@ -121,6 +121,6 @@ impl fmt::Display for Error {
 
 //------------ Result --------------------------------------------------------
 
-/// The result type of a lookup.
+/// The result type of a query or lookup.
 pub type Result<T> = result::Result<T, Error>;
 

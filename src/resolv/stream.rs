@@ -23,30 +23,50 @@ use super::resolver::ServiceHandle;
 
 //------------ StreamFactory -------------------------------------------------
 
+/// A factory for creating connected streams.
 pub trait StreamFactory: Send + 'static {
+    /// The type of stream created by this factory.
     type Stream: Read + Write + Send + 'static;
+
+    /// The type of the future resulting in a connected stream.
     type Future: Future<Item=Self::Stream, Error=io::Error> + Send + 'static;
 
+    /// Starts connecting a socket atop the given reactor.
     fn connect(&self, reactor: &reactor::Handle) -> Self::Future;
 }
 
 
 //------------ StreamService ------------------------------------------------
 
+/// A DNS service using a stream transport.
+///
+/// The stream service is a future spawned into Tokio reactor core that
+/// resolves into nothing when the receiver for requests disconnects.
 pub struct StreamService<S: StreamFactory> {
+    /// The state we are currently in.
     state: State<S>,
+
+    /// A handle to a reactor for changing states.
     reactor: reactor::Handle,
+
+    /// A stream factory for creating new connections.
     factory: S,
+
+    /// How long should a stream stay connected?
     keep_alive: Duration,
+
+    /// How long should we wait for an answer to a request?
     request_timeout: Duration,
 }
 
+/// The state of a stream service.
 enum State<S: StreamFactory> {
     /// There is currently no request to work on and no open connection.
     ///
     /// In this state, we wait on the receiver for a request to come in. The
-    /// state either ends with a new request, in which case we go into active,
-    /// or the receiver having been closed, in which case we are done.
+    /// state either ends with a new request, in which case we start
+    /// connecting, or the receiver having been closed, in which case we are
+    /// done.
     Idle(IoFuture<Option<(Request, Receiver<Request>)>>),
 
     /// There are requests to be worked on and we are connecting.
@@ -62,12 +82,11 @@ enum State<S: StreamFactory> {
 
     /// There are requests to be worked on.
     ///
-    /// When entering this state, we connect. Once that is successful, we
-    /// send out all requests coming in on the receiver, read responses and
-    /// match them to requests and thus complete them. We also keep a
-    /// keep-alive timeout that is refreshed on every received request. If
-    /// it triggers, we close the connection, fail all pending requests,
-    /// and go into idle state.
+    /// In this state, we send out all requests coming in on the receiver,
+    /// read responses and match them to requests and thus complete them. We
+    /// also keep a keep-alive timeout that is refreshed on every received
+    /// request. If it triggers, we close the connection, fail all pending
+    /// requests, and go into idle state.
     ///
     /// If the receiver disconnects, we clean out all cancelled pending
     /// requests, wait for all remaining requests to either be answered or
@@ -76,6 +95,7 @@ enum State<S: StreamFactory> {
 }
 
 impl<S: StreamFactory> StreamService<S> {
+    /// Creates a new stream service.
     pub fn new(reactor: reactor::Handle, factory: S, keep_alive: Duration,
                request_timeout: Duration) -> io::Result<ServiceHandle> {
         let (tx, rx) = try!(channel(&reactor));
@@ -92,6 +112,8 @@ impl<S: StreamFactory> StreamService<S> {
     }
 }
 
+
+//--- Future
 
 impl<S: StreamFactory> Future for StreamService<S> {
     type Item = ();
@@ -145,6 +167,8 @@ impl<S: StreamFactory> StreamService<S> {
 }
 
 
+//--- Debug
+
 impl<S: StreamFactory> fmt::Debug for State<S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -157,14 +181,37 @@ impl<S: StreamFactory> fmt::Debug for State<S> {
 
 //------------ ActiveStream --------------------------------------------------
 
+/// An active stream service.
 struct ActiveStream<T: Read + Write> {
+    /// The receiving end of a channel of incoming requests.
+    ///
+    /// If the receiver disconnects, we set this field to `None` and keep
+    /// going until `self.pending` is empty.
     recv: Option<Receiver<Request>>,
+
+    /// The timeout for keeping open the connection.
+    ///
+    /// This timeout is refreshed every time a new request comes in. It is
+    /// an option so we can quietly ignore the case where creating a new
+    /// timeout fails.
     timeout: Option<reactor::Timeout>,
+
+    /// The stream we are working on.
     stream: T,
+
+    /// If we are currently writing, this is what we are currently writing.
     write: Option<WriteRequest>,
+
+    /// Reading happens into this.
     read: ReadResponse,
+
+    /// The map of outstanding requests.
     pending: PendingRequests<StreamRequest>,
+
+    /// A reactor handle to update `self.timeout`.
     reactor: reactor::Handle,
+
+    /// The duration of `self.timeout`.
     keep_alive: Duration,
 }
 
@@ -315,6 +362,7 @@ impl<T: Read + Write> ActiveStream<T> {
     }
 }
 
+/// Creates a new write request.
 fn new_write(request: Request, pending: &mut PendingRequests<StreamRequest>)
              -> Option<WriteRequest> {
     match pending.reserve() {
@@ -333,7 +381,13 @@ fn new_write(request: Request, pending: &mut PendingRequests<StreamRequest>)
     }
 }
 
+
+//--- Drop
+
 impl<T: Read + Write> Drop for ActiveStream<T> {
+    /// Drop the active stream service.
+    ///
+    /// Times out all pending requests.
     fn drop(&mut self) {
         for item in self.pending.drain() {
             item.timeout()
@@ -344,6 +398,9 @@ impl<T: Read + Write> Drop for ActiveStream<T> {
 
 //------------ WriteRequest --------------------------------------------------
 
+/// A request being written.
+///
+/// This simply keeps track of how far writing has yet gotten.
 struct WriteRequest {
     request: StreamRequest,
     pos: usize
@@ -374,6 +431,7 @@ impl WriteRequest {
         Ok(Async::Ready(()))
     }
 
+    /// Recovers the request after writing has been done.
     fn done(self) -> StreamRequest {
         self.request
     }
@@ -382,6 +440,10 @@ impl WriteRequest {
 
 //------------ ReadResponse --------------------------------------------------
 
+/// Reading a stream transport.
+///
+/// This fully reads an item of a known length. The item is either the 
+/// message length or the message itself.
 struct ReadResponse {
     item: ReadItem,
     pos: usize,
@@ -469,6 +531,7 @@ impl ReadItem {
 
 //------------ StreamRequest -------------------------------------------------
 
+/// A pending request of a stream service.
 struct StreamRequest {
     request: Request,
     id: u16,
@@ -521,6 +584,9 @@ impl StreamRequest {
         self.request.fail(Error::Timeout)
     }
 }
+
+
+//--- AsRef
 
 impl AsRef<[u8]> for StreamRequest {
     fn as_ref(&self) -> &[u8] {

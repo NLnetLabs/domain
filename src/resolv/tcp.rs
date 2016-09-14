@@ -9,6 +9,20 @@ use super::stream::{StreamFactory, StreamService};
 use super::resolver::ServiceHandle;
 
 
+//------------ tcp_service ---------------------------------------------------
+
+/// Creates a new DNS service using TCP as the transport.
+pub fn tcp_service(reactor: reactor::Handle, addr: SocketAddr,
+                   keep_alive: Duration, request_timeout: Duration)
+                   -> io::Result<ServiceHandle> {
+    StreamService::new(reactor, TcpFactory::new(addr), keep_alive,
+                       request_timeout)
+}
+
+
+//------------ TcpFactory ----------------------------------------------------
+
+/// A factory connecting TCP sockets to a given address.
 pub struct TcpFactory {
     addr: SocketAddr,
 }
@@ -19,6 +33,9 @@ impl TcpFactory {
     }
 }
 
+
+//--- StreamFactory
+
 impl StreamFactory for TcpFactory {
     type Stream = TcpStream;
     type Future = TcpStreamNew;
@@ -28,9 +45,3 @@ impl StreamFactory for TcpFactory {
     }
 }
 
-pub fn tcp_service(reactor: reactor::Handle, addr: SocketAddr,
-                   keep_alive: Duration, request_timeout: Duration)
-                   -> io::Result<ServiceHandle> {
-    StreamService::new(reactor, TcpFactory::new(addr), keep_alive,
-                       request_timeout)
-}

@@ -61,6 +61,7 @@
 //! First of all, the [Resolver] value you created doesn’t actually contain
 //! the resolver. Instead, it only keeps all the information necessary to
 //! start a query using the real resolver living inside the reactor core
+//! (this year’s nomination for the category Best Type Name)
 //! somewhere. Because of this, you can clone the resolver, even pass it to
 //! other threads.
 //!
@@ -163,9 +164,10 @@
 //! an absolute name according to the rules set down by the configuration we
 //! used when creating the resolver.
 //!
-//! As an inside, the lookup functions are named after the thing they look
-//! up not their result. So, when you look for the addresses for the host,
-//! you have to use [lookup_host()], not [lookup_addr()].
+//! As an aside, the lookup functions are named after the thing they look
+//! up not their result following the example of the standard library. So,
+//! when you look for the addresses for the host, you have to use
+//! [lookup_host()], not [lookup_addr()].
 //!
 //! Have a look at the [lookup] module for all the lookup functions
 //! currently available.

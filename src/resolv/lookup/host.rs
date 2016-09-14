@@ -14,6 +14,17 @@ use super::search::search;
 
 //------------ lookup_host ---------------------------------------------------
 
+/// Creates a future that resolves a host name into its IP addresses.
+///
+/// The future will use the resolver represented by `resolv` to query the
+/// DNS for the IPv4 and IPv6 addresses associated with `name`. If `name`
+/// is a relative domain name, it is being translated into a series of
+/// absolute names according to the resolver’s configuration.
+///
+/// The value returned upon success can be turned into an iterator over
+/// IP addresses or even socket addresses. Since the lookup may determine that
+/// the host name is in fact an alias for another name, the value will also
+/// return the canonical name.
 pub fn lookup_host<N>(resolv: ResolverTask, name: N)
                       -> BoxFuture<LookupHost, io::Error>
                    where N: AsRef<DNameSlice> {
@@ -34,7 +45,15 @@ pub fn lookup_host<N>(resolv: ResolverTask, name: N)
 
 //------------ LookupHost ----------------------------------------------------
 
-
+/// The value returned by a successful host lookup.
+///
+/// You can use the `iter()` method to get an iterator over the IP addresses
+/// or `port_iter()` to get an iterator over socket addresses with the given
+/// port.
+///
+/// The `canonical_name()` method returns the canonical name of the host for
+/// which the addresses were found.
+#[derive(Clone, Debug)]
 pub struct LookupHost {
     canonical: DNameBuf,
     addrs: Vec<IpAddr>
@@ -75,20 +94,30 @@ impl LookupHost {
         Ok(())
     }
 
+    /// Returns a reference to the canonical name for the host.
     pub fn canonical_name(&self) -> &DNameSlice {
         &self.canonical
     }
 
+    /// Returns an iterator over the IP addresses returned by the lookup.
     pub fn iter(&self) -> LookupHostIter {
         LookupHostIter(self.addrs.iter())
     }
 
+    /// Returns an iterator over socket addresses gained from the lookup.
+    ///
+    /// The socket addresses are gained by combining the IP addresses with
+    /// `port`.
     pub fn port_iter(&self, port: u16) -> LookupHostSocketIter {
         LookupHostSocketIter(self.addrs.iter(), port)
     }
 }
 
 
+//------------ LookupHostIter ------------------------------------------------
+
+/// An iterator over the IP addresses returned by a host lookup.
+#[derive(Clone, Debug)]
 pub struct LookupHostIter<'a>(slice::Iter<'a, IpAddr>);
 
 impl<'a> Iterator for LookupHostIter<'a> {
@@ -100,7 +129,10 @@ impl<'a> Iterator for LookupHostIter<'a> {
 }
 
 
-#[derive(Clone)]
+//------------ LookupHostSocketIter ------------------------------------------
+
+/// An iterator over socket addresses derived from a host lookup.
+#[derive(Clone, Debug)]
 pub struct LookupHostSocketIter<'a>(slice::Iter<'a, IpAddr>, u16);
 
 impl<'a> Iterator for LookupHostSocketIter<'a> {

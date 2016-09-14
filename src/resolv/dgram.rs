@@ -49,6 +49,9 @@ pub trait DgramFactory: Send + 'static {
 /// Each datagram service communicates with exactly one remote server.
 pub struct DgramService<T: DgramTransport> {
     /// The receiving end of a channel of incoming requests.
+    ///
+    /// If the receiver disconnects, we set this field to `None` and keep
+    /// going until `self.pending` is empty.
     recv: Option<Receiver<Request>>,
 
     /// The datagram socket.
@@ -166,6 +169,7 @@ impl<T: DgramTransport> DgramService<T> {
                 self.pending.push(request.id(), request)
             }
             else {
+                self.pending.unreserve(request.id());
                 request.fail(io::Error::new(io::ErrorKind::Other,
                                             "short write").into());
             }
@@ -254,13 +258,29 @@ impl<T: DgramTransport> Future for DgramService<T> {
 
 //------------ DgramRequest --------------------------------------------------
 
+/// A pending request of a datagram service.
 struct DgramRequest {
+    /// The actual request.
     request: Request,
+
+    /// The message ID we assigned to it.
+    ///
+    /// Technically, we could fetch it out of `self.buf`, but this is
+    /// quicker.
     id: u16,
+
+    /// The outgoing message.
     buf: MessageBuf,
 }
 
 impl DgramRequest {
+    /// Creates a new request.
+    ///
+    /// The request will be based on the given request and use an ID
+    /// reserved within `pending`.
+    ///
+    /// Returns `Some(_)` if that all worked or `None` otherwise. If it
+    /// fails, takes care of failing `request`, too.
     fn new(request: Request, pending: &mut PendingRequests<Self>,
            msg_size: usize) -> Option<Self> {
         let id = match pending.reserve() {
@@ -282,6 +302,7 @@ impl DgramRequest {
         Some(DgramRequest{request: request, id: id, buf: buf})
     }
 
+    /// Creates the outgoing message.
     fn new_buf(request: &Request, id: u16, msg_size: usize)
                -> ComposeResult<MessageBuf> {
         let mut buf = try!(MessageBuilder::new(Some(msg_size), true));
@@ -292,14 +313,17 @@ impl DgramRequest {
         Ok(MessageBuf::from_vec(try!(buf.finish()).finish()).unwrap())
     }
 
+    /// Returns a reference to the bytes of the outgoing message.
     fn buf(&self) -> &[u8] {
         self.buf.as_bytes()
     }
 
+    /// Returns the ID for this request.
     fn id(&self) -> u16 {
         self.id
     }
 
+    /// Responds to the request with `response`.
     fn respond(self, response: MessageBuf) {
         if response.is_answer(&self.buf) {
             self.request.succeed(response)
@@ -310,10 +334,12 @@ impl DgramRequest {
         }
     }
 
+    /// Fails the request with `err`.
     fn fail(self, err: Error) {
         self.request.fail(err)
     }
 
+    /// Fails the request with a timeout.
     fn timeout(self) {
         self.request.fail(Error::Timeout)
     }

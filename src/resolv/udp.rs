@@ -10,6 +10,21 @@ use super::dgram::{DgramFactory, DgramService, DgramTransport};
 use super::resolver::ServiceHandle;
 
 
+//------------ udp_service ---------------------------------------------------
+
+/// Create a new DNS service using UDP as the transport.
+pub fn udp_service(reactor: reactor::Handle, local: SocketAddr,
+                   peer: SocketAddr, request_timeout: Duration,
+                   msg_size: usize) -> io::Result<ServiceHandle> {
+    DgramService::new(UdpFactory::new(local), peer, reactor, request_timeout,
+                      msg_size)
+}
+
+
+//------------ UdpSocket -----------------------------------------------------
+
+//--- DgramTransport
+
 impl DgramTransport for UdpSocket {
     fn send_to(&self, buf: &[u8], target: &SocketAddr) -> io::Result<usize> {
         self.send_to(buf, target)
@@ -25,6 +40,8 @@ impl DgramTransport for UdpSocket {
 }
 
 
+//------------ UdpFactory ----------------------------------------------------
+
 pub struct UdpFactory {
     addr: SocketAddr,
 }
@@ -35,6 +52,9 @@ impl UdpFactory {
     }
 }
 
+
+//--- DgramFactory
+
 impl DgramFactory for UdpFactory {
     type Transport = UdpSocket;
     type Future = <io::Result<UdpSocket> as IntoFuture>::Future;
@@ -44,9 +64,3 @@ impl DgramFactory for UdpFactory {
     }
 }
 
-pub fn udp_service(reactor: reactor::Handle, local: SocketAddr,
-                   peer: SocketAddr, request_timeout: Duration,
-                   msg_size: usize) -> io::Result<ServiceHandle> {
-    DgramService::new(UdpFactory::new(local), peer, reactor, request_timeout,
-                      msg_size)
-}
