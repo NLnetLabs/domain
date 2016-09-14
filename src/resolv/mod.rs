@@ -19,7 +19,7 @@
 //! [lookup] sub-module.
 //!
 //! The following gives an introduction into using the resolver. For an
-//! introduction into the internal design, have a look at the [doc]
+//! introduction into the internal design, have a look at the [intro]
 //! sub-module.
 //!
 //!
@@ -201,7 +201,7 @@
 //! ```
 //!
 //!
-//! [doc]: doc/index.html
+//! [intro]: intro/index.html
 //! [lookup]: lookup/index.html
 //! [tokio-core]: https://github.com/tokio-rs/tokio-core
 //! [Error]: error/enum.Error.html
@@ -244,4 +244,4 @@ mod udp;
 
 //--- Meta-modules for documentation
 
-pub mod doc;
+pub mod intro;
