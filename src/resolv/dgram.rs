@@ -17,6 +17,9 @@ use super::resolver::ServiceHandle;
 
 //------------ DgramTransport ------------------------------------------------
 
+/// A trait for datagram transports.
+///
+/// This is all the methods from `UdpSocket` that `DgramService` needs.
 pub trait DgramTransport {
     fn send_to(&self, buf: &[u8], target: &SocketAddr) -> io::Result<usize>;
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
@@ -26,26 +29,52 @@ pub trait DgramTransport {
 
 //------------ DgramFactory --------------------------------------------------
 
+/// A factory that creates datagram sockets.
 pub trait DgramFactory: Send + 'static {
+    /// The transport type produced by this factory.
     type Transport: DgramTransport;
+
+    /// The type of the future that will eventually produce a transport.
     type Future: Future<Item=Self::Transport, Error=io::Error>;
 
+    /// Creates a future that will resolve into a socket on the given reactor.
     fn bind(&self, reactor: &reactor::Handle) -> Self::Future;
 }
 
 
 //------------ DgramService --------------------------------------------------
 
+/// A DNS service using a datagram transport.
+///
+/// Each datagram service communicates with exactly one remote server.
 pub struct DgramService<T: DgramTransport> {
+    /// The receiving end of a channel of incoming requests.
     recv: Option<Receiver<Request>>,
+
+    /// The datagram socket.
     sock: T,
+
+    /// The remote address to communicate with.
     peer: SocketAddr,
+
+    /// The current outgoing request if there is one.
     write: Option<DgramRequest>,
+
+    /// The map of outstanding requests.
     pending: PendingRequests<DgramRequest>,
+
+    /// The maximum message size of our socket.
     msg_size: usize,
 }
 
 impl<T: DgramTransport + 'static> DgramService<T> {
+    /// Creates a new datagram service and returns its service handle.
+    ///
+    /// What this actually does is create a convoluted future that will
+    /// listen on the receiving side of the service handle’s channel until
+    /// the first request arrives and only then actually create the service
+    /// which will then be alive until the channel is disconnected or the
+    /// datagram socket is closed.
     pub fn new<F>(factory: F, peer: SocketAddr, reactor: reactor::Handle,
                   request_timeout: Duration, msg_size: usize)
                   -> io::Result<ServiceHandle>
@@ -80,48 +109,45 @@ impl<T: DgramTransport + 'static> DgramService<T> {
     }
 }
 
-impl<T: DgramTransport> Future for DgramService<T> {
-    type Item = ();
-    type Error = io::Error;
 
-    fn poll(&mut self) -> Poll<(), io::Error> {
-        match self.poll_recv() {
-            Ok(Async::Ready(())) => return Ok(Async::Ready(())),
-            Err(err) => return Err(err),
-            Ok(Async::NotReady) => { }
-        }
-        self.poll_pending();
-        try!(self.poll_write());
-        try!(self.poll_read());
-        Ok(Async::NotReady)
-    }
-}
-
+/// # Polling Helpers
+///
 impl<T: DgramTransport> DgramService<T> {
-    fn poll_recv(&mut self) -> Poll<(), io::Error> {
-        loop {
-            if let Some(ref mut recv) = self.recv {
-                if self.write.is_none() {
-                    if let Some(request) = try_ready!(recv.poll()) {
+    /// Polls the request receiver.
+    ///
+    /// Returns ready iff the receiver is gone and there are no more pending
+    /// requests.
+    fn poll_recv(&mut self) -> Async<()> {
+        if let Some(ref mut recv) = self.recv {
+            if self.write.is_none() {
+                match recv.poll() {
+                    Ok(Async::Ready(Some(request))) => {
                         self.write = DgramRequest::new(request,
                                                        &mut self.pending,
                                                        self.msg_size);
-                        return Ok(Async::NotReady)
+                        return Async::NotReady
                     }
+                    Ok(Async::NotReady) => return Async::NotReady,
+                    Ok(Async::Ready(None)) | Err(_) => { }
                 }
-                else { return Ok(Async::NotReady) }
             }
-            else {
-                if self.pending.is_empty() { return Ok(Async::Ready(())) }
-                else { return Ok(Async::NotReady) }
-            };
-            self.recv = None;
+            else { return Async::NotReady }
         }
+        else {
+            if self.pending.is_empty() { return Async::Ready(()) }
+            else { return Async::NotReady }
+        };
+        self.recv = None;
+        Async::NotReady
     }
 
+    /// Poll the pending requests.
+    ///
+    /// That is, times out all expired requests.
     fn poll_pending(&mut self) {
         self.pending.expire(|item| item.timeout())
     }
+
 
     fn poll_write(&mut self) -> io::Result<()> {
         loop {
@@ -178,6 +204,26 @@ impl<T: DgramTransport> DgramService<T> {
         Ok(())
     }
 }
+
+
+//--- Future
+
+impl<T: DgramTransport> Future for DgramService<T> {
+    type Item = ();
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Poll<(), io::Error> {
+        match self.poll_recv() {
+            Async::Ready(()) => return Ok(Async::Ready(())),
+            Async::NotReady => { }
+        }
+        self.poll_pending();
+        try!(self.poll_write());
+        try!(self.poll_read());
+        Ok(Async::NotReady)
+    }
+}
+
 
 
 //------------ DgramRequest --------------------------------------------------
