@@ -17,27 +17,6 @@ use super::tcp::tcp_service;
 use super::udp::udp_service;
 
 
-//------------ ResolverTask -------------------------------------------------
-
-#[derive(Clone)]
-pub struct ResolverTask {
-    core: TaskRc<Core>
-}
-
-impl ResolverTask {
-    pub fn query<N>(&self, name: N, rtype: RRType, class: Class) -> Query
-                 where N: AsRef<DNameSlice> {
-        let question = Arc::new(Question{name: name.as_ref().to_owned(),
-                                         rtype: rtype, class: class});
-        Query::new(self.core.clone(), question)
-    }
-
-    pub fn conf(&self) -> Arc<ResolvConf> {
-        self.core.with(|core| core.conf.clone())
-    }
-}
-
-
 //------------ Resolver -----------------------------------------------------
 
 #[derive(Clone)]
@@ -82,6 +61,27 @@ impl Resolver {
                        R::Error: From<io::Error> + Send + 'static,
                        F: FnOnce(ResolverTask) -> R + Send + 'static {
         self.start().and_then(|resolv| f(resolv)).boxed()
+    }
+}
+
+
+//------------ ResolverTask -------------------------------------------------
+
+#[derive(Clone)]
+pub struct ResolverTask {
+    core: TaskRc<Core>
+}
+
+impl ResolverTask {
+    pub fn query<N>(&self, name: N, rtype: RRType, class: Class) -> Query
+                 where N: AsRef<DNameSlice> {
+        let question = Arc::new(Question{name: name.as_ref().to_owned(),
+                                         rtype: rtype, class: class});
+        Query::new(self.core.clone(), question)
+    }
+
+    pub fn conf(&self) -> Arc<ResolvConf> {
+        self.core.with(|core| core.conf.clone())
     }
 }
 
