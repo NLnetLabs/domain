@@ -6,6 +6,9 @@ use futures::{Async, Future};
 use rand;
 use tokio_core::reactor::{Handle, Timeout};
 
+
+//------------ PendingRequests -----------------------------------------------
+
 /// A collection of pending requests.
 ///
 /// Since different services use different request types, this type is
@@ -50,14 +53,14 @@ impl<R> PendingRequests<R> {
         self.requests.is_empty()
     }
 
-    /// Drain all pending requests.
+    /// Drain all pending requests returning an iterator over them.
     pub fn drain(&mut self) -> Drain<R> {
         self.expires.clear();
         self.timeout = None;
         Drain(self.requests.drain())
     }
 
-    /// Returns a random, currently unused message ID.
+    /// Reserves a spot in the map and returns its ID.
     pub fn reserve(&mut self) -> Result<u16, ReserveError> {
         // Pick a reasonably low number here so that we won’t hang too long
         // below.
@@ -74,6 +77,7 @@ impl<R> PendingRequests<R> {
         }
     }
 
+    /// Drop a previously reserved id.
     pub fn unreserve(&mut self, id: u16) {
         match self.requests.remove(&id) {
             Some(Some(_)) => panic!("unreserving pushed ID"),
@@ -140,31 +144,47 @@ impl<R> PendingRequests<R> {
     pub fn expire<F: Fn(R)>(&mut self, f: F) {
         match self.timeout {
             Some(ref mut timeout) => {
-                if let Ok(Async::Ready(())) = timeout.poll() {
-                    loop {
-                        match self.expires.front() {
-                            Some(&(_, at)) if at > Instant::now() => { }
-                            _ => break
+                match timeout.poll() {
+                    Ok(Async::NotReady) => return,
+                    Ok(Async::Ready(())) => {
+                        loop {
+                            match self.expires.front() {
+                                Some(&(_, at)) if at > Instant::now() => { }
+                                _ => break
+                            }
+                            let id = self.expires.pop_front().unwrap().0;
+                            if let Some(Some(item)) = self.requests
+                                                          .remove(&id) {
+                                f(item)
+                            }
                         }
-                        let id = self.expires.pop_front().unwrap().0;
-                        if let Some(Some(item)) = self.requests.remove(&id) {
-                            f(item)
-                        }
+                    }
+                    Err(_) => {
+                        // Fall through to update_timeout to perhaps fix
+                        // the broken timeout.
                     }
                 }
             }
             None => return
         }
         self.update_timeout();
-        // XXX Do we have to quickly poll the timeout just so it is
-        //     registered?
+        // Once more to register the timeout.
+        self.expire(f)
     }
 }
 
 
+//------------ ReserveError --------------------------------------------------
+
+/// An error happened while reserving an ID.
+///
+/// The only thing that can happen is that we run out of space.
 pub struct ReserveError;
 
 
+//------------ Drain ---------------------------------------------------------
+
+/// An iterator for draining all elements from the map.
 pub struct Drain<'a, R: 'a>(hash_map::Drain<'a, u16, Option<R>>);
 
 impl<'a, R> Iterator for Drain<'a, R> {
