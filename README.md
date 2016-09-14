@@ -41,17 +41,17 @@ Eventually, this crate will provide the following functions:
 
 * [ ] Stub resolver.
 
-    * [ ] Asynchronous stub resolver based on
+    * [X] Asynchronous stub resolver based on
           [futures](https://github.com/alexcrichton/futures-rs) and
           [tokio](https://github.com/tokio-rs/tokio-core).
     
     * [ ] Rich set of DNS tasks:
 
-        * [ ] querying for raw DNS records,
+        * [X] querying for raw DNS records,
 
-        * [ ] querying for host names,
+        * [X] querying for host names,
 
-        * [ ] reverse host name queries,
+        * [X] reverse host name queries,
 
         * [ ] querying for mail servers (MX records),
 
