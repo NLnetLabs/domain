@@ -278,7 +278,7 @@ mod test {
     #[test]
     fn parse_and_compose() {
         use bits::parse::{ParseBytes, SliceParser};
-        use bits::compose::ComposeBuf;
+        use bits::compose::{ComposeBuf, ComposeMode};
         
         let mut p = SliceParser::new(b"\x03foo\x03baroo");
         let r = CharStr::parse(&mut p).unwrap();
@@ -287,7 +287,7 @@ mod test {
         assert_eq!(o.as_bytes(), &b"bar"[..]);
         assert_eq!(p.left(), 2);
 
-        let mut c = ComposeBuf::new(None, false);
+        let mut c = ComposeBuf::new(ComposeMode::Unlimited, false);
         r.compose(&mut c).unwrap();
         o.compose(&mut c).unwrap();
         assert_eq!(c.finish(), b"\x03foo\x03bar");

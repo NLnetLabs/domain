@@ -445,7 +445,7 @@ mod test {
 
     #[test]
     fn simple_push() {
-        let mut c = ComposeBuf::new(None, false);
+        let mut c = ComposeBuf::new(ComposeMode::Unlimited, false);
         c.push_bytes(b"foo").unwrap();
         c.push_u8(0x07).unwrap();
         c.push_u16(0x1234).unwrap();
@@ -456,7 +456,7 @@ mod test {
 
     #[test]
     fn push_name() {
-        let mut c = ComposeBuf::new(None, false);
+        let mut c = ComposeBuf::new(ComposeMode::Unlimited, false);
         c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
         assert_eq!(c.finish(),
                    b"\x03foo\x03bar\x00");
@@ -465,7 +465,7 @@ mod test {
     #[test]
     fn push_compressed_name() {
         // Same name again.
-        let mut c = ComposeBuf::new(None, true);
+        let mut c = ComposeBuf::new(ComposeMode::Unlimited, true);
         c.push_u8(0x07).unwrap();
         c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
         c.push_dname_compressed(&DNameBuf::from_str("foo.bar.").unwrap())
@@ -474,7 +474,7 @@ mod test {
                    b"\x07\x03foo\x03bar\x00\xC0\x01");
 
         // Prefixed name.
-        let mut c = ComposeBuf::new(None, true);
+        let mut c = ComposeBuf::new(ComposeMode::Unlimited, true);
         c.push_u8(0x07).unwrap();
         c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
         c.push_dname_compressed(&DNameBuf::from_str("baz.foo.bar.").unwrap())
@@ -483,7 +483,7 @@ mod test {
                    b"\x07\x03foo\x03bar\x00\x03baz\xC0\x01");
 
         // Suffixed name.
-        let mut c = ComposeBuf::new(None, true);
+        let mut c = ComposeBuf::new(ComposeMode::Unlimited, true);
         c.push_u8(0x07).unwrap();
         c.push_dname(&DNameBuf::from_str("foo.bar.").unwrap()).unwrap();
         c.push_dname_compressed(&DNameBuf::from_str("bar.").unwrap())
@@ -494,7 +494,7 @@ mod test {
 
     #[test]
     fn update() {
-        let mut c = ComposeBuf::new(None, false);
+        let mut c = ComposeBuf::new(ComposeMode::Unlimited, false);
         c.push_bytes(b"foo").unwrap();
         let p8 = c.pos();
         c.push_u8(0x00).unwrap();
@@ -512,7 +512,7 @@ mod test {
 
     #[test]
     fn truncation() {
-        let mut c = ComposeBuf::new(Some(4), false);
+        let mut c = ComposeBuf::new(ComposeMode::Limited(4), false);
         assert!(!c.truncated());
         c.push_u16(0).unwrap();
         assert!(!c.truncated());

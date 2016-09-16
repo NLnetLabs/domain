@@ -890,11 +890,12 @@ impl<'a, D: RecordData<'a>> Iterator for RecordIter<'a, D> {
 ///
 /// ```
 /// use std::str::FromStr;
-/// use domain::bits::{DNameBuf, MessageBuilder, Question};
+/// use domain::bits::{ComposeMode, DNameBuf, MessageBuilder, Question};
 /// use domain::rdata::A;
 ///
 /// let name = DNameBuf::from_str("example.com.").unwrap();
-/// let mut msg = MessageBuilder::new(Some(512), true).unwrap();
+/// let mut msg = MessageBuilder::new(ComposeMode::Limited(512),
+///                                   true).unwrap();
 /// msg.header_mut().set_rd(true);
 /// Question::push_in(&mut msg, &name, A::rtype()).unwrap();
 /// let mut msg = msg.answer();
@@ -1232,6 +1233,7 @@ impl<C: ComposeBytes> MessageTarget<C> {
 #[cfg(test)]
 mod test {
     use std::str::FromStr;
+    use bits::compose::ComposeMode;
     use bits::name::DName;
     use bits::question::Question;
     use bits::record::Record;
@@ -1258,7 +1260,8 @@ mod test {
             let rec3 = Record::new(name.clone(), Class::In, 86400,
                                    A::from_octets(192, 0, 2, 3));
             
-            let mut msg = MessageBuilder::new(None, true).unwrap();
+            let mut msg = MessageBuilder::new(ComposeMode::Unlimited,
+                                              true).unwrap();
             msg.header_mut().set_qr(true);
             msg.push(&question).unwrap();
             let mut msg = msg.answer();
@@ -1306,7 +1309,8 @@ mod test {
     #[test]
     fn canonical_name() {
         // Message without CNAMEs.
-        let mut msg = MessageBuilder::new(None, true).unwrap();
+        let mut msg = MessageBuilder::new(ComposeMode::Unlimited,
+                                          true).unwrap();
         Question::push_in(&mut msg, &DName::from_str("example.com.").unwrap(),
                                     RRType::A).unwrap();
         let msg = MessageBuf::from_vec(msg.finish().unwrap().finish())
@@ -1315,7 +1319,8 @@ mod test {
                    msg.canonical_name().unwrap());
                    
         // Message with CNAMEs.
-        let mut msg = MessageBuilder::new(None, true).unwrap();
+        let mut msg = MessageBuilder::new(ComposeMode::Unlimited,
+                                          true).unwrap();
         Question::push_in(&mut msg, &DName::from_str("example.com.").unwrap(),
                                     RRType::A).unwrap();
         let mut answer = msg.answer();

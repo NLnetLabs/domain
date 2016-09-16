@@ -83,10 +83,11 @@ impl<'a> Opt<'a> {
 /// [OptRecord::push()] for adding options on the fly. For example:
 ///
 /// ```rust
-/// use domain::bits::MessageBuilder;
+/// use domain::bits::{ComposeMode, MessageBuilder};
 /// use domain::rdata::rfc6891::{Opt, OptRecord};
 ///
-/// let mut msg = MessageBuilder::new(Some(512), true).unwrap();
+/// let mut msg = MessageBuilder::new(ComposeMode::Limited(512),
+///                                   true).unwrap();
 /// // Add more resource records here ...
 /// let mut sec = msg.answer().authority().additional();
 /// OptRecord::push(&mut sec, 1280, 0, 0, false, |target| {
@@ -1164,10 +1165,11 @@ impl<'a> OptRecord<'a> {
     /// contains a single NSID option:
     ///
     /// ```rust
-    /// use domain::bits::MessageBuilder;
+    /// use domain::bits::{ComposeMode, MessageBuilder};
     /// use domain::rdata::rfc6891::{Opt, OptRecord};
     ///
-    /// let mut msg = MessageBuilder::new(Some(512), true).unwrap();
+    /// let mut msg = MessageBuilder::new(ComposeMode::Limited(512),
+    ///                                   true).unwrap();
     /// // Add more resource records here ...
     /// let mut sec = msg.answer().authority().additional();
     /// OptRecord::push(&mut sec, 1280, 0, 0, false, |target| {
