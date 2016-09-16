@@ -35,7 +35,7 @@
 //! has functionality to step-by-step build the sections of the message.
 
 pub use self::charstr::{CharStr, CharStrError};
-pub use self::compose::{ComposeBytes, ComposeBuf};
+pub use self::compose::{ComposeBytes, ComposeBuf, ComposeMode};
 pub use self::error::{ComposeError, ComposeResult, ParseError, ParseResult,
                       FromStrError, FromStrResult};
 pub use self::message::{Message, MessageBuf, MessageBuilder};

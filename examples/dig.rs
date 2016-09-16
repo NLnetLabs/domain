@@ -46,6 +46,7 @@ impl Options {
         let mut conf = ResolvConf::new();
         let _ = conf.parse_file("/etc/resolv.conf");
         conf.finalize();
+        conf.options.use_vc = true;
         Options {
             name: String::new(),
             qtype: String::new(), // default depends on name.

@@ -13,7 +13,8 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use iana::{Class, Rcode, RRType};
 use rdata::Cname;
-use super::compose::{ComposeBytes, ComposeBuf};
+use super::bytes::BytesSlice;
+use super::compose::{ComposeBytes, ComposeBuf, ComposeMode};
 use super::error::{ComposeError, ComposeResult, ParseError, ParseResult};
 use super::header::{Header, HeaderCounts, FullHeader};
 use super::name::{AsDName, DNameSlice};
@@ -362,7 +363,7 @@ pub struct MessageBuf {
 impl MessageBuf {
     /// Creates a new owned message using the given vector.
     ///
-    /// If the content of the vector is to short to even contain a full
+    /// If the content of the vector is too short to even contain a full
     /// header, the function fails.
     pub fn from_vec(vec: Vec<u8>) -> ParseResult<Self> {
         let _ = try!(Message::from_bytes(&vec));
@@ -394,10 +395,13 @@ impl MessageBuf {
     ///
     /// The resulting query will have the RD bit set and will contain exactly
     /// one entry in the question section with the given question.
+    ///
+    /// *This function should probably be deprecated and removed.*
     pub fn query_from_question<N: AsDName>(qname: &N, qtype: RRType,
                                            qclass: Class)
                                            -> ComposeResult<MessageBuf> {
-        let mut msg = try!(MessageBuilder::new(Some(512), true));
+        let mut msg = try!(MessageBuilder::new(ComposeMode::Limited(512),
+                                               true));
         msg.header_mut().set_rd(true);
         try!(Question::push(&mut msg, qname, qtype, qclass));
         Ok(try!(MessageBuf::from_vec(try!(msg.finish()).finish())))
@@ -428,6 +432,110 @@ impl Borrow<Message> for MessageBuf {
 }
 
 impl AsRef<Message> for MessageBuf {
+    fn as_ref(&self) -> &Message {
+        self
+    }
+}
+
+
+//------------ StreamMessageBuf ----------------------------------------------
+
+/// An owned DNS message appropriate for sending over stream transports.
+///
+/// For stream transports such as TCP, a DNS message starts with a sixteen
+/// bit integer containing the length of the message. This type represents
+/// an owned message of this format. It derefs into [Message] for all
+/// message-related functionality.
+#[derive(Clone, Debug)]
+pub struct StreamMessageBuf {
+    /// The underlying bytes vector.
+    inner: Vec<u8>
+}
+
+
+/// # Creation and Conversion
+///
+impl StreamMessageBuf {
+    /// Creates a new owned stream message using the given vector.
+    ///
+    /// If the content of the vector is too short to contain a header or
+    /// if the message is shorter than advertised by the initial length
+    /// value, the function fails.
+    ///
+    /// If the message is longer than the advertised length, the vector is
+    /// trims the vector to the correct length.
+    ///
+    /// XXX This may not be a good idea. Maybe we should panic instead?
+    pub fn from_vec(mut vec: Vec<u8>) -> ParseResult<Self> {
+        if vec.len() < mem::size_of::<FullHeader>() + 2 {
+            return Err(ParseError::UnexpectedEnd)
+        }
+        let (claimed, real) = {
+            let (len, msg) = try!(vec.split_u16());
+            (len as usize, msg.len())
+        };
+        if real < claimed {
+            return Err(ParseError::UnexpectedEnd)
+        }
+        if claimed > real {
+            vec.resize(claimed + 2, 0);
+        }
+        Ok(StreamMessageBuf{inner: vec})
+    }
+
+    /// Creates a new owned stream message with the data from a bytes slice.
+    ///
+    /// If the content of the vector is too short to contain a header or
+    /// if the message is shorter than advertised by the initial length
+    /// value, the function fails.
+    ///
+    /// If the message is longer than the advertised length, the vector is
+    /// trims the vector to the correct length.
+    ///
+    /// XXX This may not be a good idea. Maybe we should panic instead?
+    pub fn from_bytes(slice: &[u8]) -> ParseResult<Self> {
+        let vec = Vec::from(slice);
+        Self::from_vec(vec)
+    }
+
+    /// Returns the message slice.
+    pub fn as_slice(&self) -> &Message {
+        self.deref()
+    }
+
+    /// Returns a bytes slice of the message content.
+    ///
+    /// XXX This produces something different than `self.deref().as_bytes()`.
+    ///     Is that a problem?
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner
+    }
+}
+
+
+//--- Deref, DerefMut, Borrow, and AsRef
+
+impl Deref for StreamMessageBuf {
+    type Target = Message;
+
+    fn deref(&self) -> &Message {
+        unsafe { Message::from_bytes_unsafe(&self.inner[2..]) }
+    }
+}
+
+impl DerefMut for StreamMessageBuf {
+    fn deref_mut(&mut self) -> &mut Message {
+        unsafe { Message::from_bytes_unsafe_mut(&mut self.inner[2..]) }
+    }
+}
+
+impl Borrow<Message> for StreamMessageBuf {
+    fn borrow(&self) -> &Message {
+        self.deref()
+    }
+}
+
+impl AsRef<Message> for StreamMessageBuf {
     fn as_ref(&self) -> &Message {
         self
     }
@@ -817,10 +925,17 @@ impl<C: ComposeBytes> MessageBuilder<C> {
 impl MessageBuilder<ComposeBuf> {
     /// Creates a new message builder using a new `ComposeBuf` as target.
     ///
-    /// If `maxlen` is not `None`, the resulting message’s length will never
-    /// exceed the given amount of bytes. If too much data is being added,
-    /// the message will be cut back a quesiton or record boundary and the
-    /// TC flag will be set.
+    /// The message will be build according to the composition mode given
+    /// by `mode`. If the mode is `ComposeMode::Unlimited`, it can grow
+    /// to any length. If the mode is `ComposeMode::Limited(_)`, it will be
+    /// limited to the given size. Finally, a mode of `ComposeMode::Stream`
+    /// will produce a bytes vector suitable for transmitting via stream
+    /// transports in that it starts with a two-byte length field.
+    ///
+    /// In limited and stream mode, an attempt to writing too much data to
+    /// the message will result in a `ComposeError::SizeExceeded`, the
+    /// message being cut back to the last question or record boundary and
+    /// the TC flag being set.
     ///
     /// If `compress` is `true`, domain name compression will be activated
     /// for the resulting message. Not all domain names are compressed,
@@ -828,10 +943,10 @@ impl MessageBuilder<ComposeBuf> {
     /// in resource data of well-known record types (those defined in RFC
     /// 1035).
     ///
-    /// This function can fail if `maxlen` is chosen too small to even
-    /// accomodate the full header, ie., it is less than 12.
-    pub fn new(maxlen: Option<usize>, compress: bool) -> ComposeResult<Self> {
-        MessageBuilder::from_target(ComposeBuf::new(maxlen, compress))
+    /// This function can fail if limited mode is chosen with too small a
+    /// size to even accomodate the full header, ie., it is less than 12.
+    pub fn new(mode: ComposeMode, compress: bool) -> ComposeResult<Self> {
+        MessageBuilder::from_target(ComposeBuf::new(mode, compress))
     }
 }
 

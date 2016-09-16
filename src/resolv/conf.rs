@@ -35,68 +35,124 @@ use ::bits::name::{DNameBuf, DNameSlice};
 #[derive(Clone, Debug)]
 pub struct ResolvOptions {
     /// Accept authoritative answers only.
+    ///
+    /// Only responses with the AA bit set will be considered. If there
+    /// aren’t any, the query will fail.
+    ///
+    /// This option is not currently implemented. It is likely be eventually
+    /// implemented by the query.
     pub aa_only: bool,
     
     /// Always use TCP.
+    ///
+    /// This option is implemented by the query.
     pub use_vc: bool,
 
     /// Query primary name servers only.
+    ///
+    /// This option is not currently implemented. It is unclear what exactly
+    /// it is supposed to mean.
     pub primary: bool,
 
     /// Ignore trunactions errors, don’t retry with TCP.
+    ///
+    /// This option is implemented by the query.
     pub ign_tc: bool,
 
     /// Set the recursion desired bit in queries.
     ///
     /// Enabled by default.
+    ///
+    /// Not currently implemented, would be implemented by the query but
+    /// needs the redesigned request.
     pub recurse: bool,
 
     /// Append the default domain name to single component names.
     ///
     /// Enabled by default.
+    ///
+    /// This is not currently implemented. Instead, the resolver config’s
+    /// `search` and `ndots` fields govern resolution of relative names of
+    /// all kinds.
     pub default_names: bool,
 
     /// Keep TCP connections open between queries.
+    ///
+    /// This is not currently implemented. Instead, TCP connections always
+    /// stay open for the time given by the resolver configuration’s
+    /// `idle_timeout`.
     pub stay_open: bool,
 
     /// Search hostnames in the current domain and parent domains.
     ///
     /// Enabled by default.
+    ///
+    /// This options is not currently implemented. Instead, the resolver
+    /// config’s `search` and `ndots` fields govern resolution of relative
+    /// names.
     pub dn_search: bool,
 
     /// Try AAAA query before A query and map IPv4 responses to tunnel form.
+    ///
+    /// This option is not currently implemented. It is only relevant for
+    /// `lookup_host`.
     pub use_inet6: bool,
 
     /// Use round-robin selection of name servers.
+    ///
+    /// This option is implemented by the query.
     pub rotate: bool,
 
     /// Disable checking of incoming hostname and mail names.
+    ///
+    /// This is not currently implemented. Or rather, this is currently
+    /// always on—there is no name checking as yet.
     pub no_check_name: bool,
 
     /// Do not strip TSIG records.
+    ///
+    /// This is not currently implemented. Or rather, no records are stripped
+    /// at all.
     pub keep_tsig: bool,
 
     /// Send each query simultaneously to all name servers.
+    ///
+    /// This is not currently implemented. It would be a query option.
     pub blast: bool,
 
     /// Use bit-label format for IPv6 reverse lookups.
+    ///
+    /// This option is only relevant for `lookup_addr()` and is implemented
+    /// there already.
     pub use_bstring: bool,
 
     /// Use ip6.int instead of the recommended ip6.arpa.
     ///
     /// (This option is the reverse of glibc’s `RES_NOIP6DOTINT` option).
+    ///
+    /// This option is only relevant for `lookup_addr()` and is implemented
+    /// there already.
     pub use_ip6dotint: bool,
 
     /// Use EDNS0.
+    ///
+    /// EDNS is not yet supported.
     pub use_edns0: bool,
 
     /// Perform IPv4 and IPv6 lookups sequentially instead of in parallel.
+    ///
+    /// This is not yet implemented but would be an option for
+    /// `lookup_host()`.
     pub single_request: bool,
 
     /// Open a new socket for each request.
+    ///
+    /// This is not currently implemented.
     pub single_request_reopen: bool,
 
     /// Don’t look up unqualified names as top-level-domain.
+    ///
+    /// I have no idea what that actually means.
     pub no_tld_query: bool,
 }
 
@@ -115,6 +171,63 @@ impl Default for ResolvOptions {
             no_tld_query: false
         }
     }
+}
+
+
+//------------ ServerConf ----------------------------------------------------
+
+/// Configuration for one upstream DNS server.
+///
+/// The server is identified by a socket address, ie., an address/port pair.
+/// For each server you can set how it should operate on all supported
+/// transport protocols, including not at all, and two timeouts for each
+/// request and sockets. The timeouts are used for all transports. If you
+/// need different timeouts for, say, UDP and TCP, you can always use two
+/// server entries with the same address.
+#[derive(Clone, Debug)]
+pub struct ServerConf {
+    /// Server address.
+    addr: SocketAddr,
+
+    /// Transport mode for UDP transport.
+    udp: TransportMode,
+
+    /// Transport mode for TCP transport.
+    tcp: TransportMode,
+
+    /*
+    /// Transport mode for TLS transport.
+    tls: TransportMode,
+
+    /// Transport mode for DTLS transport (ie., encrypted UDP).
+    dtls: TransportMode,
+    */
+
+    /// How long to wait for a response before returning a timeout error.
+    request_timeout: Duration,
+
+    /// How long to keep a connection open after a new request.
+    keep_alive: Duration,
+}
+
+
+/// The mode of operation of a server over a given transport.
+#[derive(Clone, Copy, Debug)]
+pub enum TransportMode {
+    /// Don’t provide this transport for this server.
+    None,
+
+    /// Do whatever is the default for this transport.
+    Default,
+
+    /// Close socket down after each individual request.
+    SingleRequest,
+
+    /// Wait for response before sending the next request.
+    Sequential,
+
+    /// Send multiple requests without waiting for their responses.
+    Multiplex,
 }
 
 

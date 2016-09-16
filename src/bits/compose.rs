@@ -166,13 +166,13 @@ pub struct ComposeBuf {
     /// The vector holding the bytes.
     vec: Vec<u8>,
 
+    /// Composition mode.
+    mode: ComposeMode,
+
     /// The index in `vec` where the message started.
     ///
     /// All message compression indexes will be relative to this value.
     start: usize,
-
-    /// The optional maximum length of `vec`.
-    maxlen: Option<usize>,
 
     /// The truncation point if set.
     checkpoint: Option<usize>,
@@ -190,34 +190,38 @@ pub struct ComposeBuf {
 /// # Creation and Finalization
 ///
 impl ComposeBuf {
-    /// Creates a new compose vector.
+    /// Creates a new compose buffer.
     ///
-    /// If `maxlen` is not `None`, the resulting message’s length will
-    /// never exceed the given amount of bytes. If `compress` is `true`,
-    /// name compression will be available for domain names. Otherwise,
-    /// all names will always be uncompressed.
-    pub fn new(maxlen: Option<usize>, compress: bool) -> ComposeBuf {
-        ComposeBuf::with_vec(Vec::new(), maxlen, compress)
+    /// The composition mode is given through `mode`. If `compress` is
+    /// `true`, name compression will be available for domain names.
+    /// Otherwise, all names will always be uncompressed.
+    pub fn new(mode: ComposeMode, compress: bool) -> Self {
+        ComposeBuf::with_vec(Vec::new(), mode, compress)
     }
 
-    /// Create a new compose vector based on an existing vector.
+    /// Create a new compose buffer based on an existing vector.
     ///
     /// The existing content of `vec` will be used as a prefix to the
     /// message and the actual DNS message will start after it.
     ///
-    /// If `maxlen` is not `None`, the resulting vector’s length will not
-    /// exceed the given amount of bytes. This value is including the
-    /// length of the prefix if any.
+    /// The composition mode is given through `mode`. If the mode is
+    /// `ComposeMode::Stream`, two bytes will be pushed to the end of the
+    /// vector before composition starts. These will be updated once
+    /// `finish()` is being called to the size of the composition.
     ///
     /// If `compress` is `true`, name compression will be used if requested.
     /// Otherwise, all domain names are always uncompressed.
-    pub fn with_vec(vec: Vec<u8>, maxlen: Option<usize>, compress: bool)
+    pub fn with_vec(mut vec: Vec<u8>, mode: ComposeMode, compress: bool)
                     -> ComposeBuf {
+        if let ComposeMode::Stream = mode {
+            use bits::bytes::BytesBuf;
+            vec.push_u16(0);
+        }
         let start = vec.len();
         ComposeBuf {
             vec: vec,
+            mode: mode,
             start: start,
-            maxlen: maxlen,
             checkpoint: None,
             truncated: false,
             compress: if compress { Some(HashMap::new()) }
@@ -226,7 +230,12 @@ impl ComposeBuf {
     }
 
     /// Returns a bytes vector with the final data.
-    pub fn finish(self) -> Vec<u8> {
+    pub fn finish(mut self) -> Vec<u8> {
+        if let ComposeMode::Stream = self.mode {
+            let start = self.start - 2;
+            let delta = self.delta(self.start) as u16;
+            self.update_u16(start, delta).unwrap();
+        }
         self.vec
     }
 }
@@ -240,12 +249,15 @@ impl ComposeBuf {
     /// This method can be used with `try!` for convenience.
     fn keep_pushing(&mut self, len: usize) -> ComposeResult<()> {
         if self.truncated { return Err(ComposeError::SizeExceeded) }
-        else if let Some(maxlen) = self.maxlen {
-            if maxlen < self.vec.len() + len {
-                self.checkpoint.map(|len| self.vec.truncate(len));
-                self.truncated = true;
-                return Err(ComposeError::SizeExceeded)
-            }
+        let maxlen = match self.mode {
+            ComposeMode::Unlimited => return Ok(()),
+            ComposeMode::Limited(len) => len,
+            ComposeMode::Stream => 0xFFFF,
+        };
+        if maxlen < self.vec.len() + self.start + len {
+            self.checkpoint.map(|len| self.vec.truncate(len));
+            self.truncated = true;
+            return Err(ComposeError::SizeExceeded)
         }
         Ok(())
     }
@@ -395,6 +407,30 @@ impl Deref for ComposeBuf {
     fn deref(&self) -> &Vec<u8> {
         &self.vec
     }
+}
+
+
+//------------ ComposeMode ---------------------------------------------------
+
+/// An enum determining the construction mode of a composition.
+#[derive(Clone, Debug)]
+pub enum ComposeMode {
+    /// The composition can grow to any size.
+    Unlimited,
+
+    /// The composition can never exceed a size of the given value.
+    ///
+    /// When creating a `ComposeBuf` from an existing vector, the maximum
+    /// only pertains to the composition itself. That is, the resulting
+    /// vector will be larger by whatever has been in there already.
+    Limited(usize),
+
+    /// The composition is for a stream transport.
+    ///
+    /// In this mode, the composition will be preceeded by a two-byte value
+    /// which, upon finishing, will be set to the length of the composition.
+    /// This implies a maximum composition size of 65535 bytes.
+    Stream
 }
 
 

@@ -26,9 +26,9 @@ use std::fmt;
 use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::ops::Deref;
-use bits::{AsDName, ComposeBuf, ComposeBytes, ComposeError, ComposeResult,
-           DNameSlice, ParseBytes, ParseError, ParseResult, Record,
-           RecordData};
+use bits::{AsDName, ComposeBuf, ComposeBytes, ComposeError, ComposeMode,
+           ComposeResult, DNameSlice, ParseBytes, ParseError, ParseResult,
+           Record, RecordData};
 use bits::record::RecordTarget;
 use bits::parse::SliceParser;
 use iana::{OptionCode, RRType, SecAlg};
@@ -743,12 +743,12 @@ impl OptBuf {
     /// [ParseResult]: ../../bits/error/type.ParseResult.html
     pub fn from_vec(vec: Vec<u8>) -> ParseResult<Self> {
         let _ = try!(OptSlice::from_bytes(&vec));
-        Ok(OptBuf(ComposeBuf::with_vec(vec, None, false)))
+        Ok(OptBuf(ComposeBuf::with_vec(vec, ComposeMode::Unlimited, false)))
     }
 
     /// Creates a new, empty opt buf.
     pub fn new() -> OptBuf {
-        OptBuf(ComposeBuf::new(None, false))
+        OptBuf(ComposeBuf::new(ComposeMode::Unlimited, false))
     }
 
     /// Returns a reference to data as an opt slice.
@@ -973,7 +973,7 @@ impl OptBuf {
 impl<'a> From<&'a OptSlice> for OptBuf {
     fn from(slice: &'a OptSlice) -> OptBuf {
         OptBuf(ComposeBuf::with_vec(Vec::from(slice.as_bytes()),
-                                    None, false))
+                                    ComposeMode::Unlimited, false))
     }
 }
 

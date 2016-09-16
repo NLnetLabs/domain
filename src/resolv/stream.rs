@@ -13,8 +13,8 @@ use futures::stream::Stream;
 use tokio_core::channel::{Receiver, channel};
 use tokio_core::io::IoFuture;
 use tokio_core::reactor;
-use ::bits::{ComposeBuf, ComposeBytes, ComposeResult, Message, MessageBuf,
-             MessageBuilder, Question};
+use ::bits::{ComposeMode, ComposeResult, Message, MessageBuf, MessageBuilder,
+             Question};
 use super::error::Error;
 use super::pending::PendingRequests;
 use super::request::Request;
@@ -551,18 +551,12 @@ impl StreamRequest {
     }
 
     fn new_buf(request: &Request, id: u16) -> ComposeResult<Vec<u8>> {
-        let mut buf = ComposeBuf::new(Some(0xFFFF), true);
-        let pos = buf.pos();
-        buf.push_u16(0).unwrap();
-        let mut buf = try!(MessageBuilder::from_target(buf));
+        let mut buf = try!(MessageBuilder::new(ComposeMode::Stream, true));
         buf.header_mut().set_id(id);
         buf.header_mut().set_rd(true);
         try!(Question::push(&mut buf, &request.query().name,
                             request.query().rtype, request.query().class));
-        let mut buf = try!(buf.finish());
-        let size = buf.delta(pos) - 2;
-        try!(buf.update_u16(pos, size as u16));
-        Ok(buf.finish())
+        Ok(try!(buf.finish()).finish())
     }
 
     fn id(&self) -> u16 {

@@ -106,7 +106,7 @@
 //! }
 //! ```
 //!
-//! Note the final dot at `www.rust-lang.org." making it an absolute domain
+//! Note the final dot at `"www.rust-lang.org."` making it an absolute domain
 //! name. Queries don’t know how to deal with relative names and will error
 //! out if given one.
 //!
@@ -120,7 +120,7 @@
 //! `A` records and one for `AAAA` records for that host name. You want the
 //! addresses.
 //!
-//! This is what lookups do. They take a [ResolvTask] and some additional
+//! This is what lookups do. They take a [ResolverTask] and some additional
 //! information and turn that into a future of some specific result. So,
 //! to do lookups you have to follow the procedure using `start()` as given
 //! above but instead of calling `query()` inside the closure, you use one

@@ -8,7 +8,8 @@ use futures::{Async, Future, Poll};
 use futures::stream::Stream;
 use tokio_core::channel::{Receiver, channel};
 use tokio_core::reactor;
-use ::bits::{ComposeResult, MessageBuf, MessageBuilder, Question};
+use ::bits::{ComposeMode, ComposeResult, MessageBuf, MessageBuilder,
+             Question};
 use super::error::Error;
 use super::pending::PendingRequests;
 use super::request::Request;
@@ -305,7 +306,8 @@ impl DgramRequest {
     /// Creates the outgoing message.
     fn new_buf(request: &Request, id: u16, msg_size: usize)
                -> ComposeResult<MessageBuf> {
-        let mut buf = try!(MessageBuilder::new(Some(msg_size), true));
+        let mut buf = try!(MessageBuilder::new(ComposeMode::Limited(msg_size),
+                                               true));
         buf.header_mut().set_id(id);
         buf.header_mut().set_rd(true);
         try!(Question::push(&mut buf, &request.query().name,
