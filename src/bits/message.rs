@@ -975,6 +975,18 @@ impl<C: ComposeBytes> MessageBuilder<C> {
         AnswerBuilder::new(self.target)
     }
 
+    /// Proceeds to building the authority section, skipping the answer.
+    pub fn authority(self) -> AuthorityBuilder<C> {
+        self.answer().authority()
+    }
+
+    /// Proceeds to building the additonal section.
+    ///
+    /// Leaves the answer and additional sections empty.
+    pub fn additional(self) -> AdditionalBuilder<C> {
+        self.answer().authority().additional()
+    }
+
     /// Finishes the message and returns the underlying target.
     ///
     /// This will result in a message with all three record sections empty.
@@ -1031,6 +1043,11 @@ impl<C: ComposeBytes> AnswerBuilder<C> {
     /// Proceeds to building the authority section.
     pub fn authority(self) -> AuthorityBuilder<C> {
         AuthorityBuilder::new(self.target)
+    }
+
+    /// Proceeds to building the additional section, skipping authority.
+    pub fn additional(self) -> AdditionalBuilder<C> {
+        self.authority().additional()
     }
 
     /// Finishes the message.
