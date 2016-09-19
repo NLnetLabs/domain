@@ -62,6 +62,8 @@ impl<R> PendingRequests<R> {
 
     /// Reserves a spot in the map and returns its ID.
     pub fn reserve(&mut self) -> Result<u16, ReserveError> {
+        use std::collections::hash_map::Entry;
+
         // Pick a reasonably low number here so that we won’t hang too long
         // below.
         if self.requests.len() > 0xA000 {
@@ -70,8 +72,8 @@ impl<R> PendingRequests<R> {
         // XXX I suppose there is a better way to do this. Anyone?
         loop {
             let id = rand::random();
-            if !self.requests.contains_key(&id) {
-                self.requests.insert(id, None);
+            if let Entry::Vacant(entry) = self.requests.entry(id) {
+                entry.insert(None);
                 return Ok(id)
             }
         }
@@ -190,6 +192,7 @@ pub struct Drain<'a, R: 'a>(hash_map::Drain<'a, u16, Option<R>>);
 impl<'a, R> Iterator for Drain<'a, R> {
     type Item = R;
 
+    #[allow(while_let_on_iterator)]
     fn next(&mut self) -> Option<R> {
         while let Some((_, item)) = self.0.next() {
             if let Some(r) = item {

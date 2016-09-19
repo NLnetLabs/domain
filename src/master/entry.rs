@@ -56,7 +56,7 @@ impl Entry {
             ControlType::Include => {
                 let path = try!(stream.scan_phrase_copy());
                 let origin = stream.scan_dname(map_origin(origin))
-                                      .map(|n| Rc::new(n)).ok();
+                                      .map(Rc::new).ok();
                 try!(stream.scan_newline());
                 Ok(Entry::Include { path: path, origin: origin })
             }

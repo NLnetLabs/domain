@@ -45,16 +45,20 @@ impl<T: AsRef<[u8]>> Reader<BufScanner<io::Cursor<T>>> {
 
 impl<S: Scanner> Reader<S> {
     fn last_owner(&self) -> Option<Rc<DNameBuf>> {
-        match &self.last {
-            &Some((ref name, _)) => Some(name.clone()),
-            &None => None
+        if let Some((ref name, _)) = self.last {
+            Some(name.clone())
+        }
+        else {
+            None
         }
     }
 
     fn last_class(&self) -> Option<Class> {
-        match &self.last {
-            &Some((_, class)) => Some(class),
-            &None => None
+        if let Some((_, class)) = self.last {
+            Some(class)
+        }
+        else {
+            None
         }
     }
 
@@ -70,6 +74,7 @@ impl<S: Scanner> Reader<S> {
         }
     }
 
+    #[allow(match_same_arms)]
     pub fn next_record(&mut self) -> ScanResult<Option<ReaderItem>> {
         loop {
             match self.next_entry() {

@@ -90,8 +90,7 @@ impl<'a> GenericRecordData<'a> {
         let mut parser = self.data.parser();
         match R::parse(self.rtype, &mut parser) {
             Some(Ok(data)) => data.fmt(f),
-            Some(Err(..)) => Ok(()),
-            None => Ok(())
+            Some(Err(..)) | None => Ok(()),
         }
     }
 }

@@ -47,16 +47,25 @@ impl<'a> Nest<'a> {
         match *self {
             Nest::Slice(nest) => nest,
             Nest::Owned(ref nest) => nest,
-            Nest::Packed(ref nest) => &nest,
+            Nest::Packed(ref nest) => nest,
         }
     }
 
     /// Returns the size in bytes of the nest.
     pub fn len(&self) -> usize {
         match *self {
-            Nest::Slice(ref nest) => nest.len(),
+            Nest::Slice(nest) => nest.len(),
             Nest::Owned(ref nest) => nest.len(),
             Nest::Packed(ref nest) => nest.len(),
+        }
+    }
+
+    /// Returns whether the nest is empty.
+    pub fn is_empty(&self) -> bool {
+        match *self {
+            Nest::Slice(nest) => nest.is_empty(),
+            Nest::Owned(ref nest) => nest.is_empty(),
+            Nest::Packed(ref nest) => nest.is_empty(),
         }
     }
 
@@ -68,7 +77,7 @@ impl<'a> Nest<'a> {
     /// happily returns the packed variant of `DName`.
     pub fn parser(&self) -> NestParser {
         match *self {
-            Nest::Slice(ref nest) => nest.parser().into(),
+            Nest::Slice(nest) => nest.parser().into(),
             Nest::Owned(ref nest) => nest.parser().into(),
             Nest::Packed(ref nest) => nest.parser().into(),
         }
@@ -84,7 +93,7 @@ impl<'a> Nest<'a> {
     pub fn compose<C: ComposeBytes>(&self, target: &mut C)
                                     -> ComposeResult<()> {
         match *self {
-            Nest::Slice(ref nest) => nest.compose(target),
+            Nest::Slice(nest) => nest.compose(target),
             Nest::Owned(ref nest) => nest.compose(target),
             Nest::Packed(ref nest) => nest.compose(target)
         }
@@ -148,6 +157,11 @@ impl NestSlice {
     /// Returns the size of the nest in bytes.
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Returns whether the nest is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Appends the nest’s data to the end of the compose target.
@@ -216,7 +230,7 @@ impl ToOwned for NestSlice {
 /// `Vec`’s methods is available, though.
 ///
 /// XXX Actually, it isn’t right now. We’ll add them as needed.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct NestBuf(Vec<u8>);
 
 impl NestBuf {
@@ -321,6 +335,11 @@ impl<'a> PackedNest<'a> {
         self.bytes.len()
     }
 
+    /// Returns whether the nest is empty.
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
     /// Append the nest’s data to the end of the compose target.
     ///
     /// Note that the resulting message will be corrupt if the nest does
@@ -345,7 +364,7 @@ impl<'a> Deref for PackedNest<'a> {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        &self.bytes
+        self.bytes
     }
 }
 
@@ -384,9 +403,9 @@ impl<'a> ParseBytes<'a> for NestParser<'a> {
     fn parse_sub(&mut self, len: usize) -> ParseResult<Self> {
         match *self {
             NestParser::Slice(ref mut p)
-                => p.parse_sub(len).map(|x| NestParser::Slice(x)),
+                => p.parse_sub(len).map(NestParser::Slice),
             NestParser::Context(ref mut p)
-                => p.parse_sub(len).map(|x| NestParser::Context(x))
+                => p.parse_sub(len).map(NestParser::Context)
         }
     }
 

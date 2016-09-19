@@ -3,22 +3,25 @@
 //! This RFC contains the currently valid definition of the OPT resouce
 //! record type originally defined in [RFC 2671].
 //!
-//! There are three types for OPT record data:
-//! [OptSlice](struct.OptSlice.html) and [OptBuf](struct.OptBuf.html) for a
-//! bytes slice and a bytes vector containing the data, respectively, and
-//! [Opt](struct.Opt.html) for the actual [RecordData]
-//! implementation using a cow of the former.
+//! There are three types for OPT record data: [`OptSlice`] and [`OptBuf`]
+//! for a bytes slice and a bytes vector containing the data, respectively,
+//! and [`Opt`] for the actual [`RecordData`] implementation using a cow of
+//! the former.
 //!
 //! Since OPT records actually requisition some of the standard fields of a
 //! DNS record for their own purpose, this module also defines
-//! [OptRecord](struct.OptRecord.html) for an entire OPT resource record.
+//! [`OptRecord]` for an entire OPT resource record.
 //!
 //! There are a number of additional types used for specific EDNS options
 //! or as friendly helper types.
 //!
+//! [`Opt`]: struct.Opt.html
+//! [`OptBuf`]: struct.OptBuf.html
+//! [`OptRecord`]: struct.OptRecord.html
+//! [`OptSlice`]: struct.OptSlice.html
+//! [RecordData]: ../../bits/rdata/trait.RecordData.html
 //! [RFC 2671]: https://tools.ietf.org/html/rfc2671
 //! [RFC 6891]: https://tools.ietf.org/html/rfc6891
-//! [RecordData]: ../../bits/rdata/trait.RecordData.html
 
 use std::borrow::{Borrow, Cow};
 use std::cmp::min;
@@ -43,20 +46,20 @@ use iana::{OptionCode, RRType, SecAlg};
 /// extendable way to add options. Its presence in the additional section of
 /// a DNS message marks a EDNS compatible implementation.
 ///
-/// This type is the [RecordData] implementation. It is effectively a cow
-/// on [OptSlice] and derefs into that. The type is more commonly used for
+/// This type is the [`RecordData`] implementation. It is effectively a cow
+/// on [`OptSlice`] and derefs into that. The type is more commonly used for
 /// looking at existing OPT records. Building normally happens on the fly
-/// with a [MessageBuilder]. The [OptRecord::push()] function can be used
+/// with a [`MessageBuilder`]. The [`OptRecord::push()`] function can be used
 /// for this. It accepts a closure for adding specific options. Functions
 /// for use in this closure are associated with the Opt type.
 ///
 /// The OPT record data is currently defined in [RFC 6891] after having been
 /// introduced in [RFC 2671].
 ///
-/// [MessageBuilder]: ../../bits/message/struct.MessageBuilder.html
-/// [OptRecord::push()]: struct.OptRecord.html#method.push
-/// [OptSlice]: struct.OptSlice.html
-/// [RecordData]: ../../bits/rdata/trait.RecordData.html
+/// [`MessageBuilder`]: ../../bits/message/struct.MessageBuilder.html
+/// [`OptRecord::push()`]: struct.OptRecord.html#method.push
+/// [`OptSlice`]: struct.OptSlice.html
+/// [`RecordData`]: ../../bits/rdata/trait.RecordData.html
 /// [RFC 2671]: https://tools.ietf.org/html/rfc2671
 /// [RFC 6891]: https://tools.ietf.org/html/rfc6891
 #[derive(Clone, Debug, PartialEq)]
@@ -80,7 +83,7 @@ impl<'a> Opt<'a> {
 /// # Building OPT Records on the Fly
 ///
 /// These associated functions can be used in the closure of
-/// [OptRecord::push()] for adding options on the fly. For example:
+/// [`OptRecord::push()`] for adding options on the fly. For example:
 ///
 /// ```rust
 /// use domain::bits::{ComposeMode, MessageBuilder};
@@ -96,7 +99,7 @@ impl<'a> Opt<'a> {
 /// }).unwrap();
 /// ```
 ///
-/// [OptRecord::push()]: struct.OptRecord.html#method.push
+/// [`OptRecord::push()`]: struct.OptRecord.html#method.push
 impl<'a> Opt<'a> {
     /// Pushes a generic option to the end of `target`.
     ///
@@ -425,15 +428,15 @@ impl<'a> fmt::Display for Opt<'a> {
 /// The bytes slice contains the raw record data upon which this type
 /// implements methods to access its contents. The record data is a
 /// sequence of EDNS options. You can get an iterator over the raw options
-/// via the [iter()](#method.iter) method. More likely, though, you will
+/// via the [`iter()`](#method.iter) method. More likely, though, you will
 /// want to get to [the individual options](#access-to-specific-options).
 ///
 /// This is an unsized type, so you have to always use it behind a reference
-/// or a box. For an owned OPT record, see [OptBuf]. The actual record data
-/// is based on a cow, see [Opt].
+/// or a box. For an owned OPT record, see [`OptBuf`]. The actual record data
+/// is based on a cow, see [`Opt`].
 ///
-/// [Opt]: struct.Opt.html
-/// [OptBuf]: struct.OptBuf.html
+/// [`Opt`]: struct.Opt.html
+/// [`OptBuf`]: struct.OptBuf.html
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct OptSlice([u8]);
 
@@ -619,7 +622,7 @@ impl OptSlice {
         self.parse_option(OptionCode::EdnsExpire, |parser| {
             if parser.left() == 0 { Ok(None) }
             else if parser.left() == 4 {
-                parser.parse_u32().map(|x| Some(x))
+                parser.parse_u32().map(Some)
             }
             else { Err(ParseError::FormErr) }
         })
@@ -663,7 +666,7 @@ impl OptSlice {
         self.parse_option(OptionCode::EdnsTcpKeepalive, |parser| {
             if parser.left() == 0 { Ok(None) }
             else if parser.left() != 2 { Err(ParseError::FormErr) }
-            else { parser.parse_u16().map(|x| Some(x)) }
+            else { parser.parse_u16().map(Some) }
         })
     }
 
@@ -697,7 +700,7 @@ impl OptSlice {
     /// attribute.
     ///
     /// [OptOption]: struct.OptOption.html
-    pub fn iter<'a>(&'a self) -> OptionIter<'a> {
+    pub fn iter(&self) -> OptionIter {
         OptionIter::new(&self.0)
     }
 }
@@ -725,11 +728,11 @@ impl ToOwned for OptSlice {
 
 /// Owned OPT record data atop a bytes vector.
 ///
-/// This is the owned companion to [OptSlice] and derefs to that type in
+/// This is the owned companion to [`OptSlice`] and derefs to that type in
 /// order to give access to all its methods. In addition, it provides a
 /// number of methods to add additional options to the data.
 ///
-/// [OptSlice]: struct.OptSlice.html
+/// [`OptSlice`]: struct.OptSlice.html
 #[derive(Clone, Debug)]
 pub struct OptBuf(ComposeBuf);
 
@@ -965,6 +968,15 @@ impl OptBuf {
     /// [RFC 7901]: https://tools.ietf.org/html/rfc7901
     pub fn push_chain<N: AsDName>(&mut self, n: &N) {
         Opt::push_chain(&mut self.0, n).unwrap()
+    }
+}
+
+
+//--- Default
+
+impl Default for OptBuf {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1226,11 +1238,11 @@ impl<'a> From<Record<'a, Opt<'a>>> for OptRecord<'a> {
 
 /// An iterator over the options in OPT record data.
 ///
-/// The item of this iterator is the [OptOption] type. You can acquire an
-/// iterator using the [OptSlice::iter()] method.
+/// The item of this iterator is the [`OptOption`] type. You can acquire an
+/// iterator using the [`OptSlice::iter()`] method.
 ///
-/// [OptOption]: struct.OptOption.html
-/// [OptSlice::iter()]: struct.OptSlice.html#method.iter
+/// [`OptOption`]: struct.OptOption.html
+/// [`OptSlice::iter()`]: struct.OptSlice.html#method.iter
 pub struct OptionIter<'a>(SliceParser<'a>);
 
 impl<'a> OptionIter<'a> {
@@ -1381,6 +1393,7 @@ impl ClientSubnet {
 ///
 impl ClientSubnet {
     /// Parses a client subnet value.
+    #[allow(needless_lifetimes)]
     pub fn parse<'a, P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
         let family = try!(parser.parse_u16());
         let source = try!(parser.parse_u8());
@@ -1510,6 +1523,7 @@ impl<'a> Cookie<'a> {
 /// # Parsing and Composing
 ///
 impl<'a> Cookie<'a> {
+    #[allow(if_same_then_else)]
     pub fn parse<P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
         if parser.left() < 8 {
             Err(ParseError::FormErr)
@@ -1552,7 +1566,7 @@ impl<'a> Cookie<'a> {
 
 /// Returns the number of bytes necessary to store `source` bits.
 fn addr_len(source: u8) -> usize {
-    (if source & 0x07 != 0 { source >> 3 + 1 }
+    (if source & 0x07 != 0 { (source >> 3) + 1 }
     else { source >> 3 }) as usize
 }
 

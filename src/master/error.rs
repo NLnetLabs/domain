@@ -92,7 +92,7 @@ pub type SyntaxResult<T> = result::Result<T, SyntaxError>;
 
 //------------ Pos -----------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Pos {
     line: usize,
     col: usize

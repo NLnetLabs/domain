@@ -28,7 +28,7 @@ pub fn lookup_addr(resolv: ResolverTask, addr: IpAddr)
                     -> BoxFuture<LookupAddr, Error> {
     let ptr = resolv.query(dname_from_addr(addr, &resolv.conf().options),
                            RRType::Ptr, Class::In);
-    let res = ptr.map(|msg| LookupAddr(msg));
+    let res = ptr.map(LookupAddr);
     res.boxed()
 }
 
@@ -63,6 +63,7 @@ pub struct LookupAddrIter<'a> {
 impl<'a> Iterator for LookupAddrIter<'a> {
     type Item = DName<'a>;
 
+    #[allow(while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {
         let name = if let Some(ref name) = self.name { name }
                    else { return None };
@@ -104,8 +105,8 @@ fn dname_from_v6(addr: Ipv6Addr, opts: &ResolvOptions) -> DNameBuf {
     if opts.use_bstring {
         // XXX Use Ipv6Addr::octets once that is stable.
         let mut segments = addr.segments();
-        for i in 0..8 {
-            segments[i] = segments[i].to_be()
+        for item in &mut segments {
+            *item = item.to_be()
         }
         let bytes: [u8; 16] = unsafe { mem::transmute(segments) };
         res.push(&Label::octo_binary(&bytes));

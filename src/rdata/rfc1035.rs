@@ -119,7 +119,7 @@ impl A {
                          addr: &Ipv4Addr) -> ComposeResult<()>
                 where C: ComposeBytes, T: RecordTarget<C>, N: AsDName {
         push_record(target, name, RRType::A, Class::In, ttl, |target| {
-            for i in addr.octets().iter() {
+            for i in &addr.octets() {
                 try!(target.push_u8(*i))
             }
             Ok(())
@@ -159,7 +159,7 @@ impl<'a> RecordData<'a> for A {
     fn rtype(&self) -> RRType { A::rtype() }
     
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
-        for i in self.addr.octets().iter() {
+        for i in &self.addr.octets() {
             try!(target.push_u8(*i))
         }
         Ok(())
@@ -948,7 +948,7 @@ impl<'a> RecordData<'a> for Wks<'a> {
     fn rtype(&self) -> RRType { RRType::Wks }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
-        for i in self.address.octets().iter() {
+        for i in &self.address.octets() {
             try!(target.push_u8(*i))
         }
         try!(target.push_u8(self.protocol));
@@ -976,7 +976,7 @@ impl<'a> fmt::Display for Wks<'a> {
 //--- WksBitmap
 
 /// The type of the bitmap of a WKS record.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct WksBitmap<'a>(Cow<'a, [u8]>);
 
 impl<'a> WksBitmap<'a> {

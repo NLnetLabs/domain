@@ -13,7 +13,7 @@ use ::bits::ComposeError;
 #[derive(Debug)]
 pub enum Error {
     /// The question was broken.
-    QuestionError(ComposeError),
+    Question(ComposeError),
 
     /// All responses for a query were negative.
     NoName,
@@ -28,7 +28,7 @@ pub enum Error {
     AllBogusAnswers,
 
     /// An IO error stopped queries from succeeding at all.
-    IoError(io::Error),
+    Io(io::Error),
 }
 
 
@@ -36,23 +36,24 @@ impl Error {
     /// Returns whether this error spells the end of a query.
     pub fn is_fatal(&self) -> bool {
         match *self {
-            Error::QuestionError(_) => true,
+            Error::Question(_) => true,
             _ => false
         }
     }
 
     /// Finds the most appropriate error for two failed queries.
+    #[allow(match_same_arms)]
     pub fn merge(self, other: Self) -> Self {
         use self::Error::*;
 
         match (self, other) {
-            (QuestionError(err), _) => QuestionError(err),
+            (Question(err), _) => Question(err),
 
             (NoName, NoSecureAnswers) => NoSecureAnswers,
             (NoName, AllBogusAnswers) => AllBogusAnswers,
             (NoName, _) => NoName,
 
-            (Timeout, IoError(_)) => Timeout,
+            (Timeout, Io(_)) => Timeout,
             (Timeout, other) => other,
 
             (NoSecureAnswers, _) => NoSecureAnswers,
@@ -60,7 +61,7 @@ impl Error {
             (AllBogusAnswers, NoSecureAnswers) => NoSecureAnswers,
             (AllBogusAnswers, _) => AllBogusAnswers,
 
-            (IoError(_), other) => other
+            (Io(_), other) => other
         }
     }
 }
@@ -73,12 +74,12 @@ impl error::Error for Error {
         use self::Error::*;
 
         match *self {
-            QuestionError(ref error) => error.description(),
+            Question(ref error) => error.description(),
             NoName => "all responses were negative",
             Timeout => "all queries timed out",
             NoSecureAnswers => "no received response was secure",
             AllBogusAnswers => "all received responses were bogus",
-            IoError(ref error) => error.description()
+            Io(ref error) => error.description()
         }
     }
 }
@@ -88,13 +89,13 @@ impl error::Error for Error {
 
 impl From<ComposeError> for Error {
     fn from(error: ComposeError) -> Error {
-        Error::QuestionError(error)
+        Error::Question(error)
     }
 }
 
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Error {
-        Error::IoError(error)
+        Error::Io(error)
     }
 }
 

@@ -101,7 +101,7 @@ impl Resolver {
                      F: FnOnce(ResolverTask) -> R {
         let mut reactor = try!(reactor::Core::new());
         let resolver = Resolver::new(&reactor.handle());
-        let fut = resolver.start().and_then(|resolv| f(resolv));
+        let fut = resolver.start().and_then(f);
         reactor.run(fut)
     }
 
@@ -118,7 +118,7 @@ impl Resolver {
                  where R: Future + Send + 'static,
                        R::Error: From<io::Error> + Send + 'static,
                        F: FnOnce(ResolverTask) -> R + Send + 'static {
-        self.start().and_then(|resolv| f(resolv)).boxed()
+        self.start().and_then(f).boxed()
     }
 }
 
@@ -360,12 +360,11 @@ impl Core {
                     => SocketAddr::new(IpAddr::V6([0;16].into()), 0)
             };
             if let Ok(service) = udp_service(reactor.clone(), local,
-                                             addr.clone(), conf.timeout,
-                                             512) {
+                                             *addr, conf.timeout, 512) {
                 udp.push(service);
             }
             if let Ok(service) = tcp_service(reactor.clone(),
-                                             addr.clone(), conf.idle_timeout,
+                                             *addr, conf.idle_timeout,
                                              conf.timeout) {
                 tcp.push(service);
             }

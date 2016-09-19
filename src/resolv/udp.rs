@@ -60,7 +60,7 @@ impl DgramFactory for UdpFactory {
     type Future = <io::Result<UdpSocket> as IntoFuture>::Future;
 
     fn bind(&self, reactor: &reactor::Handle) -> Self::Future {
-        UdpSocket::bind(&self.addr, &reactor).into_future()
+        UdpSocket::bind(&self.addr, reactor).into_future()
     }
 }
 

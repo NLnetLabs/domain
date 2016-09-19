@@ -19,7 +19,7 @@ pub fn search<N, R, F>(resolv: ResolverTask, name: N, f: F) -> Search<R, F>
     let name = name.as_ref();
     match name.ndots() {
         None => {
-            let current = f(&resolv, &name);
+            let current = f(&resolv, name);
             Search { current: current, data: None }
         }
         Some(n) if n > resolv.conf().ndots => {

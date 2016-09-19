@@ -157,8 +157,7 @@ impl<'a, D: RecordData<'a>> Record<'a, D> {
         let mut rdata_sub = try!(parser.parse_sub(rdlen));
         match D::parse(rtype, &mut rdata_sub) {
             Some(Ok(data)) => Ok(Some(Record::new(name, class, ttl, data))),
-            Some(Err(_)) => Ok(None),
-            None => Ok(None)
+            Some(Err(_)) | None => Ok(None),
         }
     }
 

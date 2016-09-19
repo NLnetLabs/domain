@@ -25,7 +25,7 @@ impl BytesSlice for [u8] {
     fn split_u16(&self) -> ParseResult<(u16, &[u8])> {
         try!(self.check_len(2));
         let (l, r) = self.split_at(2);
-        let l: &[u8; 2] = unsafe { mem::transmute(l.as_ptr()) };
+        let l: &[u8; 2] = unsafe { &*(l.as_ptr() as *const [u8; 2]) };
         let l = unsafe { mem::transmute(*l) };
         Ok((u16::from_be(l), r))
     }
@@ -34,7 +34,7 @@ impl BytesSlice for [u8] {
         try!(self.check_len(4));
         if self.len() < 4 { return Err(ParseError::UnexpectedEnd) }
         let (l, r) = self.split_at(4);
-        let l: &[u8; 4] = unsafe { mem::transmute(l.as_ptr()) };
+        let l: &[u8; 4] = unsafe { &*(l.as_ptr() as *const [u8; 4]) };
         let l = unsafe { mem::transmute(*l) };
         Ok((u32::from_be(l), r))
     }
@@ -86,7 +86,7 @@ pub trait BytesBuf {
 impl BytesBuf for Vec<u8> {
     fn reserve(&mut self, additional: usize) { self.reserve(additional) }
     fn push_bytes(&mut self, data: &[u8]) {
-        self.extend(data)
+        self.extend_from_slice(data)
     }
 }
 

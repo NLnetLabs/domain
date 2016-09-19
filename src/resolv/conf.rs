@@ -404,7 +404,8 @@ impl ResolvConf {
         let _ = words; 
         Ok(())
     }
-    
+ 
+    #[allow(match_same_arms)]
     fn parse_options(&mut self, words: SplitWhitespace) -> Result<()> {
         for word in words {
             match try!(split_arg(word)) {
@@ -460,11 +461,21 @@ impl ResolvConf {
 }
 
 
+//--- Default
+
+impl Default for ResolvConf {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+
 //--- Display
 
 impl fmt::Display for ResolvConf {
+    #[allow(cyclomatic_complexity)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for server in self.servers.iter() {
+        for server in &self.servers {
             try!("nameserver ".fmt(f));
             if server.port() == 53 { try!(server.ip().fmt(f)); }
             else { try!(server.fmt(f)); }
@@ -475,7 +486,7 @@ impl fmt::Display for ResolvConf {
         }
         else if self.search.len() > 1 {
             try!("search".fmt(f));
-            for name in self.search.iter() {
+            for name in &self.search {
                 try!(write!(f, " {}", name));
             }
             try!("\n".fmt(f));
@@ -558,7 +569,7 @@ fn no_more_words(mut words: str::SplitWhitespace) -> Result<()> {
 ///
 /// These options consist of a name followed by a colon followed by a
 /// value, which so far is only `usize`, so we do that.
-fn split_arg<'a>(s: &'a str) -> Result<(&'a str, Option<usize>)> {
+fn split_arg(s: &str) -> Result<(&str, Option<usize>)> {
     match s.find(':') {
         Some(idx) => {
             let (left, right) = s.split_at(idx);
@@ -578,21 +589,21 @@ pub enum Error {
     ParseError,
 
     /// Something happend while reading.
-    IoError(io::Error),
+    Io(io::Error),
 }
 
 impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
             Error::ParseError => "error parsing configuration",
-            Error::IoError(ref e) => e.description(),
+            Error::Io(ref e) => e.description(),
         }
     }
 }
 
 impl convert::From<io::Error> for Error {
     fn from(error: io::Error) -> Error {
-        Error::IoError(error)
+        Error::Io(error)
     }
 }
 

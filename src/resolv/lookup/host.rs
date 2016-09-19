@@ -124,7 +124,7 @@ impl<'a> Iterator for LookupHostIter<'a> {
     type Item = IpAddr;
 
     fn next(&mut self) -> Option<IpAddr> {
-        self.0.next().map(|item| *item)
+        self.0.next().cloned()
     }
 }
 

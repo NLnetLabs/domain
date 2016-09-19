@@ -232,7 +232,7 @@ impl fmt::Display for SecAlg {
             Int(value) => {
                 match SecAlg::from_int(value) {
                     Int(value) => value.fmt(f),
-                    value @ _ => value.fmt(f)
+                    value => value.fmt(f)
                 }
             }
         }

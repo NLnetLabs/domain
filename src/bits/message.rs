@@ -191,8 +191,10 @@ impl Message {
     /// This checks whether the ID fields of the header are the same,
     /// whether the QR flag is set and whether the questions are the same.
     pub fn is_answer(&self, query: &Message) -> bool {
-        if !self.header().qr() { false }
-        else if self.counts().qdcount() != query.counts().qdcount() { false }
+        if !self.header().qr()
+                || self.counts().qdcount() != query.counts().qdcount() {
+            false
+        }
         else { self.question().eq(query.question()) }
     }
 
@@ -223,7 +225,7 @@ impl Message {
     /// Returns `None` if either the message doesn’t have a question or there
     /// was a parse error. Otherwise starts with the question’s name,
     /// follows any CNAME trail and returns the name answers should be for.
-    pub fn canonical_name<'a>(&self) -> Option<Cow<DNameSlice>> {
+    pub fn canonical_name(&self) -> Option<Cow<DNameSlice>> {
         // XXX There may be cheaper ways to do this ...
         let question = match self.first_question() {
             None => return None,
@@ -729,7 +731,7 @@ impl<'a> RecordSection<'a> {
     /// `generic_iter()` convenience method.
     pub fn iter<D: RecordData<'a>>(&self) -> RecordIter<'a, D> {
         RecordIter::new(self.parser.clone(),
-                        self.section.count(&self.counts))
+                        self.section.count(self.counts))
     }
 
     /// Returns an iterator over all records in the section.

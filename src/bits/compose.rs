@@ -93,7 +93,7 @@ pub trait ComposeBytes: Sized + fmt::Debug {
         octets.compose(self)
     }
 
-    //--- Checkpoint and rollback.
+    //--- Checkpoint for truncation.
 
     /// Mark the current position as a point for truncation.
     ///
@@ -295,7 +295,7 @@ impl ComposeBuf {
     /// Returns the compression index for the given name if any.
     fn get_compress_target(&self, name: &DNameSlice) -> Option<u16> {
         if let Some(ref compress) = self.compress {
-            compress.get(name).map(|v| *v)
+            compress.get(name).cloned()
         }
         else { None }
     }
@@ -309,7 +309,7 @@ impl ComposeBytes for ComposeBuf {
 
     fn push_bytes(&mut self, data: &[u8]) -> ComposeResult<()> {
         try!(self.keep_pushing(data.len()));
-        self.vec.extend(data);
+        self.vec.extend_from_slice(data);
         Ok(())
     }
 

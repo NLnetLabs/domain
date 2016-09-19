@@ -52,7 +52,7 @@ pub trait ParseBytes<'a>: Sized + Clone {
     /// Parses an unsigned 16-bit word.
     fn parse_u16(&mut self) -> ParseResult<u16> {
         self.parse_bytes(2).map(|res| {
-            let res: &[u8; 2] = unsafe { mem::transmute(res.as_ptr()) };
+            let res: &[u8; 2] = unsafe { &*(res.as_ptr() as *const [u8; 2]) };
             let res = unsafe { mem::transmute(*res) };
             u16::from_be(res)
         })
@@ -61,7 +61,7 @@ pub trait ParseBytes<'a>: Sized + Clone {
     /// Parses an unsigned 32-bit word.
     fn parse_u32(&mut self) -> ParseResult<u32> {
         self.parse_bytes(4).map(|res| {
-            let res: &[u8; 4] = unsafe { mem::transmute(res.as_ptr()) };
+            let res: &[u8; 4] = unsafe { &*(res.as_ptr() as *const [u8; 4]) };
             let res = unsafe { mem::transmute(*res) };
             u32::from_be(res)
         })

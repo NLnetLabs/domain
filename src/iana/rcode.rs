@@ -6,9 +6,8 @@
 //! bits to the response code to be transmitted as part of the OPT
 //! pseudo-resource record. To make matters even worse, the TSIG and TKEY
 //! records defined by [RFC 2845] and [RFC 2930] use a 16 bit error code.
-//! All of these codes share the same defition space. Since we can’t safely
-//! express a 12 bit value in Rust, the [ExtRcode] type defined herein is
-//! used for both the 12 and 16 bit error codes.
+//! All of these codes share the same defition space. Even so, we have
+//! separate types for each of these.
 //!
 //! [Rcode]: 
 //! [RFC 2671]: https://tools.ietf.org/html/rfc2671
@@ -187,7 +186,7 @@ impl Rcode {
             8 => NXRRSet,
             9 => NotAuth,
             10 => NotZone,
-            value @ _ => Int(value)
+            value => Int(value)
         }
     }
 
@@ -245,7 +244,7 @@ impl fmt::Display for Rcode {
             Int(i) => {
                 match Rcode::from_int(i) {
                     Rcode::Int(i) => i.fmt(f),
-                    value @ _ => value.fmt(f)
+                    value => value.fmt(f)
                 }
             }
         }
@@ -325,7 +324,7 @@ impl hash::Hash for Rcode {
 ///
 /// There is a third, 16 bit wide response code for transaction
 /// authentication (TSIG) defined in [RFC 2845] and represented by the
-/// [TsigRcode] type. The code mostly shares the same name space except
+/// [`TsigRcode`] type. The code mostly shares the same name space except
 /// for an unfortunate collision in between the BADVERS and BADSIG values.
 /// Because of this, we decided to have separate types.
 ///
@@ -333,7 +332,7 @@ impl hash::Hash for Rcode {
 /// the [IANA DNS RCODEs] registry.
 ///
 /// [Rcode]: enum.Rcode.html
-/// [TsigRcode]: enum.TsigRcode.html
+/// [`TsigRcode`]: enum.TsigRcode.html
 /// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 /// [RFC 2671]: https://tools.ietf.org/html/rfc2671
 /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
@@ -507,7 +506,7 @@ impl OptRcode {
             10 => NotZone,
             16 => BadVers,
             23 => BadCookie,
-            value @ _ => Int(value)
+            value => Int(value)
         }
     }
 
@@ -599,7 +598,7 @@ impl fmt::Display for OptRcode {
             Int(i) => {
                 match OptRcode::from_int(i) {
                     Int(i) => i.fmt(f),
-                    value @ _ => value.fmt(f)
+                    value => value.fmt(f)
                 }
             }
         }
@@ -613,17 +612,17 @@ impl fmt::Display for OptRcode {
 /// Response codes for transaction authentication (TSIG).
 ///
 /// TSIG and TKEY resource records contain a 16 bit wide error field whose
-/// values are an extension of the standard DNS [Rcode]. While it was
+/// values are an extension of the standard DNS [`Rcode`]. While it was
 /// intended to also share the same space with the extended response codes
-/// used by EDNS (see [OptRcode]), both used the value 16. To allow
+/// used by EDNS (see [`OptRcode`]), both used the value 16. To allow
 /// distinguish between the two uses of this value, we have two separate
 /// types.
 ///
 /// The values for all three response code types are defined in
 /// the [IANA DNS RCODEs] registry.
 ///
-/// [Rcode]: enum.Rcode.html
-/// [OptRcode]: enum.OptRcode.html
+/// [`Rcode?]: enum.Rcode.html
+/// [`OptRcode`]: enum.OptRcode.html
 /// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
 #[derive(Clone, Copy, Debug)]
 pub enum TsigRcode {
@@ -853,7 +852,7 @@ impl TsigRcode {
             21 => BadAlg,
             22 => BadTrunc,
             23 => BadCookie,
-            value @ _ => Int(value)
+            value => Int(value)
         }
     }
 
@@ -939,7 +938,7 @@ impl fmt::Display for TsigRcode {
             Int(i) => {
                 match TsigRcode::from_int(i) {
                     Int(i) => i.fmt(f),
-                    value @ _ => value.fmt(f)
+                    value => value.fmt(f)
                 }
             }
         }

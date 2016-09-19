@@ -144,10 +144,8 @@ impl<T: DgramTransport> DgramService<T> {
             }
             else { return Async::NotReady }
         }
-        else {
-            if self.pending.is_empty() { return Async::Ready(None) }
-            else { return Async::NotReady }
-        };
+        else if self.pending.is_empty() { return Async::Ready(None) }
+        else { return Async::NotReady };
         self.recv = None;
         Async::NotReady
     }
@@ -235,18 +233,13 @@ impl<T: DgramTransport> Future for DgramService<T> {
     /// left or if anything goes horribly wrong.
     fn poll(&mut self) -> Poll<(), io::Error> {
         self.poll_pending();
-        loop {
-            match try!(self.poll_write()) {
-                Async::Ready(()) => {
-                    match self.poll_recv() {
-                        Async::Ready(Some(())) => {
-                            // New request, try writing right again.
-                        }
-                        Async::Ready(None) => {
-                            return Ok(Async::Ready(()))
-                        }
-                        Async::NotReady => break
-                    }
+        while let Async::Ready(()) = try!(self.poll_write()) {
+            match self.poll_recv() {
+                Async::Ready(Some(())) => {
+                    // New request, try writing right again.
+                }
+                Async::Ready(None) => {
+                    return Ok(Async::Ready(()))
                 }
                 Async::NotReady => break
             }

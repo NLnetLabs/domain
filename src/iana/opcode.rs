@@ -75,7 +75,7 @@ impl Opcode {
             2 => Status,
             4 => Notify,
             5 => Update,
-            value @ _ => Int(value)
+            value => Int(value)
         }
     }
 
@@ -121,7 +121,7 @@ impl fmt::Display for Opcode {
             Int(value) => {
                 match Opcode::from_int(value) {
                     Int(value) => value.fmt(f),
-                    value @ _ => value.fmt(f)
+                    value => value.fmt(f)
                 }
             }
         }

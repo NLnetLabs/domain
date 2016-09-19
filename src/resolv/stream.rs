@@ -1,7 +1,7 @@
 //! Service for stream transports.
 //!
 //! This implementation is seemingly too smart for some recursors
-//! (particularly whatever runs on FritzBoxen) that seem to expect a
+//! (particularly whatever runs on Fritz Boxen) that seem to expect a
 //! strict ping pong of requests and responses.
 
 use std::fmt;
@@ -249,18 +249,13 @@ impl<T: Read + Write> Future for ActiveStream<T> {
     /// remove all expired requests.
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         self.poll_pending();
-        loop {
-            match try!(self.poll_write()) {
-                Async::Ready(()) => {
-                    match try!(self.poll_recv()) {
-                        Async::Ready(Some(())) => {
-                            // New request, try again right away.
-                        }
-                        Async::Ready(None) => {
-                            return Ok(Async::Ready(self.recv.take()))
-                        }
-                        Async::NotReady => break
-                    }
+        while let Async::Ready(()) = try!(self.poll_write()) {
+            match try!(self.poll_recv()) {
+                Async::Ready(Some(())) => {
+                    // New request, try again right away.
+                }
+                Async::Ready(None) => {
+                    return Ok(Async::Ready(self.recv.take()))
                 }
                 Async::NotReady => break
             }
@@ -307,23 +302,18 @@ impl<T: Read + Write> ActiveStream<T> {
     fn poll_recv(&mut self) -> Poll<Option<()>, io::Error> {
         if let Some(ref mut recv) = self.recv {
             if self.write.is_none() {
-                match try_ready!(recv.poll()) {
-                    Some(request) => {
-                        self.write = new_write(request, &mut self.pending);
-                        self.timeout = reactor::Timeout::new(self.keep_alive,
-                                                             &self.reactor)
-                                                        .ok();
-                        return Ok(Async::Ready(Some(())))
-                    }
-                    None => { }
+                if let Some(request) = try_ready!(recv.poll()) {
+                    self.write = new_write(request, &mut self.pending);
+                    self.timeout = reactor::Timeout::new(self.keep_alive,
+                                                         &self.reactor)
+                                                    .ok();
+                    return Ok(Async::Ready(Some(())))
                 }
             }
             else { return Ok(Async::Ready(Some(()))) }
         }
-        else {
-            if self.pending.is_empty() { return Ok(Async::Ready(None)) }
-            else { return Ok(Async::NotReady) }
-        };
+        else if self.pending.is_empty() { return Ok(Async::Ready(None)) }
+        else { return Ok(Async::NotReady) };
         self.recv = None;
         Ok(Async::NotReady)
     }
@@ -469,9 +459,8 @@ impl ReadResponse {
                 let next_item = self.item.next_item();
                 self.pos = 0;
                 let item = mem::replace(&mut self.item, next_item);
-                match item.finish() {
-                    Some(message) => return Ok(Async::Ready(Some(message))),
-                    None => { }
+                if let Some(message) = item.finish() {
+                    return Ok(Async::Ready(Some(message)))
                 }
             }
         }
@@ -543,7 +532,7 @@ impl StreamRequest {
         let buf = match StreamRequest::new_buf(&request, id) {
             Ok(buf) => buf,
             Err(err) => {
-                request.fail(Error::QuestionError(err));
+                request.fail(Error::Question(err));
                 return None
             }
         };
@@ -565,7 +554,7 @@ impl StreamRequest {
 
     fn respond(self, response: MessageBuf) {
         let request = Message::from_bytes(&self.buf[2..]).unwrap();
-        if response.is_answer(&request) {
+        if response.is_answer(request) {
             self.request.succeed(response)
         }
         else {

@@ -150,7 +150,7 @@ impl<'a> DName<'a> {
     /// can safely call `unwrap()` on them in this particular case only.
     pub fn iter<'b: 'a>(&'b self) -> DNameIter<'b> {
         match *self {
-            DName::Slice(ref name) => DNameIter::Slice(name.iter()),
+            DName::Slice(name) => DNameIter::Slice(name.iter()),
             DName::Owned(ref name) => DNameIter::Slice(name.iter()),
             DName::Packed(ref name) => DNameIter::Packed(name.iter())
         }
@@ -213,7 +213,7 @@ impl<'a> AsDName for DName<'a> {
 impl<'a, T: AsRef<DNameSlice> + ?Sized> PartialEq<T> for DName<'a> {
     fn eq(&self, other: &T) -> bool {
         match *self {
-            DName::Slice(ref name) => name.eq(&other),
+            DName::Slice(name) => name.eq(&other),
             DName::Owned(ref name) => name.eq(other),
             DName::Packed(ref name) => name.eq(other),
         }
@@ -223,7 +223,7 @@ impl<'a, T: AsRef<DNameSlice> + ?Sized> PartialEq<T> for DName<'a> {
 impl<'a, 'b> PartialEq<PackedDName<'b>> for DName<'a> {
     fn eq(&self, other: &PackedDName<'b>) -> bool {
         match *self {
-            DName::Slice(ref name) => name.eq(&other),
+            DName::Slice(name) => name.eq(other),
             DName::Owned(ref name) => name.eq(other),
             DName::Packed(ref name) => name.eq(other),
         }
@@ -233,7 +233,7 @@ impl<'a, 'b> PartialEq<PackedDName<'b>> for DName<'a> {
 impl<'a, 'b> PartialEq<DName<'b>> for DName<'a> {
     fn eq(&self, other: &DName<'b>) -> bool {
         match *other {
-            DName::Slice(ref name) => self.eq(name),
+            DName::Slice(name) => self.eq(name),
             DName::Owned(ref name) => self.eq(name),
             DName::Packed(ref name) => self.eq(name)
         }
@@ -279,7 +279,7 @@ impl<'a, 'b> PartialOrd<DName<'b>> for DName<'a> {
 impl<'a> fmt::Display for DName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DName::Slice(ref name) => name.fmt(f),
+            DName::Slice(name) => name.fmt(f),
             DName::Owned(ref name) => name.fmt(f),
             DName::Packed(ref name) => name.fmt(f)
         }
@@ -421,7 +421,7 @@ impl DNameSlice {
 ///
 impl DNameSlice {
     /// Produces an iterator over the labels in the name.
-    pub fn iter<'a> (&'a self) -> SliceIter<'a> {
+    pub fn iter(&self) -> SliceIter {
         SliceIter::new(self)
     }
 
@@ -504,8 +504,7 @@ impl DNameSlice {
                 (Some(sl), Some(bl)) => {
                     if sl != bl { return false }
                 }
-                (Some(_), None) => return true,
-                (None, None) => return true,
+                (_, None) => return true,
                 (None, Some(_)) => return false,
             }
         }
@@ -541,9 +540,8 @@ impl DNameSlice {
                     (Some(sl), Some(bl)) => {
                         if sl != bl { break }
                     }
-                    (Some(_), None) => break,
                     (None, None) => return true,
-                    (None, Some(_)) => break
+                    (None, Some(_)) | (Some(_), None) => break
                 }
             }
         }
@@ -696,7 +694,7 @@ impl fmt::Display for DNameSlice {
 ///
 /// `DNameBuf` values can be created from string via the `std::str::FromStr`
 /// trait. Such strings must be in the usual zonefile encoding.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DNameBuf {
     /// The underlying bytes vector.
     inner: Vec<u8>
@@ -749,6 +747,7 @@ impl DNameBuf {
     }
 
     /// Parses a complete domain name and clones it into an owned name.
+    #[allow(needless_lifetimes)]
     pub fn parse_complete<'a, P: ParseBytes<'a>>(parser: &mut P)
                                                  -> ParseResult<Self> {
         Ok(try!(DNameSlice::parse(parser)).to_owned())
@@ -803,7 +802,7 @@ impl DNameBuf {
 
     fn _append(&mut self, name: &DNameSlice) {
         if self.is_relative() {
-            self.inner.extend(&name.slice)
+            self.inner.extend_from_slice(&name.slice)
         }
     }
 
@@ -836,33 +835,28 @@ impl str::FromStr for DNameBuf {
         let mut res = DNameBuf::new();
         let mut label = Vec::new();
         let mut chars = s.chars();
-        loop {
-            match chars.next() {
-                Some(c) => {
-                    match c {
-                        '.' => {
-                            if label.len() > 63 {
-                                return Err(FromStrError::LongLabel)
-                            }
-                            res.inner.push(label.len() as u8);
-                            res.inner.extend(&label);
-                            label.clear();
-                        }
-                        '\\' => label.push(try!(parse_escape(&mut chars))),
-                        ' ' ... '-' | '/' ... '[' | ']' ... '~' => {
-                            label.push(c as u8);
-                        }
-                        _ => return Err(FromStrError::IllegalCharacter)
+        while let Some(c) = chars.next() {
+            match c {
+                '.' => {
+                    if label.len() > 63 {
+                        return Err(FromStrError::LongLabel)
                     }
+                    res.inner.push(label.len() as u8);
+                    res.inner.extend_from_slice(&label);
+                    label.clear();
                 }
-                None => break
+                '\\' => label.push(try!(parse_escape(&mut chars))),
+                ' ' ... '-' | '/' ... '[' | ']' ... '~' => {
+                    label.push(c as u8);
+                }
+                _ => return Err(FromStrError::IllegalCharacter)
             }
         }
         if label.len() > 63 {
             return Err(FromStrError::LongLabel)
         }
         res.inner.push(label.len() as u8);
-        res.inner.extend(&label);
+        res.inner.extend_from_slice(&label);
         Ok(res)
     }
 }
@@ -1192,8 +1186,7 @@ impl<'a, 'b> PartialOrd<PackedDName<'b>> for PackedDName<'a> {
                     Some(Equal) => (),
                     non_eq => return non_eq
                 },
-                (Some(Err(..)), _) => return None,
-                (_, Some(Err(..))) => return None,
+                (Some(Err(..)), _) | (_, Some(Err(..))) => return None,
                 (None, None) => return Some(Equal),
                 (None, _) => return Some(Less),
                 (_, None) => return Some(Greater)
@@ -1377,7 +1370,7 @@ impl<'a> Iterator for DNameIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match *self {
-            DNameIter::Slice(ref mut iter) => iter.next().map(|x| Ok(x)),
+            DNameIter::Slice(ref mut iter) => iter.next().map(Ok),
             DNameIter::Packed(ref mut iter) => iter.next()
         }
     }
@@ -1385,10 +1378,10 @@ impl<'a> Iterator for DNameIter<'a> {
 
 //------------ DNameBuilder --------------------------------------------------
 
-/// Builds a DNameBuf step by step from bytes.
+/// Builds a `DNameBuf` step by step from bytes.
 ///
-/// This type allows it to build a `DNameBuf` slowly by feeding bytes. It is
-/// used internally by `DNameBuf'’s `FromStr` implementation and the master
+/// This type allows to build a `DNameBuf` slowly by feeding bytes. It is
+/// used internally by `FromStr` implementation of `DNameBuf` and the master
 /// format scanner.
 #[derive(Clone, Debug)]
 pub struct DNameBuilder<'a>(DNameBuildInto<'a, Vec<u8>>);
@@ -1458,17 +1451,15 @@ impl<'a, V: AsMut<Vec<u8>>> DNameBuildInto<'a, V> {
         if self.absolute {
             Err(NameError::EmptyLabel)
         }
-        else {
-            if self.target.as_mut().len() - self.head == 63 {
+        else if self.target.as_mut().len() - self.head == 63 {
                 Err(NameError::LongLabel)
             }
-            else if self.target.as_mut().len() - self.start == 254 {
-                Err(NameError::LongName)
-            }
-            else {
-                self.target.as_mut().push(b);
-                Ok(())
-            }
+        else if self.target.as_mut().len() - self.start == 254 {
+            Err(NameError::LongName)
+        }
+        else {
+            self.target.as_mut().push(b);
+            Ok(())
         }
     }
 
@@ -1488,19 +1479,17 @@ impl<'a, V: AsMut<Vec<u8>>> DNameBuildInto<'a, V> {
     }
 
     pub fn done(mut self) -> Result<V, NameError> {
-        if !self.absolute {
-            if self.target.as_mut().len() > self.head + 1 {
-                self.target.as_mut()[self.head]
-                        = (self.target.as_mut().len() - self.head - 1) as u8;
-                if let Some(origin) = self.origin {
-                    self.target.as_mut().extend(origin.as_bytes());
-                    if self.target.as_mut().len() - self.start > 255 {
-                        return Err(NameError::LongName)
-                    }
+        if !self.absolute && self.target.as_mut().len() > self.head + 1 {
+            self.target.as_mut()[self.head]
+                    = (self.target.as_mut().len() - self.head - 1) as u8;
+            if let Some(origin) = self.origin {
+                self.target.as_mut().extend(origin.as_bytes());
+                if self.target.as_mut().len() - self.start > 255 {
+                    return Err(NameError::LongName)
                 }
-                else {
-                    return Err(NameError::RelativeName)
-                }
+            }
+            else {
+                return Err(NameError::RelativeName)
             }
         }
         Ok(self.target)
@@ -1729,6 +1718,13 @@ impl<'a> Label<'a> {
         }
     }
 
+    /// Returns whether the label’s wire representation is empty.
+    ///
+    /// (Which it never is…)
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+
     /// Returns whether this is the root label
     pub fn is_root(&self) -> bool {
         match self.0 {
@@ -1875,7 +1871,7 @@ impl<'a> PartialEq for Label<'a> {
                     else {
                         match lc & 0x7 {
                             0 => ll == rl,
-                            c @ _ => {
+                            c => {
                                 let mask = (1 << c) - 1;
                                 (ll & mask) == (rl & mask)
                             }
@@ -1972,14 +1968,14 @@ impl<'a> Ord for Label<'a> {
 
 impl<'a> hash::Hash for Label<'a> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        match &self.0 {
-            &LabelContent::Normal(slice) => {
+        match self.0 {
+            LabelContent::Normal(slice) => {
                 state.write_u8(0);
                 for ch in slice {
                     state.write_u8(ch.to_ascii_lowercase())
                 }
             }
-            &LabelContent::Binary(count, slice) => {
+            LabelContent::Binary(count, slice) => {
                 state.write_u8(1);
                 state.write_u8(count);
                 let (last, slice) = slice.split_last().unwrap();
@@ -2040,6 +2036,7 @@ impl LabelHead {
     }
 
     /// Parses a single label head from the start of the parser.
+    #[allow(needless_lifetimes)]
     fn parse<'a, P: ParseBytes<'a>>(parser: &mut P) -> ParseResult<Self> {
         LabelHead::from_byte(try!(parser.parse_u8()))
     }
@@ -2047,7 +2044,7 @@ impl LabelHead {
     /// Splits a label head from the start of a bytes slice.
     ///
     /// Returns the label head and the remainder of the bytes slice.
-    fn split_from<'a>(slice: &'a[u8]) -> ParseResult<(LabelHead, &'a[u8])> {
+    fn split_from(slice: &[u8]) -> ParseResult<(LabelHead, &[u8])> {
         let (head, slice) = try!(slice.split_u8());
         Ok((try!(LabelHead::from_byte(head)), slice))
     }
@@ -2088,8 +2085,7 @@ impl LabelHead {
 
     fn is_final(&self) -> bool {
         match *self {
-            LabelHead::Normal(0) => true,
-            LabelHead::Compressed(..) => true,
+            LabelHead::Normal(0) |  LabelHead::Compressed(..) => true,
             _ => false
         }
     }

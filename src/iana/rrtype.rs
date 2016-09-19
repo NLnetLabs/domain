@@ -410,7 +410,7 @@ impl RRType {
     pub fn scan<S: Scanner>(scanner: &mut S) -> ScanResult<Self> {
         scanner.scan_word(|slice| {
             RRType::from_bytes(slice)
-                   .ok_or(SyntaxError::UnknownClass(slice.into()))
+                   .ok_or_else(|| SyntaxError::UnknownClass(slice.into()))
         })
     }
 }

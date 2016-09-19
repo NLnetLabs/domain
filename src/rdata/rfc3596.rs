@@ -37,7 +37,7 @@ impl Aaaa {
                          addr: &Ipv6Addr) -> ComposeResult<()>
                 where C: ComposeBytes, T: RecordTarget<C>, N: AsDName {
         push_record(target, name, RRType::Aaaa, Class::In, ttl, |target| {
-            for i in addr.segments().iter() {
+            for i in &addr.segments() {
                 try!(target.push_u16(*i))
             }
             Ok(())
@@ -62,7 +62,7 @@ impl Aaaa {
                                  -> ScanResult<()> {
         scanner.scan_str_phrase(|slice| {
             let addr = try!(Ipv6Addr::from_str(slice));
-            for i in addr.segments().iter() {
+            for i in &addr.segments() {
                 target.push_u16(*i)
             }
             Ok(())
@@ -74,7 +74,7 @@ impl<'a> RecordData<'a> for Aaaa {
     fn rtype(&self) -> RRType { RRType::Aaaa }
 
     fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
-        for i in self.addr.segments().iter() {
+        for i in &self.addr.segments() {
             try!(target.push_u16(*i));
         }
         Ok(())

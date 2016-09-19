@@ -24,7 +24,7 @@ use super::parse::ParseBytes;
 /// This type behaves similar to a `Cow<[u8]>`. In particular, it derefs
 /// into a bytes slice. It can be constructed from a bytes slice or a bytes
 /// vec.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CharStr<'a>(Cow<'a, [u8]>);
 
 /// # Creation and Conversion
@@ -108,16 +108,13 @@ impl<'a> CharStr<'a> {
     /// The string must be in zonefile encoding.
     pub fn extend_str(&mut self, s: &str) -> FromStrResult<()> {
         let mut chars = s.chars();
-        loop {
-            match chars.next() {
-                Some(c) => match c {
-                    '\\' => try!(self.push(try!(parse_escape(&mut chars)))),
-                    ' ' ... '[' | ']' ... '~' => {
-                        try!(self.push(c as u8))
-                    }
-                    _ => return Err(FromStrError::IllegalCharacter)
-                },
-                None => break
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => try!(self.push(try!(parse_escape(&mut chars)))),
+                ' ' ... '[' | ']' ... '~' => {
+                    try!(self.push(c as u8))
+                }
+                _ => return Err(FromStrError::IllegalCharacter)
             }
         }
         Ok(())

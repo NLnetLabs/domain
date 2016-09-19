@@ -3,7 +3,7 @@
 //! This module will eventually contain implementations for the record data
 //! for all defined resource record types.
 //!
-//! The types are named identically to the [RRType] variant they implement.
+//! The types are named identically to the [`RRType`] variant they implement.
 //! They are grouped into submodules for the RFCs they are defined in. All
 //! types are also re-exported at the top level here. Ie., for the AAAA
 //! record type, you can simple `use domain::rdata::Aaaa` instead of
@@ -11,10 +11,10 @@
 //! There are, however, some helper data types defined here and there which
 //! are not re-exported to keep things somewhat tidy.
 //!
-//! See the [RRType] enum for the complete set of record types and,
+//! See the [`RRType`] enum for the complete set of record types and,
 //! consequently, those types that are still missing.
 //!
-//! [RRType]: ../iana/enum.RRType.html
+//! [`RRType`]: ../iana/enum.RRType.html
 
 pub mod rfc1035;
 pub mod rfc3596;

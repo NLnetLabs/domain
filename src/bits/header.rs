@@ -38,7 +38,7 @@ use super::error::{ComposeError, ComposeResult};
 ///
 /// Most of this is defined in RFC 1035, except for the AD and CD flags,
 /// which are defined in RFC 4035.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Header {
     /// The actual header in its wire format representation.
     ///
@@ -64,7 +64,7 @@ impl Header {
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
     pub unsafe fn from_message(s: &[u8]) -> &Header {
-        mem::transmute(s.as_ptr())
+        &*(s.as_ptr() as *const Header)
     }
 
     /// Creates a mutable header reference from a bytes slice of a message.
@@ -72,7 +72,7 @@ impl Header {
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
     pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut Header {
-        mem::transmute(s.as_ptr())
+        &mut *(s.as_ptr() as *mut Header)
     }
 
     /// Returns the underlying bytes slice.
@@ -255,7 +255,7 @@ impl Header {
 ///
 /// For each field there are three methods for getting, setting, and
 /// incrementing by one.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct HeaderCounts {
     inner: [u8; 8]
 }
@@ -273,7 +273,7 @@ impl HeaderCounts {
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
     pub unsafe fn from_message(s: &[u8]) -> &HeaderCounts {
-        mem::transmute((s[mem::size_of::<Header>()..].as_ptr()))
+        &*((s[mem::size_of::<Header>()..].as_ptr()) as *const HeaderCounts)
     }
 
     /// Creates a mutable reference from the bytes slice of a message.
@@ -281,7 +281,7 @@ impl HeaderCounts {
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
     pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut HeaderCounts {
-        mem::transmute(s[mem::size_of::<Header>()..].as_ptr())
+        &mut *((s[mem::size_of::<Header>()..].as_ptr()) as *mut HeaderCounts)
     }
 
     /// Returns the underlying bytes slice.
@@ -475,7 +475,7 @@ impl HeaderCounts {
 /// The complete header of a DNS message.
 ///
 /// Consists of a `Header` and a `HeaderCounts`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FullHeader {
     inner: [u8; 12]
 }
@@ -493,7 +493,7 @@ impl FullHeader {
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
     pub unsafe fn from_message(s: &[u8]) -> &FullHeader {
-        mem::transmute(s.as_ptr())
+        &*(s.as_ptr() as *const FullHeader)
     }
 
     /// Creates a mutable reference from the bytes slice of a message.
@@ -501,7 +501,7 @@ impl FullHeader {
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
     pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut FullHeader {
-        mem::transmute(s.as_ptr())
+        &mut *(s.as_ptr() as *mut FullHeader)
     }
 
     /// Returns the underlying bytes slice.

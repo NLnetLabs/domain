@@ -16,6 +16,7 @@
 //! [master]: master/index.html
 //! [rdata]: rdata/index.html
 //! [resolv]: resolv/index.html
+#![allow(unknown_lints)] // hide clippy-related #allows on stable. 
 
 #[macro_use] extern crate futures;
 extern crate rand;

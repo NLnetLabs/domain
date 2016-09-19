@@ -40,7 +40,7 @@ use bits::name::{DNameSlice, DNameBuf};
 /// that these calls don’t have to add matching information but rather
 /// the forward (host name to address) and reverse (address to host name)
 /// are independent.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Hosts {
     forward: HashMap<DNameBuf, Vec<IpAddr>>,
     reverse: HashMap<IpAddr, Vec<DNameBuf>>,

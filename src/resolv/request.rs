@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 use futures::Complete;
-use ::bits::{DNameBuf, MessageBuf};
+use ::bits::{DNameBuf, MessageBuf, MessageBuilder};
 use ::iana::{Class, RRType};
 use super::error::{Error, Result};
 
@@ -16,6 +16,9 @@ pub struct Question {
     pub rtype: RRType,
     pub class: Class
 }
+
+
+//------------ Request ------------------------------------------------------
 
 /// A DNS request is one step in trying to resolv the query.
 ///
@@ -67,3 +70,10 @@ impl Request {
     }
 }
 
+
+//------------ RequestMessage ------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct RequestMessage {
+    original: MessageBuilder,
+}

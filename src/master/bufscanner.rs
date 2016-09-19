@@ -1,4 +1,4 @@
-//! A scanner atop a buffer atop an io::Read.
+//! A scanner atop a buffer atop an `io::Read`.
 
 use std::fs::File;
 use std::io;
@@ -431,9 +431,11 @@ impl<R: io::Read> Scanner for BufScanner<R> {
     }
 
     fn scan_space(&mut self) -> ScanResult<()> {
-        match try!(self.skip_space()) {
-            true => self.ok(()),
-            false => self.err(SyntaxError::ExpectedSpace)
+        if try!(self.skip_space()) {
+            self.ok(())
+        }
+        else {
+            self.err(SyntaxError::ExpectedSpace)
         }
     }
 
