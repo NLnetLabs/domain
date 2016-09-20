@@ -1186,9 +1186,6 @@ struct MessageTarget<C: ComposeBytes> {
     /// The underlying bytes target.
     target: C,
 
-    /// The message’s header.
-    header: FullHeader,
-
     /// Position in build where the message starts.
     start: C::Pos,
 }
@@ -1201,19 +1198,25 @@ impl<C: ComposeBytes> MessageTarget<C> {
         try!(target.push_empty(mem::size_of::<FullHeader>()));
         Ok(MessageTarget {
             target: target,
-            header: FullHeader::new(),
             start: start
         })
     }
 
     /// Returns a reference to the message’s header.
     fn header(&self) -> &Header {
-        self.header.header()
+        unsafe { Header::from_message(self.target.bytes(self.start)) }
     }
 
     /// Returns a mutable reference to the message’s header.
     fn header_mut(&mut self) -> &mut Header {
-        self.header.header_mut()
+        unsafe { Header::from_message_mut(self.target.bytes_mut(self.start)) }
+    }
+
+    /// Returns a mutable reference to the message’s header counts.
+    fn counts_mut(&mut self) -> &mut HeaderCounts {
+        unsafe {
+            HeaderCounts::from_message_mut(self.target.bytes_mut(self.start))
+        }
     }
 
     /// Pushes something to the end of the message.
@@ -1228,7 +1231,7 @@ impl<C: ComposeBytes> MessageTarget<C> {
             self.target.truncation_point();
             match composeop(&mut self.target) {
                 Ok(()) => {
-                    try!(incop(self.header.counts_mut()));
+                    try!(incop(self.counts_mut()));
                     Ok(())
                 }
                 Err(ComposeError::SizeExceeded) => Ok(()),
@@ -1240,8 +1243,8 @@ impl<C: ComposeBytes> MessageTarget<C> {
 
     /// Finishes the message building and extracts the underlying target.
     fn finish(mut self) -> ComposeResult<C> {
-        self.header.header_mut().set_tc(self.target.truncated());
-        try!(self.target.update_bytes(self.start, self.header.as_bytes()));
+        let tc = self.target.truncated();
+        self.header_mut().set_tc(tc);
         Ok(self.target)
     }
 }
