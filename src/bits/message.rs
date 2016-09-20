@@ -951,6 +951,14 @@ impl MessageBuilder<ComposeBuf> {
     pub fn new(mode: ComposeMode, compress: bool) -> ComposeResult<Self> {
         MessageBuilder::from_target(ComposeBuf::new(mode, compress))
     }
+
+    /// Returns a bytes slice of the current message.
+    ///
+    /// This is only a temporary workaround.
+    pub fn preview(&mut self) -> &[u8] {
+        self.target.preview();
+        self.target.target.preview()
+    }
 }
 
 /// # Building
@@ -1246,6 +1254,11 @@ impl<C: ComposeBytes> MessageTarget<C> {
         let tc = self.target.truncated();
         self.header_mut().set_tc(tc);
         Ok(self.target)
+    }
+
+    fn preview(&mut self) {
+        let tc = self.target.truncated();
+        self.header_mut().set_tc(tc);
     }
 }
 

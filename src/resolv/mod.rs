@@ -220,7 +220,7 @@
 
 pub use self::conf::ResolvConf;
 pub use self::error::{Error, Result};
-pub use self::resolver::{Resolver, ResolverTask, Query};
+//pub use self::resolver::{Resolver, ResolverTask, Query};
 
 
 //--- Public modules
@@ -228,18 +228,20 @@ pub use self::resolver::{Resolver, ResolverTask, Query};
 pub mod conf;
 pub mod error;
 pub mod hosts;
-pub mod lookup;
+//pub mod lookup;
 
 
 //--- Private modules
 
-mod dgram;
 mod pending;
 mod request;
-mod resolver;
-mod stream;
-mod tcp;
-mod udp;
+mod service;
+
+//mod dgram;
+//mod resolver;
+//mod stream;
+//mod tcp;
+//mod udp;
 
 
 //--- Meta-modules for documentation

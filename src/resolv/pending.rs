@@ -1,24 +1,23 @@
 //! A collection of pending request.
 
-use std::collections::{HashMap, VecDeque, hash_map};
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 use futures::{Async, Future};
 use rand;
 use tokio_core::reactor::{Handle, Timeout};
+use super::error::Error;
+use super::request::ServiceRequest;
 
 
 //------------ PendingRequests -----------------------------------------------
 
 /// A collection of pending requests.
-///
-/// Since different services use different request types, this type is
-/// generic over the actual request type `R`.
-pub struct PendingRequests<R> {
+pub struct PendingRequests {
     /// A map from DNS message IDs to requests.
     ///
     /// If an ID is reserved, it maps to `None`, if a request has been
     /// pushed for it, it maps to `Some(_)`.
-    requests: HashMap<u16, Option<R>>,
+    requests: HashMap<u16, Option<ServiceRequest>>,
 
     /// An ordered list of message IDs and when they expire.
     ///
@@ -36,7 +35,7 @@ pub struct PendingRequests<R> {
     duration: Duration,
 }
 
-impl<R> PendingRequests<R> {
+impl PendingRequests {
     /// Creates a new collection.
     pub fn new(reactor: Handle, expire: Duration) -> Self {
         PendingRequests {
@@ -51,13 +50,6 @@ impl<R> PendingRequests<R> {
     /// Returns whether there are no more pending requests.
     pub fn is_empty(&self) -> bool {
         self.requests.is_empty()
-    }
-
-    /// Drain all pending requests returning an iterator over them.
-    pub fn drain(&mut self) -> Drain<R> {
-        self.expires.clear();
-        self.timeout = None;
-        Drain(self.requests.drain())
     }
 
     /// Reserves a spot in the map and returns its ID.
@@ -92,7 +84,8 @@ impl<R> PendingRequests<R> {
     ///
     /// The `id` must have been reserved before and nothing been pushed
     /// for this ID since. Panics otherwise.
-    pub fn push(&mut self, id: u16, request: R) {
+    pub fn push(&mut self, request: ServiceRequest) {
+        let id = request.id();
         {
             let entry = self.requests.get_mut(&id)
                                      .expect("pushed unreserved ID");
@@ -108,7 +101,7 @@ impl<R> PendingRequests<R> {
     }
     
     /// Removes and returns the request with the given ID.
-    pub fn pop(&mut self, id: u16) -> Option<R> {
+    pub fn pop(&mut self, id: u16) -> Option<ServiceRequest> {
         if let Some(request) = self.requests.remove(&id) {
             if self.expires.front().unwrap().0 == id {
                 self.expires.pop_front();
@@ -139,11 +132,11 @@ impl<R> PendingRequests<R> {
         self.timeout = None
     }
 
-    /// Runs a closure for all expired requests.
+    /// Removes and fails all expired requests.
     ///
     /// This method polls `self`’s timeout so it can only be called from
     /// within a task.
-    pub fn expire<F: Fn(R)>(&mut self, f: F) {
+    pub fn expire(&mut self) {
         match self.timeout {
             Some(ref mut timeout) => {
                 match timeout.poll() {
@@ -157,7 +150,7 @@ impl<R> PendingRequests<R> {
                             let id = self.expires.pop_front().unwrap().0;
                             if let Some(Some(item)) = self.requests
                                                           .remove(&id) {
-                                f(item)
+                                item.fail(Error::Timeout)
                             }
                         }
                     }
@@ -171,7 +164,20 @@ impl<R> PendingRequests<R> {
         }
         self.update_timeout();
         // Once more to register the timeout.
-        self.expire(f)
+        self.expire()
+    }
+}
+
+
+//--- Drop
+
+impl Drop for PendingRequests {
+    fn drop(&mut self) {
+        for (_, item) in self.requests.drain() {
+            if let Some(item) = item {
+                item.fail(Error::Timeout)
+            }
+        }
     }
 }
 
@@ -183,22 +189,3 @@ impl<R> PendingRequests<R> {
 /// The only thing that can happen is that we run out of space.
 pub struct ReserveError;
 
-
-//------------ Drain ---------------------------------------------------------
-
-/// An iterator for draining all elements from the map.
-pub struct Drain<'a, R: 'a>(hash_map::Drain<'a, u16, Option<R>>);
-
-impl<'a, R> Iterator for Drain<'a, R> {
-    type Item = R;
-
-    #[allow(while_let_on_iterator)]
-    fn next(&mut self) -> Option<R> {
-        while let Some((_, item)) = self.0.next() {
-            if let Some(r) = item {
-                return Some(r)
-            }
-        }
-        None
-    }
-}

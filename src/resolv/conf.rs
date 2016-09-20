@@ -63,8 +63,7 @@ pub struct ResolvOptions {
     ///
     /// Enabled by default.
     ///
-    /// Not currently implemented, would be implemented by the query but
-    /// needs the redesigned request.
+    /// Implemented by the query request.
     pub recurse: bool,
 
     /// Append the default domain name to single component names.
@@ -187,27 +186,27 @@ impl Default for ResolvOptions {
 #[derive(Clone, Debug)]
 pub struct ServerConf {
     /// Server address.
-    addr: SocketAddr,
+    pub addr: SocketAddr,
 
     /// Transport mode for UDP transport.
-    udp: TransportMode,
+    pub udp: TransportMode,
 
     /// Transport mode for TCP transport.
-    tcp: TransportMode,
+    pub tcp: TransportMode,
 
     /*
     /// Transport mode for TLS transport.
-    tls: TransportMode,
+    pub tls: TransportMode,
 
     /// Transport mode for DTLS transport (ie., encrypted UDP).
-    dtls: TransportMode,
+    pub dtls: TransportMode,
     */
 
     /// How long to wait for a response before returning a timeout error.
-    request_timeout: Duration,
+    pub request_timeout: Duration,
 
     /// How long to keep a connection open after a new request.
-    keep_alive: Duration,
+    pub keep_alive: Duration,
 }
 
 

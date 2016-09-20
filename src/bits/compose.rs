@@ -245,6 +245,15 @@ impl ComposeBuf {
         }
         self.vec
     }
+
+    pub fn preview(&mut self) -> &[u8] {
+        if let ComposeMode::Stream = self.mode {
+            let start = self.start - 2;
+            let delta = self.delta(self.start) as u16;
+            self.update_u16(start, delta).unwrap();
+        }
+        &self.vec
+    }
 }
 
 
