@@ -25,7 +25,7 @@ use std::cell::RefCell;
 use std::io;
 use std::mem;
 use futures::{Async, Future, Complete, Oneshot, Poll, oneshot};
-use tokio_core::channel::Sender;
+use tokio_core::channel::{Receiver, Sender};
 use ::bits::{AsDName, ComposeMode, Message, MessageBuf, MessageBuilder,
              Question};
 use ::iana::{Class, RRType};
@@ -251,3 +251,8 @@ impl ServiceHandle {
         ServiceHandle{tx: tx}
     }
 }
+
+
+//------------ RequestReceiver -----------------------------------------------
+
+pub type RequestReceiver = Receiver<ServiceRequest>;

@@ -236,6 +236,8 @@ pub mod hosts;
 mod pending;
 mod request;
 mod service;
+mod transport;
+mod utils;
 
 //mod dgram;
 //mod resolver;
