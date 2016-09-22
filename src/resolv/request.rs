@@ -184,6 +184,14 @@ impl ServiceRequest {
         f(&self.message.borrow_mut().preview()[2..])
     }
 
+    pub fn dgram_bytes(&mut self) -> &[u8] {
+        &self.message.get_mut().preview()[2..]
+    }
+
+    pub fn stream_bytes(&mut self) -> &[u8] {
+        self.message.get_mut().preview()
+    }
+
     pub fn response(self, response: MessageBuf) {
         let is_answer = self.with_dgram_bytes(|buf| {
             let request = Message::from_bytes(buf).unwrap();

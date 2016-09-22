@@ -233,17 +233,16 @@ pub mod hosts;
 
 //--- Private modules
 
-mod pending;
 mod request;
 mod service;
+mod tcp;
 mod transport;
+mod udp;
 mod utils;
 
 //mod dgram;
 //mod resolver;
 //mod stream;
-//mod tcp;
-//mod udp;
 
 
 //--- Meta-modules for documentation

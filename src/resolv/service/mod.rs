@@ -6,9 +6,9 @@ use std::time::Duration;
 use futures::{Async, Future, Poll};
 use futures::stream::{Peekable, Stream, StreamFuture};
 use tokio_core::reactor;
-use tokio_core::channel::Receiver;
+use tokio_core::channel::channel;
 use super::conf::{ServerConf, TransportMode};
-use super::request::{RequestReceiver, ServiceRequest};
+use super::request::{RequestReceiver, ServiceHandle, ServiceRequest};
 use super::transport::{Transport};
 use super::utils::{IoStreamFuture, Passthrough};
 
@@ -30,8 +30,7 @@ pub enum ServiceMode {
 }
 
 impl ServiceMode {
-    pub fn from_transport_mode(t: TransportMode, default: ServiceMode)
-                               -> Option<Self> {
+    pub fn resolve(t: TransportMode, default: ServiceMode) -> Option<Self> {
         match t {
             TransportMode::None => None,
             TransportMode::Default => Some(default),
@@ -57,8 +56,8 @@ enum TrueService<T: Transport> {
 
 impl<T: Transport> Service<T> {
     /// Creates a new service.
-    fn new(receiver: Receiver<ServiceRequest>, transport: T,
-           reactor: reactor::Handle, mode: ServiceMode, conf: &ServerConf)
+    fn new(reactor: reactor::Handle, receiver: RequestReceiver, transport: T,
+           mode: ServiceMode, conf: &ServerConf)
            -> Self {
         match mode {
             ServiceMode::SingleRequest => {
@@ -84,6 +83,16 @@ impl<T: Transport> Service<T> {
                 )
             }
         }
+    }
+
+    /// Spawns a new service.
+    pub fn spawn(reactor: reactor::Handle, transport: T, mode: ServiceMode,
+                 conf: &ServerConf) -> io::Result<ServiceHandle> {
+        let (tx, rx) = try!(channel(&reactor));
+        let res = ServiceHandle::from_sender(tx);
+        let service = Self::new(reactor.clone(), rx, transport, mode, conf);
+        reactor.spawn(service.map_err(|_| ()));
+        Ok(res)
     }
 }
 
@@ -133,7 +142,7 @@ enum State<T: Transport, S: ExpiringService<T>> {
 
 
 impl<T: Transport, S: ExpiringService<T>> Expiring<T, S> {
-    fn new(receiver: Receiver<ServiceRequest>, transport: T,
+    fn new(receiver: RequestReceiver, transport: T,
            reactor: reactor::Handle, conf: &ServerConf) -> Self {
         Expiring {
             state: State::Idle(receiver.into()),
