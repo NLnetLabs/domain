@@ -5,7 +5,7 @@ use std::io;
 use std::mem;
 use std::time::{Duration, Instant};
 use futures::{Async, Future, Poll};
-use futures::stream::{Stream, StreamFuture};
+use futures::stream::Stream;
 use rand;
 use tokio_core::reactor::{self, Timeout};
 use ::resolv::error::Error;
@@ -21,8 +21,7 @@ pub struct Service<T: Transport> {
     receiver: Option<RequestReceiver>,
     write: Writer<T>,
     read: T::Read,
-    pending: PendingRequests,
-    reactor: reactor::Handle,
+    pending: PendingRequests
 }
 
 
@@ -40,8 +39,7 @@ impl<T: Transport> ExpiringService<T> for Service<T> {
             receiver: Some(receiver),
             write: write,
             read: rd,
-            pending: pending,
-            reactor: reactor
+            pending: pending
         }
     }
 
@@ -123,7 +121,17 @@ impl<T: Transport> Service<T> {
     fn poll_write(&mut self) -> Poll<Option<()>, io::Error> {
         let (wr, request) = match self.write {
             Writer::Idle(..) => return Ok(Async::Ready(Some(()))),
-            Writer::Writing(ref mut fut) => try_ready!(fut.poll()),
+            Writer::Writing(ref mut fut) => {
+                match fut.poll() {
+                    Ok(Async::Ready(item)) => item,
+                    Ok(Async::NotReady) => return Ok(Async::NotReady),
+                    Err((err, request)) => {
+                        self.pending.unreserve(request.id());
+                        request.fail(Error::Timeout);
+                        return Err(err)
+                    }
+                }
+            }
             Writer::Closed => {
                 if self.pending.is_empty() { return Ok(Async::Ready(None)) }
                 else { return Ok(Async::NotReady) }

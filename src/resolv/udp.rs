@@ -4,8 +4,7 @@ use std::cell::RefCell;
 use std::io;
 use std::mem;
 use std::net::{IpAddr, SocketAddr};
-use std::time::Duration;
-use futures::{Async, Lazy, Future, IntoFuture, Poll, lazy};
+use futures::{Async, Future, Poll};
 use futures::stream::Stream;
 use futures::task::TaskRc;
 use tokio_core::net::UdpSocket;
@@ -204,20 +203,29 @@ enum State {
     Done
 }
 
+
 impl Future for UdpWriteRequest {
     type Item = (UdpWriter, ServiceRequest);
-    type Error = io::Error;
+    type Error = (io::Error, ServiceRequest);
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.state {
+        let res = match self.state {
             State::Writing{ref mut w, ref mut req} => {
-                try_ready!(w.handle.with(|w| w.borrow_mut().poll_write(req)))
+                match w.handle.with(|w| w.borrow_mut().poll_write(req)) {
+                    Ok(Async::NotReady) => return Ok(Async::NotReady),
+                    Ok(Async::Ready(())) => Ok(()),
+                    Err(err) => Err(err)
+                }
             }
             State::Done => panic!("polling a resolved UdpWriteRequest")
         };
-
         match mem::replace(&mut self.state, State::Done) {
-            State::Writing{w, req} => Ok((w, req).into()),
+            State::Writing{w, req} => {
+                match res {
+                    Ok(()) => Ok(Async::Ready((w, req))),
+                    Err(err) => Err((err, req))
+                }
+            }
             State::Done => panic!()
         }
     }

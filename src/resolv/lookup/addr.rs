@@ -11,7 +11,7 @@ use ::iana::{Class, RRType};
 use ::rdata::Ptr;
 use super::super::conf::ResolvOptions;
 use super::super::error::Error;
-use super::super::resolver::ResolverTask;
+use super::super::ResolverTask;
 
 
 //------------ lookup_addr ---------------------------------------------------

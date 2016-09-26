@@ -577,6 +577,11 @@ impl AsDName for DNameSlice {
     }
 }
 
+impl<'a> AsDName for &'a DNameSlice {
+    fn as_dname(&self) -> DName {
+        DName::Slice(*self)
+    }
+}
 
 //--- ToOwned
 

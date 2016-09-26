@@ -8,7 +8,7 @@ use ::bits::{DNameBuf, DNameSlice, MessageBuf, ParseResult};
 use ::iana::{RRType, Class};
 use ::rdata::{A, Aaaa};
 use super::super::error::Result;
-use super::super::resolver::ResolverTask;
+use super::super::ResolverTask;
 use super::search::search;
 
 
@@ -29,7 +29,7 @@ pub fn lookup_host<N>(resolv: ResolverTask, name: N)
                       -> BoxFuture<LookupHost, io::Error>
                    where N: AsRef<DNameSlice> {
     search(resolv, name, |resolv, name| {
-        let a = resolv.query(&name, RRType::A, Class::In);
+        let a = resolv.query(name, RRType::A, Class::In);
         let both = a.select(resolv.query(name, RRType::Aaaa, Class::In));
         let res = both.then(|res| {
             let (a, b) = match res {

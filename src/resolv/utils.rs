@@ -3,7 +3,7 @@
 use std::io;
 use std::mem;
 use futures::{Async, Future, Poll};
-use futures::stream::{Stream, StreamFuture};
+use futures::stream::Stream;
 use tokio_core::reactor::Timeout;
 
 

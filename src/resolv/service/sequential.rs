@@ -4,10 +4,9 @@ use std::io;
 use std::mem;
 use std::time::{Duration, Instant};
 use futures::{Async, Future, Poll};
-use futures::stream::{Stream, StreamFuture};
+use futures::stream::Stream;
 use rand;
 use tokio_core::reactor::{self, Timeout};
-use ::resolv::conf::ServerConf;
 use ::resolv::error::Error;
 use ::resolv::request::{RequestReceiver, ServiceRequest};
 use ::resolv::transport::{Transport, Write};
@@ -81,7 +80,14 @@ impl<T: Transport> Stream for Service<T> {
                 }
             }
             State::Writing(ref mut fut) => {
-                let ((wr, request), (rd, receiver)) = try_ready!(fut.poll());
+                let ((wr, request), (rd, receiver)) = match fut.poll() {
+                    Ok(Async::NotReady) => return Ok(Async::NotReady),
+                    Ok(Async::Ready(item)) => item,
+                    Err((err, req)) => {
+                        req.fail(Error::Timeout);
+                        return Err(err)
+                    }
+                };
                 let at = Instant::now() + self.request_timeout;
                 let timeout = Timeout::new_at(at, &self.reactor).ok();
                 let future = TimeoutFuture::new(rd.into(), timeout);
@@ -122,7 +128,7 @@ impl<T: Transport> Stream for Service<T> {
         match self.state {
             State::Done(_) => Ok(Async::Ready(None)),
             State::Writing(_) => {
-                self.poll();
+                try!(self.poll());
                 Ok(Async::Ready(Some(())))
             }
             _ => self.poll()

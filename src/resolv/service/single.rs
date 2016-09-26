@@ -1,10 +1,9 @@
 //! Service in single request mode.
 
 use std::io;
-use std::mem;
 use std::time::{Duration, Instant};
-use futures::{Future, Poll};
-use futures::stream::{Stream, StreamFuture};
+use futures::{Async, Future, Poll};
+use futures::stream::Stream;
 use rand;
 use tokio_core::reactor::{self, Timeout};
 use ::resolv::conf::ServerConf;
@@ -72,7 +71,14 @@ impl<T: Transport> Future for Service<T> {
                 State::Writing(Passthrough::new(wr, rd))
             }
             State::Writing(ref mut fut) => {
-                let ((_, request), rd) = try_ready!(fut.poll());
+                let ((_, request), rd) = match fut.poll() {
+                    Ok(Async::NotReady) => return Ok(Async::NotReady),
+                    Ok(Async::Ready(item)) => item,
+                    Err((err, req)) => {
+                        req.fail(Error::Timeout);
+                        return Err(err)
+                    }
+                };
                 let at = Instant::now() + self.request_timeout;
                 let timeout = Timeout::new_at(at, &self.reactor).ok();
                 State::Reading(Passthrough::new(TimeoutFuture::new(rd.into(),

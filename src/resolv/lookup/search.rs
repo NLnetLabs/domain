@@ -2,7 +2,7 @@
 
 use futures::{Async, Future, Poll};
 use ::bits::{DNameBuf, DNameSlice};
-use super::super::resolver::ResolverTask;
+use super::super::ResolverTask;
 
 /// Creates a future as a sequence of lookups according to the search list.
 ///

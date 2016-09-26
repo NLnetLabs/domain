@@ -1,10 +1,9 @@
 //! Service for DNS.
 
 use std::io;
-use std::mem;
 use std::time::Duration;
 use futures::{Async, Future, Poll};
-use futures::stream::{Peekable, Stream, StreamFuture};
+use futures::stream::Stream;
 use tokio_core::reactor;
 use tokio_core::channel::channel;
 use super::conf::{ServerConf, TransportMode};

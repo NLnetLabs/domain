@@ -2,7 +2,6 @@
 
 use std::io;
 use std::net::SocketAddr;
-use std::time::Duration;
 use futures::{Future, Poll};
 use tokio_core::io::{Io, ReadHalf, WriteHalf};
 use tokio_core::net::{TcpStream, TcpStreamNew};

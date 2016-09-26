@@ -12,7 +12,8 @@ use super::request::ServiceRequest;
 //------------ Write ---------------------------------------------------------
 
 pub trait Write: Sized {
-    type Future: Future<Item=(Self, ServiceRequest), Error=io::Error>;
+    type Future: Future<Item=(Self, ServiceRequest),
+                        Error=(io::Error, ServiceRequest)>;
 
     fn write(self, request: ServiceRequest) -> Self::Future;
 }
@@ -78,33 +79,47 @@ impl<W: io::Write> StreamWriteRequest<W> {
             }
         }
     }
+
+    fn write(w: &mut W, req: &mut ServiceRequest, pos: &mut usize)
+             -> Poll<(), io::Error> {
+        let buf = req.stream_bytes();
+        while *pos < buf.len() {
+            let n = try_nb!(w.write(&buf[*pos..]));
+            *pos += n;
+            if n == 0 {
+                return Err(io::Error::new(io::ErrorKind::WriteZero,
+                                          "zero-length write"))
+            }
+        }
+        Ok(Async::Ready(()))
+    }
 }
 
 impl<W: io::Write> Future for StreamWriteRequest<W> {
     type Item = (StreamWriter<W>, ServiceRequest);
-    type Error = io::Error;
+    type Error = (io::Error, ServiceRequest);
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.state {
+        let res = match self.state {
             WriteState::Writing { ref mut w, ref mut req, ref mut pos } => {
-                let buf = req.stream_bytes();
-                while *pos < buf.len() {
-                    let n = try_nb!(w.write(&buf[*pos..]));
-                    *pos += n;
-                    if n == 0 {
-                        return Err(io::Error::new(io::ErrorKind::WriteZero,
-                                                  "zero-length write"))
-                    }
-                }
+                Self::write(w, req, pos)
             }
             WriteState::Done => {
                 panic!("polling a resolved StreamWriteRequest");
             }
-        }
+        };
+        let res = match res {
+            Ok(Async::NotReady) => return Ok(Async::NotReady),
+            Ok(Async::Ready(())) => Ok(()),
+            Err(err) => Err(err)
+        };
 
         match mem::replace(&mut self.state, WriteState::Done) {
             WriteState::Writing { w, req, .. } => {
-                Ok((StreamWriter(w), req).into())
+                match res {
+                    Ok(()) => Ok((StreamWriter(w), req).into()),
+                    Err(err) => Err((err, req))
+                }
             }
             WriteState::Done => panic!()
         }

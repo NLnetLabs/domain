@@ -156,7 +156,8 @@ type Result<T> = result::Result<T, Error>;
 
 fn query(options: Options) -> MessageBuf {
     let mut core = Core::new().unwrap();
-    let resolver = Resolver::from_conf(&core.handle(), options.conf().clone());
+    let resolver = Resolver::from_conf(&core.handle(), options.conf().clone())
+                            .unwrap();
     //let fut = resolver.start().and_then(move |resolv| {
     let fut = resolver.spawn(move |resolv| {
         resolv.query(options.name().unwrap(), options.qtype().unwrap(),

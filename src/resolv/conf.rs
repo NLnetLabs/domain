@@ -194,13 +194,11 @@ pub struct ServerConf {
     /// Transport mode for TCP transport.
     pub tcp: TransportMode,
 
-    /*
     /// Transport mode for TLS transport.
     pub tls: TransportMode,
 
     /// Transport mode for DTLS transport (ie., encrypted UDP).
     pub dtls: TransportMode,
-    */
 
     /// How long to wait for a response before returning a timeout error.
     pub request_timeout: Duration,
@@ -229,6 +227,22 @@ pub enum TransportMode {
     Multiplex,
 }
 
+impl ServerConf {
+    /// Returns a new default server config for the given address.
+    pub fn new(addr: SocketAddr) -> Self {
+        ServerConf {
+            addr: addr,
+            udp: TransportMode::Default,
+            tcp: TransportMode::Default,
+            tls: TransportMode::Default,
+            dtls: TransportMode::Default,
+            request_timeout: Duration::from_secs(2),
+            keep_alive: Duration::from_secs(10),
+        }
+    }
+
+}
+
 
 //------------ ResolvConf ---------------------------------------------------
 
@@ -254,7 +268,7 @@ pub enum TransportMode {
 #[derive(Clone, Debug)]
 pub struct ResolvConf {
     /// Addresses of servers to query.
-    pub servers: Vec<SocketAddr>,
+    pub servers: Vec<ServerConf>,
 
     /// Search list for host-name lookup.
     pub search: Vec<DNameBuf>,
@@ -311,11 +325,15 @@ impl ResolvConf {
         if self.servers.is_empty() {
             // glibc just simply uses 127.0.0.1:53. Let's do that, too,
             // and claim it is for compatibility.
-            let addr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-            self.servers.push(SocketAddr::new(addr, 53));
+            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                                       53);
+            self.servers.push(ServerConf::new(addr))
         }
         if self.search.is_empty() {
             self.search.push(DNameSlice::root().to_owned())
+        }
+        for server in self.servers.iter_mut() {
+            server.request_timeout = self.timeout
         }
     }
 
@@ -325,7 +343,6 @@ impl ResolvConf {
     pub fn default() -> Self {
         let mut res = ResolvConf::new();
         let _ = res.parse_file("/etc/resolv.conf");
-        res.finalize();
         res
     }
 }
@@ -374,7 +391,7 @@ impl ResolvConf {
         
         for addr in try!((try!(next_word(&mut words)), 53).to_socket_addrs())
         {
-            self.servers.push(addr)
+            self.servers.push(ServerConf::new(addr))
         }
         no_more_words(words)
     }
@@ -475,6 +492,7 @@ impl fmt::Display for ResolvConf {
     #[allow(cyclomatic_complexity)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for server in &self.servers {
+            let server = server.addr;
             try!("nameserver ".fmt(f));
             if server.port() == 53 { try!(server.ip().fmt(f)); }
             else { try!(server.fmt(f)); }

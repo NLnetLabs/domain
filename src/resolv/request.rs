@@ -21,16 +21,11 @@
 //! returning the request message as part of their error response. See the
 //! `RequestError` type for that.
 
-use std::cell::RefCell;
 use std::io;
-use std::mem;
-use futures::{Async, Future, Complete, Oneshot, Poll, oneshot};
+use futures::{Future, Complete, Oneshot, Poll, oneshot};
 use tokio_core::channel::{Receiver, Sender};
-use ::bits::{AsDName, ComposeMode, Message, MessageBuf, MessageBuilder,
-             Question};
-use ::iana::{Class, RRType};
-use super::conf::ResolvOptions;
-use super::error::Error;
+use ::bits::{Message, MessageBuf, MessageBuilder};
+use super::error::{Error};
 
 
 //------------ QueryRequest --------------------------------------------------
@@ -40,57 +35,20 @@ use super::error::Error;
 /// This type is used by `Query` to dispatch and wait for requests. It is a
 /// future resolving either into a `MessageBuf` of a successfully received
 /// response or a `RequestError` upon failure.
-pub struct QueryRequest(QueryRequestState);
-
-enum QueryRequestState {
-    Active {
-        /// A reference to the request message.
-        ///
-        /// We’ll only ever touch the message after the oneshot has resolved.
-        message: RefCell<MessageBuilder>,
-
-        /// A future resolving into the request’s result.
-        ///
-        /// If this is `None`, the query should resolve into a timeout
-        /// immediately. This happens if the service has gone.
-        future: Option<Oneshot<Result<MessageBuf, Error>>>
-    },
-    Gone
-}
+pub struct QueryRequest(Result<Oneshot<(Result<MessageBuf, Error>,
+                                        MessageBuilder)>,
+                               Option<io::Error>>);
 
 
 impl QueryRequest {
-    /// Starts a new request.
-    ///
-    /// This function starts a new request for the given name, record type,
-    /// and class and sends it to `service`.
-    pub fn start<N>(name: &N, rtype: RRType, class: Class,
-                    service: &ServiceHandle, opts: &ResolvOptions)
-                    -> Result<Self, Error>
-                 where N: AsDName {
-        Ok(Self::start_with_message(
-                        try!(Self::build_message(name, rtype, class, opts)),
-                        service))
-    }
-
     /// Starts the request with a given message.
-    fn start_with_message(message: MessageBuilder, service: &ServiceHandle)
-                          -> Self {
+    pub fn new(message: MessageBuilder, service: &ServiceHandle) -> Self {
         let (c, o) = oneshot();
-        let message = RefCell::new(message);
-        let sreq = ServiceRequest::new(message.clone(), c);
-        let fut = service.tx.send(sreq).ok().map(|_| o);
-        QueryRequest(QueryRequestState::Active{message: message, future: fut})
-    }
-
-    /// Builds the message for this request.
-    fn build_message<N>(name: &N, rtype: RRType, class: Class,
-                        opts: &ResolvOptions) -> Result<MessageBuilder, Error>
-                     where N: AsDName {
-        let mut res = try!(MessageBuilder::new(ComposeMode::Stream, true));
-        res.header_mut().set_rd(opts.recurse);
-        try!(Question::push(&mut res, name, rtype, class));
-        Ok(res)
+        let sreq = ServiceRequest::new(message, c);
+        match service.tx.send(sreq) {
+            Ok(()) => QueryRequest(Ok(o)),
+            Err(err) => QueryRequest(Err(Some(err)))
+        }
     }
 }
 
@@ -98,33 +56,23 @@ impl QueryRequest {
 //--- Future
 
 impl Future for QueryRequest {
-    type Item = MessageBuf;
-    type Error = RequestError;
+    type Item = (Result<MessageBuf, Error>, MessageBuilder);
+    type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let err = match self.0 {
-            QueryRequestState::Active{ref mut future, ..} => {
-                match future {
-                    &mut Some(ref mut future) => match future.poll() {
-                        Ok(Async::NotReady) => return Ok(Async::NotReady),
-                        Ok(Async::Ready(Ok(msg))) => {
-                            return Ok(Async::Ready(msg))
-                        }
-                        Ok(Async::Ready(Err(err))) => err, 
-                        Err(_) => Error::Timeout
-                    },
-                    &mut None => return Ok(Async::NotReady)
+        match self.0 {
+            Ok(ref mut oneshot) => {
+                oneshot.poll().map_err(|_| {
+                    io::Error::new(io::ErrorKind::Other,
+                                   "ServiceRequest’s complete dropped")
+                })
+            }
+            Err(ref mut err) => {
+                match err.take() {
+                    Some(err) => Err(err),
+                    None => panic!("polling a resolved QueryRequest")
                 }
             }
-            QueryRequestState::Gone => {
-                panic!("poll on resolved QueryRequest");
-            }
-        };
-        match mem::replace(&mut self.0, QueryRequestState::Gone) {
-            QueryRequestState::Active{message, ..} => {
-                Err(RequestError::new(err, message.into_inner()))
-            }
-            QueryRequestState::Gone => panic!()
         }
     }
 }
@@ -148,10 +96,10 @@ pub struct ServiceRequest {
     /// This value contains a message builder in stream mode containing
     /// one question. Assuming a minimum message size of 512 for non-EDNS
     /// UDP, there should be no fragmentation issues, so this is all fine.
-    message: RefCell<MessageBuilder>,
+    message: MessageBuilder,
 
     /// The complete side of our oneshot to return a response.
-    complete: Complete<Result<MessageBuf, Error>>,
+    complete: Complete<(Result<MessageBuf, Error>, MessageBuilder)>,
 
     /// The message ID of the request message.
     ///
@@ -162,8 +110,9 @@ pub struct ServiceRequest {
 
 
 impl ServiceRequest {
-    fn new(message: RefCell<MessageBuilder>,
-           complete: Complete<Result<MessageBuf, Error>>) -> Self {
+    fn new(message: MessageBuilder,
+           complete: Complete<(Result<MessageBuf, Error>, MessageBuilder)>)
+           -> Self {
         ServiceRequest{message: message, complete: complete, id: 0}
     }
 
@@ -173,32 +122,24 @@ impl ServiceRequest {
 
     pub fn set_id(&mut self, id: u16) {
         self.id = id;
-        self.message.borrow_mut().header_mut().set_id(id)
-    }
-
-    pub fn with_stream_bytes<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
-        f(self.message.borrow_mut().preview())
-    }
-
-    pub fn with_dgram_bytes<R, F: FnOnce(&[u8]) -> R>(&self, f: F) -> R {
-        f(&self.message.borrow_mut().preview()[2..])
+        self.message.header_mut().set_id(id)
     }
 
     pub fn dgram_bytes(&mut self) -> &[u8] {
-        &self.message.get_mut().preview()[2..]
+        &self.message.preview()[2..]
     }
 
     pub fn stream_bytes(&mut self) -> &[u8] {
-        self.message.get_mut().preview()
+        self.message.preview()
     }
 
-    pub fn response(self, response: MessageBuf) {
-        let is_answer = self.with_dgram_bytes(|buf| {
-            let request = Message::from_bytes(buf).unwrap();
-            response.is_answer(request)
-        });
+    pub fn response(mut self, response: MessageBuf) {
+        let is_answer = {
+            let request = Message::from_bytes(self.dgram_bytes()).unwrap();
+            response.is_answer(&request)
+        };
         if is_answer {
-            self.complete.complete(Ok(response))
+            self.complete.complete((Ok(response), self.message))
         }
         else {
             self.fail(io::Error::new(io::ErrorKind::Other, "server failure")
@@ -207,41 +148,7 @@ impl ServiceRequest {
     }
     
     pub fn fail(self, err: Error) {
-        self.complete.complete(Err(err))
-    }
-}
-
-
-//------------ RequestError --------------------------------------------------
-
-/// An error has happened while processing a request.
-///
-/// Apart from a `Error` value indicating the actual error, the type
-/// also transfers ownership of a request message back for reuse.
-pub struct RequestError {
-    error: Error,
-    message: MessageBuilder
-}
-
-
-impl RequestError {
-    /// Create a new request error from a query error and a message.
-    pub fn new(error: Error, message: MessageBuilder) -> Self {
-        RequestError{error: error, message: message}
-    }
-
-    /// Returns a reference to the query error.
-    pub fn error(&self) -> &Error {
-        &self.error
-    }
-
-    /// Disolves the value into the contained message builder.
-    pub fn into_message(self) -> MessageBuilder {
-        self.message
-    }
-
-    pub fn restart(self, service: &ServiceHandle) -> QueryRequest {
-        QueryRequest::start_with_message(self.message, service)
+        self.complete.complete((Err(err), self.message))
     }
 }
 
@@ -257,6 +164,12 @@ impl ServiceHandle {
     /// Creates a new handle from the sender side of a channel.
     pub fn from_sender(tx: Sender<ServiceRequest>) -> Self {
         ServiceHandle{tx: tx}
+    }
+}
+
+impl Clone for ServiceHandle {
+    fn clone(&self) -> Self {
+        ServiceHandle{tx: self.tx.clone()}
     }
 }
 

@@ -13,6 +13,8 @@ use ::bits::ComposeError;
 #[derive(Debug)]
 pub enum Error {
     /// The question was broken.
+    ///
+    /// XXX I think we won’t need this anymore.
     Question(ComposeError),
 
     /// All responses for a query were negative.
