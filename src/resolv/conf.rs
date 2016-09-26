@@ -7,6 +7,9 @@
 //! and a set of default options.
 //!
 //! Both parts are modeled along the lines of glibc’s resolver.
+//!
+//! <i>The resolver configuration is going to be refactored soon to be more
+//! in line with the usage of the resolver.</i>
 
 use std::convert;
 use std::default::Default;
@@ -30,8 +33,6 @@ use ::bits::name::{DNameBuf, DNameSlice};
 /// This type contains a lot of flags that influence the resolver
 /// configuration. It collects all the flags that glibc’s resolver
 /// supports. Not all of them are currently supported by this implementation.
-///
-/// XXX TODO Say which are not yet supported.
 #[derive(Clone, Debug)]
 pub struct ResolvOptions {
     /// Accept authoritative answers only.
@@ -194,12 +195,6 @@ pub struct ServerConf {
     /// Transport mode for TCP transport.
     pub tcp: TransportMode,
 
-    /// Transport mode for TLS transport.
-    pub tls: TransportMode,
-
-    /// Transport mode for DTLS transport (ie., encrypted UDP).
-    pub dtls: TransportMode,
-
     /// How long to wait for a response before returning a timeout error.
     pub request_timeout: Duration,
 
@@ -234,8 +229,6 @@ impl ServerConf {
             addr: addr,
             udp: TransportMode::Default,
             tcp: TransportMode::Default,
-            tls: TransportMode::Default,
-            dtls: TransportMode::Default,
             request_timeout: Duration::from_secs(2),
             keep_alive: Duration::from_secs(10),
         }

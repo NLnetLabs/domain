@@ -16,24 +16,46 @@ use ::resolv::utils::{IoStreamFuture, Passthrough, TimeoutFuture};
 //------------ Service -------------------------------------------------------
 
 /// A service in single request mode.
+///
+/// In single request mode, a service sends one request, waits for its
+/// response and then immediately shuts down the transport connection.
 pub struct Service<T: Transport> {
+    /// The request receiver.
     receiver: RequestReceiver,
+
+    /// The transport for creating connections.
     transport: T,
+
+    /// A handle for restarting the transport and creating timeouts.
     reactor: reactor::Handle,
+
+    /// The duration before a request expires.
     request_timeout: Duration,
+
+    /// The service state.
     state: State<T>
 }
 
+
+/// The service state.
 enum State<T: Transport> {
+    /// Waiting for a request.
     Idle,
+
+    /// Connecting the transport.
     Connecting(Passthrough<T::Future, ServiceRequest>),
+
+    /// Writing the request.
     Writing(Passthrough<<T::Write as Write>::Future, T::Read>),
+
+    /// Receiving the response.
     Reading(Passthrough<TimeoutFuture<IoStreamFuture<T::Read>>, 
                         (ServiceRequest, Instant)>),
 }
 
 
 impl<T: Transport> Service<T> {
+    /// Creates a new service.
     pub fn new(receiver: RequestReceiver, transport: T,
                reactor: reactor::Handle, conf: &ServerConf) -> Self {
         Service {

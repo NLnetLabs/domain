@@ -18,8 +18,15 @@
 //! same message for each service. Instead, we need to revert to the
 //! end of the question section. While this is not yet supported by
 //! `MessageBuilder`, the types herein already support this notion by
-//! returning the request message as part of their error response. See the
-//! `RequestError` type for that.
+//! returning the request message as part of their responses. However, there
+//! is a possibility that the message gets lost during transfer over the gap.
+//! Since the query doesn’t store a copy, this case means that the query
+//! fails fatally.
+//!
+//! Worse, since the `ServiceRequest` contains the message and the `Drop`
+//! trait operates on a mutable reference, we can’t fail the request in its
+//! `Drop` implementation and instead have to rely on services always either
+//! succeeding or failing all their requests.
 
 use std::io;
 use futures::{Future, Complete, Oneshot, Poll, oneshot};
@@ -33,15 +40,22 @@ use super::error::{Error};
 /// Query side of a request.
 ///
 /// This type is used by `Query` to dispatch and wait for requests. It is a
-/// future resolving either into a `MessageBuf` of a successfully received
-/// response or a `RequestError` upon failure.
+/// future resolving either into both the actual request result, either a
+/// `MessageBuf` with a response or an `Error`, and the original request
+/// message or an `io::Error` in which case the original message is lost.
+///
+/// The request has to send a service request to a service which can fail.
+/// Because of that, it is internally a `Result`. When sending fails, it
+/// contains an `Err` which is translated into a fatal error. If all is
+/// well, it contains an `Ok` with the oneshot future that will receive the
+/// result from the service request.
 pub struct QueryRequest(Result<Oneshot<(Result<MessageBuf, Error>,
                                         MessageBuilder)>,
                                Option<io::Error>>);
 
 
 impl QueryRequest {
-    /// Starts the request with a given message.
+    /// Starts the request dispatching a message to a service.
     pub fn new(message: MessageBuilder, service: &ServiceHandle) -> Self {
         let (c, o) = oneshot();
         let sreq = ServiceRequest::new(message, c);
@@ -88,8 +102,8 @@ impl Future for QueryRequest {
 ///
 /// The service request owns the DNS message for the request and allows the
 /// service to get access to the bytes of that message for sending. When we
-/// support EDNS, the type will gain methods for adding an OPT record to the
-/// message, too.
+/// start supporting EDNS, the type will gain methods for adding an OPT
+/// record to the message, too.
 pub struct ServiceRequest {
     /// The request message.
     ///
@@ -102,37 +116,49 @@ pub struct ServiceRequest {
     complete: Complete<(Result<MessageBuf, Error>, MessageBuilder)>,
 
     /// The message ID of the request message.
-    ///
-    /// This is initialized to 0. It may differ from what’s in the message
-    /// if it has’t been updated yet.
     id: u16,
 }
 
 
 impl ServiceRequest {
+    /// Creates a new service request.
     fn new(message: MessageBuilder,
            complete: Complete<(Result<MessageBuf, Error>, MessageBuilder)>)
            -> Self {
         ServiceRequest{message: message, complete: complete, id: 0}
     }
 
+    /// Returns the ID of the request.
+    ///
+    /// Note that this may differ from what’s in the message until
+    /// `set_id()` is called first.
+    ///
+    /// (We could make this an option but, really, this is an internal type
+    /// and should be fine.)
     pub fn id(&self) -> u16 {
         self.id
     }
 
+    /// Sets the request’s and message’s ID.
     pub fn set_id(&mut self, id: u16) {
         self.id = id;
         self.message.header_mut().set_id(id)
     }
 
+    /// Returns a bytes slice of the message for datagram transports.
     pub fn dgram_bytes(&mut self) -> &[u8] {
         &self.message.preview()[2..]
     }
 
+    /// Returns a bytes slice of the message for stream transports.
     pub fn stream_bytes(&mut self) -> &[u8] {
         self.message.preview()
     }
 
+    /// Respond to the request with `response`.
+    ///
+    /// This will succeed the request if `response` really is an answer
+    /// to our request message or fail it otherwise.
     pub fn response(mut self, response: MessageBuf) {
         let is_answer = {
             let request = Message::from_bytes(self.dgram_bytes()).unwrap();
@@ -147,6 +173,7 @@ impl ServiceRequest {
         }
     }
     
+    /// Fails this request with the given error.
     pub fn fail(self, err: Error) {
         self.complete.complete((Err(err), self.message))
     }
@@ -176,4 +203,5 @@ impl Clone for ServiceHandle {
 
 //------------ RequestReceiver -----------------------------------------------
 
+/// A receiver for service requests.
 pub type RequestReceiver = Receiver<ServiceRequest>;

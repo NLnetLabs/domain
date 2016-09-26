@@ -1,4 +1,4 @@
-//! An asnychronous stub resolver.
+//! An asynchronous stub resolver.
 //!
 //! A resolver is the component in the DNS that answers queries. A stub
 //! resolver does so by simply relaying queries to a different resolver
@@ -14,26 +14,26 @@
 //! and class (known as a *question*). It is a future resolving to a DNS
 //! message with the response or an error. Queries can be combined into
 //! *lookups* that use the returned resource records to answer more
-//! specific questions such as all the IP addresses associated with a given
+//! specific enquiries such as all the IP addresses associated with a given
 //! host name. The module provides a rich set of common lookups in the
 //! [lookup] sub-module.
 //!
 //! The following gives an introduction into using the resolver. For an
-//! introduction into the internal design, have a look at the [intro]
+//! introduction into the internal design, please have a look at the [intro]
 //! sub-module.
 //!
 //!
 //! # Creating a Resolver
 //!
-//! The resolver is represented by the [Resolver] type. When creating a value
-//! of this type, you create all the parts of an actual resolver according
-//! to a resolver configuration. Since these parts are basically networking
-//! sockets, the resolver needs a handle to a Tokio reactor where these
-//! sockets will live.
+//! The resolver is represented by the [`Resolver`] type. When creating a
+//! value of this type, you create all the parts of an actual resolver
+//! according to a resolver configuration. Since these parts are handling
+//! actual network traffic, the resolver needs a handle to a Tokio reactor
+//! into which these parts will be spawned as futures.
 //!
-//! For the resolver configuration, there’s [ResolvConf]. While you can
+//! For the resolver configuration, there’s [`ResolvConf`]. While you can
 //! create a value of this type by hand, the more common way is to use your
-//! system’s resolver configuration. [ResolvConf] implements the `Default`
+//! system’s resolver configuration. [`ResolvConf`] implements the `Default`
 //! trait doing exactly that by reading `/etc/resolv.conf`.
 //!
 //! > That probably won’t work on Windows, but, sadly, I have no idea how to
@@ -41,7 +41,7 @@
 //! > very much appreciated.
 //!
 //! Since using the system configuration is the most common case by far,
-//! [Resolver]’s `new()` function does just that. So, the easiest way to
+//! [`Resolver`]’s `new()` function does just that. So, the easiest way to
 //! get a resolver is just this:
 //!
 //! ```norun
@@ -58,23 +58,21 @@
 //!
 //! # Using the Resolver: Queries
 //!
-//! First of all, the [Resolver] value you created doesn’t actually contain
-//! the resolver. Instead, it only keeps all the information necessary to
-//! start a query using the real resolver living inside the reactor core
-//! (this year’s nomination for the category Best Type Name)
-//! somewhere. Because of this, you can clone the resolver, even pass it to
-//! other threads.
+//! As was mentioned above, the [`Resolver`] does’t actually contain the
+//! networking parts necessary to answer queries. Instead, it only knows how
+//! to contact those parts. Because of this, you can clone the resolver,
+//! even pass it to other threads.
 //!
 //! Oddly, the one thing you can’t do with a resolver is start a query.
-//! Instead, you need an intermediary type called [ResolverTask]. You’ll
-//! get one through [Resolver::start()] or, more correctly, you get a future
+//! Instead, you need an intermediary type called [`ResolverTask`]. You’ll
+//! get one through [`Resolver::start()`] or, more correctly, you get a future
 //! to one through this method. You then chain on your actual query or
 //! sequence of queries using combinators such as `Future::and_then()`.
 //!
-//! The actual query is started through [ResolverTask::query()]. It takes a
+//! The actual query is started through [`ResolverTask::query()`]. It takes a
 //! domain name, a resource record type, and a class and returns a future
-//! that will resolve into either a [MessageBuf] with the response to the
-//! query or an [Error].
+//! that will resolve into either a [`MessageBuf`] with the response to the
+//! query or an [`Error`].
 //!
 //! As an example, let’s find out the IPv6 addresses for `www.rust-lang.org`:
 //!
@@ -120,13 +118,13 @@
 //! `A` records and one for `AAAA` records for that host name. You want the
 //! addresses.
 //!
-//! This is what lookups do. They take a [ResolverTask] and some additional
+//! This is what lookups do. They take a [`ResolverTask`] and some additional
 //! information and turn that into a future of some specific result. So,
 //! to do lookups you have to follow the procedure using `start()` as given
 //! above but instead of calling `query()` inside the closure, you use one
 //! of the lookup functions from the [lookup] sub-module.
 //!
-//! Using [lookup_host()], the process of looking up the IP addresses
+//! Using [`lookup_host()`], the process of looking up the IP addresses
 //! becomes much easier. To update above’s example:
 //!
 //! ```
@@ -157,7 +155,7 @@
 //! ```
 //!
 //! No more fiddeling with record types and classes and the result can now
-//! iterater over IP addresses. And we get both IPv4 and IPv6 addresses to
+//! iterate over IP addresses. And we get both IPv4 and IPv6 addresses to
 //! boot.
 //!
 //! Furthermore, we now can use a relative host name. It will be turned into
@@ -167,7 +165,7 @@
 //! As an aside, the lookup functions are named after the thing they look
 //! up not their result following the example of the standard library. So,
 //! when you look for the addresses for the host, you have to use
-//! [lookup_host()], not [lookup_addr()].
+//! [`lookup_host()`], not [`lookup_addr()`].
 //!
 //! Have a look at the [lookup] module for all the lookup functions
 //! currently available.
@@ -176,8 +174,8 @@
 //! # The Run Shortcut
 //!
 //! If you only want to do a DNS lookup and don’t otherwise use tokio, there
-//! is a shortcut through the [Resolver::run()] associated function. It
-//! takes a closure from a [ResolverTask] to a future and waits while
+//! is a shortcut through the [`Resolver::run()`] associated function. It
+//! takes a closure from a [`ResolverTask`] to a future and waits while
 //! driving the future to completing. In other words, it takes away all the
 //! boiler plate from above:
 //!
@@ -204,16 +202,16 @@
 //! [intro]: intro/index.html
 //! [lookup]: lookup/index.html
 //! [tokio-core]: https://github.com/tokio-rs/tokio-core
-//! [Error]: error/enum.Error.html
-//! [MessageBuf]: ../bits/message/struct.MessageBuf.html
-//! [ResolvConf]: conf/struct.ResolvConf.html
-//! [Resolver]: struct.Resolver.html
-//! [Resolver::start()]: struct.Resolver.html#method.start
-//! [Resolver::run()]: struct.Resolver.html#method.run
-//! [ResolverTask]: struct.ResolverTask.html
-//! [ResolverTask::query()]: struct.ResolverTask.html#method.query
-//! [lookup_addr()]: lookup/fn.lookup_addr.html
-//! [lookup_host()]: lookup/fn.lookup_host.html
+//! [`Error`]: error/enum.Error.html
+//! [`MessageBuf`]: ../bits/message/struct.MessageBuf.html
+//! [`ResolvConf`]: conf/struct.ResolvConf.html
+//! [`Resolver`]: struct.Resolver.html
+//! [`Resolver::start()`]: struct.Resolver.html#method.start
+//! [`Resolver::run()`]: struct.Resolver.html#method.run
+//! [`ResolverTask`]: struct.ResolverTask.html
+//! [`ResolverTask::query()`]: struct.ResolverTask.html#method.query
+//! [`lookup_addr()`]: lookup/fn.lookup_addr.html
+//! [`lookup_host()`]: lookup/fn.lookup_host.html
 
 
 //============ Sub-modules ===================================================
@@ -223,7 +221,6 @@
 pub use self::conf::ResolvConf;
 pub use self::error::{Error, Result};
 pub use self::query::Query;
-//pub use self::resolver::{Resolver, ResolverTask, Query};
 
 
 //--- Public modules
@@ -237,17 +234,13 @@ pub mod lookup;
 //--- Private modules
 
 mod core;
-mod request;
 mod query;
+mod request;
 mod service;
 mod tcp;
 mod transport;
 mod udp;
 mod utils;
-
-//mod dgram;
-//mod resolver;
-//mod stream;
 
 
 //--- Meta-modules for documentation
@@ -297,7 +290,7 @@ impl Resolver {
     /// Creates a new resolver using the system’s default configuration.
     ///
     /// All the components of the resolver will be spawned into the reactor
-    /// referenced by `handle`.
+    /// referenced by `reactor`.
     pub fn new(reactor: &reactor::Handle) -> io::Result<Self> {
         Self::from_conf(reactor, ResolvConf::default())
     }
@@ -305,7 +298,7 @@ impl Resolver {
     /// Creates a new resolver using the given configuration.
     ///
     /// All the components of the resolver will be spawned into the reactor
-    /// referenced by `handle`.
+    /// referenced by `reactor`.
     pub fn from_conf(reactor: &reactor::Handle, conf: ResolvConf)
                      -> io::Result<Self> {
         Core::new(reactor, conf)
@@ -343,7 +336,7 @@ impl Resolver {
     /// Synchronously perform a DNS operation atop a standard resolver.
     ///
     /// This associated functions removes almost all boiler plate for the
-    /// case if you want to perform some DNS operation on a resolver using
+    /// case that you want to perform some DNS operation on a resolver using
     /// the system’s configuration and wait for the result.
     ///
     /// The only argument is a closure taking a [ResolverTask] for creating

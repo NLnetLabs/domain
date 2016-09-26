@@ -17,10 +17,24 @@ use super::ExpiringService;
 //------------ Service -------------------------------------------------------
 
 /// A service in multiplex mode.
+///
+/// In multiplex mode, the service sends out any incoming request with a
+/// unique ID and matches responses on that ID.
 pub struct Service<T: Transport> {
+    /// The receiver for new requests.
+    ///
+    /// This gets switched to `None` when the receiver gets disconnected or
+    /// taken away by the expiring wrapper. If that has happened, we wait
+    /// until all pending request have expired and then end the stream.
     receiver: Option<RequestReceiver>,
+
+    /// A writer of requests.
     write: Writer<T>,
+
+    /// A reader of responses.
     read: T::Read,
+
+    /// A map with all the requests that are currently in flight.
     pending: PendingRequests
 }
 
@@ -172,17 +186,30 @@ impl<T: Transport> Service<T> {
 
 //------------ Writer -------------------------------------------------------
 
+/// A state machine for writing requests.
+///
+/// This wraps the states `Transport::Write` can go through in one handy
+/// value.
 enum Writer<T: Transport> {
+    /// Not writing anything right now.
     Idle(T::Write),
+
+    /// We are writing.
+    ///
+    /// The future resolves into a `(T::Write, ServiceRequest)`.
     Writing(<T::Write as Write>::Future),
+
+    /// The socket has been closed.
     Closed
 }
 
 impl<T: Transport> Writer<T> {
+    /// Creates a new idle writer.
     fn new(wr: T::Write) -> Self {
         Writer::Idle(wr)
     }
 
+    /// Starts writing `requests`.
     fn write(&mut self, mut request: ServiceRequest,
            pending: &mut PendingRequests) {
         let wr = match mem::replace(self, Writer::Closed) {

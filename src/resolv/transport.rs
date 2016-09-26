@@ -11,6 +11,12 @@ use super::request::ServiceRequest;
 
 //------------ Write ---------------------------------------------------------
 
+/// A trait for the write half of a transport connection.
+///
+/// This is similar to `tokio_core::io::WriteAll` but for requests and not
+/// loosing the request on error. Every call to `write()` will exchange the
+/// value for a future that will try to send the request and can then be
+/// exchanged for the value again plus the request for further processing.
 pub trait Write: Sized {
     type Future: Future<Item=(Self, ServiceRequest),
                         Error=(io::Error, ServiceRequest)>;
@@ -21,22 +27,39 @@ pub trait Write: Sized {
 
 //------------ Read ----------------------------------------------------------
 
+/// A trait for the read half of a transport connection.
+///
+/// This is simply a stream of messages.
 pub trait Read: Stream<Item=MessageBuf, Error=io::Error> { }
 
 
 //------------ Transport -----------------------------------------------------
 
+/// A trait for a DNS transport.
+///
+/// A transport is able to create transport connections to a given DNS server.
 pub trait Transport: 'static {
+    /// The type of the read half of the transport connection.
     type Read: Read;
+
+    /// The type of the write half of the transport connection.
     type Write: Write;
+
+    /// The type of the future used for connecting.
     type Future: Future<Item=(Self::Read, Self::Write), Error=io::Error>;
 
+    /// Creates a transport connection for this transport.
+    ///
+    /// The connection should use sockets created atop the given reactor
+    /// handle. If connecting fails, the implementation has a choice of
+    /// returning `Err` right away or later as part of the future.
     fn create(&self, reactor: &reactor::Handle) -> io::Result<Self::Future>;
 }
 
 
 //------------ StreamWriter --------------------------------------------------
 
+/// The write half of a stream transport.
 pub struct StreamWriter<W: io::Write>(W);
 
 impl<W: io::Write> Write for StreamWriter<W> {
@@ -56,6 +79,7 @@ impl<W: io::Write> From<W> for StreamWriter<W> {
 
 //------------ StreamWriteRequest --------------------------------------------
 
+/// The future of the write half of a stream transport.
 pub struct StreamWriteRequest<W: io::Write> {
     state: WriteState<W>
 }
@@ -129,6 +153,7 @@ impl<W: io::Write> Future for StreamWriteRequest<W> {
 
 //------------ StreamReader -------------------------------------------------
 
+/// The read half of a stream transport.
 pub struct StreamReader<R: io::Read> {
     reader: R,
     item: ReadItem,
@@ -183,20 +208,29 @@ impl<R: io::Read> From<R> for StreamReader<R> {
 
 //------------ ReadItem -----------------------------------------------------
 
+/// A item to read on a stream transport.
 enum ReadItem {
+    /// The size shim preceeding the actual message.
     Size([u8; 2]),
+
+    /// The actual message.
+    ///
+    /// The vector will start out with the size read first.
     Message(Vec<u8>),
 }
 
 impl ReadItem {
+    /// Creates a new `ReadItem::Size` item.
     fn size() -> Self {
         ReadItem::Size([0; 2])
     }
 
+    /// Creates a new `ReadItem::Messge` item of the given size.
     fn message(size: u16) -> Self {
         ReadItem::Message(vec![0; size as usize])
     }
 
+    /// Returns the bytes buffer for current read item.
     fn buf(&mut self) -> &mut [u8] {
         match *self {
             ReadItem::Size(ref mut data) => data,
@@ -204,6 +238,7 @@ impl ReadItem {
         }
     }
 
+    /// Returns the size of the current read item.
     fn len(&self) -> usize {
         match *self {
             ReadItem::Size(_) => 2,
@@ -211,6 +246,7 @@ impl ReadItem {
         }
     }
 
+    /// Returns the item that should replace the current item.
     fn next_item(&self) -> Self {
         match *self {
             ReadItem::Size(ref data) => {
@@ -221,6 +257,7 @@ impl ReadItem {
         }
     }
 
+    /// Extracts the message from the current item if it is a message item.
     fn finish(self) -> Option<MessageBuf> {
         match self {
             ReadItem::Size(_) => None,

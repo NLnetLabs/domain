@@ -16,20 +16,36 @@ use super::ExpiringService;
 
 //------------ Service -------------------------------------------------------
 
-/// A service in single request mode.
+/// A service in sequential request mode.
+///
+/// In sequential request mode, a service will send one request and then wait
+/// for the response to that request before sending the next request.
 pub struct Service<T: Transport> {
+    /// A reactor handle for creating timeouts.
     reactor: reactor::Handle,
+
+    /// The duration of a request timeout.
     request_timeout: Duration,
+
+    /// Service state.
     state: State<T>
 }
 
+/// The state of the service.
 enum State<T: Transport> {
+    /// Receiving a new request.
     Receiving(Passthrough<IoStreamFuture<RequestReceiver>,
                           (T::Read, T::Write)>),
+
+    /// Sending out a request message.
     Writing(Passthrough<<T::Write as Write>::Future, 
                         (T::Read, RequestReceiver)>),
+
+    /// Reading a response.
     Reading(Passthrough<TimeoutFuture<IoStreamFuture<T::Read>>, 
                         (ServiceRequest, Instant, RequestReceiver, T::Write)>),
+
+    /// Not doing anything anymore.
     Done(Option<RequestReceiver>),
 }
 

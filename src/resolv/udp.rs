@@ -32,11 +32,13 @@ pub fn udp_service(reactor: reactor::Handle, conf: &ServerConf)
 
 //------------ UdpTransport --------------------------------------------------
 
+/// The transport for UDP.
 pub struct UdpTransport {
     addr: SocketAddr,
 }
 
 impl UdpTransport {
+    /// Creates a new UDP transport.
     pub fn new(addr: SocketAddr) -> Self {
         UdpTransport{addr: addr}
     }
@@ -59,6 +61,7 @@ impl Transport for UdpTransport {
 
 //------------ UdpTransportNew -----------------------------------------------
 
+/// The future for creating a new UDP transport “connection.”
 pub struct UdpTransportNew(Option<DnsUdpSocket>);
 
 impl Future for UdpTransportNew {
@@ -79,6 +82,10 @@ impl Future for UdpTransportNew {
 
 //------------ DnsUdpSocket --------------------------------------------------
 
+/// A UDP socket for sending and receiving DNS messages.
+///
+/// This wraps the actual UDP socket and provides the real functions that then
+/// are used by the two halfes.
 struct DnsUdpSocket {
     sock: UdpSocket,
     remote: SocketAddr,
@@ -86,12 +93,16 @@ struct DnsUdpSocket {
 }
 
 impl DnsUdpSocket {
+    /// Creates a new value from its components.
     fn new(sock: UdpSocket, remote: SocketAddr) -> Self {
         // XXX Set msg_size to 512. This is correct without EDNS support
         //     but we’ll have to fix this later.
         DnsUdpSocket{sock: sock, remote: remote, msg_size: 512}
     }
 
+    /// Creates a new value from the remote address.
+    ///
+    /// Binds a UDP socket to either the V4 or V6 unspecified address.
     fn connect(remote: SocketAddr, reactor: &reactor::Handle)
                -> io::Result<Self> {
         let local = match remote {
@@ -104,7 +115,11 @@ impl DnsUdpSocket {
         Ok(Self::new(sock, remote))
     }
 
-    fn poll_write(&self, request: &mut ServiceRequest) -> Poll<(), io::Error> {
+    /// Polls for writing.
+    ///
+    /// Attempts to send the given request.
+    fn poll_write(&self, request: &mut ServiceRequest)
+                  -> Poll<(), io::Error> {
         let buf = request.dgram_bytes();
         let size = try_nb!(self.sock.send_to(buf, &self.remote));
         if size == buf.len() {
@@ -116,6 +131,10 @@ impl DnsUdpSocket {
         }
     }
 
+    /// Polls for reading.
+    ///
+    /// Ready returns a new message or `None` if the socket got closed
+    /// (which shouldn’t really happen).
     fn poll_read(&self) -> Poll<Option<MessageBuf>, io::Error> {
         loop {
             if let Async::NotReady = self.sock.poll_read() {
@@ -135,6 +154,7 @@ impl DnsUdpSocket {
 
 //------------ UdpReader -----------------------------------------------------
 
+/// The read half of a UDP socket.
 pub struct UdpReader {
     handle: TaskRc<RefCell<DnsUdpSocket>>
 }
@@ -144,6 +164,9 @@ impl UdpReader {
         UdpReader{handle: handle}
     }
 }
+
+
+//--- Read
 
 impl Read for UdpReader { }
 
@@ -162,6 +185,7 @@ impl Stream for UdpReader {
 
 //------------ UdpWriter -----------------------------------------------------
 
+/// The write half of a UDP socket.
 pub struct UdpWriter {
     handle: TaskRc<RefCell<DnsUdpSocket>>
 }
@@ -191,6 +215,7 @@ impl Write for UdpWriter {
 
 //------------ UdpWriteRequest -----------------------------------------------
 
+/// The write future for a UDP socket.
 pub struct UdpWriteRequest {
     state: State
 }

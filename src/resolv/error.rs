@@ -9,19 +9,17 @@ use ::bits::ComposeError;
 
 //------------ Error ---------------------------------------------------------
 
-/// An error happened during a query or lookup.
+/// An error happened during a query.
 #[derive(Debug)]
 pub enum Error {
     /// The question was broken.
-    ///
-    /// XXX I think we won’t need this anymore.
     Question(ComposeError),
-
-    /// All responses for a query were negative.
-    NoName,
 
     /// All queries timed out.
     Timeout,
+
+    /// All responses for a query were negative.
+    NoName,
 
     /// At least one response was received but none was secure.
     NoSecureAnswers,
@@ -35,14 +33,6 @@ pub enum Error {
 
 
 impl Error {
-    /// Returns whether this error spells the end of a query.
-    pub fn is_fatal(&self) -> bool {
-        match *self {
-            Error::Question(_) => true,
-            _ => false
-        }
-    }
-
     /// Finds the most appropriate error for two failed queries.
     #[allow(match_same_arms)]
     pub fn merge(self, other: Self) -> Self {
@@ -51,12 +41,12 @@ impl Error {
         match (self, other) {
             (Question(err), _) => Question(err),
 
+            (Timeout, Io(_)) => Timeout,
+            (Timeout, other) => other,
+
             (NoName, NoSecureAnswers) => NoSecureAnswers,
             (NoName, AllBogusAnswers) => AllBogusAnswers,
             (NoName, _) => NoName,
-
-            (Timeout, Io(_)) => Timeout,
-            (Timeout, other) => other,
 
             (NoSecureAnswers, _) => NoSecureAnswers,
 
@@ -124,6 +114,6 @@ impl fmt::Display for Error {
 
 //------------ Result --------------------------------------------------------
 
-/// The result type of a query or lookup.
+/// The result type of a query.
 pub type Result<T> = result::Result<T, Error>;
 

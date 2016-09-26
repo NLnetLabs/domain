@@ -9,20 +9,32 @@ use tokio_core::reactor::Timeout;
 
 //------------ Passthrough ---------------------------------------------------
 
+/// A future that passes through some data.
+///
+/// This is like `Future::map()` except that it isn’t generic over a closure
+/// and can therefore be embedded into other types.
+///
+/// Upon success, it will resolve into a pair of whatever the future `F`
+/// resolves into and the `T` given upon creation.
 pub struct Passthrough<F: Future, T> {
     future: F,
     data: Option<T>
 }
 
 impl<F: Future, T> Passthrough<F, T> {
+    /// Creates a new passthrough from a future and some data.
     pub fn new(future: F, data: T) -> Self {
         Passthrough{future: future, data: Some(data)}
     }
 
+    /// Takes away the data.
+    ///
+    /// Polling the future again after this will result in a panic.
     pub fn take(&mut self) -> Option<T> {
         self.data.take()
     }
 
+    /// Returns a mutable reference to the future.
     pub fn future_mut(&mut self) -> &mut F {
         &mut self.future
     }
@@ -47,6 +59,11 @@ impl<F: Future, T> Future for Passthrough<F, T> {
 
 //------------ TimeoutFuture -------------------------------------------------
 
+/// A future for another future that may time out.
+///
+/// If `F` resolves before the timeout, the future will resolve to `Some(_)`
+/// of whatever `F` resolved to. If the timeout fires first, the future
+/// will resolve to `None`.
 pub struct TimeoutFuture<F: Future<Error=io::Error>> {
     future: F,
     timeout: Option<Timeout>
@@ -79,9 +96,14 @@ impl<F: Future<Error=io::Error>> Future for TimeoutFuture<F> {
 
 //------------ IoStreamFuture ------------------------------------------------
 
+/// An `StreamFuture` whose error is simply `io::Error`.
+///
+/// The normal stream future returns the stream itself upon error, too,
+/// We don’t really need that.
 pub struct IoStreamFuture<S: Stream<Error=io::Error>>(Option<S>);
 
 impl<S: Stream<Error=io::Error>> IoStreamFuture<S> {
+    /// Creates a new future from a stream.
     pub fn new(s: S) -> Self {
         IoStreamFuture(Some(s))
     }

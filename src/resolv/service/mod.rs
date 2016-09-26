@@ -1,4 +1,17 @@
 //! Service for DNS.
+//!
+//! The *service* is the bit that actual talks to upstream servers. A service
+//! is a future running atop a tokio reactor. This module implements a
+//! service that is generic over the actual transport used. See the
+//! `transport` module for the traits that transports need to implement in
+//! order to be able to be used by `Service`.
+//!
+//! It turns out there are (at least) three ways the communication with
+//! servers can actually happen. Because of this, `Service` is actually an
+//! enum over the real services implemented in sub-modules.
+//!
+//! Two of these ways keep sockets open for a certain time. This behaviour
+//! is modelled through a separate layer implemented by `Expiring` below.
 
 use std::io;
 use std::time::Duration;
@@ -29,6 +42,11 @@ pub enum ServiceMode {
 }
 
 impl ServiceMode {
+    /// Returns the `ServiceMode` for a given `TransportMode`.
+    ///
+    /// Since `TransportMode` has both a `None` and a `Default` variant,
+    /// this function takes the service mode to use by default and returns
+    /// an option for the `None` case.
     pub fn resolve(t: TransportMode, default: ServiceMode) -> Option<Self> {
         match t {
             TransportMode::None => None,
@@ -46,6 +64,7 @@ impl ServiceMode {
 /// A service processes DNS requests.
 pub struct Service<T: Transport>(TrueService<T>);
 
+/// The actual service.
 enum TrueService<T: Transport> {
     Single(single::Service<T>),
     Sequential(Expiring<T, sequential::Service<T>>),
@@ -114,10 +133,20 @@ impl<T: Transport> Future for Service<T> {
 
 //------------ ExpiringService -----------------------------------------------
 
+/// A trait for services that can expire.
+///
+/// The service must be a stream that returns an item every time it wants the
+/// expiry timer to be reset.
 trait ExpiringService<T: Transport>: Stream<Item=(), Error=io::Error> {
+    /// Create a new service from the given parts.
     fn create(rd: T::Read, wr: T::Write, receiver: RequestReceiver,
               request: ServiceRequest, reactor: reactor::Handle,
               request_timeout: Duration) -> Self;
+
+    /// Take the receiver out of the service.
+    ///
+    /// This only happens right before the service is being dropped. It
+    /// should return `None` when the receiver has disconnected.
     fn take(&mut self) -> Option<RequestReceiver>;
 }
 
@@ -125,6 +154,12 @@ trait ExpiringService<T: Transport>: Stream<Item=(), Error=io::Error> {
 //------------ Expiring ------------------------------------------------------
 
 /// A wrapper for a service that will expire if nothing happens for too long.
+///
+/// The wrapper will sit and poll the receiver for a new request. When one
+/// arrives, it will create a new transport and then pass these to a new
+/// service. It will also start a timer. It will restart that timer whenever
+/// the underlying service (which is a stream) returns an item. It will
+/// close the service if the timeout fires.
 struct Expiring<T: Transport, S: ExpiringService<T>> {
     state: State<T, S>,
     transport: T,
@@ -133,14 +168,21 @@ struct Expiring<T: Transport, S: ExpiringService<T>> {
     keep_alive: Duration,
 }
 
+/// The state the wrapper is in.
 enum State<T: Transport, S: ExpiringService<T>> {
+    /// No service, waiting for a new request to arrive.
     Idle(IoStreamFuture<RequestReceiver>),
+
+    /// We have a pending request and wait for the transport creation.
     Connecting(Passthrough<T::Future, (RequestReceiver, ServiceRequest)>),
+
+    /// A service is active.
     Active(S, Option<reactor::Timeout>)
 }
 
 
 impl<T: Transport, S: ExpiringService<T>> Expiring<T, S> {
+    /// Creates a new expiring wrapper.
     fn new(receiver: RequestReceiver, transport: T,
            reactor: reactor::Handle, conf: &ServerConf) -> Self {
         Expiring {
@@ -221,6 +263,4 @@ impl<T: Transport, S: ExpiringService<T>> Future for Expiring<T, S> {
         self.poll()
     }
 }
-
-
 

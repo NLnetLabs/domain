@@ -28,11 +28,13 @@ pub fn tcp_service(reactor: reactor::Handle, conf: &ServerConf)
 
 //------------ TcpTransport --------------------------------------------------
 
+/// A transport for TCP.
 pub struct TcpTransport {
     addr: SocketAddr,
 }
 
 impl TcpTransport {
+    /// Creates a new TCP transport.
     pub fn new(addr: SocketAddr) -> Self {
         TcpTransport{addr: addr}
     }
@@ -54,6 +56,7 @@ impl Transport for TcpTransport {
 
 //------------ TcpTransportNew -----------------------------------------------
 
+/// A future resolving into a connected TCP transport connection.
 pub struct TcpTransportNew(TcpStreamNew);
 
 impl Future for TcpTransportNew {

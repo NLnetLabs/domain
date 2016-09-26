@@ -15,7 +15,7 @@ use super::udp::udp_service;
 /// The resolver core.
 ///
 /// This type collects the sender sides of the channels to all the services
-/// of this resolver plus and arc with the config.
+/// of this resolver plus an arc with the config.
 #[derive(Clone)]
 pub struct Core {
     udp: Vec<ServiceHandle>,
@@ -48,10 +48,12 @@ impl Core {
         })
     }
 
+    /// Returns a reference to the list of UDP service handles.
     pub fn udp(&self) -> &[ServiceHandle] {
         &self.udp
     }
 
+    /// Returns a reference to the list of TCP service handles.
     pub fn tcp(&self) -> &[ServiceHandle] {
         &self.tcp
     }
@@ -80,5 +82,4 @@ impl fmt::Debug for Core {
         self.conf.fmt(f)
     }
 }
-
 

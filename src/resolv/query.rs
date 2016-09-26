@@ -28,7 +28,12 @@ use super::request::QueryRequest;
 /// returned by [`Resolver::start()`]. As such, you cannot use a query by
 /// itself. Please see the module level documentation for some examples on
 /// how to start a query.
+//
+//  Since a query can fail very early on when building the request message,
+//  it internally consists of a `Result`. If it is `Ok()`, we really do have
+//  a query to poll, otherwise we have an error to take out and return.
 pub struct Query(Result<RealQuery, Option<Error>>);
+
 
 impl Query {
     /// Creates a new query.
