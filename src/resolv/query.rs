@@ -12,16 +12,26 @@ use super::core::Core;
 use super::error::Error;
 use super::request::QueryRequest;
 
+
 //------------ Query ---------------------------------------------------------
 
-pub struct Query(State);
-
-enum State {
-    Real(RealQuery),
-    Failed(Option<Error>),
-}
+/// A DNS query.
+///
+/// A query is a future that resolves a DNS question for all the resource
+/// records for a given domain name, record type, and class into either a
+/// response or a query error. It will follow the rules set down by the
+/// resolver configuration in trying to find an upstream server that
+/// replies to the question.
+///
+/// A query is actually a combinator of sorts. It needs a [`ResolverTask`]
+/// to operate on which in itself is the result of a future, namely that
+/// returned by [`Resolver::start()`]. As such, you cannot use a query by
+/// itself. Please see the module level documentation for some examples on
+/// how to start a query.
+pub struct Query(Result<RealQuery, Option<Error>>);
 
 impl Query {
+    /// Creates a new query.
     pub fn new<N: AsDName>(resolv: &ResolverTask, name: N, rtype: RRType,
                        class: Class) -> Self {
         let core = resolv.core.clone();
@@ -30,18 +40,21 @@ impl Query {
         });
         let message = match message {
             Ok(message) => message,
-            Err(err) => return Query(State::Failed(Some(err.into())))
+            Err(err) => return Query(Err(Some(err.into())))
         };
         let dgram = core.with(|core| !core.conf().options.use_vc);
         let (index, request) = core.with(|c| RealQuery::start(c, dgram,
                                                               message));
-        Query(State::Real(RealQuery {
+        Query(Ok(RealQuery {
             core: core, request: request,
             dgram: dgram, start_index: index, curr_index: index,
             attempt: 0
         }))
     }
 
+    /// Builds the message for this query.
+    ///
+    /// If this function fails, we are done.
     fn build_message<N: AsDName>(name: N, rtype: RRType, class: Class,
                                  opts: &ResolvOptions)
                                  -> ComposeResult<MessageBuilder> {
@@ -61,8 +74,8 @@ impl Future for Query {
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         match self.0 {
-            State::Real(ref mut query) => query.poll(),
-            State::Failed(ref mut err) => {
+            Ok(ref mut query) => query.poll(),
+            Err(ref mut err) => {
                 match err.take() {
                     Some(err) => Err(err),
                     None => panic!("polling a resolved Query")
@@ -75,7 +88,7 @@ impl Future for Query {
 
 //------------ RealQuery -----------------------------------------------------
 
-/// The future of an ongoing query.
+/// An ongoing query.
 struct RealQuery {
     /// The resolver core we are working on.
     core: TaskRc<Core>,
@@ -83,11 +96,12 @@ struct RealQuery {
     /// The request we are currently processing.
     request: QueryRequest,
 
-    /// Are we still in datagram stage?
+    /// Are we on datagram track?
     ///
-    /// Assuming the resolver config allows using datagram services at all,
-    /// we’ll start with `true`. Only if a response is truncated do we have
-    /// to switch to `false` and go through the stream services.
+    /// A query can be in one of two *tracks,* datagram track or stream
+    /// track. Unless the config states that we should use the stream
+    /// track only, we will start out in datagram track and only switch to
+    /// the stream track if we receive a truncated response.
     dgram: bool,
 
     /// The index of the service we started at.
@@ -101,11 +115,17 @@ struct RealQuery {
     /// The index of the service we currently are using.
     curr_index: usize,
 
-    /// The how-many-th attempt is this, starting at attempt 0.
+    /// The how-many-th attempt this is, starting at attempt 0.
     attempt: usize
 }
 
+
 impl RealQuery {
+    /// Starts a new query.
+    ///
+    /// Takes a reference to the core, whether to use the datagram track,
+    /// and the message and returns the index of the service used and a
+    /// new request.
     fn start(core: &Core, dgram: bool, message: MessageBuilder)
              -> (usize, QueryRequest) {
         let track = if dgram { core.udp() }
@@ -173,6 +193,7 @@ impl RealQuery {
         self.poll()
     }
 
+    /// Returns the number of services in the current track.
     fn track_len(&self) -> usize {
         if self.dgram { self.core.with(|core| core.udp().len()) }
         else { self.core.with(|core| core.tcp().len()) }
