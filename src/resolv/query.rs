@@ -32,7 +32,7 @@ impl Query {
             Ok(message) => message,
             Err(err) => return Query(State::Failed(Some(err.into())))
         };
-        let dgram = core.with(|core| core.conf().options.use_vc);
+        let dgram = core.with(|core| !core.conf().options.use_vc);
         let (index, request) = core.with(|c| RealQuery::start(c, dgram,
                                                               message));
         Query(State::Real(RealQuery {
