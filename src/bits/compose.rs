@@ -105,14 +105,21 @@ pub trait ComposeBytes: Sized + fmt::Debug {
     /// Returns whether the target has been truncated.
     fn truncated(&self) -> bool;
 
-
-    //--- Updating of earlier data.
+    //--- Positions, lengths, and slices.
 
     /// Returns the current write position of the builder.
     fn pos(&self) -> Self::Pos;
 
     /// Returns the length of data added since the given position.
     fn delta(&self, pos: Self::Pos) -> usize;
+
+    /// Returns the bytes of the composition starting at `pos`.
+    fn bytes(&self, pos: Self::Pos) -> &[u8];
+
+    /// Returns mutable bytes of the composition starting at `pos`.
+    fn bytes_mut(&mut self, pos: Self::Pos) -> &mut [u8];
+
+    //--- Updating of earlier data.
 
     /// Updates the builder starting at the given position with a bytes slice.
     ///
@@ -237,6 +244,15 @@ impl ComposeBuf {
             self.update_u16(start, delta).unwrap();
         }
         self.vec
+    }
+
+    pub fn preview(&mut self) -> &[u8] {
+        if let ComposeMode::Stream = self.mode {
+            let start = self.start - 2;
+            let delta = self.delta(self.start) as u16;
+            self.update_u16(start, delta).unwrap();
+        }
+        &self.vec
     }
 }
 
@@ -382,6 +398,14 @@ impl ComposeBytes for ComposeBuf {
 
     fn delta(&self, pos: Self::Pos) -> usize {
         self.vec.len().checked_sub(pos).unwrap()
+    }
+
+    fn bytes(&self, pos: Self::Pos) -> &[u8] {
+        &self.vec[pos..]
+    }
+
+    fn bytes_mut(&mut self, pos: Self::Pos) -> &mut [u8] {
+        &mut self.vec[pos..]
     }
 
     fn update_bytes(&mut self, pos: Self::Pos, data: &[u8])

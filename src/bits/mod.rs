@@ -1,7 +1,7 @@
 //! DNS data.
 //!
-//! This module provides types for working with DNS data and parsing and
-//! composing wire-format DNS messages.
+//! This module provides types for working with DNS data as well as parsing
+//! and composing wire-format DNS messages.
 //!
 //! There are types for the most basic building blocks of DNS data, `DName`
 //! for domain names, `CharStr` for character strings, and `Octets` for

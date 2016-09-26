@@ -9,10 +9,10 @@
 //! top of [tokio-core].
 //!
 //! The module provides ways to create a *resolver* that knows how to
-//! process DNS *queries*. A query asks a for all the resource records
+//! process DNS *queries*. A query asks for all the resource records
 //! associated with a given triple of a domain name, resource record type,
 //! and class (known as a *question*). It is a future resolving to a DNS
-//! message with the response or an error. Query can be combined into
+//! message with the response or an error. Queries can be combined into
 //! *lookups* that use the returned resource records to answer more
 //! specific questions such as all the IP addresses associated with a given
 //! host name. The module provides a rich set of common lookups in the
@@ -48,8 +48,8 @@
 //! use domain::resolv::Resolver;
 //! use tokio_core::reactor::Core;
 //!
-//! let core = Core::new();
-//! let resolv = Resolver::new(&core.handle());
+//! let core = Core::new().unwrap();
+//! let resolv = Resolver::new(&core.handle()).unwrap();
 //! ```
 //!
 //! If you do have a configuration, you can use the `from_conf()` function
@@ -93,7 +93,7 @@
 //!
 //! fn main() {
 //!     let mut core = Core::new().unwrap();
-//!     let resolv = Resolver::new(&core.handle());
+//!     let resolv = Resolver::new(&core.handle()).unwrap();
 //!
 //!     let addrs = resolv.start().and_then(|resolv| {
 //!         let name = DNameBuf::from_str("www.rust-lang.org.").unwrap();
@@ -143,7 +143,7 @@
 //!
 //! fn main() {
 //!     let mut core = Core::new().unwrap();
-//!     let resolv = Resolver::new(&core.handle());
+//!     let resolv = Resolver::new(&core.handle()).unwrap();
 //!
 //!     let addrs = resolv.start().and_then(|resolv| {
 //!         let name = DNameBuf::from_str("www.rust-lang.org").unwrap();
@@ -216,11 +216,14 @@
 //! [lookup_host()]: lookup/fn.lookup_host.html
 
 
+//============ Sub-modules ===================================================
+
 //--- Re-exports
 
 pub use self::conf::ResolvConf;
 pub use self::error::{Error, Result};
-pub use self::resolver::{Resolver, ResolverTask, Query};
+pub use self::query::Query;
+//pub use self::resolver::{Resolver, ResolverTask, Query};
 
 
 //--- Public modules
@@ -233,15 +236,172 @@ pub mod lookup;
 
 //--- Private modules
 
-mod dgram;
-mod pending;
+mod core;
 mod request;
-mod resolver;
-mod stream;
+mod query;
+mod service;
 mod tcp;
+mod transport;
 mod udp;
+mod utils;
+
+//mod dgram;
+//mod resolver;
+//mod stream;
 
 
 //--- Meta-modules for documentation
 
 pub mod intro;
+
+
+//============ Actual Content ================================================
+
+use std::io;
+use std::ops::Deref;
+use std::result;
+use std::sync::Arc;
+use futures::{BoxFuture, Future, lazy};
+use futures::task::TaskRc;
+use tokio_core::reactor;
+use ::bits::AsDName;
+use ::iana::{Class, RRType};
+use self::conf::ResolvOptions;
+use self::core::Core;
+
+
+//------------ Resolver -----------------------------------------------------
+
+/// Access to a resolver.
+///
+/// This types collects all information in order to be able to start a DNS
+/// query on a resolver. You can create a new resolver by calling either
+/// the `new()` or `from_conf()` functions passing in a handle to a Tokio
+/// reactor core. Either function will spawn everything necessary for a
+/// resolver into that core. Existing resolver values can be cloned. Clones
+/// will refer to the same resolver.
+/// 
+/// In order to perform a query, you will have to call the `start()` method
+/// to create a future that will resolve into an intermediary value that
+/// will than allow calling a `query()` method on it and will also allow
+/// more complex operations as a complex future.
+///
+/// Alternatively, you can use the `run()` associated function to
+/// synchronously perfrom a series of queries.
+#[derive(Clone, Debug)]
+pub struct Resolver {
+    core: Arc<Core>
+}
+
+impl Resolver {
+    /// Creates a new resolver using the system’s default configuration.
+    ///
+    /// All the components of the resolver will be spawned into the reactor
+    /// referenced by `handle`.
+    pub fn new(reactor: &reactor::Handle) -> io::Result<Self> {
+        Self::from_conf(reactor, ResolvConf::default())
+    }
+
+    /// Creates a new resolver using the given configuration.
+    ///
+    /// All the components of the resolver will be spawned into the reactor
+    /// referenced by `handle`.
+    pub fn from_conf(reactor: &reactor::Handle, conf: ResolvConf)
+                     -> io::Result<Self> {
+        Core::new(reactor, conf)
+             .map(|core| Resolver{core: Arc::new(core)})
+    }
+
+    /// Returns a reference to the configuration of this resolver.
+    pub fn conf(&self) -> &ResolvConf {
+        &self.core.conf()
+    }
+
+    /// Returns a reference to the configuration options of this resolver.
+    pub fn options(&self) -> &ResolvOptions {
+        &self.core.conf().options
+    }
+
+    /// Starts a resolver future atop this resolver.
+    ///
+    /// The method returns a future that will resolve into a [ResolverTask]
+    /// value that can be used to start queries atop this resolver.
+    ///
+    /// Since the future will never error, it is generic over the error type.
+    ///
+    /// [ResolverTask]: struct.ResolverTask.html
+    pub fn start<E>(&self) -> BoxFuture<ResolverTask, E>
+                 where E: Send + 'static {
+        let core = self.core.deref().clone();
+        lazy(move || Ok(ResolverTask{core: TaskRc::new(core)})).boxed()
+    }
+}
+
+/// # Shortcuts
+///
+impl Resolver {
+    /// Synchronously perform a DNS operation atop a standard resolver.
+    ///
+    /// This associated functions removes almost all boiler plate for the
+    /// case if you want to perform some DNS operation on a resolver using
+    /// the system’s configuration and wait for the result.
+    ///
+    /// The only argument is a closure taking a [ResolverTask] for creating
+    /// queries and returning a future. Whatever that future resolves to will
+    /// be returned.
+    pub fn run<R, F>(f: F) -> result::Result<R::Item, R::Error>
+               where R: Future, R::Error: From<io::Error> + Send + 'static,
+                     F: FnOnce(ResolverTask) -> R {
+        let mut reactor = try!(reactor::Core::new());
+        let resolver = try!(Resolver::new(&reactor.handle()));
+        let fut = resolver.start().and_then(f);
+        reactor.run(fut)
+    }
+
+    /// Spawn a query.
+    ///
+    /// This method is a shortcut for `self.start().and_then(f).boxed()`.
+    /// Because of the `boxed()` bit, it requires lots of things to be
+    /// `Send + 'static` and because of that isn’t necessarily better than
+    /// the longer way.
+    ///
+    /// I am also not sure if *spawn* is the right name. Probably not since
+    /// it actually returns the future.
+    pub fn spawn<R, F>(&self, f: F) -> BoxFuture<R::Item, R::Error>
+                 where R: Future + Send + 'static,
+                       R::Error: From<io::Error> + Send + 'static,
+                       F: FnOnce(ResolverTask) -> R + Send + 'static {
+        self.start().and_then(f).boxed()
+    }
+}
+
+
+//------------ ResolverTask --------------------------------------------------
+
+/// A resolver bound to a futures task.
+///
+/// You can use this type within a running future to start a query on top
+/// of the resolver using the `query()` method.
+#[derive(Clone)]
+pub struct ResolverTask {
+    core: TaskRc<Core>
+}
+
+impl ResolverTask {
+    /// Start a DNS query on this resolver.
+    ///
+    /// Returns a future that, if successful, will resolve into a DNS
+    /// message containing a response to a query for resource records of type
+    /// `rtype` associated with the domain name `name` and class `class`. The
+    /// name must be an absolute name or else the query will fail.
+    pub fn query<N>(&self, name: N, rtype: RRType, class: Class) -> Query
+                 where N: AsDName {
+        Query::new(self, name, rtype, class)
+    }
+
+    /// Returns an arc reference to the resolver’s config.
+    pub fn conf(&self) -> Arc<ResolvConf> {
+        self.core.with(|core| core.clone_conf())
+    }
+}
+
