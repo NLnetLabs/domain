@@ -48,8 +48,8 @@
 //! use domain::resolv::Resolver;
 //! use tokio_core::reactor::Core;
 //!
-//! let core = Core::new();
-//! let resolv = Resolver::new(&core.handle());
+//! let core = Core::new().unwrap();
+//! let resolv = Resolver::new(&core.handle()).unwrap();
 //! ```
 //!
 //! If you do have a configuration, you can use the `from_conf()` function
@@ -93,7 +93,7 @@
 //!
 //! fn main() {
 //!     let mut core = Core::new().unwrap();
-//!     let resolv = Resolver::new(&core.handle());
+//!     let resolv = Resolver::new(&core.handle()).unwrap();
 //!
 //!     let addrs = resolv.start().and_then(|resolv| {
 //!         let name = DNameBuf::from_str("www.rust-lang.org.").unwrap();
@@ -143,7 +143,7 @@
 //!
 //! fn main() {
 //!     let mut core = Core::new().unwrap();
-//!     let resolv = Resolver::new(&core.handle());
+//!     let resolv = Resolver::new(&core.handle()).unwrap();
 //!
 //!     let addrs = resolv.start().and_then(|resolv| {
 //!         let name = DNameBuf::from_str("www.rust-lang.org").unwrap();
