@@ -11,7 +11,7 @@ use std::str::FromStr;
 use ::bits::charstr::{CharStr, CharStrBuf};
 use ::bits::compose::{Composable, Composer, ComposeResult};
 use ::bits::name::{DName, DNameBuf, DNameSlice, ParsedDName};
-use ::bits::parser::{Parser, ParseError, ParseResult};
+use ::bits::parse::{Parser, ParseError, ParseResult};
 use ::bits::rdata::{ParsedRecordData, RecordData};
 use ::iana::Rtype;
 use ::master::{Scanner, ScanResult, SyntaxError};

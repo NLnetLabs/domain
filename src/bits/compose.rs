@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 use std::ptr;
 use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 use super::name::{DName, DNameBuf, DNameSlice};
-use super::parser::ParseError;
+use super::parse::ParseError;
 
 
 //------------ Composer ------------------------------------------------------

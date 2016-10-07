@@ -3,29 +3,52 @@
 //! This module provides types and traits for working with DNS data as well
 //! as parsing and composing wire-format DNS messages.
 //!
-//! There are types for the most basic building blocks of DNS data, `DName`
-//! for domain names, `CharStr` for character strings, and `Octets` for
-//! arbitrary binary data. These types are cow-like, that is, they can
-//! contain both borrowed or owned data. Using borrowed data avoids copying
-//! when parsing messages, using owned data makes it easy to create these
-//! types out of the blue, for instance when converting from zonefile data.
-//! In addition, domain names know a third variant: packed. This variant
-//! is created when parsing compressed domain names from a message. In order
-//! to avoid allocations, compressed names are only unpacked when they are
-//! actually needed. See the `name` module for more details.
+//! # Working with DNS Data
 //!
-//! From those basic types, composite types are defined: `Question` for
-//! the questions of a query, `Record` for resource records. The data of
-//! resource records is defined in terms of a trait `RecordData` over which
-//! records are generic. This module only defines the trait and a generic
-//! type usable for all record types `GenericRecordData`. Types for concrete
-//! record data are defined in the `domain::rdata` module instead.
+//! The module contains abstractions for two concepts used in DNS data:
+//! domain names and character strings. In both cases, the supplied types
+//! internally contain the binary data and work directly on it. Similar 
+//! to raw bytes slices, there types for borrowed and owned domain names
+//! and character strings where the owned type derefs to the borrowed one.
+//! For domain names, these types are [`DNameSlice`] and [`DNameBuf`];
+//! for character strings [`CharStr`] and [`CharStrBuf`].
 //!
-//! Both parsing and parsing happen on bytes buffers. While in theory they
-//! could have been built on top of `Read` and `Write`, doing so on top of
-//! buffers seemed more efficient or at least a hell of a lot more simple.
-//! Luckily, unless you want to implement your own record data types, you
-//! are unlikely to have to concern yourself with the details of either.
+//! For domain names there is a third variant, [`ParsedDName`]. This type is
+//! necessary to represent compressed names where the remainder of a name is
+//! to be found elsewhere in the message. It avoids allocations when access
+//! to the entire name isn’t necessary.
+//!
+//! Traits are used when constructing composite types to allow them to work
+//! on borrowed and owned data as well as on parsed domain names. For
+//! character strings and raw bytes data, `AsRef<CharStr>` and `AsRef<[u8]>`
+//! are being used. For domain names, there is a separate trait, [`DName`]
+//! with the same purpose. However, its functionality is limited to the
+//! what parsed domain names can provide.
+//!
+//! A number of composite types are already defined: [`Question`] for
+//! the questions of a query, [`Record`] for resource records. 
+//!
+//! Instead of having one big enum, the data of resource records is kept
+//! generic through two traits: [`RecordData`] provides functions common to
+//! all variants of record data types while [`ParsedRecordData`] adds
+//! the ability to construct a value from a wire-format message for those
+//! variants that can use borrowed data and parsed domain names. The actual
+//! types implementing these traits can by found in the crate’s [rdata]
+//! module.
+//!
+//! # Parsing and Composing Messages
+//!
+//! In order to easily distinguish the process of creating and disecting
+//! wire-format messages from working with master files, we use the term
+//! *parsing* and *composing* for reading from and writing to wire-format
+//! data.
+//!
+//! Both parsing and parsing happen on bytes buffers. This seems to be a
+//! reasonably choice given the relatively small size of DNS messages and
+//! the complexities introduced by name compression. The details are
+//! explained in the [parser] and [compose] sub-modules. Unless you are
+//! implementing your own resource record types, you are unlikely to ever
+//! having to deal with parsing and composing directly.
 //!
 //! Instead, the types `Message` and `MessageBuilder` are there to make
 //! parsing and constructing DNS messages easy. A `Message` takes the
@@ -45,7 +68,7 @@ pub use self::message::{Message, MessageBuf};
 pub use self::message_builder::{MessageBuilder, AnswerBuilder,
                                 AuthorityBuilder, AdditionalBuilder};
 pub use self::name::{DName, DNameBuf, DNameSlice, ParsedDName};
-pub use self::parser::{Parser, ParseError, ParseResult};
+pub use self::parse::{Parser, ParseError, ParseResult};
 pub use self::question::Question;
 pub use self::rdata::{GenericRecordData, ParsedRecordData, RecordData};
 pub use self::record::{GenericRecord, Record};
@@ -59,7 +82,7 @@ pub mod header;
 pub mod message;
 pub mod message_builder;
 pub mod name;
-pub mod parser;
+pub mod parse;
 pub mod question;
 pub mod rdata;
 pub mod record;
