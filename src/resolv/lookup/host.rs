@@ -4,8 +4,8 @@ use std::io;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::slice;
 use futures::{BoxFuture, Future};
-use ::bits::{DNameBuf, DNameSlice, MessageBuf, ParseResult};
-use ::iana::{RRType, Class};
+use ::bits::{DName, DNameBuf, DNameSlice, MessageBuf, PackedDName, ParseResult};
+use ::iana::{Rtype, Class};
 use ::rdata::{A, Aaaa};
 use super::super::error::Result;
 use super::super::ResolverTask;
@@ -29,8 +29,8 @@ pub fn lookup_host<N>(resolv: ResolverTask, name: N)
                       -> BoxFuture<LookupHost, io::Error>
                    where N: AsRef<DNameSlice> {
     search(resolv, name, |resolv, name| {
-        let a = resolv.query(name, RRType::A, Class::In);
-        let both = a.select(resolv.query(name, RRType::Aaaa, Class::In));
+        let a = resolv.query(name, Rtype::A, Class::In);
+        let both = a.select(resolv.query(name, Rtype::Aaaa, Class::In));
         let res = both.then(|res| {
             let (a, b) = match res {
                 Ok((a, b)) => (Ok(a), b),
@@ -72,22 +72,22 @@ impl LookupHost {
         if let Ok(b) = b {
             Self::process_records(&mut addrs, &b, &name).ok();
         }
-        Ok(LookupHost{canonical: name.into_owned(), addrs: addrs})
+        Ok(LookupHost{canonical: name.to_cow().into_owned(), addrs: addrs})
     }
 
     fn process_records(addrs: &mut Vec<IpAddr>, msg: &MessageBuf,
-                       name: &DNameSlice) -> ParseResult<()> {
-        for record in try!(msg.answer()).iter::<A>() {
+                       name: &PackedDName) -> ParseResult<()> {
+        for record in try!(msg.answer()).limit_to::<A>() {
             if let Ok(record) = record {
                 if record.name() == name {
-                    addrs.push(IpAddr::V4(record.rdata().addr()))
+                    addrs.push(IpAddr::V4(record.data().addr()))
                 }
             }
         }
-        for record in try!(msg.answer()).iter::<Aaaa>() {
+        for record in try!(msg.answer()).limit_to::<Aaaa>() {
             if let Ok(record) = record {
                 if record.name() == name {
-                    addrs.push(IpAddr::V6(record.rdata().addr()))
+                    addrs.push(IpAddr::V6(record.data().addr()))
                 }
             }
         }

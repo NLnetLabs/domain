@@ -7,20 +7,15 @@
 use std::fmt;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
-use ::bits::bytes::BytesBuf;
-use ::bits::compose::ComposeBytes;
-use ::bits::error::{ComposeResult, ParseResult};
-use ::bits::name::{AsDName, DNameSlice};
-use ::bits::parse::ParseBytes;
-use ::bits::rdata::RecordData;
-use ::bits::record::{push_record, RecordTarget};
-use ::iana::{Class, RRType};
+use ::bits::{Composable, Composer, ComposeResult, DNameSlice, ParsedRecordData,
+             Parser, ParseResult, RecordData};
+use ::iana::Rtype;
 use ::master::{Scanner, ScanResult};
 
 
 //------------ Aaaa ---------------------------------------------------------
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Aaaa {
     addr: Ipv6Addr
 }
@@ -33,19 +28,7 @@ impl Aaaa {
     pub fn addr(&self) -> Ipv6Addr { self.addr }
     pub fn set_addr(&mut self, addr: Ipv6Addr) { self.addr = addr }
 
-    pub fn push<C, T, N>(target: &mut T, name: &N, ttl: u32,
-                         addr: &Ipv6Addr) -> ComposeResult<()>
-                where C: ComposeBytes, T: RecordTarget<C>, N: AsDName {
-        push_record(target, name, RRType::Aaaa, Class::In, ttl, |target| {
-            for i in &addr.segments() {
-                try!(target.push_u16(*i))
-            }
-            Ok(())
-        })
-    }
-
-    fn parse_always<'a, P>(parser: &mut P) -> ParseResult<Self>
-                    where P: ParseBytes<'a> {
+    fn parse_always(parser: &mut Parser) -> ParseResult<Self> {
         Ok(Aaaa::new(Ipv6Addr::new(try!(parser.parse_u16()),
                                    try!(parser.parse_u16()),
                                    try!(parser.parse_u16()),
@@ -56,34 +39,31 @@ impl Aaaa {
                                    try!(parser.parse_u16()))))
     }
 
-    pub fn scan_into<S: Scanner>(scanner: &mut S,
-                                 _origin: Option<&DNameSlice>,
-                                 target: &mut Vec<u8>)
-                                 -> ScanResult<()> {
+    pub fn scan<S: Scanner>(scanner: &mut S, _origin: Option<&DNameSlice>)
+                            -> ScanResult<Self> {
         scanner.scan_str_phrase(|slice| {
             let addr = try!(Ipv6Addr::from_str(slice));
-            for i in &addr.segments() {
-                target.push_u16(*i)
-            }
-            Ok(())
+            Ok(Aaaa::new(addr))
         })
     }
 }
 
-impl<'a> RecordData<'a> for Aaaa {
-    fn rtype(&self) -> RRType { RRType::Aaaa }
+impl RecordData for Aaaa {
+    fn rtype(&self) -> Rtype { Rtype::Aaaa }
 
-    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
+    fn compose<C: AsMut<Composer>>(&self, mut target: C)
+                                   -> ComposeResult<()> {
         for i in &self.addr.segments() {
-            try!(target.push_u16(*i));
+            try!(i.compose(target.as_mut()));
         }
         Ok(())
     }
+}
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
-             where P: ParseBytes<'a> {
-        if rtype == RRType::Aaaa { Some(Aaaa::parse_always(parser)) }
-        else { None }
+impl<'a> ParsedRecordData<'a> for Aaaa {
+    fn parse(rtype: Rtype, parser: &mut Parser) -> ParseResult<Option<Self>> {
+        if rtype == Rtype::Aaaa { Aaaa::parse_always(parser).map(Some) }
+        else { Ok(None) }
     }
 }
 

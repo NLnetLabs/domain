@@ -4,7 +4,6 @@ use std::cmp;
 use std::fmt;
 use std::hash;
 use std::str;
-use bits::error::{FromStrError, FromStrResult};
 
 
 //------------ SecAlg -------------------------------------------------------
@@ -174,7 +173,7 @@ impl str::FromStr for SecAlg {
     ///
     /// Recognized are the mnemonics equivalent to the algorithm number not
     /// regarding case as well as decimal integer numbers.
-    fn from_str(s: &str) -> FromStrResult<Self> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         use std::ascii::AsciiExt;
         use self::SecAlg::*;
 
@@ -201,7 +200,7 @@ impl str::FromStr for SecAlg {
         else {
             match u8::from_str(s) {
                 Ok(value) => Ok(SecAlg::from_int(value)),
-                Err(..) => Err(FromStrError::UnknownAlgorithm)
+                Err(..) => Err(FromStrError)
             }
         }
     }
@@ -298,3 +297,5 @@ impl hash::Hash for SecAlg {
     }
 }
 
+
+from_str_error!("unknown algorithm");

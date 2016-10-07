@@ -1,6 +1,7 @@
 //! Resource Record (RR) TYPEs
 
 use ::master::{ScanResult, Scanner, SyntaxError};
+use ::bits::{Composer, ComposeResult, Parser, ParseResult};
 
 
 /// Resource Record Types.
@@ -19,7 +20,7 @@ use ::master::{ScanResult, Scanner, SyntaxError};
 /// treated as single acronyms and therefore all variant names are spelled
 /// with an initial capital letter in accordance with Rust naming guidelines.
 int_enum!{
-    RRType, u16;
+    Rtype, u16;
 
     /// A host address.
     (A => 1, b"A")
@@ -402,15 +403,23 @@ int_enum!{
     (Dlv => 32769, b"DLV")
 }
 
-int_enum_str_with_prefix!(RRType, "TYPE", b"TYPE", u16,
-                          ::bits::error::FromStrError::UnknownType);
+int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16,
+                          "unknown record type");
 
+impl Rtype {
+    pub fn parse(parser: &mut Parser) -> ParseResult<Self> {
+        parser.parse_u16().map(Rtype::from)
+    }
 
-impl RRType {
+    pub fn compose<C: AsMut<Composer>>(&self, mut composer: C)
+                                       -> ComposeResult<()> {
+        composer.as_mut().compose_u16(self.into())
+    }
+
     pub fn scan<S: Scanner>(scanner: &mut S) -> ScanResult<Self> {
         scanner.scan_word(|slice| {
-            RRType::from_bytes(slice)
-                   .ok_or_else(|| SyntaxError::UnknownClass(slice.into()))
+            Self::from_bytes(slice)
+                 .ok_or_else(|| SyntaxError::UnknownClass(slice.into()))
         })
     }
 }

@@ -14,7 +14,7 @@
 
 use std::mem;
 use iana::{Opcode, Rcode};
-use super::error::{ComposeError, ComposeResult};
+use super::compose::{ComposeError, ComposeResult};
 
 
 //------------ Header --------------------------------------------------
@@ -61,18 +61,22 @@ impl Header {
 
     /// Creates a header reference from a bytes slice of a message.
     ///
-    /// This function is unsafe as it assumes the bytes slice to have the
-    /// correct length.
-    pub unsafe fn from_message(s: &[u8]) -> &Header {
-        &*(s.as_ptr() as *const Header)
+    /// # Panics
+    ///
+    /// This function panics if the bytes slice is too short.
+    pub fn from_message(s: &[u8]) -> &Header {
+        assert!(s.len() >= mem::size_of::<Header>());
+        unsafe { &*(s.as_ptr() as *const Header) }
     }
 
     /// Creates a mutable header reference from a bytes slice of a message.
     ///
-    /// This function is unsafe as it assumes the bytes slice to have the
-    /// correct length.
-    pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut Header {
-        &mut *(s.as_ptr() as *mut Header)
+    /// # Panics
+    ///
+    /// This function panics if the bytes slice is too short.
+    pub fn from_message_mut(s: &mut [u8]) -> &mut Header {
+        assert!(s.len() >= mem::size_of::<Header>());
+        unsafe { &mut *(s.as_ptr() as *mut Header) }
     }
 
     /// Returns the underlying bytes slice.
@@ -270,18 +274,28 @@ impl HeaderCounts {
 
     /// Creates a reference from the bytes slice of a message.
     ///
-    /// This function is unsafe as it assumes the bytes slice to have the
-    /// correct length.
-    pub unsafe fn from_message(s: &[u8]) -> &HeaderCounts {
-        &*((s[mem::size_of::<Header>()..].as_ptr()) as *const HeaderCounts)
+    /// # Panics
+    ///
+    /// This function panics if the bytes slice is too short.
+    pub fn from_message(s: &[u8]) -> &HeaderCounts {
+        assert!(s.len() >= mem::size_of::<FullHeader>());
+        unsafe {
+            &*((s[mem::size_of::<Header>()..].as_ptr())
+                                                      as *const HeaderCounts)
+        }
     }
 
     /// Creates a mutable reference from the bytes slice of a message.
     ///
-    /// This function is unsafe as it assumes the bytes slice to have the
-    /// correct length.
-    pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut HeaderCounts {
-        &mut *((s[mem::size_of::<Header>()..].as_ptr()) as *mut HeaderCounts)
+    /// # Panics
+    ///
+    /// This function panics if the bytes slice is too short.
+    pub fn from_message_mut(s: &mut [u8]) -> &mut HeaderCounts {
+        assert!(s.len() >= mem::size_of::<FullHeader>());
+        unsafe {
+            &mut *((s[mem::size_of::<Header>()..].as_ptr())
+                                                         as *mut HeaderCounts)
+        }
     }
 
     /// Returns the underlying bytes slice.
@@ -516,22 +530,22 @@ impl FullHeader {
 impl FullHeader {
     /// Returns a reference to the header.
     pub fn header(&self) -> &Header {
-        unsafe { Header::from_message(&self.inner) }
+        Header::from_message(&self.inner)
     }
 
     /// Returns a mutable reference to the header.
     pub fn header_mut(&mut self) -> &mut Header {
-        unsafe { Header::from_message_mut(&mut self. inner) }
+        Header::from_message_mut(&mut self. inner)
     }
 
     /// Returns a reference to the header counts.
     pub fn counts(&self) -> &HeaderCounts {
-        unsafe { HeaderCounts::from_message(&self.inner) }
+        HeaderCounts::from_message(&self.inner)
     }
 
     /// Returns a mutable reference to the header counts.
     pub fn counts_mut(&mut self) -> &mut HeaderCounts {
-        unsafe { HeaderCounts::from_message_mut(&mut self.inner) }
+        HeaderCounts::from_message_mut(&mut self.inner)
     }
 }
 

@@ -1,14 +1,13 @@
 //! Looking up host names for addresses.
 
-use std::borrow::Cow;
 use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use futures::{BoxFuture, Future};
-use ::bits::name::{DName, DNameBuf, DNameSlice, Label};
+use ::bits::name::{DNameBuf, Label, PackedDName};
 use ::bits::message::{MessageBuf, RecordIter};
-use ::iana::{Class, RRType};
-use ::rdata::Ptr;
+use ::iana::{Class, Rtype};
+use ::rdata::parsed::Ptr;
 use super::super::conf::ResolvOptions;
 use super::super::error::Error;
 use super::super::ResolverTask;
@@ -27,7 +26,7 @@ use super::super::ResolverTask;
 pub fn lookup_addr(resolv: ResolverTask, addr: IpAddr)
                     -> BoxFuture<LookupAddr, Error> {
     let ptr = resolv.query(dname_from_addr(addr, &resolv.conf().options),
-                           RRType::Ptr, Class::In);
+                           Rtype::Ptr, Class::In);
     let res = ptr.map(LookupAddr);
     res.boxed()
 }
@@ -46,7 +45,7 @@ impl LookupAddr {
     pub fn iter(&self) -> LookupAddrIter {
         LookupAddrIter {
             name: self.0.canonical_name(),
-            answer: self.0.answer().ok().map(|sec| sec.iter::<Ptr>())
+            answer: self.0.answer().ok().map(|sec| sec.limit_to::<Ptr>())
         }
     }
 }
@@ -56,12 +55,12 @@ impl LookupAddr {
 
 /// An iterator over host names returned by address lookup.
 pub struct LookupAddrIter<'a> {
-    name: Option<Cow<'a, DNameSlice>>,
+    name: Option<PackedDName<'a>>,
     answer: Option<RecordIter<'a, Ptr<'a>>>
 }
 
 impl<'a> Iterator for LookupAddrIter<'a> {
-    type Item = DName<'a>;
+    type Item = PackedDName<'a>;
 
     #[allow(while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -71,7 +70,7 @@ impl<'a> Iterator for LookupAddrIter<'a> {
                      else { return None };
         while let Some(Ok(record)) = answer.next() {
             if record.name() == name {
-                return Some(record.rdata().ptrdname())
+                return Some(record.data().ptrdname().clone())
             }
         }
         None
@@ -109,26 +108,26 @@ fn dname_from_v6(addr: Ipv6Addr, opts: &ResolvOptions) -> DNameBuf {
             *item = item.to_be()
         }
         let bytes: [u8; 16] = unsafe { mem::transmute(segments) };
-        res.push(&Label::octo_binary(&bytes));
+        res.push_binary(16, &bytes);
     }
     else {
         for item in addr.segments().iter().rev() {
             let text = format!("{:04x}", item);
             let text = text.as_bytes();
-            res.push(&Label::normal(&text[3..4]));
-            res.push(&Label::normal(&text[2..3]));
-            res.push(&Label::normal(&text[1..2]));
-            res.push(&Label::normal(&text[0..1]));
+            res.push_normal(&text[3..4]);
+            res.push_normal(&text[2..3]);
+            res.push_normal(&text[1..2]);
+            res.push_normal(&text[0..1]);
         }
     }
-    res.push(&Label::normal(b"ip6"));
+    res.push_normal(b"ip6");
     if opts.use_ip6dotint {
-        res.push(&Label::normal(b"int"));
+        res.push_normal(b"int");
     }
     else {
-        res.push(&Label::normal(b"arpa"));
+        res.push_normal(b"arpa");
     }
-    res.push(&Label::root());
+    res.push(&Label::root()).unwrap(); // XXX
     res
 }
 

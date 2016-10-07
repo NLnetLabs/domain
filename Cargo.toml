@@ -7,19 +7,20 @@ authors = ["Martin Hoffmann <hn@nvnc.de>"]
 name = "domain"
 path = "src/lib.rs"
 
-[[example]]
-name = "dig"
-path = "examples/dig.rs"
+#[[example]]
+#name = "dig"
+#path = "examples/dig.rs"
 
-[[example]]
-name = "host"
-path = "examples/host.rs"
+#[[example]]
+#name = "host"
+#path = "examples/host.rs"
 
-[[example]]
-name = "rusthome"
-path = "examples/rusthome.rs"
+#[[example]]
+#name = "rusthome"
+#path = "examples/rusthome.rs"
 
 [dependencies]
+byteorder   = "0.5"
 rand        = "0.3"
 futures     = "0.1"
 tokio-core  = "0.1"

@@ -23,7 +23,7 @@ pub fn search<N, R, F>(resolv: ResolverTask, name: N, f: F) -> Search<R, F>
             Search { current: current, data: None }
         }
         Some(n) if n > resolv.conf().ndots => {
-            let name = name.join(DNameSlice::root());
+            let name = name.join(&DNameSlice::root()).unwrap(); // XXX
             let current = f(&resolv, &name);
             Search { current: current, data: None }
         }
@@ -52,7 +52,7 @@ impl<R, F> Search<R, F>
      where R: Future, F: Fn(&ResolverTask, &DNameSlice) -> R {
     pub fn new(resolv: ResolverTask, op: F, name: DNameBuf) -> Self {
         let mut abs_name = name.clone();
-        abs_name.append(&resolv.conf().search[0]);
+        abs_name.append(&resolv.conf().search[0]).unwrap(); // XXX
         let current = op(&resolv, &abs_name);
         Search {
             current: current,
@@ -84,7 +84,7 @@ impl<R, F> Future for Search<R, F>
                 return Err(err)
             }
             let mut name = data.name.clone();
-            name.append(&data.resolv.conf().search[data.pos]);
+            name.append(&data.resolv.conf().search[data.pos]).unwrap(); // XXX
             self.current = (data.op)(&data.resolv, &name);
         }
         else {

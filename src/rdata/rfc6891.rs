@@ -28,13 +28,11 @@ use std::cmp::min;
 use std::fmt;
 use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::ops::Deref;
-use bits::{AsDName, ComposeBuf, ComposeBytes, ComposeError, ComposeMode,
-           ComposeResult, DNameSlice, ParseBytes, ParseError, ParseResult,
-           Record, RecordData};
-use bits::record::RecordTarget;
-use bits::parse::SliceParser;
-use iana::{OptionCode, RRType, SecAlg};
+use std::ops;
+use bits::{DName, Composable, Composer, ComposeError,
+           ComposeResult, DNameSlice, Parser, ParseError, ParseResult,
+           ParsedRecordData, Record, RecordData};
+use iana::{OptionCode, Rtype, SecAlg};
 
 
 //------------ Opt ----------------------------------------------------------
@@ -63,23 +61,21 @@ use iana::{OptionCode, RRType, SecAlg};
 /// [RFC 2671]: https://tools.ietf.org/html/rfc2671
 /// [RFC 6891]: https://tools.ietf.org/html/rfc6891
 #[derive(Clone, Debug, PartialEq)]
-pub struct Opt<'a>(Cow<'a, OptSlice>);
+pub struct Opt<O: AsRef<OptSlice>> {
+    inner: O
+}
 
-impl<'a> Opt<'a> {
-    /// Creates a new borrowed opt value using the given slice.
-    pub fn from_slice(slice: &'a OptSlice) -> Self {
-        Opt(Cow::Borrowed(slice))
-    }
-
-    /// Creates a new owned opt value using the given buf.
-    pub fn from_buf(buf: OptBuf) -> Self {
-        Opt(Cow::Owned(buf))
+impl<O: AsRef<OptSlice>> Opt<O> {
+    /// Creates a new opt value.
+    pub fn new(slice: O) -> Self {
+        Opt{inner: slice}
     }
 
     /// Returns the record type of OPT records.
-    pub fn rtype() -> RRType { RRType::Opt }
+    pub fn rtype() -> Rtype { Rtype::Opt }
 }
 
+/*
 /// # Building OPT Records on the Fly
 ///
 /// These associated functions can be used in the closure of
@@ -367,59 +363,63 @@ impl<'a> Opt<'a> {
         Opt::push_option(target, OptionCode::Chain, name.as_bytes())
     }
 }
+*/
 
 
-//--- RecordData
+//--- RecordData and ParsedRecordData
 
-impl<'a> RecordData<'a> for Opt<'a> {
-    fn rtype(&self) -> RRType { 
+impl<O: AsRef<OptSlice>> RecordData for Opt<O> {
+    fn rtype(&self) -> Rtype { 
         Opt::rtype()
     }
 
-    fn compose<C: ComposeBytes>(&self, target: &mut C) -> ComposeResult<()> {
-        target.push_bytes(self.0.as_bytes())
+    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
+        self.inner.as_ref().as_bytes().compose(target.as_mut())
     }
+}
 
-    fn parse<P>(rtype: RRType, parser: &mut P) -> Option<ParseResult<Self>>
-             where P: ParseBytes<'a> {
-        if rtype == RRType::Opt {
-            Some(OptSlice::parse(parser).map(|x| Opt(Cow::Borrowed(x))))
+impl<'a> ParsedRecordData<'a> for Opt<&'a OptSlice> {
+    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
+             -> ParseResult<Option<Self>> {
+        if rtype == Rtype::Opt {
+            OptSlice::parse(parser).map(|x| Some(Opt::new(x)))
         }
-        else { None }
+        else { Ok(None) }
     }
 }
 
 
 //--- Deref, Borrow, AsRef
 
-impl<'a> Deref for Opt<'a> {
+impl<B: AsRef<OptSlice>> ops::Deref for Opt<B> {
     type Target = OptSlice;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.inner.deref()
     }
 }
 
-impl<'a> Borrow<OptSlice> for Opt<'a> {
+impl<B: AsRef<OptSlice>> Borrow<OptSlice> for Opt<B> {
     fn borrow(&self) -> &OptSlice {
-        &self.0
+        self
     }
 }
 
-impl<'a> AsRef<OptSlice> for Opt<'a> {
+impl<B: AsRef<OptSlice>> AsRef<OptSlice> for Opt<B> {
     fn as_ref(&self) -> &OptSlice {
-        &self.0
+        self
     }
 }
 
 
 //--- Display
 
-impl<'a> fmt::Display for Opt<'a> {
+impl<B: AsRef<OptSlice>> fmt::Display for Opt<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         "...".fmt(f) // XXX Use the generic format here.
     }
 }
+
 
 //------------ OptSlice -----------------------------------------------------
 
@@ -448,7 +448,7 @@ impl OptSlice {
     ///
     /// [ParseResult]: ../../bits/error/type.ParseResult.html
     pub fn from_bytes(bytes: &[u8]) -> ParseResult<&Self> {
-        let mut parser = SliceParser::new(bytes);
+        let mut parser = Parser::new(bytes);
         loop {
             if parser.left() == 0 { break }
             try!(parser.skip(2));
@@ -471,9 +471,10 @@ impl OptSlice {
     /// with the given length, using [ParseBytes::parse_sub()].
     ///
     /// [ParseBytes::parse_sub()]: ../../bits/parse/trait.ParseBytes.html#tymethod.parse_sub
-    pub fn parse<'a, P: ParseBytes<'a>>(parser: &mut P)
-                                        -> ParseResult<&'a Self> {
-        OptSlice::from_bytes(try!(parser.parse_left()))
+    fn parse<'a>(rtype: Rtype, parser: &mut Parser<'a>)
+             -> ParseResult<Option<&'a Self>> {
+        let len = parser.remaining();
+        OptSlice::from_bytes(try!(parser.parse_bytes(len)))
     }
 
     /// Returns the underlying bytes slice.
@@ -498,10 +499,10 @@ impl OptSlice {
     /// format. If the format is basically just a bytes slice, use
     /// `get_option()` instead.
     fn parse_option<'a, R, F>(&'a self, code: OptionCode, f: F) -> Option<R>
-                    where F: FnOnce(&mut SliceParser<'a>) -> R {
+                    where F: FnOnce(&mut Parser<'a>) -> R {
         for option in self.iter() {
             if option.code != code { continue }
-            let mut parser = SliceParser::new(option.data);
+            let mut parser = Parser::new(option.data);
             return Some(f(&mut parser));
         }
         None
@@ -734,7 +735,7 @@ impl ToOwned for OptSlice {
 ///
 /// [`OptSlice`]: struct.OptSlice.html
 #[derive(Clone, Debug)]
-pub struct OptBuf(ComposeBuf);
+pub struct OptBuf(Vec<u8>);
 
 /// # Creation and Conversion
 ///
@@ -966,7 +967,7 @@ impl OptBuf {
     /// See [RFC 7901] for details.
     ///
     /// [RFC 7901]: https://tools.ietf.org/html/rfc7901
-    pub fn push_chain<N: AsDName>(&mut self, n: &N) {
+    pub fn push_chain<N: DName>(&mut self, n: &N) {
         Opt::push_chain(&mut self.0, n).unwrap()
     }
 }
@@ -1199,7 +1200,7 @@ impl<'a> OptRecord<'a> {
                       F: Fn(&mut C) -> ComposeResult<()> {
         target.compose(|target| {
             try!(target.push_u8(0));
-            try!(target.push_u16(RRType::Opt.into()));
+            try!(target.push_u16(Rtype::Opt.into()));
             try!(target.push_u16(udp_size));
             try!(target.push_u8(extended_rcode));
             try!(target.push_u8(version));
@@ -1243,12 +1244,12 @@ impl<'a> From<Record<'a, Opt<'a>>> for OptRecord<'a> {
 ///
 /// [`OptOption`]: struct.OptOption.html
 /// [`OptSlice::iter()`]: struct.OptSlice.html#method.iter
-pub struct OptionIter<'a>(SliceParser<'a>);
+pub struct OptionIter<'a>(Parser<'a>);
 
 impl<'a> OptionIter<'a> {
     /// Creates a new iterator from a bytes slice.
     fn new(slice: &'a [u8]) -> Self {
-        OptionIter(SliceParser::new(slice))
+        OptionIter(Parser::new(slice))
     }
 
     /// Tries parsing the next option.

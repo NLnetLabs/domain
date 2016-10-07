@@ -2,17 +2,12 @@ extern crate argparse;
 extern crate domain;
 extern crate tokio_core;
 
-use std::convert;
 use std::error;
-use std::fmt;
-use std::io;
 use std::result;
 use std::str::FromStr;
-use domain::bits::{ComposeError, FromStrError, ParseError};
-use domain::bits::message::{MessageBuf, RecordIter};
+use domain::bits::message::{MessageBuf, RecordSection};
 use domain::bits::name::{DNameBuf, DNameSlice};
-use domain::bits::rdata::GenericRecordData;
-use domain::iana::{Class, RRType};
+use domain::iana::{Class, Rtype};
 use domain::resolv::{ResolvConf, Resolver};
 use tokio_core::reactor::Core;
 
@@ -84,17 +79,17 @@ impl Options {
         }
         else {
             let mut res = try!(DNameBuf::from_str(&self.name));
-            res.append_root();
+            res.append_root().unwrap();
             Ok(res)
         }
     }
 
-    fn qtype(&self) -> Result<RRType> {
+    fn qtype(&self) -> Result<Rtype> {
         if self.qtype.is_empty() {
-            Ok((if self.name.is_empty() { RRType::Ns } else { RRType::A }))
+            Ok((if self.name.is_empty() { Rtype::Ns } else { Rtype::A }))
         }
         else {
-            Ok(try!(RRType::from_str(&self.qtype)))
+            Ok(try!(Rtype::from_str(&self.qtype)))
         }
     }
 
@@ -108,46 +103,7 @@ impl Options {
 
 //------------ Error and Result ---------------------------------------------
 
-#[derive(Debug)]
-struct Error {
-    inner: Box<error::Error>
-}
-
-impl error::Error for Error {
-    fn description(&self) -> &str {
-        self.inner.description()
-    }
-}
-
-impl convert::From<ComposeError> for Error {
-    fn from(error: ComposeError) -> Error {
-        Error { inner: Box::new(error) }
-    }
-}
-
-impl convert::From<FromStrError> for Error {
-    fn from(error: FromStrError) -> Error {
-        Error { inner: Box::new(error) }
-    }
-}
-
-impl convert::From<ParseError> for Error {
-    fn from(error: ParseError) -> Error {
-        Error { inner: Box::new(error) }
-    }
-}
-
-impl convert::From<io::Error> for Error {
-    fn from(error: io::Error) -> Error {
-        Error { inner: Box::new(error) }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.inner.fmt(f)
-    }
-}
+type Error = Box<error::Error>;
 
 type Result<T> = result::Result<T, Error>;
 
@@ -188,7 +144,7 @@ fn print_result(response: MessageBuf) {
     let mut question = response.question();
     if response.counts().qdcount() > 0 {
         println!(";; QUESTION SECTION");
-        for item in question.iter() {
+        for item in &mut question {
             let item = item.unwrap();
             println!("; {}\t\t{}\t{}", item.qname(),
                      item.qclass(), item.qtype());
@@ -196,30 +152,30 @@ fn print_result(response: MessageBuf) {
         println!("");
     }
 
-    let answer = question.answer().unwrap();
+    let mut answer = question.answer().unwrap();
     if response.counts().ancount() > 0 {
         println!(";; ANSWER SECTION");
-        print_records(answer.iter());
+        print_records(&mut answer);
         println!("");
     }
 
-    let authority = answer.next_section().unwrap().unwrap();
+    let mut authority = answer.next_section().unwrap().unwrap();
     if response.counts().nscount() > 0 {
         println!(";; AUTHORITY SECTION");
-        print_records(authority.iter());
+        print_records(&mut authority);
         println!("");
     }
 
-    let additional = authority.next_section().unwrap().unwrap();
+    let mut additional = authority.next_section().unwrap().unwrap();
     if response.counts().arcount() > 0 {
         println!(";; ADDITIONAL SECTION");
-        print_records(additional.iter());
+        print_records(&mut additional);
         println!("");
     }
 }
 
-fn print_records<'a>(iter: RecordIter<'a, GenericRecordData<'a>>) {
-    for record in iter {
+fn print_records<'a>(section: &mut RecordSection<'a>) {
+    for record in section {
         println!("{}", record.unwrap());
     }
 }

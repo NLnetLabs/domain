@@ -34,29 +34,32 @@
 //! a `MessageBuilder` takes a bytes vector (or creates one for you) and
 //! has functionality to step-by-step build the sections of the message.
 
-pub use self::charstr::{CharStr, CharStrError};
-pub use self::compose::{ComposeBytes, ComposeBuf, ComposeMode};
-pub use self::error::{ComposeError, ComposeResult, ParseError, ParseResult,
-                      FromStrError, FromStrResult};
-pub use self::message::{Message, MessageBuf, MessageBuilder};
-pub use self::name::{AsDName, DName, DNameSlice, DNameBuf, PackedDName};
-pub use self::nest::Nest;
-pub use self::octets::Octets;
-pub use self::parse::{ParseBytes};
+
+//--- Re-exports
+
+pub use self::charstr::{CharStr, CharStrBuf};
+pub use self::compose::{Composable, Composer, ComposeError, ComposeMode,
+                        ComposeResult, ComposeSnapshot};
+pub use self::header::{FullHeader, Header, HeaderCounts};
+pub use self::message::{Message, MessageBuf};
+pub use self::message_builder::{MessageBuilder, AnswerBuilder,
+                                AuthorityBuilder, AdditionalBuilder};
+pub use self::name::{DName, DNameBuf, DNameSlice, PackedDName};
+pub use self::parser::{Parser, ParseError, ParseResult};
 pub use self::question::Question;
-pub use self::rdata::{GenericRecordData, RecordData};
+pub use self::rdata::{GenericRecordData, ParsedRecordData, RecordData};
 pub use self::record::{GenericRecord, Record};
 
-pub mod bytes;
+
+//--- Modules
+
 pub mod charstr;
 pub mod compose;
-pub mod error;
 pub mod header;
 pub mod message;
+pub mod message_builder;
 pub mod name;
-pub mod nest;
-pub mod octets;
-pub mod parse;
+pub mod parser;
 pub mod question;
 pub mod rdata;
 pub mod record;

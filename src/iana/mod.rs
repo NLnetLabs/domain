@@ -24,15 +24,15 @@ pub use self::class::Class;
 pub use self::opcode::Opcode;
 pub use self::opt::OptionCode;
 pub use self::rcode::{Rcode, OptRcode, TsigRcode};
-pub use self::rrtype::RRType;
+pub use self::rtype::Rtype;
 pub use self::secalg::SecAlg;
 
 #[macro_use] mod macros;
 
-mod class;
-mod opcode;
-mod opt;
-mod rcode;
-mod rrtype;
-mod secalg;
+pub mod class;
+pub mod opcode;
+pub mod opt;
+pub mod rcode;
+pub mod rtype;
+pub mod secalg;
 

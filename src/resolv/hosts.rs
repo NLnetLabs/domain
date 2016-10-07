@@ -14,8 +14,7 @@ use std::path::Path;
 use std::slice;
 use std::str::FromStr;
 use std::result;
-use bits::FromStrError;
-use bits::name::{DNameSlice, DNameBuf};
+use bits::name::{self, DNameSlice, DNameBuf};
 
 
 //------------ Hosts --------------------------------------------------------
@@ -187,8 +186,8 @@ impl convert::From<io::Error> for Error {
     }
 }
 
-impl convert::From<FromStrError> for Error {
-    fn from(_: FromStrError) -> Error {
+impl convert::From<name::FromStrError> for Error {
+    fn from(_: name::FromStrError) -> Error {
         Error::ParseError
     }
 }

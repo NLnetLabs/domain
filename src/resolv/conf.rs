@@ -22,8 +22,7 @@ use std::path::Path;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::result;
 use std::time::Duration;
-use ::bits::FromStrError;
-use ::bits::name::{DNameBuf, DNameSlice};
+use ::bits::name::{self, DNameBuf, DNameSlice};
 
 
 //------------ ResolvOptions ------------------------------------------------
@@ -391,7 +390,7 @@ impl ResolvConf {
 
     fn parse_domain(&mut self, mut words: SplitWhitespace) -> Result<()> {
         let mut domain = try!(DNameBuf::from_str(try!(next_word(&mut words))));
-        domain.append(DNameSlice::root());
+        domain.append(&DNameSlice::root()).unwrap(); // XXX
         self.search = Vec::new();
         self.search.push(domain);
         no_more_words(words)
@@ -401,7 +400,7 @@ impl ResolvConf {
         let mut search = Vec::new();
         for word in words {
             let mut name = try!(DNameBuf::from_str(word));
-            name.append(DNameSlice::root());
+            name.append(&DNameSlice::root()).unwrap(); // XXX
             search.push(name)
         }
         self.search = search;
@@ -617,8 +616,8 @@ impl convert::From<io::Error> for Error {
     }
 }
 
-impl convert::From<FromStrError> for Error {
-    fn from(_: FromStrError) -> Error {
+impl convert::From<name::FromStrError> for Error {
+    fn from(_: name::FromStrError) -> Error {
         Error::ParseError
     }
 }

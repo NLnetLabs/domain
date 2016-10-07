@@ -1,8 +1,7 @@
 
 use std::str;
-use ::bits::CharStr;
+use ::bits::CharStrBuf;
 use ::bits::{DNameBuf, DNameSlice};
-use ::bits::bytes::BytesBuf;
 use ::bits::name::{DNameBuilder, DNameBuildInto};
 use super::error::{Pos, ScanResult, SyntaxError, SyntaxResult};
 
@@ -282,10 +281,10 @@ pub trait Scanner {
     }
 
     /// Scans a character string and returns it as an owned value.
-    fn scan_charstr<'a>(&mut self) -> ScanResult<CharStr<'a>> {
+    fn scan_charstr(&mut self) -> ScanResult<CharStrBuf> {
         let mut res = Vec::new();
         try!(self.scan_charstr_into(&mut res));
-        Ok(CharStr::owned(res).unwrap())
+        Ok(CharStrBuf::from_vec(res).unwrap())
     }
 
     /// Scans a character string into a bytes vec.
@@ -297,7 +296,7 @@ pub trait Scanner {
         self.scan_phrase_bytes(|ch, _| {
             if len == 255 { Err(SyntaxError::LongCharStr) }
             else {
-                target.push_u8(ch);
+                target.push(ch);
                 len += 1;
                 Ok(())
             }

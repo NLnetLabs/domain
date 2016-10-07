@@ -18,19 +18,60 @@
 
 pub mod rfc1035;
 pub mod rfc3596;
-pub mod rfc6891;
+//pub mod rfc6891;
 
 #[macro_use] mod macros;
 mod generic;
 
+use ::bits::{CharStrBuf, DNameBuf};
 
 master_types!{
-    rfc1035::{A, Cname, Hinfo, Mb, Md, Mf, Mg, Minfo, Mr, Mx, Ns, Ptr,
-              Soa, Txt, Wks};
-    rfc3596::{Aaaa};
+    rfc1035::{
+        A => A,
+        Cname => Cname<DNameBuf>,
+        Hinfo => Hinfo<CharStrBuf>,
+        Mb => Mb<DNameBuf>,
+        Md => Md<DNameBuf>,
+        Mf => Mf<DNameBuf>,
+        Mg => Mg<DNameBuf>,
+        Minfo => Minfo<DNameBuf>,
+        Mr => Mr<DNameBuf>,
+        Mx => Mx<DNameBuf>,
+        Ns => Ns<DNameBuf>,
+        Ptr => Ptr<DNameBuf>,
+        Soa => Soa<DNameBuf>,
+        Txt => Txt<Vec<u8>>,
+        Wks => Wks<rfc1035::WksBitmapBuf>,
+    }
+    rfc3596::{
+        Aaaa => Aaaa,
+    }
 }
 
 pseudo_types!{
     rfc1035::{Null};
-    rfc6891::{Opt};
+    //rfc6891::{Opt};
+}
+
+pub fn fmt_rdata(rtype: ::iana::Rtype, parser: &mut ::bits::Parser,
+                 f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+    match try!(fmt_master_data(rtype, parser, f)) {
+        Some(res) => Ok(res),
+        None => {
+            let mut parser = parser.clone();
+            let len = parser.remaining();
+            let data = parser.parse_bytes(len).unwrap();
+            generic::fmt(data, f)
+        }
+    }
+}
+
+pub mod parsed {
+    pub use super::rfc1035::parsed::*;
+    pub use super::rfc3596::Aaaa;
+}
+
+pub mod owned {
+    pub use super::rfc1035::owned::*;
+    pub use super::rfc3596::Aaaa;
 }

@@ -3,9 +3,8 @@
 use futures::{Async, Future, Poll};
 use futures::task::TaskRc;
 use rand::random;
-use ::bits::{AsDName, ComposeMode, ComposeResult, MessageBuilder,
-             MessageBuf, Question};
-use ::iana::{Class, RRType};
+use ::bits::{DName, ComposeMode, ComposeResult, MessageBuilder, MessageBuf};
+use ::iana::{Class, Rtype};
 use super::ResolverTask;
 use super::conf::ResolvOptions;
 use super::core::Core;
@@ -37,7 +36,7 @@ pub struct Query(Result<RealQuery, Option<Error>>);
 
 impl Query {
     /// Creates a new query.
-    pub fn new<N: AsDName>(resolv: &ResolverTask, name: N, rtype: RRType,
+    pub fn new<N: DName>(resolv: &ResolverTask, name: N, rtype: Rtype,
                        class: Class) -> Self {
         let core = resolv.core.clone();
         let message = core.with(|core| {
@@ -60,12 +59,12 @@ impl Query {
     /// Builds the message for this query.
     ///
     /// If this function fails, we are done.
-    fn build_message<N: AsDName>(name: N, rtype: RRType, class: Class,
+    fn build_message<N: DName>(name: N, rtype: Rtype, class: Class,
                                  opts: &ResolvOptions)
                                  -> ComposeResult<MessageBuilder> {
         let mut res = try!(MessageBuilder::new(ComposeMode::Stream, true));
         res.header_mut().set_rd(opts.recurse);
-        try!(Question::push(&mut res, &name, rtype, class));
+        try!(res.push((name, rtype, class)));
         Ok(res)
     }
 }

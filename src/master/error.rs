@@ -4,7 +4,7 @@ use std::net::AddrParseError;
 use std::num::ParseIntError;
 use std::result;
 use std::str::Utf8Error;
-use ::bits::name::NameError;
+use ::bits::name;
 
 
 //------------ SyntaxError ---------------------------------------------------
@@ -17,7 +17,7 @@ pub enum SyntaxError {
     IllegalEscape,
     IllegalInteger,
     IllegalAddr(AddrParseError),
-    IllegalName(NameError),
+    IllegalName,
     IllegalString(Utf8Error),
     LongCharStr,
     LongLabel,
@@ -48,15 +48,24 @@ impl From<AddrParseError> for SyntaxError {
     }
 }
 
-impl From<NameError> for SyntaxError {
-    fn from(err: NameError) -> SyntaxError {
-        SyntaxError::IllegalName(err)
-    }
-}
-
 impl From<Utf8Error> for SyntaxError {
     fn from(err: Utf8Error) -> SyntaxError {
         SyntaxError::IllegalString(err)
+    }
+}
+
+impl From<name::FromStrError> for SyntaxError {
+    fn from(err: name::FromStrError) -> SyntaxError {
+        match err {
+            name::FromStrError::UnexpectedEnd => SyntaxError::UnexpectedEof,
+            name::FromStrError::EmptyLabel => SyntaxError::IllegalName,
+            name::FromStrError::LongLabel => SyntaxError::LongLabel,
+            name::FromStrError::IllegalEscape => SyntaxError::IllegalEscape,
+            name::FromStrError::IllegalCharacter => SyntaxError::IllegalName,
+            name::FromStrError::IllegalBinary => SyntaxError::IllegalName,
+            name::FromStrError::RelativeName => SyntaxError::RelativeName,
+            name::FromStrError::LongName => SyntaxError::LongName,
+        }
     }
 }
 

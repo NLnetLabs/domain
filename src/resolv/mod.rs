@@ -76,14 +76,14 @@
 //!
 //! As an example, let’s find out the IPv6 addresses for `www.rust-lang.org`:
 //!
-//! ```
+//! ```ignore
 //! extern crate domain;
 //! extern crate futures;
 //! extern crate tokio_core;
 //!
 //! use std::str::FromStr;
 //! use domain::bits::DNameBuf;
-//! use domain::iana::{Class, RRType};
+//! use domain::iana::{Class, Rtype};
 //! use domain::rdata::Aaaa;
 //! use domain::resolv::Resolver;
 //! use futures::Future;
@@ -95,10 +95,10 @@
 //!
 //!     let addrs = resolv.start().and_then(|resolv| {
 //!         let name = DNameBuf::from_str("www.rust-lang.org.").unwrap();
-//!         resolv.query(name, RRType::Aaaa, Class::In)
+//!         resolv.query(name, Rtype::Aaaa, Class::In)
 //!     });
 //!     let response = core.run(addrs).unwrap();
-//!     for record in response.answer().unwrap().iter::<Aaaa>() {
+//!     for record in response.answer().unwrap().limit_to::<Aaaa>() {
 //!         println!("{}", record.unwrap());
 //!     }
 //! }
@@ -127,7 +127,7 @@
 //! Using [`lookup_host()`], the process of looking up the IP addresses
 //! becomes much easier. To update above’s example:
 //!
-//! ```
+//! ```ignore
 //! extern crate domain;
 //! extern crate futures;
 //! extern crate tokio_core;
@@ -179,7 +179,7 @@
 //! driving the future to completing. In other words, it takes away all the
 //! boiler plate from above:
 //!
-//! ```
+//! ```ignore
 //! extern crate domain;
 //!
 //! use std::str::FromStr;
@@ -257,8 +257,8 @@ use std::sync::Arc;
 use futures::{BoxFuture, Future, lazy};
 use futures::task::TaskRc;
 use tokio_core::reactor;
-use ::bits::AsDName;
-use ::iana::{Class, RRType};
+use ::bits::DName;
+use ::iana::{Class, Rtype};
 use self::conf::ResolvOptions;
 use self::core::Core;
 
@@ -387,8 +387,8 @@ impl ResolverTask {
     /// message containing a response to a query for resource records of type
     /// `rtype` associated with the domain name `name` and class `class`. The
     /// name must be an absolute name or else the query will fail.
-    pub fn query<N>(&self, name: N, rtype: RRType, class: Class) -> Query
-                 where N: AsDName {
+    pub fn query<N: DName>(&self, name: N, rtype: Rtype, class: Class)
+                           -> Query {
         Query::new(self, name, rtype, class)
     }
 

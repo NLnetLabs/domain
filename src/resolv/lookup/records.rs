@@ -2,7 +2,7 @@
 
 use futures::{BoxFuture, Future};
 use ::bits::{DNameSlice, MessageBuf};
-use ::iana::{RRType, Class};
+use ::iana::{Rtype, Class};
 use super::super::error::Error;
 use super::super::ResolverTask;
 use super::search::search;
@@ -19,7 +19,7 @@ use super::search::search;
 /// to translate the name into a series of absolute names. If you want to
 /// find out the name that resulted in a successful answer, you can look at
 /// the query in the resulting message.
-pub fn lookup_records<N>(resolv: ResolverTask, name: N, rtype: RRType,
+pub fn lookup_records<N>(resolv: ResolverTask, name: N, rtype: Rtype,
                          class: Class) -> BoxFuture<MessageBuf, Error>
                       where N: AsRef<DNameSlice> {
     search(resolv, name, move |resolv, name| resolv.query(name, rtype, class))

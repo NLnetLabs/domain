@@ -1,27 +1,24 @@
 
 use std::fmt;
 use std::rc::Rc;
-use ::bits::{DNameBuf, DNameSlice};
-use ::bits::nest::NestSlice;
-use ::bits::rdata::GenericRecordData;
-use ::iana::{Class, RRType};
-use ::rdata;
+use ::bits::{DNameBuf, DNameSlice, RecordData};
+use ::iana::{Class, Rtype};
+use ::rdata::MasterRecordData;
 use super::{ScanError, ScanResult, Scanner, SyntaxError};
 
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct MasterRecord {
     pub owner: Rc<DNameBuf>,
-    pub rtype: RRType,
     pub class: Class,
     pub ttl: u32,
-    pub rdata: Vec<u8>,
+    pub rdata: MasterRecordData,
 }
 
 impl MasterRecord {
-    pub fn new(owner: Rc<DNameBuf>, rtype: RRType, class: Class, ttl: u32,
-               rdata: Vec<u8>) -> Self {
-        MasterRecord { owner: owner, rtype: rtype, class: class,
+    pub fn new(owner: Rc<DNameBuf>, class: Class, ttl: u32,
+               rdata: MasterRecordData) -> Self {
+        MasterRecord { owner: owner, class: class,
                        ttl: ttl, rdata: rdata }
     }
 }
@@ -37,10 +34,11 @@ impl MasterRecord {
         let (ttl, class) = try!(MasterRecord::scan_ttl_class(stream,
                                                              default_ttl,
                                                              last_class));
-        let rtype = try!(RRType::scan(stream));
-        let rdata = try!(rdata::scan(rtype, stream, map_origin(origin)));
+        let rtype = try!(Rtype::scan(stream));
+        let rdata = try!(MasterRecordData::scan(rtype, stream,
+                                                map_origin(origin)));
         try!(stream.scan_newline());
-        Ok(MasterRecord::new(owner, rtype, class, ttl, rdata))
+        Ok(MasterRecord::new(owner, class, ttl, rdata))
     }
 
     /// Scans the owner.
@@ -110,9 +108,8 @@ impl MasterRecord {
 impl fmt::Display for MasterRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {} {} {} {}",
-               self.owner, self.ttl, self.class, self.rtype,
-               GenericRecordData::new(self.rtype,
-                                      NestSlice::from_bytes(&self.rdata).into()))
+               self.owner, self.ttl, self.class,
+               self.rdata.rtype(), self.rdata)
     }
 }
 

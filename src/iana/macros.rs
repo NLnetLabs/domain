@@ -78,6 +78,12 @@ macro_rules! int_enum {
             }
         }
 
+        impl<'a> From<&'a $ianatype> for $inttype {
+            fn from(value: &'a $ianatype) -> Self {
+                value.to_int()
+            }
+        }
+
 
         //--- PartialEq and Eq
 
@@ -152,12 +158,12 @@ macro_rules! int_enum {
 macro_rules! int_enum_str_mnemonics_only {
     ($ianatype:ident, $error:expr) => {
         impl ::std::str::FromStr for $ianatype {
-            type Err = ::bits::error::FromStrError;
+            type Err = FromStrError;
 
-            fn from_str(s: &str) -> ::bits::error::FromStrResult<Self> {
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
                 // We assume all mnemonics are always ASCII, so using
                 // the bytes representation of `s` is safe.
-                $ianatype::from_mnemonic(s.as_bytes()).ok_or($error)
+                $ianatype::from_mnemonic(s.as_bytes()).ok_or(FromStrError)
             }
         }
 
@@ -179,6 +185,8 @@ macro_rules! int_enum_str_mnemonics_only {
                 }
             }
         }
+
+        from_str_error!($error);
     }
 }
 
@@ -193,9 +201,9 @@ macro_rules! int_enum_str_mnemonics_only {
 macro_rules! int_enum_str_with_decimal {
     ($ianatype:ident, $inttype:ident, $error:expr) => {
         impl ::std::str::FromStr for $ianatype {
-            type Err = ::bits::error::FromStrError;
+            type Err = FromStrError;
 
-            fn from_str(s: &str) -> ::bits::error::FromStrResult<Self> {
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
                 // We assume all mnemonics are always ASCII, so using
                 // the bytes representation of `s` is safe.
                 match $ianatype::from_mnemonic(s.as_bytes()) {
@@ -205,7 +213,7 @@ macro_rules! int_enum_str_with_decimal {
                             Ok($ianatype::Int(res))
                         }
                         else {
-                            Err($error)
+                            Err(FromStrError)
                         }
                     }
                 }
@@ -230,6 +238,8 @@ macro_rules! int_enum_str_with_decimal {
                 }
             }
         }
+
+        from_str_error!($error);
     }
 }
 
@@ -266,9 +276,9 @@ macro_rules! int_enum_str_with_prefix {
         }
 
         impl ::std::str::FromStr for $ianatype {
-            type Err = ::bits::error::FromStrError;
+            type Err = FromStrError;
 
-            fn from_str(s: &str) -> ::bits::error::FromStrResult<Self> {
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
                 use std::ascii::AsciiExt;
 
                 // We assume all mnemonics are always ASCII, so using
@@ -282,16 +292,16 @@ macro_rules! int_enum_str_with_prefix {
                             if l.eq_ignore_ascii_case($str_prefix) {
                                 let value = match u16::from_str_radix(r, 10) {
                                     Ok(x) => x,
-                                    Err(..) => return Err($error)
+                                    Err(..) => return Err(FromStrError)
                                 };
                                 Ok($ianatype::from_int(value))
                             }
                             else {
-                                Err($error)
+                                Err(FromStrError)
                             }
                         }
                         else {
-                            Err($error)
+                            Err(FromStrError)
                         }
                     }
                 }
@@ -314,6 +324,28 @@ macro_rules! int_enum_str_with_prefix {
                         write!(f, "{}{}", $str_prefix, self.to_int())
                     }
                 }
+            }
+        }
+
+        from_str_error!($error);
+    }
+}
+
+macro_rules! from_str_error {
+    ($description:expr) => {
+        #[derive(Clone, Debug)]
+        pub struct FromStrError;
+
+        impl ::std::error::Error for FromStrError {
+            fn description(&self) -> &str {
+               $description
+            }
+        }
+
+        impl ::std::fmt::Display for FromStrError {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter)
+                   -> ::std::fmt::Result {
+                $description.fmt(f)
             }
         }
     }
