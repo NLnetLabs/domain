@@ -1,10 +1,39 @@
-//! Building wire-format DNS data.
+//! Assembling wire-format DNS data.
+//!
+//! This module provides helper types for assembling the wire format of a
+//! DNS message, a process termed *composing* to distinguish it from other
+//! procedures that turn DNS data into some output such as formatting into
+//! human-readable data.
+//!
+//! There are two main types here. [`Composer`] owns a bytes vector and
+//! provides a number of methods allowing to append data to it meanwhile
+//! making sure that certain conditions such as the maximum message size are
+//! being fulfilled. These conditions are defined through the [`ComposeMode`].
+//!
+//! The [`Composer`] has a companion type [`ComposeSnapshot`] that wraps the
+//! original composer but allows it to roll back to an earlier state. The
+//! intention here is to reuse a partly assembled message a second attempt
+//! with slightly different data.
+//!
+//! As a convenience, there is a trait [`Composable`] that can be implemented
+//! for types that know how to add themselves to a message-to-be.
+//!
+//! # Todo
+//!
+//! Snapshots currently clone the compression map. As this is costly, we
+//! should have a way to either only clone on write or allow turn off 
+//! compressing before cloning. This isn’t all that important, though, since
+//! we can create requests (which contain exactly one domain name in their
+//! only question) with compression turned off entirely.
+//!
+//! [`Composer`]: struct.Composer.html
+//! [`ComposeMode`]: enum.ComposeMode.html
+//! [`ComposeSnapshot`]: struct.ComposeSnapshot.html
+//! [`Composable`]: trait.Composable.html
 
+use std::{error, fmt, ptr};
 use std::collections::HashMap;
-use std::error;
-use std::fmt;
 use std::ops::{Deref, DerefMut};
-use std::ptr;
 use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 use super::name::{DName, DNameBuf, DNameSlice};
 use super::parse::ParseError;
@@ -12,6 +41,45 @@ use super::parse::ParseError;
 
 //------------ Composer ------------------------------------------------------
 
+/// A type for assembling a wire-format DNS message.
+///
+/// A composer can be created either anew with [`new()`] or through
+/// [`with_vec()`] atop an existing vector that may already contain some data.
+/// In either case, a [`ComposeMode`] is necessary to tell the composer what
+/// kind of message it is supposed to create.
+///
+/// In particular, there is something called the *stream mode*, requested
+/// through `ComposeMode::Stream`, where a sixteen bit, big-endian length
+/// shim is prepended to the actual message as required for sending DNS
+/// messages over stream transports such as TCP. It’s value, however, is
+/// not constantly updated but only when [`preview()`] or [`finish()`] are
+/// called.
+///
+/// A number of methods are available for adding data to the composer.
+/// Alternatively, types may implement [`Composable`] to acquire a
+/// `compose()` method themselves.
+///
+/// Since it makes composing a lot easier, methods are available to update
+/// data added earlier. These are normally used to add length markers after
+/// the fact without always having to know the eventual size of data added.
+///
+/// DNS messages that are sent over the wire are limited in size. If a
+/// message becomes to large, it has to be cut back to a well-known boundary
+/// and a truncation flag set in the header. To facilitate this process,
+/// a checkpoint can be set during composing. If the composition grows over
+/// the limit, it will be cut back to that checkpoint. Any further composing
+/// will fail.
+///
+/// Note that size limits apply to the assembled message. If a composer is
+/// created atop an exisiting vector, the size of any earlier data is not
+/// considered.
+///
+/// [`new()`]: #method.new
+/// [`with_vec()`]: #method.with_vec
+/// [`preview()`]: #method.preview
+/// [`finish()`]: #method.finish
+/// [`ComposeMode`]: ../enum.ComposeMode.html
+/// [`Composable`]: ../trait.Composable.html
 #[derive(Clone, Debug)]
 pub struct Composer {
     /// The vector holding the bytes.
@@ -43,11 +111,24 @@ pub struct Composer {
 ///
 impl Composer {
     /// Creates a new composer.
+    ///
+    /// A possible prefix and the maximum size of the composed message are
+    /// determined through `mode`. If `compress` is `true`, name compression
+    /// will be available for domain names. Otherwise, all names will always
+    /// be uncompressed.
     pub fn new(mode: ComposeMode, compress: bool) -> Self {
         Self::with_vec(Vec::new(), mode, compress)
     }
 
     /// Creates a new compose buffer based on an exisiting vector.
+    ///
+    /// The existing content of `vec` will be preserved and the actual DNS
+    /// message will start after it.
+    ///
+    /// A possible prefix and the maximum size of the composed message are
+    /// determined through `mode`. If `compress` is `true`, name compression
+    /// will be available for domain names. Otherwise, all names will always
+    /// be uncompressed.
     pub fn with_vec(mut vec: Vec<u8>, mode: ComposeMode, compress: bool)
                     -> Self {
         if let ComposeMode::Stream = mode {
@@ -65,12 +146,13 @@ impl Composer {
         }
     }
 
-    /// Returns a bytes vector with the final data.
+    /// Finalizes the composition and returns the final data.
     pub fn finish(mut self) -> Vec<u8> {
         self.update_shim();
         self.vec
     }
 
+    /// Updates the size shim if the composer is in stream mode.
     fn update_shim(&mut self) {
         if let ComposeMode::Stream = self.mode {
             let start = self.start - 2;
@@ -79,7 +161,10 @@ impl Composer {
         }
     }
 
-    /// Returns a snapshot of the composer.
+    /// Returns a snapshot of the composer at its current position.
+    ///
+    /// If the snapshot is rolled back, the resulting composer will be
+    /// exactly the same as `self` right now.
     pub fn snapshot(self) -> ComposeSnapshot {
         ComposeSnapshot::new(self)
     }
@@ -94,10 +179,21 @@ impl Composer {
     }
 
     /// Returns the message bytes as far as they are assembled yet.
+    ///
+    /// The returned bytes slice really only contains the message bytes
+    /// and neither whatever was contained in the vector with which the
+    /// composer was posssibly created nor the length prefix of stream
+    /// mode.
     pub fn so_far(&self) -> &[u8] {
         &self.vec[self.start..]
     }
 
+    /// Returns the message bytes as far as they are assembled yet.
+    ///
+    /// The returned bytes slice really only contains the message bytes
+    /// and neither whatever was contained in the vector with which the
+    /// composer was posssibly created nor the length prefix of stream
+    /// mode.
     pub fn so_far_mut(&mut self) -> &mut [u8] {
         &mut self.vec[self.start..]
     }
@@ -108,11 +204,17 @@ impl Composer {
 ///
 impl Composer {
     /// Returns the current position.
+    ///
+    /// The returned value is identical to the current overall length of the
+    /// underlying bytes vec.
     pub fn pos(&self) -> usize {
         self.vec.len()
     }
 
     /// Returns the position where the message starts.
+    ///
+    /// This is identical to having called `self.pos()` right after `self`
+    /// was created.
     pub fn start(&self) -> usize {
         self.start
     }
@@ -126,11 +228,12 @@ impl Composer {
         self.vec.len().checked_sub(pos).unwrap()
     }
 
-    /// Mark the current position as a point for truncation.
+    /// Marks the current position as a point for truncation.
     ///
     /// If the length of the resulting message exceeds its predefined
-    /// maximum size for the first time and a truncation point was set, it
-    /// will be cut back to that point.
+    /// maximum size for the first time after a call to this method, the
+    /// data will be cut back to the length it had when the method was
+    /// called. If this happens, any further writing will fail.
     pub fn mark_checkpoint(&mut self) {
         self.checkpoint = Some(self.pos())
     }
@@ -153,6 +256,9 @@ impl Composer {
     }
 
     /// Pushes placeholder bytes to the end of the message.
+    ///
+    /// In particular, if successful, the message will have been extended
+    /// by `len` octets of value zero,
     pub fn compose_empty(&mut self, len: usize) -> ComposeResult<()> {
         try!(self.can_push(len));
         let len = self.vec.len() + len;
@@ -168,6 +274,9 @@ impl Composer {
     }
 
     /// Pushes an unsigned 16-bit word to the end of the message.
+    ///
+    /// Since DNS data is big-endian, `data` will be converted to that
+    /// endianess if necessary.
     pub fn compose_u16(&mut self, data: u16) -> ComposeResult<()> {
         try!(self.can_push(2));
         self.vec.write_u16::<BigEndian>(data).unwrap();
@@ -175,6 +284,9 @@ impl Composer {
     }
 
     /// Pushes a unsigned 32-bit word to the end of the message.
+    ///
+    /// Since DNS data is big-endian, `data` will be converted to that
+    /// endianess if necessary.
     pub fn compose_u32(&mut self, data: u32) -> ComposeResult<()> {
         try!(self.can_push(4));
         self.vec.write_u32::<BigEndian>(data).unwrap();
@@ -210,7 +322,10 @@ impl Composer {
     /// Pushes a domain name to the end of the message using name compression.
     ///
     /// Since compression is only allowed in a few well-known places per
-    /// RFC 1123 and RFC 3597, this isn’t the default behaviour.
+    /// [RFC 1123] and [RFC 3597], this isn’t the default behaviour.
+    ///
+    /// [RFC 1123]: https://tools.ietf.org/html/rfc1123
+    /// [RFC 3597]: https://tools.ietf.org/html/rfc3597
     pub fn compose_dname_compressed<N: DName>(&mut self, name: &N)
                                               -> ComposeResult<()> {
         if self.compress.is_some() {
@@ -280,6 +395,9 @@ impl Composer {
     }
 
     /// Adds `name` to the compression hashmap with `pos` as its index.
+    ///
+    /// The value of `pos` is a composer position as returned by `pos()`
+    /// and will be translated into a valid message index before adding.
     fn add_compress_target(&mut self, name: DNameBuf, pos: usize) {
         if let Some(ref mut compress) = self.compress {
             let pos = pos.checked_sub(self.start).unwrap();
@@ -289,7 +407,10 @@ impl Composer {
         }
     }
 
-    /// Returns the compression index for the given name if any.
+    /// Returns the index where the given name starts in the message.
+    ///
+    /// The returned value, if any, is relative to the start of the message
+    /// and can be used as is.
     fn get_compress_target<N: AsRef<DNameSlice>>(&self, name: N)
                                                  -> Option<u16> {
         if let Some(ref compress) = self.compress {
@@ -302,7 +423,7 @@ impl Composer {
     ///
     /// # Panics
     ///
-    /// Panics if the position is greater than 0x3FFFF, the largest position
+    /// Panics if the position is greater than 0x3FFF, the largest position
     /// we can encode.
     fn compose_compress_target(&mut self, pos: u16) -> ComposeResult<()> {
         assert!(pos <= 0x3FFF);
@@ -380,17 +501,39 @@ impl AsMut<Composer> for Composer {
 
 //------------ ComposeSnapshot ----------------------------------------------
 
+/// A snapshot of a composer’s state.
+///
+/// This type is actually a composer all by itself, that is, it implements
+/// `AsMut<Composer>`. However, if necessary, it can be rolled back to the
+/// state the composer had when it was created forgetting about all changes
+/// made since.
+///
+/// This process currently is not transitive. While a new snapshot can be
+/// created from both a composer and a snapshot, when you roll back you get
+/// a composer. Ie., you can only roll back once. This is enough for the
+/// purpose, reuse of messages when transitioning through several servers
+/// in a resolver.
 #[derive(Clone, Debug)]
 pub struct ComposeSnapshot {
+    /// The composer we deref to.
     composer: Composer,
+
+    /// The positon to roll back to.
     pos: usize,
+
+    /// The value of the checkpoint to roll back to.
     checkpoint: Option<usize>,
+
+    /// The value of `truncated` to roll back to.
     truncated: bool,
+
+    /// The value of `compress` to roll back to.
     compress: Option<HashMap<DNameBuf, u16>>
 }
 
 
 impl ComposeSnapshot {
+    /// Creates a new snapshot from the given composer.
     pub fn new(mut composer: Composer) -> Self {
         composer.update_shim();
         ComposeSnapshot {
@@ -402,6 +545,7 @@ impl ComposeSnapshot {
         }
     }
 
+    /// Rewinds the state to when the snapshot was taken.
     pub fn rewind(&mut self) {
         self.composer.vec.truncate(self.pos);
         self.composer.checkpoint = self.checkpoint;
@@ -409,6 +553,7 @@ impl ComposeSnapshot {
         self.composer.compress = self.compress.clone();
     }
 
+    /// Rolls back to a composer with state as when the snapshot was taken.
     pub fn rollback(self) -> Composer {
         let mut res = self.composer;
         res.vec.truncate(self.pos);
@@ -418,16 +563,9 @@ impl ComposeSnapshot {
         res
     }
 
+    /// Trades in the snapshot to a composer with all changes commited.
     pub fn commit(self) -> Composer {
         self.composer
-    }
-
-    pub fn bytes(&self) -> &[u8] {
-        &self.composer.vec[..self.pos]
-    }
-
-    pub fn bytes_mut(&mut self) -> &mut [u8] {
-        &mut self.composer.vec[..self.pos]
     }
 }
 
@@ -479,7 +617,8 @@ pub enum ComposeMode {
     /// The composition is for a stream transport.
     ///
     /// In this mode, the composition will be preceeded by a two-byte value
-    /// which, upon finishing, will be set to the length of the composition.
+    /// which, upon finishing, will be set to the big-endian sixteen bit
+    /// integer value of the length of the composition.
     /// This implies a maximum composition size of 65535 bytes.
     Stream
 }
@@ -487,7 +626,14 @@ pub enum ComposeMode {
 
 //------------ Composeable ---------------------------------------------------
 
+/// A trait allowing types to compose themselves.
 pub trait Composable {
+
+    /// Append the wire-format representation of `self` to a composer.
+    ///
+    /// The method is generic over `AsMut<Composer>` because it may either
+    /// receive a [`Composer`] or [`ComposeSnapshot`]. This means that when
+    /// using `target`, you’ll have to call `target.as_mut()`.
     fn compose<C: AsMut<Composer>>(&self, target: C) -> ComposeResult<()>;
 }
 
@@ -554,6 +700,9 @@ pub enum ComposeError {
     ParseError(ParseError),
 }
 
+
+//--- Error
+
 impl error::Error for ComposeError {
     fn description(&self) -> &str {
         use self::ComposeError::*;
@@ -568,11 +717,17 @@ impl error::Error for ComposeError {
     }
 }
 
+
+//--- From
+
 impl From<ParseError> for ComposeError {
     fn from(error: ParseError) -> ComposeError {
         ComposeError::ParseError(error)
     }
 }
+
+
+//--- Display
 
 impl fmt::Display for ComposeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
