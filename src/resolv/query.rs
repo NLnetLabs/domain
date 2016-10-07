@@ -62,7 +62,7 @@ impl Query {
     fn build_message<N: DName>(name: N, rtype: Rtype, class: Class,
                                  opts: &ResolvOptions)
                                  -> ComposeResult<MessageBuilder> {
-        let mut res = try!(MessageBuilder::new(ComposeMode::Stream, true));
+        let mut res = try!(MessageBuilder::new(ComposeMode::Stream, false));
         res.header_mut().set_rd(opts.recurse);
         try!(res.push((name, rtype, class)));
         Ok(res)
