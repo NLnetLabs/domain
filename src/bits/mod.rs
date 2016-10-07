@@ -46,16 +46,32 @@
 //! Both parsing and parsing happen on bytes buffers. This seems to be a
 //! reasonably choice given the relatively small size of DNS messages and
 //! the complexities introduced by name compression. The details are
-//! explained in the [parser] and [compose] sub-modules. Unless you are
+//! explained in the [parse] and [compose] sub-modules. Unless you are
 //! implementing your own resource record types, you are unlikely to ever
 //! having to deal with parsing and composing directly.
 //!
-//! Instead, the types `Message` and `MessageBuilder` are there to make
-//! parsing and constructing DNS messages easy. A `Message` takes the
+//! Instead, the types [`Message`] and [`MessageBuilder`] are there to make
+//! parsing and constructing DNS messages easy. A [`Message`] takes the
 //! binary data of a DNS message and allows iterating over its four
 //! sections to look at the questions and resource records. Similarly,
-//! a `MessageBuilder` takes a bytes vector (or creates one for you) and
-//! has functionality to step-by-step build the sections of the message.
+//! a [`MessageBuilder`] takes a bytes vector (or creates one for you) and
+//! has functionality to build the sections of the message step-by-step.
+//!
+//! [rdata]: ../rdata/index.html
+//! [compose]: compose/index.html
+//! [parse]: parse/index.html
+//! [`CharStr`]: charstr/struct.CharStr.html
+//! [`CharStrBuf`]: charstr/struct.CharStrBuf.html
+//! [`DName`]: name/trait.DName.html
+//! [`DNameBuf`]: name/struct.DNameBuf.html
+//! [`DNameSlice`]: name/struct.DNameSlice.html
+//! [`Message`]: message/struct.Message.html
+//! [`MessageBuilder`]: message_builder/struct.MessageBuilder.html
+//! [`ParsedDName`]: name/struct.ParsedDName.html
+//! [`ParsedRecordData`]: rdata/trait.ParsedRecordData.html
+//! [`Question`]: question/struct.Question.html
+//! [`Record`]: record/struct.Record.html
+//! [`RecordData`]: rdata/trait.RecordData.html
 
 
 //--- Re-exports
