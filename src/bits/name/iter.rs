@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 use super::label::Label;
-use super::{DNameSlice, Labelette, LabelIter, PackedDName};
+use super::{DNameSlice, Labelette, LabelIter, ParsedDName};
 
 
 //------------ NameIter ------------------------------------------------------
@@ -18,7 +18,7 @@ pub struct NameIter<'a> {
 #[derive(Clone, Debug)]
 enum Flavor<'a> {
     Slice(&'a DNameSlice),
-    Packed(Option<PackedDName<'a>>),
+    Parsed(Option<ParsedDName<'a>>),
 }
 
 
@@ -27,8 +27,8 @@ impl<'a> NameIter<'a> {
         NameIter{inner: Flavor::Slice(slice)}
     }
 
-    pub fn from_packed(name: PackedDName<'a>) -> Self {
-        NameIter{inner: Flavor::Packed(Some(name))}
+    pub fn from_packed(name: ParsedDName<'a>) -> Self {
+        NameIter{inner: Flavor::Parsed(Some(name))}
     }
 
     pub fn to_cow(&self) -> Cow<'a, DNameSlice> {
@@ -36,10 +36,10 @@ impl<'a> NameIter<'a> {
             Flavor::Slice(slice) => {
                 Cow::Borrowed(slice)
             }
-            Flavor::Packed(Some(ref name)) => {
+            Flavor::Parsed(Some(ref name)) => {
                 name.unpack()
             }
-            Flavor::Packed(None) => {
+            Flavor::Parsed(None) => {
                 Cow::Borrowed(DNameSlice::empty())
             }
         }
@@ -63,7 +63,7 @@ impl<'a> Iterator for NameIter<'a> {
                     None => None
                 }
             }
-            Flavor::Packed(ref mut name) => {
+            Flavor::Parsed(ref mut name) => {
                 let (res, new_name) = match *name {
                     Some(ref mut name) => {
                         let (res, new_name) = name.split_first().unwrap();

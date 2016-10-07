@@ -2,7 +2,7 @@
 
 use std::fmt;
 use super::{Composer, ComposeError, ComposeResult, DName, GenericRecordData,
-            PackedDName, ParsedRecordData, Parser, ParseResult, RecordData};
+            ParsedDName, ParsedRecordData, Parser, ParseResult, RecordData};
 use ::iana::{Class, Rtype};
 
 
@@ -79,9 +79,9 @@ impl<N: DName, D: RecordData> Record<N, D> {
 
 /// # Parsing
 ///
-impl<'a, D: ParsedRecordData<'a>> Record<PackedDName<'a>, D> {
+impl<'a, D: ParsedRecordData<'a>> Record<ParsedDName<'a>, D> {
     pub fn parse(parser: &mut Parser<'a>) -> ParseResult<Option<Self>> {
-        let name = try!(PackedDName::parse(parser));
+        let name = try!(ParsedDName::parse(parser));
         let rtype = try!(Rtype::parse(parser));
         let class = try!(Class::parse(parser));
         let ttl = try!(parser.parse_u32());
@@ -96,7 +96,7 @@ impl<'a, D: ParsedRecordData<'a>> Record<PackedDName<'a>, D> {
     }
 }
 
-impl<'a> Record<PackedDName<'a>, GenericRecordData<'a>> {
+impl<'a> Record<ParsedDName<'a>, GenericRecordData<'a>> {
     pub fn parse_generic(parser: &mut Parser<'a>) -> ParseResult<Self> {
         Self::parse(parser).map(Option::unwrap)
     }
@@ -138,5 +138,5 @@ impl<N: DName, D: RecordData + fmt::Display> fmt::Display for Record<N, D> {
 
 //------------ GenericRecord -------------------------------------------------
 
-pub type GenericRecord<'a> = Record<PackedDName<'a>, GenericRecordData<'a>>;
+pub type GenericRecord<'a> = Record<ParsedDName<'a>, GenericRecordData<'a>>;
 

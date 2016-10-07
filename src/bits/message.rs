@@ -5,7 +5,7 @@ use std::{borrow, mem, ops};
 use std::marker::PhantomData;
 use ::iana::{Rcode, Rtype};
 use ::rdata::Cname;
-use super::{FullHeader, GenericRecord, Header, HeaderCounts, PackedDName,
+use super::{FullHeader, GenericRecord, Header, HeaderCounts, ParsedDName,
             ParsedRecordData, Parser, ParseError, ParseResult, Question,
             Record};
 
@@ -170,7 +170,7 @@ impl Message {
     }
 
     /// Returns the first question, if there is any.
-    pub fn first_question(&self) -> Option<Question<PackedDName>> {
+    pub fn first_question(&self) -> Option<Question<ParsedDName>> {
         match self.question().next() {
             None | Some(Err(..)) => None,
             Some(Ok(question)) => Some(question)
@@ -196,7 +196,7 @@ impl Message {
     /// Returns `None` if either the message doesn’t have a question or there
     /// was a parse error. Otherwise starts with the question’s name,
     /// follows any CNAME trail and returns the name answers should be for.
-    pub fn canonical_name(&self) -> Option<PackedDName> {
+    pub fn canonical_name(&self) -> Option<ParsedDName> {
         // XXX There may be cheaper ways to do this ...
         let question = match self.first_question() {
             None => return None,
@@ -208,7 +208,7 @@ impl Message {
             Err(..) => return None,
             Ok(answer) => answer
         };
-        for record in answer.limit_to::<Cname<PackedDName>>() {
+        for record in answer.limit_to::<Cname<ParsedDName>>() {
             let record = match record {
                 Err(..) => return None,
                 Ok(record) => record
@@ -396,7 +396,7 @@ impl<'a> QuestionSection<'a> {
 //--- Iterator
 
 impl<'a> Iterator for QuestionSection<'a> {
-    type Item = ParseResult<Question<PackedDName<'a>>>;
+    type Item = ParseResult<Question<ParsedDName<'a>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
@@ -551,7 +551,7 @@ impl<'a, D: ParsedRecordData<'a>> RecordIter<'a, D> {
 //--- Iterator
 
 impl<'a, D: ParsedRecordData<'a>> Iterator for RecordIter<'a, D> {
-    type Item = ParseResult<Record<PackedDName<'a>, D>>;
+    type Item = ParseResult<Record<ParsedDName<'a>, D>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {

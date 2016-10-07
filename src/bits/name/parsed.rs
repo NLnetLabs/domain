@@ -1,4 +1,4 @@
-//! Packed domain names.
+//! Parsed domain names.
 
 use std::borrow::Cow;
 use std::cmp;
@@ -9,10 +9,10 @@ use super::{DName, DNameBuf, DNameSlice, Label, NameIter};
 use super::plain::slice_from_bytes_unsafe;
 
 
-//------------ PackedDName ----------------------------------------------------
+//------------ ParsedDName ---------------------------------------------------
 
 #[derive(Clone)]
-pub struct PackedDName<'a> {
+pub struct ParsedDName<'a> {
     message: &'a [u8],
     start: usize
 }
@@ -20,9 +20,9 @@ pub struct PackedDName<'a> {
 
 /// # Creation and Conversion
 ///
-impl<'a> PackedDName<'a> {
+impl<'a> ParsedDName<'a> {
     pub fn parse(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        let res = PackedDName{message: parser.bytes(), start: parser.pos()};
+        let res = ParsedDName{message: parser.bytes(), start: parser.pos()};
 
         // Step 1: Walk over uncompressed labels to advance the parser.
         let pos;
@@ -70,7 +70,7 @@ impl<'a> PackedDName<'a> {
 
 /// # Working with Labels
 ///
-impl<'a> PackedDName<'a> {
+impl<'a> ParsedDName<'a> {
     pub fn split_first(&self) -> Option<(&'a Label, Option<Self>)> {
         let mut name = self.clone();
         loop {
@@ -100,7 +100,7 @@ impl<'a> PackedDName<'a> {
                 Err(None)
             }
             else {
-                Err(Some(PackedDName{message: self.message, start: start}))
+                Err(Some(ParsedDName{message: self.message, start: start}))
             }
         }
         else {
@@ -115,7 +115,7 @@ impl<'a> PackedDName<'a> {
                 Ok((label, None))
             }
             else {
-                Ok((label, Some(PackedDName{message: self.message,
+                Ok((label, Some(ParsedDName{message: self.message,
                                             start: start})))
             }
         }
@@ -171,7 +171,7 @@ impl<'a> PackedDName<'a> {
 
 //--- DName
 
-impl<'a> DName for PackedDName<'a> {
+impl<'a> DName for ParsedDName<'a> {
     fn to_cow(&self) -> Cow<DNameSlice> {
         self.unpack()
     }
@@ -184,7 +184,7 @@ impl<'a> DName for PackedDName<'a> {
 
 //--- PartialEq and Eq
 
-impl<'a, N: DName> PartialEq<N> for PackedDName<'a> {
+impl<'a, N: DName> PartialEq<N> for ParsedDName<'a> {
     fn eq(&self, other: &N) -> bool {
         let self_iter = self.labelettes();
         let other_iter = other.labelettes();
@@ -192,7 +192,7 @@ impl<'a, N: DName> PartialEq<N> for PackedDName<'a> {
     }
 }
 
-impl<'a> PartialEq<str> for PackedDName<'a> {
+impl<'a> PartialEq<str> for ParsedDName<'a> {
     fn eq(&self, other: &str) -> bool {
         use std::str::FromStr;
 
@@ -204,12 +204,12 @@ impl<'a> PartialEq<str> for PackedDName<'a> {
     }
 }
 
-impl<'a> Eq for PackedDName<'a> { }
+impl<'a> Eq for ParsedDName<'a> { }
 
 
 //--- PartialOrd and Ord
 
-impl<'a, N: DName> PartialOrd<N> for PackedDName<'a> {
+impl<'a, N: DName> PartialOrd<N> for ParsedDName<'a> {
     fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
         let self_iter = self.rev_labelettes();
         let other_iter = other.rev_labelettes();
@@ -217,7 +217,7 @@ impl<'a, N: DName> PartialOrd<N> for PackedDName<'a> {
     }
 }
 
-impl<'a> Ord for PackedDName<'a> {
+impl<'a> Ord for ParsedDName<'a> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         let self_iter = self.rev_labelettes();
         let other_iter = other.rev_labelettes();
@@ -228,7 +228,7 @@ impl<'a> Ord for PackedDName<'a> {
 
 //--- Hash
 
-impl<'a> hash::Hash for PackedDName<'a> {
+impl<'a> hash::Hash for ParsedDName<'a> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         for item in self.labelettes() {
             item.hash(state)
@@ -239,7 +239,7 @@ impl<'a> hash::Hash for PackedDName<'a> {
 
 //--- std::fmt traits
 
-impl<'a> fmt::Display for PackedDName<'a> {
+impl<'a> fmt::Display for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut labels = self.iter();
         if let Some(label) = labels.next() {
@@ -252,7 +252,7 @@ impl<'a> fmt::Display for PackedDName<'a> {
     }
 }
 
-impl<'a> fmt::Octal for PackedDName<'a> {
+impl<'a> fmt::Octal for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut labels = self.iter();
         if let Some(label) = labels.next() {
@@ -265,7 +265,7 @@ impl<'a> fmt::Octal for PackedDName<'a> {
     }
 }
 
-impl<'a> fmt::LowerHex for PackedDName<'a> {
+impl<'a> fmt::LowerHex for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut labels = self.iter();
         if let Some(label) = labels.next() {
@@ -278,7 +278,7 @@ impl<'a> fmt::LowerHex for PackedDName<'a> {
     }
 }
 
-impl<'a> fmt::UpperHex for PackedDName<'a> {
+impl<'a> fmt::UpperHex for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut labels = self.iter();
         if let Some(label) = labels.next() {
@@ -291,7 +291,7 @@ impl<'a> fmt::UpperHex for PackedDName<'a> {
     }
 }
 
-impl<'a> fmt::Binary for PackedDName<'a> {
+impl<'a> fmt::Binary for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut labels = self.iter();
         if let Some(label) = labels.next() {
@@ -304,9 +304,9 @@ impl<'a> fmt::Binary for PackedDName<'a> {
     }
 }
 
-impl<'a> fmt::Debug for PackedDName<'a> {
+impl<'a> fmt::Debug for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(f.write_str("PackedDName("));
+        try!(f.write_str("ParsedDName("));
         try!(fmt::Display::fmt(self, f));
         f.write_str(")")
     }

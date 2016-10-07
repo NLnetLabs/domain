@@ -10,7 +10,7 @@ use std::net::Ipv4Addr;
 use std::str::FromStr;
 use ::bits::charstr::{CharStr, CharStrBuf};
 use ::bits::compose::{Composable, Composer, ComposeResult};
-use ::bits::name::{DName, DNameBuf, DNameSlice, PackedDName};
+use ::bits::name::{DName, DNameBuf, DNameSlice, ParsedDName};
 use ::bits::parser::{Parser, ParseError, ParseResult};
 use ::bits::rdata::{ParsedRecordData, RecordData};
 use ::iana::Rtype;
@@ -51,9 +51,9 @@ macro_rules! dname_type {
             }
         }
 
-        impl<'a> $target<PackedDName<'a>> {
+        impl<'a> $target<ParsedDName<'a>> {
             fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-                PackedDName::parse(parser).map(Self::new)
+                ParsedDName::parse(parser).map(Self::new)
             }
         }
 
@@ -66,7 +66,7 @@ macro_rules! dname_type {
             }
         }
 
-        impl<'a> ParsedRecordData<'a> for $target<PackedDName<'a>> {
+        impl<'a> ParsedRecordData<'a> for $target<ParsedDName<'a>> {
             fn parse(rtype: Rtype, parser: &mut Parser<'a>)
                      -> ParseResult<Option<Self>> {
                 if rtype == Rtype::$rtype {
@@ -334,10 +334,10 @@ impl<N: DName> Minfo<N> {
     }
 }
 
-impl<'a> Minfo<PackedDName<'a>> {
+impl<'a> Minfo<ParsedDName<'a>> {
     fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        Ok(Minfo::new(try!(PackedDName::parse(parser)),
-                      try!(PackedDName::parse(parser))))
+        Ok(Minfo::new(try!(ParsedDName::parse(parser)),
+                      try!(ParsedDName::parse(parser))))
     }
 }
 
@@ -358,7 +358,7 @@ impl<N: DName> RecordData for Minfo<N> {
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Minfo<PackedDName<'a>> {
+impl<'a> ParsedRecordData<'a> for Minfo<ParsedDName<'a>> {
     fn parse(rtype: Rtype, parser: &mut Parser<'a>)
              -> ParseResult<Option<Self>> {
         if rtype == Rtype::Minfo { Minfo::parse_always(parser).map(Some) }
@@ -420,10 +420,10 @@ impl<N: DName> Mx<N> {
     }
 }
 
-impl<'a> Mx<PackedDName<'a>> {
+impl<'a> Mx<ParsedDName<'a>> {
     fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
         Ok(Self::new(try!(parser.parse_u16()),
-                     try!(PackedDName::parse(parser))))
+                     try!(ParsedDName::parse(parser))))
     }
 }
 
@@ -444,7 +444,7 @@ impl<N: DName> RecordData for Mx<N> {
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Mx<PackedDName<'a>> {
+impl<'a> ParsedRecordData<'a> for Mx<ParsedDName<'a>> {
     fn parse(rtype: Rtype, parser: &mut Parser<'a>)
              -> ParseResult<Option<Self>> {
         if rtype == Rtype::Mx { Mx::parse_always(parser).map(Some) }
@@ -608,10 +608,10 @@ impl<N: DName> Soa<N> {
     }
 }
 
-impl<'a> Soa<PackedDName<'a>> {
+impl<'a> Soa<ParsedDName<'a>> {
     fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        Ok(Self::new(try!(PackedDName::parse(parser)),
-                     try!(PackedDName::parse(parser)),
+        Ok(Self::new(try!(ParsedDName::parse(parser)),
+                     try!(ParsedDName::parse(parser)),
                      try!(parser.parse_u32()),
                      try!(parser.parse_u32()),
                      try!(parser.parse_u32()),
@@ -648,7 +648,7 @@ impl<N: DName> RecordData for Soa<N> {
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Soa<PackedDName<'a>> {
+impl<'a> ParsedRecordData<'a> for Soa<ParsedDName<'a>> {
     fn parse(rtype: Rtype, parser: &mut Parser<'a>)
              -> ParseResult<Option<Self>> {
         if rtype == Rtype::Soa { Soa::parse_always(parser).map(Some) }
@@ -1130,21 +1130,21 @@ impl<'a> Iterator for WksIter<'a> {
 //============ Type Aliases =================================================
 
 pub mod parsed {
-    use ::bits::{CharStr, PackedDName};
+    use ::bits::{CharStr, ParsedDName};
 
     pub type A = super::A;
-    pub type Cname<'a> = super::Cname<PackedDName<'a>>;
+    pub type Cname<'a> = super::Cname<ParsedDName<'a>>;
     pub type Hinfo<'a> = super::Hinfo<&'a CharStr>;
-    pub type Mb<'a> = super::Mb<PackedDName<'a>>;
-    pub type Md<'a> = super::Md<PackedDName<'a>>;
-    pub type Mf<'a> = super::Mf<PackedDName<'a>>;
-    pub type Mg<'a> = super::Mg<PackedDName<'a>>;
-    pub type Minfo<'a> = super::Minfo<PackedDName<'a>>;
-    pub type Mr<'a> = super::Mr<PackedDName<'a>>;
-    pub type Mx<'a> = super::Mx<PackedDName<'a>>;
-    pub type Ns<'a> = super::Ns<PackedDName<'a>>;
-    pub type Ptr<'a> = super::Ptr<PackedDName<'a>>;
-    pub type Soa<'a> = super::Soa<PackedDName<'a>>;
+    pub type Mb<'a> = super::Mb<ParsedDName<'a>>;
+    pub type Md<'a> = super::Md<ParsedDName<'a>>;
+    pub type Mf<'a> = super::Mf<ParsedDName<'a>>;
+    pub type Mg<'a> = super::Mg<ParsedDName<'a>>;
+    pub type Minfo<'a> = super::Minfo<ParsedDName<'a>>;
+    pub type Mr<'a> = super::Mr<ParsedDName<'a>>;
+    pub type Mx<'a> = super::Mx<ParsedDName<'a>>;
+    pub type Ns<'a> = super::Ns<ParsedDName<'a>>;
+    pub type Ptr<'a> = super::Ptr<ParsedDName<'a>>;
+    pub type Soa<'a> = super::Soa<ParsedDName<'a>>;
     pub type Txt<'a> = super::Txt<&'a [u8]>;
     pub type Wks<'a> = super::Wks<&'a super::WksBitmap>;
 }

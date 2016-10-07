@@ -4,7 +4,7 @@ use std::io;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::slice;
 use futures::{BoxFuture, Future};
-use ::bits::{DName, DNameBuf, DNameSlice, MessageBuf, PackedDName, ParseResult};
+use ::bits::{DName, DNameBuf, DNameSlice, MessageBuf, ParsedDName, ParseResult};
 use ::iana::{Rtype, Class};
 use ::rdata::{A, Aaaa};
 use super::super::error::Result;
@@ -76,7 +76,7 @@ impl LookupHost {
     }
 
     fn process_records(addrs: &mut Vec<IpAddr>, msg: &MessageBuf,
-                       name: &PackedDName) -> ParseResult<()> {
+                       name: &ParsedDName) -> ParseResult<()> {
         for record in try!(msg.answer()).limit_to::<A>() {
             if let Ok(record) = record {
                 if record.name() == name {

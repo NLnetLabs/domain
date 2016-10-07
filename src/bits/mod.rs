@@ -1,7 +1,7 @@
 //! DNS data.
 //!
-//! This module provides types for working with DNS data as well as parsing
-//! and composing wire-format DNS messages.
+//! This module provides types and traits for working with DNS data as well
+//! as parsing and composing wire-format DNS messages.
 //!
 //! There are types for the most basic building blocks of DNS data, `DName`
 //! for domain names, `CharStr` for character strings, and `Octets` for
@@ -44,7 +44,7 @@ pub use self::header::{FullHeader, Header, HeaderCounts};
 pub use self::message::{Message, MessageBuf};
 pub use self::message_builder::{MessageBuilder, AnswerBuilder,
                                 AuthorityBuilder, AdditionalBuilder};
-pub use self::name::{DName, DNameBuf, DNameSlice, PackedDName};
+pub use self::name::{DName, DNameBuf, DNameSlice, ParsedDName};
 pub use self::parser::{Parser, ParseError, ParseResult};
 pub use self::question::Question;
 pub use self::rdata::{GenericRecordData, ParsedRecordData, RecordData};

@@ -4,7 +4,7 @@ use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use futures::{BoxFuture, Future};
-use ::bits::name::{DNameBuf, Label, PackedDName};
+use ::bits::name::{DNameBuf, Label, ParsedDName};
 use ::bits::message::{MessageBuf, RecordIter};
 use ::iana::{Class, Rtype};
 use ::rdata::parsed::Ptr;
@@ -55,12 +55,12 @@ impl LookupAddr {
 
 /// An iterator over host names returned by address lookup.
 pub struct LookupAddrIter<'a> {
-    name: Option<PackedDName<'a>>,
+    name: Option<ParsedDName<'a>>,
     answer: Option<RecordIter<'a, Ptr<'a>>>
 }
 
 impl<'a> Iterator for LookupAddrIter<'a> {
-    type Item = PackedDName<'a>;
+    type Item = ParsedDName<'a>;
 
     #[allow(while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {

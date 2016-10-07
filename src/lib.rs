@@ -4,7 +4,7 @@
 //! System. Currently, these are:
 //!
 //! * fundamental types, traits, and implementations for dealing with DNS
-//!   data through the modules [bits], [rdata], and [iana],
+//!   data through the modules [bits] and [iana],
 //! * parsing of master file data (aka zonefiles) in [master],
 //! * data and master file access for various resource record types in
 //!   [rdata],

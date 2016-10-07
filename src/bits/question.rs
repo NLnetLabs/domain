@@ -2,7 +2,7 @@
 
 use std::fmt;
 use ::iana::{Class, Rtype};
-use super::{Composer, ComposeResult, DName, PackedDName, Parser, ParseResult};
+use super::{Composer, ComposeResult, DName, ParsedDName, Parser, ParseResult};
 
 
 //------------ Question -----------------------------------------------------
@@ -52,10 +52,10 @@ impl<N: DName> Question<N> {
 
 /// # Parsing
 ///
-impl<'a> Question<PackedDName<'a>> {
+impl<'a> Question<ParsedDName<'a>> {
     /// Parses a question from the beginning of a parser.
     pub fn parse(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        Ok(Question::new(try!(PackedDName::parse(parser)),
+        Ok(Question::new(try!(ParsedDName::parse(parser)),
                          try!(Rtype::parse(parser)),
                          try!(Class::parse(parser))))
     }
