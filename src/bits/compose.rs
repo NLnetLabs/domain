@@ -693,10 +693,8 @@ pub enum ComposeError {
 
     /// A `ParseError` has happened while preparing data for composing.
     ///
-    /// Since we are trying to be as lazy as possible, parse errors can
-    /// happen very late. For instance, when writing a lazy domain name,
-    /// that name is only checked when it is being written and may contain
-    /// invalid references.
+    /// In some cases composition can happen using as-yet unparsed DNS data.
+    /// If necessary parsing fails, its error is wrapped in this variant.
     ParseError(ParseError),
 }
 
@@ -738,4 +736,147 @@ impl fmt::Display for ComposeError {
 
 /// The result type for a `ComposeError`.
 pub type ComposeResult<T> = Result<T, ComposeError>;
+
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+mod test {
+    use bits::name::DNameSlice;
+    use super::*;
+
+    #[test]
+    fn bytes_and_ints() {
+        let mut c = Composer::new(ComposeMode::Unlimited, false);
+        c.compose_bytes(b"foo").unwrap();
+        c.compose_u8(0x07).unwrap();
+        c.compose_u16(0x1234).unwrap();
+        c.compose_u32(0xdeadbeef).unwrap();
+        assert_eq!(c.finish(),
+                   b"foo\x07\x12\x34\xde\xad\xbe\xef");
+    }
+
+    #[test]
+    fn dname() {
+        let mut c = Composer::new(ComposeMode::Unlimited, false);
+        let name = DNameSlice::from_bytes(b"\x03foo\x03bar\x00").unwrap();
+        c.compose_dname(&name).unwrap();
+        assert_eq!(c.finish(), b"\x03foo\x03bar\x00");
+
+        let mut c = Composer::new(ComposeMode::Unlimited, false);
+        let name = DNameSlice::root();
+        c.compose_dname(&name).unwrap();
+        assert_eq!(c.finish(), b"\x00");
+
+        let mut c = Composer::new(ComposeMode::Unlimited, false);
+        let name = DNameSlice::from_bytes(b"\x03foo\x03bar").unwrap();
+        assert_eq!(c.compose_dname(&name),
+                   Err(ComposeError::RelativeName));
+    }
+
+    #[test]
+    fn dname_compressed() {
+        // Same name again.
+        let mut c = Composer::new(ComposeMode::Unlimited, true);
+        c.compose_u8(0x07).unwrap();
+        let name = DNameSlice::from_bytes(b"\x03foo\x03bar\x00").unwrap();
+        c.compose_dname_compressed(&name).unwrap();
+        c.compose_dname_compressed(&name).unwrap();
+        assert_eq!(c.finish(),
+                   b"\x07\x03foo\x03bar\x00\xC0\x01");
+
+        // Prefixed name.
+        let mut c = Composer::new(ComposeMode::Unlimited, true);
+        c.compose_u8(0x07).unwrap();
+        let name = DNameSlice::from_bytes(b"\x03foo\x03bar\x00").unwrap();
+        c.compose_dname_compressed(&name).unwrap();
+        let name = DNameSlice::from_bytes(b"\x03baz\x03foo\x03bar\x00")
+                              .unwrap();
+        c.compose_dname_compressed(&name).unwrap();
+        assert_eq!(c.finish(),
+                   b"\x07\x03foo\x03bar\x00\x03baz\xC0\x01");
+
+        // Suffixed name.
+        let mut c = Composer::new(ComposeMode::Unlimited, true);
+        c.compose_u8(0x07).unwrap();
+        let name = DNameSlice::from_bytes(b"\x03foo\x03bar\x00").unwrap();
+        c.compose_dname_compressed(&name).unwrap();
+        let name = DNameSlice::from_bytes(b"\x03baz\x03bar\x00").unwrap();
+        c.compose_dname_compressed(&name).unwrap();
+        assert_eq!(c.finish(),
+                   b"\x07\x03foo\x03bar\x00\x03baz\xC0\x05");
+
+        // Don’t compress the root label.
+        let mut c = Composer::new(ComposeMode::Unlimited, true);
+        c.compose_u8(0x07).unwrap();
+        c.compose_dname_compressed(&DNameSlice::root()).unwrap();
+        let name = DNameSlice::from_bytes(b"\x03foo\x00").unwrap();
+        c.compose_dname_compressed(&name).unwrap();
+        c.compose_dname_compressed(&DNameSlice::root()).unwrap();
+        assert_eq!(c.finish(),
+                   b"\x07\x00\x03foo\x00\x00");
+    }
+
+    #[test]
+    fn update() {
+        let mut c = Composer::new(ComposeMode::Unlimited, false);
+        c.compose_bytes(b"foo").unwrap();
+        let p8 = c.pos();
+        c.compose_u8(0x00).unwrap();
+        let p16 = c.pos();
+        c.compose_u16(0x83c7).unwrap();
+        let p32 = c.pos();
+        c.compose_u32(0x12312819).unwrap();
+
+        c.update_u8(p8, 0x07);
+        c.update_u16(p16, 0x1234);
+        c.update_u32(p32, 0xdeadbeef);
+        assert_eq!(c.finish(),
+                   b"foo\x07\x12\x34\xde\xad\xbe\xef");
+    }
+
+    #[test]
+    fn truncated() {
+        let mut c = Composer::new(ComposeMode::Limited(4), false);
+        c.compose_u16(0x1234).unwrap();
+        assert!(!c.is_truncated());
+        c.mark_checkpoint();
+        assert_eq!(c.compose_u32(0xdeadbeef),
+                   Err(ComposeError::SizeExceeded));
+        assert!(c.is_truncated());
+        assert_eq!(c.finish(),
+                   b"\x12\x34");
+    }
+
+    #[test]
+    fn stream_mode() {
+        let mut c = Composer::new(ComposeMode::Stream, false);
+        assert_eq!(c.preview(), b"\x00\x00");
+        assert_eq!(c.so_far(), b"");
+        c.compose_u32(0xdeadbeef).unwrap();
+        assert_eq!(c.preview(), b"\x00\x04\xde\xad\xbe\xef");
+        assert_eq!(c.so_far(), b"\xde\xad\xbe\xef");
+        assert_eq!(c.finish(), b"\x00\x04\xde\xad\xbe\xef");
+    }
+
+    #[test]
+    fn snapshot() {
+        let mut c = Composer::new(ComposeMode::Stream, false);
+        c.compose_u16(0x1234).unwrap();
+        let mut s = c.snapshot();
+        assert_eq!(s.so_far(), b"\x12\x34");
+        s.compose_u16(0x5678).unwrap();
+        assert_eq!(s.so_far(), b"\x12\x34\x56\x78");
+        s.rewind();
+        assert_eq!(s.so_far(), b"\x12\x34");
+        s.compose_u16(0x5678).unwrap();
+        assert_eq!(s.so_far(), b"\x12\x34\x56\x78");
+        let c = s.rollback();
+        assert_eq!(c.so_far(), b"\x12\x34");
+        let mut s = c.snapshot();
+        s.compose_u16(0x5678).unwrap();
+        let c = s.commit();
+        assert_eq!(c.finish(), b"\x00\x04\x12\x34\x56\x78");
+    }
+}
 
