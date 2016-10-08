@@ -1,19 +1,26 @@
 //! The header of a DNS message.
 //!
-//! The message header has been split into two parts represented by two
-//! separate types: `Header` contains the first 32 bits with the ID,
-//! opcode, response code, and the various flags, while `HeaderCounts`
-//! contains the item counts for the four message sections. A `HeaderSection`
-//! type is available that combines the two.
+//! Each DNS message starts with a twelve octet long header section
+//! containing some general information related to the message as well as
+//! the number of records in each of its four sections. Its content and
+//! format are defined in section 4.1.1 of [RFC 1035].
 //!
-//! The split has been done to reflect that when building a message you
-//! should be able to freely manipulate the former part whereas the counts
-//! should be set in accordance with the actual items in the message as it
-//! is built.
+//! In order to reflect the fact that changing the section counts may
+//! invalidate the rest of the message whereas the other elements of the
+//! header section can safely be modified, the header section has been split
+//! into two separate types: [`Header`] contains the ‘safe’ part at the
+//! beginning of the section and [`HeaderCounts`] contains the section 
+//! counts. In addition, the [`HeaderSection`] type wraps both of them into
+//! a single type.
 //!
+//! [`Header`]: struct.Header.html
+//! [`HeaderCounts`]: struct.HeaderCounts.html
+//! [`HeaderSection`]: struct.HeaderSection.html
+//! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use std::mem;
-use iana::{Opcode, Rcode};
+use byteorder::{BigEndian, ByteOrder};
+use ::iana::{Opcode, Rcode};
 use super::compose::{ComposeError, ComposeResult};
 
 
@@ -36,13 +43,20 @@ use super::compose::{ComposeError, ComposeResult};
 /// +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 /// ```
 ///
-/// Most of this is defined in RFC 1035, except for the AD and CD flags,
-/// which are defined in RFC 4035.
+/// Methods are available for each of accessing each of these fields.
+/// See [Field Access] below.
+///
+/// Most of this is defined in [RFC 1035], except for the AD and CD flags,
+/// which are defined in [RFC 4035].
+///
+/// [Field Access]: #field-access 
+/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+/// [RFC 4035]: https://tools.ietf.org/html/rfc4035
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Header {
     /// The actual header in its wire format representation.
     ///
-    /// This means that data is in big endian.
+    /// This means that the ID field is in big endian.
     inner: [u8; 4]
 }
 
@@ -79,7 +93,7 @@ impl Header {
         unsafe { &mut *(s.as_ptr() as *mut Header) }
     }
 
-    /// Returns the underlying bytes slice.
+    /// Returns a reference to the underlying bytes slice.
     pub fn as_bytes(&self) -> &[u8] {
         &self.inner
     }
@@ -89,19 +103,24 @@ impl Header {
 /// # Field Access
 ///
 impl Header {
-    /// Returns the ID field.
+    /// Returns the value of the ID field.
     ///
     /// The ID field is an identifier chosen by whoever created a query
-    /// and is copied into a response.
-    pub fn id(&self) -> u16 { self.get_u16(0) }
+    /// and is copied into a response. It serves to match incoming responses
+    /// to their request.
+    pub fn id(&self) -> u16 {
+        BigEndian::read_u16(&self.inner)
+    }
 
-    /// Sets the ID field.
-    pub fn set_id(&mut self, value: u16) { self.set_u16(0, value) }
+    /// Sets the value of the ID field.
+    pub fn set_id(&mut self, value: u16) {
+        BigEndian::write_u16(&mut self.inner, value)
+    }
 
-    /// Sets the ID field to a randomly chosen number.
+    /// Sets the value of the ID field to a randomly chosen number.
     pub fn set_random_id(&mut self) { self.set_id(::rand::random()) }
 
-    /// Returns the value of the QR bit.
+    /// Returns whether the QR bit is set.
     ///
     /// The QR bit specifies whether this message is a query (`false`) or
     /// a response (`true`). In other words, this bit is actually stating
@@ -112,41 +131,47 @@ impl Header {
     ///
     pub fn set_qr(&mut self, set: bool) { self.set_bit(2, 7, set) }
 
-    /// Returns the Opcode field.
+    /// Returns the value of the Opcode field.
     ///
     /// This field specifies the kind of query this message contains. See
-    /// the `Opcode` type for more information on the possible values and
-    /// their meaning.
+    /// the [`Opcode`] type for more information on the possible values and
+    /// their meaning. Normal queries have the variant [`Opcode::Query`]
+    /// which is also the value set when creating a new header.
+    ///
+    /// [`Opcode`]: ../../iana/opcode/enum.Opcode.html
+    /// [`Opcode::Query`]: ../../iana/opcode/enum.Opcode.html#variant.Query
     pub fn opcode(&self) -> Opcode {
         Opcode::from_int((self.inner[2] >> 3) & 0x0F)
     }
 
-    /// Sets the opcode field.
+    /// Sets the value of the opcode field.
     pub fn set_opcode(&mut self, opcode: Opcode) {
         self.inner[2] = self.inner[2] & 0x87 | (opcode.to_int() << 3);
     }
 
-    /// Returns the value of the AA bit.
+    /// Returns whether the AA bit is set.
     ///
-    /// Using this field, a name server generating a response states whether
+    /// Using this bit, a name server generating a response states whether
     /// it is authoritative for the requested domain name, ie., whether this
-    /// response is a *authoritative answer.* The field has no meaning in 
+    /// response is an *authoritative answer.* The field has no meaning in 
     /// a query.
     pub fn aa(&self) -> bool { self.get_bit(2, 2) }
 
     /// Sets the value of the AA bit.
     pub fn set_aa(&mut self, set: bool) { self.set_bit(2, 2, set) }
 
-    /// Returns the value of the TC bit.
+    /// Returns whether the TC bit is set.
     ///
-    /// The *truncation* bit is set if there was more data then fit into the
-    /// message.
+    /// The *truncation* bit is set if there was more data available then
+    /// fit into the message. This is typically used when employing
+    /// datagram transports such as UDP to signal to try again using a
+    /// stream transport such as TCP.
     pub fn tc(&self) -> bool { self.get_bit(2, 1) }
 
     /// Sets the value of the TC bit.
     pub fn set_tc(&mut self, set: bool) { self.set_bit(2, 1, set) }
 
-    /// Returns the value of the RD bit.
+    /// Returns whether the RD bit is set.
     ///
     /// The *recursion desired* bit may be set in a query to ask the name
     /// server to try and recursively gather a response if it doesn’t have
@@ -157,7 +182,7 @@ impl Header {
     /// Sets the value of the RD bit.
     pub fn set_rd(&mut self, set: bool) { self.set_bit(2, 0, set) }
 
-    /// Returns the value of the RA bit.
+    /// Returns whether the RA bit is set.
     ///
     /// In a response, the *recursion available* bit denotes whether the
     /// responding name server supports recursion. It has no meaning in
@@ -167,7 +192,7 @@ impl Header {
     /// Sets the value of the RA bit.
     pub fn set_ra(&mut self, set: bool) { self.set_bit(3, 7, set) }
 
-    /// Returns the value of the reserved bit.
+    /// Returns whether the reserved bit is set.
     ///
     /// This bit must be `false` in all queries and responses.
     pub fn z(&self) -> bool { self.get_bit(3, 6) }
@@ -175,7 +200,7 @@ impl Header {
     /// Sets the value of the reserved bit.
     pub fn set_z(&mut self, set: bool) { self.set_bit(3, 6, set) }
 
-    /// Returns the value of the AD bit.
+    /// Returns whether the AD bit is set.
     ///
     /// The *authentic data* bit is used by security-aware recursive name
     /// servers to indicate that it considers all RRsets in its response to
@@ -185,53 +210,45 @@ impl Header {
     /// Sets the value of the AD bit.
     pub fn set_ad(&mut self, set: bool) { self.set_bit(3, 5, set) }
 
-    /// Returns the value of the CD bit.
+    /// Returns whether the CD bit is set.
     ///
     /// The *checking disabled* bit is used by security-aware resolvers
     /// to indicate that it does not want upstream name servers to perform
-    /// verification bit will do all that itself.
+    /// verification but rather would like to verify everything itself.
     pub fn cd(&self) -> bool { self.get_bit(3, 4) }
 
     /// Sets the value of the CD bit.
     pub fn set_cd(&mut self, set: bool) { self.set_bit(3, 4, set) }
 
-    /// Returns the RCODE field.
+    /// Returns the value of the RCODE field.
     ///
     /// The *response code* is used in a response to indicate what happened
-    /// when processing the query. See the `Rcode` type for information on
+    /// when processing the query. See the [`Rcode`] type for information on
     /// possible values and their meaning.
+    ///
+    /// [`Rcode`]: ../../iana/rcode/enum.Rcode.html
     pub fn rcode(&self) -> Rcode {
         Rcode::from_int(self.inner[3] & 0x0F)
     }
 
-    /// Sets the RCODE field.
+    /// Sets the value of the RCODE field.
     pub fn set_rcode(&mut self, rcode: Rcode) {
         self.inner[3] = self.inner[3] & 0xF0 | (rcode.to_int() & 0x0F);
     }
 
 
     //--- Internal helpers
-    
-    fn get_u16(&self, offset: usize) -> u16 {
-        assert!(offset < 11);
 
-        (self.inner[offset] as u16) << 8 | (self.inner[offset + 1] as u16)
-    }
-
-    fn set_u16(&mut self, offset: usize, value: u16) {
-        assert!(offset < 11);
-
-        self.inner[offset] = (value >> 8) as u8;
-        self.inner[offset + 1] = value as u8;
-    }
-
+    /// Returns the value of the bit at the given position.
+    ///
+    /// The argument `offset` gives the byte offset of the underlying bytes
+    /// slice and `bit` gives the number of the bit with the most significant
+    /// bit being 7.
     fn get_bit(&self, offset: usize, bit: usize) -> bool {
-        assert!(offset < 12);
-        assert!(bit < 8);
-
         self.inner[offset] & (1 << bit) != 0
     }
 
+    /// Sets or resets the given bit.
     fn set_bit(&mut self, offset: usize, bit: usize, set: bool) {
         if set { self.inner[offset] |= 1 << bit }
         else { self.inner[offset] &= !(1 << bit) }
@@ -241,38 +258,44 @@ impl Header {
 
 //------------ HeaderCounts -------------------------------------------------
 
-/// The section count part of the header of a DNS message.
+/// The section count part of the header section of a DNS message.
 ///
 /// This part consists of four 16 bit counters for the number of entries in
 /// the four sections of a DNS message.
 ///
-/// The counters are arranged in the
-/// same order as the sections themselves: QDCOUNT for the question section,
-/// ANCOUNT for the answer section, NSCOUNT for the authority section, and
-/// ARCOUNT for the additional section. These are defined in RFC 1035.
+/// The counters are arranged in the same order as the sections themselves:
+/// QDCOUNT for the question section, ANCOUNT for the answer section,
+/// NSCOUNT for the authority section, and ARCOUNT for the additional section.
+/// These are defined in [RFC 1035].
 ///
-/// RFC 2136 defines the UPDATE method and reuses the four section for
+/// [RFC 2136] defines the UPDATE method and reuses the four section for
 /// different purposes. Here the counters are ZOCOUNT for the zone section,
 /// PRCOUNT for the prerequisite section, UPCOUNT for the update section,
 /// and ADCOUNT for the additional section. The type has convenience methods
 /// for these fields as well so you don’t have to remember which is which.
 ///
 /// For each field there are three methods for getting, setting, and
-/// incrementing by one.
+/// incrementing.
+///
+/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+/// [RFC 2136]: https://tools.ietf.org/html/rfc2136
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HeaderCounts {
+    /// The actual headers in their wire-format representation.
+    ///
+    /// Ie., all values are stored big endian.
     inner: [u8; 8]
 }
 
 /// # Creation and Conversion
 ///
 impl HeaderCounts {
-    /// Creates a new empty counts.
+    /// Creates a new value with all counters set to zero.
     pub fn new() -> HeaderCounts {
         HeaderCounts { inner: [0; 8] }
     }
 
-    /// Creates a reference from the bytes slice of a message.
+    /// Creates a reference from the bytes slice of a message (!).
     ///
     /// # Panics
     ///
@@ -298,7 +321,7 @@ impl HeaderCounts {
         }
     }
 
-    /// Returns the underlying bytes slice.
+    /// Returns a reference to the underlying bytes slice.
     pub fn as_bytes(&self) -> &[u8] {
         &self.inner
     }
@@ -310,7 +333,7 @@ impl HeaderCounts {
 impl HeaderCounts {
     //--- Count fields in regular messages
 
-    /// Returns the QDCOUNT field.
+    /// Returns the value of the QDCOUNT field.
     ///
     /// This field contains the number of questions in the first
     /// section of the message, normally the question section.
@@ -318,17 +341,17 @@ impl HeaderCounts {
         self.get_u16(0)
     }
 
-    /// Sets the QDCOUNT field.
+    /// Sets the value of the QDCOUNT field.
     pub fn set_qdcount(&mut self, value: u16) {
         self.set_u16(0, value)
     }
 
-    /// Increase the QDCOUNT field by one.
+    /// Increase the value of the QDCOUNT field.
     pub fn inc_qdcount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(0, inc)
     }
 
-    /// Returns the ANCOUNT field.
+    /// Returns the value of the ANCOUNT field.
     ///
     /// This field contains the number of resource records in the second
     /// section of the message, normally the answer section.
@@ -336,17 +359,17 @@ impl HeaderCounts {
         self.get_u16(2)
     }
 
-    /// Sets the ANCOUNT field.
+    /// Sets the value of the ANCOUNT field.
     pub fn set_ancount(&mut self, value: u16) {
         self.set_u16(2, value)
     }
 
-    /// Increases the ANCOUNT field.
+    /// Increases the value of the ANCOUNT field.
     pub fn inc_ancount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(2, inc)
     }
 
-    /// Returns the NSCOUNT field.
+    /// Returns the value of the NSCOUNT field.
     ///
     /// This field contains the number of resource records in the third
     /// section of the message, normally the authority section.
@@ -354,17 +377,17 @@ impl HeaderCounts {
         self.get_u16(4)
     }
 
-    /// Sets the NSCOUNT field.
+    /// Sets the value of the NSCOUNT field.
     pub fn set_nscount(&mut self, value: u16) {
         self.set_u16(4, value)
     }
 
-    /// Increases the NSCOUNT field.
+    /// Increases the value of the NSCOUNT field.
     pub fn inc_nscount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(4, inc)
     }
 
-    /// Returns the ARCOUNT field.
+    /// Returns the value of the ARCOUNT field.
     ///
     /// This field contains the number of resource records in the fourth
     /// section of the message, normally the additional section.
@@ -372,12 +395,12 @@ impl HeaderCounts {
         self.get_u16(6)
     }
 
-    /// Sets the ARCOUNT field.
+    /// Sets the value of the ARCOUNT field.
     pub fn set_arcount(&mut self, value: u16) {
         self.set_u16(6, value)
     }
 
-    /// Increases the ARCOUNT field.
+    /// Increases the value of the ARCOUNT field.
     pub fn inc_arcount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(6, inc)
     }
@@ -385,7 +408,7 @@ impl HeaderCounts {
 
     //--- Count fields in UPDATE messages
 
-    /// Returns the ZOCOUNT field.
+    /// Returns the value of the ZOCOUNT field.
     ///
     /// This is the same as the `qdcount()`. It is used in UPDATE queries
     /// where the first section is the zone section.
@@ -393,17 +416,17 @@ impl HeaderCounts {
         self.get_u16(0)
     }
 
-    /// Sets the ZOCOUNT field.
+    /// Sets the value of the ZOCOUNT field.
     pub fn set_zocount(&mut self, value: u16) {
         self.set_u16(0, value)
     }
 
-    /// Increments the ZOCOUNT field.
+    /// Increments the value of the ZOCOUNT field.
     pub fn inc_zocount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(0, inc)
     }
 
-    /// Returns the PRCOUNT field.
+    /// Returns the value of the PRCOUNT field.
     ///
     /// This is the same as the `ancount()`. It is used in UPDATE queries
     /// where the first section is the prerequisite section.
@@ -411,17 +434,17 @@ impl HeaderCounts {
         self.get_u16(2)
     }
 
-    /// Sete the PRCOUNT field.
+    /// Sete the value of the PRCOUNT field.
     pub fn set_prcount(&mut self, value: u16) {
         self.set_u16(2, value)
     }
 
-    /// Increments the PRCOUNT field,
+    /// Increments the value of the PRCOUNT field,
     pub fn inc_prcount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(2, inc)
     }
 
-    /// Returns the UPCOUNT field.
+    /// Returns the value of the UPCOUNT field.
     ///
     /// This is the same as the `nscount()`. It is used in UPDATE queries
     /// where the first section is the update section.
@@ -429,17 +452,17 @@ impl HeaderCounts {
         self.get_u16(4)
     }
 
-    /// Sets the UPCOUNT field.
+    /// Sets the value of the UPCOUNT field.
     pub fn set_upcount(&mut self, value: u16) {
         self.set_u16(4, value)
     }
 
-    /// Increments the UPCOUNT field.
+    /// Increments the value of the UPCOUNT field.
     pub fn inc_upcount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(4, inc)
     }
 
-    /// Returns the ADCOUNT field.
+    /// Returns the value of the ADCOUNT field.
     ///
     /// This is the same as the `arcount()`. It is used in UPDATE queries
     /// where the first section is the additional section.
@@ -447,12 +470,12 @@ impl HeaderCounts {
         self.get_u16(6)
     }
 
-    /// Sets the ADCOUNT field.
+    /// Sets the value of the ADCOUNT field.
     pub fn set_adcount(&mut self, value: u16) {
         self.set_u16(6, value)
     }
 
-    /// Increments the ADCOUNT field.
+    /// Increments the value of the ADCOUNT field.
     pub fn inc_adcount(&mut self, inc: u16) -> ComposeResult<()> {
         self.inc_u16(6, inc)
     }
@@ -460,19 +483,17 @@ impl HeaderCounts {
 
     //--- Internal helpers
     
+    /// Returns the value of the 16 bit integer starting at a given offset.
     fn get_u16(&self, offset: usize) -> u16 {
-        assert!(offset < 7);
-
-        (self.inner[offset] as u16) << 8 | (self.inner[offset + 1] as u16)
+        BigEndian::read_u16(&self.inner[offset..])
     }
 
+    /// Sets the value of the 16 bit integer starting at a given offset.
     fn set_u16(&mut self, offset: usize, value: u16) {
-        assert!(offset < 7);
-
-        self.inner[offset] = (value >> 8) as u8;
-        self.inner[offset + 1] = value as u8;
+        BigEndian::write_u16(&mut self.inner[offset..], value)
     }
 
+    /// Increments the value of the 16 bit integer starting at a given offset.
     fn inc_u16(&mut self, offset: usize, inc: u16) -> ComposeResult<()> {
         let value = match self.get_u16(offset).checked_add(inc) {
             Some(value) => value,
@@ -484,9 +505,9 @@ impl HeaderCounts {
 }
 
 
-//------------ HeaderSection ---------------------------------------------------
+//------------ HeaderSection -------------------------------------------------
 
-/// The complete header of a DNS message.
+/// The complete header section of a DNS message.
 ///
 /// Consists of a `Header` and a `HeaderCounts`.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -497,28 +518,34 @@ pub struct HeaderSection {
 /// # Creation and Conversion
 ///
 impl HeaderSection {
-    /// Creates a new empty header.
+    /// Creates a new empty header section.
     pub fn new() -> HeaderSection {
         HeaderSection { inner: [0; 12] }
     }
 
     /// Creates a reference from the bytes slice of a message.
     ///
-    /// This function is unsafe as it assumes the bytes slice to have the
-    /// correct length.
-    pub unsafe fn from_message(s: &[u8]) -> &HeaderSection {
-        &*(s.as_ptr() as *const HeaderSection)
+    /// # Panics
+    ///
+    /// This function panics if the size of the bytes slice is smaller than
+    /// the header section.
+    pub fn from_message(s: &[u8]) -> &HeaderSection {
+        assert!(s.len() >= mem::size_of::<HeaderSection>());
+        unsafe { &*(s.as_ptr() as *const HeaderSection) }
     }
 
     /// Creates a mutable reference from the bytes slice of a message.
     ///
-    /// This function is unsafe as it assumes the bytes slice to have the
-    /// correct length.
-    pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut HeaderSection {
-        &mut *(s.as_ptr() as *mut HeaderSection)
+    /// # Panics
+    ///
+    /// This function panics if the size of the bytes slice is smaller than
+    /// the header section.
+    pub fn from_message_mut(s: &mut [u8]) -> &mut HeaderSection {
+        assert!(s.len() >= mem::size_of::<HeaderSection>());
+        unsafe { &mut *(s.as_ptr() as *mut HeaderSection) }
     }
 
-    /// Returns the underlying bytes slice.
+    /// Returns a reference to the underlying bytes slice.
     pub fn as_bytes(&self) -> &[u8] {
         &self.inner
     }
@@ -566,6 +593,24 @@ mod test {
                 assert_eq!(h.$get(), $value);
             })*
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn short_header() {
+        Header::from_message(b"134");
+    }
+
+    #[test]
+    #[should_panic]
+    fn short_header_counts() {
+        HeaderCounts::from_message(b"12345678");
+    }
+
+    #[test]
+    #[should_panic]
+    fn short_header_section() {
+        HeaderSection::from_message(b"1234");
     }
 
     #[test]
