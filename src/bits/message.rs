@@ -5,7 +5,7 @@ use std::{borrow, mem, ops};
 use std::marker::PhantomData;
 use ::iana::{Rcode, Rtype};
 use ::rdata::Cname;
-use super::{FullHeader, GenericRecord, Header, HeaderCounts, ParsedDName,
+use super::{HeaderSection, GenericRecord, Header, HeaderCounts, ParsedDName,
             ParsedRecordData, Parser, ParseError, ParseResult, Question,
             Record};
 
@@ -24,7 +24,7 @@ impl Message {
     /// No further checks are done, though, so if this function returns `Ok`,
     /// the message may still be broken.
     pub fn from_bytes(bytes: &[u8]) -> ParseResult<&Self> {
-        if bytes.len() < mem::size_of::<FullHeader>() {
+        if bytes.len() < mem::size_of::<HeaderSection>() {
             Err(ParseError::UnexpectedEnd)
         }
         else {
@@ -100,7 +100,7 @@ impl Message {
     /// Returns the question section.
     pub fn question(&self) -> QuestionSection {
         let mut parser = Parser::new(&self.inner);
-        parser.skip(mem::size_of::<FullHeader>()).unwrap();
+        parser.skip(mem::size_of::<HeaderSection>()).unwrap();
         QuestionSection::new(parser)
     }
 

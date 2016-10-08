@@ -2,7 +2,7 @@
 
 use std::mem;
 use super::{Composer, ComposeError, ComposeMode, ComposeResult,
-            ComposeSnapshot, DName, FullHeader, Header, HeaderCounts,
+            ComposeSnapshot, DName, HeaderSection, Header, HeaderCounts,
             Question, Record, RecordData};
 
 
@@ -22,7 +22,7 @@ impl MessageBuilder {
     }
 
     pub fn from_composer(mut composer: Composer) -> ComposeResult<Self> {
-        try!(composer.compose_empty(mem::size_of::<FullHeader>()));
+        try!(composer.compose_empty(mem::size_of::<HeaderSection>()));
         Ok(MessageBuilder{target: MessageTarget::new(composer)})
     }
 }

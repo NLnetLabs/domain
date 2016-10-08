@@ -3,7 +3,7 @@
 //! The message header has been split into two parts represented by two
 //! separate types: `Header` contains the first 32 bits with the ID,
 //! opcode, response code, and the various flags, while `HeaderCounts`
-//! contains the item counts for the four message sections. A `FullHeader`
+//! contains the item counts for the four message sections. A `HeaderSection`
 //! type is available that combines the two.
 //!
 //! The split has been done to reflect that when building a message you
@@ -278,7 +278,7 @@ impl HeaderCounts {
     ///
     /// This function panics if the bytes slice is too short.
     pub fn from_message(s: &[u8]) -> &HeaderCounts {
-        assert!(s.len() >= mem::size_of::<FullHeader>());
+        assert!(s.len() >= mem::size_of::<HeaderSection>());
         unsafe {
             &*((s[mem::size_of::<Header>()..].as_ptr())
                                                       as *const HeaderCounts)
@@ -291,7 +291,7 @@ impl HeaderCounts {
     ///
     /// This function panics if the bytes slice is too short.
     pub fn from_message_mut(s: &mut [u8]) -> &mut HeaderCounts {
-        assert!(s.len() >= mem::size_of::<FullHeader>());
+        assert!(s.len() >= mem::size_of::<HeaderSection>());
         unsafe {
             &mut *((s[mem::size_of::<Header>()..].as_ptr())
                                                          as *mut HeaderCounts)
@@ -484,38 +484,38 @@ impl HeaderCounts {
 }
 
 
-//------------ FullHeader ---------------------------------------------------
+//------------ HeaderSection ---------------------------------------------------
 
 /// The complete header of a DNS message.
 ///
 /// Consists of a `Header` and a `HeaderCounts`.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct FullHeader {
+pub struct HeaderSection {
     inner: [u8; 12]
 }
 
 /// # Creation and Conversion
 ///
-impl FullHeader {
+impl HeaderSection {
     /// Creates a new empty header.
-    pub fn new() -> FullHeader {
-        FullHeader { inner: [0; 12] }
+    pub fn new() -> HeaderSection {
+        HeaderSection { inner: [0; 12] }
     }
 
     /// Creates a reference from the bytes slice of a message.
     ///
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
-    pub unsafe fn from_message(s: &[u8]) -> &FullHeader {
-        &*(s.as_ptr() as *const FullHeader)
+    pub unsafe fn from_message(s: &[u8]) -> &HeaderSection {
+        &*(s.as_ptr() as *const HeaderSection)
     }
 
     /// Creates a mutable reference from the bytes slice of a message.
     ///
     /// This function is unsafe as it assumes the bytes slice to have the
     /// correct length.
-    pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut FullHeader {
-        &mut *(s.as_ptr() as *mut FullHeader)
+    pub unsafe fn from_message_mut(s: &mut [u8]) -> &mut HeaderSection {
+        &mut *(s.as_ptr() as *mut HeaderSection)
     }
 
     /// Returns the underlying bytes slice.
@@ -527,7 +527,7 @@ impl FullHeader {
 
 /// # Access to Header and Counts
 ///
-impl FullHeader {
+impl HeaderSection {
     /// Returns a reference to the header.
     pub fn header(&self) -> &Header {
         Header::from_message(&self.inner)

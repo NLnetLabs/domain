@@ -79,7 +79,7 @@
 pub use self::charstr::{CharStr, CharStrBuf};
 pub use self::compose::{Composable, Composer, ComposeError, ComposeMode,
                         ComposeResult, ComposeSnapshot};
-pub use self::header::{FullHeader, Header, HeaderCounts};
+pub use self::header::{Header, HeaderCounts, HeaderSection};
 pub use self::message::{Message, MessageBuf};
 pub use self::message_builder::{MessageBuilder, AnswerBuilder,
                                 AuthorityBuilder, AdditionalBuilder};
