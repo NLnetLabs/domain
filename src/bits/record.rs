@@ -125,6 +125,21 @@ impl<N: DName, D: RecordData> Record<N, D> {
 }
 
 
+//--- From
+
+impl<N: DName, D: RecordData> From<(N, Class, u32, D)> for Record<N, D> {
+    fn from(x: (N, Class, u32, D)) -> Self {
+        Record::new(x.0, x.1, x.2, x.3)
+    }
+}
+
+impl<N: DName, D: RecordData> From<(N, u32, D)> for Record<N, D> {
+    fn from(x: (N, u32, D)) -> Self {
+        Record::new(x.0, Class::In, x.1, x.2)
+    }
+}
+
+
 //--- Display
 
 impl<N: DName, D: RecordData + fmt::Display> fmt::Display for Record<N, D> {

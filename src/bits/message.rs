@@ -1,4 +1,17 @@
 //! Accessing exisiting DNS messages.
+//!
+//! This module defines a number of types for disecting the content of a
+//! DNS message in wire format. There are two basic types that wrap the bytes
+//! of such a message: [`Message`] for a unsized bytes slice and
+//! [`MessageBuf`] for an owned message.
+//!
+//! Detailed information on the structure of messages and how they are
+//! accessed can be found with the [`Message`] type.
+//!
+//!
+//! [`Message`]: struct.Message.html
+//! [`MessageBuf`]: struct.MessageBuf.html
+
 
 use std::collections::HashMap;
 use std::{borrow, mem, ops};
@@ -11,6 +24,119 @@ use super::{HeaderSection, GenericRecord, Header, HeaderCounts, ParsedDName,
 
 //------------ Message -------------------------------------------------------
 
+/// A slice of a DNS message.
+///
+/// This types wraps a bytes slice with the binary content of a DNS message
+/// and allows parsing the content for further processing.
+///
+/// Typically, you create a message slice by passing a slice with its raw
+/// bytes to the [`from_bytes()`] function. This function only does a quick
+/// if there are enough bytes for the minimum message size. All further
+/// parsing happens lazily when you access more of the message.
+///
+/// Section 4 of [RFC 1035] defines DNS messages as being divded into four
+/// sections named header, question, answer, authority, and additional.
+///
+/// The header section is of a fixed sized and can be accessed without
+/// further checks through the methods given under [Header Section]. Most
+/// likely, you will be interested in the first part of the header references 
+/// to which are returned by the [`header()`] and [`header_mut()`] methods.
+/// The second part of the header section contains the number of entries
+/// in the following four sections and is of less interest as there are
+/// more sophisticated ways of accessing these sections. If you do care,
+/// you can get a reference through [`counts()`].
+///
+/// The question section contains what was asked of the DNS by a request.
+/// These questions consist of a domain name, a record type and class. With
+/// normal queries, a requests asks for all records of the given record type
+/// that are owned by the domain name within the class. There will normally
+/// be exactly one question for normal queries. With other query operations,
+/// the questions may refer to different things.
+///
+/// You can get access to the question section through the [`question()`]
+/// method. It returns a [`QuestionSection`] value that is an iterator over
+/// questions. Since a single question is a very common case, there is a 
+/// convenience method [`first_question()`] that simple returns the first
+/// question if there is any.
+///
+/// The following three section all contain DNS resource records. In normal
+/// queries, they are empty in a request and may or may not contain records
+/// in a response. The *answer* section contains all the records that answer
+/// the given question. The *authority* section contains records declaring
+/// which name server provided authoritative information for the question,
+/// and the *additional* section can contain records that the name server
+/// thought might be useful for processing the question. For instance, if you
+/// trying to find out the mail server of a domain by asking for MX records,
+/// you likely also want the IP addresses for the server, so the name server
+/// may include these right away and free of charge.
+///
+/// There are functions to access all three sections directly: [`answer()`],
+/// [`authority()`], and [`additional()`]. However, since there are no
+/// pointers to where the later sections start, accessing them directly
+/// means iterating over the previous sections. This is why it is more
+/// efficitent to call [`next_section()`] on the returned value and process
+/// them in order. Alternatively, you can use the [`sections()`] function
+/// that gives you all four sections at once with the minimal amount of
+/// iterating necessary.
+///
+/// Each record in the record sections is of a specific type. Each type has
+/// its specific record data. Because there are so many types, we decided
+/// against having a giant enum. Instead, the type representing a record
+/// section, somewhat obviously named [`RecordSection`], iterates over
+/// [`GenericRecord`]s with limited options on what you can do with the data.
+/// If you are looking for a specific record type, you can get an iterator
+/// limited to records of that type through the `limit_to()` method. This
+/// method is generic over a record data type fit for parsing (typically
+/// meaning that it is taken from the [domain::rdata::parsed] module). So,
+/// if you want to iterate over the MX records in the answer section, you
+/// would do something like this:
+///
+/// ```
+/// # use domain::bits::message::Message;
+/// use domain::rdata::parsed::Mx;
+///
+/// # let bytes = &vec![0; 12];
+/// let msg = Message::from_bytes(bytes).unwrap();
+/// for record in msg.answer().unwrap().limit_to::<Mx>() {
+///     // Do something with the record ...
+/// }
+/// ```
+///
+/// Note that because of lazy parsing, the iterator actually returns a
+/// [`ParseResult<_>`]. One quick application of `try!()` fixes this:
+///
+/// ```
+/// use domain::bits::{Message, ParseResult};
+/// use domain::rdata::parsed::Mx;
+///
+/// fn process_mx(msg: &Message) -> ParseResult<()> {
+///     for record in msg.answer().unwrap().limit_to::<Mx>() {
+///         let record = try!(record);
+///         // Do something with the record ...
+///     }
+///     Ok(())
+/// }
+/// ```
+///
+/// [`additional()`]: #method.additional
+/// [`answer()`]: #method.answer
+/// [`authority()`]: #method.authority
+/// [`counts()`]: #method.counts
+/// [`first_question()`]: #method.first_question
+/// [`from_bytes()`]: #method.from_bytes
+/// [`header()`]: #method.header
+/// [`header_mut()`]: #method.header_mut
+/// [`limit_to()`]: ../struct.RecordSection.html#method.limit_to
+/// [`next_section()`]: ../struct.RecordSection.html#method.next_section
+/// [`question()`]: #method.question
+/// [`sections()`]: #method.sections
+/// [`ParseResult<_>`]: ../parse/type.ParseResult.html
+/// [`GenericRecord`]: ../../record/type.GenericRecord.html
+/// [`QuestionSection`]: ../struct.QuestionSection.html
+/// [`RecordSection`]: ../struct.RecordSection.html
+/// [domain::rdata::parsed]: ../../rdata/parsed/index.html
+/// [Header Section]: #header-section
+/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 pub struct Message {
     inner: [u8]
 }
@@ -20,9 +146,10 @@ pub struct Message {
 impl Message {
     /// Creates a message from a bytes slice.
     ///
-    /// This fails if the slice is too short to even contain the full header.
-    /// No further checks are done, though, so if this function returns `Ok`,
-    /// the message may still be broken.
+    /// This fails if the slice is too short to even contain a complete
+    /// header section.  No further checks are done, though, so if this
+    /// function returns `Ok`, the message may still be broken with methods
+    /// returning `Err(_)`.
     pub fn from_bytes(bytes: &[u8]) -> ParseResult<&Self> {
         if bytes.len() < mem::size_of::<HeaderSection>() {
             Err(ParseError::UnexpectedEnd)
@@ -53,14 +180,14 @@ impl Message {
         unsafe { MessageBuf::from_bytes_unsafe(&self.inner) }
     }
 
-    /// Returns the underlying bytes slice.
+    /// Returns a reference to the underlying bytes slice.
     pub fn as_bytes(&self) -> &[u8] {
         &self.inner
     }
 }
 
 
-/// # Header Access
+/// # Header Section
 ///
 impl Message {
     /// Returns a reference to the message header.
@@ -104,7 +231,7 @@ impl Message {
         QuestionSection::new(parser)
     }
 
-    /// Returns the zone section of a UPDATE message.
+    /// Returns the zone section of an UPDATE message.
     ///
     /// This is identical to `self.question()`.
     pub fn zone(&self) -> QuestionSection { self.question() }
@@ -139,9 +266,6 @@ impl Message {
     }
 
     /// Returns all four sections in one fell swoop.
-    ///
-    /// This is the most effective way if you need more than one of the
-    /// record sections.
     pub fn sections(&self) -> ParseResult<(QuestionSection, RecordSection,
                                            RecordSection, RecordSection)> {
         let question = self.question();
@@ -159,8 +283,9 @@ impl Message {
 impl Message {
     /// Returns whether this is the answer to some other message.
     ///
-    /// This checks whether the ID fields of the header are the same,
-    /// whether the QR flag is set and whether the questions are the same.
+    /// The method checks whether the ID fields of the headers are the same,
+    /// whether the QR flag is set in this message, and whether the questions
+    /// are the same.
     pub fn is_answer(&self, query: &Message) -> bool {
         if !self.header().qr()
                 || self.counts().qdcount() != query.counts().qdcount() {
@@ -170,6 +295,9 @@ impl Message {
     }
 
     /// Returns the first question, if there is any.
+    ///
+    /// The method will return `None` both of there are no questions or if
+    /// parsing fails.
     pub fn first_question(&self) -> Option<Question<ParsedDName>> {
         match self.question().next() {
             None | Some(Err(..)) => None,
@@ -261,10 +389,16 @@ impl ToOwned for Message {
 
 /// An owned DNS message.
 ///
-/// Contains the underlying bytes of the message as a vector. Derefs to
-/// `Message` for all actual functionality.
+/// This type owns the underlying bytes of the message and derefs into a
+/// [`Message`] for all processing. For more information on DNS messages
+/// and how they can be accessed, please refer to the documentation of
+/// the [`Message`] type.
 ///
-/// This is not the type for building messages. Use `MessageBuilder` instead.
+/// This is, however, not the type for building messages. Use
+/// [`MessageBuilder`] instead.
+///
+/// [`Message`]: struct.Message.html
+/// [`MessageBuider`]: ../message_builder/struct.MessageBuilder.html
 #[derive(Clone, Debug)]
 pub struct MessageBuf {
     /// The underlying bytes vector.
@@ -284,10 +418,10 @@ impl MessageBuf {
         Ok(MessageBuf { inner: vec })
     }
 
-    /// Creates a new owned message with the data from the given bytes slice.
+    /// Creates a new owned message cloning the data from the bytes slice.
     ///
-    /// If the content of the vector is to short to even contain a full
-    /// header, the function fails.
+    /// If the slice is too short to even contain a full header section,
+    /// the function fails.
     pub fn from_bytes(slice: &[u8]) -> ParseResult<Self> {
         let msg = try!(Message::from_bytes(slice));
         Ok(MessageBuf { inner: Vec::from(&msg.inner) })
@@ -300,7 +434,7 @@ impl MessageBuf {
         MessageBuf { inner: Vec::from(slice) }
     }
 
-    /// Returns a message slice.
+    /// Returns a reference to the message slice.
     pub fn as_slice(&self) -> &Message {
         self
     }
@@ -350,6 +484,19 @@ impl AsMut<Message> for MessageBuf {
 
 //------------ QuestionSection ----------------------------------------------
 
+/// An iterator over the question section of a DNS message.
+///
+/// The iterator’s item is `ParseResult<Question<PackedDName>>`. In case of
+/// a parse error, `next()` will return with `Some<ParserError<_>>` once and
+/// `None` after that.
+///
+/// You can create a value of this type through the [`Message::section()`]
+/// method. Use the [`answer()`] or [`next_section()`] methods to proceed
+/// to an iterator over the answer section.
+///
+/// [`Message::section()`]: struct.Message.html#method.section
+/// [`answer()`]: #method.answer
+/// [`next_section()`]: #method.next_section
 #[derive(Clone, Debug)]
 pub struct QuestionSection<'a> {
     /// The parser for generating the questions.
@@ -374,8 +521,10 @@ impl<'a> QuestionSection<'a> {
 
     /// Proceeds to the answer section.
     ///
-    /// Skips the remaining questions, if any, and then converts `self` into
-    /// the first `RecordSection`.
+    /// Skips over any remaining questions and then converts itself into
+    /// the first [`RecordSection`].
+    ///
+    /// [`RecordSection`]: ../struct.RecordSection.html
     pub fn answer(mut self) -> ParseResult<RecordSection<'a>> {
         for question in &mut self {
             let _ = try!(question);
@@ -387,6 +536,8 @@ impl<'a> QuestionSection<'a> {
     }
 
     /// Proceeds to the answer section.
+    ///
+    /// This is an alias for the [`answer()`] method.
     pub fn next_section(self) -> ParseResult<RecordSection<'a>> {
         self.answer()
     }
@@ -455,6 +606,23 @@ impl Section {
 
 //------------ RecordSection -----------------------------------------------
 
+/// An iterator over one of the three record sections of a DNS message.
+/// 
+/// The iterator’s item is `ParseResult<GenericRecord>`. A [`GenericRecord`]
+/// is a record with [`GenericRecordData`] as its data, meaning that access
+/// to data is somewhat limited. You can, however, trade this type in for
+/// a [`RecordIter`] that iterates over records of a specific type through
+/// the [`limit_to::<D>()`] method.
+///
+/// `RecordSection` values cannot be created directly. You can get one either
+/// by calling the method for the section in question of a [`Message`] value
+/// or by proceeding from another section via its `next_section()` method.
+///
+/// [`GenericRecord`]: ../record/type.GenericRecord.html
+/// [`GenericRecordData`]: ../rdata/struct.GenericRecordData.html
+/// [`RecordIter`]: struct.RecordIter.html
+/// [`limit_to::<D>()`]: #method.limit_to
+/// [`Message`]: struct.Message.html
 #[derive(Clone, Debug)]
 pub struct RecordSection<'a> {
     /// The parser for generating the questions.
@@ -483,6 +651,15 @@ impl<'a> RecordSection<'a> {
         }
     }
 
+    /// Trades `self` in for an iterator limited to a concrete record type.
+    ///
+    /// The record type is given through its record data type. If this type
+    /// is generic, it must be the variant for parsed data. Type aliases for
+    /// all record data types implemented by this crate can be found in
+    /// the [domain::rdata::parsed] module.
+    ///
+    /// The returned limited iterator will continue at the current position
+    /// of `self`. It will *not* start from the beginning of the section.
     pub fn limit_to<D: ParsedRecordData<'a>>(self) -> RecordIter<'a, D> {
         RecordIter::new(self)
     }
@@ -504,6 +681,7 @@ impl<'a> RecordSection<'a> {
 }
 
 
+//--- Iterator
 
 impl<'a> Iterator for RecordSection<'a> {
     type Item = ParseResult<GenericRecord<'a>>;
@@ -530,6 +708,16 @@ impl<'a> Iterator for RecordSection<'a> {
 
 //------------ RecordIter ----------------------------------------------------
 
+/// An iterator over specific records of a record section of a DNS message.
+///
+/// The iterator’s item type is `ParseResult<Record<ParsedDName, D>>`. It
+/// silently skips over all records that `D` cannot or does not want to
+/// parse.
+///
+/// You can create a value of this type through the
+/// [`RecordSection::limit_to::<D>()`] method.
+///
+/// [`RecordSection::limit_to::<D>()`]: struct.RecordSection.html#method.limit_to
 #[derive(Clone, Debug)]
 pub struct RecordIter<'a, D: ParsedRecordData<'a>> {
     section: RecordSection<'a>,
@@ -537,13 +725,23 @@ pub struct RecordIter<'a, D: ParsedRecordData<'a>> {
 }
 
 impl<'a, D: ParsedRecordData<'a>> RecordIter<'a, D> {
+    /// Creates a new limited record iterator from the given section.
     fn new(section: RecordSection<'a>) -> Self {
         RecordIter{section: section, marker: PhantomData}
     }
 
-    /// Trades in the iterator for the underlying section.
+    /// Trades in the limited iterator for the complete iterator.
+    ///
+    /// The complete iterator will continue right after the last record
+    /// returned by `self`. It will *not* restart from the beginning of the
+    /// section.
     pub fn into_inner(self) -> RecordSection<'a> {
         self.section
+    }
+
+    /// Returns the next section if there is one.
+    pub fn next_section(self) -> ParseResult<Option<RecordSection<'a>>> {
+        self.section.next_section()
     }
 }
 
@@ -576,3 +774,56 @@ impl<'a, D: ParsedRecordData<'a>> Iterator for RecordIter<'a, D> {
     }
 }
 
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+    use bits::compose::ComposeMode;
+    use bits::message_builder::MessageBuilder;
+    use bits::name::DNameBuf;
+    use iana::Rtype;
+    use rdata::owned::Cname;
+    use super::*;
+
+    #[test]
+    fn short_message() {
+        assert!(Message::from_bytes(&[0u8; 11]).is_err());
+        assert!(MessageBuf::from_vec(vec![0u8; 11]).is_err());
+    }
+
+    #[test]
+    fn canonical_name() {
+        // Message without CNAMEs.
+        let mut msg = MessageBuilder::new(ComposeMode::Unlimited,
+                                          true).unwrap();
+        msg.push((DNameBuf::from_str("example.com.").unwrap(),
+                  Rtype::A)).unwrap();
+        let msg = MessageBuf::from_vec(msg.finish()).unwrap();
+        assert_eq!(DNameBuf::from_str("example.com.").unwrap(),
+                   msg.canonical_name().unwrap());
+                   
+        // Message with CNAMEs.
+        let mut msg = MessageBuilder::new(ComposeMode::Unlimited,
+                                          true).unwrap();
+        msg.push((DNameBuf::from_str("example.com.").unwrap(),
+                  Rtype::A)).unwrap();
+        let mut answer = msg.answer();
+        answer.push((DNameBuf::from_str("bar.example.com.").unwrap(), 86000,
+                     Cname::new(DNameBuf::from_str("baz.example.com.")
+                                         .unwrap())))
+              .unwrap();
+        answer.push((DNameBuf::from_str("example.com.").unwrap(), 86000,
+                     Cname::new(DNameBuf::from_str("foo.example.com.")
+                                         .unwrap())))
+              .unwrap();
+        answer.push((DNameBuf::from_str("foo.example.com.").unwrap(), 86000,
+                     Cname::new(DNameBuf::from_str("bar.example.com.")
+                                         .unwrap())))
+              .unwrap();
+        let msg = MessageBuf::from_vec(answer.finish()).unwrap();
+        assert_eq!(DNameBuf::from_str("baz.example.com.").unwrap(),
+                   msg.canonical_name().unwrap());
+    }
+}

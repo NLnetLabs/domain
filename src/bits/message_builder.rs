@@ -108,9 +108,11 @@ impl AnswerBuilder {
     }
 
     /// Appends a new resource record to the answer section.
-    pub fn push<N: DName, D: RecordData>(&mut self, record: Record<N, D>)
-                                         -> ComposeResult<()> {
-        self.target.push(|target| record.compose(target),
+    pub fn push<N, D, R>(&mut self, record: R) -> ComposeResult<()>
+                where N: DName,
+                      D: RecordData,
+                      R: Into<Record<N, D>> {
+        self.target.push(|target| record.into().compose(target),
                          |counts| counts.inc_ancount(1))
     }
 

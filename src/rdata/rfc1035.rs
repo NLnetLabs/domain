@@ -76,6 +76,12 @@ macro_rules! dname_type {
             }
         }
 
+        impl<N: DName> From<N> for $target<N> {
+            fn from(name: N) -> Self {
+                Self::new(name)
+            }
+        }
+
         impl<N: DName> fmt::Display for $target<N> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 fmt::Display::fmt(&self.$field, f)
