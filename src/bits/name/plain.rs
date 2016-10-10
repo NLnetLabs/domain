@@ -11,7 +11,7 @@ use std::ptr;
 use std::str;
 use ::master::{Scanner, ScanResult};
 use super::from_str::from_str;
-use super::{DName, Label, NameIter, RevNameIter};
+use super::{DName, Label, NameLabels, RevNameLabels};
 
 
 //------------ DNameSlice ----------------------------------------------------
@@ -105,13 +105,13 @@ impl DNameSlice {
 ///
 impl DNameSlice {
     /// Produces an iterator over the labels in the name.
-    pub fn iter(&self) -> NameIter {
-        NameIter::from_slice(self)
+    pub fn iter(&self) -> NameLabels {
+        NameLabels::from_slice(self)
     }
 
     /// Produces an iterator over the labels in reverse order.
-    pub fn rev_iter(&self) -> RevNameIter {
-        RevNameIter::new(self.iter())
+    pub fn rev_iter(&self) -> RevNameLabels {
+        RevNameLabels::new(self.iter())
     }
 
     /// Returns the number of labels in `self`.
@@ -221,7 +221,7 @@ impl<'a> DName for &'a DNameSlice {
         Cow::Borrowed(self)
     }
 
-    fn labels(&self) -> NameIter {
+    fn labels(&self) -> NameLabels {
         DNameSlice::iter(self)
     }
 }
@@ -251,7 +251,7 @@ impl borrow::ToOwned for DNameSlice {
 
 impl<'a> IntoIterator for &'a DNameSlice {
     type Item = &'a Label;
-    type IntoIter = NameIter<'a>;
+    type IntoIter = NameLabels<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -560,7 +560,7 @@ impl DName for DNameBuf {
         Cow::Borrowed(&self)
     }
 
-    fn labels(&self) -> NameIter {
+    fn labels(&self) -> NameLabels {
         DNameSlice::iter(self)
     }
 }
@@ -570,7 +570,7 @@ impl<'a> DName for &'a DNameBuf {
         Cow::Borrowed(self)
     }
 
-    fn labels(&self) -> NameIter {
+    fn labels(&self) -> NameLabels {
         DNameSlice::iter(self)
     }
 }

@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::fmt;
 use super::super::{Composer, ComposeResult};
-use super::{DNameSlice, NameIter, NameLabelettes, RevNameIter,
+use super::{DNameSlice, NameLabels, NameLabelettes, RevNameLabels,
             RevNameLabelettes};
 
 
@@ -33,25 +33,41 @@ pub trait DName: fmt::Debug + fmt::Display + Sized {
     fn to_cow(&self) -> Cow<DNameSlice>;
 
     /// Returns an iterator over the labels of the domain name.
-    fn labels(&self) -> NameIter;
+    fn labels(&self) -> NameLabels;
 
-    fn rev_labels(&self) -> RevNameIter {
-        RevNameIter::new(self.labels())
+    /// Returns an iterator over the labels in the name in reverse order.
+    ///
+    /// Because determining the reverse order is costly, there are two
+    /// separate iterator types rather than one single double-ended type.
+    fn rev_labels(&self) -> RevNameLabels {
+        RevNameLabels::new(self.labels())
     }
 
+    /// Returns an iterator over the labelettes of the domain name.
+    ///
+    /// See [`Labelette`] for a discussion of what exactly labelettes are.
+    ///
+    /// [`Labelette`]: struct.Labelette.html
     fn labelettes(&self) -> NameLabelettes {
         NameLabelettes::new(self.labels())
     }
 
+    /// Returns an iterator over the labelettes of the name in reverse order.
+    ///
+    /// See [`Labelette`] for a discussion of what exactly labelettes are.
+    ///
+    /// [`Labelette`]: struct.Labelette.html
     fn rev_labelettes(&self) -> RevNameLabelettes {
         RevNameLabelettes::new(self.rev_labels())
     }
 
+    /// Appends the name to the end of a composition.
     fn compose<C: AsMut<Composer>>(&self, mut composer: C)
                                    -> ComposeResult<()> {
         composer.as_mut().compose_dname(self)
     }
 
+    /// Appends the name to the end of a composition using name compression.
     fn compose_compressed<C: AsMut<Composer>>(&self, mut composer: C)
                                               -> ComposeResult<()> {
         composer.as_mut().compose_dname_compressed(self)

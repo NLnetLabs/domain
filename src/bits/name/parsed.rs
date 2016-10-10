@@ -5,7 +5,7 @@ use std::cmp;
 use std::fmt;
 use std::hash;
 use super::super::{Parser, ParseError, ParseResult};
-use super::{DName, DNameBuf, DNameSlice, Label, NameIter};
+use super::{DName, DNameBuf, DNameSlice, Label, NameLabels};
 use super::plain::slice_from_bytes_unsafe;
 
 
@@ -176,8 +176,8 @@ impl<'a> DName for ParsedDName<'a> {
         self.unpack()
     }
 
-    fn labels(&self) -> NameIter {
-        NameIter::from_packed(self.clone())
+    fn labels(&self) -> NameLabels {
+        NameLabels::from_packed(self.clone())
     }
 }
 

@@ -1,8 +1,17 @@
 //! Creating domain names from strings.
+//!
+//! This module is used by `DNameBuf`’s `FromStr` implementation.
+//!
+//! # Todo
+//!
+//! This should probably be merge with or into ::master’s domain name
+//! parsing.
 
 use std::str::Chars;
 use super::FromStrError;
 
+
+/// Returns owned bytes of the domain name resulting from a string.
 pub fn from_str(s: &str) -> Result<Vec<u8>, FromStrError> {
     let mut target = Vec::new();
     let mut chars = s.chars();
@@ -10,6 +19,10 @@ pub fn from_str(s: &str) -> Result<Vec<u8>, FromStrError> {
     Ok(target)
 }
 
+
+/// Takes a label from the beginning of `chars` and appends it to `target`.
+///
+/// Returns `Ok(true)` if there are more labels or `Ok(false)` if that’s it.
 fn label(chars: &mut Chars, target: &mut Vec<u8>)
              -> Result<bool, FromStrError> {
     if chars.as_str().is_empty() {
@@ -31,6 +44,9 @@ fn label(chars: &mut Chars, target: &mut Vec<u8>)
     }
 }
 
+/// Takes a normal label from `chars` and appends it to `target`.
+///
+/// Returns `Ok(true)` if there are more labels or `Ok(false)` if that’s it.
 fn normal_label(chars: &mut Chars, target: &mut Vec<u8>)
                 -> Result<bool, FromStrError> {
     let start = target.len();
@@ -62,6 +78,10 @@ fn normal_label(chars: &mut Chars, target: &mut Vec<u8>)
     Ok(false)
 }
 
+
+/// Parses the contents of an escape sequence from `chars`.
+///
+/// The backslash should already have been taken out of `chars`.
 fn parse_escape(chars: &mut Chars) -> Result<u8, FromStrError> {
     let ch = try!(chars.next().ok_or(FromStrError::UnexpectedEnd));
     if ch == '0' || ch == '1' || ch == '2' {
@@ -78,6 +98,10 @@ fn parse_escape(chars: &mut Chars) -> Result<u8, FromStrError> {
     else { Ok(ch as u8) }
 }
 
+
+/// Takes a normal label from `chars` and appends it to `target`.
+///
+/// Returns `Ok(true)` if there are more labels or `Ok(false)` if that’s it.
 fn binary_label(chars: &mut Chars, target: &mut Vec<u8>)
                 -> Result<bool, FromStrError> {
     chars.next(); chars.next(); // Skip "\\[".
@@ -90,6 +114,11 @@ fn binary_label(chars: &mut Chars, target: &mut Vec<u8>)
     }
 }
 
+
+/// Takes a binary label that is given in octal representation.
+///
+/// Such a label is starting with an `'o'` that is followed by up to 86
+/// octal digits and an options decimal bit count separated by a slash.
 fn oct_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
                     -> Result<bool, FromStrError> {
     chars.next(); // Skip 'o'
@@ -115,6 +144,11 @@ fn oct_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
     get_dot(chars)
 }
 
+
+/// Takes a binary label that is given in hex representation.
+///
+/// Such a label is starting with an `'x'` that is followed by up to 64
+/// octal digits and an options decimal bit count separated by a slash.
 fn hex_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
                     -> Result<bool, FromStrError> {
     chars.next(); // Skip 'x'
@@ -139,6 +173,11 @@ fn hex_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
     get_dot(chars)
 }
 
+
+/// Takes a binary label that is given in hex representation.
+///
+/// Such a label is starting with a `'b'` that is followed by up to 256
+/// binary digits.
 fn bin_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
                     -> Result<bool, FromStrError> {
     chars.next(); // Skip 'b'
@@ -163,7 +202,17 @@ fn bin_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
     get_dot(chars)
 }
 
-/// Returns the number of digits and the delimiter.
+/// Takes the actual digits of a binary label.
+///
+/// The digits are taken from the beginning of `chars` and copied as their
+/// byte value into `target` (ie., `'4'` becomes `4u8`). Up to the length
+/// of `target` digits are take. They must be of the given `radix`.
+///
+/// The sequence ends successfully when either a `'/'` or a `']'` is
+/// encountered. It ends in failure if any other non-digit is encountered
+/// or there are too many digits.
+///
+/// The function returns the number of digits read and the delimiter.
 fn bit_digits(chars: &mut Chars, mut target: &mut [u8], radix: u32)
               -> Result<(usize, char), FromStrError> {
     for i in 0..target.len() {
@@ -186,11 +235,19 @@ fn bit_digits(chars: &mut Chars, mut target: &mut [u8], radix: u32)
     }
 }
 
+
+/// Sets the `count`th bit to `true`.
 fn set_bit(bits: &mut [u8], count: usize) -> Result<(), FromStrError> {
     bits[count >> 3] |= 0x80 >> (count & 7);
     Ok(())
 }
 
+
+/// Takes a binary label that is given in IPv4 address representation.
+///
+/// This representation consists of four bytes in decimal representation
+/// separated by a dot and optionally follwed by a slash and the decimal
+/// number of bits.
 fn quad_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
                      -> Result<bool, FromStrError> {
     let mut bits = [0; 4];
@@ -208,6 +265,11 @@ fn quad_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
     get_dot(chars)
 }
 
+
+/// Takes a decimal byte value.
+///
+/// Returns the value and the delimiter. If `more` is `true`, the delimiter
+/// is always `'.'`, otherwise it can be `'/'` or `']'`.
 fn dec_number(chars: &mut Chars, more: bool)
               -> Result<(u8, char), FromStrError> {
     let mut res = match chars.next() {
@@ -238,6 +300,10 @@ fn dec_number(chars: &mut Chars, more: bool)
     Ok((res as u8, ch))
 }
 
+
+/// Reads the bit length.
+///
+/// This must be a slash followed by a decimal number between 1 and `max`.
 fn binary_length(chars: &mut Chars, max: usize)
                  -> Result<usize, FromStrError> {
     // Let’s be generous and allow leading zeros
@@ -260,6 +326,11 @@ fn binary_length(chars: &mut Chars, max: usize)
     }
 }
 
+
+/// Takes a dot.
+///
+/// Returns `Ok(true)` if the next character in `chars` is a `'.'`,
+/// `Ok(None)` if chars is empty, or an error otherwise.
 fn get_dot(chars: &mut Chars) -> Result<bool, FromStrError> {
     match chars.next() {
         Some('.') => Ok(true),

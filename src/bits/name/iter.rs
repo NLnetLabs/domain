@@ -5,32 +5,45 @@ use super::label::Label;
 use super::{DNameSlice, Labelette, LabelIter, ParsedDName};
 
 
-//------------ NameIter ------------------------------------------------------
+//------------ NameLabels ----------------------------------------------------
 
 /// An iterator over the labels in a domain name.
 ///
 /// This type can work with both compressed and uncompressed domain names.
+/// It forms the foundation of the [`DName`] trait.
+///
+/// [`DName`]: trait.DName.html
 #[derive(Clone, Debug)]
-pub struct NameIter<'a> {
+pub struct NameLabels<'a> {
     inner: Flavor<'a>
 }
 
+/// What sort of domain name are we operating on?
 #[derive(Clone, Debug)]
 enum Flavor<'a> {
+    /// Iterating over a domain name slice.
     Slice(&'a DNameSlice),
+
+    /// Iterating over a parsed domain name.
+    ///
+    /// This is an `Option<_>` because there is no such things as empty
+    /// parsed domain names.
     Parsed(Option<ParsedDName<'a>>),
 }
 
 
-impl<'a> NameIter<'a> {
+impl<'a> NameLabels<'a> {
+    /// Creates an iterator for a domain name slice.
     pub fn from_slice(slice: &'a DNameSlice) -> Self {
-        NameIter{inner: Flavor::Slice(slice)}
+        NameLabels{inner: Flavor::Slice(slice)}
     }
 
+    /// Creates an iterator for a parsed domain name.
     pub fn from_packed(name: ParsedDName<'a>) -> Self {
-        NameIter{inner: Flavor::Parsed(Some(name))}
+        NameLabels{inner: Flavor::Parsed(Some(name))}
     }
 
+    /// Returns a cow of the remaining labels in the domain name.
     pub fn to_cow(&self) -> Cow<'a, DNameSlice> {
         match self.inner {
             Flavor::Slice(slice) => {
@@ -49,7 +62,7 @@ impl<'a> NameIter<'a> {
 
 //--- Iterator
 
-impl<'a> Iterator for NameIter<'a> {
+impl<'a> Iterator for NameLabels<'a> {
     type Item = &'a Label;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -79,29 +92,39 @@ impl<'a> Iterator for NameIter<'a> {
 }
 
 
-//------------ RevNameIter ---------------------------------------------------
+//------------ RevNameLabels -------------------------------------------------
 
 /// An iterator over the labels of a domain name in reverse order.
+///
+/// Because we don’t know where the various labels in a domain name start,
+/// we have to iterate over the entire name in order to determine the reverse
+/// order. This type iterates only once and remembers all labels for later.
+/// Because this requires an allocation, this is a separate type rather
+/// then an implementation of `DoubleEndedIterator` for [`NameLabels`].
+///
+/// [`NameLabels`]: struct.NameIter.html
 #[derive(Clone, Debug)]
-pub struct RevNameIter<'a> {
+pub struct RevNameLabels<'a> {
     labels: Vec<&'a Label>,
 }
 
 
-impl<'a> RevNameIter<'a> {
-    pub fn new(iter: NameIter<'a>) -> Self {
-        RevNameIter{labels: iter.collect()}
+impl<'a> RevNameLabels<'a> {
+    /// Creates a new reverse iterator from a regular iterator.
+    pub fn new(iter: NameLabels<'a>) -> Self {
+        RevNameLabels{labels: iter.collect()}
     }
 
+    /// Creates a new reverse iterator for a domain name slice.
     pub fn from_slice(slice: &'a DNameSlice) -> Self {
-        Self::new(NameIter::from_slice(slice))
+        Self::new(NameLabels::from_slice(slice))
     }
 }
 
 
 //--- Iterator
 
-impl<'a> Iterator for RevNameIter<'a> {
+impl<'a> Iterator for RevNameLabels<'a> {
     type Item = &'a Label;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -116,14 +139,20 @@ impl<'a> Iterator for RevNameIter<'a> {
 
 //------------ NameLabelettes ------------------------------------------------
 
+/// An iterator over the labelettes of a domain name.
+///
+/// See [`Labelette`] for a discussion what these ominous labelettes are.
+///
+/// [`Labelette`]: struct.Labelette.html
 #[derive(Clone, Debug)]
 pub struct NameLabelettes<'a> {
-    name: NameIter<'a>,
+    name: NameLabels<'a>,
     label: Option<LabelIter<'a>>
 }
 
 impl<'a> NameLabelettes<'a> {
-    pub fn new(iter: NameIter<'a>) -> Self {
+    /// Creates a new labelette iterator from a label iterator.
+    pub fn new(iter: NameLabels<'a>) -> Self {
         NameLabelettes{name: iter, label: None}
     }
 }
@@ -149,14 +178,20 @@ impl<'a> Iterator for NameLabelettes<'a> {
 
 //------------ RevNameLabelettes ---------------------------------------------
 
+/// An iterator over the labelettes of a domain name in reverse order.
+///
+/// See [`Labelette`] for a discussion what these ominous labelettes are.
+///
+/// [`Labelette`]: struct.Labelette.html
 #[derive(Clone, Debug)]
 pub struct RevNameLabelettes<'a> {
-    name: RevNameIter<'a>,
+    name: RevNameLabels<'a>,
     label: Option<LabelIter<'a>>
 }
 
 impl<'a> RevNameLabelettes<'a> {
-    pub fn new(iter: RevNameIter<'a>) -> Self {
+    /// Creates a reverse labelette iterator from a reverse label iterator.
+    pub fn new(iter: RevNameLabels<'a>) -> Self {
         RevNameLabelettes{name: iter, label: None}
     }
 }

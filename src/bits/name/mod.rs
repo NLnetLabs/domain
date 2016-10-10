@@ -60,7 +60,7 @@
 
 pub use self::builder::{DNameBuilder, DNameBuildInto};
 pub use self::dname::DName;
-pub use self::iter::{NameIter, RevNameIter, NameLabelettes,
+pub use self::iter::{NameLabels, RevNameLabels, NameLabelettes,
                      RevNameLabelettes};
 pub use self::label::{Label, LabelContent, Labelette, LabelIter};
 pub use self::parsed::ParsedDName;
