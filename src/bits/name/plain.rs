@@ -565,6 +565,15 @@ impl DName for DNameBuf {
     }
 }
 
+impl<'a> DName for &'a DNameBuf {
+    fn to_cow(&self) -> Cow<DNameSlice> {
+        Cow::Borrowed(self)
+    }
+
+    fn iter(&self) -> NameIter {
+        DNameSlice::iter(self)
+    }
+}
 
 //--- From and FromStr
 
