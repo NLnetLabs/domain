@@ -5,27 +5,33 @@ use super::plain::buf_from_vec_unsafe;
 
 //------------ DNameBuilder --------------------------------------------------
 
-/// Builds a `DNameBuf` step by step from bytes.
+/// Builds an owned domain step by step from bytes.
 ///
 /// This type allows to build a `DNameBuf` slowly by feeding bytes. It is
-/// used internally by `FromStr` implementation of `DNameBuf` and the master
-/// format scanner.
+/// used by the master format scanner.
 #[derive(Clone, Debug)]
 pub struct DNameBuilder<'a>(DNameBuildInto<'a, Vec<u8>>);
 
 impl<'a> DNameBuilder<'a> {
+    /// Create a new domain name builder.
+    ///
+    /// If `origin` is given, it will be appened to the resulting domain
+    /// name if it is relative.
     pub fn new(origin: Option<&'a DNameSlice>) -> Self {
         DNameBuilder(DNameBuildInto::new(Vec::new(), origin))
     }
 
+    /// Pushes an octet to the end of the builder.
     pub fn push(&mut self, b: u8) -> Result<(), FromStrError> {
         self.0.push(b)
     }
 
+    /// Pushes a label end to the builder.
     pub fn end_label(&mut self) {
         self.0.end_label()
     }
 
+    /// Extracts the finished domain name from the builder.
     pub fn done(self) -> Result<DNameBuf, FromStrError> {
         let res = try!(self.0.done());
         Ok(unsafe { buf_from_vec_unsafe(res) })
@@ -54,6 +60,12 @@ pub struct DNameBuildInto<'a, V: AsMut<Vec<u8>>> {
 }
 
 impl<'a, V: AsMut<Vec<u8>>> DNameBuildInto<'a, V> {
+    /// Creates a new domain name builder.
+    ///
+    /// The domain name will be appended to the end of `target`.
+    ///
+    /// If `origin` is given, it will be appened to the resulting domain
+    /// name if it is relative.
     pub fn new(mut target: V, origin: Option<&'a DNameSlice>)
                -> Self {
         let len = target.as_mut().len();
@@ -63,6 +75,7 @@ impl<'a, V: AsMut<Vec<u8>>> DNameBuildInto<'a, V> {
         res
     }
 
+    /// Appends an octet to the end of the domain name.
     pub fn push(&mut self, b: u8) -> Result<(), FromStrError> {
         if self.absolute {
             Err(FromStrError::EmptyLabel)
@@ -79,6 +92,7 @@ impl<'a, V: AsMut<Vec<u8>>> DNameBuildInto<'a, V> {
         }
     }
 
+    /// Ends a label.
     pub fn end_label(&mut self) {
         if !self.absolute {
             if self.target.as_mut().len() == self.head + 1 {
@@ -94,6 +108,7 @@ impl<'a, V: AsMut<Vec<u8>>> DNameBuildInto<'a, V> {
         }
     }
 
+    /// Finishes building the name and extracts the target.
     pub fn done(mut self) -> Result<V, FromStrError> {
         if !self.absolute && self.target.as_mut().len() > self.head + 1 {
             self.target.as_mut()[self.head]
@@ -111,6 +126,4 @@ impl<'a, V: AsMut<Vec<u8>>> DNameBuildInto<'a, V> {
         Ok(self.target)
     }
 }
-
-
 

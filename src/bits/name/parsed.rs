@@ -58,7 +58,7 @@ impl<'a> ParsedDName<'a> {
             (None, None) => Cow::Borrowed(DNameSlice::empty()),
             (Some(slice), Some(packed)) => {
                 let mut res = slice.to_owned();
-                for label in packed.iter() {
+                for label in packed.labels() {
                     res.push(label).unwrap()
                 }
                 Cow::Owned(res)
@@ -176,7 +176,7 @@ impl<'a> DName for ParsedDName<'a> {
         self.unpack()
     }
 
-    fn iter(&self) -> NameIter {
+    fn labels(&self) -> NameIter {
         NameIter::from_packed(self.clone())
     }
 }
@@ -241,7 +241,7 @@ impl<'a> hash::Hash for ParsedDName<'a> {
 
 impl<'a> fmt::Display for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{}", label));
         }
@@ -254,7 +254,7 @@ impl<'a> fmt::Display for ParsedDName<'a> {
 
 impl<'a> fmt::Octal for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{:o}", label));
         }
@@ -267,7 +267,7 @@ impl<'a> fmt::Octal for ParsedDName<'a> {
 
 impl<'a> fmt::LowerHex for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{:x}", label));
         }
@@ -280,7 +280,7 @@ impl<'a> fmt::LowerHex for ParsedDName<'a> {
 
 impl<'a> fmt::UpperHex for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{:X}", label));
         }
@@ -293,7 +293,7 @@ impl<'a> fmt::UpperHex for ParsedDName<'a> {
 
 impl<'a> fmt::Binary for ParsedDName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{:b}", label));
         }

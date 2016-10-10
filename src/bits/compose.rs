@@ -384,7 +384,7 @@ impl Composer {
     fn compose_dname_simple<N: DName>(&mut self, name: &N)
                                       -> ComposeResult<()> {
         let pos = self.vec.len();
-        for label in name.iter() {
+        for label in name.labels() {
             try!(self.compose_bytes(label.as_bytes()));
             if label.is_root() {
                 return Ok(())

@@ -221,7 +221,7 @@ impl<'a> DName for &'a DNameSlice {
         Cow::Borrowed(self)
     }
 
-    fn iter(&self) -> NameIter {
+    fn labels(&self) -> NameIter {
         DNameSlice::iter(self)
     }
 }
@@ -522,7 +522,7 @@ impl DNameBuf {
     /// Extends a relative name with a domain name.
     pub fn append<N: DName>(&mut self, name: &N) -> Result<(), PushError> {
         if self.is_relative() {
-            for label in name.iter() {
+            for label in name.labels() {
                 try!(self.push(label.as_ref()))
             }
         }
@@ -560,7 +560,7 @@ impl DName for DNameBuf {
         Cow::Borrowed(&self)
     }
 
-    fn iter(&self) -> NameIter {
+    fn labels(&self) -> NameIter {
         DNameSlice::iter(self)
     }
 }
@@ -570,7 +570,7 @@ impl<'a> DName for &'a DNameBuf {
         Cow::Borrowed(self)
     }
 
-    fn iter(&self) -> NameIter {
+    fn labels(&self) -> NameIter {
         DNameSlice::iter(self)
     }
 }
