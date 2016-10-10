@@ -44,7 +44,7 @@ use super::parse::ParseError;
 /// A type for assembling a wire-format DNS message.
 ///
 /// A composer can be created either anew with [`new()`] or through
-/// [`with_vec()`] atop an existing vector that may already contain some data.
+/// [`from_vec()`] atop an existing vector that may already contain some data.
 /// In either case, a [`ComposeMode`] is necessary to tell the composer what
 /// kind of message it is supposed to create.
 ///
@@ -75,7 +75,7 @@ use super::parse::ParseError;
 /// considered.
 ///
 /// [`new()`]: #method.new
-/// [`with_vec()`]: #method.with_vec
+/// [`from_vec()`]: #method.from_vec
 /// [`preview()`]: #method.preview
 /// [`finish()`]: #method.finish
 /// [`ComposeMode`]: ../enum.ComposeMode.html
@@ -117,7 +117,7 @@ impl Composer {
     /// will be available for domain names. Otherwise, all names will always
     /// be uncompressed.
     pub fn new(mode: ComposeMode, compress: bool) -> Self {
-        Self::with_vec(Vec::new(), mode, compress)
+        Self::from_vec(Vec::new(), mode, compress)
     }
 
     /// Creates a new compose buffer based on an exisiting vector.
@@ -129,7 +129,7 @@ impl Composer {
     /// determined through `mode`. If `compress` is `true`, name compression
     /// will be available for domain names. Otherwise, all names will always
     /// be uncompressed.
-    pub fn with_vec(mut vec: Vec<u8>, mode: ComposeMode, compress: bool)
+    pub fn from_vec(mut vec: Vec<u8>, mode: ComposeMode, compress: bool)
                     -> Self {
         if let ComposeMode::Stream = mode {
             vec.write_u16::<BigEndian>(0).unwrap();

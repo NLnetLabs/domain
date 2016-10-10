@@ -1,4 +1,20 @@
 //! Building a new message.
+//!
+//! DNS messages consist of five sections. The first, the *header section*
+//! contain, among other things, the number of entries in the following four
+//! section which then contain these entries without any further
+//! delimitation. In order to safely build a correct message, it thus needs
+//! to be assembled step by step, entry by entry. This module provides four
+//! types, each responsible for assembling one of the entry sections.
+//!
+//! You start out with a [`MessageBuilder`] which you can either create from
+//! an existing [`Composer`] or, as a shortcut, either completely [`new()`]
+//! or from an existing bytes vector via [`from_vec()`]
+//!
+//! [`Composer`]: ../compose/Composer.html
+//! [`MessageBuilder`]: struct.MessageBuilder.html
+//! [`new()`]: struct.MessageBuilder.html#method.new
+//! [`from_vec()`]: struct.MessageBuilder.html#method.from_vec
 
 use std::mem;
 use super::{Composer, ComposeError, ComposeMode, ComposeResult,
@@ -19,6 +35,11 @@ pub struct MessageBuilder {
 impl MessageBuilder {
     pub fn new(mode: ComposeMode, compress: bool) -> ComposeResult<Self> {
         Self::from_composer(Composer::new(mode, compress))
+    }
+
+    pub fn from_vec(vec: Vec<u8>, mode: ComposeMode, compress: bool)
+                    -> ComposeResult<Self> {
+        Self::from_composer(Composer::from_vec(vec, mode, compress))
     }
 
     pub fn from_composer(mut composer: Composer) -> ComposeResult<Self> {

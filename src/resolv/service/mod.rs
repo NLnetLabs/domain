@@ -203,7 +203,7 @@ impl<T: Transport, S: ExpiringService<T>> Future for Expiring<T, S> {
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<(), io::Error> {
-        let state = match self.state {
+        self.state = match self.state {
             State::Idle(ref mut fut) => {
                 let (request, receiver) = match try_ready!(fut.poll()) {
                     (Some(request), receiver) => {
@@ -259,7 +259,6 @@ impl<T: Transport, S: ExpiringService<T>> Future for Expiring<T, S> {
                 }
             }
         };
-        self.state = state;
         self.poll()
     }
 }

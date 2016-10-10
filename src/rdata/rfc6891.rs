@@ -748,7 +748,7 @@ impl OptBuf {
     /// [ParseResult]: ../../bits/error/type.ParseResult.html
     pub fn from_vec(vec: Vec<u8>) -> ParseResult<Self> {
         let _ = try!(OptSlice::from_bytes(&vec));
-        Ok(OptBuf(ComposeBuf::with_vec(vec, ComposeMode::Unlimited, false)))
+        Ok(OptBuf(ComposeBuf::from_vec(vec, ComposeMode::Unlimited, false)))
     }
 
     /// Creates a new, empty opt buf.
@@ -986,7 +986,7 @@ impl Default for OptBuf {
 
 impl<'a> From<&'a OptSlice> for OptBuf {
     fn from(slice: &'a OptSlice) -> OptBuf {
-        OptBuf(ComposeBuf::with_vec(Vec::from(slice.as_bytes()),
+        OptBuf(ComposeBuf::from_vec(Vec::from(slice.as_bytes()),
                                     ComposeMode::Unlimited, false))
     }
 }
