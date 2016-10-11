@@ -44,12 +44,16 @@
 //! [`Resolver`]’s `new()` function does just that. So, the easiest way to
 //! get a resolver is just this:
 //!
-//! ```norun
+//! ```
+//! # extern crate domain;
+//! # extern crate tokio_core;
 //! use domain::resolv::Resolver;
 //! use tokio_core::reactor::Core;
 //!
+//! # fn main() {
 //! let core = Core::new().unwrap();
 //! let resolv = Resolver::new(&core.handle()).unwrap();
+//! # }
 //! ```
 //!
 //! If you do have a configuration, you can use the `from_conf()` function
@@ -76,7 +80,7 @@
 //!
 //! As an example, let’s find out the IPv6 addresses for `www.rust-lang.org`:
 //!
-//! ```ignore
+//! ```
 //! extern crate domain;
 //! extern crate futures;
 //! extern crate tokio_core;
@@ -127,7 +131,7 @@
 //! Using [`lookup_host()`], the process of looking up the IP addresses
 //! becomes much easier. To update above’s example:
 //!
-//! ```ignore
+//! ```
 //! extern crate domain;
 //! extern crate futures;
 //! extern crate tokio_core;
@@ -179,7 +183,7 @@
 //! driving the future to completing. In other words, it takes away all the
 //! boiler plate from above:
 //!
-//! ```ignore
+//! ```
 //! extern crate domain;
 //!
 //! use std::str::FromStr;
