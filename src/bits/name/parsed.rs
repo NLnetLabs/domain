@@ -11,6 +11,35 @@ use super::plain::slice_from_bytes_unsafe;
 
 //------------ ParsedDName ---------------------------------------------------
 
+/// A domain name parsed from a DNS message.
+///
+/// In an attempt to keep messages small, DNS uses a procedure called name
+/// compression. It tries to minimize the space used for repeated domain names
+/// by simply refering to the first occurence of the name. This works not only
+/// for complete names but also for suffixes. In this case, the first unique
+/// labels of the name are included and then a pointer is included for the
+/// rest of the name.
+///
+/// A consequence of this is that when parsing a domain name, its labels can
+/// be scattered all over the message and we would need to allocate some
+/// space to re-assemble the original name. However, in many cases we don’t
+/// need the complete message. Many operations can be completed by just
+/// iterating over the labels which we can do in place.
+///
+/// This is what the `ParsedDName` type does: It takes a reference to a
+/// message and an indicator where inside the message the name starts and
+/// then walks over the message as necessity dictates. When created while
+/// parsing a message, the parser quickly walks over the labels to make sure
+/// that the name indeed is valid. While this takes up a bit of time, it
+/// avoids late surprises and provides for a nicer interface with less
+/// `Result`s.
+///
+/// Obviously, `ParsedDName` implements the [`DName`] trait and provides all
+/// operations required by this trait. It also implements `PartialEq` and
+/// `Eq`, as well as `PartialOrd` and `Ord` against all other domain name
+/// types, plus `Hash` with the same as the other types.
+///
+/// [`DName`]: trait.DName.html
 #[derive(Clone)]
 pub struct ParsedDName<'a> {
     message: &'a [u8],
@@ -21,6 +50,11 @@ pub struct ParsedDName<'a> {
 /// # Creation and Conversion
 ///
 impl<'a> ParsedDName<'a> {
+    /// Creates a new parsed domain name.
+    ///
+    /// This parses out the leading uncompressed labels from the parser and
+    /// then quickly jumps over any possible remaining compressing to check
+    /// that the name is valid.
     pub fn parse(parser: &mut Parser<'a>) -> ParseResult<Self> {
         let res = ParsedDName{message: parser.bytes(), start: parser.pos()};
 
@@ -51,6 +85,11 @@ impl<'a> ParsedDName<'a> {
         }
     }
 
+    /// Unpacks the name.
+    ///
+    /// This will return the cow’s borrowed variant for any parsed name that
+    /// isn’t in fact compressed. Otherwise it will assemble all the labels
+    /// into an owned domain name.
     pub fn unpack(&self) -> Cow<'a, DNameSlice> {
         match self.split_uncompressed() {
             (Some(slice), None) => Cow::Borrowed(slice),
@@ -71,6 +110,12 @@ impl<'a> ParsedDName<'a> {
 /// # Working with Labels
 ///
 impl<'a> ParsedDName<'a> {
+    /// Splits off the first label from the name.
+    ///
+    /// For correctly encoded names, this function will always return
+    /// `Some(_)`. The first element will be the parsed out label. The
+    /// second element will be a parsed name of the remainder of the name
+    /// if the label wasn’t the root label or `None` otherwise.
     pub fn split_first(&self) -> Option<(&'a Label, Option<Self>)> {
         let mut name = self.clone();
         loop {
@@ -311,3 +356,5 @@ impl<'a> fmt::Debug for ParsedDName<'a> {
         f.write_str(")")
     }
 }
+
+

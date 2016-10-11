@@ -108,24 +108,24 @@ fn dname_from_v6(addr: Ipv6Addr, opts: &ResolvOptions) -> DNameBuf {
             *item = item.to_be()
         }
         let bytes: [u8; 16] = unsafe { mem::transmute(segments) };
-        res.push_binary(16, &bytes);
+        res.push_binary(16, &bytes).unwrap();
     }
     else {
         for item in addr.segments().iter().rev() {
             let text = format!("{:04x}", item);
             let text = text.as_bytes();
-            res.push_normal(&text[3..4]);
-            res.push_normal(&text[2..3]);
-            res.push_normal(&text[1..2]);
-            res.push_normal(&text[0..1]);
+            res.push_normal(&text[3..4]).unwrap();
+            res.push_normal(&text[2..3]).unwrap();
+            res.push_normal(&text[1..2]).unwrap();
+            res.push_normal(&text[0..1]).unwrap();
         }
     }
-    res.push_normal(b"ip6");
+    res.push_normal(b"ip6").unwrap();
     if opts.use_ip6dotint {
-        res.push_normal(b"int");
+        res.push_normal(b"int").unwrap();
     }
     else {
-        res.push_normal(b"arpa");
+        res.push_normal(b"arpa").unwrap();
     }
     res.push(&Label::root()).unwrap(); // XXX
     res

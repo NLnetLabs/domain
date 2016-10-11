@@ -11,6 +11,31 @@ use std::str;
 //------------ Label ---------------------------------------------------------
 
 /// An uncompressed domain name label.
+///
+/// This type wraps the bytes slice of a wire-encoded domain name label. It
+/// is only used for labels with their own content, not for ‘pointer labels’
+/// used with name compression.
+///
+/// There are two types of such labels: normal labels and binary labels.
+/// Normal labels consist of up to 63 bytes of data. Binary labels are a
+/// sequence of up to 256 one-bit labels. They have been invented for reverse
+/// pointer records for IPv6 but have quickly been found to be rather
+/// unwieldly and were never widely implemented. Subsequently they have been
+/// declared historic and shouldn’t really be found in the wild.
+///
+/// There is room for even more label types, but since experience has shown
+/// the introduction of new types to be difficult, their emergence is rather
+/// unlikely.
+///
+/// The main purpose of the `Label` type is to make implementing the other
+/// domain name type more easy. It is unlikely that you will have to deal
+/// with it too often. If at all, you can use it to get at its content via
+/// the [`content()`] method. This method returns a variant of the
+/// [`LabelContent`] enum. See its documentation for a discussion of the
+/// formatting of the various label types.
+///
+/// [`content()`]: #method.content
+/// [`LabelType`]: enum.LabelType.html
 pub struct Label {
     inner: [u8]
 }
@@ -19,15 +44,25 @@ pub struct Label {
 /// Creation
 ///
 impl Label {
+    /// Creates a label from the underlying bytes without any checking.
     unsafe fn from_bytes_unsafe(bytes: &[u8]) -> &Self {
         mem::transmute(bytes)
     }
 
     /// Returns a reference to the root label.
+    ///
+    /// The root label is an empty normal label. That is, it is the bytes
+    /// slice `b"\0"`.
     pub fn root() -> &'static Self {
         unsafe { Self::from_bytes_unsafe(b"\0") }
     }
 
+    /// Splits a label from the beginning of a bytes slice.
+    ///
+    /// If this succeeds, the functon returns a label and the remainder of
+    /// the slice. If it fails for whatever reason, be it because of
+    /// illegal values somewhere or because of a short bytes slice, the
+    /// function quietly returns `None`.
     pub fn split_from(bytes: &[u8]) -> Option<(&Label, &[u8])> {
         let head = match bytes.get(0) {
             Some(ch) => *ch,
@@ -71,10 +106,13 @@ impl Label {
 impl Label {
     /// Returns the length of the label.
     ///
-    /// This is equal to the length of the wire representation of the label
-    /// if it weren’t compressed. For normal labels, it is one more than the
-    /// length of the content. For binary labels, things are a wee bit more
-    /// complicated.
+    /// This is equal to the length of the wire representation of the label.
+    /// For normal labels, it is one more than the length of the content.
+    /// For binary labels, things are a wee bit more complicated. See the
+    /// discussion of label encodings with the [`LabelContent`] type for
+    /// more details.
+    ///
+    /// [`LabelContent`]: enum.LabelContent.html
     pub fn len(&self) -> usize {
         self.inner.len()
     }
@@ -106,6 +144,9 @@ impl Label {
     }
 
     /// Returns a string slice if this is a normal label and purely ASCII.
+    ///
+    /// To get a string representation of any label, you can use the
+    /// `format!()` macro as `Label` implements the `Display` trait.
     pub fn as_str(&self) -> Option<&str> {
         match self.content() {
             LabelContent::Normal(s) => str::from_utf8(s).ok(),
@@ -119,6 +160,8 @@ impl Label {
     }
 
     /// Returns an iterator over the labelettes in this label.
+    ///
+    /// See ['Labelette'] for what labelettes are supposed to be.
     pub fn iter(&self) -> LabelIter {
         LabelIter::new(self)
     }
@@ -273,6 +316,9 @@ impl fmt::Debug for Label {
 
 //------------ LabelIter -----------------------------------------------------
 
+/// An iterator over the labelettes in a label.
+///
+/// See ['Labelette'] for what labelettes are supposed to be.
 #[derive(Clone, Debug)]
 pub struct LabelIter<'a>(LabelIterInner<'a>);
 
@@ -283,6 +329,7 @@ enum LabelIterInner<'a> {
 }
 
 impl<'a> LabelIter<'a> {
+    /// Creates a new iterator for a label.
     fn new(label: &'a Label) -> Self {
         match label.content() {
             LabelContent::Normal(bytes) => {
@@ -390,19 +437,86 @@ impl<'a> DoubleEndedIterator for BinaryLabelIter<'a> {
 
 /// The contents of a label.
 ///
-/// Note: The implementations of the various `std::fmt` traits will panic
-/// for illegal values.
+/// There are two types of labels with content currently in use: termed
+/// normal labels and binary labels herein. The type of a label is
+/// determined by the first octet of the label’s wire representation.
+///
+/// Originally, [RFC 1035] decreed that the label type shall encoded in this
+/// octet’s two most-significant bits. `0b00` was to mean a normal label
+/// and `0b11` was to indicate the pointer of a compressed domain name.
+/// Since that left only two more types, [RFC 2671] declared `0b01` to
+/// signal an *extended label type* with the rest of the first octet
+/// stating which label type exactly. [RFC 2673] used this mechanism to
+/// define binary labels as type `0x41`.
+///
+/// However, because domain names are such a fundamental part of the DNS,
+/// it turned out that adding a new label type resulted in all sorts of
+/// compatibility issues. It was thus decided with [RFC 6891] to abandon
+/// this experiment and deprecate binary labels.
+///
+/// The `LabelContent` type still has two variants for normal and binary
+/// labels. Because it is an enum, creation of values cannot be regulated
+/// which means that any value of this type not directly acquired through
+/// a call to `Label::content()` may contain invalid data. Despite that,
+/// the implementations of the various `std::fmt` traits provided by this
+/// type happily assume correctly encoded data and will panic.
+///
+/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+/// [RFC 2671]: https://tools.ietf.org/html/rfc2671
+/// [RFC 2673]: https://tools.ietf.org/html/rfc2673
+/// [RFC 6891]: https://tools.ietf.org/html/rfc6891
 pub enum LabelContent<'a> {
+    /// A normal label.
+    ///
+    /// Normal labels consist of up to 63 octets of data. While [RFC 1034]
+    /// proposes to limit the octets to ASCII letters, digits, and hyphens,
+    /// no hard restriction exists and all values are allowed.
+    ///
+    /// When encoded, normal labels start with a one-octet value containing
+    /// the number of octets in the label’s content followed by that
+    /// content. Because the label type in the most-significant bits of that
+    /// first octet is `0b00`, the value of the octet really is length and
+    /// no masking is required.
+    /// 
+    /// [RFC 1034]: https://tools.ietf.org/html/rfc1034
     Normal(&'a [u8]),
+
+    /// A binary label, also called a bit-string label.
+    ///
+    /// Binary labels contains a sequence of one-bit labels. The bits in the
+    /// label are treated each as a label of its own. The intention was to
+    /// provide a way to express arbitrary binary data in DNS allowing
+    /// zone cuts at any point in the data. This was supposed to make
+    /// the zone delgation for reverse pointers in IPv6 easier and more
+    /// flexible.
+    ///
+    /// The content of a binary label consists of one octet giving the number
+    /// of bits in the label. The value of zero indicates 256 bits in order
+    /// to make empty labels impossible. This octet is followed by the
+    /// smallest number of octets necessary to contain that many bits with
+    /// excess bits set to zero.
+    ///
+    /// Confusingly, the bits are arranged in reverse order. The
+    /// most-significant bit (bit 7 of the first octet) contains the
+    /// right-most label in customary label order. However, two consecutive
+    /// binary labels are arranged as normal.
+    ///
+    /// This variant contains the number of bits in its first element and
+    /// a bytes slice of the bits in its second element. The bit count is
+    /// kept as is, ie., `0` still means 256 bits.
     Binary(u8, &'a[u8])
 }
 
 
 impl<'a> LabelContent<'a> {
+    /// Formats a normal label.
+    ///
+    /// This is here because normal labels don’t depend on the format
+    /// specifier.
     fn fmt_normal(bytes: &[u8], f: &mut fmt::Formatter) -> fmt::Result {
         for &ch in bytes {
             if ch == b' ' || ch == b'.' || ch == b'\\' {
-                try!(write!(f, "\\{}", ch));
+                try!(write!(f, "\\{}", ch as char));
             }
             else if ch < b' '  || ch >= 0x7F {
                 try!(write!(f, "\\{:03}", ch));
@@ -430,7 +544,11 @@ impl<'a> fmt::Display for LabelContent<'a> {
             LabelContent::Binary(count, bits) => {
                 if count <= 32 {
                     try!(write!(f, "\\[{}.{}.{}.{}",
-                                bits[0], bits[1], bits[2], bits[3]));
+                                bits[0],
+                                bits.get(1).map_or(0, |&c| c),
+                                bits.get(2).map_or(0, |&c| c),
+                                bits.get(3).map_or(0, |&c| c),
+                                ));
                     if count != 32 {
                         try!(write!(f, "/{}", count));
                     }
@@ -530,15 +648,31 @@ impl<'a> fmt::Debug for LabelContent<'a> {
 
 //------------ Labelette ----------------------------------------------------
 
-/// A labelette is the smallest possible label.
+/// A labelette is an atomic label.
 ///
-/// A normal label is a labelette all by itself. A binary label is a sequence
-/// of bit labeletts.
+/// Various operations on domain names such as comparisons or ordering are
+/// done label by label. However, [binary labels] are actually a sequence of
+/// labels themselves. Worse, a binary label within a name can actually be
+/// broken up into several binary labels with the same overall number of bits
+/// while still retaining the same domain name. All these operations need to
+/// consider the individual bits labels of a binary label.
 ///
-/// Note that this term was invented wholesale for this crate and is not
-/// official DNS terminology.
+/// In order to disperse the confusion of having labels inside labels, we
+/// invented the term *labelette* exclusively for this crate to mean either
+/// a normal label or one single bit-label of a binary label.
+///
+/// You get labelettes by iterating over [`Label`]s. For a normal label, this
+/// iterator will return exactly once with a `Normal` variant. For binary
+/// labels, the iterator will return once for each bit label with the `Bit`
+/// variant.
+///
+/// [binary labels]: enum.LabelContent.html#variant.Binary
+/// [`Label`]: struct.Label.html
 pub enum Labelette<'a> {
+    /// A labelette for a normal label.
     Normal(&'a [u8]),
+
+    /// A labelette for a single bit-label of a binary label.
     Bit(bool)
 }
 
@@ -577,6 +711,8 @@ impl<'a> Ord for Labelette<'a> {
     /// In short, normal labels are ordered like octet strings except that
     /// the case of ASCII letters is ignored. Bit labels sort before
     /// normal labels and `false` sorts before `true`.
+    ///
+    /// [RFC 4034]: https://tools.ietf.org/html/rfc4034
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         match (self, other) {
             (&Labelette::Normal(l), &Labelette::Normal(r)) => {

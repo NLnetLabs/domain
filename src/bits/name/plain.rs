@@ -16,6 +16,20 @@ use super::{DName, Label, NameLabels, RevNameLabels};
 
 //------------ DNameSlice ----------------------------------------------------
 
+/// A slice of a domain name.
+///
+/// The slice is guaranteed to contain a correctly encoded domain name. The
+/// name may be relative or absolute but cannot support name compression.
+///
+/// Operations are available for iterating over the labels of the name and
+/// breaking the name up into parts along the lines of label boundaries.
+///
+/// This is an unsized type. You will have to use it with some kind of
+/// pointer, such as a reference or box. The sibling type owning the name
+/// outright is [`DNameBuf`]. The two can be used together through the
+/// `AsRef<DNameSlice>` trait or via a `Cow<DNameSlice>`.
+///
+/// [`DNameBuf`]: struct.DNameBuf.html
 pub struct DNameSlice {
     inner: [u8]
 }
@@ -76,6 +90,11 @@ impl DNameSlice {
     }
 }
 
+/// Unsafely creates a domain name slice from a bytes slice.
+///
+/// This function exists to give sibling modules a shot at creating their
+/// very own unsafe domain names without opening this path up to world and
+/// dog.
 pub unsafe fn slice_from_bytes_unsafe(bytes: &[u8]) -> &DNameSlice {
     DNameSlice::from_bytes_unsafe(bytes)
 }
@@ -88,13 +107,11 @@ impl DNameSlice {
     ///
     /// A domain name is absolute if it ends with an empty normal label
     /// (the root label).
-    ///
     pub fn is_absolute(&self) -> bool {
         self.last().map_or(false, |l| l.is_root())
     }
 
     /// Checks whether the domain name is relative, ie., not absolute.
-    ///
     pub fn is_relative(&self) -> bool {
         !self.is_absolute()
     }
@@ -152,6 +169,9 @@ impl DNameSlice {
 ///
 impl DNameSlice {
     /// Returns the first label and the remaining domain name.
+    ///
+    /// Returns `None` only if the name is empty (which is different from a
+    /// name containing only the root label).
     pub fn split_first(&self) -> Option<(&Label, &Self)> {
         Label::split_from(&self.inner).map(|(label, tail)| {
             (label, unsafe { DNameSlice::from_bytes_unsafe(tail) })
@@ -174,7 +194,7 @@ impl DNameSlice {
     }
 
     /// Determines whether `base` is a prefix of `self`.
-    pub fn start_with<N: DName>(&self, base: &N) -> bool {
+    pub fn starts_with<N: DName>(&self, base: &N) -> bool {
         let mut self_iter = self.labelettes();
         let mut base_iter = base.labelettes();
         loop {
@@ -203,7 +223,7 @@ impl DNameSlice {
         }
     }
 
-    /// Creates an owned domain name with `base` adjoined to `self`.
+    /// Creates an owned domain name made absolute if necessary.
     ///
     /// If `self` is already an absolute domain name, nothing happens.
     pub fn join<N: DName>(&self, base: &N) -> Result<DNameBuf, PushError> {
@@ -408,6 +428,19 @@ impl fmt::Debug for DNameSlice {
 
 //------------ DNameBuf ------------------------------------------------------
 
+/// An owned complete domain name.
+///
+/// A value of this type contains a vector with a correctly encoded,
+/// uncompressed domain name. It derefs to [`DNameSlice`] in order to make
+/// all its methods available for working with domain names.
+///
+/// In addition, it provides a number of methods to add labels or entire
+/// names to its end.
+///
+/// `DNameBuf` values can be created from string via the `std::str::FromStr`
+/// trait. Such strings must be in the usual zonefile encoding.
+///
+/// [`DNameSlice`]: struct.DNameSlice.html
 #[derive(Clone, Default)]
 pub struct DNameBuf {
     inner: Vec<u8>
@@ -417,14 +450,20 @@ pub struct DNameBuf {
 /// # Creation and Conversion
 ///
 impl DNameBuf {
+    /// Creates a new empty domain name.
     pub fn new() -> Self {
         DNameBuf{inner: Vec::new()}
     }
 
+    /// Creates a new empty name with the given amount of space reserved.
     pub fn with_capactity(capacity: usize) -> DNameBuf {
         DNameBuf{inner: Vec::with_capacity(capacity)}
     }
 
+    /// Creates an owned domain name using an existing bytes vector.
+    ///
+    /// If the content of the bytes vector does not constitute a correctly
+    /// encoded uncompressed domain name, the function will fail.
     pub fn from_vec(vec: Vec<u8>) -> Option<Self> {
         if DNameSlice::from_bytes(&vec).is_none() {
             return None
@@ -437,24 +476,31 @@ impl DNameBuf {
         DNameBuf { inner: vec }
     }
 
+    /// Creates an owned domain name by reading it from a scanner.
     pub fn scan<S: Scanner>(scanner: &mut S, origin: Option<&DNameSlice>)
                             -> ScanResult<Self> {
         scanner.scan_dname(origin)
     }
 
+    /// Returns a new owned domain name consisting only of the root label. 
     pub fn root() -> DNameBuf {
         unsafe { DNameBuf::from_vec_unsafe(vec![0]) }
     }
 
+    /// Returns a reference to a slice of the domain name.
     pub fn as_slice(&self) -> &DNameSlice {
         unsafe { DNameSlice::from_bytes_unsafe(&self.inner) }
     }
 
+    /// Extracts the underlying vector from the name.
     pub fn into_vec(self) -> Vec<u8> {
         self.inner
     }
 }
 
+/// Creates an owned domain name from a vector without checking.
+///
+/// This function is intended for sibling modules and is not exported at all.
 pub unsafe fn buf_from_vec_unsafe(vec: Vec<u8>) -> DNameBuf {
     DNameBuf::from_vec_unsafe(vec)
 }
@@ -467,40 +513,62 @@ impl DNameBuf {
     ///
     /// If the name is absolute, nothing happens.
     pub fn push(&mut self, label: &Label) -> Result<(), PushError> {
-        if self.is_relative() {
-            if self.len() + label.len() > 255 {
-                return Err(PushError)
-            }
-            self.inner.extend_from_slice(label.as_bytes())
+        if self.is_absolute() {
+            return Ok(())
         }
+        if self.len() + label.len() > 255 {
+            return Err(PushError)
+        }
+        self.inner.extend_from_slice(label.as_bytes());
         Ok(())
     }
 
-    /// Pushes a new normal label to the end of the name.
+    /// Pushes a normal label to the end of a relative name.
+    ///
+    /// If the name is absolute, nothing happens. If the resulting name would
+    /// exceed the maximum allowd length of 255 octets, returns an error.
     ///
     /// # Panics
     ///
-    /// The method panics if `content` is longer that 63 bytes or if the
-    /// resulting name would be longer that 255 bytes.
-    pub fn push_normal(&mut self, content: &[u8]) {
-        assert!(content.len() < 64 && self.len() + content.len()  + 1 < 256);
-        self.inner.push(content.len() as u8);
-        self.inner.extend_from_slice(content);
+    /// The method panics if `content` is longer that 63 bytes.
+    pub fn push_normal(&mut self, content: &[u8]) -> Result<(), PushError> {
+        if self.is_absolute() {
+            return Ok(())
+        }
+        assert!(content.len() < 64);
+        if self.len() + content.len() + 1 > 255 {
+            Err(PushError)
+        }
+        else {
+            self.inner.push(content.len() as u8);
+            self.inner.extend_from_slice(content);
+            Ok(())
+        }
     }
 
-    /// Pushes a binary label to the end of the name.
+    /// Pushes a binary label to the end of a relative name.
     ///
     /// The binary label will be `count` bits long and contain the bits
     /// from `bits`. If `bits` is too short, the label will be filled up
     /// with zero bits. If `bits` is too long, it will be trimmed to the
     /// right length.
     ///
+    /// If the name is absolute, nothing happens. If the resulting name would
+    /// exceed the maximum allowd length of 255 octets, returns an error.
+    ///
     /// # Panics
     ///
     /// The method panics if `count` is larger than 256.
-    pub fn push_binary(&mut self, count: usize, bits: &[u8]) {
+    pub fn push_binary(&mut self, count: usize, bits: &[u8])
+                       -> Result<(), PushError> {
+        if self.is_absolute() {
+            return Ok(())
+        }
         assert!(count <= 256);
         let bitlen = (count - 1) / 8 + 1;
+        if self.len() + bitlen + 2 > 255 {
+            return Err(PushError)
+        }
         self.inner.push(0x41);
         self.inner.push(if count == 256 { 0 } else { count as u8 });
         if bits.len() < bitlen {
@@ -517,19 +585,32 @@ impl DNameBuf {
             let idx = self.inner.len() - 1;
             self.inner[idx] &= mask;
         }
+        Ok(())
     }
 
     /// Extends a relative name with a domain name.
+    ///
+    /// If the name is already absolute, nothing will be appended and the
+    /// name remains unchanged. If by appending the name would exceed the
+    /// maximum allowed length of 255 octets, an error will be returned and
+    /// the name remains unchanged, too.
     pub fn append<N: DName>(&mut self, name: &N) -> Result<(), PushError> {
-        if self.is_relative() {
-            for label in name.labels() {
-                try!(self.push(label.as_ref()))
+        if self.is_absolute() {
+            return Ok(())
+        }
+        let len = self.inner.len();
+        for label in name.labels() {
+            if let Err(err) = self.push(label.as_ref()) {
+                self.inner.truncate(len);
+                return Err(err)
             }
         }
         Ok(())
     }
 
     /// Makes a domain name absolute if it isn’t yet by appending root.
+    ///
+    /// This may fail if the name is already 255 octets long.
     pub fn append_root(&mut self) -> Result<(), PushError> {
         self.append(&DNameSlice::root())
     }
@@ -574,6 +655,7 @@ impl<'a> DName for &'a DNameBuf {
         DNameSlice::iter(self)
     }
 }
+
 
 //--- From and FromStr
 
@@ -770,7 +852,11 @@ impl fmt::Display for FromStrError {
 
 //------------ PushError -----------------------------------------------------
 
-#[derive(Clone, Copy)]
+/// An error happened while trying to append content to an owned domain name.
+///
+/// The only error that can happen is that by appending something the name
+/// would exceed the size limit of 255 octets.
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct PushError;
 
 impl error::Error for PushError {
@@ -795,3 +881,204 @@ impl fmt::Display for PushError {
     }
 }
 
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+    use super::*;
+
+
+    //--- DNameSlice
+
+    fn slice(slice: &[u8]) -> &DNameSlice {
+        DNameSlice::from_bytes(slice).unwrap()
+    }
+
+    #[test]
+    fn slice_from_bytes() {
+        assert!(slice(b"\x03foo\x03bar\x00").is_absolute());
+        assert!(slice(b"\x00").is_absolute());
+        assert!(slice(b"\x03foo\x03bar").is_relative());
+        assert!(slice(b"").is_relative());
+        assert!(DNameSlice::from_bytes(b"\x03foo\x03ba").is_none());
+        assert!(DNameSlice::from_bytes(b"\x03foo\x03ba").is_none());
+        assert!(DNameSlice::from_bytes(b"\x03foo\x03bar\x00\x03foo").is_none());
+    }
+
+    #[test]
+    fn slice_display() {
+        assert_eq!(format!("{}", slice(b"\x03foo")), "foo");
+        assert_eq!(format!("{}", slice(b"\x03foo\x00")), "foo.");
+        assert_eq!(format!("{}", slice(b"\x03foo\x03bar")), "foo.bar");
+        assert_eq!(format!("{}", slice(b"\x03foo\x03bar\x00")), "foo.bar.");
+        assert_eq!(format!("{}", slice(b"\x03f\xf0o")), "f\\240o");
+        assert_eq!(format!("{}", slice(b"\x03f\x0Ao")), "f\\010o");
+        assert_eq!(format!("{}", slice(b"\x03f.o")), "f\\.o");
+        assert_eq!(format!("{}", slice(b"\x03f\\o")), "f\\\\o");
+
+        assert_eq!(format!("{}", slice(b"\x41\x08\x22")), "\\[34.0.0.0/8]");
+        assert_eq!(format!("{:o}", slice(b"\x41\x08\x22\x00")),
+                   "\\[o42/8].");
+        assert_eq!(format!("{:x}", slice(b"\x41\x08\x22")), "\\[x22/8]");
+    }
+
+    #[test]
+    fn slice_methods() {
+        let empty = slice(b"");
+        let dot = slice(b"\x00");
+        let foo = slice(b"\x03foo");
+        let bar = slice(b"\x03bar");
+        let foodot = slice(b"\x03foo\x00");
+        let bardot = slice(b"\x03bar\x00");
+        let foobar = slice(b"\x03foo\x03bar");
+        let foobardot = slice(b"\x03foo\x03bar\x00");
+
+        assert!(!empty.is_absolute()); assert!(empty.is_relative());
+        assert!(!foo.is_absolute()); assert!(foo.is_relative());
+        assert!(!foobar.is_absolute()); assert!(foobar.is_relative());
+        assert!(dot.is_absolute()); assert!(!dot.is_relative());
+        assert!(foodot.is_absolute()); assert!(!foodot.is_relative());
+        assert!(foobardot.is_absolute()); assert!(!foobardot.is_relative());
+
+        assert_eq!(empty.len(), 0); assert_eq!(dot.len(), 1);
+        assert_eq!(foo.len(), 1); assert_eq!(foodot.len(), 2);
+        assert_eq!(foobar.len(), 2); assert_eq!(foobardot.len(), 3);
+
+        assert!(empty.is_empty()); assert!(!dot.is_empty());
+        assert!(!foo.is_empty());
+
+        assert_eq!(empty.first(), None);
+        assert_eq!(dot.first().unwrap().as_str().unwrap(), "");
+        assert_eq!(foo.first().unwrap().as_str().unwrap(), "foo");
+        assert_eq!(foodot.first().unwrap().as_str().unwrap(), "foo");
+        assert_eq!(foobar.first().unwrap().as_str().unwrap(), "foo");
+        assert_eq!(foobardot.first().unwrap().as_str().unwrap(), "foo");
+
+        assert_eq!(empty.last(), None);
+        assert_eq!(dot.last().unwrap().as_str().unwrap(), "");
+        assert_eq!(foo.last().unwrap().as_str().unwrap(), "foo");
+        assert_eq!(foodot.last().unwrap().as_str().unwrap(), "");
+        assert_eq!(foobar.last().unwrap().as_str().unwrap(), "bar");
+        assert_eq!(foobardot.last().unwrap().as_str().unwrap(), "");
+
+        assert_eq!(empty.split_first(), None);
+        assert_eq!(dot.split_first().unwrap().0.as_str().unwrap(), "");
+        assert_eq!(dot.split_first().unwrap().1.as_bytes(), b"");
+        assert_eq!(foo.split_first().unwrap().0.as_str().unwrap(), "foo");
+        assert_eq!(foo.split_first().unwrap().1.as_bytes(), b"");
+        assert_eq!(foodot.split_first().unwrap().0.as_str().unwrap(), "foo");
+        assert_eq!(foodot.split_first().unwrap().1.as_bytes(), b"\x00");
+        assert_eq!(foobar.split_first().unwrap().0.as_str().unwrap(), "foo");
+        assert_eq!(foobar.split_first().unwrap().1.as_bytes(), b"\x03bar");
+        assert_eq!(foobardot.split_first().unwrap().0.as_str().unwrap(),
+                   "foo");
+        assert_eq!(foobardot.split_first().unwrap().1.as_bytes(),
+                   b"\x03bar\x00");
+
+        assert_eq!(empty.parent(), None);
+        assert_eq!(dot.parent(), None);
+        assert_eq!(foo.parent().unwrap().as_bytes(), b"");
+        assert_eq!(foodot.parent().unwrap().as_bytes(), b"\x00");
+        assert_eq!(foobar.parent().unwrap().as_bytes(), b"\x03bar");
+        assert_eq!(foobardot.parent().unwrap().as_bytes(), b"\x03bar\x00");
+
+        assert!(empty.starts_with(&empty)); assert!(!empty.starts_with(&dot));
+        assert!(dot.starts_with(&empty)); assert!(dot.starts_with(&dot));
+            assert!(!dot.starts_with(&foo));
+        assert!(foo.starts_with(&empty)); assert!(foo.starts_with(&foo));
+            assert!(!foo.starts_with(&dot)); assert!(!foo.starts_with(&bar));
+            assert!(!foo.starts_with(&foodot));
+        assert!(foobar.starts_with(&empty));
+            assert!(foobar.starts_with(&foo));
+            assert!(foobar.starts_with(&foobar));
+            assert!(!foobar.starts_with(&foobardot));
+            assert!(!foobar.starts_with(&dot));
+            assert!(!foobar.starts_with(&bar));
+        assert!(foobardot.starts_with(&empty));
+            assert!(foobardot.starts_with(&foo));
+            assert!(foobardot.starts_with(&foobar));
+            assert!(foobardot.starts_with(&foobardot));
+            assert!(!foobardot.starts_with(&dot));
+            assert!(!foobardot.starts_with(&bar));
+
+        assert!(empty.ends_with(&empty)); assert!(!empty.ends_with(&dot));
+            assert!(!empty.ends_with(&foo));
+        assert!(dot.ends_with(&empty)); assert!(dot.ends_with(&dot));
+            assert!(!empty.ends_with(&foo));
+        assert!(foo.ends_with(&empty)); assert!(dot.ends_with(&dot));
+            assert!(foo.ends_with(&foo)); assert!(!foo.ends_with(&bar));
+            assert!(!foo.ends_with(&foodot));
+        assert!(foodot.ends_with(&empty)); assert!(foodot.ends_with(&dot));
+            assert!(!foodot.ends_with(&foo)); assert!(!foodot.ends_with(&bar));
+            assert!(foodot.ends_with(&foodot));
+        assert!(foobar.ends_with(&empty)); assert!(!foobar.ends_with(&dot));
+            assert!(!foobar.ends_with(&foo)); assert!(foobar.ends_with(&bar));
+        assert!(foobardot.ends_with(&empty));
+            assert!(foobardot.ends_with(&dot));
+            assert!(!foobardot.ends_with(&foo));
+            assert!(foobardot.ends_with(&bardot));
+            assert!(foobardot.ends_with(&foobardot));
+
+        assert_eq!(empty.join(&empty).unwrap(), empty);
+        assert_eq!(empty.join(&dot).unwrap(), dot);
+        assert_eq!(empty.join(&foo).unwrap(), foo);
+        assert_eq!(empty.join(&foodot).unwrap(), foodot);
+        assert_eq!(dot.join(&empty).unwrap(), dot);
+        assert_eq!(dot.join(&dot).unwrap(), dot);
+        assert_eq!(dot.join(&foo).unwrap(), dot);
+        assert_eq!(dot.join(&foodot).unwrap(), dot);
+        assert_eq!(foo.join(&empty).unwrap(), foo);
+        assert_eq!(foo.join(&dot).unwrap(), foodot);
+        assert_eq!(foo.join(&bar).unwrap(), foobar);
+        assert_eq!(foo.join(&bardot).unwrap(), foobardot);
+        assert_eq!(foodot.join(&empty).unwrap(), foodot);
+        assert_eq!(foodot.join(&dot).unwrap(), foodot);
+        assert_eq!(foodot.join(&foo).unwrap(), foodot);
+        assert_eq!(foodot.join(&foodot).unwrap(), foodot);
+    }
+
+    //--- DNameBuf
+    fn buf(bytes: &[u8]) -> DNameBuf {
+        DNameBuf::from_vec(Vec::from(bytes)).unwrap()
+    }
+
+    #[test]
+    fn buf_from_vec() {
+        assert_eq!(buf(b"\x03foo\x03bar\x00").as_bytes(),
+                   b"\x03foo\x03bar\x00");
+        assert_eq!(buf(b"\x00").as_bytes(), b"\x00");
+        assert_eq!(buf(b"\x03foo\x03bar").as_bytes(), b"\x03foo\x03bar");
+        assert_eq!(buf(b"").as_bytes(), b"");
+        assert!(DNameBuf::from_vec(Vec::from(&b"\x03foo\x03ba"[..])).is_none());
+        assert!(DNameBuf::from_vec(Vec::from(&b"\x03foo\x03ba"[..])).is_none());
+        assert!(DNameBuf::from_vec(Vec::from(&b"\x03foo\x03bar\x00\x03foo"[..]))
+                         .is_none());
+    }
+
+    #[test]
+    fn buf_push() {
+        let suffix_buf = DNameBuf::from_str("bazz").unwrap();
+        let suffix = suffix_buf.first().unwrap();
+        
+        let mut name = DNameBuf::from_str("foo.bar").unwrap();
+        name.push(&suffix).unwrap();
+        assert_eq!(name.to_string(), "foo.bar.bazz");
+        let mut name = DNameBuf::from_str("foo.bar.").unwrap();
+        name.push(&suffix).unwrap();
+        assert_eq!(name.to_string(), "foo.bar.");
+    }
+
+    #[test]
+    fn buf_append() {
+        let suffix = DNameBuf::from_str("wobble.wibble.").unwrap();
+
+        let mut name = DNameBuf::from_str("foo.bar").unwrap();
+        name.append(&suffix).unwrap();
+        assert_eq!(name.to_string(), "foo.bar.wobble.wibble.");
+        let mut name = DNameBuf::from_str("foo.bar.").unwrap();
+        name.append(&suffix).unwrap();
+        assert_eq!(name.to_string(), "foo.bar.");
+    }
+}
