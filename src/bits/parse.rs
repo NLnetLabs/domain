@@ -1,4 +1,13 @@
-//! Traits and implementations for parsing.
+//! Parsing of DNS wire-format data.
+//!
+//! This module contains [`Parser`], the type wrapping the data of a DNS
+//! message for parsing, as well as the error and result types for parsing.
+//! You will only need to deal with parsing directly if you implement new
+//! record data types. Otherwise, the [`Message`] type wraps everyhing up
+//! in a nice, easy to use interface.
+//!
+//! [`Parser`]: struct.Parser.html
+//! [`Message`]: ../message/struct.Message.html
 
 use std::error;
 use std::fmt;
@@ -7,6 +16,24 @@ use byteorder::{BigEndian, ByteOrder};
 
 //------------ Parser --------------------------------------------------------
 
+/// A type wrapping DNS message data for parsing.
+///
+/// Because of name compression, a full message needs to be available for
+/// parsing of DNS data. If you have received a message over the wire, you
+/// can use it to create a parser via the [`new()`] function.
+///
+/// The parser then allows you to successively parse one item after the other
+/// out of the message via a few methods prefixed with `parse_`. Further
+/// methods are available to retrieve some information about the parser
+/// state, seek to a new position, or limit the amount of data the parser
+/// allows to retrieve.
+///
+/// Parsers are `Clone`, so you can keep around a copy of a parser for later
+/// use. This is, for instance, done by [`ParsedDName`] in order to be able
+/// to rummage around the message bytes to find all its labels.
+///
+/// [`new()`]: #method.new
+/// [`ParsedDName`]: ../name/struct.ParsedDName.html
 #[derive(Clone, Debug)]
 pub struct Parser<'a> {
     bytes: &'a [u8],
@@ -15,6 +42,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    /// Creates a new parser atop a bytes slice.
     pub fn new(bytes: &'a [u8]) -> Self {
         Parser{limit: bytes.len(), bytes: bytes, pos: 0}
     }
@@ -122,6 +150,7 @@ impl<'a> Parser<'a> {
     }
 }
 
+
 //------------ ParseError and ParseResult -----------------------------------
 
 /// An error happening during parsing of wire-format DNS data.
@@ -162,3 +191,72 @@ impl fmt::Display for ParseError {
 /// The result type for a `ParseError`.
 pub type ParseResult<T> = Result<T, ParseError>;
 
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn check(parser: &Parser, pos: usize, left: &[u8]) {
+        assert_eq!(parser.pos(), pos);
+        assert_eq!(parser.remaining(), left.len());
+        assert_eq!(&parser.bytes()[pos..], left)
+    }
+
+    #[test]
+    fn parse_bytes_ok() {
+        let mut parser = Parser::new(b"123456"); 
+        check(&parser, 0, b"123456");
+        assert_eq!(parser.parse_bytes(0).unwrap(), b"");
+        check(&parser, 0, b"123456");
+        assert_eq!(parser.parse_bytes(4).unwrap(), b"1234");
+        check(&parser, 4, b"56");
+        assert_eq!(parser.parse_bytes(2).unwrap(), b"56");
+        check(&parser, 6, b"");
+        assert_eq!(parser.parse_bytes(0).unwrap(), b"");
+        check(&parser, 6, b"");
+    }
+
+    #[test]
+    fn parse_bytes_err() {
+        let mut parser = Parser::new(b"123456"); 
+        check(&parser, 0, b"123456");
+        assert_eq!(parser.parse_bytes(8), Err(ParseError::UnexpectedEnd));
+        check(&parser, 0, b"123456");
+    }
+
+    #[test]
+    fn skip() {
+        let mut parser = Parser::new(b"123456");
+        check(&parser, 0, b"123456");
+        parser.skip(2).unwrap();
+        check(&parser, 2, b"3456");
+        assert_eq!(parser.skip(6), Err(ParseError::UnexpectedEnd));
+        check(&parser, 2, b"3456");
+    }
+
+    #[test]
+    fn parse_u8() {
+        let mut parser = Parser::new(b"123");
+        check(&parser, 0, b"123");
+        assert_eq!(parser.parse_u8().unwrap(), b'1');
+        check(&parser, 1, b"23");
+    }
+
+    #[test]
+    fn parse_u16() {
+        let mut parser = Parser::new(b"\x12\x3456");
+        check(&parser, 0, b"\x12\x3456");
+        assert_eq!(parser.parse_u16().unwrap(), 0x1234);
+        check(&parser, 2, b"56");
+    }
+
+    #[test]
+    fn parse_u32() {
+        let mut parser = Parser::new(b"\x12\x34\x56\x7890");
+        check(&parser, 0, b"\x12\x34\x56\x7890");
+        assert_eq!(parser.parse_u32().unwrap(), 0x12345678);
+        check(&parser, 4, b"90");
+    }
+}
