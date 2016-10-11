@@ -142,7 +142,9 @@ impl<N: DName, D: RecordData> From<(N, u32, D)> for Record<N, D> {
 
 //--- Display
 
-impl<N: DName, D: RecordData + fmt::Display> fmt::Display for Record<N, D> {
+impl<N, D> fmt::Display for Record<N, D>
+     where N: DName + fmt::Display,
+           D: RecordData + fmt::Display {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\t{}\t{}\t{}\t{}",
                self.name, self.ttl, self.class, self.data.rtype(),

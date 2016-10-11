@@ -82,7 +82,7 @@ macro_rules! dname_type {
             }
         }
 
-        impl<N: DName> fmt::Display for $target<N> {
+        impl<N: DName + fmt::Display> fmt::Display for $target<N> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 fmt::Display::fmt(&self.$field, f)
             }
@@ -372,7 +372,7 @@ impl<'a> ParsedRecordData<'a> for Minfo<ParsedDName<'a>> {
     }
 }
 
-impl<N: DName> fmt::Display for Minfo<N> {
+impl<N: DName + fmt::Display> fmt::Display for Minfo<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.rmailbx, self.emailbx)
     }
@@ -458,7 +458,7 @@ impl<'a> ParsedRecordData<'a> for Mx<ParsedDName<'a>> {
     }
 }
 
-impl<N: DName> fmt::Display for Mx<N> {
+impl<N: DName + fmt::Display> fmt::Display for Mx<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.preference, self.exchange)
     }
@@ -662,7 +662,7 @@ impl<'a> ParsedRecordData<'a> for Soa<ParsedDName<'a>> {
     }
 }
 
-impl<N: DName> fmt::Display for Soa<N> {
+impl<N: DName + fmt::Display> fmt::Display for Soa<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {} {} {} {} {} {}", self.mname, self.rname,
                self.serial, self.refresh, self.retry, self.expire,

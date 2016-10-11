@@ -1,4 +1,7 @@
-//! A single question for a DNS message.
+//! A single question of a DNS message.
+//!
+//! This module defines the type `Question` which represents an entry in
+//! the question section of a DNS message.
 
 use std::fmt;
 use ::iana::{Class, Rtype};
@@ -7,6 +10,24 @@ use super::{Composer, ComposeResult, DName, ParsedDName, Parser, ParseResult};
 
 //------------ Question -----------------------------------------------------
 
+/// A question in a DNS message.
+///
+/// In DNS, a query is determined by three elements: a domain name, a record
+/// type, and a class, collectively called a question. This type represents
+/// such a question.
+///
+/// Questions are generic over the domain name type. For a question with a
+/// [`ParsedDName`], parsing is implemented. Composing, meanwhile, is
+/// available with all domain name types.
+///
+/// In order to allow questions on the fly, in particular when creating 
+/// messages via [`MessageBuilder`], the `From` trait is implemented for
+/// tuples of all three elements of a question as well as for only name
+/// and record type assuming `Class::In` which is likely what you want,
+/// anyway.
+///
+/// [`ParsedDName`]: ../name/struct.ParsedDName.html
+/// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Question<N: DName> {
     /// The domain name of the question.
@@ -65,6 +86,7 @@ impl<'a> Question<ParsedDName<'a>> {
 /// # Composing
 ///
 impl<N: DName> Question<N> {
+    /// Appends the question to a composition.
     pub fn compose<C: AsMut<Composer>>(&self, mut composer: C)
                                        -> ComposeResult<()> {
         try!(self.qname.compose(composer.as_mut()));
@@ -91,9 +113,33 @@ impl<N: DName> From<(N, Rtype)> for Question<N> {
 
 //--- Display
 
-impl<N: DName> fmt::Display for Question<N> {
+impl<N: DName + fmt::Display> fmt::Display for Question<N> {
     fn fmt(&self, f: &mut fmt::Formatter) ->  fmt::Result {
         write!(f, "{} {} {}", self.qname, self.qtype, self.qclass)
+    }
+}
+
+impl<N: DName + fmt::Octal> fmt::Octal for Question<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) ->  fmt::Result {
+        write!(f, "{:o} {} {}", self.qname, self.qtype, self.qclass)
+    }
+}
+
+impl<N: DName + fmt::LowerHex> fmt::LowerHex for Question<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) ->  fmt::Result {
+        write!(f, "{:x} {} {}", self.qname, self.qtype, self.qclass)
+    }
+}
+
+impl<N: DName + fmt::UpperHex> fmt::UpperHex for Question<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) ->  fmt::Result {
+        write!(f, "{:X} {} {}", self.qname, self.qtype, self.qclass)
+    }
+}
+
+impl<N: DName + fmt::Binary> fmt::Binary for Question<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) ->  fmt::Result {
+        write!(f, "{:b} {} {}", self.qname, self.qtype, self.qclass)
     }
 }
 

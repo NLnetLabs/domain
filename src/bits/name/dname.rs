@@ -1,7 +1,6 @@
 //! The DName trait.
 
 use std::borrow::Cow;
-use std::fmt;
 use super::super::{Composer, ComposeResult};
 use super::{DNameSlice, NameLabels, NameLabelettes, RevNameLabels,
             RevNameLabelettes};
@@ -24,7 +23,7 @@ use super::{DNameSlice, NameLabels, NameLabelettes, RevNameLabels,
 /// [`&DNameSlice`]: struct.DNameSlice.html
 /// [`DNameBuf`]: struct.DNameBuf.html
 /// [`ParsedDName`]: struct.ParsedDName.html
-pub trait DName: fmt::Debug + fmt::Display + Sized {
+pub trait DName: Sized {
     /// Converts the name into an uncompressed name.
     ///
     /// Since unpacking parsed domain names may need allocations to collect
