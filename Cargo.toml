@@ -2,6 +2,13 @@
 name    = "domain"
 version = "0.1.0"
 authors = ["Martin Hoffmann <hn@nvnc.de>"]
+description = "A DNS library for Rust."
+documentation = "https://docs.rs/domain/"
+homepage = "https://github.com/partim/domain"
+repository = "https://github.com/partim/domain"
+readme = "README.md"
+keywords = ["DNS", "domain", "resolver", "futures"]
+license = "MIT"
 
 [lib]
 name = "domain"
