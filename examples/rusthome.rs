@@ -8,7 +8,7 @@
 
 extern crate futures;
 extern crate tokio_core;
-extern crate tokio_tls;
+//extern crate tokio_tls;
 extern crate domain;
 
 use std::str::FromStr;
@@ -16,12 +16,12 @@ use std::str::FromStr;
 use futures::Future;
 use tokio_core::reactor::Core;
 use tokio_core::net::TcpStream;
-use tokio_tls::ClientContext;
+//use tokio_tls::ClientContext;
 use domain::bits::DNameBuf;
 use domain::resolv::Resolver;
 use domain::resolv::lookup::lookup_host;
 
-#[allow(string_lit_as_bytes)]
+#[allow(unknown_lints, string_lit_as_bytes)]
 fn main() {
     let mut core = Core::new().unwrap();
 
@@ -32,15 +32,19 @@ fn main() {
 
     let socket_handle = core.handle();
     let socket = addr.and_then(|addr| {
-        TcpStream::connect(&addr.port_iter(443).next().unwrap(),
+        TcpStream::connect(&addr.port_iter(80).next().unwrap(),
+        //TcpStream::connect(&addr.port_iter(443).next().unwrap(),
                            &socket_handle)
     });
 
+    /*
     let tls_handshake = socket.and_then(|socket| {
         let cx = ClientContext::new().unwrap();
         cx.handshake("www.rust-lang.org", socket)
     });
     let request = tls_handshake.and_then(|socket| {
+    */
+    let request = socket.and_then(|socket| {
         tokio_core::io::write_all(socket, "\
             GET / HTTP/1.0\r\n\
             Host: www.rust-lang.org\r\n\
