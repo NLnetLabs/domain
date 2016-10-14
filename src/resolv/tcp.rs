@@ -17,7 +17,8 @@ use super::transport::{Transport, StreamWriter, StreamReader};
 /// Creates a new DNS service using TCP as the transport.
 pub fn tcp_service(reactor: reactor::Handle, conf: &ServerConf)
                    -> io::Result<Option<ServiceHandle>> {
-    let mode = match ServiceMode::resolve(conf.tcp, ServiceMode::Sequential) {
+    let mode = match ServiceMode::resolve(conf.tcp,
+                                          ServiceMode::SingleRequest) {
         Some(mode) => mode,
         None => return Ok(None)
     };
