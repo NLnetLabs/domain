@@ -366,7 +366,7 @@ impl PendingRequests {
                     Ok(Async::Ready(())) => {
                         loop {
                             match self.expires.front() {
-                                Some(&(_, at)) if at > Instant::now() => { }
+                                Some(&(_, at)) if at < Instant::now() => { }
                                 _ => break
                             }
                             let id = self.expires.pop_front().unwrap().0;
