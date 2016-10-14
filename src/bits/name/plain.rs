@@ -638,7 +638,7 @@ impl DNameBuf {
 
 impl DName for DNameBuf {
     fn to_cow(&self) -> Cow<DNameSlice> {
-        Cow::Borrowed(&self)
+        Cow::Borrowed(self)
     }
 
     fn labels(&self) -> NameLabels {

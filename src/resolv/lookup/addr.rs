@@ -127,7 +127,7 @@ fn dname_from_v6(addr: Ipv6Addr, opts: &ResolvOptions) -> DNameBuf {
     else {
         res.push_normal(b"arpa").unwrap();
     }
-    res.push(&Label::root()).unwrap(); // XXX
+    res.push(Label::root()).unwrap();
     res
 }
 

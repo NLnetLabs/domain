@@ -62,7 +62,7 @@ fn main() {
     let mut conf = ResolvConf::default();
     let mut names = Vec::new();
     for arg in env::args().skip(1) {
-        if arg.starts_with("+") {
+        if arg.starts_with('+') {
             parse_queryopt(&mut conf, &arg)
         }
         else {

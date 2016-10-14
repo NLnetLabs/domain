@@ -21,6 +21,7 @@ use domain::bits::DNameBuf;
 use domain::resolv::Resolver;
 use domain::resolv::lookup::lookup_host;
 
+#[allow(string_lit_as_bytes)]
 fn main() {
     let mut core = Core::new().unwrap();
 

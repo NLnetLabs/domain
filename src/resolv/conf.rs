@@ -324,7 +324,7 @@ impl ResolvConf {
         if self.search.is_empty() {
             self.search.push(DNameSlice::root().to_owned())
         }
-        for server in self.servers.iter_mut() {
+        for server in &mut self.servers {
             server.request_timeout = self.timeout
         }
     }

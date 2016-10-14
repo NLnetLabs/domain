@@ -1,4 +1,4 @@
-//! The DName trait.
+//! A trait for all domain name types.
 
 use std::borrow::Cow;
 use super::super::{Composer, ComposeResult};

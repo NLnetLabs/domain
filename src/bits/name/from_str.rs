@@ -33,7 +33,7 @@ fn label(chars: &mut Chars, target: &mut Vec<u8>)
         }
         Ok(false)
     }
-    else if chars.as_str().starts_with(".") {
+    else if chars.as_str().starts_with('.') {
         Err(FromStrError::EmptyLabel)
     }
     else if chars.as_str().starts_with("\\[") {
@@ -215,10 +215,10 @@ fn bin_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
 /// The function returns the number of digits read and the delimiter.
 fn bit_digits(chars: &mut Chars, mut target: &mut [u8], radix: u32)
               -> Result<(usize, char), FromStrError> {
-    for i in 0..target.len() {
+    for (i, t) in target.iter_mut().enumerate() {
         match chars.next() {
             Some(ch) if ch.is_digit(radix) => {
-                target[i] = ch.to_digit(radix).unwrap() as u8
+                *t = ch.to_digit(radix).unwrap() as u8
             }
             Some(ch) if (ch == '/' || ch == ']') => {
                 return Ok((i, ch))

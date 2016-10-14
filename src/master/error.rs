@@ -54,6 +54,7 @@ impl From<Utf8Error> for SyntaxError {
     }
 }
 
+#[allow(match_same_arms)]
 impl From<name::FromStrError> for SyntaxError {
     fn from(err: name::FromStrError) -> SyntaxError {
         match err {

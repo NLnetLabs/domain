@@ -174,7 +174,7 @@ fn print_result(response: MessageBuf) {
     }
 }
 
-fn print_records<'a>(section: &mut RecordSection<'a>) {
+fn print_records(section: &mut RecordSection) {
     for record in section {
         println!("{}", record.unwrap());
     }

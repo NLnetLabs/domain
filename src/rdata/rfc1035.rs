@@ -496,7 +496,7 @@ impl<D: AsRef<[u8]>> Null<D> {
 
     /// The raw content of the record.
     pub fn data(&self) -> &[u8] {
-        &self.data.as_ref()
+        self.data.as_ref()
     }
 }
 
@@ -511,7 +511,7 @@ impl<D: AsRef<[u8]>> RecordData for Null<D> {
     fn rtype(&self) -> Rtype { Rtype::Null }
 
     fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        target.as_mut().compose_bytes(&self.data())
+        target.as_mut().compose_bytes(self.data())
     }
 }
 
@@ -712,7 +712,7 @@ impl<T: AsRef<[u8]>> Txt<T> {
         else {
             let mut res = Vec::new();
             for item in self.iter() {
-                res.extend_from_slice(&item)
+                res.extend_from_slice(item)
             }
             Cow::Owned(res)
         }
@@ -731,7 +731,7 @@ impl<'a> Txt<&'a [u8]> {
             }
             tmp = &tmp[len..];
         }
-        return Ok(Self::new(bytes))
+        Ok(Self::new(bytes))
     }
 }
 

@@ -311,7 +311,7 @@ impl Resolver {
 
     /// Returns a reference to the configuration of this resolver.
     pub fn conf(&self) -> &ResolvConf {
-        &self.core.conf()
+        self.core.conf()
     }
 
     /// Returns a reference to the configuration options of this resolver.

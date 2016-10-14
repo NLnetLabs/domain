@@ -12,7 +12,7 @@
 //! available if the names use [`ParsedDName`].
 //!
 //! All concrete types shipped with this crate are implemented in the
-//! [domain::rdata] module.
+//! [`domain::rdata`] module.
 //!
 //! In order to walk over all resource records in a message or work with
 //! unknown record types, this module also defines the [`GenericRecordData`]
@@ -21,7 +21,7 @@
 //!
 //! [`RecordData`]: trait.RecordData.html
 //! [`ParsedRecordData`]: trait.ParsedRecordData.html
-//! [domain::rdata]: ../../rdata/index.html
+//! [`domain::rdata`]: ../../rdata/index.html
 //! [`GenericRecordData`]: struct.GenericRecordData.html
 
 use std::fmt;

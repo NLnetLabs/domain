@@ -49,6 +49,7 @@ use super::error::{Error};
 /// contains an `Err` which is translated into a fatal error. If all is
 /// well, it contains an `Ok` with the oneshot future that will receive the
 /// result from the service request.
+#[allow(type_complexity)]
 pub struct QueryRequest(Result<Oneshot<(Result<MessageBuf, Error>,
                                         MessageBuilder)>,
                                Option<io::Error>>);
@@ -162,7 +163,7 @@ impl ServiceRequest {
     pub fn response(mut self, response: MessageBuf) {
         let is_answer = {
             let request = Message::from_bytes(self.dgram_bytes()).unwrap();
-            response.is_answer(&request)
+            response.is_answer(request)
         };
         if is_answer {
             self.complete.complete((Ok(response), self.message))

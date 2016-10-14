@@ -55,7 +55,7 @@ use ::iana::{Class, Rtype};
 /// the generics through type inference. Secondly, you can parse a record
 /// from an existing message. [`Message`] and its friends provide a way to
 /// do that; see there for all the details. Finally, you can scan a record
-/// from master data (aka zonefiles). See the [domain::master] module for
+/// from master data (aka zonefiles). See the [`domain::master`] module for
 /// that.
 ///
 /// Records can be place into DNS messages through the value chain starting 
@@ -68,7 +68,7 @@ use ::iana::{Class, Rtype};
 /// [`Message`]: ../message/struct.Message.html
 /// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
 /// [`Rtype`]: ../../iana/enum.Rtype.html
-/// [domain::master]: ../../master/index.html
+/// [`domain::master`]: ../../master/index.html
 #[derive(Clone, Debug)]
 pub struct Record<N: DName, D: RecordData> {
     name: N,
