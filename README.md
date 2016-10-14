@@ -2,17 +2,17 @@
 A DNS library for Rust.
 
 [![Travis Build Status](https://travis-ci.org/partim/domain.svg?branch=master)](https://travis-ci.org/partim/domain)
+[![Current](https://img.shields.io/crates/v/domain.svg)](https://crates.io/crates/domain)
 
 [Documentation](https://partim.github.io/domain/domain/index.html)
 
 ## Usage
 
-Since it is wildly incomplete, this crate is not yet on crates.io. If you
-feel like using it anyway, add this to your `Cargo.toml`:
+First, add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-domain = { git = "https://github.com/partim/domain.git" }
+domain = "0.1"
 ```
 
 Then, add this to your crate root:
@@ -21,8 +21,6 @@ Then, add this to your crate root:
 extern crate domain;
 ```
 
-Please be aware that the crate is currently in a very early state and all
-things can change without notice.
 
 
 ## Features (aka TODO)
@@ -82,8 +80,10 @@ the four top-level points into separate crates along the way.
 ## Contributing
 
 If you have comments, proposed changes, or would like to contribute,
-please open an issue. Given that things are very early and in flux, a
-PR without an issue first may or may not be a good idea. The current code
-may lag behind the several changes of mind I’ve had in figuring out the
-best way to do things.
+please open an issue.
 
+
+## Licensing
+
+`domain` is distributed under the terms of the MIT license. See LICENSE
+for details.
