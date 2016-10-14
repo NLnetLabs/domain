@@ -355,6 +355,16 @@ impl Resolver {
         reactor.run(fut)
     }
 
+    pub fn run_with_conf<R, F>(conf: ResolvConf, f: F)
+                               -> result::Result<R::Item, R::Error>
+               where R: Future, R::Error: From<io::Error> + Send + 'static,
+                     F: FnOnce(ResolverTask) -> R {
+        let mut reactor = try!(reactor::Core::new());
+        let resolver = try!(Resolver::from_conf(&reactor.handle(), conf));
+        let fut = resolver.start().and_then(f);
+        reactor.run(fut)
+    }
+
     /// Spawn a query.
     ///
     /// This method is a shortcut for `self.start().and_then(f).boxed()`.

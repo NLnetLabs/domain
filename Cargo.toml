@@ -12,8 +12,8 @@ path = "src/lib.rs"
 #path = "examples/dig.rs"
 
 #[[example]]
-#name = "host"
-#path = "examples/host.rs"
+#name = "lookup"
+#path = "examples/lookup.rs"
 
 #[[example]]
 #name = "rusthome"
