@@ -4,7 +4,8 @@ A DNS library for Rust.
 [![Travis Build Status](https://travis-ci.org/partim/domain.svg?branch=master)](https://travis-ci.org/partim/domain)
 [![Current](https://img.shields.io/crates/v/domain.svg)](https://crates.io/crates/domain)
 
-[Documentation](https://partim.github.io/domain/domain/index.html)
+[Documentation](https://docs.rs/domain/)
+
 
 ## Usage
 
@@ -22,7 +23,6 @@ extern crate domain;
 ```
 
 
-
 ## Features (aka TODO)
 
 Eventually, this crate will provide the following functions:
@@ -35,7 +35,7 @@ Eventually, this crate will provide the following functions:
 
     * [X] Wire-format parsing and constructing.
 
-    * [ ] Zonefile parsing and constructing.
+    * [ ] Master format parsing and constructing.
 
 * [ ] Stub resolver.
 
