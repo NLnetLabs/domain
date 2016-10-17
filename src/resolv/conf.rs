@@ -39,8 +39,8 @@ pub struct ResolvOptions {
     /// Only responses with the AA bit set will be considered. If there
     /// aren’t any, the query will fail.
     ///
-    /// This option is not currently implemented. It is likely be eventually
-    /// implemented by the query.
+    /// This option is not currently implemented. It is likely to be
+    /// eventually implemented by the query.
     pub aa_only: bool,
     
     /// Always use TCP.

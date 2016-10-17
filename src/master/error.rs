@@ -1,3 +1,4 @@
+/// Errors when dealing with master data.
 
 use std::io;
 use std::net::AddrParseError;
@@ -9,6 +10,7 @@ use ::bits::name;
 
 //------------ SyntaxError ---------------------------------------------------
 
+/// A syntax error happened while scanning master data.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SyntaxError {
     Expected(Vec<u8>),
@@ -70,8 +72,15 @@ impl From<name::FromStrError> for SyntaxError {
     }
 }
 
+
+//------------ SyntaxError ---------------------------------------------------
+
+/// A result with a syntax error.
+pub type SyntaxResult<T> = result::Result<T, SyntaxError>;
+
 //------------ ScanError -----------------------------------------------------
 
+/// An error happened while scanning master data.
 #[derive(Debug)]
 pub enum ScanError {
     Io(io::Error),
@@ -96,12 +105,13 @@ impl From<io::Error> for ScanError {
 
 //------------ ScanResult ----------------------------------------------------
 
+/// A result with a scan error.
 pub type ScanResult<T> = result::Result<T, ScanError>;
-pub type SyntaxResult<T> = result::Result<T, SyntaxError>;
 
 
 //------------ Pos -----------------------------------------------------------
 
+/// The human-friendly position in a reader.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Pos {
     line: usize,

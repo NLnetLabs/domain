@@ -3,18 +3,27 @@
 use ::master::{ScanResult, Scanner, SyntaxError};
 use ::bits::{Composer, ComposeResult, Parser, ParseResult};
 
-
-/// DNS CLASSes.
-///
-/// The domain name space is partitioned into separate classes for different
-/// network types. Classes are represented by a 16 bit value. This type
-/// wraps these values. It includes the query classes that can only be used
-/// in a question.
-///
-/// See RFC 1034 for classes in general and
-/// http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-2
-/// for all currently assigned classes.
 int_enum!{
+    /// DNS CLASSes.
+    ///
+    /// The domain name space is partitioned into separate classes for different
+    /// network types. That is, each class has its own separate record tree
+    /// starting at the root. However, in practice, only the IN class is really
+    /// relevant.
+    ///
+    /// In addition, there are query classes or QCLASSes that are used in
+    /// questions or UPDATE queries, namely NONE and ANY (or *).
+    ///
+    /// Classes are represented by a 16 bit value. The enum wraps these values.
+    ///
+    /// See [RFC 1034] for the introduction of classes, section 3.2 of
+    /// [RFC 6895] for a discussion of the current state of afairs, and
+    /// the [DNS CLASSes IANA registry] for an overview of assigned values. 
+    ///
+    /// [RFC 1034]: https://tools.ietf.org/html/rfc1034
+    /// [RFC 6895]: https://tools.ietf.org/html/rfc6895
+    /// [DNS CLASSes IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-2
+    =>
     Class, u16;
 
     /// Internet (IN).

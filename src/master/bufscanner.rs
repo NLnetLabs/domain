@@ -9,7 +9,7 @@ use super::scanner::Scanner;
 
 //------------ BufScanner ----------------------------------------------------
 
-/// A scanner using a buffer atop an reader.
+/// A scanner using a buffer atop a reader.
 ///
 /// The strategy implemented for the buffer is to read byte by byte from the
 /// underlying reader and flush it every time a successfully read token ends

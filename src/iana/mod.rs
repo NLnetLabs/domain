@@ -1,10 +1,7 @@
 //! IANA Definitions for DNS.
 //!
-//! See http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
-//! and http://www.iana.org/assignments/dns-sec-alg-numbers/dns-sec-alg-numbers.xhtml
-//! for the canonical source of these definitions.
-//!
-//! This module represents the state of the source as per 2016-03-10.
+//! This module contains enums for parameters defined in IANA registries
+//! that are relevant for this crate.
 //!
 //! All types defined hereunder follow the same basic structure. They are
 //! all enums with all well-defined values as variants. In addition they
@@ -19,6 +16,14 @@
 //! for these. `FromStr` and `Display` are implemented to convert from
 //! the string codes to the values and back. All of these are essentially
 //! giant matches which may or may not be the smartest way to do this.
+//!
+//! Types also implement `parse()` and `scan()` functions for creation from
+//! wire format and master format, respectively, as well as a `compose()`
+//! method for composing into wire format data.
+//!
+//! While each parameter type has a module of its own, they are all
+//! re-exported here. This is mostly so we can have associated types like
+//! `FromStrError` without having to resort to devilishly long names.
 
 pub use self::class::Class;
 pub use self::opcode::Opcode;

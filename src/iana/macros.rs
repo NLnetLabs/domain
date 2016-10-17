@@ -5,13 +5,14 @@
 /// This adds impls for From, PartialEq, Eq, PartialOrd, Ord, and Hash.
 /// For FromStr and Display, see one of the other macros in this module.
 macro_rules! int_enum {
-    ($ianatype:ident, $inttype:path;
-        $( $(#[$attr:meta])* ( $variant:ident =>  $value:expr,
-                                                  $mnemonic:expr) )* ) => {
-
+    ( $(#[$attr:meta])* =>
+      $ianatype:ident, $inttype:path;
+      $( $(#[$variant_attr:meta])* ( $variant:ident =>
+                                        $value:expr, $mnemonic:expr) )* ) => {
+        $(#[$attr])*
         #[derive(Clone, Copy, Debug)]
         pub enum $ianatype {
-            $( $(#[$attr])* $variant ),*,
+            $( $(#[$variant_attr])* $variant ),*,
             
             /// A raw value given through its integer.
             Int($inttype)
