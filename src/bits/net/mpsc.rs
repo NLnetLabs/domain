@@ -88,11 +88,11 @@ impl<T> Stream for Receiver<T> {
     type Error = Void;
 
     fn poll(&mut self) -> Result<Async<Option<T>>, Void> {
-        if self.inner.tx_count.load(SeqCst) == 0 {
-            Ok(Async::Ready(None))
-        }
-        else if let Some(t) = self.inner.queue.try_pop() {
+        if let Some(t) = self.inner.queue.try_pop() {
             Ok(Async::Ready(Some(t)))
+        }
+        else if self.inner.tx_count.load(SeqCst) == 0 {
+            Ok(Async::Ready(None))
         }
         else {
             self.inner.rx_task.swap(park(), SeqCst);
@@ -132,3 +132,39 @@ impl<T: Any> error::Error for SendError<T> {
     }
 }
 
+
+//============ Testing =======================================================
+
+#[cfg(test)]
+mod test {
+    use std::thread;
+    use futures::Future;
+    use futures::stream::Stream;
+    use super::*;
+
+    #[test]
+    fn send_then_drop() {
+        let (tx, rx) = channel();
+        tx.send(2).unwrap();
+        let txc = tx.clone();
+        thread::spawn(move || {
+            txc.send(4).unwrap();
+        });
+        thread::spawn(move || {
+            tx.send(4).unwrap();
+        });
+        assert_eq!(rx.collect().wait().unwrap(), [2, 4, 4]);
+    }
+
+    #[test]
+    fn send_dropped() {
+        let (tx, _) = channel();
+        assert!(tx.send(4).is_err())
+    }
+
+    #[test]
+    fn recv_dropped() {
+        let (_, rx) = channel::<u8>();
+        assert_eq!(rx.collect().wait().unwrap(), b"");
+    }
+}
