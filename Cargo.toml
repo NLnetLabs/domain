@@ -14,23 +14,13 @@ license = "MIT"
 name = "domain"
 path = "src/lib.rs"
 
-[[example]]
-name = "dig"
-path = "examples/dig.rs"
-
-[[example]]
-name = "lookup"
-path = "examples/lookup.rs"
-
-[[example]]
-name = "rusthome"
-path = "examples/rusthome.rs"
-
 [dependencies]
 byteorder   = "0.5"
+crossbeam   = "0.2"
 rand        = "0.3"
 futures     = "0.1"
 tokio-core  = "0.1"
+void        = "1.0"
 
 [dev-dependencies]
 argparse     = "0.2"

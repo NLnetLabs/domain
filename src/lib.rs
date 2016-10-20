@@ -18,10 +18,12 @@
 //! [resolv]: resolv/index.html
 #![allow(unknown_lints)] // hide clippy-related #allows on stable. 
 
+extern crate crossbeam;
 extern crate byteorder;
 #[macro_use] extern crate futures;
 extern crate rand;
 #[macro_use] extern crate tokio_core;
+extern crate void;
 
 pub mod bits;
 pub mod iana;
@@ -29,4 +31,4 @@ pub mod master;
 pub mod rdata;
 pub mod utils;
 pub mod resolv;
-
+pub mod server;
