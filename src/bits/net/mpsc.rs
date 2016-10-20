@@ -157,6 +157,23 @@ mod test {
     }
 
     #[test]
+    fn lots() {
+        let (tx, rx) = channel();
+        for _ in 0..20 {
+            let txc = tx.clone();
+            thread::spawn(move || {
+                for _ in 0..1000 {
+                    txc.send(4).unwrap();
+                }
+            });
+        }
+        drop(tx);
+        let mut i = 0;
+        rx.for_each(|_| { i += 1; Ok(()) }).wait().unwrap();
+        assert_eq!(i, 20_000)
+    }
+
+    #[test]
     fn send_dropped() {
         let (tx, _) = channel();
         assert!(tx.send(4).is_err())
