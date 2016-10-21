@@ -21,10 +21,9 @@ impl StreamSend {
         }
     }
 
-    pub fn send<W: io::Write>(&mut self, w: &mut W, msg: Vec<u8>)
-                              -> io::Result<Async<()>> {
+    pub fn send(&mut self, msg: Vec<u8>) -> io::Result<()> {
         self.queue.push_back(msg);
-        self.flush(w)
+        Ok(())
     }
 
     pub fn flush<W: io::Write>(&mut self, w: &mut W)

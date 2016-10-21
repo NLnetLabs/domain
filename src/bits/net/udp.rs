@@ -2,7 +2,7 @@
 
 use std::{io, mem};
 use std::collections::{HashMap, VecDeque};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use futures::Async;
 use futures::stream::Stream;
 use tokio_core::reactor;
@@ -12,12 +12,12 @@ use super::Flow;
 use super::mpsc::{Receiver, Sender, channel};
 
 
-//------------ UdpIncoming ---------------------------------------------------
+//------------ UdpServer -----------------------------------------------------
 
-pub struct UdpIncoming {
+pub struct UdpServer {
     sock: UdpSocket,
     flows: HashMap<SocketAddr, Sender<MessageBuf>>,
-    pending: VecDeque<(Sender<MessageBuf>, UdpFlow)>,
+    pending: VecDeque<(Sender<MessageBuf>, UdpServerFlow)>,
     write_sender: Sender<(Vec<u8>, SocketAddr)>,
     write_queue: Receiver<(Vec<u8>, SocketAddr)>,
     write_item: Option<(Vec<u8>, SocketAddr)>,
@@ -26,10 +26,10 @@ pub struct UdpIncoming {
     write_size: usize,
 }
 
-impl UdpIncoming {
+impl UdpServer {
     pub fn new(sock: UdpSocket, read_size: usize, write_size: usize) -> Self {
         let (tx, rx) = channel();
-        UdpIncoming {
+        UdpServer {
             sock: sock,
             flows: HashMap::new(),
             pending: VecDeque::new(),
@@ -45,16 +45,16 @@ impl UdpIncoming {
     pub fn bind(addr: &SocketAddr, handle: &reactor::Handle, read_size: usize,
                 write_size: usize) -> io::Result<Self> {
         UdpSocket::bind(addr, handle).map(|sock| {
-            UdpIncoming::new(sock, read_size, write_size)
+            UdpServer::new(sock, read_size, write_size)
         })
     }
 }
 
-impl Stream for UdpIncoming {
-    type Item = UdpFlow;
+impl Stream for UdpServer {
+    type Item = UdpServerFlow;
     type Error = io::Error;
 
-    fn poll(&mut self) -> io::Result<Async<Option<UdpFlow>>> {
+    fn poll(&mut self) -> io::Result<Async<Option<UdpServerFlow>>> {
         try!(self.poll_write());
         try!(self.poll_read());
         if let Some((tx, flow)) = self.pending.pop_front() {
@@ -67,7 +67,7 @@ impl Stream for UdpIncoming {
     }
 }
 
-impl UdpIncoming {
+impl UdpServer {
     fn poll_write(&mut self) -> io::Result<Async<()>> {
         loop {
             if let Some((ref mut item, ref addr)) = self.write_item {
@@ -116,7 +116,7 @@ impl UdpIncoming {
     }
 
     fn new_flow(&mut self, data: MessageBuf, peer: SocketAddr) {
-        let (flow, tx) = UdpFlow::new(peer, self.write_sender.clone(),
+        let (flow, tx) = UdpServerFlow::new(peer, self.write_sender.clone(),
                                       self.write_size);
         tx.send(data).unwrap();
         self.pending.push_back((tx, flow));
@@ -124,33 +124,32 @@ impl UdpIncoming {
 }
 
 
-//------------ UdpFlow -------------------------------------------------------
+//------------ UdpServerFlow -------------------------------------------------
 
-pub struct UdpFlow {
+pub struct UdpServerFlow {
     peer: SocketAddr,
     write: Sender<(Vec<u8>, SocketAddr)>,
     write_size: usize,
     recv: Receiver<MessageBuf>,
 }
 
-impl UdpFlow {
+impl UdpServerFlow {
     fn new(peer: SocketAddr, write: Sender<(Vec<u8>, SocketAddr)>,
            write_size: usize)
            -> (Self, Sender<MessageBuf>) {
         let (tx, rx) = channel();
-        (UdpFlow{peer: peer, write: write, write_size: write_size, recv: rx},
+        (UdpServerFlow{peer: peer, write: write, write_size: write_size, recv: rx},
          tx)
     }
 }
 
-impl Flow for UdpFlow {
+impl Flow for UdpServerFlow {
     fn compose_mode(&self) -> ComposeMode {
         ComposeMode::Limited(self.write_size)
     }
 
-    fn send(&mut self, msg: Vec<u8>) -> io::Result<Async<()>> {
-        self.write.send((msg, self.peer)).map(|_| Async::Ready(()))
-                                         .map_err(|_| {
+    fn send(&mut self, msg: Vec<u8>) -> io::Result<()> {
+        self.write.send((msg, self.peer)).map_err(|_| {
             io::Error::new(io::ErrorKind::ConnectionAborted,
                            "socket closed")
         })
@@ -165,3 +164,86 @@ impl Flow for UdpFlow {
     }
 }
 
+
+//------------ UdpClientFlow -------------------------------------------------
+
+pub struct UdpClientFlow {
+    sock: UdpSocket,
+    peer: SocketAddr,
+    write: VecDeque<Vec<u8>>,
+    read_buf: Vec<u8>,
+    read_size: usize,
+    write_size: usize,
+}
+
+impl UdpClientFlow {
+    fn new(sock: UdpSocket, peer: SocketAddr, read_size: usize,
+           write_size: usize) -> Self {
+        UdpClientFlow {
+            sock: sock, peer: peer,
+            write: VecDeque::new(),
+            read_buf: vec![0; read_size],
+            read_size: read_size, write_size: write_size
+        }
+    }
+
+    pub fn bind_and_connect(local: &SocketAddr, peer: &SocketAddr,
+                            handle: &reactor::Handle, read_size: usize,
+                            write_size: usize) -> io::Result<Self> {
+        UdpSocket::bind(&local, handle).map(|sock| {
+            UdpClientFlow::new(sock, *peer, read_size, write_size)
+        })
+    }
+
+    pub fn connect(peer: &SocketAddr, handle: &reactor::Handle,
+                   read_size: usize, write_size: usize) -> io::Result<Self> {
+        let local = match *peer {
+            SocketAddr::V4(_)
+                => SocketAddr::new(IpAddr::V4(0.into()), 0),
+            SocketAddr::V6(_)
+                => SocketAddr::new(IpAddr::V6([0;16].into()), 0)
+        };
+        UdpClientFlow::bind_and_connect(&local, peer, handle, read_size,
+                                        write_size)
+    }
+}
+
+impl Flow for UdpClientFlow {
+    fn compose_mode(&self) -> ComposeMode {
+        ComposeMode::Limited(self.write_size)
+    }
+
+    fn send(&mut self, msg: Vec<u8>) -> io::Result<()> {
+        self.write.push_back(msg);
+        Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<Async<()>> {
+        loop {
+            match self.write.front() {
+                Some(msg) => {
+                    try_nb!(self.sock.send_to(&msg, &self.peer));
+                }
+                None => return Ok(Async::Ready(()))
+            }
+            self.write.pop_front();
+        }
+    }
+
+    fn recv(&mut self) -> io::Result<Async<Option<MessageBuf>>> {
+        loop {
+            let (size, peer) = try_nb!(self.sock.recv_from(&mut self.read_buf));
+            if peer != self.peer {
+                // Quietly drop messages from the wrong peer.
+                continue
+            }
+            let mut data = mem::replace(&mut self.read_buf,
+                                        vec![0; self.read_size]);
+            data.truncate(size);
+            if let Ok(msg) = MessageBuf::from_vec(data) {
+                return Ok(Async::Ready(Some(msg)))
+            }
+            // ... and drop short messages, too.
+        }
+    }
+}
