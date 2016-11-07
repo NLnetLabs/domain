@@ -1,11 +1,8 @@
 //! Domain name labels.
 
+use std::{borrow, cmp, fmt, hash, mem, ops, str};
 use std::ascii::AsciiExt;
-use std::cmp;
-use std::fmt;
-use std::hash;
-use std::mem;
-use std::str;
+use std::ops::Deref;
 
 
 //------------ Label ---------------------------------------------------------
@@ -41,7 +38,7 @@ pub struct Label {
 }
 
 
-/// Creation
+/// # Creation
 ///
 impl Label {
     /// Creates a label from the underlying bytes without any checking.
@@ -177,6 +174,17 @@ impl AsRef<Label> for Label {
 }
 
 
+//--- ToOwned
+
+impl borrow::ToOwned for Label {
+    type Owned = LabelBuf;
+
+    fn to_owned(&self) -> Self::Owned {
+        self.into()
+    }
+}
+
+
 //--- PartialEq and Eq
 
 impl PartialEq for Label {
@@ -212,6 +220,12 @@ impl PartialEq for Label {
             }
             _ => false
         }
+    }
+}
+
+impl<T: AsRef<Label>> PartialEq<T> for Label {
+    fn eq(&self, other: &T) -> bool {
+        self.eq(other.as_ref())
     }
 }
 
@@ -310,6 +324,133 @@ impl fmt::Debug for Label {
         try!(f.write_str("Label("));
         try!(fmt::Display::fmt(self, f));
         f.write_str(")")
+    }
+}
+
+
+//------------ LabelBuf ------------------------------------------------------
+
+/// An owned domain name label.
+/// 
+/// This type is the owned companion of and derefs to [`Label`].
+pub struct LabelBuf {
+    inner: Vec<u8>
+}
+
+
+impl LabelBuf {
+    /// Creates an owned label from the underlying vec without checking.
+    unsafe fn from_vec_unsafe(vec: Vec<u8>) -> Self {
+        LabelBuf{inner: vec}
+    }
+
+    /// Creates an owned label from a label slice.
+    ///
+    /// `LabelBuf` also implements `From<&Label>`, so the canonical form of
+    /// this function is actually `label.into()`.
+    pub fn from_slice(label: &Label) -> Self {
+        unsafe { Self::from_vec_unsafe(label.inner.into()) }
+    }
+
+    /// Returns an owned root label.
+    pub fn root() -> Self {
+        Label::root().into()
+    }
+
+    /// Returns a reference to a slice of the label.
+    pub fn as_slice(&self) -> &Label {
+        unsafe { Label::from_bytes_unsafe(&self.inner) }
+    }
+}
+
+
+//--- From
+
+impl<'a> From<&'a Label> for LabelBuf {
+    fn from(label: &'a Label) -> Self {
+        Self::from_slice(label)
+    }
+}
+
+
+//--- Deref, Borrow, and AsRef
+
+impl ops::Deref for LabelBuf {
+    type Target = Label;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl borrow::Borrow<Label> for LabelBuf {
+    fn borrow(&self) -> &Label {
+        self
+    }
+}
+
+impl AsRef<Label> for LabelBuf {
+    fn as_ref(&self) -> &Label {
+        self
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl<T: AsRef<Label>> PartialEq<T> for LabelBuf {
+    fn eq(&self, other: &T) -> bool {
+        self.deref().eq(other.as_ref())
+    }
+}
+
+impl Eq for LabelBuf { }
+
+
+//--- Hash
+
+impl hash::Hash for LabelBuf {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.deref().hash(state)
+    }
+}
+
+
+//--- std::fmt traits
+
+impl fmt::Display for LabelBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self.deref(), f)
+    }
+}
+
+impl fmt::Octal for LabelBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Octal::fmt(self.deref(), f)
+    }
+}
+
+impl fmt::LowerHex for LabelBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::UpperHex::fmt(self.deref(), f)
+    }
+}
+
+impl fmt::UpperHex for LabelBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::LowerHex::fmt(self.deref(), f)
+    }
+}
+
+impl fmt::Binary for LabelBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Binary::fmt(self.deref(), f)
+    }
+}
+
+impl fmt::Debug for LabelBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(self.deref(), f)
     }
 }
 

@@ -247,6 +247,15 @@ impl<'a> DName for &'a DNameSlice {
 }
 
 
+//--- From
+
+impl<'a> From<&'a Label> for &'a DNameSlice {
+    fn from(label: &'a Label) -> &'a DNameSlice {
+        unsafe { DNameSlice::from_bytes_unsafe(label.as_bytes()) }
+    }
+}
+
+
 //--- AsRef
 
 impl AsRef<DNameSlice> for DNameSlice {
@@ -665,6 +674,13 @@ impl<'a> From<&'a DNameSlice> for DNameBuf {
     }
 }
 
+impl<'a> From<&'a Label> for DNameBuf {
+    fn from(label: &'a Label) -> DNameBuf {
+        unsafe { DNameBuf::from_vec_unsafe(Vec::from(label.as_bytes())) }
+    }
+}
+
+
 impl str::FromStr for DNameBuf {
     type Err = FromStrError;
 
@@ -696,7 +712,7 @@ impl Deref for DNameBuf {
 
 impl borrow::Borrow<DNameSlice> for DNameBuf {
     fn borrow(&self) -> &DNameSlice {
-        self.deref()
+        self
     }
 }
 
