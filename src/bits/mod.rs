@@ -43,7 +43,7 @@
 //! *parsing* and *composing* for reading from and writing to wire-format
 //! data.
 //!
-//! Both parsing and parsing happen on bytes buffers. This seems to be a
+//! Both parsing and composing happen on bytes buffers. This seems to be a
 //! reasonably choice given the relatively small size of DNS messages and
 //! the complexities introduced by name compression. The details are
 //! explained in the [parse] and [compose] sub-modules. Unless you are
