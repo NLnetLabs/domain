@@ -197,7 +197,8 @@ impl DNameSlice {
     ///
     /// This fails if `base` isn’t a suffix of `self`.
     pub fn strip_suffix<'a, N: DName>(&'a self, base: &'a N)
-                                      -> Result<Cow<'a, Self>, ()> {
+                                      -> Result<Cow<'a, Self>,
+                                                StripSuffixError> {
         let mut self_iter = self.labelettes();
         let mut base_iter = base.labelettes();
         loop {
@@ -210,11 +211,11 @@ impl DNameSlice {
             let self_ltte = match self_iter.next_back() {
                 Some(ltte) => ltte,
                 None => {
-                    return Err(()) // XXX Not a suffix
+                    return Err(StripSuffixError)
                 }
             };
             if base_ltte != self_ltte {
-                return Err(()) // XXX Not a suffix
+                return Err(StripSuffixError)
             }
         }
     }
@@ -951,10 +952,6 @@ impl error::Error for PushError {
     fn description(&self) -> &str {
         "adding a label would exceed the size limit"
     }
-
-    fn cause(&self) -> Option<&error::Error> {
-        None
-    }
 }
 
 impl fmt::Debug for PushError {
@@ -966,6 +963,31 @@ impl fmt::Debug for PushError {
 impl fmt::Display for PushError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         "adding a label would exceed the size limit".fmt(f)
+    }
+}
+
+
+//------------ StripSuffixError ----------------------------------------------
+
+/// An attempt was made to strip a suffix that wasn’t actually a suffix.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct StripSuffixError;
+
+impl error::Error for StripSuffixError {
+    fn description(&self) -> &str {
+        "suffix not found"
+    }
+}
+
+impl fmt::Debug for StripSuffixError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        "StripSuffixError".fmt(f)
+    }
+}
+
+impl fmt::Display for StripSuffixError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        "suffix not found".fmt(f)
     }
 }
 

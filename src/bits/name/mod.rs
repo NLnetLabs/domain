@@ -63,7 +63,8 @@ pub use self::dname::DName;
 pub use self::iter::{NameLabels, NameLabelettes};
 pub use self::label::{Label, LabelBuf, LabelContent, Labelette, LabelIter};
 pub use self::parsed::ParsedDName;
-pub use self::plain::{DNameBuf, DNameSlice, FromStrError, PushError};
+pub use self::plain::{DNameBuf, DNameSlice, FromStrError, PushError,
+                      StripSuffixError};
 
 mod builder;
 mod dname;
