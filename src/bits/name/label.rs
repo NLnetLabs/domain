@@ -1,8 +1,10 @@
 //! Domain name labels.
 
 use std::{borrow, cmp, fmt, hash, mem, ops, str};
+use std::borrow::Cow;
 use std::ascii::AsciiExt;
 use std::ops::Deref;
+use super::plain::{DNameBuf, DNameSlice, PushError};
 
 
 //------------ Label ---------------------------------------------------------
@@ -482,6 +484,40 @@ impl<'a> LabelIter<'a> {
             }
         }
     }
+
+    /// Returns whether the label under the iterator is a normal label.
+    pub fn is_normal(&self) -> bool {
+        match self.0 {
+            LabelIterInner::Normal(_) => true,
+            LabelIterInner::Binary(_) => false
+        }
+    }
+
+    /// Returns a domain name with the remaining content of the iterator.
+    ///
+    /// If the iterator is a normal label that hasn’t been consumed yet,
+    /// returns `Some(Cow::Borrowed(_))`. If the iterator is for a binary
+    /// label that hasn’t been consumed yet completely, `Some(Cow::Owned(_))`.
+    /// If the iterator has been consumed completely, returns `None`.
+    pub fn to_name(&self) -> Option<Cow<'a, DNameSlice>> {
+        match self.0 {
+            LabelIterInner::Normal(None) => None,
+            LabelIterInner::Normal(Some(bytes)) => {
+                Some(Cow::Borrowed(
+                        unsafe { DNameSlice::from_bytes_unsafe(bytes)}))
+            }
+            LabelIterInner::Binary(ref binary) => binary.to_name()
+        }
+    }
+
+    /// Pushes a label with the remaining content to an owned domain name.
+    pub fn push_name(&self, name: &mut DNameBuf) -> Result<(), PushError> {
+        match self.0 {
+            LabelIterInner::Normal(None) => Ok(()),
+            LabelIterInner::Normal(Some(bytes)) => name.push_normal(bytes),
+            LabelIterInner::Binary(ref binary) => binary.push_name(name)
+        }
+    }
 }
 
 
@@ -543,6 +579,36 @@ impl<'a> BinaryLabelIter<'a> {
 
     fn get_bit(&self, bit: usize) -> Labelette<'a> {
         Labelette::Bit(self.bits[bit >> 3] & (0x80 >> (bit & 7)) != 0)
+    }
+
+    fn to_name(&self) -> Option<Cow<'a, DNameSlice>> {
+        if self.front == self.back {
+            return None
+        }
+        let mut res = DNameBuf::new();
+        self.push_name(&mut res).unwrap();
+        Some(Cow::Owned(res))
+    }
+
+    fn push_name(&self, name: &mut DNameBuf) -> Result<(), PushError> {
+        if self.front != self.back {
+            return Ok(())
+        }
+        let mut bits = match name.push_empty_binary(self.back - self.front) {
+            Ok(Some(bits)) => bits,
+            Ok(None) => return Ok(()),
+            Err(err) => return Err(err)
+        };
+        for (i, j) in (self.front .. self.back)
+                        .zip(0 .. (self.back - self.front)) {
+            if let Labelette::Bit(true) = self.get_bit(i) {
+                bits[j >> 3] |= bits[j >> 3] | (0x80 >> (j & 7));
+            }
+            else {
+                bits[j >> 3] &= !bits[j >> 3] | (0x80 >> (j & 7));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -815,6 +881,19 @@ pub enum Labelette<'a> {
 
     /// A labelette for a single bit-label of a binary label.
     Bit(bool)
+}
+
+
+impl<'a> Labelette<'a> {
+    /// Returns whether the labelette is the root label.
+    pub fn is_root(&self) -> bool {
+        if let Labelette::Normal(bytes) = *self {
+            bytes.len() == 0
+        }
+        else {
+            false
+        }
+    }
 }
 
 

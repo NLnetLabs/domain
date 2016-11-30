@@ -5,7 +5,7 @@ use std::cmp;
 use std::fmt;
 use std::hash;
 use super::super::{Parser, ParseError, ParseResult};
-use super::{DName, DNameBuf, DNameSlice, Label, NameLabels};
+use super::{DName, DNameBuf, DNameSlice, Label, NameLabels, NameLabelettes};
 use super::plain::slice_from_bytes_unsafe;
 
 
@@ -104,12 +104,32 @@ impl<'a> ParsedDName<'a> {
             }
         }
     }
+
+    /// Returns a slice if the name is uncompressed.
+    pub fn as_slice(&self) -> Option<&'a DNameSlice> {
+        if let (Some(slice), None) = self.split_uncompressed() {
+            Some(slice)
+        }
+        else {
+            None
+        }
+    }
 }
 
 
 /// # Working with Labels
 ///
 impl<'a> ParsedDName<'a> {
+    /// Returns an iterator over the labels of the name.
+    pub fn labels(&self) -> NameLabels<'a> {
+        NameLabels::from_parsed(self.clone())
+    }
+
+    /// Returns an iterator over the labelettes of the name.
+    pub fn labelettes(&self) -> NameLabelettes<'a> {
+        NameLabelettes::new(self.labels())
+    }
+
     /// Splits off the first label from the name.
     ///
     /// For correctly encoded names, this function will always return
@@ -222,7 +242,7 @@ impl<'a> DName for ParsedDName<'a> {
     }
 
     fn labels(&self) -> NameLabels {
-        NameLabels::from_packed(self.clone())
+        NameLabels::from_parsed(self.clone())
     }
 }
 
@@ -256,16 +276,16 @@ impl<'a> Eq for ParsedDName<'a> { }
 
 impl<'a, N: DName> PartialOrd<N> for ParsedDName<'a> {
     fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
-        let self_iter = self.rev_labelettes();
-        let other_iter = other.rev_labelettes();
+        let self_iter = self.labelettes().rev();
+        let other_iter = other.labelettes().rev();
         self_iter.partial_cmp(other_iter)
     }
 }
 
 impl<'a> Ord for ParsedDName<'a> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        let self_iter = self.rev_labelettes();
-        let other_iter = other.rev_labelettes();
+        let self_iter = self.labelettes().rev();
+        let other_iter = other.labelettes().rev();
         self_iter.cmp(other_iter)
     }
 }

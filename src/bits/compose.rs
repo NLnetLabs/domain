@@ -334,7 +334,7 @@ impl Composer {
                 // This also catches an empty label ...
                 return Err(ComposeError::RelativeName);
             }
-            let mut iter = name.iter();
+            let mut iter = name.labels();
             loop {
                 let name = iter.to_cow();
                 if let Some(pos) = self.get_compress_target(&name) {

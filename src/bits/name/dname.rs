@@ -2,8 +2,7 @@
 
 use std::borrow::Cow;
 use super::super::{Composer, ComposeResult};
-use super::{DNameSlice, NameLabels, NameLabelettes, RevNameLabels,
-            RevNameLabelettes};
+use super::{DNameSlice, NameLabels, NameLabelettes};
 
 
 //------------ DName ---------------------------------------------------------
@@ -34,14 +33,6 @@ pub trait DName: Sized {
     /// Returns an iterator over the labels of the domain name.
     fn labels(&self) -> NameLabels;
 
-    /// Returns an iterator over the labels in the name in reverse order.
-    ///
-    /// Because determining the reverse order is costly, there are two
-    /// separate iterator types rather than one single double-ended type.
-    fn rev_labels(&self) -> RevNameLabels {
-        RevNameLabels::new(self.labels())
-    }
-
     /// Returns an iterator over the labelettes of the domain name.
     ///
     /// See [`Labelette`] for a discussion of what exactly labelettes are.
@@ -49,15 +40,6 @@ pub trait DName: Sized {
     /// [`Labelette`]: struct.Labelette.html
     fn labelettes(&self) -> NameLabelettes {
         NameLabelettes::new(self.labels())
-    }
-
-    /// Returns an iterator over the labelettes of the name in reverse order.
-    ///
-    /// See [`Labelette`] for a discussion of what exactly labelettes are.
-    ///
-    /// [`Labelette`]: struct.Labelette.html
-    fn rev_labelettes(&self) -> RevNameLabelettes {
-        RevNameLabelettes::new(self.rev_labels())
     }
 
     /// Appends the name to the end of a composition.

@@ -11,7 +11,7 @@ use std::ptr;
 use std::str;
 use ::master::{Scanner, ScanResult};
 use super::from_str::from_str;
-use super::{DName, Label, NameLabels, RevNameLabels};
+use super::{DName, Label, NameLabels, NameLabelettes};
 
 
 //------------ DNameSlice ----------------------------------------------------
@@ -42,7 +42,7 @@ impl DNameSlice {
     ///
     /// This is only safe if the input slice follows the encoding rules for
     /// a domain name and does not contain compressed labels.
-    unsafe fn from_bytes_unsafe(bytes: &[u8]) -> &DNameSlice {
+    pub unsafe fn from_bytes_unsafe(bytes: &[u8]) -> &DNameSlice {
         mem::transmute(bytes)
     }
 
@@ -122,18 +122,18 @@ impl DNameSlice {
 ///
 impl DNameSlice {
     /// Produces an iterator over the labels in the name.
-    pub fn iter(&self) -> NameLabels {
+    pub fn labels(&self) -> NameLabels {
         NameLabels::from_slice(self)
     }
 
-    /// Produces an iterator over the labels in reverse order.
-    pub fn rev_iter(&self) -> RevNameLabels {
-        RevNameLabels::new(self.iter())
+    /// Produces an iterator over the labelettes in the name.
+    pub fn labelettes(&self) -> NameLabelettes {
+        NameLabelettes::new(self.labels())
     }
 
     /// Returns the number of labels in `self`.
     pub fn len(&self) -> usize {
-        self.iter().count()
+        self.labels().count()
     }
 
     /// Checks whether the domain name is empty.
@@ -143,18 +143,18 @@ impl DNameSlice {
 
     /// Returns the first label or `None` if the name is empty.
     pub fn first(&self) -> Option<&Label> {
-        self.iter().next()
+        self.labels().next()
     }
 
     /// Returns the last label or `None` if the name is empty.
     pub fn last(&self) -> Option<&Label> {
-        self.iter().last()
+        self.labels().last()
     }
 
     /// Returns the number of dots if this is a relative name.
     pub fn ndots(&self) -> Option<usize> {
         let mut res = 0;
-        for label in self.iter() {
+        for label in self.labels() {
             if label.is_root() {
                 return None
             }
@@ -193,6 +193,32 @@ impl DNameSlice {
         }
     }
 
+    /// Returns a domain name slice relative to `base`.
+    ///
+    /// This fails if `base` isn’t a suffix of `self`.
+    pub fn strip_suffix<'a, N: DName>(&'a self, base: &'a N)
+                                      -> Result<Cow<'a, Self>, ()> {
+        let mut self_iter = self.labelettes();
+        let mut base_iter = base.labelettes();
+        loop {
+            let base_ltte = match base_iter.next_back() {
+                Some(ltte) => ltte,
+                None => {
+                    return Ok(self_iter.to_name())
+                }
+            };
+            let self_ltte = match self_iter.next_back() {
+                Some(ltte) => ltte,
+                None => {
+                    return Err(()) // XXX Not a suffix
+                }
+            };
+            if base_ltte != self_ltte {
+                return Err(()) // XXX Not a suffix
+            }
+        }
+    }
+
     /// Determines whether `base` is a prefix of `self`.
     pub fn starts_with<N: DName>(&self, base: &N) -> bool {
         let mut self_iter = self.labelettes();
@@ -210,8 +236,8 @@ impl DNameSlice {
 
     /// Determines whether `base` is a suffix of `self`.
     pub fn ends_with<N: DName>(&self, base: &N) -> bool {
-        let mut self_iter = self.rev_labelettes();
-        let mut base_iter = base.rev_labelettes();
+        let mut self_iter = self.labelettes().rev();
+        let mut base_iter = base.labelettes().rev();
         loop {
             match (self_iter.next(), base_iter.next()) {
                 (Some(sl), Some(bl)) => {
@@ -242,7 +268,7 @@ impl<'a> DName for &'a DNameSlice {
     }
 
     fn labels(&self) -> NameLabels {
-        DNameSlice::iter(self)
+        DNameSlice::labels(self)
     }
 }
 
@@ -283,7 +309,7 @@ impl<'a> IntoIterator for &'a DNameSlice {
     type IntoIter = NameLabels<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+        self.labels()
     }
 }
 
@@ -325,24 +351,24 @@ impl Eq for DNameSlice { }
 
 impl PartialOrd for DNameSlice {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        let self_iter = self.rev_labelettes();
-        let other_iter = other.rev_labelettes();
+        let self_iter = self.labelettes().rev();
+        let other_iter = other.labelettes().rev();
         self_iter.partial_cmp(other_iter)
     }
 }
 
 impl<N: DName> PartialOrd<N> for DNameSlice {
     fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
-        let self_iter = self.rev_labelettes();
-        let other_iter = other.rev_labelettes();
+        let self_iter = self.labelettes().rev();
+        let other_iter = other.labelettes().rev();
         self_iter.partial_cmp(other_iter)
     }
 }
 
 impl Ord for DNameSlice {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        let self_iter = self.rev_labelettes();
-        let other_iter = other.rev_labelettes();
+        let self_iter = self.labelettes().rev();
+        let other_iter = other.labelettes().rev();
         self_iter.cmp(other_iter)
     }
 }
@@ -363,7 +389,7 @@ impl hash::Hash for DNameSlice {
 
 impl fmt::Display for DNameSlice {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{}", label));
         }
@@ -376,7 +402,7 @@ impl fmt::Display for DNameSlice {
 
 impl fmt::Octal for DNameSlice {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{:o}", label));
         }
@@ -389,7 +415,7 @@ impl fmt::Octal for DNameSlice {
 
 impl fmt::LowerHex for DNameSlice {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{:x}", label));
         }
@@ -402,7 +428,7 @@ impl fmt::LowerHex for DNameSlice {
 
 impl fmt::UpperHex for DNameSlice {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{:X}", label));
         }
@@ -415,7 +441,7 @@ impl fmt::UpperHex for DNameSlice {
 
 impl fmt::Binary for DNameSlice {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.iter();
+        let mut labels = self.labels();
         if let Some(label) = labels.next() {
             try!(write!(f, "{:b}", label));
         }
@@ -483,6 +509,14 @@ impl DNameBuf {
     /// Creates an owned domain name from a bytes vec without checking.
     unsafe fn from_vec_unsafe(vec: Vec<u8>) -> Self {
         DNameBuf { inner: vec }
+    }
+
+    /// Creates an owned domain name from the labels of the iterator.
+    pub fn from_iter<'a, T>(iter: T) -> Result<Self, PushError>
+                     where T: IntoIterator<Item=&'a Label> {
+        let mut res = DNameBuf::new();
+        res.append_iter(iter)?;
+        Ok(res)
     }
 
     /// Creates an owned domain name by reading it from a scanner.
@@ -597,6 +631,35 @@ impl DNameBuf {
         Ok(())
     }
 
+    /// Pushes an empty binary label of the given length to the domain name.
+    ///
+    /// Upon success the function returns a mutable reference to the bytes
+    /// slice of the bits of the binary label.
+    ///
+    /// If the name is already absolute, returns `Ok(None)`. If the resulting
+    /// name would exceed the maximum allowd length of 255 octets, returns an
+    /// error.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if `count` is larger than 256.
+    pub fn push_empty_binary(&mut self, count: usize)
+                             -> Result<Option<&mut [u8]>, PushError> {
+        if self.is_absolute() {
+            return Ok(None)
+        }
+        assert!(count <= 256);
+        let bitlen = (count - 1) / 8 + 1;
+        if self.len() + bitlen + 2 > 256 {
+            return Err(PushError)
+        }
+        self.inner.push(0x41);
+        self.inner.push(if count == 256 { 0 } else { count as u8 });
+        let pos = self.len();
+        self.inner.resize(pos + bitlen, 0);
+        Ok(Some(&mut self.inner[pos..]))
+    }
+
     /// Extends a relative name with a domain name.
     ///
     /// If the name is already absolute, nothing will be appended and the
@@ -622,6 +685,15 @@ impl DNameBuf {
     /// This may fail if the name is already 255 octets long.
     pub fn append_root(&mut self) -> Result<(), PushError> {
         self.append(&DNameSlice::root())
+    }
+
+    /// Appends the content of an iterator to the end of the name.
+    pub fn append_iter<'a, T>(&mut self, iter: T) -> Result<(), PushError>
+                       where T: IntoIterator<Item=&'a Label> {
+        for item in iter.into_iter() {
+            self.push(item)?
+        }
+        Ok(())
     }
 
     /// Removes the first label.
@@ -651,7 +723,7 @@ impl DName for DNameBuf {
     }
 
     fn labels(&self) -> NameLabels {
-        DNameSlice::iter(self)
+        DNameSlice::labels(self)
     }
 }
 
@@ -661,7 +733,7 @@ impl<'a> DName for &'a DNameBuf {
     }
 
     fn labels(&self) -> NameLabels {
-        DNameSlice::iter(self)
+        DNameSlice::labels(self)
     }
 }
 
