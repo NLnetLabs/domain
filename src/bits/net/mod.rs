@@ -12,9 +12,10 @@
 //! socket. For UDP, flows sit on top of a single socket. When reading
 //! messages, they are dispatched to their matching flow.
 //!
-//! While this may seem unnecessary wasteful for UDP, remember that we will
+//! While this may seem unnecessaryly wasteful for UDP, remember that we will
 //! need to do things like rate limiting on a per-endpoint basis, anyway, so
-//! having flows actually comes in handy.
+//! having flows actually comes in handy, apart from not having to maintain
+//! separate implementations for UDP all over the place.
 //!
 //! Flows implement the [`Flow`] trait defined herein. For server
 //! implementations where flows are created by remote endpoints, a local
@@ -39,7 +40,7 @@ mod udp;
 
 
 
-/// A flow is a (possibly virtual) connection between two network endpoints.
+/// A flow is an exchange of messages between two network endpoints.
 ///
 /// For connection oriented protocols, this is a connection. For
 /// connection-less protocols, this is a virtual entity.

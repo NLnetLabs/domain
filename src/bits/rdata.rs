@@ -41,7 +41,7 @@ pub trait RecordData: Sized {
     fn rtype(&self) -> Rtype;
 
     /// Appends the record data to the end of a composer.
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()>;
+    fn compose<C: AsMut<Composer>>(&self, target: C) -> ComposeResult<()>;
 }
 
 

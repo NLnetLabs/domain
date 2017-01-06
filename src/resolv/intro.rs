@@ -5,7 +5,7 @@
 //! a short introduction to its architecture.</i>
 //!
 //! Let’s start with a bunch of terms: the *resolver* is the collection of
-//! all things necessary for answer DNS *queries*. It relies on a number
+//! all things necessary for answering DNS *queries*. It relies on a number
 //! of *services* that represent a single upstream DNS server. Services
 //! answer *requests*, that is, they take a DNS request message and try
 //! transforming it into a DNS response message or a failure.

@@ -62,7 +62,7 @@
 //!
 //! # Using the Resolver: Queries
 //!
-//! As was mentioned above, the [`Resolver`] does’t actually contain the
+//! As was mentioned above, the [`Resolver`] doesn’t actually contain the
 //! networking parts necessary to answer queries. Instead, it only knows how
 //! to contact those parts. Because of this, you can clone the resolver,
 //! even pass it to other threads.
