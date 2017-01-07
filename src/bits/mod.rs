@@ -98,7 +98,6 @@ pub mod header;
 pub mod message;
 pub mod message_builder;
 pub mod name;
-pub mod net;
 pub mod parse;
 pub mod question;
 pub mod rdata;

@@ -31,4 +31,3 @@ pub mod master;
 pub mod rdata;
 pub mod utils;
 pub mod resolv;
-pub mod server;
