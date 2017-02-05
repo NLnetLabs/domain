@@ -492,7 +492,7 @@ impl DNameBuf {
     }
 
     /// Creates a new empty name with the given amount of space reserved.
-    pub fn with_capactity(capacity: usize) -> DNameBuf {
+    pub fn with_capacity(capacity: usize) -> DNameBuf {
         DNameBuf{inner: Vec::with_capacity(capacity)}
     }
 
