@@ -25,10 +25,9 @@ use domain::resolv::lookup::lookup_host;
 fn main() {
     let mut core = Core::new().unwrap();
 
-    let resolver = Resolver::new(&core.handle()).unwrap();
-    let addr = resolver.start().and_then(|resolv| {
-        lookup_host(resolv, DNameBuf::from_str("www.rust-lang.org").unwrap())
-    });
+    let resolver = Resolver::new(&core.handle());
+    let addr = lookup_host(resolver, DNameBuf::from_str("www.rust-lang.org")
+                                              .unwrap()).map_err(Into::into);
 
     let socket_handle = core.handle();
     let socket = addr.and_then(|addr| {

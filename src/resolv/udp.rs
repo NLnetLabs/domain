@@ -1,258 +1,139 @@
-//! UDP message service.
+/// UDP channel and transport.
 
-use std::cell::RefCell;
 use std::io;
-use std::mem;
 use std::net::{IpAddr, SocketAddr};
-use futures::{Async, Future, Poll};
-use futures::stream::Stream;
-use futures::task::TaskRc;
+use futures::{Async, AsyncSink, Poll, StartSend};
 use tokio_core::net::UdpSocket;
 use tokio_core::reactor;
 use ::bits::MessageBuf;
 use super::conf::ServerConf;
-use super::request::{ServiceHandle, ServiceRequest};
-use super::service::{Service, ServiceMode};
-use super::transport::{Read, Transport, Write};
+use super::request::{TransportHandle, TransportRequest};
+use super::channel::Channel;
+use super::transport::{TransportMode, spawn_transport};
 
 
-//------------ udp_service ---------------------------------------------------
+//------------ udp_transport -------------------------------------------------
 
-/// Create a new DNS service using UDP as the transport.
-pub fn udp_service(reactor: reactor::Handle, conf: &ServerConf)
-                   -> io::Result<Option<ServiceHandle>> {
-    let mode = match ServiceMode::resolve(conf.udp, ServiceMode::Multiplex) {
-        Some(mode) => mode,
-        None => return Ok(None)
-    };
-    let transport = UdpTransport::new(conf.addr);
-    Service::spawn(reactor, transport, mode, conf).map(Some)
-}
-
-
-//------------ UdpTransport --------------------------------------------------
-
-/// The transport for UDP.
-pub struct UdpTransport {
-    addr: SocketAddr,
-}
-
-impl UdpTransport {
-    /// Creates a new UDP transport.
-    pub fn new(addr: SocketAddr) -> Self {
-        UdpTransport{addr: addr}
-    }
-}
-
-
-//--- Transport
-
-impl Transport for UdpTransport {
-    type Read = UdpReader;
-    type Write = UdpWriter;
-    type Future = UdpTransportNew;
-
-    fn create(&self, reactor: &reactor::Handle) -> io::Result<Self::Future> {
-        DnsUdpSocket::connect(self.addr, reactor)
-                     .map(|sock| UdpTransportNew(Some(sock)))
-    }
-}
-
-
-//------------ UdpTransportNew -----------------------------------------------
-
-/// The future for creating a new UDP transport “connection.”
-pub struct UdpTransportNew(Option<DnsUdpSocket>);
-
-impl Future for UdpTransportNew {
-    type Item = (UdpReader, UdpWriter);
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.0.take() {
-            Some(sock) => {
-                let rc = TaskRc::new(RefCell::new(sock));
-                Ok((UdpReader::new(rc.clone()), UdpWriter::new(rc)).into())
-            }
-            None => panic!("poll on resolved UdpTransportNew")
-        }
-    }
-}
-
-
-//------------ DnsUdpSocket --------------------------------------------------
-
-/// A UDP socket for sending and receiving DNS messages.
+/// Spawns a new TCP transport for the given server config into a reactor.
 ///
-/// This wraps the actual UDP socket and provides the real functions that then
-/// are used by the two halfes.
-struct DnsUdpSocket {
-    sock: UdpSocket,
-    remote: SocketAddr,
-    msg_size: usize,
+/// Returns the transport handle for the TCP transport or `None` if TCP
+/// was disabled for this server.
+pub fn udp_transport(reactor: &reactor::Handle, conf: &ServerConf)
+                     -> Option<TransportHandle> {
+    let mode = match TransportMode::resolve(conf.udp,
+                                         Some(TransportMode::Multiplex)) {
+        Some(mode) => mode,
+        None => return None,
+    };
+    let channel = UdpChannel::new(conf.addr, reactor.clone(), conf.recv_size);
+    Some(spawn_transport(reactor, channel, mode, conf))
 }
 
-impl DnsUdpSocket {
-    /// Creates a new value from its components.
-    fn new(sock: UdpSocket, remote: SocketAddr) -> Self {
-        // XXX Set msg_size to 512. This is correct without EDNS support
-        //     but we’ll have to fix this later.
-        DnsUdpSocket{sock: sock, remote: remote, msg_size: 512}
+
+//------------ UdpChannel ----------------------------------------------------
+
+/// A channel using UDP as the transport protocol.
+///
+/// Note that tokio_core currently does not support connecting UDP sockets so
+/// we have to do some filtering on our side. This should probably be fixed.
+struct UdpChannel {
+    /// The address of the peer.
+    peer: SocketAddr,
+
+    /// A handle to reactor core to use for creating sockets.
+    handle: reactor::Handle,
+
+    /// The maximum size of an incoming message.
+    recv_size: usize,
+
+    /// The socket if we currently have one.
+    sock: Option<UdpSocket>,
+
+    /// The transport request we are currently trying to send, if any.
+    wr: Option<TransportRequest>,
+}
+
+impl UdpChannel {
+    /// Creates a new UDP channel.
+    fn new(peer: SocketAddr, handle: reactor::Handle, recv_size: usize)
+           -> Self {
+        UdpChannel {
+            peer: peer,
+            handle: handle,
+            recv_size: recv_size,
+            sock: None,
+            wr: None,
+        }
+    }
+}
+
+
+//--- Channel
+
+impl Channel for UdpChannel {
+    fn start_send(&mut self, request: TransportRequest)
+                  -> StartSend<TransportRequest, io::Error> {
+        if self.wr.is_some() {
+            return Ok(AsyncSink::NotReady(request))
+        }
+        self.wr = Some(request);
+        if self.sock.is_none() {
+            let local = match self.peer {
+                SocketAddr::V4(_)
+                    => SocketAddr::new(IpAddr::V4(0.into()), 0),
+                SocketAddr::V6(_)
+                    => SocketAddr::new(IpAddr::V6([0;16].into()), 0)
+            };
+            self.sock = Some(UdpSocket::bind(&local, &self.handle)?);
+        }
+        Ok(AsyncSink::Ready)
     }
 
-    /// Creates a new value from the remote address.
-    ///
-    /// Binds a UDP socket to either the V4 or V6 unspecified address.
-    fn connect(remote: SocketAddr, reactor: &reactor::Handle)
-               -> io::Result<Self> {
-        let local = match remote {
-            SocketAddr::V4(_)
-                => SocketAddr::new(IpAddr::V4(0.into()), 0),
-            SocketAddr::V6(_)
-                => SocketAddr::new(IpAddr::V6([0;16].into()), 0)
+    fn poll_send(&mut self) -> Poll<Option<TransportRequest>, io::Error> {
+        {
+            let sock = match self.sock {
+                Some(ref mut sock) => sock,
+                None => return Ok(Async::Ready(None)),
+            };
+            let wr = match self.wr {
+                Some(ref mut wr) => wr,
+                None => return Ok(Async::Ready(None)),
+            };
+            let mut msg = wr.message();
+            let buf = msg.dgram_bytes();
+            let size = try_nb!(sock.send_to(buf, &self.peer));
+            if size != buf.len() {
+                // XXX Is this too drastic?
+               return Err(io::Error::new(io::ErrorKind::Other, "short write"))
+            }
+        }
+        Ok(Async::Ready(self.wr.take()))
+    }
+
+    fn poll_recv(&mut self) -> Poll<MessageBuf, io::Error> {
+        let sock = match self.sock {
+            Some(ref mut sock) => sock,
+            None => return Ok(Async::NotReady)
         };
-        let sock = try!(UdpSocket::bind(&local, reactor));
-        Ok(Self::new(sock, remote))
-    }
-
-    /// Polls for writing.
-    ///
-    /// Attempts to send the given request.
-    fn poll_write(&self, request: &mut ServiceRequest)
-                  -> Poll<(), io::Error> {
-        let buf = request.dgram_bytes();
-        let size = try_nb!(self.sock.send_to(buf, &self.remote));
-        if size == buf.len() {
-            Ok(().into())
-        }
-        else {
-            // XXX Is this too drastic?
-            Err(io::Error::new(io::ErrorKind::Other, "short write"))
-        }
-    }
-
-    /// Polls for reading.
-    ///
-    /// Ready returns a new message or `None` if the socket got closed
-    /// (which shouldn’t really happen).
-    fn poll_read(&self) -> Poll<Option<MessageBuf>, io::Error> {
         loop {
-            if let Async::NotReady = self.sock.poll_read() {
+            if let Async::NotReady = sock.poll_read() {
                 return Ok(Async::NotReady)
             }
-            let mut buf = vec![0u8; self.msg_size];
-            let (size, addr) = try_nb!(self.sock.recv_from(&mut buf));
-            if addr != self.remote { continue }
+            let mut buf = vec![0u8; self.recv_size];
+            let (size, addr) = try_nb!(sock.recv_from(&mut buf));
+            if addr != self.peer {
+                continue
+            }
             buf.resize(size, 0);
             if let Ok(msg) = MessageBuf::from_vec(buf) {
-                return Ok(Some(msg).into())
+                return Ok(Async::Ready(msg))
             }
         }
     }
-}
 
-
-//------------ UdpReader -----------------------------------------------------
-
-/// The read half of a UDP socket.
-pub struct UdpReader {
-    handle: TaskRc<RefCell<DnsUdpSocket>>
-}
-
-impl UdpReader {
-    fn new(handle: TaskRc<RefCell<DnsUdpSocket>>) -> Self {
-        UdpReader{handle: handle}
+    fn sleep(&mut self) -> Result<(), io::Error> {
+        self.sock = None;
+        self.wr = None;
+        Ok(())
     }
 }
-
-
-//--- Read
-
-impl Read for UdpReader { }
-
-
-//--- Stream
-
-impl Stream for UdpReader {
-    type Item = MessageBuf;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        self.handle.with(|sock| sock.borrow_mut().poll_read()) 
-    }
-}
-
-
-//------------ UdpWriter -----------------------------------------------------
-
-/// The write half of a UDP socket.
-pub struct UdpWriter {
-    handle: TaskRc<RefCell<DnsUdpSocket>>
-}
-
-impl UdpWriter {
-    fn new(handle: TaskRc<RefCell<DnsUdpSocket>>) -> Self {
-        UdpWriter{handle: handle}
-    }
-}
-
-
-//--- Write
-
-impl Write for UdpWriter {
-    type Future = UdpWriteRequest;
-
-    fn write(self, request: ServiceRequest) -> Self::Future {
-        UdpWriteRequest {
-            state: State::Writing {
-                w: self,
-                req: request
-            }
-        }
-    }
-}
-
-
-//------------ UdpWriteRequest -----------------------------------------------
-
-/// The write future for a UDP socket.
-pub struct UdpWriteRequest {
-    state: State
-}
-
-enum State {
-    Writing {
-        w: UdpWriter,
-        req: ServiceRequest
-    },
-    Done
-}
-
-
-impl Future for UdpWriteRequest {
-    type Item = (UdpWriter, ServiceRequest);
-    type Error = (io::Error, ServiceRequest);
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let res = match self.state {
-            State::Writing{ref mut w, ref mut req} => {
-                match w.handle.with(|w| w.borrow_mut().poll_write(req)) {
-                    Ok(Async::NotReady) => return Ok(Async::NotReady),
-                    Ok(Async::Ready(())) => Ok(()),
-                    Err(err) => Err(err)
-                }
-            }
-            State::Done => panic!("polling a resolved UdpWriteRequest")
-        };
-        match mem::replace(&mut self.state, State::Done) {
-            State::Writing{w, req} => {
-                match res {
-                    Ok(()) => Ok(Async::Ready((w, req))),
-                    Err(err) => Err((err, req))
-                }
-            }
-            State::Done => panic!()
-        }
-    }
-}
-

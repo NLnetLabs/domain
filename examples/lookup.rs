@@ -6,7 +6,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use domain::bits::DNameBuf;
 use domain::resolv::{Resolver, ResolvConf};
-use domain::resolv::conf::TransportMode;
+use domain::resolv::conf::ServerMode;
 use domain::resolv::lookup::{lookup_addr, lookup_host};
 
 
@@ -30,6 +30,7 @@ fn forward(name: DNameBuf, conf: ResolvConf) {
 fn reverse(addr: IpAddr, conf: ResolvConf) {
     match Resolver::run_with_conf(conf, |resolv| lookup_addr(resolv, addr)) {
         Ok(result) => {
+            println!("Success:");
             for name in result.iter() {
                 println!("Host {} has domain name pointer {}", addr, name);
             }
@@ -40,7 +41,7 @@ fn reverse(addr: IpAddr, conf: ResolvConf) {
     }
 }
 
-fn set_tcp_mode(conf: &mut ResolvConf, mode: TransportMode) {
+fn set_tcp_mode(conf: &mut ResolvConf, mode: ServerMode) {
     for server in &mut conf.servers {
         server.tcp = mode;
     }
@@ -49,9 +50,9 @@ fn set_tcp_mode(conf: &mut ResolvConf, mode: TransportMode) {
 fn parse_queryopt(conf: &mut ResolvConf, arg: &str) {
     match arg {
         "+vc" => conf.options.use_vc = true,
-        "+tcpsgl" => set_tcp_mode(conf, TransportMode::SingleRequest),
-        "+tcpseq" => set_tcp_mode(conf, TransportMode::Sequential),
-        "+tcpmul" => set_tcp_mode(conf, TransportMode::Multiplex),
+        "+tcpsgl" => set_tcp_mode(conf, ServerMode::SingleRequest),
+        "+tcpseq" => set_tcp_mode(conf, ServerMode::Sequential),
+        "+tcpmul" => set_tcp_mode(conf, ServerMode::Multiplex),
         _ => {
             println!("Warning: ignoring unknown query option {}", arg);
         }

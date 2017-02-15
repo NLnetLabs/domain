@@ -86,7 +86,7 @@
 use std::mem;
 use super::{Composer, ComposeError, ComposeMode, ComposeResult,
             ComposeSnapshot, DName, HeaderSection, Header, HeaderCounts,
-            Question, Record, RecordData};
+            Message, Question, Record, RecordData};
 
 
 //------------ MessageBuilder -----------------------------------------------
@@ -460,6 +460,12 @@ impl AdditionalBuilder {
     }
 }
 
+impl AsRef<Message> for AdditionalBuilder {
+    fn as_ref(&self) -> &Message {
+        self.target.as_ref()
+    }
+}
+
 
 //------------ MessageTarget -------------------------------------------------
 
@@ -540,3 +546,9 @@ impl MessageTarget {
     }
 }
 
+
+impl AsRef<Message> for MessageTarget {
+    fn as_ref(&self) -> &Message {
+        unsafe { Message::from_bytes_unsafe(self.composer.so_far()) }
+    }
+}

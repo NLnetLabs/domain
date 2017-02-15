@@ -3,14 +3,15 @@
 use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-use futures::{BoxFuture, Future};
+use futures::{Async, Future, Poll};
 use ::bits::name::{DNameBuf, Label, ParsedDName};
 use ::bits::message::{MessageBuf, RecordIter};
 use ::iana::{Class, Rtype};
 use ::rdata::parsed::Ptr;
 use super::super::conf::ResolvOptions;
 use super::super::error::Error;
-use super::super::ResolverTask;
+use super::super::Query;
+use super::super::Resolver;
 
 
 //------------ lookup_addr ---------------------------------------------------
@@ -23,27 +24,41 @@ use super::super::ResolverTask;
 /// 
 /// The value returned upon success can be turned into an iterator over
 /// host names via its `iter()` method. This is due to lifetime issues.
-pub fn lookup_addr(resolv: ResolverTask, addr: IpAddr)
-                    -> BoxFuture<LookupAddr, Error> {
-    let ptr = resolv.query(dname_from_addr(addr, &resolv.conf().options),
-                           Rtype::Ptr, Class::In);
-    let res = ptr.map(LookupAddr);
-    res.boxed()
+pub fn lookup_addr(resolv: Resolver, addr: IpAddr) -> LookupAddr {
+    let name = dname_from_addr(addr, resolv.options());
+    LookupAddr(Query::new(resolv, (name, Rtype::Ptr, Class::In)))
 }
 
 
-//------------ LookupAddr ---------------------------------------------------
+//------------ LookupAddr ----------------------------------------------------
+
+/// The future for [`lookup_addr()`].
+///
+/// [`lookup_addr()`]: fn.lookup_addr.html
+pub struct LookupAddr(Query);
+
+impl Future for LookupAddr {
+    type Item = FoundAddrs;
+    type Error = Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        Ok(Async::Ready(FoundAddrs(try_ready!(self.0.poll()))))
+    }
+}
+
+
+//------------ FoundAddrs ----------------------------------------------------
 
 /// The success type of the `lookup_addr()` function.
 ///
 /// The only purpose of this type is to return an iterator over host names
 /// via its `iter()` method.
-pub struct LookupAddr(MessageBuf);
+pub struct FoundAddrs(MessageBuf);
 
-impl LookupAddr {
+impl FoundAddrs {
     /// Returns an iterator over the host names.
-    pub fn iter(&self) -> LookupAddrIter {
-        LookupAddrIter {
+    pub fn iter(&self) -> FoundAddrsIter {
+        FoundAddrsIter {
             name: self.0.canonical_name(),
             answer: self.0.answer().ok().map(|sec| sec.limit_to::<Ptr>())
         }
@@ -51,15 +66,15 @@ impl LookupAddr {
 }
 
 
-//------------ LookupAddrIter -----------------------------------------------
+//------------ FoundAddrsIter ------------------------------------------------
 
 /// An iterator over host names returned by address lookup.
-pub struct LookupAddrIter<'a> {
+pub struct FoundAddrsIter<'a> {
     name: Option<ParsedDName<'a>>,
     answer: Option<RecordIter<'a, Ptr<'a>>>
 }
 
-impl<'a> Iterator for LookupAddrIter<'a> {
+impl<'a> Iterator for FoundAddrsIter<'a> {
     type Item = ParsedDName<'a>;
 
     #[allow(while_let_on_iterator)]

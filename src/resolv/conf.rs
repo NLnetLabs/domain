@@ -151,7 +151,9 @@ pub struct ResolvOptions {
 
     /// Don’t look up unqualified names as top-level-domain.
     ///
-    /// I have no idea what that actually means.
+    /// This is not currently implemented. Instead, the resolver config’s
+    /// `search` and `ndots` fields govern resolution of relative names of
+    /// all kinds.
     pub no_tld_query: bool,
 }
 
@@ -188,23 +190,26 @@ pub struct ServerConf {
     /// Server address.
     pub addr: SocketAddr,
 
-    /// Transport mode for UDP transport.
-    pub udp: TransportMode,
+    /// Server mode for UDP transport.
+    pub udp: ServerMode,
 
-    /// Transport mode for TCP transport.
-    pub tcp: TransportMode,
+    /// Server mode for TCP transport.
+    pub tcp: ServerMode,
 
     /// How long to wait for a response before returning a timeout error.
     pub request_timeout: Duration,
 
     /// How long to keep a connection open after a new request.
     pub keep_alive: Duration,
+
+    /// Size of the message receive buffer in bytes.
+    pub recv_size: usize,
 }
 
 
 /// The mode of operation of a server over a given transport.
 #[derive(Clone, Copy, Debug)]
-pub enum TransportMode {
+pub enum ServerMode {
     /// Don’t provide this transport for this server.
     None,
 
@@ -226,10 +231,11 @@ impl ServerConf {
     pub fn new(addr: SocketAddr) -> Self {
         ServerConf {
             addr: addr,
-            udp: TransportMode::Default,
-            tcp: TransportMode::Default,
+            udp: ServerMode::Default,
+            tcp: ServerMode::Default,
             request_timeout: Duration::from_secs(2),
             keep_alive: Duration::from_secs(10),
+            recv_size: 4096,
         }
     }
 
@@ -335,6 +341,7 @@ impl ResolvConf {
     pub fn default() -> Self {
         let mut res = ResolvConf::new();
         let _ = res.parse_file("/etc/resolv.conf");
+        res.finalize();
         res
     }
 }
