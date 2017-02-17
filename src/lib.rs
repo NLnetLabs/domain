@@ -23,6 +23,8 @@ extern crate byteorder;
 #[macro_use] extern crate futures;
 extern crate rand;
 #[macro_use] extern crate tokio_core;
+extern crate tokio_proto;
+extern crate tokio_service;
 extern crate void;
 
 pub mod bits;

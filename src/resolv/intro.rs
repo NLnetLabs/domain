@@ -4,73 +4,63 @@
 //! detailed documentation of the resolver. Currently, that is limited to
 //! a short introduction to its architecture.</i>
 //!
-//! Let’s start with a bunch of terms: the *resolver* is the collection of
-//! all things necessary for answering DNS *queries*. It relies on a number
-//! of *services* that represent a single upstream DNS server. Services
-//! answer *requests*, that is, they take a DNS request message and try
-//! transforming it into a DNS response message or a failure.
 //!
-//! A query is processed by sending requests to various services according
-//! to the resolver configuration until one request succeeds or there is a
-//! fatal error (currently, that only happens when the question is broken)
-//! or we run out of services to ask. Thus, a query issues a sequence of
-//! requests to a number of services.
+//! # What’s in a Resolver?
 //!
-//! Services are futures spawned into a tokio reactor core. For accepting
-//! requests, they have a tokio channel receiver and run until that receiver
-//! is disconnected. For responding to requests they are oneshots. Once a
-//! service has determined the outcome for a request, it simply completes
-//! that oneshot with the result, waking up the query and allowing it to
-//! move on.
+//! Roughly speaking, the task of a resolver is to answer a question using
+//! information stored in the DNS. We shall call this question a *lookup.*
+//! There is different lookups for different questions. For example, finding
+//! all IP addresses for a given hostname is such a lookup. Finding the IP
+//! addresses of the mail server for a given domain is another, somewhat more
+//! complex lookup.
 //!
-//! In order to do their work, queries need the sending end of the services’
-//! channels as well as the resolver configuration. This is bundled into an
-//! internal type named `Core`. Since `Sender`s are not `Sync`, types that
-//! contain them do not fulfill the requirements for implementing
-//! `Future::boxed()`. This is the reason for the somewhat awkward
-//! `ResolverTask`. It keeps its own copy of the core as a `TaskRc<Core>`
-//! but it can only create that once there is a task.
+//! DNS is a relatively simple key-value store: All information is keyed by
+//! a tripel of a domain name, a record type, and a class. The values are a
+//! set of binary strings who will be interpreted according to rules defined
+//! for each record type. One such entry is called a *resource record set,*
+//! commonly shortened to *RRset.*
 //!
-//! This also means that each resolver future has its own clone of the core
-//! which seems a bit unnecessary. The other option would be to keep the
-//! core in an `Arc<Mutex<Core>>` which may have negative consequences in
-//! high load situations. Perhaps there is an even better way,
-//! either by changing the way queries communicate with services or through
-//! something clever? Generally, though, the cloning shouldn’t be too bad.
-//! Typical resolver configurations amount to either two or four services
-//! (one or two servers with UDP and TCP each), plus the configuration
-//! which is stored behind an Arc. But at least the `TaskRc<_>` means that
-//! all queries within the same future share one core (typically, address
-//! lookups run `A` and `AAAA` queries in parallel).
+//! Most lookups will require information from more than one such RRset.
+//! For example, there are two types of IP addresses: IPv4 and IPv6
+//! addresses. Each type has its own record type, so there are two RRsets
+//! to consider when determining all addresses assigned to a host.
 //!
-//! There’s two types of services: datagram services and stream services.
-//! Currently, each of these has one concrete implementation: UDP service
-//! and TCP service respectively. Encrypted variants will be added later.
+//! In this case, the two RRsets can be looked up in parallel. In case of the
+//! mail server lookup, we first need to determine the host name of the mail
+//! server responsible for the domain. There is a record type and hence a
+//! RRset for this purpose. Once we have that, we can look up the IP addresses
+//! for that host in parallel.
 //!
-//! Both types of services are lazy. They will only open an actual socket
-//! when the first request arrives. This is because in a typical
-//! configuration, the second server and all the streaming variants are
-//! likely to be unused.
+//! In other words, a lookup performs a series of steps each consisting of
+//! asking the DNS for one or more RRsets in parallel.
 //!
-//! Since UDP sockets are somewhat cheap, the datagram service keeps its
-//! socket once opened, so it is basically just a future that first waits
-//! for a request on its receiver and, once one arrives, transforms into
-//! the actual service.
+//! Such a request for a specific RRset is called a *query.* Since DNS is a
+//! distributed system, the first step of a query would be finding out where
+//! exactly the RRset is stored. However, we are implementing a stub resolver
+//! which is configured with a set of DNS servers that do this hunt for it.
+//! The stub resolver simply asks those configured servers for the RRset and
+//! if they all fail to find it, it fails too.
 //!
-//! For stream services, things are a little more difficult. After
-//! connecting, they keep their socket open for some time expecting further
-//! requests (there is also an option to reopen the connection for each
-//! request but that has not yet been implemented). So the future has to
-//! shuttle back and forth between an idle state that waits for a request
-//! and an active state doing actual work and eventually timing out,
-//! returning to idle state. The implementation is somewhat complicated
-//! by the fact that we need to move the receiving end of the channel between
-//! these states, so simple approaches like `Future::select()` don’t
-//! suffice.
+//! Since DNS prefers to use the unreliable UDP as transport protocol, the
+//! typical strategy is to ask the first server on the list and wait for a
+//! bit. If no answer arrives, ask the second server and wait again. If all
+//! servers have been asked and none has answered in due time, repeat the
+//! process for a number of times and finally fail. Alternatives are to start
+//! with a different server every time or to ask all servers at once.
+//! Under some circumstances, the resolver can also fall back to using TCP
+//! instead. Plus, there is an effort underway to encrypt the DNS connections.
 //!
-//! Both types of services are capable of multiplexing requests. DNS
-//! messages contain an ID chosen by the client and repeated in the server’s
-//! response for that purpose. Before sending a request, the service picks
-//! a random ID (which means that resends will have a new ID), keeps sent
-//! requests in a map, and matches incoming responses against that map.
-//! The map also serves to time out requests if they linger for too long.
+//! Which all is to say that a query may have to ask different servers for an
+//! RRset, potentially using different transport protocols. For our own
+//! purposes, we shall henceforth call the process of asking one specific
+//! server over one specific transport protocol a *request.* 
+//!
+//! The *resolver,* finally, collects all information necessary to be able
+//! to perform queries. It knows which servers to use with which protocols
+//! and has additional configuration information that is used to perform
+//! queries.
+//!
+//!
+//! # A Resolver using Futures and Tokio
+//!
+

@@ -9,7 +9,6 @@ use domain::bits::message::{MessageBuf, RecordSection};
 use domain::bits::name::{DNameBuf, DNameSlice};
 use domain::iana::{Class, Rtype};
 use domain::resolv::{ResolvConf, Resolver};
-use tokio_core::reactor::Core;
 
 
 //------------ Options ------------------------------------------------------
@@ -111,16 +110,10 @@ type Result<T> = result::Result<T, Error>;
 //------------ Processing Steps ---------------------------------------------
 
 fn query(options: Options) -> MessageBuf {
-    let mut core = Core::new().unwrap();
-    let resolver = Resolver::from_conf(&core.handle(), options.conf().clone())
-                            .unwrap();
-    //let fut = resolver.start().and_then(move |resolv| {
-    let fut = resolver.spawn(move |resolv| {
-        resolv.query(options.name().unwrap(), options.qtype().unwrap(),
-                           options.qclass().unwrap())
-    });
-
-    core.run(fut).unwrap()
+    Resolver::run_with_conf(options.conf().clone(), |resolv| {
+        resolv.query((options.name().unwrap(), options.qtype().unwrap(),
+                           options.qclass().unwrap()))
+    }).unwrap()
 }
 
 fn print_result(response: MessageBuf) {

@@ -152,6 +152,8 @@ impl DNameSlice {
     }
 
     /// Returns the number of dots if this is a relative name.
+    ///
+    /// Returns `None` if this is an absolute name.
     pub fn ndots(&self) -> Option<usize> {
         let mut res = 0;
         for label in self.labels() {

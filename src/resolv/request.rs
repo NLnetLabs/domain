@@ -1,68 +1,216 @@
-//! A DNS request.
+//! DNS requests: the bridge between query and transport.
 //!
-//! We call the cycle of sending a question to a single upstream DNS resolver
-//! and hopefully receiving a response a *request* (as opposed to *query*
-//! which is the process of asking as many known upstream resolvers as
-//! necessary to get an answer).
+//! While the future of the `Query` can be driven by any task, the network
+//! transports are spawned into a reactor core each as a task of their own.
+//! Requests and responses are exchanged between them using futures’s sync
+//! primitives. Each transport holds the receiving end of an unbounded MPSC
+//! channel for requests (defined as a type alias `RequestReceiver` herein),
+//! with the sending end wrapped into the `TransportHandle` type and stored
+//! in the `Resolver` for use by `Query`s.
 //!
-//! Requests also bridge the gap between the future of the query that can
-//! run anywhere and the future of the service in question that runs inside
-//! a reactor core. Because of that, there are two types herein, one for
-//! each side of that gap and somewhat lamely named `QueryRequest` and
-//! `ServiceRequest`.
+//! The query takes this transport handle and a `RequestMessage` (a light
+//! wrapper around a DNS message ensuring that it is of the expected format)
+//! and creates the query side of a request, aptly named `QueryRequest`. It
+//! is a future resolving into either a response and the original request
+//! message or an error and the very same request message.
 //!
-//! Since queries normally run a sequence of requests until the first one
-//! succeeds, we should be able to reuse the request message in subsequent
-//! requests. However, a service needs to be able to add its own OPT record
-//! to the additional section for EDNS0 support, so we can’t really use the
-//! same message for each service. Instead, we need to revert to the
-//! end of the question section. While this is not yet supported by
-//! `MessageBuilder`, the types herein already support this notion by
-//! returning the request message as part of their responses. However, there
-//! is a possibility that the message gets lost during transfer over the gap.
-//! Since the query doesn’t store a copy, this case means that the query
-//! fails fatally.
+//! The reason for handing back the request message is that we can then
+//! reuse it for further requests. Since we internally store DNS messages in
+//! wire-format, anyway, they can be used as the send buffer directly and
+//! reuse does make sense.
 //!
-//! Worse, since the `ServiceRequest` contains the message and the `Drop`
-//! trait operates on a mutable reference, we can’t fail the request in its
-//! `Drop` implementation and instead have to rely on services always either
-//! succeeding or failing all their requests.
+//! The request sent over the channel is a `TransportRequest`. It consists
+//! of the actual message now in the disguise of a `TransportMessage` 
+//! providing what the transport needs and the sending end of a oneshot
+//! channel into which the transport is supposed to throw the response to
+//! the request.
+//!
+//! The receiving end of the oneshot is part of the query request which polls
+//! it for its completion.
+//!
+//! Note that timeouts happen on the transport side. While this is a little
+//! less robust that we’d like, timeouts are tokio-core thing and need a
+//! reactor. This way, we also potentially need fewer timeouts of lots of
+//! requests are in flight.
 
-use std::io;
-use futures::{Future, Complete, Oneshot, Poll, oneshot};
-use tokio_core::channel::{Receiver, Sender};
-use ::bits::{Message, MessageBuf, MessageBuilder};
-use super::error::{Error};
+use std::{fmt, io, ops};
+use futures::{Async, Future, Poll};
+use futures::sync::{mpsc, oneshot, BiLock, BiLockGuard};
+use ::bits::{AdditionalBuilder, ComposeMode, ComposeResult, DName,
+             Message, MessageBuf, MessageBuilder, Question};
+use super::conf::ResolvConf;
+use super::error::Error;
 
+
+//============ The Path of a Message Through a Request =======================
+
+//------------ RequestMessage ------------------------------------------------
+
+/// The DNS message for input into a request.
+///
+/// The wrapped message is a message builder in stream mode. It consists of
+/// exactly one question which is why compression is unnecessary and turned
+/// off. It also has been advanced into a additional section builder. This
+/// allows transports to add their EDNS0 information and, once they are done
+/// with that, rewind their additions for reuse.
+///
+/// The only thing you can do with a request message is turn them into a
+/// transport message using the `into_service()` method.
+pub struct RequestMessage(AdditionalBuilder);
+
+impl RequestMessage {
+    /// Creates a new request message from a question and resolver config.
+    ///
+    /// This may fail if the domain name of the question isn’t absolute.
+    pub fn new<N, Q>(question: Q, conf: &ResolvConf) -> ComposeResult<Self>
+               where N: DName,
+                     Q: Into<Question<N>> {
+        let mut msg = MessageBuilder::new(ComposeMode::Stream, false)?;
+        msg.header_mut().set_rd(conf.options.recurse);
+        msg.push(question)?;
+        Ok(RequestMessage(msg.additional()))
+    }
+
+    /// Converts the request message into a transport message.
+    ///
+    /// This method returns the transport message wrapped into a pair of
+    /// bi-locks. See `TransportMessage` for a discussion as to why that
+    /// is useful.
+    fn into_service(self) -> (BiLock<Option<TransportMessage>>,
+                              BiLock<Option<TransportMessage>>) {
+        BiLock::new(Some(TransportMessage(self.0)))
+    }
+}
+
+
+//------------ TransportMessage ----------------------------------------------
+
+/// The DNS message passed to and used by the service.
+///
+/// This is a DNS request with exactly one question. The transport can add
+/// its EDNS0 information to it and then access the message bytes for
+/// sending. Once done, the transport message can be returned into a
+/// request message by dropping all EDNS0 information thus making it ready
+/// for reuse by the next transport.
+/// 
+/// *Note:* EDNS0 is not yet implemented.
+///
+/// Transport messages are always kept wrapped into a pair of bi-locks. One
+/// of those locks goes into the transport request for use by the transport,
+/// the other one is kept by the query request. This way, we don’t need to
+/// pass the message back when the transport is done which makes a lot easier
+/// to treat all these cases where values along the way are dropped. In order
+/// to allow the message being taken out of the lock, the lock’s content is
+/// an option.
+///
+/// The rule is simple, violation will result in panics (but everything is
+/// wrapped in `QueryRequest` and `TransportRequest` herein): The locks are
+/// created with `Some` message. As long as the oneshot of the query request
+/// has not been resolved, either successfully or by the sending end being
+/// dropped, the transport has exclusive access to the message. It must,
+/// however, not `take()` out the message. By resolving the oneshot, access
+/// is transferred back to the query request. It then can `take()` out the
+/// message.
+pub struct TransportMessage(AdditionalBuilder);
+
+impl TransportMessage {
+    /// Sets the message ID to the given value.
+    pub fn set_id(&mut self, id: u16) {
+        self.0.header_mut().set_id(id)
+    }
+
+    /// Checks whether `answer` is an answer to this message.
+    pub fn is_answer(&self, answer: &Message) -> bool {
+        answer.is_answer(&self.0)
+    }
+
+    /// Trades in this transport message for a request message.
+    ///
+    /// This rewinds all additions made to the message since creation but
+    /// leaves the ID in place.
+    pub fn rewind(self) -> RequestMessage {
+        RequestMessage(self.0)
+    }
+
+    /// Returns a bytes slice with the data to be sent over stream transports.
+    pub fn stream_bytes(&mut self) -> &[u8] {
+        self.0.preview()
+    }
+
+    /// Returns a bytes slice for sending over datagram transports.
+    pub fn dgram_bytes(&mut self) -> &[u8] {
+        &self.0.preview()[2..]
+    }
+}
+
+
+//------------ TransportMessageGuard -----------------------------------------
+
+/// A RAII guard for a locked transport message.
+///
+/// This implements both `Deref` and `DerefMut` into the underlying, locked
+/// transport message. Once the value is dropped, the lock is released.
+pub struct TransportMessageGuard<'a>(
+    BiLockGuard<'a, Option<TransportMessage>>
+);
+
+
+//--- Deref, DerefMut
+
+impl<'a> ops::Deref for TransportMessageGuard<'a> {
+    type Target = TransportMessage;
+
+    fn deref(&self) -> &TransportMessage {
+        self.0.deref().as_ref().expect("message already taken")
+    }
+}
+
+impl<'a> ops::DerefMut for TransportMessageGuard<'a> {
+    fn deref_mut(&mut self) -> &mut TransportMessage {
+        self.0.deref_mut().as_mut().expect("message alread taken")
+    }
+}
+
+
+//------------ TransportResult -----------------------------------------------
+
+/// The result returned by the transport.
+///
+/// This is the item type of the oneshot channel between transport request and
+/// query request.
+type TransportResult = Result<MessageBuf, Error>;
+
+
+//============ The Query Side of a Request ===================================
 
 //------------ QueryRequest --------------------------------------------------
 
-/// Query side of a request.
+/// The query side of a request.
 ///
 /// This type is used by `Query` to dispatch and wait for requests. It is a
-/// future resolving either into both the actual request result, either a
-/// `MessageBuf` with a response or an `Error`, and the original request
-/// message or an `io::Error` in which case the original message is lost.
-///
-/// The request has to send a service request to a service which can fail.
-/// Because of that, it is internally a `Result`. When sending fails, it
-/// contains an `Err` which is translated into a fatal error. If all is
-/// well, it contains an `Ok` with the oneshot future that will receive the
-/// result from the service request.
-#[allow(type_complexity)]
-pub struct QueryRequest(Result<Oneshot<(Result<MessageBuf, Error>,
-                                        MessageBuilder)>,
-                               Option<io::Error>>);
+/// future resolving either into a both the response and request message or
+/// an error and the request message.
+pub struct QueryRequest {
+    /// The reading end of the oneshot channel for the reponse.
+    rx: Option<oneshot::Receiver<TransportResult>>,
 
+    /// Our side of the bi-locked transport message.
+    msg: BiLock<Option<TransportMessage>>,
+}
 
 impl QueryRequest {
-    /// Starts the request dispatching a message to a service.
-    pub fn new(message: MessageBuilder, service: &ServiceHandle) -> Self {
-        let (c, o) = oneshot();
-        let sreq = ServiceRequest::new(message, c);
-        match service.tx.send(sreq) {
-            Ok(()) => QueryRequest(Ok(o)),
-            Err(err) => QueryRequest(Err(Some(err)))
+    /// Creates a new query request.
+    ///
+    /// The request will attempt to answer `message` using the transport
+    /// referenced by `transport`.
+    pub fn new(message: RequestMessage, transport: &TransportHandle) -> Self {
+        let (tx, rx) = oneshot::channel();
+        let (smsg, qmsg) = message.into_service();
+        let sreq = TransportRequest::new(smsg, tx);
+        let rx = transport.send(sreq).ok().map(|_| rx);
+        QueryRequest {
+            rx: rx,
+            msg: qmsg
         }
     }
 }
@@ -71,138 +219,215 @@ impl QueryRequest {
 //--- Future
 
 impl Future for QueryRequest {
-    type Item = (Result<MessageBuf, Error>, MessageBuilder);
-    type Error = io::Error;
+    type Item = (MessageBuf, RequestMessage);
+    type Error = (Error, RequestMessage);
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.0 {
-            Ok(ref mut oneshot) => {
-                oneshot.poll().map_err(|_| {
-                    io::Error::new(io::ErrorKind::Other,
-                                   "ServiceRequest’s complete dropped")
-                })
-            }
-            Err(ref mut err) => {
-                match err.take() {
-                    Some(err) => Err(err),
-                    None => panic!("polling a resolved QueryRequest")
+        match self.rx {
+            Some(ref mut rx) => {
+                match rx.poll() {
+                    Ok(Async::NotReady) => Ok(Async::NotReady),
+                    Ok(Async::Ready(response)) => {
+                        let msg = into_message(&mut self.msg);
+                        match response {
+                            Ok(response) => Ok(Async::Ready((response, msg))),
+                            Err(err) => Err((err, msg)),
+                        }
+                    }
+                    Err(_) => {
+                        // The transport disappeared. Let’s do a connection
+                        // aborted error even if that isn’t quite right for
+                        // UDP.
+                        let msg = into_message(&mut self.msg);
+                        Err((Error::Io(
+                                io::Error::new(
+                                    io::ErrorKind::ConnectionAborted,
+                                    "transport disappeared")),
+                             msg))
+                    }
                 }
+            }
+            None => {
+                let msg = into_message(&mut self.msg);
+                Err((Error::Io(
+                        io::Error::new(io::ErrorKind::ConnectionAborted,
+                                       "service disappeared")),
+                        msg))
             }
         }
     }
 }
 
-
-//------------ ServiceRequest ------------------------------------------------
-
-/// Service side of a request.
-///
-/// This type is used by a DNS service in order to discover either an answer
-/// or an error. Once the service has one, it completes the request with it
-/// which will be reported to the associated `QueryRequest`.
-///
-/// The service request owns the DNS message for the request and allows the
-/// service to get access to the bytes of that message for sending. When we
-/// start supporting EDNS, the type will gain methods for adding an OPT
-/// record to the message, too.
-pub struct ServiceRequest {
-    /// The request message.
-    ///
-    /// This value contains a message builder in stream mode containing
-    /// one question. Assuming a minimum message size of 512 for non-EDNS
-    /// UDP, there should be no fragmentation issues, so this is all fine.
-    message: MessageBuilder,
-
-    /// The complete side of our oneshot to return a response.
-    complete: Complete<(Result<MessageBuf, Error>, MessageBuilder)>,
-
-    /// The message ID of the request message.
-    id: u16,
+/// Helper function for unwrapping the transport message.
+/// 
+/// The function will take the transport message out of the lock if and only
+/// if it can do so without blocking, panicing otherwise. See
+/// `TransportMessage` for the rules when this is allowed.
+fn into_message(msg: &mut BiLock<Option<TransportMessage>>) -> RequestMessage {
+    match msg.poll_lock() {
+        Async::Ready(ref mut msg) => {
+            match msg.take() {
+                Some(msg) => msg.rewind(),
+                None => panic!("called poll on a resolved QueryRequest"),
+            }
+        }
+        Async::NotReady => panic!("service kept message locked"),
+    }
 }
 
 
-impl ServiceRequest {
-    /// Creates a new service request.
-    fn new(message: MessageBuilder,
-           complete: Complete<(Result<MessageBuf, Error>, MessageBuilder)>)
+//============ The Transport Side of a Request ===============================
+
+//------------ TransportRequest ----------------------------------------------
+
+/// The transport side of a request.
+///
+/// This type is used by a transport to try and discover the answer to a DNS
+/// request. It contains both the message for this request and the sending
+/// end of a oneshot channel to deliver the result to.
+///
+/// The transport requesst can safely be dropped at any time. However, it is
+/// always better to resolve it with a specific error, allowing the query to
+/// decide on its strategy based on this error instead of having to guess.
+pub struct TransportRequest {
+    /// The request message behind a bi-lock.
+    message: BiLock<Option<TransportMessage>>,
+
+    /// The sending side of a oneshot channel for the result of the request.
+    complete: oneshot::Sender<TransportResult>,
+
+    /// The message ID of the request message.
+    ///
+    /// This is initially `None` to indicate that it hasn’t been set for this
+    /// particular iteration yet.
+    id: Option<u16>,
+}
+
+impl TransportRequest {
+    /// Creates a new transport request from its components.
+    fn new(message: BiLock<Option<TransportMessage>>,
+           complete: oneshot::Sender<TransportResult>) 
            -> Self {
-        ServiceRequest{message: message, complete: complete, id: 0}
+        TransportRequest {
+            message: message,
+            complete: complete,
+            id: None
+        }
     }
 
-    /// Returns the ID of the request.
+    /// Provides access to the transport message.
     ///
-    /// Note that this may differ from what’s in the message until
-    /// `set_id()` is called first.
+    /// Access happens in the form of a RAII guard that locks the message
+    /// while being alive.
     ///
-    /// (We could make this an option but, really, this is an internal type
-    /// and should be fine.)
-    pub fn id(&self) -> u16 {
+    /// # Panics
+    ///
+    /// Panics if the message has been taken out of the lock. This should
+    /// not happen while the transport request is alive. Hence the panic.
+    pub fn message(&self) -> TransportMessageGuard {
+        if let Async::Ready(guard) = self.message.poll_lock() {
+            TransportMessageGuard(guard)
+        }
+        else {
+            panic!("message not ready");
+        }
+    }
+
+    /// Returns the request message’s ID or `None` if it hasn’t been set yet.
+    pub fn id(&self) -> Option<u16> {
         self.id
     }
 
-    /// Sets the request’s and message’s ID.
+    /// Sets the request message’s ID to the given value.
     pub fn set_id(&mut self, id: u16) {
-        self.id = id;
-        self.message.header_mut().set_id(id)
+        self.id = Some(id);
+        self.message().set_id(id)
     }
 
-    /// Returns a bytes slice of the message for datagram transports.
-    pub fn dgram_bytes(&mut self) -> &[u8] {
-        &self.message.preview()[2..]
+    /// Completes the request with the given result.
+    pub fn complete(self, result: TransportResult) {
+        // Drop the message’s lock before completing as per the rules for
+        // transport messages.
+        let complete = self.complete;
+        drop(self.message);
+        complete.complete(result)
     }
 
-    /// Returns a bytes slice of the message for stream transports.
-    pub fn stream_bytes(&mut self) -> &[u8] {
-        self.message.preview()
-    }
-
-    /// Respond to the request with `response`.
+    /// Completes the request with a response message.
     ///
-    /// This will succeed the request if `response` really is an answer
-    /// to our request message or fail it otherwise.
-    pub fn response(mut self, response: MessageBuf) {
-        let is_answer = {
-            let request = Message::from_bytes(self.dgram_bytes()).unwrap();
-            response.is_answer(request)
-        };
-        if is_answer {
-            self.complete.complete((Ok(response), self.message))
+    /// This will produce a successful result only if `response` actually is
+    /// an answer to the request message. Else drops the message and produces
+    /// an error.
+    pub fn response(self, response: MessageBuf) {
+        if self.message().is_answer(&response) {
+            self.complete(Ok(response))
         }
         else {
             self.fail(io::Error::new(io::ErrorKind::Other, "server failure")
                                 .into())
         }
     }
-    
-    /// Fails this request with the given error.
+
+    /// Completes the request with the given error.
     pub fn fail(self, err: Error) {
-        self.complete.complete((Err(err), self.message))
+        self.complete(Err(err))
+    }
+
+    /// Completes the request with a timeout error.
+    pub fn timeout(self) {
+        self.complete(Err(Error::Timeout))
     }
 }
 
 
-//------------ ServiceHandle -------------------------------------------------
+//------------ TransportHandle -----------------------------------------------
 
-/// A handle to a service.
-pub struct ServiceHandle {
-    tx: Sender<ServiceRequest>,
+/// A handle for communicating with a transport.
+///
+/// You can use this handle to send requests to the transport via the `send()`
+/// method.
+#[derive(Clone)]
+pub struct TransportHandle {
+    /// The sending end of the transport’s request queue
+    tx: mpsc::UnboundedSender<TransportRequest>,
 }
 
-impl ServiceHandle {
-    /// Creates a new handle from the sender side of a channel.
-    pub fn from_sender(tx: Sender<ServiceRequest>) -> Self {
-        ServiceHandle{tx: tx}
+impl TransportHandle {
+    /// Creates a new request channel, returning both ends.
+    pub fn channel() -> (TransportHandle, RequestReceiver) {
+        let (tx, rx) = mpsc::unbounded();
+        (TransportHandle::from_sender(tx), rx)
+    } 
+
+    /// Creates a new handle from the sender side of an MPCS channel.
+    pub fn from_sender(tx: mpsc::UnboundedSender<TransportRequest>) -> Self {
+        TransportHandle {
+            tx: tx
+        }
+    }
+
+    /// Sends a transport request to the transport.
+    ///
+    /// This only fails if the receiver was dropped.
+    pub fn send(&self, sreq: TransportRequest)
+                -> Result<(), mpsc::SendError<TransportRequest>> {
+        self.tx.send(sreq)
     }
 }
 
-impl Clone for ServiceHandle {
-    fn clone(&self) -> Self {
-        ServiceHandle{tx: self.tx.clone()}
+
+//--- Debug
+
+impl fmt::Debug for TransportHandle {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "TransportHandle{{...}}")
     }
 }
 
 
 //------------ RequestReceiver -----------------------------------------------
 
-/// A receiver for service requests.
-pub type RequestReceiver = Receiver<ServiceRequest>;
+/// The type of the receiving end of the request channel.
+pub type RequestReceiver = mpsc::UnboundedReceiver<TransportRequest>;
+
+

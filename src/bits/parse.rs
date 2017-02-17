@@ -9,8 +9,7 @@
 //! [`Parser`]: struct.Parser.html
 //! [`Message`]: ../message/struct.Message.html
 
-use std::error;
-use std::fmt;
+use std::{error, fmt, io};
 use byteorder::{BigEndian, ByteOrder};
 
 
@@ -179,6 +178,12 @@ impl error::Error for ParseError {
             UnknownLabel => "unknown label type in domain name",
             FormErr => "format error",
         }
+    }
+}
+
+impl From<ParseError> for io::Error {
+    fn from(err: ParseError) -> io::Error {
+        io::Error::new(io::ErrorKind::Other, Box::new(err))
     }
 }
 

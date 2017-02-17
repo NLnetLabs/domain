@@ -163,7 +163,7 @@ impl Message {
     ///
     /// You need to make sure that the slice is at least the length of a
     /// full message header.
-    unsafe fn from_bytes_unsafe(bytes: &[u8]) -> &Self {
+    pub unsafe fn from_bytes_unsafe(bytes: &[u8]) -> &Self {
         mem::transmute(bytes)
     }
 
@@ -286,7 +286,8 @@ impl Message {
     /// The method checks whether the ID fields of the headers are the same,
     /// whether the QR flag is set in this message, and whether the questions
     /// are the same.
-    pub fn is_answer(&self, query: &Message) -> bool {
+    pub fn is_answer<M: AsRef<Message>>(&self, query: M) -> bool {
+        let query = query.as_ref();
         if !self.header().qr()
                 || self.counts().qdcount() != query.counts().qdcount() {
             false

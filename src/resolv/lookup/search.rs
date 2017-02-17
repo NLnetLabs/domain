@@ -1,96 +1,108 @@
 //! Working with the search list.
 
-use futures::{Async, Future, Poll};
 use ::bits::{DNameBuf, DNameSlice};
-use super::super::ResolverTask;
+use super::super::Resolver;
 
-/// Creates a future as a sequence of lookups according to the search list.
+
+//------------ SearchIter ----------------------------------------------------
+
+/// An iterator gained from applying a search list to a domain name.
 ///
-/// The search list contains a list of domain name suffixes to be appended
-/// to relative domain names with fewer than a certain number of dots in
-/// them. If the name has more dots, the root domain is added and that’s it.
-///
-/// The closure `f` is used to create lookups trying to find the first
-/// name for which that lookup succeeds.
-pub fn search<N, R, F>(resolv: ResolverTask, name: N, f: F) -> Search<R, F>
-              where N: AsRef<DNameSlice>,
-                    R: Future,
-                    F: Fn(&ResolverTask, &DNameSlice) -> R + Send + 'static {
-    let name = name.as_ref();
-    match name.ndots() {
-        None => {
-            let current = f(&resolv, name);
-            Search { current: current, data: None }
-        }
-        Some(n) if n > resolv.conf().ndots => {
-            let name = name.join(&DNameSlice::root()).unwrap(); // XXX
-            let current = f(&resolv, &name);
-            Search { current: current, data: None }
-        }
-        _ => {
-            Search::new(resolv, f, name.to_owned())
-        }
-    }
-}
-
-pub struct Search<R, F>
-                  where R: Future, F: Fn(&ResolverTask, &DNameSlice) -> R {
-    current: R,
-    data: Option<SearchData<R,F>>
-}
-
-pub struct SearchData<R, F>
-                  where R: Future, F: Fn(&ResolverTask, &DNameSlice) -> R {
-    resolv: ResolverTask,
-    op: F,
+/// The iterator represents how a resolver attempts to derive an absolute
+/// domain name from a relative name.
+/// 
+/// For this purpose, the resolver’s configuration contains a search list,
+/// a list of absolute domain names that are appened in turn to the domain
+/// name. In addition, if the name contains enough dots (specifically,
+/// `ResolvConf::ndots` which defaults to just one) it is first tried as if
+/// it were an absolute by appending the root labels.
+pub struct SearchIter {
+    /// The base name to work with.
     name: DNameBuf,
-    pos: usize,
+
+    /// The resolver to use for looking up the search list.
+    resolv: Resolver,
+
+    /// The state of working through the search list.
+    state: SearchState,
+}
+
+enum SearchState {
+    /// The next value is to be the name treated as an absolute name.
+    Absolute,
+
+    /// The next value is to be item with the contained value as index in
+    /// the resolver’s search list.
+    Search(usize), 
+    
+    /// All options are exhausted.
+    Done,
 }
 
 
-impl<R, F> Search<R, F>
-     where R: Future, F: Fn(&ResolverTask, &DNameSlice) -> R {
-    pub fn new(resolv: ResolverTask, op: F, name: DNameBuf) -> Self {
-        let mut abs_name = name.clone();
-        abs_name.append(&resolv.conf().search[0]).unwrap(); // XXX
-        let current = op(&resolv, &abs_name);
-        Search {
-            current: current,
-            data: Some(SearchData {
-                resolv: resolv, op: op, name: name,
-                pos: 0
-            })
-        }
+impl SearchIter {
+    /// Creates a new search iterator.
+    ///
+    /// The iterator will yield absolute domain names for `name` based on
+    /// the configuration of the given resolver.
+    pub fn new(resolv: Resolver, name: &DNameSlice) -> Option<Self> {
+        let state = match name.ndots() {
+            None => {
+                // The name is absolute, no searching is necessary.
+                return None
+            }
+            Some(n) if n >= resolv.conf().ndots => {
+                // We have the required amount of dots to start with treating
+                // the name as an absolute.
+                SearchState::Absolute
+            }
+            _ => {
+                // We don’t have enough dots. Start with the search list
+                // right away.
+                SearchState::Search(0)
+            }
+        };
+        Some(SearchIter {
+            name: name.to_owned(),
+            resolv: resolv,
+            state: state
+        })
     }
 }
+            
+impl Iterator for SearchIter {
+    type Item = DNameBuf;
 
-
-//--- Future
-
-impl<R, F> Future for Search<R, F>
-     where R: Future, F: Fn(&ResolverTask, &DNameSlice) -> R {
-    type Item = R::Item;
-    type Error = R::Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let err = match self.current.poll() {
-            Ok(Async::Ready(some)) => return Ok(Async::Ready(some)),
-            Ok(Async::NotReady) => return Ok(Async::NotReady),
-            Err(err) => err
-        };
-        if let Some(ref mut data) = self.data {
-            data.pos += 1;
-            if data.pos == data.resolv.conf().search.len() {
-                return Err(err)
-            }
-            let mut name = data.name.clone();
-            name.append(&data.resolv.conf().search[data.pos]).unwrap(); // XXX
-            self.current = (data.op)(&data.resolv, &name);
+    fn next(&mut self) -> Option<Self::Item> {
+        // The loop is here to quietly skip over all names where joining
+        // fails.
+        loop {
+            let (res, state) = match self.state {
+                SearchState::Absolute => {
+                    match self.name.join(&DNameSlice::root()) {
+                        Ok(name) => (Some(name), SearchState::Search(0)),
+                        Err(_) => continue,
+                    }
+                }
+                SearchState::Search(pos) => {
+                    if pos >= self.resolv.conf().search.len() {
+                        (None, SearchState::Done)
+                    }
+                    else {
+                        match self.name.join(&self.resolv.conf()
+                                                         .search[pos]) {
+                            Ok(name) => {
+                                (Some(name), SearchState::Search(pos + 1))
+                            }
+                            Err(_) => continue,
+                        }
+                    }
+                }
+                SearchState::Done => return None
+            };
+            self.state = state;
+            return res
         }
-        else {
-            return Err(err)
-        }
-        self.poll()
     }
 }
 

@@ -5,11 +5,17 @@ use std::io;
 use std::fmt;
 use std::result;
 use ::bits::ComposeError;
+use ::iana::Rcode;
 
 
 //------------ Error ---------------------------------------------------------
 
 /// An error happened during a query.
+///
+//  XXX While this type is currently used all over the resolver, it really
+//      is the error that is to be produced by lookups. We need to refactor
+//      this a bit and create specific error types for the various stages
+//      of processing.
 #[derive(Debug)]
 pub enum Error {
     /// The question was broken.
@@ -78,6 +84,15 @@ impl error::Error for Error {
 
 
 //--- From
+
+impl From<Rcode> for Error {
+    fn from(rcode: Rcode) -> Error {
+        match rcode {
+            Rcode::NXDomain => Error::NoName,
+            _ => Error::Timeout,
+        }
+    }
+}
 
 impl From<ComposeError> for Error {
     fn from(error: ComposeError) -> Error {
