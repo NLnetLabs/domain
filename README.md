@@ -13,7 +13,7 @@ First, add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-domain = "0.1"
+domain = "0.2"
 ```
 
 Then, add this to your crate root:

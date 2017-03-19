@@ -1,4 +1,4 @@
-## 0.2.0 [to be released]
+## 0.2.0
 
 Breaking Changes
 
