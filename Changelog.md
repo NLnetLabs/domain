@@ -1,3 +1,12 @@
+## 0.2.1
+
+Breaking Changes
+
+Bug fixes
+
+New
+
+
 ## 0.2.0
 
 Breaking Changes
