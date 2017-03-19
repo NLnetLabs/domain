@@ -77,6 +77,14 @@ in programs instead of building general purpose products. We may split
 the four top-level points into separate crates along the way.
 
 
+## Help!
+
+The stub resolver currently is of limited use under Windows since I have
+no idea what the correct way to determine the system’s resolver
+configuration is. I would be very grateful for a hint as to that, so the
+crate becomes properly cross platform.
+
+
 ## Contributing
 
 If you have comments, proposed changes, or would like to contribute,
