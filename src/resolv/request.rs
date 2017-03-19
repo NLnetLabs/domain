@@ -350,7 +350,7 @@ impl TransportRequest {
         // transport messages.
         let complete = self.complete;
         drop(self.message);
-        complete.complete(result)
+        complete.send(result).ok();
     }
 
     /// Completes the request with a response message.
