@@ -34,7 +34,7 @@ use super::{HeaderSection, GenericRecord, Header, HeaderCounts, ParsedDName,
 /// if there are enough bytes for the minimum message size. All further
 /// parsing happens lazily when you access more of the message.
 ///
-/// Section 4 of [RFC 1035] defines DNS messages as being divded into four
+/// Section 4 of [RFC 1035] defines DNS messages as being divded into five
 /// sections named header, question, answer, authority, and additional.
 ///
 /// The header section is of a fixed sized and can be accessed without
@@ -297,7 +297,7 @@ impl Message {
 
     /// Returns the first question, if there is any.
     ///
-    /// The method will return `None` both of there are no questions or if
+    /// The method will return `None` both if there are no questions or if
     /// parsing fails.
     pub fn first_question(&self) -> Option<Question<ParsedDName>> {
         match self.question().next() {

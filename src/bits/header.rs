@@ -212,7 +212,7 @@ impl Header {
 
     /// Returns whether the CD bit is set.
     ///
-    /// The *checking disabled* bit is used by security-aware resolvers
+    /// The *checking disabled* bit is used by a security-aware resolver
     /// to indicate that it does not want upstream name servers to perform
     /// verification but rather would like to verify everything itself.
     pub fn cd(&self) -> bool { self.get_bit(3, 4) }

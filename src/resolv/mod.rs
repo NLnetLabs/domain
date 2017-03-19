@@ -67,13 +67,13 @@
 //! to contact those parts. Because of this, you can clone the resolver,
 //! even pass it to other threads.
 //!
-//! The main purpose of the resover, though, is to start queries. This is
+//! The main purpose of the resolver, though, is to start queries. This is
 //! done through [`Resolver::query()`]. It takes something that can be
 //! turned into a question and returns a future that will resolve into
 //! either a [`MessageBuf`] with the response to the query or an [`Error`]. 
-//! Luckily, a triple of a domain name, a resource record type, and a class
-//! is something than can be turned into a question, so you don’t need to
-//! build the question from hand. (You will have to convert a string into
+//! Conveniently, a triple of a domain name, a resource record type, and a
+//! class is something than can be turned into a question, so you don’t need
+//! to build the question from hand. (You will have to convert a string into
 //! a domain name from hand since that may fail.)
 //!
 //! As an example, let’s find out the IPv6 addresses for `www.rust-lang.org`:
@@ -111,8 +111,8 @@
 //!
 //! # Complex Queries: Lookups
 //!
-//! Most times when you are using DNS you aren’t really interested in a
-//! bunch of resource records. You want an answer to a more direct
+//! Most of the times when you are using DNS you aren’t really interested in a
+//! bunch of resource records. You want an answer to a more concrete
 //! question. For instance, if you want to know the IP addresses for a
 //! host name, you don’t really care that you have to make a query for the
 //! `A` records and one for `AAAA` records for that host name. You want the
