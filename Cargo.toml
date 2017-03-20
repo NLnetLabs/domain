@@ -15,7 +15,7 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-byteorder     = "0.5"
+byteorder     = "1.0"
 rand          = "0.3"
 futures       = "0.1.11"
 tokio-core    = "0.1.6"
