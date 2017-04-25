@@ -2,9 +2,18 @@
 
 Breaking Changes
 
+* `bits` module
+
+  *  `DNameBuf::from_iter` renamed to `DNameBuf::try_from_iter` to avoid
+     confusing with `FromIterator` trait.
+
 Bug fixes
 
 New
+
+* `rdata` module
+
+  *  Support for SRV records. (Thanks, @ThibG!)
 
 
 ## 0.2.0
