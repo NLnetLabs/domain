@@ -515,8 +515,8 @@ impl DNameBuf {
     }
 
     /// Creates an owned domain name from the labels of the iterator.
-    pub fn from_iter<'a, T>(iter: T) -> Result<Self, PushError>
-                     where T: IntoIterator<Item=&'a Label> {
+    pub fn try_from_iter<'a, T>(iter: T) -> Result<Self, PushError>
+                         where T: IntoIterator<Item=&'a Label> {
         let mut res = DNameBuf::new();
         res.append_iter(iter)?;
         Ok(res)
@@ -741,7 +741,7 @@ impl<'a> DName for &'a DNameBuf {
 }
 
 
-//--- From and FromStr
+//--- From, FromStr, FromIterator
 
 impl<'a> From<&'a DNameSlice> for DNameBuf {
     fn from(name: &'a DNameSlice) -> DNameBuf {

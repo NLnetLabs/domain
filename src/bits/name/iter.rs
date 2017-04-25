@@ -78,7 +78,7 @@ impl<'a> NameLabels<'a> {
                 Cow::Borrowed(unsafe { DNameSlice::from_bytes_unsafe(bytes) })
             }
             Flavor::DoubleParsed(ref labels) => {
-                Cow::Owned(DNameBuf::from_iter(labels.iter().map(|x| *x))
+                Cow::Owned(DNameBuf::try_from_iter(labels.iter().map(|x| *x))
                                     .unwrap())
             }
             Flavor::Empty => Cow::Borrowed(DNameSlice::empty())
