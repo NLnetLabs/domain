@@ -693,7 +693,7 @@ impl DNameBuf {
     /// Appends the content of an iterator to the end of the name.
     pub fn append_iter<'a, T>(&mut self, iter: T) -> Result<(), PushError>
                        where T: IntoIterator<Item=&'a Label> {
-        for item in iter.into_iter() {
+        for item in iter {
             self.push(item)?
         }
         Ok(())

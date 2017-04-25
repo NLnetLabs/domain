@@ -22,8 +22,8 @@ use ::utils::netdb::{ProtoEnt, ServEnt};
 
 /// A macro for implementing a record data type with a single domain name.
 ///
-/// Implements some basic methods plus the RecordData, FlatRecordData, and
-/// Display traits.
+/// Implements some basic methods plus the `RecordData`, `FlatRecordData`,
+/// and `Display` traits.
 macro_rules! dname_type {
     ($target:ident, $rtype:ident, $field:ident) => {
         #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -703,7 +703,7 @@ impl<T: AsRef<[u8]>> Txt<T> {
     /// borrow else creates an owned vec by concatenating all the parts.
     pub fn text(&self) -> Cow<[u8]> {
         let text = self.text.as_ref();
-        if text.len() == 0 {
+        if text.is_empty() {
             Cow::Borrowed(b"")
         }
         else if (text[0] as usize) == text.len() - 1 {

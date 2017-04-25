@@ -30,7 +30,7 @@ impl MasterRecord {
                              origin: &Option<Rc<DNameBuf>>,
                              default_ttl: Option<u32>) -> ScanResult<Self> {
         let owner = try!(MasterRecord::scan_owner(stream, last_owner,
-                                                  &origin));
+                                                  origin));
         let (ttl, class) = try!(MasterRecord::scan_ttl_class(stream,
                                                              default_ttl,
                                                              last_class));

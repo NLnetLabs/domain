@@ -602,7 +602,7 @@ impl<'a> BinaryLabelIter<'a> {
         for (i, j) in (self.front .. self.back)
                         .zip(0 .. (self.back - self.front)) {
             if let Labelette::Bit(true) = self.get_bit(i) {
-                bits[j >> 3] |= bits[j >> 3] | (0x80 >> (j & 7));
+                bits[j >> 3] |= 0x80 >> (j & 7);
             }
             else {
                 bits[j >> 3] &= !bits[j >> 3] | (0x80 >> (j & 7));
@@ -888,7 +888,7 @@ impl<'a> Labelette<'a> {
     /// Returns whether the labelette is the root label.
     pub fn is_root(&self) -> bool {
         if let Labelette::Normal(bytes) = *self {
-            bytes.len() == 0
+            bytes.is_empty()
         }
         else {
             false

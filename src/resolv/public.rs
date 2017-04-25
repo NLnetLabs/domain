@@ -25,7 +25,7 @@ use super::udp::udp_transport;
 /// queries. You can create a new resoler using the system’s configuration
 /// using the [`new()`] associate function or using your own configuration
 /// with [`from_conf()`]. Either function will spawn everything necessary
-/// into a tokio_core reactor core represented by a handle.
+/// into a `tokio_core` reactor core represented by a handle.
 ///
 /// Resolver values can be cloned relatively cheaply as they keep all
 /// information behind an arc. This is may already be useful when starting
@@ -78,10 +78,10 @@ impl Resolver {
         let mut tcp = Vec::new();
 
         for server in &conf.servers {
-            if let Some(transport) = udp_transport(reactor, &server) {
+            if let Some(transport) = udp_transport(reactor, server) {
                 udp.push(transport)
             }
-            if let Some(transport) = tcp_transport(reactor, &server) {
+            if let Some(transport) = tcp_transport(reactor, server) {
                 tcp.push(transport)
             }
         }

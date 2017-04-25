@@ -2,8 +2,10 @@
 
 /// Creates a standard IANA type wrapping an integer.
 ///
-/// This adds impls for From, PartialEq, Eq, PartialOrd, Ord, and Hash.
-/// For FromStr and Display, see one of the other macros in this module.
+/// This adds impls for `From`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and
+/// `Hash`.
+/// 
+/// For `FromStr` and `Display`, see one of the other macros in this module.
 macro_rules! int_enum {
     ( $(#[$attr:meta])* =>
       $ianatype:ident, $inttype:path;
@@ -149,12 +151,12 @@ macro_rules! int_enum {
     }
 }
 
-/// Adds impls for FromStr and Display to the type given as first argument.
+/// Adds impls for `FromStr` and `Display` to the type given as first argument.
 ///
-/// The FromStr impl matches only well known mnemonics ignoring case,
+/// The `FromStr` impl matches only well known mnemonics ignoring case,
 /// otherwise it returns an error of the second argument.
 ///
-/// For Display, it will display a decimal number for values without
+/// For `Display`, it will display a decimal number for values without
 /// mnemonic.
 macro_rules! int_enum_str_mnemonics_only {
     ($ianatype:ident, $error:expr) => {
@@ -192,12 +194,12 @@ macro_rules! int_enum_str_mnemonics_only {
 }
 
 
-/// Adds impls for FromStr and Display to the type given as first argument.
+/// Adds impls for `FromStr` and `Display` to the type given as first argument.
 ///
-/// For FromStr, recognizes all mnemonics case-insensitively as well as a
+/// For `FromStr`, recognizes all mnemonics case-insensitively as well as a
 /// decimal number representing any value.
 ///
-/// For Display, it will display a decimal number for values without
+/// For `Display`, it will display a decimal number for values without
 /// mnemonic.
 macro_rules! int_enum_str_with_decimal {
     ($ianatype:ident, $inttype:ident, $error:expr) => {
@@ -244,13 +246,13 @@ macro_rules! int_enum_str_with_decimal {
     }
 }
 
-/// Adds impls for FromStr and Display to the type given as first argument.
+/// Adds impls for `FromStr` and `Display` to the type given as first argument.
 ///
-/// For FromStr recognizes all defined mnemonics ignoring case. Additionally
+/// For `FromStr` recognizes all defined mnemonics ignoring case. Additionally
 /// recognizes a value starting with the prefix given in the second argument
 /// (again, ignoring case) directly followed by a decimal number.
 ///
-/// For Display, values without mnemonic will be written starting with the
+/// For `Display`, values without mnemonic will be written starting with the
 /// prefix directly followed by the decimal representation of the value.
 macro_rules! int_enum_str_with_prefix {
     ($ianatype:ident, $str_prefix:expr, $u8_prefix:expr, $inttype:ident,

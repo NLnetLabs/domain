@@ -156,7 +156,7 @@ impl<C: Channel> Transport<C> {
     /// the receiver has been closed.
     fn poll_idle(&mut self) -> Poll<State, io::Error> {
         match self.receiver.poll().unwrap() {
-            Async::NotReady => return Ok(Async::NotReady),
+            Async::NotReady => Ok(Async::NotReady),
             Async::Ready(None) => Ok(Async::Ready(State::Closed)),
             Async::Ready(Some(request)) => {
                 self.request = Some(request);

@@ -34,8 +34,9 @@ pub fn udp_transport(reactor: &reactor::Handle, conf: &ServerConf)
 
 /// A channel using UDP as the transport protocol.
 ///
-/// Note that tokio_core currently does not support connecting UDP sockets so
-/// we have to do some filtering on our side. This should probably be fixed.
+/// Note that `tokio_core` currently does not support connecting UDP sockets
+/// so we have to do some filtering on our side. This should probably be
+/// fixed.
 struct UdpChannel {
     /// The address of the peer.
     peer: SocketAddr,

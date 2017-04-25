@@ -74,7 +74,7 @@ impl<'a> NameLabels<'a> {
             Flavor::Parsed(ref name) => {
                 name.unpack()
             }
-            Flavor::DoubleSlice{ref bytes, ..} => {
+            Flavor::DoubleSlice{bytes, ..} => {
                 Cow::Borrowed(unsafe { DNameSlice::from_bytes_unsafe(bytes) })
             }
             Flavor::DoubleParsed(ref labels) => {
@@ -294,8 +294,8 @@ impl<'a> DoubleLabels<'a> {
     fn front(&self) -> Option<&LabelIter<'a>> {
         match *self {
             DoubleLabels::None | DoubleLabels::Back(..) => None,
-            DoubleLabels::Front(ref front) => Some(front),
-            DoubleLabels::Both(ref front, _) => Some(front),
+            DoubleLabels::Front(ref front) | DoubleLabels::Both(ref front, _)
+                => Some(front),
             DoubleLabels::Same(ref same) => Some(same)
         }
     }
@@ -303,8 +303,8 @@ impl<'a> DoubleLabels<'a> {
     fn front_mut(&mut self) -> Option<&mut LabelIter<'a>> {
         match *self {
             DoubleLabels::None | DoubleLabels::Back(..) => None,
-            DoubleLabels::Front(ref mut front) => Some(front),
-            DoubleLabels::Both(ref mut front, _) => Some(front),
+            DoubleLabels::Front(ref mut front)
+                | DoubleLabels::Both(ref mut front, _) => Some(front),
             DoubleLabels::Same(ref mut same) => Some(same)
         }
     }
@@ -312,8 +312,8 @@ impl<'a> DoubleLabels<'a> {
     fn back(&self) -> Option<&LabelIter<'a>> {
         match *self {
             DoubleLabels::None | DoubleLabels::Front(..) => None,
-            DoubleLabels::Back(ref back) => Some(back),
-            DoubleLabels::Both(_, ref back) => Some(back),
+            DoubleLabels::Back(ref back)
+                | DoubleLabels::Both(_, ref back) => Some(back),
             DoubleLabels::Same(ref same) => Some(same)
         }
     }
@@ -321,8 +321,8 @@ impl<'a> DoubleLabels<'a> {
     fn back_mut(&mut self) -> Option<&mut LabelIter<'a>> {
         match *self {
             DoubleLabels::None | DoubleLabels::Front(..) => None,
-            DoubleLabels::Back(ref mut back) => Some(back),
-            DoubleLabels::Both(_, ref mut back) => Some(back),
+            DoubleLabels::Back(ref mut back)
+                | DoubleLabels::Both(_, ref mut back) => Some(back),
             DoubleLabels::Same(ref mut same) => Some(same)
         }
     }
@@ -333,8 +333,8 @@ impl<'a> DoubleLabels<'a> {
             *self = match mem::replace(self, DoubleLabels::None) {
                 DoubleLabels::None | DoubleLabels::Front(_)
                     => DoubleLabels::Front(front),
-                DoubleLabels::Back(back) => DoubleLabels::Both(front, back),
-                DoubleLabels::Both(_, back) => DoubleLabels::Both(front, back),
+                DoubleLabels::Back(back) | DoubleLabels::Both(_, back)
+                    => DoubleLabels::Both(front, back),
                 DoubleLabels::Same(_) => unreachable!(),
             };
             true
@@ -356,8 +356,8 @@ impl<'a> DoubleLabels<'a> {
             *self = match mem::replace(self, DoubleLabels::None) {
                 DoubleLabels::None | DoubleLabels::Back(_)
                     => DoubleLabels::Back(back),
-                DoubleLabels::Front(front) => DoubleLabels::Both(front, back),
-                DoubleLabels::Both(front, _) => DoubleLabels::Both(front, back),
+                DoubleLabels::Front(front) | DoubleLabels::Both(front, _)
+                    => DoubleLabels::Both(front, back),
                 DoubleLabels::Same(_) => unreachable!()
             };
             true

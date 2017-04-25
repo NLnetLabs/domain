@@ -84,15 +84,14 @@ impl<C: Channel> Future for Transport<C> {
     type Error = ();
 
     fn poll(&mut self) -> Poll<(), ()> {
-        let res = match self.poll_step() {
+        match self.poll_step() {
             Ok(()) => Ok(Async::NotReady),
             Err(_) => {
                 self.pending.fail_all();
                 self.receiver = None;
                 Ok(Async::Ready(()))
             }
-        };
-        res
+        }
     }
 }
 
