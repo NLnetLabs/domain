@@ -17,6 +17,7 @@
 //! [`RRType`]: ../iana/enum.RRType.html
 
 pub mod rfc1035;
+pub mod rfc2782;
 pub mod rfc3596;
 //pub mod rfc6891;
 
@@ -42,6 +43,9 @@ master_types!{
         Soa => Soa<DNameBuf>,
         Txt => Txt<Vec<u8>>,
         Wks => Wks<rfc1035::WksBitmapBuf>,
+    }
+    rfc2782::{
+        Srv => Srv<DNameBuf>,
     }
     rfc3596::{
         Aaaa => Aaaa,
@@ -69,9 +73,11 @@ pub fn fmt_rdata(rtype: ::iana::Rtype, parser: &mut ::bits::Parser,
 pub mod parsed {
     pub use super::rfc1035::parsed::*;
     pub use super::rfc3596::Aaaa;
+    pub type Srv<'a> = super::rfc2782::Srv<::bits::ParsedDName<'a>>;
 }
 
 pub mod owned {
     pub use super::rfc1035::owned::*;
     pub use super::rfc3596::Aaaa;
+    pub type Srv = super::rfc2782::Srv<::bits::DNameBuf>;
 }
