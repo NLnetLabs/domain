@@ -1,4 +1,7 @@
 //! Macros for use in rdata definitions.
+//!
+//! These macros are not public but are used by the super module only. They
+//! are here so that `mod.rs` doesn’t become too unwieldly.
 
 macro_rules! master_types {
     ( $( $module:ident::{  $( $rtype:ident => $full_rtype:ty, )*  })* ) => {
@@ -6,6 +9,11 @@ macro_rules! master_types {
             pub use self::$module::{ $( $rtype ),* };
         )*
 
+        /// An enum with all the record data that can appear in master files.
+        ///
+        /// This enum contains variants for all the implemented record data
+        /// types in their owned form plus the `Generic` variant record data
+        /// of any other type.
         #[derive(Clone, Debug)]
         pub enum MasterRecordData {
             $(
@@ -94,6 +102,10 @@ macro_rules! master_types {
             }
         }
 
+        /// Helper function for `fmt_rdata()`.
+        ///
+        /// This function contains the part of `fmt_rdata()` that needs to
+        /// be generated via the `master_types!` macro.
         fn fmt_master_data(rtype: ::iana::Rtype,
                            parser: &mut ::bits::Parser,
                            f: &mut ::std::fmt::Formatter)
