@@ -76,7 +76,7 @@ impl Future for LookupHost {
         if (self.a.poll(), self.aaaa.poll()) != (true, true) {
             return Ok(Async::NotReady)
         }
-        let err = match FoundHosts::new(self.a.take(), self.aaaa.take()) {
+        let err = match FoundHosts::from_messages(self.a.take(), self.aaaa.take()) {
             Ok(some) => return Ok(Async::Ready(some)),
             Err(err) => err,
         };
@@ -183,10 +183,14 @@ pub struct FoundHosts {
 }
 
 impl FoundHosts {
+    pub fn new(canonical: DNameBuf, addrs: Vec<IpAddr>) -> Self {
+        FoundHosts{canonical: canonical, addrs: addrs}
+    }
+
     /// Creates a new value from the results of the A and AAAA queries.
     ///
     /// Either of the queries can have resulted in an error but not both.
-    fn new(a: Result<MessageBuf>, b: Result<MessageBuf>) -> Result<Self> {
+    fn from_messages(a: Result<MessageBuf>, b: Result<MessageBuf>) -> Result<Self> {
         let (a, b) = match (a, b) {
             (Ok(a), b) => (a, b),
             (a, Ok(b)) => (b, a),
@@ -281,4 +285,3 @@ impl<'a> ToSocketAddrs for FoundHostsSocketIter<'a> {
         Ok(self.clone())
     }
 }
-
