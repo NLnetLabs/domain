@@ -22,6 +22,11 @@ Then, add this to your crate root:
 extern crate domain;
 ```
 
+*Note:* The resolver that is part of this crate only does DNS lookups. If
+you want to lookups according to your system’s configuration, for instance
+by also looking at the local hosts file, consider using the
+[netdb](https://github.com/partim/netdb) crate instead.
+
 
 ## Features (aka TODO)
 
