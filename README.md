@@ -23,8 +23,8 @@ extern crate domain;
 ```
 
 *Note:* The resolver that is part of this crate only does DNS lookups. If
-you want to lookups according to your system’s configuration, for instance
-by also looking at the local hosts file, consider using the
+you want to perform lookups according to the system’s configuration,
+including things such as looking at the local hosts file, consider using the
 [netdb](https://github.com/partim/netdb) crate instead.
 
 
