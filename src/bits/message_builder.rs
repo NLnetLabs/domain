@@ -348,17 +348,19 @@ impl AuthorityBuilder {
     /// the class which will then be assumed to be `Class::In`.
     ///
     /// [`Record`]: ../record/struct.Record.html
-    pub fn push<N: DName, D: RecordData>(&mut self, record: Record<N, D>)
-                                         -> ComposeResult<()> {
-        self.target.push(|target| record.compose(target),
-                         |counts| counts.inc_ancount(1))
+    pub fn push<N, D, R>(&mut self, record: R) -> ComposeResult<()>
+                where N: DName,
+                      D: RecordData,
+                      R: Into<Record<N, D>> {
+        self.target.push(|target| record.into().compose(target),
+                         |counts| counts.inc_nscount(1))
     }
 
     /// Rewinds to the beginning of the authority section.
     ///
     /// This drops all previously assembled authority records.
     pub fn rewind(&mut self) {
-        self.target.rewind(|counts| counts.set_ancount(0))
+        self.target.rewind(|counts| counts.set_nscount(0))
     }
 
     /// Proceeds to building the additional section.
@@ -430,17 +432,19 @@ impl AdditionalBuilder {
     /// the class which will then be assumed to be `Class::In`.
     ///
     /// [`Record`]: ../record/struct.Record.html
-    pub fn push<N: DName, D: RecordData>(&mut self, record: Record<N, D>)
-                                         -> ComposeResult<()> {
-        self.target.push(|target| record.compose(target),
-                         |counts| counts.inc_ancount(1))
+    pub fn push<N, D, R>(&mut self, record: R) -> ComposeResult<()>
+                where N: DName,
+                      D: RecordData,
+                      R: Into<Record<N, D>> {
+        self.target.push(|target| record.into().compose(target),
+                         |counts| counts.inc_arcount(1))
     }
 
     /// Rewinds to the beginning of the additional section.
     ///
     /// This drops all previously assembled additonal records.
     pub fn rewind(&mut self) {
-        self.target.rewind(|counts| counts.set_ancount(0))
+        self.target.rewind(|counts| counts.set_arcount(0))
     }
 
     /// Returns a reference to the message assembled so far.
