@@ -76,7 +76,7 @@ impl Iterator for SearchIter {
     fn next(&mut self) -> Option<Self::Item> {
         // The loop is here to quietly skip over all names where joining
         // fails.
-        #[allow(never_loop)]
+        #[allow(never_loop)] // False positive by Clippy. It totally does loop
         loop {
             let (res, state) = match self.state {
                 SearchState::Absolute => {
