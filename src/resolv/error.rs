@@ -4,7 +4,7 @@ use std::error;
 use std::io;
 use std::fmt;
 use std::result;
-use ::bits::ComposeError;
+use ::bits::{ComposeError, ParseError};
 use ::iana::Rcode;
 
 
@@ -106,6 +106,11 @@ impl From<io::Error> for Error {
     }
 }
 
+impl From<ParseError> for Error {
+    fn from(error: ParseError) -> Error {
+        Error::Io(io::Error::from(error))
+    }
+}
 
 //--- From for io::Error
 
