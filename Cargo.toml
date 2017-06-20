@@ -17,11 +17,12 @@ path = "src/lib.rs"
 [dependencies]
 byteorder     = "1.0"
 rand          = "0.3"
-futures       = "0.1.11"
-tokio-core    = "0.1.6"
+futures       = "0.1.14"
+tokio-core    = "0.1.8"
 
 [dev-dependencies]
 argparse     = "0.2"
-native-tls   = "0.1.1"
-tokio-io     = "0.1.1"
+native-tls   = "0.1.2"
+tokio-io     = "0.1.2"
 tokio-tls    = "0.1.2"
+
