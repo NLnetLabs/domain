@@ -23,6 +23,10 @@ Bug fixes
 
   *  Correctly build later sections of a message in `MessageBuilder`.
 
+Dependencies
+
+* updated to futures 0.1.14 and tokio-core 0.1.8.
+
 
 ## 0.2.0
 
