@@ -7,13 +7,21 @@ Breaking Changes
   *  `DNameBuf::from_iter` renamed to `DNameBuf::try_from_iter` to avoid
      confusing with `FromIterator` trait.
 
-Bug fixes
-
 New
 
 * `rdata` module
 
   *  Support for SRV records. (Thanks, @ThibG!)
+
+* `resolver` module
+
+  * Resolving server addresses with SRV records. (Thanks, @ThibG!)
+
+Bug fixes
+
+* `bits` module
+
+  *  Correctly build later sections of a message in `MessageBuilder`.
 
 
 ## 0.2.0
