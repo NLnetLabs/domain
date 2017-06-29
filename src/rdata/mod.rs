@@ -19,7 +19,6 @@
 pub mod rfc1035;
 pub mod rfc2782;
 pub mod rfc3596;
-//pub mod rfc6891;
 
 #[macro_use] mod macros;
 mod generic;

@@ -147,6 +147,24 @@ impl<'a> Parser<'a> {
     pub fn parse_u32(&mut self) -> ParseResult<u32> {
         self.parse_bytes(4).map(BigEndian::read_u32)
     }
+
+    pub fn parse_remaining(&mut self) -> ParseResult<&'a [u8]> {
+        let len = self.remaining();
+        self.parse_bytes(len)
+    }
+
+    /// Verifies that the parser is exhausted.
+    ///
+    /// Returns `Ok(())` if there are no remaining bytes in the parser or
+    /// a form error otherwise.
+    pub fn exhausted(&self) -> ParseResult<()> {
+        if self.remaining() == 0 {
+            Ok(())
+        }
+        else {
+            Err(ParseError::FormErr)
+        }
+    }
 }
 
 
