@@ -110,3 +110,5 @@ pub trait ParsedOptData<'a>: OptData {
     fn parse(code: OptionCode, parser: &mut Parser<'a>)
              -> ParseResult<Option<Self>>;
 }
+
+
