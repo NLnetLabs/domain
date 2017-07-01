@@ -171,21 +171,12 @@ impl<'a> Record<ParsedDName<'a>, GenericRecordData<'a>> {
 ///
 impl<N: DName, D: RecordData> Record<N, D> {
     /// Appends the record’s wire-format representation to a composer.
-    pub fn compose<C: AsMut<Composer>>(&self, mut composer: C)
+    pub fn compose<C: AsMut<Composer>>(&self, composer: C)
                                        -> ComposeResult<()> {
-        try!(self.name.compose(composer.as_mut()));
-        try!(self.data.rtype().compose(composer.as_mut()));
-        try!(self.class.compose(composer.as_mut()));
-        try!(composer.as_mut().compose_u32(self.ttl));
-        let pos = composer.as_mut().pos();
-        try!(composer.as_mut().compose_u16(0));
-        try!(self.data.compose(composer.as_mut()));
-        let delta = composer.as_mut().delta(pos) - 2;
-        if delta > (::std::u16::MAX as usize) {
-            return Err(ComposeError::Overflow)
-        }
-        composer.as_mut().update_u16(pos, delta as u16);
-        Ok(())
+        let mut builder = RecordBuilder::new(composer, &self.name, self.class,
+                                             self.rtype(), self.ttl)?;
+        self.data.compose(&mut builder)?;
+        builder.finish().map(|_| ())
     }
 }
 
@@ -223,3 +214,49 @@ impl<N, D> fmt::Display for Record<N, D>
 /// A record with generic record data.
 pub type GenericRecord<'a> = Record<ParsedDName<'a>, GenericRecordData<'a>>;
 
+
+//------------ RecordBuilder -------------------------------------------------
+
+/// A type for building records in place.
+///
+/// This type can be used to build complex record types without first
+/// assembling the record data first, saving one copy.
+///
+/// A value of this type is created via `new()` which is given the target to
+/// build into and the name, class, type, and ttl of the record. The returned
+/// value is a composer and the record data can be written into it. Once all
+/// writing is done, the original target can be retrieved via the `finish()`
+/// method.
+#[derive(Clone, Debug)]
+pub struct RecordBuilder<C: AsMut<Composer>> {
+    composer: C,
+    len_pos: usize
+}
+
+impl<C: AsMut<Composer>> RecordBuilder<C> {
+    pub fn new<N: DName>(mut composer: C, name: &N, class: Class,
+                         rtype: Rtype, ttl: u32) -> ComposeResult<Self> {
+        name.compose(composer.as_mut())?;
+        rtype.compose(composer.as_mut())?;
+        class.compose(composer.as_mut())?;
+        composer.as_mut().compose_u32(ttl)?;
+        let len_pos = composer.as_mut().pos();
+        composer.as_mut().compose_u16(0)?;
+        Ok(RecordBuilder { composer, len_pos })
+    }
+
+    pub fn finish(mut self) -> ComposeResult<C> {
+        let delta = self.composer.as_mut().delta(self.len_pos) - 2;
+        if delta > (::std::u16::MAX as usize) {
+            return Err(ComposeError::Overflow)
+        }
+        self.composer.as_mut().update_u16(self.len_pos, delta as u16);
+        Ok(self.composer)
+    }
+}
+
+impl<C: AsMut<Composer>> AsMut<Composer> for RecordBuilder<C> {
+    fn as_mut(&mut self) -> &mut Composer {
+        self.composer.as_mut()
+    }
+}

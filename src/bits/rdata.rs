@@ -50,6 +50,9 @@ pub trait RecordData: Sized {
 /// A trait for types that allow parsing record data from a message.
 pub trait ParsedRecordData<'a>: RecordData {
     /// Parses the record data out of a parser.
+    ///
+    /// The `parser` handed into the function will be limited to the length
+    /// of the record data, so can read until the end of the parser.
     fn parse(rtype: Rtype, parser: &mut Parser<'a>)
              -> ParseResult<Option<Self>>;
 }

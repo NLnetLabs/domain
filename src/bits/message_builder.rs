@@ -84,9 +84,12 @@
 //! [`from_vec()`]: struct.MessageBuilder.html#method.from_vec
 
 use std::mem;
+use ::iana::{Class, OptRcode, Rtype};
 use super::{Composer, ComposeError, ComposeMode, ComposeResult,
-            ComposeSnapshot, DName, HeaderSection, Header, HeaderCounts,
-            Message, Question, Record, RecordData};
+            ComposeSnapshot, DName, DNameSlice, HeaderSection, Header,
+            HeaderCounts, Message, Question, Record, RecordData};
+use super::record::RecordBuilder;
+use super::opt::OptData;
 
 
 //------------ MessageBuilder -----------------------------------------------
@@ -440,6 +443,31 @@ impl AdditionalBuilder {
                          |counts| counts.inc_arcount(1))
     }
 
+    /// Starts appending an OPT record to the section.
+    ///
+    /// The method expects the values of the OPT record that are encoded in
+    /// various fields of the record header.
+    ///
+    /// The *payload_size* field contains
+    /// the maximum size of UDP payload a requestor can assemble and process.
+    /// 
+    /// The `rcode` argument should contain the Rcode used for a response
+    /// or `OptRcode::NoError` for a message. Only the upper eight bits are
+    /// used here, the lower for bits go into the message header’s rcode
+    /// field.
+    ///
+    /// The `dnssec_ok` flag indicates whether a sender is prepared to
+    /// receive and process DNSSEC-related resource records in a response.
+    /// In a response it must be equal to its value in a request.
+    /// 
+    /// This method trades in the additional section builder for an OPT
+    /// record builder. Once the record is finished, it can be traded back
+    /// to continue building the additional section.
+    pub fn build_opt(self, payload_size: u16, rcode: OptRcode,
+                     dnssec_ok: bool) -> ComposeResult<OptBuilder> {
+        OptBuilder::new(self, payload_size, rcode, dnssec_ok)
+    }
+
     /// Rewinds to the beginning of the additional section.
     ///
     /// This drops all previously assembled additonal records.
@@ -467,6 +495,51 @@ impl AdditionalBuilder {
 impl AsRef<Message> for AdditionalBuilder {
     fn as_ref(&self) -> &Message {
         self.target.as_ref()
+    }
+}
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+/// A type for building an OPT record on the fly.
+///
+/// The OPT record is part of the additional section. You can therefore get
+/// hold of a value of this type through the `AdditionalBuilder::build_opt()`
+/// method.
+///
+/// You use this value to add options to the record via the `push()` method.
+/// Once you are done, call `complete()` to finish up the record and get the
+/// additional builder back.
+#[derive(Clone, Debug)]
+pub struct OptBuilder {
+    builder: RecordBuilder<ComposeSnapshot>,
+}
+
+impl OptBuilder {
+    /// Creates a new OPT builder from an additional builder
+    fn new(builder: AdditionalBuilder, payload_size: u16, rcode: OptRcode,
+           dnssec_ok: bool) -> ComposeResult<Self> {
+        let mut ttl = (rcode.ext() as u32) << 24;
+        if dnssec_ok {
+            ttl |= 0x8000
+        }
+        let builder = RecordBuilder::new(builder.target.composer,
+                                         &DNameSlice::root(),
+                                         Class::Int(payload_size),
+                                         Rtype::Opt, ttl)?;
+        Ok(OptBuilder { builder })
+    }
+
+    /// Pushes an option to the OPT record.
+    pub fn push<O: OptData>(&mut self, option: O) -> ComposeResult<()> {
+        option.compose(&mut self.builder)
+    }
+
+    /// Completes the OPT record and returns the additional section builder.
+    pub fn complete(self) -> ComposeResult<AdditionalBuilder> {
+        let mut target = MessageTarget { composer: self.builder.finish()? };
+        target.counts_mut().inc_arcount(1)?;
+        Ok(AdditionalBuilder { target })
     }
 }
 

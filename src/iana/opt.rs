@@ -28,6 +28,7 @@ pub enum OptionCode {
     EdnsTcpKeepalive,
     Padding,
     Chain,
+    EdnsKeyTag,
 
     /// A raw class value given through its integer. 
     Int(u16),
@@ -51,6 +52,7 @@ impl OptionCode {
             11 => EdnsTcpKeepalive,
             12 => Padding,
             13 => Chain,
+            14 => EdnsKeyTag,
             _ => Int(value)
         }
     }
@@ -72,6 +74,7 @@ impl OptionCode {
             EdnsTcpKeepalive => 11,
             Padding => 12,
             Chain => 13,
+            EdnsKeyTag => 14,
             Int(v) => v
         }
     }
@@ -112,6 +115,7 @@ impl fmt::Display for OptionCode {
             EdnsTcpKeepalive => "edns-tcp-keepalive".fmt(f),
             Padding => "Padding".fmt(f),
             Chain => "CHAIN".fmt(f),
+            EdnsKeyTag => "edns-key-tag".fmt(f),
             Int(value) => {
                 match OptionCode::from_int(value) {
                     Int(value) => value.fmt(f),
