@@ -2,6 +2,8 @@
 A DNS library for Rust.
 
 [![Travis Build Status](https://travis-ci.org/partim/domain.svg?branch=master)](https://travis-ci.org/partim/domain)
+[![AppVeyor Build
+Status](https://ci.appveyor.com/api/projects/status/github/partim/domain?svg=true)](https://ci.appveyor.com/project/partim/domain)
 [![Current](https://img.shields.io/crates/v/domain.svg)](https://crates.io/crates/domain)
 
 [Documentation](https://docs.rs/domain/)
