@@ -1,12 +1,22 @@
 ## 0.2.2
 
-Breaking Changes
-
 New
+
+* `bits` module
+
+   *  `bits::opt`` module for parsing and composing of OPT records and OPT
+      options.
 
 Bug fixes
 
+* `resolver` module
+
+   *  Resolver may crash with ‘rotate’ option and failing upstream servers.
+      ([#20](https://github.com/partim/domain/issues/20)).
+
 Dependencies
+
+* updated tokio-core to 0.1.9.
 
 
 ## 0.2.1
