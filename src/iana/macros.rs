@@ -151,6 +151,7 @@ macro_rules! int_enum {
     }
 }
 
+/*
 /// Adds impls for `FromStr` and `Display` to the type given as first argument.
 ///
 /// The `FromStr` impl matches only well known mnemonics ignoring case,
@@ -245,6 +246,7 @@ macro_rules! int_enum_str_with_decimal {
         from_str_error!($error);
     }
 }
+*/
 
 /// Adds impls for `FromStr` and `Display` to the type given as first argument.
 ///
