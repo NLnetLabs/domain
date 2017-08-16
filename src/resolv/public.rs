@@ -289,8 +289,8 @@ impl QueryInner {
     /// Proceeds to the next request or errors out.
     fn error(&mut self, _error: Error, message: RequestMessage)
              -> Poll<MessageBuf, Error> {
-        self.curr_index += 1;
-        if (self.curr_index % self.track().len()) == self.start_index {
+        self.curr_index = (self.curr_index + 1) % self.track().len();
+        if self.curr_index == self.start_index {
             self.attempt += 1;
             if self.attempt == self.resolver.conf().attempts {
                 return Err(Error::Timeout)
