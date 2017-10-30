@@ -9,6 +9,21 @@ Status](https://ci.appveyor.com/api/projects/status/github/partim/domain?svg=tru
 [Documentation](https://docs.rs/domain/)
 
 
+## Is It Alive?
+
+Yes! After pondering for a while how best to deal with all the types
+containing `[u8]`s in a zero-cost way and trying out a few options, I am
+currently moving the `bits` module to be entirely based on
+[`bytes::Bytes`](https://github.com/carllerche/bytes). This happens in the
+[bytes-for-slices](https://github.com/partim/domain/tree/bytes-for-slices)
+branch.
+
+Once that is done, I am planning to simplify the resolver quite a bit. It
+probably needs to adopt recent developments in Tokyo, too.
+
+As these are all very breaking changes, this will result in version 0.3.0.
+
+
 ## Usage
 
 First, add this to your `Cargo.toml`:
