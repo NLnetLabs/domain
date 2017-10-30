@@ -76,6 +76,7 @@
 
 //--- Re-exports
 
+/*
 pub use self::charstr::{CharStr, CharStrBuf};
 pub use self::compose::{Composable, Composer, ComposeError, ComposeMode,
                         ComposeResult, ComposeSnapshot};
@@ -88,6 +89,7 @@ pub use self::parse::{Parser, ParseError, ParseResult};
 pub use self::question::Question;
 pub use self::rdata::{GenericRecordData, ParsedRecordData, RecordData};
 pub use self::record::{GenericRecord, Record};
+*/
 
 
 //--- Modules
@@ -95,12 +97,14 @@ pub use self::record::{GenericRecord, Record};
 pub mod charstr;
 pub mod compose;
 pub mod header;
-pub mod message;
-pub mod message_builder;
 pub mod name;
-pub mod opt;
 pub mod parse;
 pub mod question;
+
+/*
+pub mod message;
+pub mod message_builder;
+pub mod opt;
 pub mod rdata;
 pub mod record;
-
+*/

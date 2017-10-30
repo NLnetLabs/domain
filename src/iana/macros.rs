@@ -1,4 +1,4 @@
-//! Macros for implementing IANA types easier.
+//! Macros making implementing IANA types easier.
 
 /// Creates a standard IANA type wrapping an integer.
 ///
@@ -63,6 +63,20 @@ macro_rules! int_enum {
                         }
                     }
                 }
+            }
+
+            pub fn parse(parser: &mut $crate::bits::parse::Parser)
+                         -> Result<Self, $crate::bits::parse::ShortParser> {
+                <$inttype as $crate::bits::parse::ParseExt>::parse(parser)
+                    .map(Self::from_int)
+            }
+
+            pub fn compose_len(&self) -> usize {
+                <$inttype as $crate::bits::compose::ComposeExt>::COMPOSE_LEN
+            }
+
+            pub fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
+                $crate::bits::compose::ComposeExt::compose(&self.to_int(), buf)
             }
         }
 

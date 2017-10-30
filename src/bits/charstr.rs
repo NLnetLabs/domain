@@ -18,11 +18,13 @@
 //! [`CharStrBuf`]: struct.CharStrBuf.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{borrow, cmp, error, fmt, hash, mem, ops, str};
-use std::ascii::AsciiExt;
-use std::ops::Deref;
+use std::{cmp, error, fmt, hash, ops, str};
+use bytes::{BufMut, Bytes};
+use super::parse::{Parser, ShortParser};
+/*
 use ::master::{Scanner, ScanResult};
 use super::{Composer, ComposeResult, Parser, ParseResult};
+*/
 
 
 //------------ CharStr -------------------------------------------------------
@@ -38,9 +40,10 @@ use super::{Composer, ComposeResult, Parser, ParseResult};
 ///
 /// This is an usized type and needs to be used behind a pointer such as
 /// a reference or box.
+#[derive(Clone)]
 pub struct CharStr {
     /// The underlying bytes slice.
-    inner: [u8]
+    inner: Bytes
 }
 
 
@@ -51,16 +54,8 @@ impl CharStr {
     ///
     /// This function doesn’t check the length of the slice and therefore is
     /// unsafe.
-    unsafe fn from_bytes_unsafe(bytes: &[u8]) -> &Self {
-        mem::transmute(bytes)
-    }
-
-    /// Creates a mutable character string reference from a bytes slice.
-    ///
-    /// This function doesn’t check the length of the slice and therefore is
-    /// unsafe.
-    unsafe fn from_bytes_mut_unsafe(bytes: &mut [u8]) -> &mut Self {
-        mem::transmute(bytes)
+    unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
+        CharStr { inner: bytes }
     }
 
     /// Creates a new character string from the bytes slice.
@@ -68,57 +63,38 @@ impl CharStr {
     /// Returns `Some(_)` if the bytes slice can indeed be used as a
     /// character string, ie., it is not longer than 255 bytes, or `None`
     /// otherwise.
-    pub fn from_bytes(bytes: &[u8]) -> Option<&Self> {
-        if bytes.len() > 255 { None }
-        else { Some(unsafe { Self::from_bytes_unsafe(bytes) })}
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, CharStrError> {
+        if bytes.len() > 255 { Err(CharStrError) }
+        else { Ok(unsafe { Self::from_bytes_unchecked(bytes) })}
     }
 
-    /// Returns a reference to the character string’s data.
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &Bytes {
         &self.inner
     }
 
-    /// Returns an owned version of the character string.
-    pub fn to_owned(&self) -> CharStrBuf {
-        unsafe { CharStrBuf::from_vec_unsafe(self.inner.into()) }
+    /// Returns a reference to the character string’s data.
+    pub fn as_slice(&self) -> &[u8] {
+        self.inner.as_ref()
     }
 }
-
-
-/// # Properties
-///
-impl CharStr {
-    /// Returns the length of the character string’s data in bytes.
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    /// Returns whether the character string’s data is empty.
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-}
-
 
 /// # Parsing and Composing
 ///
 impl CharStr {
-    /// Parses a character string.
-    ///
-    /// If successful, the returned character string will be a reference into
-    /// the parser’s data.
-    pub fn parse<'a>(parser: &mut Parser<'a>) -> ParseResult<&'a Self> {
-        let len = try!(parser.parse_u8()) as usize;
-        parser.parse_bytes(len)
-              .map(|bytes| unsafe { CharStr::from_bytes_unsafe(bytes) })
+    pub fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
+        let len = parser.parse_u8()? as usize;
+        parser.parse_bytes(len).map(|bytes| {
+            unsafe { Self::from_bytes_unchecked(bytes) }
+        })
     }
 
-    /// Composes a character string.
-    pub fn compose<C: AsMut<Composer>>(&self, mut target: C)
-                                       -> ComposeResult<()> {
-        assert!(self.inner.len() < 256);
-        try!(target.as_mut().compose_u8(self.inner.len() as u8));
-        target.as_mut().compose_bytes(&self.inner)
+    pub fn compose_len(&self) -> usize {
+        self.len() + 1
+    }
+
+    pub fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_u8(self.len() as u8);
+        buf.put_slice(self.as_ref());
     }
 }
 
@@ -126,7 +102,7 @@ impl CharStr {
 //--- Deref, DerefMut, Borrow, AsRef
 
 impl ops::Deref for CharStr {
-    type Target = [u8];
+    type Target = Bytes;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -139,15 +115,9 @@ impl ops::DerefMut for CharStr {
     }
 }
 
-impl borrow::Borrow<[u8]> for CharStr {
-    fn borrow(&self) -> &[u8] {
+impl AsRef<Bytes> for CharStr {
+    fn as_ref(&self) -> &Bytes {
         &self.inner
-    }
-}
-
-impl AsRef<CharStr> for CharStr {
-    fn as_ref(&self) -> &Self {
-        self
     }
 }
 
@@ -160,15 +130,9 @@ impl AsRef<[u8]> for CharStr {
 
 //--- PartialEq, Eq
 
-impl PartialEq for CharStr {
-    fn eq(&self, other: &Self) -> bool {
-        self.inner.eq_ignore_ascii_case(&other.inner)
-    }
-}
-
-impl<C: AsRef<CharStr>> PartialEq<C> for CharStr {
-    fn eq(&self, other: &C) -> bool {
-        self.eq(other.as_ref())
+impl<T: AsRef<[u8]>> PartialEq<T> for CharStr {
+    fn eq(&self, other: &T) -> bool {
+        self.inner.as_ref().eq(other.as_ref())
     }
 }
 
@@ -177,22 +141,15 @@ impl Eq for CharStr { }
 
 //--- PartialOrd, Ord
 
-impl PartialOrd for CharStr {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<C: AsRef<CharStr>> PartialOrd<C> for CharStr {
-    fn partial_cmp(&self, other: &C) -> Option<cmp::Ordering> {
-        Some(self.cmp(other.as_ref()))
+impl<T: AsRef<[u8]>> PartialOrd<T> for CharStr {
+    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
+        self.inner.as_ref().partial_cmp(other.as_ref())
     }
 }
 
 impl Ord for CharStr {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.iter().map(AsciiExt::to_ascii_lowercase)
-            .cmp(other.iter().map(AsciiExt::to_ascii_lowercase))
+        self.inner.as_ref().cmp(other.inner.as_ref())
     }
 }
 
@@ -201,9 +158,7 @@ impl Ord for CharStr {
 
 impl hash::Hash for CharStr {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        for c in self.iter() {
-            state.write_u8(c.to_ascii_lowercase())
-        }
+        self.inner.hash(state)
     }
 }
 
@@ -236,262 +191,22 @@ impl fmt::Debug for CharStr {
 }
 
 
-//------------ CharStrBuf ----------------------------------------------------
+//------------ CharStrError --------------------------------------------------
 
-/// An owned, mutable DNS character string.
-///
-/// This type adds the methods [`push()`], [`extend_from_slice()`], and
-/// [`extend_from_str()`] to the methods from [`CharStr`] and `[u8]` to
-/// which it derefs (transitively). Note that the `Extend` trait is not
-/// implemented since adding data to a character string may fail if the
-/// string would become too long.
-///
-/// In addition through the usual suspects, values can be created from
-/// strings via the `FromStr` trait as well as by parsing from master
-/// file data through the [`scan()`] function.
-///
-/// [`push()`]: #method.push
-/// [`extend_from_slice()`]: #method.extend_from_slice
-/// [`extend_from_str()`]: #method.extend_from_str
-/// [`scan()`]: #method.scan
-/// [`CharStr`]: ../struct.CharStr.html
-#[derive(Clone, Default)]
-pub struct CharStrBuf {
-    /// The underlying bytes vec.
-    inner: Vec<u8>
-}
+#[derive(Clone, Copy, Debug)]
+pub struct CharStrError;
 
-
-/// # Creation and Conversion
-///
-impl CharStrBuf {
-    /// Creates a new character string using the given vec without checking.
-    unsafe fn from_vec_unsafe(vec: Vec<u8>) -> Self {
-        CharStrBuf{inner: vec}
-    }
-
-    /// Creates a new character string using the given vec.
-    ///
-    /// Returns `Some(_)` if the vector was at most 255 long or `None`
-    /// otherwise.
-    pub fn from_vec(vec: Vec<u8>) -> Option<Self> {
-        if vec.len() > 255 { None }
-        else { Some(unsafe { Self::from_vec_unsafe(vec) }) }
-    }
-
-    /// Creates a new empty character string.
-    pub fn new() -> Self {
-        unsafe { Self::from_vec_unsafe(Vec::new()) }
-    }
-
-    /// Scans a new character string from master data.
-    pub fn scan<S: Scanner>(scanner: &mut S) -> ScanResult<Self> {
-        scanner.scan_charstr()
-    }
-
-    /// Trades the character string for its raw bytes vector.
-    pub fn into_vec(self) -> Vec<u8> {
-        self.inner
+impl error::Error for CharStrError {
+    fn description(&self) -> &str {
+        "illegal character string"
     }
 }
 
-
-/// # Manipulations.
-///
-impl CharStrBuf {
-    /// Appends an octet to the end of the character string.
-    ///
-    /// The method will fail if there isn’t room for additional data.
-    pub fn push(&mut self, ch: u8) -> Result<(), PushError> {
-        if self.inner.len() >= 255 { Err(PushError) }
-        else {
-            self.inner.push(ch);
-            Ok(())
-        }
-    }
-
-    /// Extends the character string with the contents of a bytes slice.
-    ///
-    /// The method will fail if there isn’t room for adding the complete
-    /// contents of the slice.
-    pub fn extend_from_slice<B: AsRef<[u8]>>(&mut self, bytes: B)
-                                             -> Result<(), PushError> {
-        let bytes = bytes.as_ref();                               
-        if self.inner.len() + bytes.len() > 255 { Err(PushError) }
-        else {
-            self.inner.extend_from_slice(bytes);
-            Ok(())
-        }
-    }
-
-    /// Extends the character string with the contents of a Rust string.
-    ///
-    /// The string must contain the master data representation of a
-    /// character string either as a regular word without white-space or
-    /// a single quoted entity. If the string cannot be converted, the
-    /// function fails with the appropriate error. If adding the resulting
-    /// data would exceed the length limit of the character string, the
-    /// method fails with `FromStrError::LongString`.
-    pub fn extend_from_str(&mut self, s: &str) -> Result<(), FromStrError> {
-        match s.chars().next() {
-            Some('"') => self.extend_from_quoted(s),
-            Some(_) => self.extend_from_word(s),
-            None => Ok(())
-        }
-    }
-
-    /// Extends the character string with a quoted string.
-    ///
-    /// The string should still contain the opening `'"'`.
-    fn extend_from_quoted(&mut self, s: &str) -> Result<(), FromStrError> {
-        let mut chars = s.chars();
-        chars.next(); // Skip '"'.
-        while let Some(c) = chars.next() {
-            match c {
-                '"' => return Ok(()),
-                '\\' => try!(self.push(try!(parse_escape(&mut chars)))),
-                ' ' ... '[' | ']' ... '~' => {
-                    try!(self.push(c as u8))
-                }
-                _ => return Err(FromStrError::IllegalCharacter)
-            }
-        }
-        Err(FromStrError::UnexpectedEnd)
-    }
-
-    /// Extends the character string from a string containing a single word.
-    ///
-    /// Specifically, this fails if there is unescaped white space.
-    fn extend_from_word(&mut self, s: &str) -> Result<(), FromStrError> {
-        let mut chars = s.chars();
-        while let Some(c) = chars.next() {
-            match c {
-                '\\' => try!(self.push(try!(parse_escape(&mut chars)))),
-                '!' ... '[' | ']' ... '~' => {
-                    try!(self.push(c as u8))
-                }
-                _ => return Err(FromStrError::IllegalCharacter)
-            }
-        }
-        Ok(())
-    }
-}
-
-
-//--- From
-
-impl<'a> From<&'a CharStr> for CharStrBuf {
-    fn from(c: &'a CharStr) -> Self {
-        c.to_owned()
-    }
-}
-
-
-//--- FromStr
-
-impl str::FromStr for CharStrBuf {
-    type Err = FromStrError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut res = CharStrBuf::new();
-        try!(res.extend_from_str(s));
-        Ok(res)
-    }
-}
-
-
-//--- Deref, DerefMut, Borrow, AsRef
-
-impl ops::Deref for CharStrBuf {
-    type Target = CharStr;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { CharStr::from_bytes_unsafe(&self.inner) }
-    }
-}
-
-impl ops::DerefMut for CharStrBuf {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { CharStr::from_bytes_mut_unsafe(&mut self.inner) }
-    }
-}
-
-impl borrow::Borrow<CharStr> for CharStrBuf {
-    fn borrow(&self) -> &CharStr {
-        self
-    }
-}
-
-impl borrow::Borrow<[u8]> for CharStrBuf {
-    fn borrow(&self) -> &[u8] {
-        self
-    }
-}
-
-impl AsRef<CharStr> for CharStrBuf {
-    fn as_ref(&self) -> &CharStr {
-        self
-    }
-}
-
-impl AsRef<[u8]> for CharStrBuf {
-    fn as_ref(&self) -> &[u8] {
-        self
-    }
-}
-
-
-//--- PartialEq, Eq
-
-impl<C: AsRef<CharStr>> PartialEq<C> for CharStrBuf {
-    fn eq(&self, other: &C) -> bool {
-        self.deref().eq(other)
-    }
-}
-
-impl Eq for CharStrBuf { }
-
-
-//--- PartialOrd, Ord
-
-impl<C: AsRef<CharStr>> PartialOrd<C> for CharStrBuf {
-    fn partial_cmp(&self, other: &C) -> Option<cmp::Ordering> {
-        self.deref().partial_cmp(other)
-    }
-}
-
-impl Ord for CharStrBuf {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.deref().cmp(other.deref())
-    }
-}
-
-
-//--- Hash
-
-impl hash::Hash for CharStrBuf {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.deref().hash(state)
-    }
-}
-
-
-//--- Display, Debug
-
-impl fmt::Display for CharStrBuf {
+impl fmt::Display for CharStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Display::fmt(ops::Deref::deref(self), f)
+        f.write_str("illegal character string")
     }
 }
-
-impl fmt::Debug for CharStrBuf {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!("CharStrBuf(\"".fmt(f));
-        try!(fmt::Display::fmt(self, f));
-        "\")".fmt(f)
-    }
-}
-
 
 //------------ FromStrError --------------------------------------------
 
@@ -590,6 +305,7 @@ impl fmt::Display for PushError {
 
 //============ Internal Helpers =============================================
 
+/*
 /// Parses the content of an escape sequence from the beginning of `chars`.
 ///
 /// XXX Move to the zonefile modules once they exist.
@@ -608,6 +324,7 @@ fn parse_escape(chars: &mut str::Chars) -> Result<u8, FromStrError> {
     }
     else { Ok(ch as u8) }
 }
+*/
 
 
 //============ Testing ======================================================

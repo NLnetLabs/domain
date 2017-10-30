@@ -32,6 +32,7 @@ pub use self::rcode::{Rcode, OptRcode, TsigRcode};
 pub use self::rtype::Rtype;
 pub use self::secalg::SecAlg;
 
+
 #[macro_use] mod macros;
 
 pub mod class;

@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.2.3"
+version = "0.3.0"
 authors = ["Martin Hoffmann <hn@nvnc.de>"]
 description = "A DNS library for Rust."
 documentation = "https://docs.rs/domain/"
@@ -15,7 +15,7 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-byteorder     = "1.0"
+bytes         = "0.4"
 rand          = "0.3"
 futures       = "0.1.14"
 tokio-core    = "0.1.9"

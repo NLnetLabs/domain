@@ -1,380 +1,247 @@
-//! Parsed domain names.
-
-use std::borrow::Cow;
-use std::cmp;
-use std::fmt;
-use std::hash;
-use super::super::{Parser, ParseError, ParseResult};
-use super::{DName, DNameBuf, DNameSlice, Label, NameLabels, NameLabelettes};
-use super::plain::slice_from_bytes_unsafe;
+use bytes::BufMut;
+use ::bits::parse::{Parser, ShortParser};
+use super::label::{Label, LabelTypeError};
+use super::traits::{ToLabelIter, ToDname, ToFqdn};
 
 
-//------------ ParsedDName ---------------------------------------------------
+//------------ ParsedFqdn ----------------------------------------------------
 
-/// A domain name parsed from a DNS message.
-///
-/// In an attempt to keep messages small, DNS uses a procedure called name
-/// compression. It tries to minimize the space used for repeated domain names
-/// by simply refering to the first occurence of the name. This works not only
-/// for complete names but also for suffixes. In this case, the first unique
-/// labels of the name are included and then a pointer is included for the
-/// rest of the name.
-///
-/// A consequence of this is that when parsing a domain name, its labels can
-/// be scattered all over the message and we would need to allocate some
-/// space to re-assemble the original name. However, in many cases we don’t
-/// need the complete message. Many operations can be completed by just
-/// iterating over the labels which we can do in place.
-///
-/// This is what the `ParsedDName` type does: It takes a reference to a
-/// message and an indicator where inside the message the name starts and
-/// then walks over the message as necessity dictates. When created while
-/// parsing a message, the parser quickly walks over the labels to make sure
-/// that the name indeed is valid. While this takes up a bit of time, it
-/// avoids late surprises and provides for a nicer interface with less
-/// `Result`s.
-///
-/// Obviously, `ParsedDName` implements the [`DName`] trait and provides all
-/// operations required by this trait. It also implements `PartialEq` and
-/// `Eq`, as well as `PartialOrd` and `Ord` against all other domain name
-/// types, plus `Hash` with the same as the other types.
-///
-/// [`DName`]: trait.DName.html
-#[derive(Clone)]
-pub struct ParsedDName<'a> {
-    message: &'a [u8],
-    start: usize
+pub struct ParsedFqdn {
+    parser: Parser,
+    len: usize,
+    compressed: bool,
 }
-
 
 /// # Creation and Conversion
 ///
-impl<'a> ParsedDName<'a> {
-    /// Creates a new parsed domain name.
-    ///
-    /// This parses out the leading uncompressed labels from the parser and
-    /// then quickly jumps over any possible remaining compressing to check
-    /// that the name is valid.
-    pub fn parse(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        let res = ParsedDName{message: parser.bytes(), start: parser.pos()};
+impl ParsedFqdn {
+    pub fn parse(parser: &mut Parser) -> Result<Self, ParsedFqdnError> {
+        let start = parser.pos();
+        let mut len = 0;
 
-        // Step 1: Walk over uncompressed labels to advance the parser.
-        let pos;
-        loop {
-            match try!(Self::parse_label(parser)) {
-                Ok(true) => return Ok(res),
-                Ok(false) => { }
-                Err(x) => {
-                    pos = x;
-                    break
+        // Phase 1: Take labels from the parser until the root label or the
+        //          first compressed label. In the latter case, remember where
+        //          the actual name ended.
+        let end = loop {
+            match LabelType::parse(parser) {
+                Ok(LabelType::Normal(0)) => {
+                    len += 1;
+                    if len > 255 {
+                        parser.seek(start).unwrap();
+                        return Err(ParsedFqdnError::LongName)
+                    }
+                    let mut res = parser.clone();
+                    res.seek(start).unwrap();
+                    return Ok(ParsedFqdn { parser: res, len,
+                                           compressed: false })
+                }
+                Ok(LabelType::Normal(label_len)) => {
+                    if let Err(err) = parser.advance(label_len) {
+                        parser.seek(start).unwrap();
+                        return Err(err.into())
+                    }
+                    len += label_len + 1;
+                    if len > 255 {
+                        parser.seek(start).unwrap();
+                        return Err(ParsedFqdnError::LongName)
+                    }
+                }
+                Ok(LabelType::Compressed(pos)) => {
+                    if let Err(err) = parser.seek(pos) {
+                        parser.seek(start).unwrap();
+                        return Err(err.into())
+                    }
+                    break parser.pos()
+                }
+                Err(err) => {
+                    parser.seek(start).unwrap();
+                    return Err(err)
                 }
             }
-        }
-
-        // Step 2: Walk over the rest to see if the name is valid.
-        let mut parser = parser.clone();
-        parser.remove_limit();
-        try!(parser.seek(pos));
-        loop {
-            let step = try!(Self::parse_label(&mut parser));
-            match step {
-                Ok(true) => return Ok(res),
-                Ok(false) => { }
-                Err(pos) => try!(parser.seek(pos))
-            }
-        }
-    }
-
-    /// Unpacks the name.
-    ///
-    /// This will return the cow’s borrowed variant for any parsed name that
-    /// isn’t in fact compressed. Otherwise it will assemble all the labels
-    /// into an owned domain name.
-    pub fn unpack(&self) -> Cow<'a, DNameSlice> {
-        match self.split_uncompressed() {
-            (Some(slice), None) => Cow::Borrowed(slice),
-            (None, Some(packed)) => packed.unpack(),
-            (None, None) => Cow::Borrowed(DNameSlice::empty()),
-            (Some(slice), Some(packed)) => {
-                let mut res = slice.to_owned();
-                for label in packed.labels() {
-                    res.push(label).unwrap()
-                }
-                Cow::Owned(res)
-            }
-        }
-    }
-
-    /// Returns a slice if the name is uncompressed.
-    pub fn as_slice(&self) -> Option<&'a DNameSlice> {
-        if let (Some(slice), None) = self.split_uncompressed() {
-            Some(slice)
-        }
-        else {
-            None
-        }
-    }
-}
-
-
-/// # Working with Labels
-///
-impl<'a> ParsedDName<'a> {
-    /// Returns an iterator over the labels of the name.
-    pub fn labels(&self) -> NameLabels<'a> {
-        NameLabels::from_parsed(self.clone())
-    }
-
-    /// Returns an iterator over the labelettes of the name.
-    pub fn labelettes(&self) -> NameLabelettes<'a> {
-        NameLabelettes::new(self.labels())
-    }
-
-    /// Splits off the first label from the name.
-    ///
-    /// For correctly encoded names, this function will always return
-    /// `Some(_)`. The first element will be the parsed out label. The
-    /// second element will be a parsed name of the remainder of the name
-    /// if the label wasn’t the root label or `None` otherwise.
-    pub fn split_first(&self) -> Option<(&'a Label, Option<Self>)> {
-        let mut name = self.clone();
-        loop {
-            let new_name = match name.split_label() {
-                Ok(x) => return Some(x),
-                Err(Some(x)) => x,
-                Err(None) => return None
-            };
-            name = new_name;
-        }
-    }
-
-    /// Splits a label or goes to where a pointer points.
-    ///
-    /// Ok((label, tail)) -> a label and what is left.
-    /// Err(Some(tail)) -> re-positioned tail.
-    /// Err(None) -> broken
-    fn split_label(&self) -> Result<(&'a Label, Option<Self>), Option<Self>> {
-        if self.message[self.start] & 0xC0 == 0xC0 {
-            // Pointer label.
-            let start = ((self.message[self.start] & 0x3f) as usize) << 8
-                      | match self.message.get(self.start + 1) {
-                          Some(two) => *two as usize,
-                          None => return Err(None)
-                      };
-            if start >= self.message.len() {
-                Err(None)
-            }
-            else {
-                Err(Some(ParsedDName{message: self.message, start: start}))
-            }
-        }
-        else {
-            // "Real" label.
-            let (label, _) = match Label::split_from(
-                                                &self.message[self.start..]) {
-                Some(x) => x,
-                None => return Err(None)
-            };
-            let start = self.start + label.len();
-            if label.is_root() {
-                Ok((label, None))
-            }
-            else {
-                Ok((label, Some(ParsedDName{message: self.message,
-                                            start: start})))
-            }
-        }
-    }
-
-    /// Splits off the part that is uncompressed.
-    fn split_uncompressed(&self) -> (Option<&'a DNameSlice>, Option<Self>) {
-        let mut name = self.clone();
-        loop {
-            name = match name.split_label() {
-                Ok((_, Some(new_name))) => new_name,
-                Ok((label, None)) => {
-                    let end = name.start + label.len();
-                    let bytes = &self.message[self.start..end];
-                    return (Some(unsafe { slice_from_bytes_unsafe(bytes) }),
-                            None)
-                }
-                Err(Some(new_name)) => {
-                    let bytes = &self.message[self.start..name.start];
-                    return (Some(unsafe { slice_from_bytes_unsafe(bytes) }),
-                            Some(new_name))
-                }
-                Err(None) => unreachable!()
-            };
-        }
-    }
-
-    /// Parses a label.
-    ///
-    /// Returns `Ok(is_root)` if the label is a normal label. Returns
-    /// `Err(pos)` with the position of the next label.
-    fn parse_label(parser: &mut Parser<'a>)
-                   -> ParseResult<Result<bool, usize>> {
-        let head = try!(parser.parse_u8());
-        match head {
-            0 => Ok(Ok(true)),
-            1 ... 0x3F => parser.skip(head as usize).map(|_| Ok(false)),
-            0x41 => {
-                let count = try!(parser.parse_u8());
-                let len = if count == 0 { 32 }
-                          else { ((count - 1) / 8 + 1) as usize };
-                parser.skip(len).map(|_| Ok(false))
-            }
-            0xC0 ... 0xFF => {
-                Ok(Err(try!(parser.parse_u8()) as usize
-                       + (((head & 0x3F) as usize) << 8)))
-            }
-            _ => Err(ParseError::UnknownLabel)
-        }
-    }        
-}
-
-
-//--- DName
-
-impl<'a> DName for ParsedDName<'a> {
-    fn to_cow(&self) -> Cow<DNameSlice> {
-        self.unpack()
-    }
-
-    fn labels(&self) -> NameLabels {
-        NameLabels::from_parsed(self.clone())
-    }
-}
-
-
-//--- PartialEq and Eq
-
-impl<'a, N: DName> PartialEq<N> for ParsedDName<'a> {
-    fn eq(&self, other: &N) -> bool {
-        let self_iter = self.labelettes();
-        let other_iter = other.labelettes();
-        self_iter.eq(other_iter)
-    }
-}
-
-impl<'a> PartialEq<str> for ParsedDName<'a> {
-    fn eq(&self, other: &str) -> bool {
-        use std::str::FromStr;
-
-        let other = match DNameBuf::from_str(other) {
-            Ok(other) => other,
-            Err(_) => return false
         };
-        self.eq(&other)
+
+        // Phase 2: Follow offsets so we can get the length.
+        loop {
+            match LabelType::parse(parser)? {
+                LabelType::Normal(0) => {
+                    len += 1;
+                    if len > 255 {
+                        parser.seek(start).unwrap();
+                        return Err(ParsedFqdnError::LongName)
+                    }
+                    break;
+                }
+                LabelType::Normal(label_len) => {
+                    if let Err(err) = parser.advance(label_len) {
+                        parser.seek(start).unwrap();
+                        return Err(err.into())
+                    }
+                    len += label_len + 1;
+                    if len > 255 {
+                        parser.seek(start).unwrap();
+                        return Err(ParsedFqdnError::LongName)
+                    }
+                }
+                LabelType::Compressed(pos) => {
+                    if let Err(err) = parser.seek(pos) {
+                        parser.seek(start).unwrap();
+                        return Err(err.into())
+                    }
+                }
+            }
+        }
+
+        // Phase 3: Profit
+        parser.seek(end).unwrap();
+        let mut res = parser.clone();
+        res.seek(start).unwrap();
+        Ok(ParsedFqdn { parser: res, len, compressed: true })
+    }
+
+    pub fn is_compressed(&self) -> bool {
+        self.compressed
+    }
+
+    pub fn iter(&self) -> ParsedFqdnIter {
+        ParsedFqdnIter::new(&self.parser, self.len)
     }
 }
 
-impl<'a> Eq for ParsedDName<'a> { }
 
+//--- ToLabelIter, ToDname, and ToFqdn
 
-//--- PartialOrd and Ord
+impl<'a> ToLabelIter<'a> for ParsedFqdn {
+    type LabelIter = ParsedFqdnIter<'a>;
 
-impl<'a, N: DName> PartialOrd<N> for ParsedDName<'a> {
-    fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
-        let self_iter = self.labelettes().rev();
-        let other_iter = other.labelettes().rev();
-        self_iter.partial_cmp(other_iter)
+    fn iter_labels(&'a self) -> Self::LabelIter {
+        self.iter()
     }
 }
 
-impl<'a> Ord for ParsedDName<'a> {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        let self_iter = self.labelettes().rev();
-        let other_iter = other.labelettes().rev();
-        self_iter.cmp(other_iter)
+impl ToDname for ParsedFqdn {
+    fn is_absolute(&self) -> bool {
+        true
     }
-}
 
+    fn len(&self) -> usize {
+        self.len
+    }
 
-//--- Hash
-
-impl<'a> hash::Hash for ParsedDName<'a> {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        for item in self.labelettes() {
-            item.hash(state)
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        for label in self.iter() {
+            label.compose(buf)
         }
     }
 }
 
+impl ToFqdn for ParsedFqdn { }
 
-//--- std::fmt traits
 
-impl<'a> fmt::Display for ParsedDName<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.labels();
-        if let Some(label) = labels.next() {
-            try!(write!(f, "{}", label));
-        }
-        for label in labels {
-            try!(write!(f, ".{}", label))
-        }
-        Ok(())
+//------------ ParsedFqdnIter ------------------------------------------------
+
+pub struct ParsedFqdnIter<'a> {
+    slice: &'a [u8],
+    pos: usize,
+    len: usize,
+}
+
+impl<'a> ParsedFqdnIter<'a> {
+    fn new(parser: &'a Parser, len: usize) -> Self {
+        ParsedFqdnIter { slice: parser.as_slice(), pos: parser.pos(), len }
+    }
+
+    fn get_label(&mut self) -> &'a Label {
+        let end = loop {
+            let ltype = self.slice[self.pos];
+            self.pos += 1;
+            match ltype {
+                0 ... 0x3F => break self.pos + (ltype as usize),
+                0xC0 ... 0xFF => {
+                    self.pos = (self.slice[self.pos] as usize)
+                             | (((ltype as usize) & 0x3F) << 8);
+                }
+                _ => panic!("bad label")
+            }
+        };
+        let res = unsafe {
+            Label::from_slice_unchecked(&self.slice[self.pos..end])
+        };
+        self.pos = end;
+        res
     }
 }
 
-impl<'a> fmt::Octal for ParsedDName<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.labels();
-        if let Some(label) = labels.next() {
-            try!(write!(f, "{:o}", label));
+impl<'a> Iterator for ParsedFqdnIter<'a> {
+    type Item = &'a Label;
+
+    fn next(&mut self) -> Option<&'a Label> {
+        if self.len == 0 {
+            return None
         }
-        for label in labels {
-            try!(write!(f, ".{:o}", label))
-        }
-        Ok(())
+        let res = self.get_label();
+        self.len -= res.len() + 1;
+        Some(res)
     }
 }
 
-impl<'a> fmt::LowerHex for ParsedDName<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.labels();
-        if let Some(label) = labels.next() {
-            try!(write!(f, "{:x}", label));
+impl<'a> DoubleEndedIterator for ParsedFqdnIter<'a> {
+    fn next_back(&mut self) -> Option<&'a Label> {
+        while self.len > 0 {
+            let label = self.get_label();
+            self.len -= label.len() +1;
+            if self.len == 0 {
+                return Some(label)
+            }
         }
-        for label in labels {
-            try!(write!(f, ".{:x}", label))
-        }
-        Ok(())
+        None
     }
 }
 
-impl<'a> fmt::UpperHex for ParsedDName<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.labels();
-        if let Some(label) = labels.next() {
-            try!(write!(f, "{:X}", label));
+
+//------------ LabelType -----------------------------------------------------
+
+/// The type of a label.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LabelType {
+    Normal(usize),
+    Compressed(usize),
+}
+
+impl LabelType {
+    pub fn parse(parser: &mut Parser) -> Result<Self, ParsedFqdnError> {
+        let ltype = parser.parse_u8()?;
+        match ltype {
+            0 ... 0x3F => Ok(LabelType::Normal(ltype as usize)),
+            0xC0 ... 0xFF => {
+                let res = parser.parse_u8()? as usize;
+                let res = res | (((ltype as usize) & 0x3F) << 8);
+                Ok(LabelType::Compressed(res))
+            }
+            0x40 ... 0x4F => Err(LabelTypeError::Extended(ltype).into()),
+            _ => Err(LabelTypeError::Undefined.into())
         }
-        for label in labels {
-            try!(write!(f, ".{:X}", label))
-        }
-        Ok(())
     }
 }
 
-impl<'a> fmt::Binary for ParsedDName<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut labels = self.labels();
-        if let Some(label) = labels.next() {
-            try!(write!(f, "{:b}", label));
-        }
-        for label in labels {
-            try!(write!(f, ".{:b}", label))
-        }
-        Ok(())
+
+//------------ ParsedFqdnError -----------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ParsedFqdnError {
+    ShortParser,
+    BadLabel(LabelTypeError),
+    LongName,
+}
+
+impl From<ShortParser> for ParsedFqdnError {
+    fn from(_: ShortParser) -> ParsedFqdnError {
+        ParsedFqdnError::ShortParser
     }
 }
 
-impl<'a> fmt::Debug for ParsedDName<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(f.write_str("ParsedDName("));
-        try!(fmt::Display::fmt(self, f));
-        f.write_str(")")
+impl From<LabelTypeError> for ParsedFqdnError {
+    fn from(err: LabelTypeError) -> ParsedFqdnError {
+        ParsedFqdnError::BadLabel(err)
     }
 }
-
 

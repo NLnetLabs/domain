@@ -1,7 +1,6 @@
 //! DNS CLASSes.
 
-use ::master::{ScanResult, Scanner, SyntaxError};
-use ::bits::{Composer, ComposeResult, Parser, ParseResult};
+//use ::bits::{Composer, ComposeResult, Parser, ParseResult};
 
 int_enum!{
     /// DNS CLASSes.
@@ -58,20 +57,3 @@ int_enum!{
 
 int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16, "unknown class");
 
-impl Class {
-    pub fn parse(parser: &mut Parser) -> ParseResult<Self> {
-        parser.parse_u16().map(Class::from)
-    }
-
-    pub fn compose<C: AsMut<Composer>>(&self, mut composer: C)
-                                       -> ComposeResult<()> {
-        composer.as_mut().compose_u16(self.into())
-    }
-
-    pub fn scan<S: Scanner>(scanner: &mut S) -> ScanResult<Self> {
-        scanner.scan_word(|slice| {
-            Class::from_bytes(slice)
-                  .ok_or_else(|| SyntaxError::UnknownClass(slice.into()))
-        })
-    }
-}

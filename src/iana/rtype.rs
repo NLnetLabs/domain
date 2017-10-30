@@ -1,9 +1,5 @@
 //! Resource Record (RR) TYPEs
 
-use ::master::{ScanResult, Scanner, SyntaxError};
-use ::bits::{Composer, ComposeResult, Parser, ParseResult};
-
-
 int_enum!{
     /// Resource Record Types.
     ///
@@ -407,20 +403,3 @@ int_enum!{
 int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16,
                           "unknown record type");
 
-impl Rtype {
-    pub fn parse(parser: &mut Parser) -> ParseResult<Self> {
-        parser.parse_u16().map(Rtype::from)
-    }
-
-    pub fn compose<C: AsMut<Composer>>(&self, mut composer: C)
-                                       -> ComposeResult<()> {
-        composer.as_mut().compose_u16(self.into())
-    }
-
-    pub fn scan<S: Scanner>(scanner: &mut S) -> ScanResult<Self> {
-        scanner.scan_word(|slice| {
-            Self::from_bytes(slice)
-                 .ok_or_else(|| SyntaxError::UnknownClass(slice.into()))
-        })
-    }
-}
