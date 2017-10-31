@@ -2,33 +2,33 @@ use bytes::BufMut;
 use ::bits::compose::Composable;
 use ::bits::parse::{Parseable, Parser, ShortParser};
 use super::label::{Label, LabelTypeError};
-use super::traits::{ToLabelIter, ToDname, ToFqdn};
+use super::traits::{ToLabelIter, ToDname};
 
 
-//------------ ParsedFqdn ----------------------------------------------------
+//------------ ParsedDname ---------------------------------------------------
 
-pub struct ParsedFqdn {
+pub struct ParsedDname {
     parser: Parser,
     len: usize,
     compressed: bool,
 }
 
-impl ParsedFqdn {
+impl ParsedDname {
     pub fn is_compressed(&self) -> bool {
         self.compressed
     }
 
-    pub fn iter(&self) -> ParsedFqdnIter {
-        ParsedFqdnIter::new(&self.parser, self.len)
+    pub fn iter(&self) -> ParsedDnameIter {
+        ParsedDnameIter::new(&self.parser, self.len)
     }
 }
 
 //--- Parseable and Composable
 
-impl Parseable for ParsedFqdn {
-    type Err = ParsedFqdnError;
+impl Parseable for ParsedDname {
+    type Err = ParsedDnameError;
 
-    fn parse(parser: &mut Parser) -> Result<Self, ParsedFqdnError> {
+    fn parse(parser: &mut Parser) -> Result<Self, ParsedDnameError> {
         let start = parser.pos();
         let mut len = 0;
 
@@ -41,12 +41,12 @@ impl Parseable for ParsedFqdn {
                     len += 1;
                     if len > 255 {
                         parser.seek(start).unwrap();
-                        return Err(ParsedFqdnError::LongName)
+                        return Err(ParsedDnameError::LongName)
                     }
                     let mut res = parser.clone();
                     res.seek(start).unwrap();
-                    return Ok(ParsedFqdn { parser: res, len,
-                                           compressed: false })
+                    return Ok(ParsedDname { parser: res, len,
+                                            compressed: false })
                 }
                 Ok(LabelType::Normal(label_len)) => {
                     if let Err(err) = parser.advance(label_len) {
@@ -56,7 +56,7 @@ impl Parseable for ParsedFqdn {
                     len += label_len + 1;
                     if len > 255 {
                         parser.seek(start).unwrap();
-                        return Err(ParsedFqdnError::LongName)
+                        return Err(ParsedDnameError::LongName)
                     }
                 }
                 Ok(LabelType::Compressed(pos)) => {
@@ -80,7 +80,7 @@ impl Parseable for ParsedFqdn {
                     len += 1;
                     if len > 255 {
                         parser.seek(start).unwrap();
-                        return Err(ParsedFqdnError::LongName)
+                        return Err(ParsedDnameError::LongName)
                     }
                     break;
                 }
@@ -92,7 +92,7 @@ impl Parseable for ParsedFqdn {
                     len += label_len + 1;
                     if len > 255 {
                         parser.seek(start).unwrap();
-                        return Err(ParsedFqdnError::LongName)
+                        return Err(ParsedDnameError::LongName)
                     }
                 }
                 LabelType::Compressed(pos) => {
@@ -108,11 +108,11 @@ impl Parseable for ParsedFqdn {
         parser.seek(end).unwrap();
         let mut res = parser.clone();
         res.seek(start).unwrap();
-        Ok(ParsedFqdn { parser: res, len, compressed: true })
+        Ok(ParsedDname { parser: res, len, compressed: true })
     }
 }
 
-impl Composable for ParsedFqdn {
+impl Composable for ParsedDname {
     fn compose_len(&self) -> usize {
         self.len
     }
@@ -124,36 +124,30 @@ impl Composable for ParsedFqdn {
     }
 }
 
-//--- ToLabelIter, ToDname, and ToFqdn
+//--- ToLabelIter and ToDname
 
-impl<'a> ToLabelIter<'a> for ParsedFqdn {
-    type LabelIter = ParsedFqdnIter<'a>;
+impl<'a> ToLabelIter<'a> for ParsedDname {
+    type LabelIter = ParsedDnameIter<'a>;
 
     fn iter_labels(&'a self) -> Self::LabelIter {
         self.iter()
     }
 }
 
-impl ToDname for ParsedFqdn {
-    fn is_absolute(&self) -> bool {
-        true
-    }
-}
-
-impl ToFqdn for ParsedFqdn { }
+impl ToDname for ParsedDname { }
 
 
-//------------ ParsedFqdnIter ------------------------------------------------
+//------------ ParsedDnameIter -----------------------------------------------
 
-pub struct ParsedFqdnIter<'a> {
+pub struct ParsedDnameIter<'a> {
     slice: &'a [u8],
     pos: usize,
     len: usize,
 }
 
-impl<'a> ParsedFqdnIter<'a> {
+impl<'a> ParsedDnameIter<'a> {
     fn new(parser: &'a Parser, len: usize) -> Self {
-        ParsedFqdnIter { slice: parser.as_slice(), pos: parser.pos(), len }
+        ParsedDnameIter { slice: parser.as_slice(), pos: parser.pos(), len }
     }
 
     fn get_label(&mut self) -> &'a Label {
@@ -177,7 +171,7 @@ impl<'a> ParsedFqdnIter<'a> {
     }
 }
 
-impl<'a> Iterator for ParsedFqdnIter<'a> {
+impl<'a> Iterator for ParsedDnameIter<'a> {
     type Item = &'a Label;
 
     fn next(&mut self) -> Option<&'a Label> {
@@ -190,7 +184,7 @@ impl<'a> Iterator for ParsedFqdnIter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for ParsedFqdnIter<'a> {
+impl<'a> DoubleEndedIterator for ParsedDnameIter<'a> {
     fn next_back(&mut self) -> Option<&'a Label> {
         while self.len > 0 {
             let label = self.get_label();
@@ -214,7 +208,7 @@ enum LabelType {
 }
 
 impl LabelType {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParsedFqdnError> {
+    pub fn parse(parser: &mut Parser) -> Result<Self, ParsedDnameError> {
         let ltype = parser.parse_u8()?;
         match ltype {
             0 ... 0x3F => Ok(LabelType::Normal(ltype as usize)),
@@ -230,24 +224,24 @@ impl LabelType {
 }
 
 
-//------------ ParsedFqdnError -----------------------------------------------
+//------------ ParsedDnameError ----------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ParsedFqdnError {
+pub enum ParsedDnameError {
     ShortParser,
     BadLabel(LabelTypeError),
     LongName,
 }
 
-impl From<ShortParser> for ParsedFqdnError {
-    fn from(_: ShortParser) -> ParsedFqdnError {
-        ParsedFqdnError::ShortParser
+impl From<ShortParser> for ParsedDnameError {
+    fn from(_: ShortParser) -> ParsedDnameError {
+        ParsedDnameError::ShortParser
     }
 }
 
-impl From<LabelTypeError> for ParsedFqdnError {
-    fn from(err: LabelTypeError) -> ParsedFqdnError {
-        ParsedFqdnError::BadLabel(err)
+impl From<LabelTypeError> for ParsedDnameError {
+    fn from(err: LabelTypeError) -> ParsedDnameError {
+        ParsedDnameError::BadLabel(err)
     }
 }
 

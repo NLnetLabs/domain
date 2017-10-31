@@ -1,13 +1,11 @@
 
 use std::{cmp, error, fmt, hash, ops};
 use std::ascii::AsciiExt;
-use std::str::FromStr;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
-use super::chain::Chain;
-use super::fqdn::{Fqdn, RelativeDname};
-use super::from_str::{from_str, from_chars, FromStrError};
+use ::bits::parse::{Parseable, Parser, ShortParser};
 use super::label::{Label, SplitLabelError};
+use super::relname::{RelativeDname, RelativeDnameError, DnameIter};
 use super::traits::{ToLabelIter, ToDname};
 
 
@@ -15,8 +13,7 @@ use super::traits::{ToLabelIter, ToDname};
 
 #[derive(Clone)]
 pub struct Dname {
-    bytes: Bytes,
-    is_absolute: bool,
+    bytes: Bytes
 }
 
 
@@ -24,56 +21,15 @@ pub struct Dname {
 ///
 impl Dname {
     pub fn root() -> Self {
-        Dname {
-            bytes: Bytes::from_static(b"\0"),
-            is_absolute: true,
-        }
+        Dname { bytes: Bytes::from_static(b"\0") }
     }
 
-    pub fn empty() -> Self {
-        Dname {
-            bytes: Bytes::from_static(b""),
-            is_absolute: false,
-        }
+    pub(super) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
+        Dname { bytes }
     }
 
-    pub(super) unsafe fn new_unchecked(bytes: Bytes, is_absolute: bool)
-                                       -> Self {
-        Dname { bytes, is_absolute }
-    }
-
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, DnameError> {
-        if bytes.len() > 255 {
-            return Err(DnameError::TooLong)
-        }
-        let is_absolute = {
-            let mut tmp = bytes.as_ref();
-            loop {
-                if tmp.is_empty() {
-                    break false
-                }
-                let (label, tail) = Label::split_from(tmp)?;
-                if label.is_root() {
-                    if tail.is_empty() {
-                        break true;
-                    }
-                    else {
-                        return Err(DnameError::TrailingData)
-                    }
-                }
-                tmp = tail;
-            }
-        };
-        Ok(Dname { bytes, is_absolute })
-    }
-
-    pub fn from_fqdn(name: Fqdn) -> Dname {
-        Dname { bytes: name.into_bytes(), is_absolute: true }
-    }
-
-    pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
-                      where C: IntoIterator<Item=char> {
-        from_chars(chars)
+    pub fn from_bytes(_bytes: Bytes) -> Result<Self, DnameError> {
+        unimplemented!()
     }
 
     pub fn as_bytes(&self) -> &Bytes {
@@ -84,30 +40,11 @@ impl Dname {
         self.bytes.as_ref()
     }
 
-    pub fn into_fqdn(self) -> Result<Fqdn, RelativeDname> {
-        Fqdn::from_dname(self)
-    }
-
     pub fn into_bytes(self) -> Bytes {
         self.bytes
     }
-
-    pub fn chain<N: ToDname>(self, other: N) -> Chain<Self, N> {
-        Chain::new(self, other)
-    }
 }
 
-/// # Properties
-///
-impl Dname {
-    pub fn is_absolute(&self) -> bool {
-        self.is_absolute
-    }
-
-    pub fn is_relative(&self) -> bool {
-        !self.is_absolute
-    }
-}
 
 /// # Working with Labels
 ///
@@ -128,28 +65,15 @@ impl Dname {
         self.iter().next_back()
     }
 
-    /// Returns the number of dots in the string representation of the name.
-    ///
-    /// The method returns a value only for relative domain names. In this
-    /// case, it returns a value equal to the number of labels minus one,
-    /// except for an empty name where it returns a zero, also.
-    pub fn ndots(&self) -> Option<usize> {
-        if self.is_absolute { None }
-        else if self.is_empty() { Some(0) }
-        else {
-            Some(self.label_count() - 1)
-        }
-    }
-
-    pub fn starts_with(&self, base: &Dname) -> bool {
+    pub fn starts_with(&self, base: &RelativeDname) -> bool {
         if base.len() > self.len() {
             return false
         }
         let start = &self.bytes.as_ref()[..base.len()];
-        base.bytes.as_ref().eq_ignore_ascii_case(start)
+        base.as_slice().eq_ignore_ascii_case(start)
     }
 
-    pub fn ends_with(&self, base: &Dname) -> bool {
+    pub fn ends_with(&self, base: &RelativeDname) -> bool {
         if base.len() > self.len() {
             return false
         }
@@ -157,60 +81,66 @@ impl Dname {
             Ok(res) => res,
             Err(_) => return false,
         };
-        right.bytes.as_ref().eq_ignore_ascii_case(base.bytes.as_ref())
+        right.bytes.as_ref().eq_ignore_ascii_case(base.as_slice())
     }
 
-    pub fn split_at(&self, mid: usize) -> Result<(Dname, Dname), DnameError> {
+    pub fn split_at(&self, mid: usize)
+                    -> Result<(RelativeDname, Self), RelativeDnameError> {
         assert!(mid <= self.len());
-        let left = Dname::from_bytes(self.bytes.slice_to(mid))?;
-        let right = Dname { 
-            bytes: self.bytes.slice_from(mid),
-            is_absolute: self.is_absolute
+        let left = RelativeDname::from_bytes(self.bytes.slice_to(mid))?;
+        let right = unsafe {
+            Self::from_bytes_unchecked(self.bytes.slice_from(mid))
         };
         Ok((left, right))
     }
 
-    pub fn split_first(&self) -> Option<(Dname, Dname)> {
-        let first_end = match self.iter().next() {
-            Some(label) => label.len() + 1,
-            None => return None
-        };
-        if first_end == self.len() {
-            Some((self.clone(), Dname::empty()))
-        }
-        else {
-            Some((
-                Dname {
-                    bytes: self.bytes.slice_to(first_end),
-                    is_absolute: false,
-                },
-                Dname {
-                    bytes: self.bytes.slice_from(first_end),
-                    is_absolute: self.is_absolute
-                }
-            ))
-        }
+    pub fn split_first(&self) -> (RelativeDname, Option<Self>) {
+        /*
+        let (left, right) = self.clone().into_dname().split_first().unwrap();
+        (left, right.into_fqdn().ok())
+        */
+        unimplemented!()
     }
 
-    pub fn parent(&self) -> Option<Dname> {
-        self.split_first().map(|res| res.1)
+    pub fn parent(&self) -> Option<Self> {
+        self.split_first().1
     }
 
-    pub fn strip_suffix(&mut self, base: &Dname)
-                        -> Result<(), StripSuffixError> {
-        if self.ends_with(base) {
-            self.bytes.split_off(base.len());
-            self.is_absolute = false;
-            Ok(())
-        }
-        else {
-            Err(StripSuffixError)
-        }
+    /*
+    pub fn strip_suffix(&self, base: &Self)
+                        -> Result<RelativeDname, StripSuffixError> {
     }
+    */
 }
 
+//--- Parseable and Composable
 
-//--- Composable
+impl Parseable for Dname {
+    type Err = ParseDnameError;
+
+    fn parse(parser: &mut Parser) -> Result<Self, ParseDnameError> {
+        let len = {
+            let mut tmp = parser.peek();
+            loop {
+                if tmp.is_empty() {
+                    return Err(ParseDnameError::ShortParser)
+                }
+                let (label, tail) = Label::split_from(tmp)?;
+                tmp = tail;
+                if label.is_root() {
+                    break;
+                }
+            }
+            parser.remaining() - tmp.len()
+        };
+        if len > 255 {
+            return Err(ParseDnameError::BadDname(RelativeDnameError::TooLong));
+        }
+        Ok(unsafe {
+            Self::from_bytes_unchecked(parser.parse_bytes(len).unwrap())
+        })
+    }
+}
 
 impl Composable for Dname {
     fn compose_len(&self) -> usize {
@@ -222,6 +152,7 @@ impl Composable for Dname {
     }
 }
 
+
 //--- ToLabelIter and ToDname
 
 impl<'a> ToLabelIter<'a> for Dname {
@@ -232,11 +163,7 @@ impl<'a> ToLabelIter<'a> for Dname {
     }
 }
 
-impl ToDname for Dname {
-    fn is_absolute(&self) -> bool {
-        self.is_absolute
-    }
-}
+impl ToDname for Dname { }
 
 
 //--- Deref and AsRef
@@ -262,23 +189,6 @@ impl AsRef<[u8]> for Dname {
 }
 
 
-//--- From and FromStr
-
-impl From<Fqdn> for Dname {
-    fn from(fqdn: Fqdn) -> Self {
-        Self::from_fqdn(fqdn)
-    }
-}
-
-impl FromStr for Dname {
-    type Err = FromStrError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        from_str(s)
-    }
-}
-
-
 //--- IntoIterator
 
 impl<'a> IntoIterator for &'a Dname {
@@ -295,9 +205,6 @@ impl<'a> IntoIterator for &'a Dname {
 
 impl PartialEq for Dname {
     fn eq(&self, other: &Self) -> bool {
-        // Comparing the whole slice while ignoring ASCII case is fine since
-        // the length octets of the labels are in range 0...63 which aren’t
-        // ASCII letters and compare uniquely.
         self.as_slice().eq_ignore_ascii_case(other.as_slice())
     }
 }
@@ -355,74 +262,27 @@ impl fmt::Debug for Dname {
 }
 
 
-//------------ DnameIter -----------------------------------------------------
-
-#[derive(Clone, Debug)]
-pub struct DnameIter<'a> {
-    slice: &'a [u8],
-}
-
-impl<'a> DnameIter<'a> {
-    pub(super) fn new(slice: &'a [u8]) -> Self {
-        DnameIter { slice }
-    }
-}
-
-impl<'a> Iterator for DnameIter<'a> {
-    type Item = &'a Label;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (label, tail) = match Label::split_from(self.slice) {
-            Ok(res) => res,
-            Err(_) => return None,
-        };
-        self.slice = tail;
-        Some(label)
-    }
-}
-
-impl<'a> DoubleEndedIterator for DnameIter<'a> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.slice.is_empty() {
-            return None
-        }
-        let mut tmp = self.slice;
-        loop {
-            let (label, tail) = Label::split_from(tmp).unwrap();
-            if tail.is_empty() {
-                let end = self.slice.len() - (label.len() + 1);
-                self.slice = &self.slice[end..];
-                return Some(label)
-            }
-            else {
-                tmp = tail
-            }
-        }
-    }
-}
-
-
 //------------ DnameError ----------------------------------------------------
 
 /// An error happened while creating a domain name from octets.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DnameError {
-    /// A bad label was encountered.
-    BadLabel(SplitLabelError),
+    /// A bad domain name was encountered.
+    BadDname(RelativeDnameError),
 
-    /// The domain name was longer than 255 octets.
-    TooLong,
+    /// The name didn’t end with the root label.
+    RelativeDname,
+}
 
-    /// There were trailing octets.
-    ///
-    /// This happens when the root label is encountered in the middle of
-    /// the octets.
-    TrailingData,
+impl From<RelativeDnameError> for DnameError {
+    fn from(err: RelativeDnameError) -> Self {
+        DnameError::BadDname(err)
+    }
 }
 
 impl From<SplitLabelError> for DnameError {
     fn from(err: SplitLabelError) -> Self {
-        DnameError::BadLabel(err)
+        DnameError::BadDname(err.into())
     }
 }
 
@@ -431,9 +291,8 @@ impl error::Error for DnameError {
         use self::DnameError::*;
 
         match *self {
-            BadLabel(ref err) => ::std::error::Error::description(err),
-            TooLong => "name with more than 255 octets",
-            TrailingData => "trailing data",
+            BadDname(ref err) => err.description(),
+            RelativeDname => "relative domain name",
         }
     }
 
@@ -441,7 +300,7 @@ impl error::Error for DnameError {
         use self::DnameError::*;
 
         match *self {
-            BadLabel(ref err) => Some(err),
+            BadDname(ref err) => Some(err),
             _ => None
         }
     }
@@ -449,38 +308,56 @@ impl error::Error for DnameError {
 
 impl fmt::Display for DnameError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use std::error::Error;
-        use self::DnameError::*;
+        f.write_str(error::Error::description(self))
+    }
+}
 
+
+//------------ ParseDnameError -----------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ParseDnameError {
+    BadDname(RelativeDnameError),
+    ShortParser,
+}
+
+impl From<RelativeDnameError> for ParseDnameError {
+    fn from(err: RelativeDnameError) -> ParseDnameError {
+        ParseDnameError::BadDname(err)
+    }
+}
+
+impl From<SplitLabelError> for ParseDnameError {
+    fn from(err: SplitLabelError) -> ParseDnameError {
+        ParseDnameError::BadDname(err.into())
+    }
+}
+
+impl From<ShortParser> for ParseDnameError {
+    fn from(_: ShortParser) -> ParseDnameError {
+        ParseDnameError::ShortParser
+    }
+}
+
+impl error::Error for ParseDnameError {
+    fn description(&self) -> &str {
         match *self {
-            BadLabel(ref err) => err.fmt(f),
-            _ => f.write_str(self.description())
+            ParseDnameError::BadDname(ref err) => err.description(),
+            ParseDnameError::ShortParser => ShortParser.description(),
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            ParseDnameError::BadDname(ref err) => Some(err),
+            ParseDnameError::ShortParser => Some(&ShortParser),
         }
     }
 }
 
-
-//------------ StripSuffixError ----------------------------------------------
-
-/// An attempt was made to strip a suffix that wasn’t actually a suffix.
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub struct StripSuffixError;
-
-impl error::Error for StripSuffixError {
-    fn description(&self) -> &str {
-        "suffix not found"
-    }
-}
-
-impl fmt::Debug for StripSuffixError {
+impl fmt::Display for ParseDnameError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "StripSuffixError".fmt(f)
-    }
-}
-
-impl fmt::Display for StripSuffixError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "suffix not found".fmt(f)
+        f.write_str(error::Error::description(self))
     }
 }
 

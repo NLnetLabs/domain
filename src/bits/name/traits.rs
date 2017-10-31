@@ -13,14 +13,13 @@ pub trait ToLabelIter<'a> {
 }
 
 
-//------------ ToDname -------------------------------------------------------
+//------------ ToRelativeDname -----------------------------------------------
 
-pub trait ToDname: Composable + for<'a> ToLabelIter<'a> {
-    fn is_absolute(&self) -> bool;
+pub trait ToRelativeDname: Composable + for<'a> ToLabelIter<'a> {
 }
 
 
-//------------ ToFqdn --------------------------------------------------------
+//------------ ToDname -------------------------------------------------------
 
-pub trait ToFqdn: ToDname { }
+pub trait ToDname: Composable + for<'a> ToLabelIter<'a> { }
 

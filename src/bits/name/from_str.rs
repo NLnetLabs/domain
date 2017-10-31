@@ -9,24 +9,24 @@
 
 use std::{error, fmt};
 use super::builder::{DnameBuilder, PushError};
-use super::dname::Dname;
+use super::relname::RelativeDname;
 
 
 //------------ Building Functions --------------------------------------------
 
 
-pub fn from_str(s: &str) -> Result<Dname, FromStrError> {
+pub fn from_str(s: &str) -> Result<RelativeDname, FromStrError> {
     _from_chars(s.chars(), DnameBuilder::with_capacity(s.len()))
 }
 
-pub fn from_chars<C>(chars: C) -> Result<Dname, FromStrError>
+pub fn from_chars<C>(chars: C) -> Result<RelativeDname, FromStrError>
                   where C: IntoIterator<Item=char> {
     _from_chars(chars.into_iter(), DnameBuilder::new())
 }
 
 
 fn _from_chars<C>(mut chars: C, mut target: DnameBuilder)
-                  -> Result<Dname, FromStrError>
+                  -> Result<RelativeDname, FromStrError>
                where C: Iterator<Item=char> {
     while let Some(ch) = chars.next() {
         match ch {
@@ -50,7 +50,8 @@ fn _from_chars<C>(mut chars: C, mut target: DnameBuilder)
         Ok(target.finish())
     }
     else {
-        Ok(target.into_fqdn()?.into_dname())
+        //Ok(target.into_fqdn()?.into_dname())
+        unimplemented!()
     }
 }
 

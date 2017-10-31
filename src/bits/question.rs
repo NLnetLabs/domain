@@ -1,7 +1,7 @@
 use bytes::BufMut;
 use ::iana::{Class, Rtype};
 use super::compose::Composable;
-use super::name::{ParsedFqdn, ParsedFqdnError, ToFqdn};
+use super::name::{ParsedDname, ParsedDnameError, ToDname};
 use super::parse::{Parseable, Parser};
 
 
@@ -26,15 +26,15 @@ impl<N> Question<N> {
     }
 }
 
-impl Question<ParsedFqdn> {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParsedFqdnError> {
-        Ok(Question::new(ParsedFqdn::parse(parser)?,
+impl Question<ParsedDname> {
+    pub fn parse(parser: &mut Parser) -> Result<Self, ParsedDnameError> {
+        Ok(Question::new(ParsedDname::parse(parser)?,
                          Rtype::parse(parser)?,
                          Class::parse(parser)?))
     }
 }
 
-impl<N: ToFqdn> Question<N> {
+impl<N: ToDname> Question<N> {
     pub fn compose_len(&self) -> usize {
         self.qname.compose_len() + self.qtype.compose_len()
             + self.qclass.compose_len()

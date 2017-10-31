@@ -2,7 +2,7 @@ use std::iter;
 use bytes::BufMut;
 use ::bits::compose::Composable;
 use super::label::Label;
-use super::traits::{ToLabelIter, ToDname, ToFqdn};
+use super::traits::{ToLabelIter, ToRelativeDname, ToDname};
 
 
 //------------ Chain ---------------------------------------------------------
@@ -21,51 +21,37 @@ impl<L, R> Chain<L, R> {
         (self.left, self.right)
     }
 
-    pub fn chain<N: ToDname>(self, other: N) -> Chain<Self, N> {
+    pub fn chain<N: ToRelativeDname>(self, other: N) -> Chain<Self, N> {
         Chain::new(self, other)
     }
 }
 
-impl<'a, L: ToDname, R: ToDname> ToLabelIter<'a> for Chain<L, R> {
+impl<'a, L: ToRelativeDname, R: for<'r> ToLabelIter<'r>> ToLabelIter<'a>
+            for Chain<L, R> {
     type LabelIter = ChainIter<'a, L, R>;
 
     fn iter_labels(&'a self) -> Self::LabelIter {
-        if self.left.is_absolute() {
-            ChainIter::Left(self.left.iter_labels())
-        }
-        else {
-            ChainIter::Chain(
-                self.left.iter_labels().chain(self.right.iter_labels())
-            )
-        }
+        ChainIter::Chain(
+            self.left.iter_labels().chain(self.right.iter_labels())
+        )
     }
 }
 
-impl<L: ToDname, R: ToDname> ToDname for Chain<L, R> {
-    fn is_absolute(&self) -> bool {
-        true
-    }
+impl<L: ToRelativeDname, R: ToRelativeDname> ToRelativeDname for Chain<L, R> {
 }
 
-impl<L: ToDname, R: ToDname> Composable for Chain<L, R> {
+impl<L: ToRelativeDname, R: Composable> Composable for Chain<L, R> {
     fn compose_len(&self) -> usize {
-        if self.left.is_absolute() {
-            self.left.compose_len()
-        }
-        else {
-            self.left.compose_len() + self.right.compose_len()
-        }
+        self.left.compose_len() + self.right.compose_len()
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
         self.left.compose(buf);
-        if !self.left.is_absolute() {
-            self.right.compose(buf)
-        }
+        self.right.compose(buf)
     }
 }
 
-impl<L: ToDname, R: ToFqdn> ToFqdn for Chain<L, R> {
+impl<L: ToRelativeDname, R: ToDname> ToDname for Chain<L, R> {
 }
 
 

@@ -3,7 +3,7 @@
 use std::{error, fmt};
 use bytes::{BufMut, BytesMut};
 use super::dname::Dname;
-use super::fqdn::Fqdn;
+use super::relname::RelativeDname;
 
 
 //------------ DnameBuilder --------------------------------------------------
@@ -152,23 +152,23 @@ impl DnameBuilder {
     /// If there currently is a label being built, ends the label first
     /// before returning the name. I.e., you don’t have to call `end_label`
     /// first.
-    pub fn finish(mut self) -> Dname {
+    pub fn finish(mut self) -> RelativeDname {
         self.end_label();
-        unsafe { Dname::new_unchecked(self.bytes.freeze(), false) }
+        unsafe { RelativeDname::from_bytes_unchecked(self.bytes.freeze()) }
     }
 
-    /// Appends the root label to the name and returns it as a `Fqdn`.
+    /// Appends the root label to the name and returns it as a `Dname`.
     ///
     /// If there currently is a label under construction, ends the label.
     /// Then adds the empty root label and transforms the name into an
-    /// `Fqdn`. As adding the root label may push the name over the size
+    /// `Dname`. As adding the root label may push the name over the size
     /// limit, this may return an error.
     ///
     /// Note: Technically, this can only ever exceed the name size limit,
     /// never the label size limit, so returning a `PushError` isn’t quite
     /// correct. However, I didn’t want to define a separate error type just
     /// for this case.
-    pub fn into_fqdn(mut self) -> Result<Fqdn, PushError> {
+    pub fn into_dname(mut self) -> Result<Dname, PushError> {
         self.end_label();
         if self.bytes.len() >= 255 {
             Err(PushError::LongName)
@@ -176,7 +176,7 @@ impl DnameBuilder {
         else {
             self.ensure_capacity(1);
             self.bytes.put_u8(0);
-            Ok(unsafe { Fqdn::from_bytes_unchecked(self.bytes.freeze()) })
+            Ok(unsafe { Dname::from_bytes_unchecked(self.bytes.freeze()) })
         }
     }
 }
