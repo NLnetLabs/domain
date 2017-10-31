@@ -7,7 +7,7 @@ use super::label::Label;
 //------------ ToLabelIter ---------------------------------------------------
 
 pub trait ToLabelIter<'a> {
-    type LabelIter: Iterator<Item=&'a Label>;
+    type LabelIter: Iterator<Item=&'a Label> + DoubleEndedIterator;
 
     fn iter_labels(&'a self) -> Self::LabelIter;
 }

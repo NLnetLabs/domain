@@ -31,9 +31,7 @@ impl<'a, L: ToRelativeDname, R: for<'r> ToLabelIter<'r>> ToLabelIter<'a>
     type LabelIter = ChainIter<'a, L, R>;
 
     fn iter_labels(&'a self) -> Self::LabelIter {
-        ChainIter::Chain(
-            self.left.iter_labels().chain(self.right.iter_labels())
-        )
+        ChainIter(self.left.iter_labels().chain(self.right.iter_labels()))
     }
 }
 
@@ -57,19 +55,22 @@ impl<L: ToRelativeDname, R: ToDname> ToDname for Chain<L, R> {
 
 //------------ ChainIter -----------------------------------------------------
 
-pub enum ChainIter<'a, L, R> where L: ToLabelIter<'a>, R: ToLabelIter<'a> {
-    Left(L::LabelIter),
-    Chain(iter::Chain<L::LabelIter, R::LabelIter>)
-}
+#[derive(Clone, Debug)]
+pub struct ChainIter<'a, L: ToLabelIter<'a>, R: ToLabelIter<'a>>(
+    iter::Chain<L::LabelIter, R::LabelIter>);
 
-impl<'a, L: ToLabelIter<'a>, R: ToLabelIter<'a>> Iterator for ChainIter<'a, L, R> {
+impl<'a, L, R> Iterator for ChainIter<'a, L, R>
+        where L: ToLabelIter<'a>, R: ToLabelIter<'a> {
     type Item = &'a Label;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match *self {
-            ChainIter::Left(ref mut iter) => iter.next(),
-            ChainIter::Chain(ref mut iter) => iter.next(),
-        }
+        self.0.next()
     }
 }
 
+impl<'a, L, R> DoubleEndedIterator for ChainIter<'a, L, R>
+        where L: ToLabelIter<'a>, R: ToLabelIter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back()
+    }
+}
