@@ -2,7 +2,8 @@
 use std::{cmp, error, fmt, hash, ops};
 use std::ascii::AsciiExt;
 use std::str::FromStr;
-use ::bytes::{BufMut, Bytes};
+use bytes::{BufMut, Bytes};
+use ::bits::compose::Composable;
 use super::chain::Chain;
 use super::fqdn::{Fqdn, RelativeDname};
 use super::from_str::{from_str, from_chars, FromStrError};
@@ -209,6 +210,18 @@ impl Dname {
 }
 
 
+//--- Composable
+
+impl Composable for Dname {
+    fn compose_len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self.as_ref())
+    }
+}
+
 //--- ToLabelIter and ToDname
 
 impl<'a> ToLabelIter<'a> for Dname {
@@ -222,14 +235,6 @@ impl<'a> ToLabelIter<'a> for Dname {
 impl ToDname for Dname {
     fn is_absolute(&self) -> bool {
         self.is_absolute
-    }
-
-    fn len(&self) -> usize {
-        self.bytes.len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(self.as_ref())
     }
 }
 

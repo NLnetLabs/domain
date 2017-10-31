@@ -2,7 +2,8 @@
 use std::{cmp, error, fmt, hash, ops};
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes};
-use ::bits::parse::{Parser, ShortParser};
+use ::bits::compose::Composable;
+use ::bits::parse::{Parseable, Parser, ShortParser};
 use super::label::{Label, SplitLabelError};
 use super::dname::{Dname, DnameError, DnameIter};
 use super::traits::{ToLabelIter, ToDname, ToFqdn};
@@ -121,10 +122,12 @@ impl Fqdn {
     */
 }
 
-/// # Parsing and Composing
-///
-impl Fqdn {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParseFqdnError> {
+//--- Parseable and Composable
+
+impl Parseable for Fqdn {
+    type Err = ParseFqdnError;
+
+    fn parse(parser: &mut Parser) -> Result<Self, ParseFqdnError> {
         let len = {
             let mut tmp = parser.peek();
             loop {
@@ -146,6 +149,16 @@ impl Fqdn {
     }
 }
 
+impl Composable for Fqdn {
+    fn compose_len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self.as_ref())
+    }
+}
+
 
 //--- ToLabelIter, ToDname, and ToFqdn
 
@@ -158,16 +171,8 @@ impl<'a> ToLabelIter<'a> for Fqdn {
 }
 
 impl ToDname for Fqdn {
-    fn len(&self) -> usize {
-        self.bytes.len()
-    }
-
     fn is_absolute(&self) -> bool {
         true
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(self.as_ref())
     }
 }
 

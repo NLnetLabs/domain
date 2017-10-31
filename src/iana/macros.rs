@@ -64,21 +64,6 @@ macro_rules! int_enum {
                     }
                 }
             }
-
-            pub fn parse(parser: &mut $crate::bits::parse::Parser)
-                         -> Result<Self, $crate::bits::parse::ShortParser> {
-                <$inttype as $crate::bits::parse::Parseable>::parse(parser)
-                    .map(Self::from_int)
-            }
-
-            pub fn compose_len(&self) -> usize {
-                <$inttype as $crate::bits::compose::Composable>
-                    ::compose_len(&self.to_int())
-            }
-
-            pub fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
-                $crate::bits::compose::Composable::compose(&self.to_int(), buf)
-            }
         }
 
 
@@ -99,6 +84,30 @@ macro_rules! int_enum {
         impl<'a> From<&'a $ianatype> for $inttype {
             fn from(value: &'a $ianatype) -> Self {
                 value.to_int()
+            }
+        }
+
+
+        //--- Parseable and Composable
+
+        impl $crate::bits::parse::Parseable for $ianatype {
+            type Err = $crate::bits::parse::ShortParser;
+
+            fn parse(parser: &mut $crate::bits::parse::Parser)
+                     -> Result<Self, Self::Err> {
+                <$inttype as $crate::bits::parse::Parseable>::parse(parser)
+                    .map(Self::from_int)
+            }
+        }
+
+        impl $crate::bits::compose::Composable for $ianatype {
+            fn compose_len(&self) -> usize {
+                <$inttype as $crate::bits::compose::Composable>
+                    ::compose_len(&self.to_int())
+            }
+
+            fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
+                $crate::bits::compose::Composable::compose(&self.to_int(), buf)
             }
         }
 

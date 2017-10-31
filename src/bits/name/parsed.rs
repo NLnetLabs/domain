@@ -1,5 +1,6 @@
 use bytes::BufMut;
-use ::bits::parse::{Parser, ShortParser};
+use ::bits::compose::Composable;
+use ::bits::parse::{Parseable, Parser, ShortParser};
 use super::label::{Label, LabelTypeError};
 use super::traits::{ToLabelIter, ToDname, ToFqdn};
 
@@ -12,10 +13,22 @@ pub struct ParsedFqdn {
     compressed: bool,
 }
 
-/// # Creation and Conversion
-///
 impl ParsedFqdn {
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParsedFqdnError> {
+    pub fn is_compressed(&self) -> bool {
+        self.compressed
+    }
+
+    pub fn iter(&self) -> ParsedFqdnIter {
+        ParsedFqdnIter::new(&self.parser, self.len)
+    }
+}
+
+//--- Parseable and Composable
+
+impl Parseable for ParsedFqdn {
+    type Err = ParsedFqdnError;
+
+    fn parse(parser: &mut Parser) -> Result<Self, ParsedFqdnError> {
         let start = parser.pos();
         let mut len = 0;
 
@@ -97,16 +110,19 @@ impl ParsedFqdn {
         res.seek(start).unwrap();
         Ok(ParsedFqdn { parser: res, len, compressed: true })
     }
-
-    pub fn is_compressed(&self) -> bool {
-        self.compressed
-    }
-
-    pub fn iter(&self) -> ParsedFqdnIter {
-        ParsedFqdnIter::new(&self.parser, self.len)
-    }
 }
 
+impl Composable for ParsedFqdn {
+    fn compose_len(&self) -> usize {
+        self.len
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        for label in self.iter() {
+            label.compose(buf)
+        }
+    }
+}
 
 //--- ToLabelIter, ToDname, and ToFqdn
 
@@ -121,16 +137,6 @@ impl<'a> ToLabelIter<'a> for ParsedFqdn {
 impl ToDname for ParsedFqdn {
     fn is_absolute(&self) -> bool {
         true
-    }
-
-    fn len(&self) -> usize {
-        self.len
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        for label in self.iter() {
-            label.compose(buf)
-        }
     }
 }
 

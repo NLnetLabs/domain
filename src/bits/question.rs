@@ -1,7 +1,8 @@
 use bytes::BufMut;
 use ::iana::{Class, Rtype};
+use super::compose::Composable;
 use super::name::{ParsedFqdn, ParsedFqdnError, ToFqdn};
-use super::parse::{Parser};
+use super::parse::{Parseable, Parser};
 
 
 //------------ Question ------------------------------------------------------
@@ -35,7 +36,7 @@ impl Question<ParsedFqdn> {
 
 impl<N: ToFqdn> Question<N> {
     pub fn compose_len(&self) -> usize {
-        self.qname.len() + self.qtype.compose_len()
+        self.qname.compose_len() + self.qtype.compose_len()
             + self.qclass.compose_len()
     }
 

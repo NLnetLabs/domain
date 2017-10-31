@@ -1,5 +1,6 @@
 use std::iter;
 use bytes::BufMut;
+use ::bits::compose::Composable;
 use super::label::Label;
 use super::traits::{ToLabelIter, ToDname, ToFqdn};
 
@@ -41,17 +42,19 @@ impl<'a, L: ToDname, R: ToDname> ToLabelIter<'a> for Chain<L, R> {
 }
 
 impl<L: ToDname, R: ToDname> ToDname for Chain<L, R> {
-    fn len(&self) -> usize {
-        if self.left.is_absolute() {
-            self.left.len()
-        }
-        else {
-            self.left.len() + self.right.len()
-        }
-    }
-
     fn is_absolute(&self) -> bool {
         true
+    }
+}
+
+impl<L: ToDname, R: ToDname> Composable for Chain<L, R> {
+    fn compose_len(&self) -> usize {
+        if self.left.is_absolute() {
+            self.left.compose_len()
+        }
+        else {
+            self.left.compose_len() + self.right.compose_len()
+        }
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {

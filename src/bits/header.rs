@@ -1,6 +1,7 @@
 use bytes::{BigEndian, BufMut};
 use ::iana::{Opcode, Rcode};
-use super::parse::{Parser, ShortParser};
+use super::compose::Composable;
+use super::parse::{Parseable, Parser, ShortParser};
 
 
 //------------ Header --------------------------------------------------------
@@ -25,30 +26,6 @@ impl Header {
     /// `Rcode::NoError`.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
-        Ok(Header {
-            id: parser.parse_u16()?,
-            flags: [parser.parse_u8()?, parser.parse_u8()?],
-            qdcount: parser.parse_u16()?,
-            ancount: parser.parse_u16()?,
-            nscount: parser.parse_u16()?,
-            arcount: parser.parse_u16()?,
-        })
-    }
-
-    pub fn compose_len(&self) -> usize {
-        12
-    }
-
-    pub fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_u16::<BigEndian>(self.id);
-        buf.put_slice(&self.flags);
-        buf.put_u16::<BigEndian>(self.qdcount);
-        buf.put_u16::<BigEndian>(self.ancount);
-        buf.put_u16::<BigEndian>(self.nscount);
-        buf.put_u16::<BigEndian>(self.arcount);
     }
 }
 
@@ -397,3 +374,35 @@ impl Header {
     }
 }
 
+
+//--- Parseable and Composable
+
+impl Parseable for Header {
+    type Err = ShortParser;
+
+    fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
+        Ok(Header {
+            id: parser.parse_u16()?,
+            flags: [parser.parse_u8()?, parser.parse_u8()?],
+            qdcount: parser.parse_u16()?,
+            ancount: parser.parse_u16()?,
+            nscount: parser.parse_u16()?,
+            arcount: parser.parse_u16()?,
+        })
+    }
+}
+
+impl Composable for Header {
+    fn compose_len(&self) -> usize {
+        12
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_u16::<BigEndian>(self.id);
+        buf.put_slice(&self.flags);
+        buf.put_u16::<BigEndian>(self.qdcount);
+        buf.put_u16::<BigEndian>(self.ancount);
+        buf.put_u16::<BigEndian>(self.nscount);
+        buf.put_u16::<BigEndian>(self.arcount);
+    }
+}

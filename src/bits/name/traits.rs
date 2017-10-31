@@ -1,6 +1,6 @@
 //! Domain name-related traits.
 
-use bytes::BufMut;
+use ::bits::compose::Composable;
 use super::label::Label;
 
 
@@ -15,21 +15,8 @@ pub trait ToLabelIter<'a> {
 
 //------------ ToDname -------------------------------------------------------
 
-pub trait ToDname: for<'a> ToLabelIter<'a> {
+pub trait ToDname: Composable + for<'a> ToLabelIter<'a> {
     fn is_absolute(&self) -> bool;
-    fn len(&self) -> usize {
-        let mut res = 0;
-        for label in self.iter_labels() {
-            res += label.len() + 1;
-        }
-        res
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        for label in self.iter_labels() {
-            label.compose(buf);
-        }
-    }
 }
 
 
