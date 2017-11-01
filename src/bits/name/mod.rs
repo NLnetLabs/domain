@@ -1,6 +1,6 @@
 
 pub use self::builder::{DnameBuilder, PushError};
-pub use self::chain::{Chain, ChainIter};
+pub use self::chain::{Chain, ChainIter, LongNameError};
 pub use self::dname::{Dname, DnameError, ParseDnameError};
 pub use self::from_str::FromStrError;
 pub use self::label::{Label, LabelError, LabelTypeError};

@@ -4,7 +4,7 @@ use std::ascii::AsciiExt;
 use std::str::FromStr;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
-use super::chain::Chain;
+use super::chain::{Chain, LongNameError};
 use super::from_str::{from_str, from_chars, FromStrError};
 use super::label::{Label, SplitLabelError};
 use super::traits::{ToLabelIter, ToRelativeDname};
@@ -70,7 +70,8 @@ impl RelativeDname {
         self.bytes
     }
 
-    pub fn chain<N>(self, other: N) -> Chain<Self, N> {
+    pub fn chain<N: Composable>(self, other: N)
+                                -> Result<Chain<Self, N>, LongNameError> {
         Chain::new(self, other)
     }
 }
