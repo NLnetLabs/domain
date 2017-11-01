@@ -244,7 +244,11 @@ impl<'a> ToLabelIter<'a> for Dname {
     }
 }
 
-impl ToDname for Dname { }
+impl ToDname for Dname {
+    fn to_name(&self) -> Dname {
+        self.clone()
+    }
+}
 
 
 //--- Deref and AsRef

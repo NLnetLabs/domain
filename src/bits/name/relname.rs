@@ -266,6 +266,9 @@ impl<'a> ToLabelIter<'a> for RelativeDname {
 }
 
 impl ToRelativeDname for RelativeDname {
+    fn to_name(&self) -> RelativeDname {
+        self.clone()
+    }
 }
 
 

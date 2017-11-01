@@ -1,7 +1,10 @@
 //! Domain name-related traits.
 
 use ::bits::compose::Composable;
+use bytes::BytesMut;
+use super::dname::Dname;
 use super::label::Label;
+use super::relname::RelativeDname;
 
 
 //------------ ToLabelIter ---------------------------------------------------
@@ -46,10 +49,25 @@ pub trait ToLabelIter<'a> {
 //------------ ToRelativeDname -----------------------------------------------
 
 pub trait ToRelativeDname: Composable + for<'a> ToLabelIter<'a> {
+    fn to_name(&self) -> RelativeDname {
+        let mut bytes = BytesMut::with_capacity(self.compose_len());
+        self.compose(&mut bytes);
+        unsafe {
+            RelativeDname::from_bytes_unchecked(bytes.freeze())
+        }
+    }
 }
 
 
 //------------ ToDname -------------------------------------------------------
 
-pub trait ToDname: Composable + for<'a> ToLabelIter<'a> { }
+pub trait ToDname: Composable + for<'a> ToLabelIter<'a> {
+    fn to_name(&self) -> Dname {
+        let mut bytes = BytesMut::with_capacity(self.compose_len());
+        self.compose(&mut bytes);
+        unsafe {
+            Dname::from_bytes_unchecked(bytes.freeze())
+        }
+    }
+}
 
