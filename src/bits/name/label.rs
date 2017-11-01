@@ -17,11 +17,16 @@ impl Label {
         mem::transmute(slice)
     }
 
-    /// Returns a reference to the root label.
+    /// Returns a static reference to the root label.
     ///
     /// The root label is an empty label.
     pub fn root() -> &'static Self {
         unsafe { Self::from_slice_unchecked(b"") }
+    }
+
+    /// Returns a static reference to the wildcard label "*".
+    pub fn wildcard() -> &'static Self {
+        unsafe { Self::from_slice_unchecked(b"*") }
     }
 
     /// Converts a bytes slice into a label.

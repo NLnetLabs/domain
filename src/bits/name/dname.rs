@@ -5,8 +5,9 @@ use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
 use ::bits::parse::{Parseable, Parser, ShortParser};
 use super::label::{Label, SplitLabelError};
-use super::relname::{RelativeDname, RelativeDnameError, DnameIter};
-use super::traits::{ToLabelIter, ToDname};
+use super::relname::{IndexError, RelativeDname, RelativeDnameError,
+                     DnameIter};
+use super::traits::{ToLabelIter, ToDname, ToRelativeDname};
 
 
 //------------ Dname ---------------------------------------------------------
@@ -43,6 +44,12 @@ impl Dname {
     pub fn into_bytes(self) -> Bytes {
         self.bytes
     }
+    
+    pub fn into_relative(mut self) -> RelativeDname {
+        let len = self.bytes.len() - 1;
+        self.bytes.truncate(len);
+        unsafe { RelativeDname::from_bytes_unchecked(self.bytes) }
+    }
 }
 
 
@@ -65,53 +72,127 @@ impl Dname {
         self.iter().next_back()
     }
 
-    pub fn starts_with(&self, base: &RelativeDname) -> bool {
-        if base.len() > self.len() {
-            return false
+    /// Determines whether `base` is a prefix of `self`.
+    pub fn starts_with<N: ToRelativeDname>(&self, base: &N) -> bool {
+        <Self as ToLabelIter>::starts_with(self, base)
+    }
+
+    /// Determines whether `base` is a suffix of `self`.
+    pub fn ends_with<N: ToDname>(&self, base: &N) -> bool {
+        <Self as ToLabelIter>::ends_with(self, base)
+    }
+
+    /// Returns a part of the name indicated by start and end positions.
+    ///
+    /// The returned name will start at position `begin` and end right before
+    /// position `end`. Both positions must point to the begining of a label
+    /// or an error will be returned.
+    ///
+    /// Because the returned domain is a relative name, the method will also
+    /// return an error if the end equal to the length of the name. If you
+    /// want to slice the entire end of the name including the final root
+    /// label, you can use [`slice_from()`] instead.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if either position points beyond the end of the
+    /// name.
+    ///
+    /// [`slice_from()`]: #method.slice_from
+    pub fn slice(&self, begin: usize, end: usize)
+                 -> Result<RelativeDname, IndexError> {
+        IndexError::check(&self.bytes, begin)?;
+        IndexError::check(&self.bytes, end)?;
+        if end == self.len() {
+            return Err(IndexError)
         }
-        let start = &self.bytes.as_ref()[..base.len()];
-        base.as_slice().eq_ignore_ascii_case(start)
+        Ok(unsafe {
+            RelativeDname::from_bytes_unchecked(self.bytes.slice(begin, end))
+        })
     }
 
-    pub fn ends_with(&self, base: &RelativeDname) -> bool {
-        if base.len() > self.len() {
-            return false
+    /// Returns the part of the name starting at the given position.
+    ///
+    /// This will fail if the position isn’t the start of a label.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if either position points beyond the end of the
+    /// name.
+    pub fn slice_from(&self, begin: usize) -> Result<Self, IndexError> {
+        IndexError::check(&self.bytes, begin)?;
+        Ok(unsafe {
+            Self::from_bytes_unchecked(self.bytes.slice_from(begin))
+        })
+    }
+
+    /// Returns the part of the name ending at the given position.
+    ///
+    /// This will fail if the position isn’t the start of a label.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if either position points beyond the end of the
+    /// name.
+    pub fn slice_to(&self, end: usize) -> Result<RelativeDname, IndexError> {
+        IndexError::check(&self.bytes, end)?;
+        if end == self.len() {
+            return Err(IndexError)
         }
-        let (_, right) = match self.split_at(self.len() - base.len()) {
-            Ok(res) => res,
-            Err(_) => return false,
-        };
-        right.bytes.as_ref().eq_ignore_ascii_case(base.as_slice())
+        Ok(unsafe {
+            RelativeDname::from_bytes_unchecked(self.bytes.slice_to(end))
+        })
     }
 
-    pub fn split_at(&self, mid: usize)
-                    -> Result<(RelativeDname, Self), RelativeDnameError> {
-        assert!(mid <= self.len());
-        let left = RelativeDname::from_bytes(self.bytes.slice_to(mid))?;
-        let right = unsafe {
-            Self::from_bytes_unchecked(self.bytes.slice_from(mid))
-        };
-        Ok((left, right))
+    // XXX No `split_off()` since that would require `self` to mysteriously
+    //     change into a `RelativeDname`. Would could make this move `self`,
+    //     but then you would loose it upon an error which is not nice,
+    //     either.
+
+    /// Splits the name into two at the given position.
+    ///
+    /// Afterwards, `self` will contain the name starting at the position
+    /// while the name ending right before it will be returned. The method
+    /// will fail if `mid` is not the start of a new label.
+    ///
+    /// # Panics
+    ///
+    /// The method will panic if `mid` is greater than the name’s length.
+    pub fn split_to(&mut self, mid: usize)
+                    -> Result<RelativeDname, IndexError> {
+        IndexError::check(&self.bytes, mid)?;
+        Ok(unsafe {
+            RelativeDname::from_bytes_unchecked(self.bytes.split_to(mid))
+        })
     }
 
-    pub fn split_first(&self) -> (RelativeDname, Option<Self>) {
-        /*
-        let (left, right) = self.clone().into_dname().split_first().unwrap();
-        (left, right.into_fqdn().ok())
-        */
-        unimplemented!()
+    // XXX No `truncate()` either.
+
+    /// Splits off the first label.
+    ///
+    /// If this name is longer than just the root label, returns the first
+    /// label as a relative name and removes it from the name itself. If the
+    /// name is only the root label, returns an error and does nothing.
+    pub fn split_first(&mut self) -> Result<RelativeDname, RootNameError> {
+        if self.len() == 1 {
+            return Err(RootNameError)
+        }
+        let end = self.iter().next().unwrap().len() + 1;
+        Ok(unsafe {
+            RelativeDname::from_bytes_unchecked(self.bytes.split_to(end))
+        })
     }
 
-    pub fn parent(&self) -> Option<Self> {
-        self.split_first().1
+    /// Reduces the name to the parent of the current name.
+    ///
+    /// This will fail if the name consists of the root label only.
+    pub fn parent(&mut self) -> Result<(), RootNameError> {
+        self.split_first().map(|_| ())
     }
 
-    /*
-    pub fn strip_suffix(&self, base: &Self)
-                        -> Result<RelativeDname, StripSuffixError> {
-    }
-    */
+    // XXX And no `strip_suffix()`.
 }
+
 
 //--- Parseable and Composable
 
@@ -307,6 +388,25 @@ impl error::Error for DnameError {
 }
 
 impl fmt::Display for DnameError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(error::Error::description(self))
+    }
+}
+
+
+//------------ RootNameError -------------------------------------------------
+
+/// An attempt was made to remove labels from a name that is only the root.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RootNameError;
+
+impl error::Error for RootNameError {
+    fn description(&self) -> &str {
+        "operation not allowed on root name"
+    }
+}
+
+impl fmt::Display for RootNameError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(error::Error::description(self))
     }

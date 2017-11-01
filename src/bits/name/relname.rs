@@ -30,6 +30,12 @@ impl RelativeDname {
         }
     }
 
+    pub fn wildcard() -> Self {
+        unsafe {
+            RelativeDname::from_bytes_unchecked(Bytes::from_static(b"\x01*"))
+        }
+    }
+
     pub fn from_bytes(bytes: Bytes) -> Result<Self, RelativeDnameError> {
         if bytes.len() > 255 {
             return Err(RelativeDnameError::TooLong)
@@ -64,7 +70,7 @@ impl RelativeDname {
         self.bytes
     }
 
-    pub fn chain<N: ToRelativeDname>(self, other: N) -> Chain<Self, N> {
+    pub fn chain<N>(self, other: N) -> Chain<Self, N> {
         Chain::new(self, other)
     }
 }
@@ -99,53 +105,129 @@ impl RelativeDname {
         }
     }
 
-    pub fn starts_with(&self, base: &Self) -> bool {
-        if base.len() > self.len() {
-            return false
+    /// Determines whether `base` is a prefix of `self`.
+    pub fn starts_with<N: ToRelativeDname>(&self, base: &N) -> bool {
+        <Self as ToLabelIter>::starts_with(self, base)
+    }
+
+    /// Determines whether `base` is a suffix of `self`.
+    pub fn ends_with<N: ToRelativeDname>(&self, base: &N) -> bool {
+        <Self as ToLabelIter>::ends_with(self, base)
+    }
+
+    /// Returns a part of the name indicated by start and end positions.
+    ///
+    /// The returned name will start at position `begin` and end right before
+    /// position `end`. This will failed of either of these positions is not
+    /// the start of a label.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if either position points beyond the end of the
+    /// name.
+    pub fn slice(&self, begin: usize, end: usize)
+                 -> Result<Self, IndexError> {
+        IndexError::check(&self.bytes, begin)?;
+        IndexError::check(&self.bytes, end)?;
+        Ok(unsafe {
+            Self::from_bytes_unchecked(self.bytes.slice(begin, end))
+        })
+    }
+
+    /// Returns the part of the name starting at the given position.
+    ///
+    /// This will fail if the position isn’t the start of a label.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if the position is beyond the end of the name.
+    pub fn slice_from(&self, begin: usize) -> Result<Self, IndexError> {
+        IndexError::check(&self.bytes, begin)?;
+        Ok(unsafe {
+            Self::from_bytes_unchecked(self.bytes.slice_from(begin))
+        })
+    }
+
+    /// Returns the part of the name ending before the given position.
+    ///
+    /// This will fail if the position isn’t the start of a label.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if the position is beyond the end of the name.
+    pub fn slice_to(&self, end: usize) -> Result<Self, IndexError> {
+        IndexError::check(&self.bytes, end)?;
+        Ok(unsafe {
+            Self::from_bytes_unchecked(self.bytes.slice_to(end))
+        })
+    }
+
+    /// Splits the name into two at the given position.
+    ///
+    /// Afterwards, `self` will contain the name ending at the position
+    /// while the name starting at the position will be returned. The method
+    /// will fail if `mid` is not the start of a new label.
+    ///
+    /// # Panics
+    ///
+    /// The method will panic if `mid` is greater than the name’s length.
+    pub fn split_off(&mut self, mid: usize) -> Result<Self, IndexError> {
+        IndexError::check(&self.bytes, mid)?;
+        Ok(unsafe {
+            Self::from_bytes_unchecked(self.bytes.split_off(mid))
+        })
+    }
+
+    /// Splits the name into two at the given position.
+    ///
+    /// Afterwards, `self` will contain the name starting at the position
+    /// while the name ending right before it will be returned. The method
+    /// will fail if `mid` is not the start of a new label.
+    ///
+    /// # Panics
+    ///
+    /// The method will panic if `mid` is greater than the name’s length.
+    pub fn split_to(&mut self, mid: usize) -> Result<Self, IndexError> {
+        IndexError::check(&self.bytes, mid)?;
+        Ok(unsafe {
+            Self::from_bytes_unchecked(self.bytes.split_to(mid))
+        })
+    }
+
+    /// Truncates the name to the given length.
+    ///
+    /// This will only work if the result would be a valid name. If `len` is
+    /// greater than the current length, nothing will happen.
+    pub fn truncate(&mut self, len: usize) -> Result<(), IndexError> {
+        IndexError::check(&self.bytes, len)?;
+        self.bytes.truncate(len);
+        Ok(())
+    }
+
+    /// Splits off the first label.
+    ///
+    /// If there is at least one label in the name, returns the first label
+    /// as a relative domain name with exactly one label and make `self`
+    /// contain the domain name starting after that first label.
+    pub fn split_first(&mut self) -> Option<Self> {
+        if self.is_empty() {
+            return None
         }
-        let start = &self.bytes.as_ref()[..base.len()];
-        base.bytes.as_ref().eq_ignore_ascii_case(start)
-    }
-
-    pub fn ends_with(&self, base: &Self) -> bool {
-        if base.len() > self.len() {
-            return false
-        }
-        let (_, right) = match self.split_at(self.len() - base.len()) {
-            Ok(res) => res,
-            Err(_) => return false,
-        };
-        right.bytes.as_ref().eq_ignore_ascii_case(base.bytes.as_ref())
-    }
-
-    pub fn split_at(&self, mid: usize)
-                    -> Result<(Self, Self), RelativeDnameError> {
-        assert!(mid <= self.len());
-        let left = Self::from_bytes(self.bytes.slice_to(mid))?;
-        let right = unsafe {
-            Self::from_bytes_unchecked(self.bytes.slice_from(mid))
-        };
-        Ok((left, right))
-    }
-
-    pub fn split_first(&self) -> Option<(Self, Self)> {
         let first_end = match self.iter().next() {
             Some(label) => label.len() + 1,
             None => return None
         };
-        if first_end == self.len() {
-            Some((self.clone(), Self::empty()))
-        }
-        else {
-            Some(unsafe {(
-                Self::from_bytes_unchecked(self.bytes.slice_to(first_end)),
-                Self::from_bytes_unchecked(self.bytes.slice_from(first_end))
-            )})
-        }
+        Some(unsafe {
+            Self::from_bytes_unchecked(self.bytes.split_to(first_end))
+        })
     }
 
-    pub fn parent(&self) -> Option<Self> {
-        self.split_first().map(|res| res.1)
+    /// Reduces the name to its parent.
+    ///
+    /// Returns whether that actually happened, since if the name is already
+    /// empty it can’t.
+    pub fn parent(&mut self) -> bool {
+        self.split_first().is_some()
     }
 
     pub fn strip_suffix(&mut self, base: &Self)
@@ -406,21 +488,54 @@ impl fmt::Display for RelativeDnameError {
 }
 
 
+//------------ IndexError ----------------------------------------------------
+
+/// An index into a name did not indicate the start of a label.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct IndexError;
+
+impl IndexError {
+    pub(super) fn check(bytes: &Bytes, mut index: usize) -> Result<(), Self> {
+        let mut tmp = bytes.as_ref();
+        while !tmp.is_empty() {
+            let (label, tail) = Label::split_from(tmp).unwrap();
+            let len = label.len() + 1;
+            if index < len {
+                return Err(IndexError)
+            }
+            else if index == len {
+                return Ok(())
+            }
+            index -= len;
+            tmp = tail;
+        }
+        assert!(index == 0, "index exceeded length");
+        Ok(())
+    }
+}
+
+impl error::Error for IndexError {
+    fn description(&self) -> &str {
+        "illegal index"
+    }
+}
+
+impl fmt::Display for IndexError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(error::Error::description(self))
+    }
+}
+
+
 //------------ StripSuffixError ----------------------------------------------
 
 /// An attempt was made to strip a suffix that wasn’t actually a suffix.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StripSuffixError;
 
 impl error::Error for StripSuffixError {
     fn description(&self) -> &str {
         "suffix not found"
-    }
-}
-
-impl fmt::Debug for StripSuffixError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "StripSuffixError".fmt(f)
     }
 }
 
