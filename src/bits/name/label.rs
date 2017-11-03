@@ -1,9 +1,10 @@
 //! Domain name labels.
 
-use std::{cmp, error, fmt, hash, mem, ops};
+use std::{cmp, fmt, hash, mem, ops};
 use std::ascii::AsciiExt;
 use bytes::BufMut;
 use ::bits::compose::Composable;
+use super::error::{LabelTypeError, LongLabelError, SplitLabelError};
 
 
 //------------ Label ---------------------------------------------------------
@@ -56,9 +57,9 @@ impl Label {
     /// Converts a byte slice into a label.
     ///
     /// This will fail if the slice is longer than 63 bytes.
-    pub fn from_slice(slice: &[u8]) -> Result<&Self, LabelError> {
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, LongLabelError> {
         if slice.len() > 63 {
-            Err(LabelError)
+            Err(LongLabelError)
         }
         else {
             Ok(unsafe { Self::from_slice_unchecked(slice) })
@@ -230,89 +231,6 @@ impl fmt::Debug for Label {
         f.write_str("Label(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
-    }
-}
-
-
-//------------ LabelError ----------------------------------------------------
-
-/// An error happend while creating a label.
-///
-/// This can only mean that the underlying byte slice was too long.
-#[derive(Clone, Copy, Debug)]
-pub struct LabelError;
-
-
-//------------ LabelTypeError ------------------------------------------------
-
-/// A bad label type was encountered.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LabelTypeError {
-    /// The label was of the undefined type `0b10`.
-    Undefined,
-
-    /// The label was of extended label type given.
-    /// 
-    /// The type value will be in the range `0x40` to `0x7F`, that is, it
-    /// includes the original label type bits `0b01`.
-    Extended(u8),
-}
-
-impl error::Error for LabelTypeError {
-    fn description(&self) -> &str {
-        use self::LabelTypeError::*;
-
-        match *self {
-            Undefined => "undefined label type",
-            Extended(0x41) => "binary label",
-            Extended(_) => "unknown extended label type",
-        }
-    }
-}
-
-impl fmt::Display for LabelTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::LabelTypeError::*;
-
-        match *self {
-            Undefined => f.write_str("undefined label type"),
-            Extended(0x41) => f.write_str("binary label"),
-            Extended(t) => write!(f, "extended label type 0x{:x}", t),
-        }
-    }
-}
-
-
-//------------ SplitLabelError -----------------------------------------------
-
-/// An error happened while splitting a label from a bytes slice.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SplitLabelError {
-    /// The label was a pointer to the given position.
-    Pointer(u16),
-
-    /// The label type was invalid.
-    BadType(LabelTypeError),
-
-    /// The bytes slice was too short.
-    ShortSlice,
-}
-
-impl error::Error for SplitLabelError {
-    fn description(&self) -> &str {
-        use self::SplitLabelError::*;
-        
-        match *self {
-            Pointer(_) => "compressed domain name",
-            BadType(ref err) => err.description(),
-            ShortSlice => "short domain name",
-        }
-    }
-}
-
-impl fmt::Display for SplitLabelError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(::std::error::Error::description(self))
     }
 }
 

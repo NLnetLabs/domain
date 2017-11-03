@@ -1,14 +1,16 @@
 /// Uncompressed, relative domain names.
 
-use std::{cmp, error, fmt, hash, ops};
+use std::{cmp, fmt, hash, ops};
 use std::ascii::AsciiExt;
 use std::str::FromStr;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
 use super::builder::DnameBuilder;
-use super::chain::{Chain, LongNameError};
-use super::from_str::{from_str, from_chars, FromStrError};
-use super::label::{Label, SplitLabelError};
+use super::chain::Chain;
+use super::error::{FromStrError, IndexError, LongNameError,
+                   RelativeDnameError, StripSuffixError};
+use super::from_str::{from_str, from_chars};
+use super::label::Label;
 use super::traits::{ToLabelIter, ToRelativeDname};
 
 
@@ -67,7 +69,7 @@ impl RelativeDname {
     /// name and fails if it doesn’t.
     pub fn from_bytes(bytes: Bytes) -> Result<Self, RelativeDnameError> {
         if bytes.len() > 255 {
-            return Err(RelativeDnameError::TooLong)
+            return Err(RelativeDnameError::LongName)
         }
         {
             let mut tmp = bytes.as_ref();
@@ -509,126 +511,6 @@ impl<'a> DoubleEndedIterator for DnameIter<'a> {
                 tmp = tail
             }
         }
-    }
-}
-
-
-//------------ RelativeDnameError --------------------------------------------
-
-/// An error happened while creating a domain name from octets.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RelativeDnameError {
-    /// A bad label was encountered.
-    BadLabel(SplitLabelError),
-
-    /// The domain name was longer than 255 octets.
-    TooLong,
-
-    /// There were trailing octets.
-    ///
-    /// This happens when the root label is encountered in the middle of
-    /// the octets.
-    TrailingData,
-
-    /// The root label was encountered.
-    AbsoluteName,
-}
-
-impl From<SplitLabelError> for RelativeDnameError {
-    fn from(err: SplitLabelError) -> Self {
-        RelativeDnameError::BadLabel(err)
-    }
-}
-
-impl error::Error for RelativeDnameError {
-    fn description(&self) -> &str {
-        use self::RelativeDnameError::*;
-
-        match *self {
-            BadLabel(ref err) => ::std::error::Error::description(err),
-            TooLong => "name with more than 255 octets",
-            TrailingData => "trailing data",
-            AbsoluteName => "the name includes the root label",
-        }
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        use self::RelativeDnameError::*;
-
-        match *self {
-            BadLabel(ref err) => Some(err),
-            _ => None
-        }
-    }
-}
-
-impl fmt::Display for RelativeDnameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use std::error::Error;
-        use self::RelativeDnameError::*;
-
-        match *self {
-            BadLabel(ref err) => err.fmt(f),
-            _ => f.write_str(self.description())
-        }
-    }
-}
-
-
-//------------ IndexError ----------------------------------------------------
-
-/// An index into a name did not indicate the start of a label.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct IndexError;
-
-impl IndexError {
-    pub(super) fn check(bytes: &Bytes, mut index: usize) -> Result<(), Self> {
-        let mut tmp = bytes.as_ref();
-        while !tmp.is_empty() {
-            let (label, tail) = Label::split_from(tmp).unwrap();
-            let len = label.len() + 1;
-            if index < len {
-                return Err(IndexError)
-            }
-            else if index == len {
-                return Ok(())
-            }
-            index -= len;
-            tmp = tail;
-        }
-        assert!(index == 0, "index exceeded length");
-        Ok(())
-    }
-}
-
-impl error::Error for IndexError {
-    fn description(&self) -> &str {
-        "illegal index"
-    }
-}
-
-impl fmt::Display for IndexError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(error::Error::description(self))
-    }
-}
-
-
-//------------ StripSuffixError ----------------------------------------------
-
-/// An attempt was made to strip a suffix that wasn’t actually a suffix.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct StripSuffixError;
-
-impl error::Error for StripSuffixError {
-    fn description(&self) -> &str {
-        "suffix not found"
-    }
-}
-
-impl fmt::Display for StripSuffixError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "suffix not found".fmt(f)
     }
 }
 

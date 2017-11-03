@@ -54,21 +54,24 @@
 //! [`ParsedDname`]: struct.ParsedDname.html
 //! [`RelativeDname`]: struct.RelativeDname.html
 //! [`ToDname`]: trait.ToDname.html
-//! [`ToRelativeDname`]: trsit.ToRelativeDname.html
+//! [`ToRelativeDname`]: trait.ToRelativeDname.html
 
-pub use self::builder::{DnameBuilder, PushError};
-pub use self::chain::{Chain, ChainIter, LongNameError};
-pub use self::dname::{Dname, DnameError, ParseDnameError};
-pub use self::from_str::FromStrError;
-pub use self::label::{Label, LabelError, LabelTypeError};
-pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedDnameError};
-pub use self::relname::{RelativeDname, DnameIter, RelativeDnameError,
-                        StripSuffixError};
+pub use self::builder::DnameBuilder;
+pub use self::chain::{Chain, ChainIter};
+pub use self::dname::{Dname};
+pub use self::error::{DnameError, FromStrError, IndexError, LabelTypeError,
+                      LongLabelError, LongNameError, ParsedDnameError,
+                      PushError, RelativeDnameError,
+                      RootNameError, SplitLabelError, StripSuffixError};
+pub use self::label::Label;
+pub use self::parsed::{ParsedDname, ParsedDnameIter};
+pub use self::relname::{RelativeDname, DnameIter};
 pub use self::traits::{ToLabelIter, ToRelativeDname, ToDname};
 
 mod builder;
 mod chain;
 mod dname;
+mod error;
 mod from_str;
 mod label;
 mod parsed;

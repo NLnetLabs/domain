@@ -1,8 +1,9 @@
 //! A chain of domain names.
 //!
-use std::{error, fmt, iter};
+use std::iter;
 use bytes::BufMut;
 use ::bits::compose::Composable;
+use super::error::LongNameError;
 use super::label::Label;
 use super::traits::{ToLabelIter, ToRelativeDname, ToDname};
 
@@ -112,25 +113,6 @@ impl<'a, L, R> DoubleEndedIterator for ChainIter<'a, L, R>
         where L: ToLabelIter<'a>, R: ToLabelIter<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.0.next_back()
-    }
-}
-
-
-//------------ LongNameError -------------------------------------------------
-
-/// An attempt was made to strip a suffix that wasn’t actually a suffix.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LongNameError;
-
-impl error::Error for LongNameError {
-    fn description(&self) -> &str {
-        "suffix not found"
-    }
-}
-
-impl fmt::Display for LongNameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "suffix not found".fmt(f)
     }
 }
 

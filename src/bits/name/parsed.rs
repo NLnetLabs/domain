@@ -2,8 +2,9 @@
 
 use bytes::BufMut;
 use ::bits::compose::Composable;
-use ::bits::parse::{Parseable, Parser, ShortParser};
-use super::label::{Label, LabelTypeError};
+use ::bits::parse::{Parseable, Parser};
+use super::error::{LabelTypeError, ParsedDnameError};
+use super::label::Label;
 use super::traits::{ToLabelIter, ToDname};
 
 
@@ -277,34 +278,6 @@ impl LabelType {
             0x40 ... 0x4F => Err(LabelTypeError::Extended(ltype).into()),
             _ => Err(LabelTypeError::Undefined.into())
         }
-    }
-}
-
-
-//------------ ParsedDnameError ----------------------------------------------
-
-/// An error happened when parsing a possibly compressed domain name.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ParsedDnameError {
-    /// The parser ended before the name.
-    ShortParser,
-
-    /// A bad label was encountered.
-    BadLabel(LabelTypeError),
-
-    /// The name is longer than the 255 bytes limit.
-    LongName,
-}
-
-impl From<ShortParser> for ParsedDnameError {
-    fn from(_: ShortParser) -> ParsedDnameError {
-        ParsedDnameError::ShortParser
-    }
-}
-
-impl From<LabelTypeError> for ParsedDnameError {
-    fn from(err: LabelTypeError) -> ParsedDnameError {
-        ParsedDnameError::BadLabel(err)
     }
 }
 

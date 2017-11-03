@@ -1,13 +1,13 @@
 /// Uncompressed, absolute domain names.
 
-use std::{cmp, error, fmt, hash, ops};
+use std::{cmp, fmt, hash, ops};
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
-use ::bits::parse::{Parseable, Parser, ShortParser};
-use super::label::{Label, SplitLabelError};
-use super::relname::{IndexError, RelativeDname, RelativeDnameError,
-                     DnameIter};
+use ::bits::parse::{Parseable, Parser};
+use super::error::{DnameError, IndexError, RootNameError};
+use super::label::Label;
+use super::relname::{RelativeDname, DnameIter};
 use super::traits::{ToLabelIter, ToDname, ToRelativeDname};
 
 
@@ -235,14 +235,14 @@ impl Dname {
 //--- Parseable and Composable
 
 impl Parseable for Dname {
-    type Err = ParseDnameError;
+    type Err = DnameError;
 
-    fn parse(parser: &mut Parser) -> Result<Self, ParseDnameError> {
+    fn parse(parser: &mut Parser) -> Result<Self, DnameError> {
         let len = {
             let mut tmp = parser.peek();
             loop {
                 if tmp.is_empty() {
-                    return Err(ParseDnameError::ShortParser)
+                    return Err(DnameError::ShortData)
                 }
                 let (label, tail) = Label::split_from(tmp)?;
                 tmp = tail;
@@ -253,7 +253,7 @@ impl Parseable for Dname {
             parser.remaining() - tmp.len()
         };
         if len > 255 {
-            return Err(ParseDnameError::BadDname(RelativeDnameError::TooLong));
+            return Err(DnameError::LongName);
         }
         Ok(unsafe {
             Self::from_bytes_unchecked(parser.parse_bytes(len).unwrap())
@@ -381,125 +381,6 @@ impl fmt::Display for Dname {
 impl fmt::Debug for Dname {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Dname({})", self)
-    }
-}
-
-
-//------------ DnameError ----------------------------------------------------
-
-/// An error happened while creating a domain name from octets.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DnameError {
-    /// A bad domain name was encountered.
-    BadDname(RelativeDnameError),
-
-    /// The name didn’t end with the root label.
-    RelativeDname,
-}
-
-impl From<RelativeDnameError> for DnameError {
-    fn from(err: RelativeDnameError) -> Self {
-        DnameError::BadDname(err)
-    }
-}
-
-impl From<SplitLabelError> for DnameError {
-    fn from(err: SplitLabelError) -> Self {
-        DnameError::BadDname(err.into())
-    }
-}
-
-impl error::Error for DnameError {
-    fn description(&self) -> &str {
-        use self::DnameError::*;
-
-        match *self {
-            BadDname(ref err) => err.description(),
-            RelativeDname => "relative domain name",
-        }
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        use self::DnameError::*;
-
-        match *self {
-            BadDname(ref err) => Some(err),
-            _ => None
-        }
-    }
-}
-
-impl fmt::Display for DnameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(error::Error::description(self))
-    }
-}
-
-
-//------------ RootNameError -------------------------------------------------
-
-/// An attempt was made to remove labels from a name that is only the root.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RootNameError;
-
-impl error::Error for RootNameError {
-    fn description(&self) -> &str {
-        "operation not allowed on root name"
-    }
-}
-
-impl fmt::Display for RootNameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(error::Error::description(self))
-    }
-}
-
-
-//------------ ParseDnameError -----------------------------------------------
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ParseDnameError {
-    BadDname(RelativeDnameError),
-    ShortParser,
-}
-
-impl From<RelativeDnameError> for ParseDnameError {
-    fn from(err: RelativeDnameError) -> ParseDnameError {
-        ParseDnameError::BadDname(err)
-    }
-}
-
-impl From<SplitLabelError> for ParseDnameError {
-    fn from(err: SplitLabelError) -> ParseDnameError {
-        ParseDnameError::BadDname(err.into())
-    }
-}
-
-impl From<ShortParser> for ParseDnameError {
-    fn from(_: ShortParser) -> ParseDnameError {
-        ParseDnameError::ShortParser
-    }
-}
-
-impl error::Error for ParseDnameError {
-    fn description(&self) -> &str {
-        match *self {
-            ParseDnameError::BadDname(ref err) => err.description(),
-            ParseDnameError::ShortParser => ShortParser.description(),
-        }
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        match *self {
-            ParseDnameError::BadDname(ref err) => Some(err),
-            ParseDnameError::ShortParser => Some(&ShortParser),
-        }
-    }
-}
-
-impl fmt::Display for ParseDnameError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(error::Error::description(self))
     }
 }
 

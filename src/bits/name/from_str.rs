@@ -7,8 +7,8 @@
 //! This should probably be merge with or into ::master’s domain name
 //! parsing.
 
-use std::{error, fmt};
-use super::builder::{DnameBuilder, PushError};
+use super::builder::DnameBuilder;
+use super::error::FromStrError;
 use super::relname::RelativeDname;
 
 
@@ -83,80 +83,6 @@ fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
         }
     }
     else { Ok(ch as u8) }
-}
-
-
-//------------ FromStrError --------------------------------------------
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FromStrError {
-    /// The string ended when there should have been more characters.
-    ///
-    /// This most likely happens inside escape sequences and quoting.
-    UnexpectedEnd,
-
-    /// An empty label was encountered.
-    EmptyLabel,
-
-    /// A binary label was encountered.
-    BinaryLabel,
-
-    /// A domain name label has more than 63 octets.
-    LongLabel,
-
-    /// An illegal escape sequence was encountered.
-    ///
-    /// Escape sequences are a backslash character followed by either a
-    /// three decimal digit sequence encoding a byte value or a single
-    /// other printable ASCII character.
-    IllegalEscape,
-
-    /// An illegal character was encountered.
-    ///
-    /// Only printable ASCII characters are allowed.
-    IllegalCharacter,
-
-    /// An illegal binary label sequence was encountered.
-    IllegalBinary,
-
-    /// A relative name was encountered.
-    RelativeName,
-
-    /// The name has more than 255 characters.
-    LongName,
-}
-
-impl From<PushError> for FromStrError {
-    fn from(err: PushError) -> FromStrError {
-        match err {
-            PushError::LongLabel => FromStrError::LongLabel,
-            PushError::LongName => FromStrError::LongName,
-        }
-    }
-}
-
-impl error::Error for FromStrError {
-    fn description(&self) -> &str {
-        use self::FromStrError::*;
-
-        match *self {
-            UnexpectedEnd => "unexpected end of input",
-            EmptyLabel => "an empty label was encountered",
-            BinaryLabel => "a binary label was encountered",
-            LongLabel => "domain name label with more than 63 octets",
-            IllegalEscape => "illegal escape sequence",
-            IllegalCharacter => "illegal character",
-            IllegalBinary => "illegal binary label",
-            RelativeName => "relative name",
-            LongName => "domain name with more than 255 octets",
-        }
-    }
-}
-
-impl fmt::Display for FromStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        error::Error::description(self).fmt(f)
-    }
 }
 
 

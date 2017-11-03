@@ -1,8 +1,8 @@
 //! Building a domain name.
 
-use std::{error, fmt};
 use bytes::{BufMut, BytesMut};
 use super::dname::Dname;
+use super::error::PushError;
 use super::relname::RelativeDname;
 
 
@@ -207,34 +207,6 @@ impl DnameBuilder {
             self.bytes.put_u8(0);
             Ok(unsafe { Dname::from_bytes_unchecked(self.bytes.freeze()) })
         }
-    }
-}
-
-
-//------------ PushError -----------------------------------------------------
-
-/// An error happened while trying to push data to a domain name builder.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PushError {
-    /// The current label would exceed the limit of 63 bytes.
-    LongLabel,
-
-    /// The name would exceed the limit of 255 bytes.
-    LongName,
-}
- 
-impl error::Error for PushError {
-    fn description(&self) -> &str {
-        match *self {
-            PushError::LongLabel => "label size exceeded",
-            PushError::LongName => "name size exceeded",
-        }
-    }
-}
-
-impl fmt::Display for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(error::Error::description(self))
     }
 }
 
