@@ -1,3 +1,5 @@
+//! Parsed domain names.
+
 use bytes::BufMut;
 use ::bits::compose::Composable;
 use ::bits::parse::{Parseable, Parser, ShortParser};
@@ -7,21 +9,62 @@ use super::traits::{ToLabelIter, ToDname};
 
 //------------ ParsedDname ---------------------------------------------------
 
+/// A domain name parsed from a DNS message.
+///
+/// In an attempt to keep messages small, DNS uses a procedure called name
+/// compression. It tries to minimize the space used for repeated domain names
+/// by simply refering to the first occurence of the name. This works not only
+/// for complete names but also for suffixes. In this case, the first unique
+/// labels of the name are included and then a pointer is included for the
+/// rest of the name.
+///
+/// A consequence of this is that when parsing a domain name, its labels can
+/// be scattered all over the message and we would need to allocate some
+/// space to re-assemble the original name. However, in many cases we don’t
+/// need the complete message. Many operations can be completed by just
+/// iterating over the labels which we can do in place.
+///
+/// `ParsedDname` deals with such names. It takes a copy of [`Parser`]
+/// representing the underlying DNS message and, if nedded, can traverse over
+/// the name starting at the current position of the parser. When being
+/// created, the type quickly walks over the name to check that it is, indeed,
+/// a valid name. While this does take a bit of time, it spares you having to
+/// deal with possible parse errors later.
+///
+/// `ParsedDname` implementes the [`ToDname`] trait, so you can use it
+/// everywhere where an absolute domain name is accepted. In particular,
+/// you can compare it to other names or chain it to the end of a relative
+/// name.
+///
+/// [`Parser`]: ../parse/struct.Parser.html
+/// [`ToDname`]: trait.ToDname.html
 pub struct ParsedDname {
+    /// A parser positioned at the beginning of the name.
     parser: Parser,
+
+    /// The length of the uncompressed name in bytes.
+    ///
+    /// We need this for implementing `Composable`.
     len: usize,
+
+    /// Whether the name is compressed.
+    ///
+    /// This allows various neat optimizations for the case where it isn’t.
     compressed: bool,
 }
 
 impl ParsedDname {
+    /// Returns whether the name is compressed.
     pub fn is_compressed(&self) -> bool {
         self.compressed
     }
 
+    /// Returns an iterator over the labels of the name.
     pub fn iter(&self) -> ParsedDnameIter {
         ParsedDnameIter::new(&self.parser, self.len)
     }
 }
+
 
 //--- Parseable and Composable
 
@@ -124,6 +167,7 @@ impl Composable for ParsedDname {
     }
 }
 
+
 //--- ToLabelIter and ToDname
 
 impl<'a> ToLabelIter<'a> for ParsedDname {
@@ -139,6 +183,7 @@ impl ToDname for ParsedDname { }
 
 //------------ ParsedDnameIter -----------------------------------------------
 
+/// An iterator over the labels in a parsed domain name.
 pub struct ParsedDnameIter<'a> {
     slice: &'a [u8],
     pos: usize,
@@ -146,10 +191,19 @@ pub struct ParsedDnameIter<'a> {
 }
 
 impl<'a> ParsedDnameIter<'a> {
+    /// Creates a new iterator from the parser and the name length.
+    ///
+    /// The parser must be positioned at the beginning of the name.
     fn new(parser: &'a Parser, len: usize) -> Self {
         ParsedDnameIter { slice: parser.as_slice(), pos: parser.pos(), len }
     }
 
+    /// Returns the next label.
+    ///
+    /// This just assumes that there is a label at the current beginning
+    /// of the parser. This may lead to funny results if there isn’t,
+    /// including panics if the label head is illegal or points beyond the
+    /// end of the message.
     fn get_label(&mut self) -> &'a Label {
         let end = loop {
             let ltype = self.slice[self.pos];
@@ -203,7 +257,10 @@ impl<'a> DoubleEndedIterator for ParsedDnameIter<'a> {
 /// The type of a label.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LabelType {
+    /// A normal label with its size in bytes.
     Normal(usize),
+
+    /// A compressed label with the position of where to continue.
     Compressed(usize),
 }
 
@@ -226,10 +283,16 @@ impl LabelType {
 
 //------------ ParsedDnameError ----------------------------------------------
 
+/// An error happened when parsing a possibly compressed domain name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParsedDnameError {
+    /// The parser ended before the name.
     ShortParser,
+
+    /// A bad label was encountered.
     BadLabel(LabelTypeError),
+
+    /// The name is longer than the 255 bytes limit.
     LongName,
 }
 

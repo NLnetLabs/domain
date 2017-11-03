@@ -8,7 +8,18 @@ use super::relname::RelativeDname;
 
 //------------ DnameBuilder --------------------------------------------------
 
-/// Builds a domain name step by step from bytes.
+/// Builds a domain name step by step by appending data.
+/// 
+/// The domain name builder is the most fundamental way to construct a new
+/// domain name. It wraps a [`BytesMut`] value and allows adding single bytes,
+/// byte slices, or entire labels.
+///
+/// Unlike a [`BytesMut`], the name builder will take care of growing the
+/// buffer if there isn’t enough space. It will, however, do so only once. If
+/// it runs out of space, it will grow the buffer to 255 bytes. Since that is
+/// the maximum length of a domain name, that will do.
+///
+/// [`BytesMut`]: ../../../bytes/struct.BytesMut.html
 pub struct DnameBuilder {
     /// The buffer to build the name in.
     bytes: BytesMut,
@@ -23,16 +34,18 @@ impl DnameBuilder {
     /// Creates a new domain name builder from an existing bytes buffer.
     ///
     /// Whatever is in the buffer already is considered to be a relative
-    /// domain name. Since that may not ne the case, this function is
+    /// domain name. Since that may not be the case, this function is
     /// unsafe.
-    unsafe fn from_bytes(bytes: BytesMut) -> Self {
+    pub(super) unsafe fn from_bytes(bytes: BytesMut) -> Self {
         DnameBuilder { bytes, head: None }
     }
 
     /// Creates a domain name builder with default capacity.
     ///
     /// The capacity will be just large enough that the underlying `BytesMut`
-    /// value does not need to allocate.
+    /// value does not need to allocate. On a 64 bit system, that will be 31
+    /// bytes, with 15 bytes on a 32 bit system. Either should be enough to
+    /// hold most common domain names.
     pub fn new() -> Self {
         unsafe {
             DnameBuilder::from_bytes(BytesMut::new())
@@ -49,6 +62,11 @@ impl DnameBuilder {
         }
     }
 
+    /// Returns the current length of the domain name.
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
     /// Returns whether the builder is empty.
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
@@ -62,7 +80,7 @@ impl DnameBuilder {
         self.head.is_some()
     }
 
-    /// Pushes an byte to the end of the domain name.
+    /// Pushes a byte to the end of the domain name.
     ///
     /// Starts a new label if necessary. Returns an error if pushing the byte
     /// would exceed the size limits for labels or domain names.
@@ -115,6 +133,12 @@ impl DnameBuilder {
         Ok(())
     }
 
+    /// Ensures that there is enough capacity for an `additional` bytes.
+    ///
+    /// The argument `additional` is only used to check whether adding that
+    /// many bytes will exceed the current capacity. If it does, the buffer
+    /// will be grown to a total of 255 bytes. It will *not* by grown to
+    /// `additional` bytes.
     fn ensure_capacity(&mut self, additional: usize) {
         if self.bytes.remaining_mut() < additional {
             let additional = 255 - self.bytes.len();
@@ -135,6 +159,9 @@ impl DnameBuilder {
     }
 
     /// Appends a byte slice as a complete label.
+    ///
+    /// If there currently is a lable under construction, it will be ended
+    /// before appending `label`.
     pub fn append_label<T: AsRef<[u8]>>(&mut self, label: T)
                                         -> Result<(), PushError> {
         let head = self.head;
@@ -150,8 +177,10 @@ impl DnameBuilder {
     /// Finishes building the name and returns the resulting domain name.
     /// 
     /// If there currently is a label being built, ends the label first
-    /// before returning the name. I.e., you don’t have to call `end_label`
+    /// before returning the name. I.e., you don’t have to call [`end_label`]
     /// first.
+    ///
+    /// [`end_label`]: #method.end_label
     pub fn finish(mut self) -> RelativeDname {
         self.end_label();
         unsafe { RelativeDname::from_bytes_unchecked(self.bytes.freeze()) }

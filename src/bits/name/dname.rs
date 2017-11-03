@@ -1,3 +1,4 @@
+/// Uncompressed, absolute domain names.
 
 use std::{cmp, error, fmt, hash, ops};
 use std::ascii::AsciiExt;
@@ -12,39 +13,69 @@ use super::traits::{ToLabelIter, ToDname, ToRelativeDname};
 
 //------------ Dname ---------------------------------------------------------
 
+/// An uncompressed, absolute domain name.
+///
+/// The type wraps a [`Bytes`] value and guarantees that it always contains
+/// a correctly encoded, absolute domain name. It derefs to [`Bytes`] and
+/// therefore to `[u8]` allowing you direct access to the underlying byte
+/// slice. It does overide all applicable methods providing access to parts
+/// of the byte slice, though, returning either `Dname` or [`RelativeDname`]s
+/// instead.
+///
+/// You can construct a domain name from a string via the `FromStr` trait or
+/// manually via a [`DnameBuilder`]. In addition, you can also parse it from
+/// a message. This will, however, require the name to be uncompressed.
+///
+/// [`Bytes`]: ../../../bytes/struct.Bytes.html
+/// [`DnameBuilder`]: struct.DnameBuilder.html
 #[derive(Clone)]
 pub struct Dname {
     bytes: Bytes
 }
 
-
 /// # Creation and Conversion
 ///
 impl Dname {
-    pub fn root() -> Self {
-        Dname { bytes: Bytes::from_static(b"\0") }
-    }
-
+    /// Creates a domain name from the underlying bytes without any check.
+    ///
+    /// Since this will allow to actually construct an incorrectly encoded
+    /// domain name value, the function is unsafe.
     pub(super) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
         Dname { bytes }
     }
 
+    /// Creates a domain name representing the root.
+    ///
+    /// The resulting domain name will consist of the root label only.
+    pub fn root() -> Self {
+        unsafe { Self::from_bytes_unchecked(Bytes::from_static(b"\0")) }
+    }
+
+    /// Creates a domain name from a bytes value.
+    ///
+    /// This will only succeed if `bytes` contains a properly encoded
+    /// absolute domain name. Because the function checks, this will take
+    /// a wee bit of time.
     pub fn from_bytes(_bytes: Bytes) -> Result<Self, DnameError> {
         unimplemented!()
     }
 
+    /// Returns a reference to the underlying bytes value.
     pub fn as_bytes(&self) -> &Bytes {
         &self.bytes
     }
 
+    /// Returns a reference to the underlying byte slice.
     pub fn as_slice(&self) -> &[u8] {
         self.bytes.as_ref()
     }
 
+    /// Converts the domain name into its underlying bytes slice.
     pub fn into_bytes(self) -> Bytes {
         self.bytes
     }
-    
+ 
+    /// Converts the name into a relative name by dropping the root label.
     pub fn into_relative(mut self) -> RelativeDname {
         let len = self.bytes.len() - 1;
         self.bytes.truncate(len);
@@ -56,23 +87,30 @@ impl Dname {
 /// # Working with Labels
 ///
 impl Dname {
+    /// Returns an iterator over the labels of the domain name.
     pub fn iter(&self) -> DnameIter {
         DnameIter::new(self.bytes.as_ref())
     }
 
+    /// Returns the number of labels in the domain name.
     pub fn label_count(&self) -> usize {
         self.iter().count()
     }
 
-    pub fn first(&self) -> Option<&Label> {
-        self.iter().next()
+    /// Returns a reference to the first label.
+    pub fn first(&self) -> &Label {
+        self.iter().next().unwrap()
     }
 
-    pub fn last(&self) -> Option<&Label> {
-        self.iter().next_back()
+    /// Returns a reference to the last label.
+    pub fn last(&self) -> &Label {
+        self.iter().next_back().unwrap()
     }
 
     /// Determines whether `base` is a prefix of `self`.
+    /// 
+    /// As this methods accepts only relative domain names, it will only
+    /// allow checking for a ‘strict’ prefix.
     pub fn starts_with<N: ToRelativeDname>(&self, base: &N) -> bool {
         <Self as ToLabelIter>::starts_with(self, base)
     }
@@ -82,7 +120,7 @@ impl Dname {
         <Self as ToLabelIter>::ends_with(self, base)
     }
 
-    /// Returns a part of the name indicated by start and end positions.
+    /// Returns the part of the name indicated by start and end positions.
     ///
     /// The returned name will start at position `begin` and end right before
     /// position `end`. Both positions must point to the begining of a label

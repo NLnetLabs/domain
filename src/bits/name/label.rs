@@ -3,10 +3,34 @@
 use std::{cmp, error, fmt, hash, mem, ops};
 use std::ascii::AsciiExt;
 use bytes::BufMut;
+use ::bits::compose::Composable;
 
 
 //------------ Label ---------------------------------------------------------
 
+/// A slice with the content of a domain name label.
+///
+/// This is an unsized type wrapping the content of a valid label.
+///
+/// There are two types of such labels: normal labels and binary labels.
+/// Normal labels consist of up to 63 bytes of data. Binary labels are a
+/// sequence of up to 256 one-bit labels. They have been invented for reverse
+/// pointer records for IPv6 but have quickly been found to be rather
+/// unwieldly and were never widely implemented. Subsequently they have been
+/// declared historic and are forbidden to be supported. So we don’t.
+///
+/// In theory there can be even more types of labels, but based on the
+/// experience with binary labels, it is very unlikely that there ever will
+/// be any.
+///
+/// Consequently, `Label` will only ever contain a byte slice of up to 63
+/// bytes. The type derefs to `[u8]`, providing access to all of a byte
+/// slice’s methods. As an usized type, it needs to be used behind some kind
+/// of pointer, most likely a reference.
+///
+/// `Label` differs from a byte slice in how it compares: as labels are to be
+/// case-insensititve, all the comparision traits as well as `Hash` are
+/// implemented igoring ASCII-case.
 pub struct Label([u8]);
 
 /// # Creation
@@ -24,12 +48,12 @@ impl Label {
         unsafe { Self::from_slice_unchecked(b"") }
     }
 
-    /// Returns a static reference to the wildcard label "*".
+    /// Returns a static reference to the wildcard label `"*"`.
     pub fn wildcard() -> &'static Self {
         unsafe { Self::from_slice_unchecked(b"*") }
     }
 
-    /// Converts a bytes slice into a label.
+    /// Converts a byte slice into a label.
     ///
     /// This will fail if the slice is longer than 63 bytes.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, LabelError> {
@@ -41,7 +65,7 @@ impl Label {
         }
     }
 
-    /// Splits a label from the beginning of a bytes slice.
+    /// Splits a label from the beginning of a byte slice.
     ///
     /// On success, the functon returns a label and the remainder of
     /// the slice.
@@ -79,11 +103,21 @@ impl Label {
             &slice[end..]))
     }
 
+    /// Returns whether the label is the root label.
     pub fn is_root(&self) -> bool {
         self.is_empty()
     }
+}
 
-    pub fn compose<B: BufMut>(&self, buf: &mut B) {
+
+//--- Composable
+
+impl Composable for Label {
+    fn compose_len(&self) -> usize {
+        self.len() + 1
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
         buf.put_u8(self.len() as u8);
         buf.put_slice(self.as_ref());
     }
@@ -202,6 +236,9 @@ impl fmt::Debug for Label {
 
 //------------ LabelError ----------------------------------------------------
 
+/// An error happend while creating a label.
+///
+/// This can only mean that the underlying byte slice was too long.
 #[derive(Clone, Copy, Debug)]
 pub struct LabelError;
 
@@ -214,7 +251,7 @@ pub enum LabelTypeError {
     /// The label was of the undefined type `0b10`.
     Undefined,
 
-    /// The label was of the given extended label type.
+    /// The label was of extended label type given.
     /// 
     /// The type value will be in the range `0x40` to `0x7F`, that is, it
     /// includes the original label type bits `0b01`.
@@ -276,19 +313,6 @@ impl error::Error for SplitLabelError {
 impl fmt::Display for SplitLabelError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(::std::error::Error::description(self))
-    }
-}
-
-
-//============ Tests =========================================================
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn split_from() {
-        // XXX TODO
     }
 }
 
