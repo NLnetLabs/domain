@@ -56,8 +56,29 @@ impl Dname {
     /// This will only succeed if `bytes` contains a properly encoded
     /// absolute domain name. Because the function checks, this will take
     /// a wee bit of time.
-    pub fn from_bytes(_bytes: Bytes) -> Result<Self, DnameError> {
-        unimplemented!()
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, DnameError> {
+        if bytes.len() > 255 {
+            return Err(DnameError::LongName);
+        }
+        {
+            let mut tmp = bytes.as_ref();
+            loop {
+                let (label, tail) = Label::split_from(tmp)?;
+                if label.is_root() {
+                    if tail.is_empty() {
+                        break;
+                    }
+                    else {
+                        return Err(DnameError::TrailingData)
+                    }
+                }
+                if tail.is_empty() {
+                    return Err(DnameError::RelativeName)
+                }
+                tmp = tail;
+            }
+        }
+        Ok(unsafe { Dname::from_bytes_unchecked(bytes) })
     }
 
     /// Returns a reference to the underlying bytes value.
