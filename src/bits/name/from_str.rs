@@ -1,18 +1,13 @@
 //! Creating domain names from strings.
 //!
-//! This module is used by `DNameBuf`’s `FromStr` implementation.
-//!
 //! # Todo
 //!
-//! This should probably be merge with or into ::master’s domain name
+//! This should probably be merge with or into `::master`’s domain name
 //! parsing.
 
 use super::builder::DnameBuilder;
 use super::error::FromStrError;
-use super::relname::RelativeDname;
-
-
-//------------ Building Functions --------------------------------------------
+use super::relative::RelativeDname;
 
 
 pub fn from_str(s: &str) -> Result<RelativeDname, FromStrError> {
@@ -85,28 +80,3 @@ fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
     else { Ok(ch as u8) }
 }
 
-
-//============ Tests =========================================================
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn single_binary() {
-        assert_eq!(from_str("\\[b11010000011101]").unwrap(),
-                   b"\x41\x0e\xd0\x74");
-        assert_eq!(from_str("\\[o64072/14]").unwrap(),
-                   b"\x41\x0e\xd0\x74");
-        assert_eq!(from_str("\\[xd074/14]").unwrap(),
-                   b"\x41\x0e\xd0\x74");
-        assert_eq!(from_str("\\[208.116.0.0/14]").unwrap(),
-                   b"\x41\x0e\xd0\x74");
-    }
-
-    #[test]
-    fn two_binary() {
-        assert_eq!(from_str("\\[b11101].\\[o640]").unwrap(),
-                   b"\x41\x05\xe8\x41\x09\xd0\x00");
-    }
-}

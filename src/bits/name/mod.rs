@@ -65,7 +65,7 @@ pub use self::error::{DnameError, FromStrError, IndexError, LabelTypeError,
                       RootNameError, SplitLabelError, StripSuffixError};
 pub use self::label::Label;
 pub use self::parsed::{ParsedDname, ParsedDnameIter};
-pub use self::relname::{RelativeDname, DnameIter};
+pub use self::relative::{RelativeDname, DnameIter};
 pub use self::traits::{ToLabelIter, ToRelativeDname, ToDname};
 
 mod builder;
@@ -75,6 +75,6 @@ mod error;
 mod from_str;
 mod label;
 mod parsed;
-mod relname;
+mod relative;
 mod traits;
 

@@ -3,7 +3,7 @@
 use bytes::{BufMut, BytesMut};
 use super::dname::Dname;
 use super::error::PushError;
-use super::relname::RelativeDname;
+use super::relative::RelativeDname;
 
 
 //------------ DnameBuilder --------------------------------------------------

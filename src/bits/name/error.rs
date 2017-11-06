@@ -110,11 +110,8 @@ pub enum FromStrError {
     /// Only printable ASCII characters are allowed.
     IllegalCharacter,
 
-    /// An illegal binary label sequence was encountered.
-    IllegalBinary,
-
-    /// A relative name was encountered.
-    RelativeName,
+    /// An absolute name was encountered.
+    AbsoluteName,
 
     /// The name has more than 255 characters.
     LongName,
@@ -140,8 +137,7 @@ impl error::Error for FromStrError {
             LongLabel => "domain name label with more than 63 octets",
             IllegalEscape => "illegal escape sequence",
             IllegalCharacter => "illegal character",
-            IllegalBinary => "illegal binary label",
-            RelativeName => "relative name",
+            AbsoluteName => "absolute name",
             LongName => "domain name with more than 255 octets",
         }
     }

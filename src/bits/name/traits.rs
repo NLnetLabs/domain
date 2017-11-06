@@ -4,7 +4,7 @@ use ::bits::compose::Composable;
 use bytes::BytesMut;
 use super::dname::Dname;
 use super::label::Label;
-use super::relname::RelativeDname;
+use super::relative::RelativeDname;
 
 
 //------------ ToLabelIter ---------------------------------------------------

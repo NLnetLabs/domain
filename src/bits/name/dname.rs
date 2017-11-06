@@ -7,7 +7,7 @@ use ::bits::compose::Composable;
 use ::bits::parse::{Parseable, Parser};
 use super::error::{DnameError, IndexError, RootNameError};
 use super::label::Label;
-use super::relname::{RelativeDname, DnameIter};
+use super::relative::{RelativeDname, DnameIter};
 use super::traits::{ToLabelIter, ToDname, ToRelativeDname};
 
 

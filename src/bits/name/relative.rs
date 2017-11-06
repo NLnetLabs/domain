@@ -81,7 +81,7 @@ impl RelativeDname {
                 tmp = tail;
             }
         }
-        Ok( unsafe { RelativeDname::from_bytes_unchecked(bytes) })
+        Ok(unsafe { RelativeDname::from_bytes_unchecked(bytes) })
     }
 
     /// Creates a relative domain name from a sequence of characters.
