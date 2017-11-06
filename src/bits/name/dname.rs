@@ -1,14 +1,15 @@
 /// Uncompressed, absolute domain names.
 
-use std::{cmp, fmt, hash, ops};
+use std::{cmp, fmt, hash, ops, str};
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
 use ::bits::parse::{Parseable, Parser};
-use super::error::{DnameError, IndexError, RootNameError};
+use super::error::{DnameError, FromStrError, IndexError, RootNameError};
 use super::label::Label;
 use super::relative::{RelativeDname, DnameIter};
 use super::traits::{ToLabelIter, ToDname, ToRelativeDname};
+use super::uncertain::UncertainDname;
 
 
 //------------ Dname ---------------------------------------------------------
@@ -79,6 +80,26 @@ impl Dname {
             }
         }
         Ok(unsafe { Dname::from_bytes_unchecked(bytes) })
+    }
+
+    /// Creates a domain name from a sequence of characters.
+    ///
+    /// The sequence must result in a domain name in master format
+    /// representation. That is, its labels should be separated by dots,
+    /// actual dots, white space and backslashes should be escaped by a
+    /// preceeding backslash, and any byte value that is not a printable
+    /// ASCII character should be encoded by a backslash followed by its
+    /// three digit decimal value.
+    ///
+    /// The name will always be an absolute name. If the last character in the
+    /// sequence is not a dot, the function will quietly add a root label,
+    /// anyway. In most cases, this is likely what you want. If it isn’t,
+    /// though, use [`UncertainDname`] instead to be able to check.
+    ///
+    /// [`UncertainDname`]: enum.UncertainDname.html
+    pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
+                      where C: IntoIterator<Item=char> {
+        UncertainDname::from_chars(chars).map(|res| res.into_absolute())
     }
 
     /// Returns a reference to the underlying bytes value.
@@ -289,6 +310,17 @@ impl Composable for Dname {
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
         buf.put_slice(self.as_ref())
+    }
+}
+
+
+//--- FromStr
+
+impl str::FromStr for Dname {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        UncertainDname::from_str(s).map(|res| res.into_absolute())
     }
 }
 

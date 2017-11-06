@@ -67,14 +67,15 @@ pub use self::label::Label;
 pub use self::parsed::{ParsedDname, ParsedDnameIter};
 pub use self::relative::{RelativeDname, DnameIter};
 pub use self::traits::{ToLabelIter, ToRelativeDname, ToDname};
+pub use self::uncertain::UncertainDname;
 
 mod builder;
 mod chain;
 mod dname;
 mod error;
-mod from_str;
 mod label;
 mod parsed;
 mod relative;
 mod traits;
+mod uncertain;
 

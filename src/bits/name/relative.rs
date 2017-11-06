@@ -2,14 +2,13 @@
 
 use std::{cmp, fmt, hash, ops};
 use std::ascii::AsciiExt;
-use std::str::FromStr;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
 use super::builder::DnameBuilder;
 use super::chain::Chain;
-use super::error::{FromStrError, IndexError, LongNameError,
-                   RelativeDnameError, StripSuffixError};
-use super::from_str::{from_str, from_chars};
+use super::dname::Dname;
+use super::error::{IndexError, LongNameError, RelativeDnameError,
+                   StripSuffixError};
 use super::label::Label;
 use super::traits::{ToLabelIter, ToRelativeDname};
 
@@ -23,6 +22,11 @@ use super::traits::{ToLabelIter, ToRelativeDname};
 /// such a relative name similarly to as [`Dname`] wraps an absolute one. It
 /// behaves very similarly to [`Dname`] taking into account differences when
 /// slicing and dicing names.
+///
+/// `RelativeDname` guarantees that the name is at most 254 bytes long. As the
+/// length limit for a domain name is actually 255 bytes, this means that you
+/// can always safely turn a `RelativeDname` into a `Dname` by adding the root
+/// label (which is exactly one byte long).
 ///
 /// [`Dname`]: struct.Dname.html
 #[derive(Clone)]
@@ -68,7 +72,7 @@ impl RelativeDname {
     /// This checks if `bytes` contains a properly encoded relative domain
     /// name and fails if it doesn’t.
     pub fn from_bytes(bytes: Bytes) -> Result<Self, RelativeDnameError> {
-        if bytes.len() > 255 {
+        if bytes.len() > 254 {
             return Err(RelativeDnameError::LongName)
         }
         {
@@ -82,25 +86,6 @@ impl RelativeDname {
             }
         }
         Ok(unsafe { RelativeDname::from_bytes_unchecked(bytes) })
-    }
-
-    /// Creates a relative domain name from a sequence of characters.
-    ///
-    /// The sequence must result in a domain name in master format
-    /// representation. That is, its labels should be separated by dots,
-    /// actual dots, white space and backslashes should be escaped by a
-    /// preceeding backslash, and any byte value that is not a printable
-    /// ASCII character should be encoded by a backslash followed by its
-    /// three digit decimal value.
-    ///
-    /// Since the resulting name is a relative name, the last character
-    /// should not be a dot.
-    ///
-    /// If you have a string, you can also use the `FromStr` trait, which
-    /// really does the same thing.
-    pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
-                      where C: IntoIterator<Item=char> {
-        from_chars(chars)
     }
 
     /// Returns a reference to the underlying bytes value.
@@ -135,6 +120,20 @@ impl RelativeDname {
         unsafe { DnameBuilder::from_bytes(bytes) }
     }
 
+    /// Converts the name into an absolute name by appending the root label.
+    ///
+    /// This actually manipulates the name itself. If you just need an
+    /// absolute name, you can perhaps use [`chain_root`] instead.
+    ///
+    /// The method uses [`into_builder`] to be able to manipulate the name
+    /// and thus may have to allocate and copy.
+    ///
+    /// [`chain_root`]: #method.chain_root
+    /// [`into_builder`]: #method.into_builder
+    pub fn into_absolute(self) -> Dname {
+        self.into_builder().into_dname().unwrap()
+    }
+
     /// Creates a domain name by combining `self` with `other`.
     ///
     /// Depending on whether other is an absolute or relative domain name,
@@ -147,6 +146,11 @@ impl RelativeDname {
     pub fn chain<N: Composable>(self, other: N)
                                 -> Result<Chain<Self, N>, LongNameError> {
         Chain::new(self, other)
+    }
+
+    /// Creates an absolute name by chaining the root label to it.
+    pub fn chain_root(self) -> Chain<Self, Dname> {
+        self.chain(Dname::root()).unwrap()
     }
 }
 
@@ -376,17 +380,6 @@ impl AsRef<Bytes> for RelativeDname {
 impl AsRef<[u8]> for RelativeDname {
     fn as_ref(&self) -> &[u8] {
         self.bytes.as_ref()
-    }
-}
-
-
-//--- FromStr
-
-impl FromStr for RelativeDname {
-    type Err = FromStrError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        from_str(s)
     }
 }
 
