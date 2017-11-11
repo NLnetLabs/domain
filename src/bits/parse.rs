@@ -212,6 +212,14 @@ pub trait Parseable: Sized {
     /// this case, you should store the position before attempting to parse
     /// and seek to that position again before continuing.
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err>;
+
+    /// Skips over a value of this type at the beginning of `parser`.
+    ///
+    /// This function is the same as `parse` but doesn’t return the result.
+    /// It can be used if the content of `parser` is correct.
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        Self::parse(parser).map(|_| ())
+    }
 }
 
 impl Parseable for i8 {

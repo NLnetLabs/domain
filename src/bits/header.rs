@@ -1,4 +1,5 @@
-use bytes::{BigEndian, BufMut};
+use std::{mem, ptr};
+use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Opcode, Rcode};
 use super::compose::Composable;
 use super::parse::{Parseable, Parser, ShortParser};
@@ -8,12 +9,7 @@ use super::parse::{Parseable, Parser, ShortParser};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Header {
-    id: u16,
-    flags: [u8; 2],
-    qdcount: u16,
-    ancount: u16,
-    nscount: u16,
-    arcount: u16,
+    inner: [u8; 12]
 }
 
 /// # Creation and Conversion
@@ -27,6 +23,31 @@ impl Header {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Creates a reference to a header from the beginning of a byte slice.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the byte slice is too short.
+    pub fn from_slice(s: &[u8]) -> &Header {
+        assert!(s.len() > mem::size_of::<Header>());
+        unsafe { &*(s.as_ptr() as *const Header) }
+    }
+
+    /// Creates a mutable reference to a header for a byte slice.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the bytes slice is too short.
+    pub fn from_slice_mut(s: &mut [u8]) -> &mut Header {
+        assert!(s.len() > mem::size_of::<Header>());
+        unsafe { &mut *(s.as_ptr() as *mut Header) }
+    }
+
+    /// Returns a reference to the underlying byte slice.
+    pub fn as_slice(&self) -> &[u8] {
+        &self.inner
+    }
 }
 
 
@@ -39,12 +60,12 @@ impl Header {
     /// and is copied into a response. It serves to match incoming responses
     /// to their request.
     pub fn id(&self) -> u16 {
-        self.id
+        BigEndian::read_u16(&self.inner)
     }
 
     /// Sets the value of the ID field.
     pub fn set_id(&mut self, value: u16) {
-        self.id = value
+        BigEndian::write_u16(&mut self.inner, value)
     }
 
     /// Sets the value of the ID field to a randomly chosen number.
@@ -77,12 +98,12 @@ impl Header {
     /// [`Opcode`]: ../../iana/opcode/enum.Opcode.html
     /// [`Opcode::Query`]: ../../iana/opcode/enum.Opcode.html#variant.Query
     pub fn opcode(&self) -> Opcode {
-        Opcode::from_int((self.flags[0] >> 3) & 0x0F)
+        Opcode::from_int((self.inner[2] >> 3) & 0x0F)
     }
 
     /// Sets the value of the opcode field.
     pub fn set_opcode(&mut self, opcode: Opcode) {
-        self.flags[0] = self.flags[0] & 0x87 | (opcode.to_int() << 3);
+        self.inner[2] = self.inner[2] & 0x87 | (opcode.to_int() << 3);
     }
 
     /// Returns whether the AA bit is set.
@@ -192,33 +213,15 @@ impl Header {
     ///
     /// [`Rcode`]: ../../iana/rcode/enum.Rcode.html
     pub fn rcode(&self) -> Rcode {
-        Rcode::from_int(self.flags[1] & 0x0F)
+        Rcode::from_int(self.inner[3] & 0x0F)
     }
 
     /// Sets the value of the RCODE field.
     pub fn set_rcode(&mut self, rcode: Rcode) {
-        self.flags[1] = self.flags[1] & 0xF0 | (rcode.to_int() & 0x0F);
+        self.inner[3] = self.inner[3] & 0xF0 | (rcode.to_int() & 0x0F);
     }
 
-
-    //--- Internal helpers
-
-    /// Returns the value of the bit at the given position.
-    ///
-    /// The argument `offset` gives the byte offset of the underlying bytes
-    /// slice and `bit` gives the number of the bit with the most significant
-    /// bit being 7.
-    fn get_bit(&self, offset: usize, bit: usize) -> bool {
-        self.flags[offset] & (1 << bit) != 0
-    }
-
-    /// Sets or resets the given bit.
-    fn set_bit(&mut self, offset: usize, bit: usize, set: bool) {
-        if set { self.flags[offset] |= 1 << bit }
-        else { self.flags[offset] &= !(1 << bit) }
-    }
-
-
+    
     //--- Count fields in regular messages
 
     /// Returns the value of the QDCOUNT field.
@@ -226,22 +229,12 @@ impl Header {
     /// This field contains the number of questions in the first
     /// section of the message, normally the question section.
     pub fn qdcount(&self) -> u16 {
-        self.qdcount
+        self.get_u16(4)
     }
 
     /// Sets the value of the QDCOUNT field.
     pub fn set_qdcount(&mut self, value: u16) {
-        self.qdcount = value
-    }
-
-    /// Increase the value of the QDCOUNT field.
-    ///
-    /// # Panic
-    ///
-    /// The method panics if incrementing the counter would lead to an
-    /// overflow.
-    pub fn inc_qdcount(&mut self, inc: u16) {
-        self.qdcount = self.qdcount.checked_add(inc).unwrap()
+        self.set_u16(4, value)
     }
 
     /// Returns the value of the ANCOUNT field.
@@ -249,17 +242,12 @@ impl Header {
     /// This field contains the number of resource records in the second
     /// section of the message, normally the answer section.
     pub fn ancount(&self) -> u16 {
-        self.ancount
+        self.get_u16(6)
     }
 
     /// Sets the value of the ANCOUNT field.
     pub fn set_ancount(&mut self, value: u16) {
-        self.ancount = value
-    }
-
-    /// Increases the value of the ANCOUNT field.
-    pub fn inc_ancount(&mut self, inc: u16) {
-        self.ancount = self.ancount.checked_add(inc).unwrap()
+        self.set_u16(6, value)
     }
 
     /// Returns the value of the NSCOUNT field.
@@ -267,17 +255,12 @@ impl Header {
     /// This field contains the number of resource records in the third
     /// section of the message, normally the authority section.
     pub fn nscount(&self) -> u16 {
-        self.nscount
+        self.get_u16(8)
     }
 
     /// Sets the value of the NSCOUNT field.
     pub fn set_nscount(&mut self, value: u16) {
-        self.nscount = value
-    }
-
-    /// Increases the value of the NSCOUNT field.
-    pub fn inc_nscount(&mut self, inc: u16) {
-        self.nscount = self.nscount.checked_add(inc).unwrap()
+        self.set_u16(8, value)
     }
 
     /// Returns the value of the ARCOUNT field.
@@ -285,17 +268,12 @@ impl Header {
     /// This field contains the number of resource records in the fourth
     /// section of the message, normally the additional section.
     pub fn arcount(&self) -> u16 {
-        self.arcount
+        self.get_u16(10)
     }
 
     /// Sets the value of the ARCOUNT field.
     pub fn set_arcount(&mut self, value: u16) {
-        self.arcount = value
-    }
-
-    /// Increases the value of the ARCOUNT field.
-    pub fn inc_arcount(&mut self, inc: u16) {
-        self.arcount = self.arcount.checked_add(inc).unwrap()
+        self.set_u16(10, value)
     }
 
 
@@ -307,16 +285,6 @@ impl Header {
     /// where the first section is the zone section.
     pub fn zocount(&self) -> u16 {
         self.qdcount()
-    }
-
-    /// Sets the value of the ZOCOUNT field.
-    pub fn set_zocount(&mut self, value: u16) {
-        self.set_qdcount(value)
-    }
-
-    /// Increments the value of the ZOCOUNT field.
-    pub fn inc_zocount(&mut self, inc: u16) {
-        self.inc_qdcount(inc)
     }
 
     /// Returns the value of the PRCOUNT field.
@@ -332,11 +300,6 @@ impl Header {
         self.set_ancount(value)
     }
 
-    /// Increments the value of the PRCOUNT field,
-    pub fn inc_prcount(&mut self, inc: u16) {
-        self.inc_ancount(inc)
-    }
-
     /// Returns the value of the UPCOUNT field.
     ///
     /// This is the same as the `nscount()`. It is used in UPDATE queries
@@ -348,11 +311,6 @@ impl Header {
     /// Sets the value of the UPCOUNT field.
     pub fn set_upcount(&mut self, value: u16) {
         self.set_nscount(value)
-    }
-
-    /// Increments the value of the UPCOUNT field.
-    pub fn inc_upcount(&mut self, inc: u16) {
-        self.inc_nscount(inc)
     }
 
     /// Returns the value of the ADCOUNT field.
@@ -367,10 +325,33 @@ impl Header {
     pub fn set_adcount(&mut self, value: u16) {
         self.set_arcount(value)
     }
+ 
 
-    /// Increments the value of the ADCOUNT field.
-    pub fn inc_adcount(&mut self, inc: u16) {
-        self.inc_arcount(inc)
+    //--- Internal helpers
+
+    /// Returns the value of the bit at the given position.
+    ///
+    /// The argument `offset` gives the byte offset of the underlying bytes
+    /// slice and `bit` gives the number of the bit with the most significant
+    /// bit being 7.
+    fn get_bit(&self, offset: usize, bit: usize) -> bool {
+        self.inner[offset + 2] & (1 << bit) != 0
+    }
+
+    /// Sets or resets the given bit.
+    fn set_bit(&mut self, offset: usize, bit: usize, set: bool) {
+        if set { self.inner[offset + 2] |= 1 << bit }
+        else { self.inner[offset + 2] &= !(1 << bit) }
+    }
+
+    /// Returns the value of the 16 bit integer starting at a given offset.
+    fn get_u16(&self, offset: usize) -> u16 {
+        BigEndian::read_u16(&self.inner[offset..])
+    }
+
+    /// Sets the value of the 16 bit integer starting at a given offset.
+    fn set_u16(&mut self, offset: usize, value: u16) {
+        BigEndian::write_u16(&mut self.inner[offset..], value)
     }
 }
 
@@ -381,14 +362,13 @@ impl Parseable for Header {
     type Err = ShortParser;
 
     fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
-        Ok(Header {
-            id: parser.parse_u16()?,
-            flags: [parser.parse_u8()?, parser.parse_u8()?],
-            qdcount: parser.parse_u16()?,
-            ancount: parser.parse_u16()?,
-            nscount: parser.parse_u16()?,
-            arcount: parser.parse_u16()?,
-        })
+        parser.check_len(12)?;
+        let mut inner = [0u8; 12];
+        unsafe {
+            ptr::copy_nonoverlapping(parser.peek().as_ptr(),
+                                     inner[..].as_mut_ptr(), 12);
+        }
+        Ok(Header { inner })
     }
 }
 
@@ -398,11 +378,7 @@ impl Composable for Header {
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_u16::<BigEndian>(self.id);
-        buf.put_slice(&self.flags);
-        buf.put_u16::<BigEndian>(self.qdcount);
-        buf.put_u16::<BigEndian>(self.ancount);
-        buf.put_u16::<BigEndian>(self.nscount);
-        buf.put_u16::<BigEndian>(self.arcount);
+        buf.put_slice(&self.inner);
     }
 }
+
