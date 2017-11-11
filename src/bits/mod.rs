@@ -100,11 +100,11 @@ pub mod header;
 pub mod name;
 pub mod parse;
 pub mod question;
+pub mod rdata;
+pub mod record;
 
 /*
 pub mod message;
 pub mod message_builder;
 pub mod opt;
-pub mod rdata;
-pub mod record;
 */

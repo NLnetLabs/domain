@@ -33,19 +33,8 @@
 //! In addition, the self-contained types provide methods similar to 
 //! [`Bytes`] that allow access to parts of the name.
 //!
-//! You can construct a new name either from a string containing the name in
-//! the usual dots notation via the [`FromStr`] trait implemented by both
-//! the self-contained types. To give you full control over building the name,
-//! there is a [`DnameBuilder`] type that allows adding individual bytes or
-//! entire labels to the name.
-//!
-//! However, because often you’ll need to add a suffix to a name,
-//! for instance, to make it absolute, a way is provided to do that without
-//! the need to copy or allocate. Instead, you can create a placeholder
-//! value representing the chain of two names. This works via the
-//! [`ToDname`] and [`ToRelativeDname`] traits which represent any type that
-//! is an absolute or relative domain name. Functions and types accepting
-//! domain names will generally be generic over these traits.
+//! TODO: Explain [`DnameBuilder`] and building from strings via
+//!       [`UncertainDname`].
 //!
 //! [`Bytes`]: ../../../bytes/struct.Bytes.html
 //! [`Dname`]: struct.Dname.html
@@ -55,6 +44,7 @@
 //! [`RelativeDname`]: struct.RelativeDname.html
 //! [`ToDname`]: trait.ToDname.html
 //! [`ToRelativeDname`]: trait.ToRelativeDname.html
+//! [`UncertainDname`]: enum.UncertainDname.html
 
 pub use self::builder::DnameBuilder;
 pub use self::chain::{Chain, ChainIter};

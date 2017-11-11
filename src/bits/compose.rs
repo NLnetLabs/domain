@@ -30,6 +30,17 @@ pub trait Composable {
     fn compose<B: BufMut>(&self, buf: &mut B);
 }
 
+impl<'a, C: Composable> Composable for &'a C {
+    fn compose_len(&self) -> usize {
+        (*self).compose_len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        (*self).compose(buf)
+    }
+}
+
+
 impl Composable for i8 {
     fn compose_len(&self) -> usize {
         1

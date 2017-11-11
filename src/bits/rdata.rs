@@ -1,4 +1,4 @@
-//! Basic resource data handling.
+//! Resource data handling.
 //!
 //! DNS resource records consist of some common data defining the domain
 //! name they pertain to, their type and class, and finally record data
@@ -25,40 +25,39 @@
 //! [`GenericRecordData`]: struct.GenericRecordData.html
 
 use std::fmt;
+use bytes::{BufMut, Bytes};
 use ::iana::Rtype;
-use ::rdata::fmt_rdata;
-use super::{Composer, ComposeResult, Parser, ParseResult};
+use super::compose::Composable;
+use super::parse::{Parser, ShortParser};
 
 
 //----------- RecordData -----------------------------------------------------
 
 /// A trait for types representing record data.
-pub trait RecordData: Sized {
+pub trait RecordData: Composable + Sized {
+    /// The type of an error returned when parsing fails.
+    type ParseErr;
+
     /// Returns the record type for this record data instance.
     ///
     /// This is a method rather than an associated function to allow one
     /// type to be used for several real record types.
     fn rtype(&self) -> Rtype;
 
-    /// Appends the record data to the end of a composer.
-    fn compose<C: AsMut<Composer>>(&self, target: C) -> ComposeResult<()>;
-}
-
-
-//------------ ParsedRecordData ----------------------------------------------
-
-/// A trait for types that allow parsing record data from a message.
-pub trait ParsedRecordData<'a>: RecordData {
-    /// Parses the record data out of a parser.
+    /// Parses the record data.
     ///
-    /// The `parser` handed into the function will be limited to the length
-    /// of the record data, so can read until the end of the parser.
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>>;
+    /// The record data is for a record of type `rtype`. The function may can
+    /// decide whether it wants to parse data for that type and return
+    /// `Ok(None)` if it doesn’t. The data is `rdlen` bytes long and starts
+    /// at the current position of `parser`. Their is no guarantee that the
+    /// parser will have `rdlen` bytes left. If it doesn’t, the function
+    /// should produce an error.
+    fn parse(rtype: Rtype, rdlen: usize, parser: &mut Parser)
+             -> Result<Option<Self>, Self::ParseErr>;
 }
 
 
-//------------ GenericRecordData --------------------------------------------
+//------------ UnknownRecordData --------------------------------------------
 
 /// A type for parsing any type of record data.
 ///
@@ -81,79 +80,55 @@ pub trait ParsedRecordData<'a>: RecordData {
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 3597]: https://tools.ietf.org/html/rfc3597
 #[derive(Clone, Debug)]
-pub struct GenericRecordData<'a> {
+pub struct UnknownRecordData {
     /// The record type of this data.
     rtype: Rtype,
 
-    /// A parser for the record’s data.
-    ///
-    /// The parser will be positioned at the beginning of the record data and
-    /// will be limited to the length of the record data.
-    parser: Parser<'a>,
+    /// The record data.
+    data: Bytes,
 }
 
-impl<'a> GenericRecordData<'a> {
-    /// Tries to re-parse the data for the given record data type.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the specified record data type does not
-    /// actually feel like parsing data of the value’s record type.
-    fn reparse<D: ParsedRecordData<'a>>(&self) -> ParseResult<D> {
-        D::parse(self.rtype, &mut self.parser.clone()).map(Option::unwrap)
+impl UnknownRecordData {
+    /// Creates generic record data from a bytes value contain the data.
+    pub fn from_bytes(rtype: Rtype, data: Bytes) -> Self {
+        UnknownRecordData { rtype, data }
     }
 }
 
-impl<'a> RecordData for GenericRecordData<'a> {
+
+//--- Composable and RecordData
+
+impl Composable for UnknownRecordData {
+    fn compose_len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self.data.as_ref())
+    }
+}
+
+impl RecordData for UnknownRecordData {
+    type ParseErr = ShortParser;
+
     fn rtype(&self) -> Rtype {
         self.rtype
     }
 
-    fn compose<C: AsMut<Composer>>(&self, mut target: C)
-                        -> ComposeResult<()> {
-        use ::rdata::rfc1035::parsed::*;
-
-        match self.rtype {
-            // Special treatment for any type from RFC 1035 that contains
-            // domain names.
-            Rtype::Cname => try!(self.reparse::<Cname>()).compose(target),
-            Rtype::Mb => try!(self.reparse::<Mb>()).compose(target),
-            Rtype::Md => try!(self.reparse::<Md>()).compose(target),
-            Rtype::Mf => try!(self.reparse::<Mf>()).compose(target),
-            Rtype::Mg => try!(self.reparse::<Mg>()).compose(target),
-            Rtype::Minfo => try!(self.reparse::<Minfo>()).compose(target),
-            Rtype::Mr => try!(self.reparse::<Mr>()).compose(target),
-            Rtype::Mx => try!(self.reparse::<Mx>()).compose(target),
-            Rtype::Ns => try!(self.reparse::<Ns>()).compose(target),
-            Rtype::Ptr => try!(self.reparse::<Ptr>()).compose(target),
-            Rtype::Soa => try!(self.reparse::<Soa>()).compose(target),
-
-            // Anything else can go verbatim.
-            _ => {
-                let len = self.parser.remaining();
-                let bytes = try!(self.parser.clone().parse_bytes(len));
-                target.as_mut().compose_bytes(bytes)
-            }
-        }
+    fn parse(rtype: Rtype, rdlen: usize, parser: &mut Parser)
+             -> Result<Option<Self>, Self::ParseErr> {
+        parser.parse_bytes(rdlen)
+              .map(|data| Some(Self::from_bytes(rtype, data)))
     }
 }
 
-impl<'a> ParsedRecordData<'a> for GenericRecordData<'a> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
-        let my_parser = parser.clone();
-        let len = parser.remaining();
-        try!(parser.skip(len));
-        Ok(Some(GenericRecordData {
-            rtype: rtype,
-            parser: my_parser
-        }))
-    }
-}
-
-impl<'a> fmt::Display for GenericRecordData<'a> {
+impl fmt::Display for UnknownRecordData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt_rdata(self.rtype, &mut self.parser.clone(), f)
+        write!(f, "\\# {}", self.data.len())?;
+        for ch in self.data.as_ref() {
+            write!(f, " {:02x}", *ch)?
+        }
+        Ok(())
     }
 }
 

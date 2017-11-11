@@ -8,9 +8,11 @@
 //! [`GenericRecord`]: type.GenericRecord.html
 
 use std::fmt;
-use super::{Composer, ComposeError, ComposeResult, DName, GenericRecordData,
-            ParsedDName, ParsedRecordData, Parser, ParseResult, RecordData};
+use bytes::BufMut;
 use ::iana::{Class, Rtype};
+use super::compose::Composable;
+use super::parse::{Parseable, Parser, ShortParser};
+use super::rdata::RecordData;
 
 
 //------------ Record --------------------------------------------------------
@@ -70,20 +72,20 @@ use ::iana::{Class, Rtype};
 /// [`Rtype`]: ../../iana/enum.Rtype.html
 /// [`domain::master`]: ../../master/index.html
 #[derive(Clone, Debug)]
-pub struct Record<N: DName, D: RecordData> {
+pub struct Record<N, D> {
     name: N,
     class: Class,
-    ttl: u32,
+    ttl: i32,
     data: D
 }
 
 
 /// # Creation and Element Access
 ///
-impl<N: DName, D: RecordData> Record<N, D> {
+impl<N, D> Record<N, D> {
     /// Creates a new record from its parts.
-    pub fn new(name: N, class: Class, ttl: u32, data: D) -> Self {
-        Record{name: name, class: class, ttl: ttl, data: data}
+    pub fn new(name: N, class: Class, ttl: i32, data: D) -> Self {
+        Record { name, class, ttl, data }
     }
 
     /// Returns a reference to the domain name.
@@ -95,7 +97,7 @@ impl<N: DName, D: RecordData> Record<N, D> {
     }
 
     /// Returns the record type.
-    pub fn rtype(&self) -> Rtype {
+    pub fn rtype(&self) -> Rtype where D: RecordData {
         self.data.rtype()
     }
 
@@ -110,12 +112,12 @@ impl<N: DName, D: RecordData> Record<N, D> {
     }
 
     /// Returns the record’s time-to-live.
-    pub fn ttl(&self) -> u32 {
+    pub fn ttl(&self) -> i32 {
         self.ttl
     }
 
     /// Sets the record’s time-to-live.
-    pub fn set_ttl(&mut self, ttl: u32) {
+    pub fn set_ttl(&mut self, ttl: i32) {
         self.ttl = ttl
     }
 
@@ -136,61 +138,52 @@ impl<N: DName, D: RecordData> Record<N, D> {
 }
 
 
-/// # Parsing
-///
-impl<'a, D: ParsedRecordData<'a>> Record<ParsedDName<'a>, D> {
-    /// Parses a record from a parser.
-    ///
-    /// This function is only available for records that use a parsed domain
-    /// name and a record data type that, too, can be parsed.
-    pub fn parse(parser: &mut Parser<'a>) -> ParseResult<Option<Self>> {
-        let name = try!(ParsedDName::parse(parser));
-        let rtype = try!(Rtype::parse(parser));
-        let class = try!(Class::parse(parser));
-        let ttl = try!(parser.parse_u32());
-        let rdlen = try!(parser.parse_u16()) as usize;
-        try!(parser.set_limit(rdlen));
-        let data = try!(D::parse(rtype, parser));
-        if data.is_none() {
-            try!(parser.skip(rdlen));
+//--- Parsable and Composable
+
+impl<N: Parseable, D: RecordData> Parseable for Option<Record<N, D>> {
+    type Err = RecordParseError<N::Err, D::ParseErr>;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        let header = RecordHeader::parse(parser)?;
+        match D::parse(header.rtype(), header.rdlen() as usize, parser) {
+            Ok(Some(data)) => {
+                Ok(Some(header.into_record(data)))
+            }
+            Ok(None) => {
+                parser.advance(header.rdlen() as usize)?;
+                Ok(None)
+            }
+            Err(err) => {
+                Err(RecordParseError::Data(err))
+            }
         }
-        parser.remove_limit();
-        Ok(data.map(|data| Record::new(name, class, ttl, data)))
     }
 }
 
-impl<'a> Record<ParsedDName<'a>, GenericRecordData<'a>> {
-    /// Parses a record with generic data from a parser.
-    pub fn parse_generic(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        Self::parse(parser).map(Option::unwrap)
+impl<N: Composable, D: RecordData> Composable for Record<N, D> {
+    fn compose_len(&self) -> usize {
+        self.name.compose_len() + self.data.compose_len() + 10
     }
-}
-    
 
-/// # Composing
-///
-impl<N: DName, D: RecordData> Record<N, D> {
-    /// Appends the record’s wire-format representation to a composer.
-    pub fn compose<C: AsMut<Composer>>(&self, composer: C)
-                                       -> ComposeResult<()> {
-        let mut builder = RecordBuilder::new(composer, &self.name, self.class,
-                                             self.rtype(), self.ttl)?;
-        self.data.compose(&mut builder)?;
-        builder.finish().map(|_| ())
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        RecordHeader::new(&self.name, self.data.rtype(), self.class, self.ttl,
+                          (self.data.compose_len() as u16))
+                     .compose(buf);
+        self.data.compose(buf);
     }
 }
 
 
 //--- From
 
-impl<N: DName, D: RecordData> From<(N, Class, u32, D)> for Record<N, D> {
-    fn from(x: (N, Class, u32, D)) -> Self {
+impl<N, D> From<(N, Class, i32, D)> for Record<N, D> {
+    fn from(x: (N, Class, i32, D)) -> Self {
         Record::new(x.0, x.1, x.2, x.3)
     }
 }
 
-impl<N: DName, D: RecordData> From<(N, u32, D)> for Record<N, D> {
-    fn from(x: (N, u32, D)) -> Self {
+impl<N, D> From<(N, i32, D)> for Record<N, D> {
+    fn from(x: (N, i32, D)) -> Self {
         Record::new(x.0, Class::In, x.1, x.2)
     }
 }
@@ -199,9 +192,8 @@ impl<N: DName, D: RecordData> From<(N, u32, D)> for Record<N, D> {
 //--- Display
 
 impl<N, D> fmt::Display for Record<N, D>
-     where N: DName + fmt::Display,
-           D: RecordData + fmt::Display {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+     where N: fmt::Display, D: RecordData + fmt::Display {
+   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\t{}\t{}\t{}\t{}",
                self.name, self.ttl, self.class, self.data.rtype(),
                self.data)
@@ -209,54 +201,124 @@ impl<N, D> fmt::Display for Record<N, D>
 }
 
 
-//------------ GenericRecord -------------------------------------------------
+//------------ RecordHeader --------------------------------------------------
 
-/// A record with generic record data.
-pub type GenericRecord<'a> = Record<ParsedDName<'a>, GenericRecordData<'a>>;
+/// The header of a resource record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecordHeader<N> {
+    name: N,
+    rtype: Rtype,
+    class: Class,
+    ttl: i32,
+    rdlen: u16,
+}
+
+impl<N> RecordHeader<N> {
+    /// Creates a new record header from its components.
+    pub fn new(name: N, rtype: Rtype, class: Class, ttl: i32, rdlen: u16)
+               -> Self {
+        RecordHeader { name, rtype, class, ttl, rdlen }
+    }
+
+    /// Returns a reference to the owner of the record.
+    pub fn name(&self) -> &N {
+        &self.name
+    }
+
+    /// Returns the record type of the record.
+    pub fn rtype(&self) -> Rtype {
+        self.rtype
+    }
+
+    /// Returns the class of the record.
+    pub fn class(&self) -> Class {
+        self.class
+    }
+
+    /// Returns the TTL of the record.
+    pub fn ttl(&self) -> i32 {
+        self.ttl
+    }
+
+    /// Returns the data length of the record.
+    pub fn rdlen(&self) -> u16 {
+        self.rdlen
+    }
+
+    /// Converts the header into an actual record.
+    pub fn into_record<D>(self, data: D) -> Record<N, D> {
+        Record::new(self.name, self.class, self.ttl, data)
+    }
+}
 
 
-//------------ RecordBuilder -------------------------------------------------
+//--- Parseable and Composable
 
-/// A type for building records in place.
-///
-/// This type can be used to build complex record types without first
-/// assembling the record data first, saving one copy.
-///
-/// A value of this type is created via `new()` which is given the target to
-/// build into and the name, class, type, and ttl of the record. The returned
-/// value is a composer and the record data can be written into it. Once all
-/// writing is done, the original target can be retrieved via the `finish()`
-/// method.
+impl<N: Parseable> Parseable for RecordHeader<N> {
+    type Err = RecordHeaderParseError<N::Err>;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        Ok(RecordHeader::new(
+                N::parse(parser).map_err(RecordHeaderParseError::Name)?,
+                Rtype::parse(parser)?,
+                Class::parse(parser)?,
+                parser.parse_i32()?,
+                parser.parse_u16()?
+        ))
+    }
+}
+
+impl<N: Composable> Composable for RecordHeader<N> {
+    fn compose_len(&self) -> usize {
+        self.name.compose_len() + 10
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.name.compose(buf);
+        self.rtype.compose(buf);
+        self.class.compose(buf);
+        self.ttl.compose(buf);
+        self.rdlen.compose(buf);
+    }
+}
+
+
+//------------ RecordHeaderParseError ----------------------------------------
+
 #[derive(Clone, Debug)]
-pub struct RecordBuilder<C: AsMut<Composer>> {
-    composer: C,
-    len_pos: usize
+pub enum RecordHeaderParseError<N> {
+    Name(N),
+    ShortParser,
 }
 
-impl<C: AsMut<Composer>> RecordBuilder<C> {
-    pub fn new<N: DName>(mut composer: C, name: &N, class: Class,
-                         rtype: Rtype, ttl: u32) -> ComposeResult<Self> {
-        name.compose(composer.as_mut())?;
-        rtype.compose(composer.as_mut())?;
-        class.compose(composer.as_mut())?;
-        composer.as_mut().compose_u32(ttl)?;
-        let len_pos = composer.as_mut().pos();
-        composer.as_mut().compose_u16(0)?;
-        Ok(RecordBuilder { composer, len_pos })
+impl<N> From<ShortParser> for RecordHeaderParseError<N> {
+    fn from(_: ShortParser) -> Self {
+        RecordHeaderParseError::ShortParser
     }
+}
 
-    pub fn finish(mut self) -> ComposeResult<C> {
-        let delta = self.composer.as_mut().delta(self.len_pos) - 2;
-        if delta > (::std::u16::MAX as usize) {
-            return Err(ComposeError::Overflow)
+
+//------------ RecordParseError ----------------------------------------------
+
+#[derive(Clone, Debug)]
+pub enum RecordParseError<N, D> {
+    Name(N),
+    Data(D),
+    ShortParser,
+}
+
+impl<N, D> From<RecordHeaderParseError<N>> for RecordParseError<N, D> {
+    fn from(err: RecordHeaderParseError<N>) -> Self {
+        match err {
+            RecordHeaderParseError::Name(err) => RecordParseError::Name(err),
+            RecordHeaderParseError::ShortParser => RecordParseError::ShortParser
         }
-        self.composer.as_mut().update_u16(self.len_pos, delta as u16);
-        Ok(self.composer)
     }
 }
 
-impl<C: AsMut<Composer>> AsMut<Composer> for RecordBuilder<C> {
-    fn as_mut(&mut self) -> &mut Composer {
-        self.composer.as_mut()
+impl<N, D> From<ShortParser> for RecordParseError<N, D> {
+    fn from(_: ShortParser) -> Self {
+        RecordParseError::ShortParser
     }
 }
+
