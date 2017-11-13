@@ -55,8 +55,8 @@ use ::iana::{Opcode, Rcode};
 pub struct Header {
     /// The actual header in its wire format representation.
     ///
-    /// This means that the ID field is in big endian.
-    inner: [u8; 4]
+    /// This means that everything is in big endian.
+    inner: [u8; 12]
 }
 
 /// # Creation and Conversion
@@ -69,7 +69,7 @@ impl Header {
     /// `Rcode::NoError`.
     ///
     pub fn new() -> Header {
-        Header { inner: [0; 4] }
+        Self::default()
     }
 
     /// Creates a header reference from a bytes slice of a message.
@@ -77,7 +77,7 @@ impl Header {
     /// # Panics
     ///
     /// This function panics if the bytes slice is too short.
-    pub fn from_message(s: &[u8]) -> &Header {
+    pub fn for_slice(s: &[u8]) -> &Header {
         assert!(s.len() >= mem::size_of::<Header>());
         unsafe { &*(s.as_ptr() as *const Header) }
     }
@@ -87,13 +87,13 @@ impl Header {
     /// # Panics
     ///
     /// This function panics if the bytes slice is too short.
-    pub fn from_message_mut(s: &mut [u8]) -> &mut Header {
+    pub fn for_slice_mut(s: &mut [u8]) -> &mut Header {
         assert!(s.len() >= mem::size_of::<Header>());
         unsafe { &mut *(s.as_ptr() as *mut Header) }
     }
 
     /// Returns a reference to the underlying bytes slice.
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
 }
@@ -236,6 +236,116 @@ impl Header {
     }
 
 
+    //--- Count fields in regular messages
+
+    /// Returns the value of the QDCOUNT field.
+    ///
+    /// This field contains the number of questions in the first
+    /// section of the message, normally the question section.
+    pub fn qdcount(&self) -> u16 {
+        self.get_u16(4)
+    }
+
+    /// Sets the value of the QDCOUNT field.
+    pub fn set_qdcount(&mut self, value: u16) {
+        self.set_u16(4, value)
+    }
+
+    /// Returns the value of the ANCOUNT field.
+    ///
+    /// This field contains the number of resource records in the second
+    /// section of the message, normally the answer section.
+    pub fn ancount(&self) -> u16 {
+        self.get_u16(6)
+    }
+
+    /// Sets the value of the ANCOUNT field.
+    pub fn set_ancount(&mut self, value: u16) {
+        self.set_u16(6, value)
+    }
+
+    /// Returns the value of the NSCOUNT field.
+    ///
+    /// This field contains the number of resource records in the third
+    /// section of the message, normally the authority section.
+    pub fn nscount(&self) -> u16 {
+        self.get_u16(8)
+    }
+
+    /// Sets the value of the NSCOUNT field.
+    pub fn set_nscount(&mut self, value: u16) {
+        self.set_u16(8, value)
+    }
+
+    /// Returns the value of the ARCOUNT field.
+    ///
+    /// This field contains the number of resource records in the fourth
+    /// section of the message, normally the additional section.
+    pub fn arcount(&self) -> u16 {
+        self.get_u16(10)
+    }
+
+    /// Sets the value of the ARCOUNT field.
+    pub fn set_arcount(&mut self, value: u16) {
+        self.set_u16(10, value)
+    }
+
+
+    //--- Count fields in UPDATE messages
+
+    /// Returns the value of the ZOCOUNT field.
+    ///
+    /// This is the same as the `qdcount()`. It is used in UPDATE queries
+    /// where the first section is the zone section.
+    pub fn zocount(&self) -> u16 {
+        self.qdcount()
+    }
+
+    /// Sets the value of the ZOCOUNT field.
+    pub fn set_zocount(&mut self, value: u16) {
+        self.set_qdcount(value)
+    }
+
+    /// Returns the value of the PRCOUNT field.
+    ///
+    /// This is the same as the `ancount()`. It is used in UPDATE queries
+    /// where the first section is the prerequisite section.
+    pub fn prcount(&self) -> u16 {
+        self.ancount()
+    }
+
+    /// Sete the value of the PRCOUNT field.
+    pub fn set_prcount(&mut self, value: u16) {
+        self.set_ancount(value)
+    }
+
+    /// Returns the value of the UPCOUNT field.
+    ///
+    /// This is the same as the `nscount()`. It is used in UPDATE queries
+    /// where the first section is the update section.
+    pub fn upcount(&self) -> u16 {
+        self.nscount()
+    }
+
+    /// Sets the value of the UPCOUNT field.
+    pub fn set_upcount(&mut self, value: u16) {
+        self.set_nscount(value)
+    }
+
+    /// Returns the value of the ADCOUNT field.
+    ///
+    /// This is the same as the `arcount()`. It is used in UPDATE queries
+    /// where the first section is the additional section.
+    pub fn adcount(&self) -> u16 {
+        self.arcount()
+    }
+
+    /// Sets the value of the ADCOUNT field.
+    pub fn set_adcount(&mut self, value: u16) {
+        self.set_arcount(value)
+    }
+
+
     //--- Internal helpers
 
     /// Returns the value of the bit at the given position.
@@ -252,195 +362,6 @@ impl Header {
         if set { self.inner[offset] |= 1 << bit }
         else { self.inner[offset] &= !(1 << bit) }
     }
-}
-
-
-//------------ HeaderCounts -------------------------------------------------
-
-/// The section count part of the header section of a DNS message.
-///
-/// This part consists of four 16 bit counters for the number of entries in
-/// the four sections of a DNS message.
-///
-/// The counters are arranged in the same order as the sections themselves:
-/// QDCOUNT for the question section, ANCOUNT for the answer section,
-/// NSCOUNT for the authority section, and ARCOUNT for the additional section.
-/// These are defined in [RFC 1035].
-///
-/// [RFC 2136] defines the UPDATE method and reuses the four section for
-/// different purposes. Here the counters are ZOCOUNT for the zone section,
-/// PRCOUNT for the prerequisite section, UPCOUNT for the update section,
-/// and ADCOUNT for the additional section. The type has convenience methods
-/// for these fields as well so you don’t have to remember which is which.
-///
-/// For each field there are three methods for getting, setting, and
-/// incrementing.
-///
-/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-/// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct HeaderCounts {
-    /// The actual headers in their wire-format representation.
-    ///
-    /// Ie., all values are stored big endian.
-    inner: [u8; 8]
-}
-
-/// # Creation and Conversion
-///
-impl HeaderCounts {
-    /// Creates a new value with all counters set to zero.
-    pub fn new() -> HeaderCounts {
-        HeaderCounts { inner: [0; 8] }
-    }
-
-    /// Creates a reference from the bytes slice of a message (!).
-    ///
-    /// # Panics
-    ///
-    /// This function panics if the bytes slice is too short.
-    pub fn from_message(s: &[u8]) -> &HeaderCounts {
-        assert!(s.len() >= mem::size_of::<HeaderSection>());
-        unsafe {
-            &*((s[mem::size_of::<Header>()..].as_ptr())
-                                                      as *const HeaderCounts)
-        }
-    }
-
-    /// Creates a mutable reference from the bytes slice of a message.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if the bytes slice is too short.
-    pub fn from_message_mut(s: &mut [u8]) -> &mut HeaderCounts {
-        assert!(s.len() >= mem::size_of::<HeaderSection>());
-        unsafe {
-            &mut *((s[mem::size_of::<Header>()..].as_ptr())
-                                                         as *mut HeaderCounts)
-        }
-    }
-
-    /// Returns a reference to the underlying bytes slice.
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.inner
-    }
-}
-
-
-/// # Field Access
-///
-impl HeaderCounts {
-    //--- Count fields in regular messages
-
-    /// Returns the value of the QDCOUNT field.
-    ///
-    /// This field contains the number of questions in the first
-    /// section of the message, normally the question section.
-    pub fn qdcount(&self) -> u16 {
-        self.get_u16(0)
-    }
-
-    /// Sets the value of the QDCOUNT field.
-    pub fn set_qdcount(&mut self, value: u16) {
-        self.set_u16(0, value)
-    }
-
-    /// Returns the value of the ANCOUNT field.
-    ///
-    /// This field contains the number of resource records in the second
-    /// section of the message, normally the answer section.
-    pub fn ancount(&self) -> u16 {
-        self.get_u16(2)
-    }
-
-    /// Sets the value of the ANCOUNT field.
-    pub fn set_ancount(&mut self, value: u16) {
-        self.set_u16(2, value)
-    }
-
-    /// Returns the value of the NSCOUNT field.
-    ///
-    /// This field contains the number of resource records in the third
-    /// section of the message, normally the authority section.
-    pub fn nscount(&self) -> u16 {
-        self.get_u16(4)
-    }
-
-    /// Sets the value of the NSCOUNT field.
-    pub fn set_nscount(&mut self, value: u16) {
-        self.set_u16(4, value)
-    }
-
-    /// Returns the value of the ARCOUNT field.
-    ///
-    /// This field contains the number of resource records in the fourth
-    /// section of the message, normally the additional section.
-    pub fn arcount(&self) -> u16 {
-        self.get_u16(6)
-    }
-
-    /// Sets the value of the ARCOUNT field.
-    pub fn set_arcount(&mut self, value: u16) {
-        self.set_u16(6, value)
-    }
-
-
-    //--- Count fields in UPDATE messages
-
-    /// Returns the value of the ZOCOUNT field.
-    ///
-    /// This is the same as the `qdcount()`. It is used in UPDATE queries
-    /// where the first section is the zone section.
-    pub fn zocount(&self) -> u16 {
-        self.get_u16(0)
-    }
-
-    /// Sets the value of the ZOCOUNT field.
-    pub fn set_zocount(&mut self, value: u16) {
-        self.set_u16(0, value)
-    }
-
-    /// Returns the value of the PRCOUNT field.
-    ///
-    /// This is the same as the `ancount()`. It is used in UPDATE queries
-    /// where the first section is the prerequisite section.
-    pub fn prcount(&self) -> u16 {
-        self.get_u16(2)
-    }
-
-    /// Sete the value of the PRCOUNT field.
-    pub fn set_prcount(&mut self, value: u16) {
-        self.set_u16(2, value)
-    }
-
-    /// Returns the value of the UPCOUNT field.
-    ///
-    /// This is the same as the `nscount()`. It is used in UPDATE queries
-    /// where the first section is the update section.
-    pub fn upcount(&self) -> u16 {
-        self.get_u16(4)
-    }
-
-    /// Sets the value of the UPCOUNT field.
-    pub fn set_upcount(&mut self, value: u16) {
-        self.set_u16(4, value)
-    }
-
-    /// Returns the value of the ADCOUNT field.
-    ///
-    /// This is the same as the `arcount()`. It is used in UPDATE queries
-    /// where the first section is the additional section.
-    pub fn adcount(&self) -> u16 {
-        self.get_u16(6)
-    }
-
-    /// Sets the value of the ADCOUNT field.
-    pub fn set_adcount(&mut self, value: u16) {
-        self.set_u16(6, value)
-    }
-
-
-    //--- Internal helpers
     
     /// Returns the value of the 16 bit integer starting at a given offset.
     fn get_u16(&self, offset: usize) -> u16 {
@@ -450,78 +371,6 @@ impl HeaderCounts {
     /// Sets the value of the 16 bit integer starting at a given offset.
     fn set_u16(&mut self, offset: usize, value: u16) {
         BigEndian::write_u16(&mut self.inner[offset..], value)
-    }
-}
-
-
-//------------ HeaderSection -------------------------------------------------
-
-/// The complete header section of a DNS message.
-///
-/// Consists of a `Header` and a `HeaderCounts`.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct HeaderSection {
-    inner: [u8; 12]
-}
-
-/// # Creation and Conversion
-///
-impl HeaderSection {
-    /// Creates a new empty header section.
-    pub fn new() -> HeaderSection {
-        HeaderSection { inner: [0; 12] }
-    }
-
-    /// Creates a reference from the bytes slice of a message.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if the size of the bytes slice is smaller than
-    /// the header section.
-    pub fn from_message(s: &[u8]) -> &HeaderSection {
-        assert!(s.len() >= mem::size_of::<HeaderSection>());
-        unsafe { &*(s.as_ptr() as *const HeaderSection) }
-    }
-
-    /// Creates a mutable reference from the bytes slice of a message.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if the size of the bytes slice is smaller than
-    /// the header section.
-    pub fn from_message_mut(s: &mut [u8]) -> &mut HeaderSection {
-        assert!(s.len() >= mem::size_of::<HeaderSection>());
-        unsafe { &mut *(s.as_ptr() as *mut HeaderSection) }
-    }
-
-    /// Returns a reference to the underlying bytes slice.
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.inner
-    }
-}
-
-
-/// # Access to Header and Counts
-///
-impl HeaderSection {
-    /// Returns a reference to the header.
-    pub fn header(&self) -> &Header {
-        Header::from_message(&self.inner)
-    }
-
-    /// Returns a mutable reference to the header.
-    pub fn header_mut(&mut self) -> &mut Header {
-        Header::from_message_mut(&mut self. inner)
-    }
-
-    /// Returns a reference to the header counts.
-    pub fn counts(&self) -> &HeaderCounts {
-        HeaderCounts::from_message(&self.inner)
-    }
-
-    /// Returns a mutable reference to the header counts.
-    pub fn counts_mut(&mut self) -> &mut HeaderCounts {
-        HeaderCounts::from_message_mut(&mut self.inner)
     }
 }
 
