@@ -36,7 +36,7 @@ use super::parse::{Parser, ShortParser};
 /// A trait for types representing record data.
 pub trait RecordData: Composable + Sized {
     /// The type of an error returned when parsing fails.
-    type ParseErr;
+    type ParseErr: Clone;
 
     /// Returns the record type for this record data instance.
     ///

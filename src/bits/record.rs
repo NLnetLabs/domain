@@ -11,6 +11,7 @@ use std::fmt;
 use bytes::BufMut;
 use ::iana::{Class, Rtype};
 use super::compose::Composable;
+use super::name::{ParsedDname, ParsedDnameError};
 use super::parse::{Parseable, Parser, ShortParser};
 use super::rdata::RecordData;
 
@@ -205,7 +206,7 @@ impl<N, D> fmt::Display for Record<N, D>
 
 /// The header of a resource record.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RecordHeader<N> {
+pub struct RecordHeader<N=ParsedDname> {
     name: N,
     rtype: Rtype,
     class: Class,
@@ -218,6 +219,36 @@ impl<N> RecordHeader<N> {
     pub fn new(name: N, rtype: Rtype, class: Class, ttl: i32, rdlen: u16)
                -> Self {
         RecordHeader { name, rtype, class, ttl, rdlen }
+    }
+
+    /// Parses a record header and then skips over the data.
+    pub fn parse_and_skip(parser: &mut Parser)
+                          -> Result<Self, RecordHeaderParseError<N::Err>>
+                          where N: Parseable {
+        let header = Self::parse(parser)?;
+        match parser.advance(header.rdlen() as usize) {
+            Ok(()) => Ok(header),
+            Err(_) => Err(RecordHeaderParseError::ShortParser),
+        }
+    }
+
+    /// Parses the remainder of the record and returns it.
+    ///
+    /// If parsing fails, the parser will be positioned at the end of the
+    /// record data.
+    pub fn parse_into_record<D: RecordData>(self, parser: &mut Parser)
+                             -> Result<Option<Record<N, D>>,
+                                       RecordParseError<ParsedDnameError,
+                                                        D::ParseErr>> {
+        let end = parser.pos() + self.rdlen as usize;
+        match D::parse(self.rtype, self.rdlen as usize, parser)
+                .map_err(RecordParseError::Data)? {
+            Some(data) => Ok(Some(self.into_record(data))),
+            None => {
+                parser.seek(end)?;
+                Ok(None)
+            }
+        }
     }
 
     /// Returns a reference to the owner of the record.
@@ -286,7 +317,7 @@ impl<N: Composable> Composable for RecordHeader<N> {
 //------------ RecordHeaderParseError ----------------------------------------
 
 #[derive(Clone, Debug)]
-pub enum RecordHeaderParseError<N> {
+pub enum RecordHeaderParseError<N=ParsedDnameError> {
     Name(N),
     ShortParser,
 }

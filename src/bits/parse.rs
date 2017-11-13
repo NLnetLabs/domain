@@ -49,6 +49,11 @@ impl Parser {
 }
 
 impl Parser {
+    /// Returns a reference to the underlying bytes.
+    pub fn as_bytes(&self) -> &Bytes {
+        &self.bytes
+    }
+
     /// Returns a reference to the underlying byte slice.
     pub fn as_slice(&self) -> &[u8] {
         self.bytes.as_ref()

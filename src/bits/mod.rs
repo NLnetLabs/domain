@@ -1,3 +1,7 @@
+// TODO:
+//
+//    o  Rename ShortParser into something more generic.
+//
 //! DNS data.
 //!
 //! This module provides types and traits for working with DNS data as well
@@ -97,6 +101,7 @@ pub use self::record::{GenericRecord, Record};
 pub mod charstr;
 pub mod compose;
 pub mod header;
+pub mod message;
 pub mod name;
 pub mod parse;
 pub mod question;
@@ -104,7 +109,6 @@ pub mod rdata;
 pub mod record;
 
 /*
-pub mod message;
 pub mod message_builder;
 pub mod opt;
 */
