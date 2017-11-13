@@ -7,6 +7,7 @@ use ::bits::compose::Composable;
 use ::bits::parse::{Parseable, Parser};
 use super::error::{DnameError, FromStrError, IndexError, RootNameError};
 use super::label::Label;
+use super::parsed::ParsedDname;
 use super::relative::{RelativeDname, DnameIter};
 use super::traits::{ToLabelIter, ToDname, ToRelativeDname};
 use super::uncertain::UncertainDname;
@@ -378,10 +379,20 @@ impl<'a> IntoIterator for &'a Dname {
 
 
 //--- PartialEq and Eq
+//
+//    XXX TODO Once specialization lands in stable, we can add a blanket
+//             impl for `ToDname`. For now, I’d rather keep the optimized
+//             versions for Dname, instead.
 
 impl PartialEq for Dname {
     fn eq(&self, other: &Self) -> bool {
         self.as_slice().eq_ignore_ascii_case(other.as_slice())
+    }
+}
+
+impl PartialEq<ParsedDname> for Dname {
+    fn eq(&self, other: &ParsedDname) -> bool {
+        self.iter().eq(other.iter())
     }
 }
 
@@ -392,6 +403,12 @@ impl Eq for Dname { }
 
 impl PartialOrd for Dname {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.iter().partial_cmp(other.iter())
+    }
+}
+
+impl PartialOrd<ParsedDname> for Dname {
+    fn partial_cmp(&self, other: &ParsedDname) -> Option<cmp::Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }

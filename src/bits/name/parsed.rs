@@ -1,5 +1,6 @@
 //! Parsed domain names.
 
+use std::cmp;
 use bytes::BufMut;
 use ::bits::compose::Composable;
 use ::bits::parse::{Parseable, Parser};
@@ -180,6 +181,48 @@ impl<'a> ToLabelIter<'a> for ParsedDname {
 }
 
 impl ToDname for ParsedDname { }
+
+
+//--- IntoIterator
+
+impl<'a> IntoIterator for &'a ParsedDname {
+    type Item = &'a Label;
+    type IntoIter = ParsedDnameIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+
+//--- PartialEq and Eq
+//
+//    XXX TODO PartialEq can be optimized for all cases where the name isn’t
+//             compressed. So, move this to separate impls for Dname and
+//             Self and have different code paths in them.
+
+impl<N: ToDname> PartialEq<N> for ParsedDname {
+    fn eq(&self, other: &N) -> bool {
+        self.iter().eq(other.iter_labels())
+    }
+}
+
+impl Eq for ParsedDname { }
+
+
+//--- PartialOrd and Ord
+
+impl<N: ToDname> PartialOrd<N> for ParsedDname {
+    fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
+        self.iter().partial_cmp(other.iter_labels())
+    }
+}
+
+impl Ord for ParsedDname {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.iter().cmp(other.iter())
+    }
+}
 
 
 //------------ ParsedDnameIter -----------------------------------------------
