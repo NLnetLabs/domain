@@ -18,7 +18,7 @@ use std::marker::PhantomData;
 use bytes::Bytes;
 use ::iana::{Rcode, Rtype};
 //use ::rdata::Cname;
-use super::header::Header;
+use super::header::{Header, HeaderCounts, HeaderSection};
 use super::name::{ParsedDname, ParsedDnameError};
 use super::parse::{Parseable, Parser, ShortParser};
 use super::question::{Question, QuestionParseError};
@@ -157,7 +157,7 @@ impl Message {
     /// function returns `Ok`, the message may still be broken with methods
     /// returning `Err(_)`.
     pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortParser> {
-        if bytes.len() < mem::size_of::<Header>() {
+        if bytes.len() < mem::size_of::<HeaderSection>() {
             Err(ShortParser)
         }
         else {
@@ -182,7 +182,12 @@ impl Message {
 impl Message {
     /// Returns a reference to the message header.
     pub fn header(&self) -> &Header {
-        Header::for_slice(self.as_slice())
+        Header::for_message_slice(self.as_slice())
+    }
+
+    /// Returns a refernce the header counts of the message.
+    pub fn header_counts(&self) -> &HeaderCounts {
+        HeaderCounts::for_message_slice(self.as_slice())
     }
 
     /// Returns whether the rcode is NoError.
@@ -262,7 +267,8 @@ impl Message {
     /// are the same.
     pub fn is_answer(&self, query: &Message) -> bool {
         if !self.header().qr()
-                || self.header().qdcount() != query.header().qdcount() {
+                || self.header_counts().qdcount()
+                        != query.header_counts().qdcount() {
             false
         }
         else { self.question().eq(query.question()) }
@@ -390,9 +396,10 @@ impl QuestionSection {
     /// Creates a new question section from a parser.
     fn new(bytes: Bytes) -> Self {
         let mut parser = Parser::from_bytes(bytes);
-        parser.advance(mem::size_of::<Header>()).unwrap();
+        parser.advance(mem::size_of::<HeaderSection>()).unwrap();
         QuestionSection {
-            count: Ok(Header::for_slice(parser.as_slice()).qdcount()),
+            count: Ok(HeaderCounts::for_message_slice(
+                                                parser.as_slice()).qdcount()),
             parser: parser,
         }
     }
@@ -463,7 +470,7 @@ impl Section {
     fn first() -> Self { Section::Answer }
 
     /// Returns the correct record count for this section.
-    fn count(&self, counts: &Header) -> u16 {
+    fn count(&self, counts: &HeaderCounts) -> u16 {
         match *self {
             Section::Answer => counts.ancount(),
             Section::Authority => counts.nscount(),
@@ -522,7 +529,8 @@ impl RecordSection {
     /// Creates a new section from a parser positioned at the section start.
     fn new(parser: Parser, section: Section) ->  Self {
         RecordSection {
-            count: Ok(section.count(Header::for_slice(parser.as_slice()))),
+            count: Ok(section.count(
+                        HeaderCounts::for_message_slice(parser.as_slice()))),
             section: section,
             parser: parser
         }

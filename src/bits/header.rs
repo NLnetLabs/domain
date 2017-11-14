@@ -55,8 +55,8 @@ use ::iana::{Opcode, Rcode};
 pub struct Header {
     /// The actual header in its wire format representation.
     ///
-    /// This means that everything is in big endian.
-    inner: [u8; 12]
+    /// This means that the ID field is in big endian.
+    inner: [u8; 4]
 }
 
 /// # Creation and Conversion
@@ -72,22 +72,22 @@ impl Header {
         Self::default()
     }
 
-    /// Creates a header reference from a bytes slice of a message.
+    /// Creates a header reference from a byte slice of a message.
     ///
     /// # Panics
     ///
     /// This function panics if the bytes slice is too short.
-    pub fn for_slice(s: &[u8]) -> &Header {
+    pub fn for_message_slice(s: &[u8]) -> &Header {
         assert!(s.len() >= mem::size_of::<Header>());
         unsafe { &*(s.as_ptr() as *const Header) }
     }
 
-    /// Creates a mutable header reference from a bytes slice of a message.
+    /// Creates a mutable header reference from a byte slice of a message.
     ///
     /// # Panics
     ///
     /// This function panics if the bytes slice is too short.
-    pub fn for_slice_mut(s: &mut [u8]) -> &mut Header {
+    pub fn for_message_slice_mut(s: &mut [u8]) -> &mut Header {
         assert!(s.len() >= mem::size_of::<Header>());
         unsafe { &mut *(s.as_ptr() as *mut Header) }
     }
@@ -236,6 +236,100 @@ impl Header {
     }
 
 
+    //--- Internal helpers
+
+    /// Returns the value of the bit at the given position.
+    ///
+    /// The argument `offset` gives the byte offset of the underlying bytes
+    /// slice and `bit` gives the number of the bit with the most significant
+    /// bit being 7.
+    fn get_bit(&self, offset: usize, bit: usize) -> bool {
+        self.inner[offset] & (1 << bit) != 0
+    }
+
+    /// Sets or resets the given bit.
+    fn set_bit(&mut self, offset: usize, bit: usize, set: bool) {
+        if set { self.inner[offset] |= 1 << bit }
+        else { self.inner[offset] &= !(1 << bit) }
+    }
+} 
+
+
+//------------ HeaderCounts -------------------------------------------------
+
+/// The section count part of the header section of a DNS message.
+///
+/// This part consists of four 16 bit counters for the number of entries in
+/// the four sections of a DNS message.
+///
+/// The counters are arranged in the same order as the sections themselves:
+/// QDCOUNT for the question section, ANCOUNT for the answer section,
+/// NSCOUNT for the authority section, and ARCOUNT for the additional section.
+/// These are defined in [RFC 1035].
+///
+/// [RFC 2136] defines the UPDATE method and reuses the four section for
+/// different purposes. Here the counters are ZOCOUNT for the zone section,
+/// PRCOUNT for the prerequisite section, UPCOUNT for the update section,
+/// and ADCOUNT for the additional section. The type has convenience methods
+/// for these fields as well so you don’t have to remember which is which.
+///
+/// For each field there are three methods for getting, setting, and
+/// incrementing.
+///
+/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+/// [RFC 2136]: https://tools.ietf.org/html/rfc2136
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HeaderCounts {
+    /// The actual headers in their wire-format representation.
+    ///
+    /// Ie., all values are stored big endian.
+    inner: [u8; 8]
+}
+
+/// # Creation and Conversion
+///
+impl HeaderCounts {
+    /// Creates a new value with all counters set to zero.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a header reference from a byte slice of a message.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the bytes slice is too short.
+    pub fn for_message_slice(s: &[u8]) -> &Self {
+        assert!(s.len() >= mem::size_of::<HeaderSection>());
+        unsafe {
+            &*((s[mem::size_of::<Header>()..].as_ptr())
+                                                      as *const HeaderCounts)
+        }
+    }
+
+    /// Creates a mutable header reference from a bytes slice of a message.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the bytes slice is too short.
+    pub fn for_message_slice_mut(s: &mut [u8]) -> &mut Self {
+        assert!(s.len() >= mem::size_of::<HeaderSection>());
+        unsafe {
+            &mut *((s[mem::size_of::<Header>()..].as_ptr())
+                                                         as *mut HeaderCounts)
+        }
+    }
+
+    /// Returns a reference to the underlying byte slice.
+    pub fn as_slice(&self) -> &[u8] {
+        &self.inner
+    }
+}
+
+
+/// # Field Access
+///
+impl HeaderCounts {
     //--- Count fields in regular messages
 
     /// Returns the value of the QDCOUNT field.
@@ -243,12 +337,12 @@ impl Header {
     /// This field contains the number of questions in the first
     /// section of the message, normally the question section.
     pub fn qdcount(&self) -> u16 {
-        self.get_u16(4)
+        self.get_u16(0)
     }
 
     /// Sets the value of the QDCOUNT field.
     pub fn set_qdcount(&mut self, value: u16) {
-        self.set_u16(4, value)
+        self.set_u16(0, value)
     }
 
     /// Returns the value of the ANCOUNT field.
@@ -256,12 +350,12 @@ impl Header {
     /// This field contains the number of resource records in the second
     /// section of the message, normally the answer section.
     pub fn ancount(&self) -> u16 {
-        self.get_u16(6)
+        self.get_u16(2)
     }
 
     /// Sets the value of the ANCOUNT field.
     pub fn set_ancount(&mut self, value: u16) {
-        self.set_u16(6, value)
+        self.set_u16(2, value)
     }
 
     /// Returns the value of the NSCOUNT field.
@@ -269,12 +363,12 @@ impl Header {
     /// This field contains the number of resource records in the third
     /// section of the message, normally the authority section.
     pub fn nscount(&self) -> u16 {
-        self.get_u16(8)
+        self.get_u16(4)
     }
 
     /// Sets the value of the NSCOUNT field.
     pub fn set_nscount(&mut self, value: u16) {
-        self.set_u16(8, value)
+        self.set_u16(4, value)
     }
 
     /// Returns the value of the ARCOUNT field.
@@ -282,12 +376,12 @@ impl Header {
     /// This field contains the number of resource records in the fourth
     /// section of the message, normally the additional section.
     pub fn arcount(&self) -> u16 {
-        self.get_u16(10)
+        self.get_u16(6)
     }
 
     /// Sets the value of the ARCOUNT field.
     pub fn set_arcount(&mut self, value: u16) {
-        self.set_u16(10, value)
+        self.set_u16(6, value)
     }
 
 
@@ -344,25 +438,10 @@ impl Header {
     pub fn set_adcount(&mut self, value: u16) {
         self.set_arcount(value)
     }
-
+   
 
     //--- Internal helpers
 
-    /// Returns the value of the bit at the given position.
-    ///
-    /// The argument `offset` gives the byte offset of the underlying bytes
-    /// slice and `bit` gives the number of the bit with the most significant
-    /// bit being 7.
-    fn get_bit(&self, offset: usize, bit: usize) -> bool {
-        self.inner[offset] & (1 << bit) != 0
-    }
-
-    /// Sets or resets the given bit.
-    fn set_bit(&mut self, offset: usize, bit: usize, set: bool) {
-        if set { self.inner[offset] |= 1 << bit }
-        else { self.inner[offset] &= !(1 << bit) }
-    }
-    
     /// Returns the value of the 16 bit integer starting at a given offset.
     fn get_u16(&self, offset: usize) -> u16 {
         BigEndian::read_u16(&self.inner[offset..])
@@ -371,6 +450,78 @@ impl Header {
     /// Sets the value of the 16 bit integer starting at a given offset.
     fn set_u16(&mut self, offset: usize, value: u16) {
         BigEndian::write_u16(&mut self.inner[offset..], value)
+    }
+}
+
+
+//------------ HeaderSection -------------------------------------------------
+
+/// The complete header section of a DNS message.
+///
+/// Consists of a `Header` and a `HeaderCounts`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HeaderSection {
+    inner: [u8; 12]
+}
+
+/// # Creation and Conversion
+///
+impl HeaderSection {
+    /// Creates a new empty header section.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a reference from the bytes slice of a message.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the size of the bytes slice is smaller than
+    /// the header section.
+    pub fn for_message_slice(s: &[u8]) -> &HeaderSection {
+        assert!(s.len() >= mem::size_of::<HeaderSection>());
+        unsafe { &*(s.as_ptr() as *const HeaderSection) }
+    }
+
+    /// Creates a mutable reference from the bytes slice of a message.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the size of the bytes slice is smaller than
+    /// the header section.
+    pub fn for_message_slice_mut(s: &mut [u8]) -> &mut HeaderSection {
+        assert!(s.len() >= mem::size_of::<HeaderSection>());
+        unsafe { &mut *(s.as_ptr() as *mut HeaderSection) }
+    }
+
+    /// Returns a reference to the underlying bytes slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner
+    }
+}
+
+
+/// # Access to Header and Counts
+///
+impl HeaderSection {
+    /// Returns a reference to the header.
+    pub fn header(&self) -> &Header {
+        Header::for_message_slice(&self.inner)
+    }
+
+    /// Returns a mutable reference to the header.
+    pub fn header_mut(&mut self) -> &mut Header {
+        Header::for_message_slice_mut(&mut self. inner)
+    }
+
+    /// Returns a reference to the header counts.
+    pub fn counts(&self) -> &HeaderCounts {
+        HeaderCounts::for_message_slice(&self.inner)
+    }
+
+    /// Returns a mutable reference to the header counts.
+    pub fn counts_mut(&mut self) -> &mut HeaderCounts {
+        HeaderCounts::for_message_slice_mut(&mut self.inner)
     }
 }
 
