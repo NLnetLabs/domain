@@ -1,8 +1,8 @@
 use bytes::BufMut;
 use ::iana::{Class, Rtype};
-use super::compose::Composable;
-use super::name::{ParsedDname, ParsedDnameError, ToDname};
-use super::parse::{Parseable, Parser};
+use super::compose::{Composable, Compressable, Compressor};
+use super::name::{ParsedDname, ParsedDnameError};
+use super::parse::{Parseable, Parser, ShortParser};
 
 
 //------------ Question ------------------------------------------------------
@@ -44,7 +44,7 @@ impl<N> Question<N> {
 }
 
 
-//--- Parseable and Composable
+//--- Parseable, Composable, and Compressable
 
 impl<N: Parseable> Parseable for Question<N> {
     type Err = QuestionParseError<N::Err>;
@@ -60,16 +60,24 @@ impl<N: Parseable> Parseable for Question<N> {
     }
 }
 
-impl<N: ToDname> Question<N> {
-    pub fn compose_len(&self) -> usize {
+impl<N: Composable> Composable for Question<N> {
+    fn compose_len(&self) -> usize {
         self.qname.compose_len() + self.qtype.compose_len()
             + self.qclass.compose_len()
     }
 
-    pub fn compose<B: BufMut>(&self, buf: &mut B) {
+    fn compose<B: BufMut>(&self, buf: &mut B) {
         self.qname.compose(buf);
         self.qtype.compose(buf);
         self.qclass.compose(buf);
+    }
+}
+
+impl<N: Compressable> Compressable for Question<N> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+        self.qname.compress(buf)?;
+        buf.compose(&self.qtype)?;
+        buf.compose(&self.qclass)
     }
 }
 

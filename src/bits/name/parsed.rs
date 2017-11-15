@@ -2,8 +2,8 @@
 
 use std::cmp;
 use bytes::BufMut;
-use ::bits::compose::Composable;
-use ::bits::parse::{Parseable, Parser};
+use ::bits::compose::{Composable, Compressable, Compressor};
+use ::bits::parse::{Parseable, Parser, ShortParser};
 use super::error::{LabelTypeError, ParsedDnameError};
 use super::label::Label;
 use super::traits::{ToLabelIter, ToDname};
@@ -68,7 +68,7 @@ impl ParsedDname {
 }
 
 
-//--- Parseable and Composable
+//--- Parseable, Composable, and Compressable
 
 impl Parseable for ParsedDname {
     type Err = ParsedDnameError;
@@ -166,6 +166,12 @@ impl Composable for ParsedDname {
         for label in self.iter() {
             label.compose(buf)
         }
+    }
+}
+
+impl Compressable for ParsedDname {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+        buf.compose_name(self)
     }
 }
 

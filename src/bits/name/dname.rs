@@ -3,8 +3,8 @@
 use std::{cmp, fmt, hash, ops, str};
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes};
-use ::bits::compose::Composable;
-use ::bits::parse::{Parseable, Parser};
+use ::bits::compose::{Composable, Compressable, Compressor};
+use ::bits::parse::{Parseable, Parser, ShortParser};
 use super::error::{DnameError, FromStrError, IndexError, RootNameError};
 use super::label::Label;
 use super::parsed::ParsedDname;
@@ -126,6 +126,15 @@ impl Dname {
     }
 }
 
+/// # Properties
+///
+impl Dname {
+    /// Returns whether the name is the root label only.
+    pub fn is_root(&self) -> bool {
+        self.len() == 1
+    }
+}
+
 
 /// # Working with Labels
 ///
@@ -133,6 +142,15 @@ impl Dname {
     /// Returns an iterator over the labels of the domain name.
     pub fn iter(&self) -> DnameIter {
         DnameIter::new(self.bytes.as_ref())
+    }
+
+    /// Returns an iterator over the suffixes of the name.
+    ///
+    /// The returned iterator starts with the full name and then for each
+    /// additional step returns a name with the left-most label stripped off
+    /// until it reaches the root label.
+    pub fn iter_suffixes(&self) -> SuffixIter {
+        SuffixIter::new(self)
     }
 
     /// Returns the number of labels in the domain name.
@@ -314,6 +332,12 @@ impl Composable for Dname {
     }
 }
 
+impl Compressable for Dname {
+    fn compress(&self, compressor: &mut Compressor) -> Result<(), ShortParser> {
+        compressor.compose_name(self)
+    }
+}
+
 
 //--- FromStr
 
@@ -451,6 +475,37 @@ impl fmt::Display for Dname {
 impl fmt::Debug for Dname {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Dname({})", self)
+    }
+}
+
+
+//------------ SuffixIter ----------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct SuffixIter {
+    name: Option<Dname>,
+}
+
+impl SuffixIter {
+    fn new(name: &Dname) -> Self {
+        SuffixIter {
+            name: Some(name.clone())
+        }
+    }
+}
+
+impl Iterator for SuffixIter {
+    type Item = Dname;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (res, ok) = match self.name {
+            Some(ref mut name) => (name.clone(), name.parent().is_ok()),
+            None => return None
+        };
+        if !ok {
+            self.name = None
+        }
+        Some(res)
     }
 }
 

@@ -2,7 +2,8 @@
 //!
 use std::iter;
 use bytes::BufMut;
-use ::bits::compose::Composable;
+use ::bits::compose::{Composable, Compressable, Compressor};
+use ::bits::parse::ShortParser;
 use super::error::LongNameError;
 use super::label::Label;
 use super::traits::{ToLabelIter, ToRelativeDname, ToDname};
@@ -83,6 +84,12 @@ impl<L: Composable, R: Composable> Composable for Chain<L, R> {
     fn compose<B: BufMut>(&self, buf: &mut B) {
         self.left.compose(buf);
         self.right.compose(buf)
+    }
+}
+
+impl<L: ToRelativeDname, R: ToDname> Compressable for Chain<L, R> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+        buf.compose_name(self)
     }
 }
 

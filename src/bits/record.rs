@@ -8,9 +8,9 @@
 //! [`GenericRecord`]: type.GenericRecord.html
 
 use std::fmt;
-use bytes::BufMut;
+use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Class, Rtype};
-use super::compose::Composable;
+use super::compose::{Composable, Compressable, Compressor};
 use super::name::{ParsedDname, ParsedDnameError};
 use super::parse::{Parseable, Parser, ShortParser};
 use super::rdata::RecordData;
@@ -139,7 +139,7 @@ impl<N, D> Record<N, D> {
 }
 
 
-//--- Parsable and Composable
+//--- Parsable, Composable, and Compressor
 
 impl<N: Parseable, D: RecordData> Parseable for Option<Record<N, D>> {
     type Err = RecordParseError<N::Err, D::ParseErr>;
@@ -171,6 +171,23 @@ impl<N: Composable, D: RecordData> Composable for Record<N, D> {
                           (self.data.compose_len() as u16))
                      .compose(buf);
         self.data.compose(buf);
+    }
+}
+
+impl<N: Compressable, D: RecordData + Compressable> Compressable
+            for Record<N, D> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+        self.name.compress(buf)?;
+        buf.compose(&self.rtype())?;
+        buf.compose(&self.class)?;
+        buf.compose(&self.ttl)?;
+        let pos = buf.len();
+        buf.compose(&0u16)?;
+        self.data.compress(buf)?;
+        let len = buf.len() - pos - 2;
+        assert!(len <= (::std::u16::MAX as usize));
+        BigEndian::write_u16(&mut buf.as_slice_mut()[pos..], len as u16);
+        Ok(())
     }
 }
 
@@ -283,7 +300,7 @@ impl<N> RecordHeader<N> {
 }
 
 
-//--- Parseable and Composable
+//--- Parseable, Composable, and Compressable
 
 impl<N: Parseable> Parseable for RecordHeader<N> {
     type Err = RecordHeaderParseError<N::Err>;
@@ -310,6 +327,16 @@ impl<N: Composable> Composable for RecordHeader<N> {
         self.class.compose(buf);
         self.ttl.compose(buf);
         self.rdlen.compose(buf);
+    }
+}
+
+impl<N: Compressable> Compressable for RecordHeader<N> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+        self.name.compress(buf)?;
+        buf.compose(&self.rtype)?;
+        buf.compose(&self.class)?;
+        buf.compose(&self.ttl)?;
+        buf.compose(&self.rdlen)
     }
 }
 
