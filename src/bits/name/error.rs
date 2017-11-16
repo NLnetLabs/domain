@@ -5,7 +5,7 @@
 
 use std::{error, fmt};
 use bytes::Bytes;
-use ::bits::parse::ShortParser;
+use ::bits::error::ShortBuf;
 use super::label::Label;
 
 
@@ -33,8 +33,8 @@ pub enum DnameError {
     RelativeName,
 }
 
-impl From<ShortParser> for DnameError {
-    fn from(_: ShortParser) -> Self {
+impl From<ShortBuf> for DnameError {
+    fn from(_: ShortBuf) -> Self {
         DnameError::ShortData
     }
 }
@@ -273,7 +273,7 @@ impl fmt::Display for LongNameError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParsedDnameError {
     /// The parser ended before the name.
-    ShortParser,
+    ShortBuf,
 
     /// A bad label was encountered.
     BadLabel(LabelTypeError),
@@ -282,9 +282,9 @@ pub enum ParsedDnameError {
     LongName,
 }
 
-impl From<ShortParser> for ParsedDnameError {
-    fn from(_: ShortParser) -> ParsedDnameError {
-        ParsedDnameError::ShortParser
+impl From<ShortBuf> for ParsedDnameError {
+    fn from(_: ShortBuf) -> ParsedDnameError {
+        ParsedDnameError::ShortBuf
     }
 }
 
@@ -297,7 +297,7 @@ impl From<LabelTypeError> for ParsedDnameError {
 impl error::Error for ParsedDnameError {
     fn description(&self) -> &str {
         match *self {
-            ParsedDnameError::ShortParser => ShortParser.description(),
+            ParsedDnameError::ShortBuf => ShortBuf.description(),
             ParsedDnameError::BadLabel(ref err) => err.description(),
             ParsedDnameError::LongName => LongNameError.description(),
         }

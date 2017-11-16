@@ -17,8 +17,8 @@
 use std::ops;
 use std::collections::HashMap;
 use bytes::{BigEndian, BufMut, BytesMut};
+use super::error::ShortBuf;
 use super::name::{Dname, Label, ToDname};
-use super::parse::ShortParser;
 
 
 //------------ Composable ----------------------------------------------------
@@ -112,7 +112,7 @@ impl Composable for u32 {
 //------------ Compressable --------------------------------------------------
 
 pub trait Compressable {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser>;
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf>;
 }
 
 
@@ -140,7 +140,7 @@ impl Compressor {
 
     /// Composes a the given name compressed into the buffer.
     pub fn compose_name<N: ToDname>(&mut self, name: &N)
-                                    -> Result<(), ShortParser> {
+                                    -> Result<(), ShortBuf> {
         let mut name = name.to_name();
         while !name.is_root() {
             if let Some(pos) = self.get_pos(&name) {
@@ -159,18 +159,18 @@ impl Compressor {
     }
 
     fn compose_compress_target(&mut self, pos: u16)
-                               -> Result<(), ShortParser> {
+                               -> Result<(), ShortBuf> {
         if self.buf.remaining_mut() < 2 {
-            return Err(ShortParser)
+            return Err(ShortBuf)
         }
         (pos | 0xC000).compose(&mut self.buf);
         Ok(())
     }
 
-    pub fn compose<C>(&mut self, what: &C) -> Result<(), ShortParser>
+    pub fn compose<C>(&mut self, what: &C) -> Result<(), ShortBuf>
                    where C: Composable + ?Sized {
         if self.buf.remaining_mut() < what.compose_len() {
-            return Err(ShortParser)
+            return Err(ShortBuf)
         }
         what.compose(&mut self.buf);
         Ok(())

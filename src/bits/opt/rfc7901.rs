@@ -2,8 +2,9 @@
 
 use bytes::BufMut;
 use ::bits::compose::Composable;
+use ::bits::error::ShortBuf;
 use ::bits::name::{Dname, DnameError};
-use ::bits::parse::{Parser, ShortParser};
+use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::OptData;
 
@@ -69,8 +70,8 @@ impl From<DnameError> for ChainParseError {
     }
 }
 
-impl From<ShortParser> for ChainParseError {
-    fn from(_: ShortParser) -> ChainParseError {
+impl From<ShortBuf> for ChainParseError {
+    fn from(_: ShortBuf) -> ChainParseError {
         ChainParseError::ShortBuf
     }
 }

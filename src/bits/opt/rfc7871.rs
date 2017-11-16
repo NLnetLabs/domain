@@ -4,7 +4,8 @@ use std::mem;
 use std::net::IpAddr;
 use bytes::BufMut;
 use ::bits::compose::Composable;
-use ::bits::parse::{Parser, ShortParser};
+use ::bits::error::ShortBuf;
+use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::OptData;
 
@@ -112,8 +113,8 @@ pub enum OptionParseError {
     ShortBuf,
 }
 
-impl From<ShortParser> for OptionParseError {
-    fn from(_: ShortParser) -> Self {
+impl From<ShortBuf> for OptionParseError {
+    fn from(_: ShortBuf) -> Self {
         OptionParseError::ShortBuf
     }
 }

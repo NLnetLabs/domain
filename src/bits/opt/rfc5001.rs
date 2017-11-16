@@ -3,7 +3,8 @@
 use std::fmt;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
-use ::bits::parse::{Parser, ShortParser};
+use ::bits::error::ShortBuf;
+use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::OptData;
 
@@ -25,7 +26,7 @@ impl Nsid {
 }
 
 impl OptData for Nsid {
-    type ParseErr = ShortParser;
+    type ParseErr = ShortBuf;
 
     fn code(&self) -> OptionCode {
         OptionCode::Nsid

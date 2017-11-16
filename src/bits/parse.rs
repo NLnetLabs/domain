@@ -6,8 +6,8 @@
 //!
 //! [`Parser`]: struct.Parser.html
 //! [`Parseable`]: trait.Parseable.html
-use std::{error, fmt};
 use bytes::{BigEndian, ByteOrder, Bytes};
+use super::error::ShortBuf;
 
 
 //------------ Parser --------------------------------------------------------
@@ -24,7 +24,7 @@ use bytes::{BigEndian, ByteOrder, Bytes};
 /// the raw, underlying bytes.
 ///
 /// The methods of a parser never panic if you try to go beyond the end of
-/// the parser’s data. Instead, they will return a [`ShortParser`] error,
+/// the parser’s data. Instead, they will return a [`ShortBuf`] error,
 /// making it more straightforward to implement a complex parser.
 ///
 /// Parsers are `Clone`, so you can keep around a copy of a parser for later
@@ -34,7 +34,7 @@ use bytes::{BigEndian, ByteOrder, Bytes};
 /// [`from_bytes()`]: #method.from_bytes
 /// [`Bytes`]: ../../../bytes/struct.Bytes.html
 /// [`ParsedFqdn`]: ../name/struct.ParsedFqdn.html
-/// [`ShortParser`]: ../struct.ShortParser.html
+/// [`ShortBuf`]: ../struct.ShortBuf.html
 #[derive(Clone, Debug)]
 pub struct Parser {
     bytes: Bytes,
@@ -78,7 +78,7 @@ impl Parser {
     }
 
     /// Returns a reference to a slice of the bytes left to parse.
-    pub fn peek(&self, len: usize) -> Result<&[u8], ShortParser> {
+    pub fn peek(&self, len: usize) -> Result<&[u8], ShortBuf> {
         self.check_len(len)?;
         Ok(self.peek_all())
     }
@@ -91,9 +91,9 @@ impl Parser {
     ///
     /// If `pos` is larger than the length of the parser, an error is
     /// returned.
-    pub fn seek(&mut self, pos: usize) -> Result<(), ShortParser> {
+    pub fn seek(&mut self, pos: usize) -> Result<(), ShortBuf> {
         if pos > self.bytes.len() {
-            Err(ShortParser)
+            Err(ShortBuf)
         }
         else {
             self.pos = pos;
@@ -104,9 +104,9 @@ impl Parser {
     /// Advances the parser‘s position by `len` bytes.
     ///
     /// If this would take the parser beyond its end, an error is returned.
-    pub fn advance(&mut self, len: usize) -> Result<(), ShortParser> {
+    pub fn advance(&mut self, len: usize) -> Result<(), ShortBuf> {
         if len > self.remaining() {
-            Err(ShortParser)
+            Err(ShortBuf)
         }
         else {
             self.pos += len;
@@ -117,9 +117,9 @@ impl Parser {
     /// Checks that there are `len` bytes left to parse.
     ///
     /// If there aren’t, returns an error.
-    pub fn check_len(&self, len: usize) -> Result<(), ShortParser> {
+    pub fn check_len(&self, len: usize) -> Result<(), ShortBuf> {
         if self.remaining() < len {
-            Err(ShortParser)
+            Err(ShortBuf)
         }
         else {
             Ok(())
@@ -130,10 +130,10 @@ impl Parser {
     ///
     /// Advances the parser by `len` bytes. If there aren’t enough bytes left,
     /// leaves the parser untouched and returns an error, instead.
-    pub fn parse_bytes(&mut self, len: usize) -> Result<Bytes, ShortParser> {
+    pub fn parse_bytes(&mut self, len: usize) -> Result<Bytes, ShortBuf> {
         let end = self.pos + len;
         if end > self.bytes.len() {
-            return Err(ShortParser.into())
+            return Err(ShortBuf.into())
         }
         let res = self.bytes.slice(self.pos, end);
         self.pos = end;
@@ -144,7 +144,7 @@ impl Parser {
     ///
     /// Advances the parser by one byte. If there aren’t enough bytes left,
     /// leaves the parser untouched and returns an error, instead.
-    pub fn parse_i8(&mut self) -> Result<i8, ShortParser> {
+    pub fn parse_i8(&mut self) -> Result<i8, ShortBuf> {
         let res = self.peek(1)?[0] as i8;
         self.pos += 1;
         Ok(res)
@@ -154,7 +154,7 @@ impl Parser {
     ///
     /// Advances the parser by one byte. If there aren’t enough bytes left,
     /// leaves the parser untouched and returns an error, instead.
-    pub fn parse_u8(&mut self) -> Result<u8, ShortParser> {
+    pub fn parse_u8(&mut self) -> Result<u8, ShortBuf> {
         let res = self.peek(1)?[0];
         self.pos += 1;
         Ok(res)
@@ -166,7 +166,7 @@ impl Parser {
     /// byte order if necessary. The parser is advanced by two bytes. If there
     /// aren’t enough bytes left, leaves the parser untouched and returns an
     /// error, instead.
-    pub fn parse_i16(&mut self) -> Result<i16, ShortParser> {
+    pub fn parse_i16(&mut self) -> Result<i16, ShortBuf> {
         let res = BigEndian::read_i16(self.peek(2)?);
         self.pos += 2;
         Ok(res)
@@ -178,7 +178,7 @@ impl Parser {
     /// byte order if necessary. The parser is advanced by two bytes. If there
     /// aren’t enough bytes left, leaves the parser untouched and returns an
     /// error, instead.
-    pub fn parse_u16(&mut self) -> Result<u16, ShortParser> {
+    pub fn parse_u16(&mut self) -> Result<u16, ShortBuf> {
         let res = BigEndian::read_u16(self.peek(2)?);
         self.pos += 2;
         Ok(res)
@@ -190,7 +190,7 @@ impl Parser {
     /// byte order if necessary. The parser is advanced by four bytes. If
     /// there aren’t enough bytes left, leaves the parser untouched and
     /// returns an error, instead.
-    pub fn parse_i32(&mut self) -> Result<i32, ShortParser> {
+    pub fn parse_i32(&mut self) -> Result<i32, ShortBuf> {
         let res = BigEndian::read_i32(self.peek(4)?);
         self.pos += 4;
         Ok(res)
@@ -202,7 +202,7 @@ impl Parser {
     /// byte order if necessary. The parser is advanced by four bytes. If
     /// there aren’t enough bytes left, leaves the parser untouched and
     /// returns an error, instead.
-    pub fn parse_u32(&mut self) -> Result<u32, ShortParser> {
+    pub fn parse_u32(&mut self) -> Result<u32, ShortBuf> {
         let res = BigEndian::read_u32(self.peek(4)?);
         self.pos += 4;
         Ok(res)
@@ -235,63 +235,44 @@ pub trait Parseable: Sized {
 }
 
 impl Parseable for i8 {
-    type Err = ShortParser;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
+    type Err = ShortBuf;
+    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_i8()
     }
 }
 
 impl Parseable for u8 {
-    type Err = ShortParser;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
+    type Err = ShortBuf;
+    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_u8()
     }
 }
 
 impl Parseable for i16 {
-    type Err = ShortParser;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
+    type Err = ShortBuf;
+    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_i16()
     }
 }
 
 impl Parseable for u16 {
-    type Err = ShortParser;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
+    type Err = ShortBuf;
+    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_u16()
     }
 }
 
 impl Parseable for i32 {
-    type Err = ShortParser;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
+    type Err = ShortBuf;
+    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_i32()
     }
 }
 
 impl Parseable for u32 {
-    type Err = ShortParser;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
+    type Err = ShortBuf;
+    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_u32()
-    }
-}
-
-
-//------------ ShortParser ---------------------------------------------------
-
-/// An attempt was made to go beyond the end of a parser.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ShortParser;
-
-impl error::Error for ShortParser {
-    fn description(&self) -> &str {
-        "unexpected end of data"
-    }
-}
-
-impl fmt::Display for ShortParser {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        error::Error::description(self).fmt(f)
     }
 }
 

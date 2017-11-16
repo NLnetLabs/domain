@@ -1,8 +1,9 @@
 use bytes::BufMut;
 use ::iana::{Class, Rtype};
 use super::compose::{Composable, Compressable, Compressor};
+use super::error::ShortBuf;
 use super::name::{ParsedDname, ParsedDnameError};
-use super::parse::{Parseable, Parser, ShortParser};
+use super::parse::{Parseable, Parser};
 
 
 //------------ Question ------------------------------------------------------
@@ -53,9 +54,9 @@ impl<N: Parseable> Parseable for Question<N> {
         Ok(Question::new(
             N::parse(parser).map_err(QuestionParseError::Name)?,
             Rtype::parse(parser)
-                  .map_err(|_| QuestionParseError::ShortParser)?,
+                  .map_err(|_| QuestionParseError::ShortBuf)?,
             Class::parse(parser)
-                  .map_err(|_| QuestionParseError::ShortParser)?
+                  .map_err(|_| QuestionParseError::ShortBuf)?
         ))
     }
 }
@@ -74,7 +75,7 @@ impl<N: Composable> Composable for Question<N> {
 }
 
 impl<N: Compressable> Compressable for Question<N> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         self.qname.compress(buf)?;
         buf.compose(&self.qtype)?;
         buf.compose(&self.qclass)
@@ -87,6 +88,6 @@ impl<N: Compressable> Compressable for Question<N> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QuestionParseError<N=ParsedDnameError> {
     Name(N),
-    ShortParser,
+    ShortBuf,
 }
 

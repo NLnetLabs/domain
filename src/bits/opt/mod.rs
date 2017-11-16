@@ -10,7 +10,8 @@ use bytes::{BufMut, Bytes};
 use std::marker::PhantomData;
 use ::iana::{OptionCode, Rtype};
 use super::compose::{Composable, Compressable, Compressor};
-use super::parse::{Parser, ShortParser};
+use super::error::ShortBuf;
+use super::parse::Parser;
 use super::rdata::RecordData;
 
 
@@ -33,7 +34,7 @@ pub struct Opt {
 }
 
 impl Opt {
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortParser> {
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortBuf> {
         let mut parser = Parser::from_bytes(bytes);
         while parser.remaining() > 0 {
             parser.advance(2)?;
@@ -49,7 +50,7 @@ impl Opt {
 }
 
 impl RecordData for Opt {
-    type ParseErr = ShortParser;
+    type ParseErr = ShortBuf;
 
     fn rtype(&self) -> Rtype {
         Rtype::Opt
@@ -75,7 +76,7 @@ impl Composable for Opt {
 }
 
 impl Compressable for Opt {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose(self)
     }
 }
@@ -139,8 +140,8 @@ pub enum OptionParseError {
     ShortBuf,
 }
 
-impl From<ShortParser> for OptionParseError {
-    fn from(_: ShortParser) -> Self {
+impl From<ShortBuf> for OptionParseError {
+    fn from(_: ShortBuf) -> Self {
         OptionParseError::ShortBuf
     }
 }

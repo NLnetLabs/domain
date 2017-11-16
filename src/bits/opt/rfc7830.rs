@@ -3,7 +3,8 @@
 use bytes::BufMut;
 use rand::random;
 use ::bits::compose::Composable;
-use ::bits::parse::{Parser, ShortParser};
+use ::bits::error::ShortBuf;
+use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::OptData;
 
@@ -62,7 +63,7 @@ impl Composable for Padding {
 }
 
 impl OptData for Padding {
-    type ParseErr = ShortParser;
+    type ParseErr = ShortBuf;
 
     fn code(&self) -> OptionCode {
         OptionCode::Padding

@@ -3,7 +3,8 @@
 use std::slice;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
-use ::bits::parse::{Parser, ShortParser};
+use ::bits::error::ShortBuf;
+use ::bits::parse::Parser;
 use ::iana::{OptionCode, SecAlg};
 use super::OptData;
 
@@ -40,7 +41,7 @@ macro_rules! option_type {
         }
         
         impl OptData for $name {
-            type ParseErr = ShortParser;
+            type ParseErr = ShortBuf;
 
             fn code(&self) -> OptionCode {
                 OptionCode::$name

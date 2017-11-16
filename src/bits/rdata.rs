@@ -28,7 +28,8 @@ use std::fmt;
 use bytes::{BufMut, Bytes};
 use ::iana::Rtype;
 use super::compose::Composable;
-use super::parse::{Parser, ShortParser};
+use super::error::ShortBuf;
+use super::parse::Parser;
 
 
 //----------- RecordData -----------------------------------------------------
@@ -112,7 +113,7 @@ impl Composable for UnknownRecordData {
 }
 
 impl RecordData for UnknownRecordData {
-    type ParseErr = ShortParser;
+    type ParseErr = ShortBuf;
 
     fn rtype(&self) -> Rtype {
         self.rtype

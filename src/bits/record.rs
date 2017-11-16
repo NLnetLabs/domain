@@ -11,8 +11,9 @@ use std::fmt;
 use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Class, Rtype};
 use super::compose::{Composable, Compressable, Compressor};
+use super::error::ShortBuf;
 use super::name::{ParsedDname, ParsedDnameError};
-use super::parse::{Parseable, Parser, ShortParser};
+use super::parse::{Parseable, Parser};
 use super::rdata::RecordData;
 
 
@@ -176,7 +177,7 @@ impl<N: Composable, D: RecordData> Composable for Record<N, D> {
 
 impl<N: Compressable, D: RecordData + Compressable> Compressable
             for Record<N, D> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         self.name.compress(buf)?;
         buf.compose(&self.rtype())?;
         buf.compose(&self.class)?;
@@ -245,7 +246,7 @@ impl<N> RecordHeader<N> {
         let header = Self::parse(parser)?;
         match parser.advance(header.rdlen() as usize) {
             Ok(()) => Ok(header),
-            Err(_) => Err(RecordHeaderParseError::ShortParser),
+            Err(_) => Err(RecordHeaderParseError::ShortBuf),
         }
     }
 
@@ -331,7 +332,7 @@ impl<N: Composable> Composable for RecordHeader<N> {
 }
 
 impl<N: Compressable> Compressable for RecordHeader<N> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         self.name.compress(buf)?;
         buf.compose(&self.rtype)?;
         buf.compose(&self.class)?;
@@ -346,12 +347,12 @@ impl<N: Compressable> Compressable for RecordHeader<N> {
 #[derive(Clone, Debug)]
 pub enum RecordHeaderParseError<N=ParsedDnameError> {
     Name(N),
-    ShortParser,
+    ShortBuf,
 }
 
-impl<N> From<ShortParser> for RecordHeaderParseError<N> {
-    fn from(_: ShortParser) -> Self {
-        RecordHeaderParseError::ShortParser
+impl<N> From<ShortBuf> for RecordHeaderParseError<N> {
+    fn from(_: ShortBuf) -> Self {
+        RecordHeaderParseError::ShortBuf
     }
 }
 
@@ -362,21 +363,21 @@ impl<N> From<ShortParser> for RecordHeaderParseError<N> {
 pub enum RecordParseError<N, D> {
     Name(N),
     Data(D),
-    ShortParser,
+    ShortBuf,
 }
 
 impl<N, D> From<RecordHeaderParseError<N>> for RecordParseError<N, D> {
     fn from(err: RecordHeaderParseError<N>) -> Self {
         match err {
             RecordHeaderParseError::Name(err) => RecordParseError::Name(err),
-            RecordHeaderParseError::ShortParser => RecordParseError::ShortParser
+            RecordHeaderParseError::ShortBuf => RecordParseError::ShortBuf
         }
     }
 }
 
-impl<N, D> From<ShortParser> for RecordParseError<N, D> {
-    fn from(_: ShortParser) -> Self {
-        RecordParseError::ShortParser
+impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
+    fn from(_: ShortBuf) -> Self {
+        RecordParseError::ShortBuf
     }
 }
 

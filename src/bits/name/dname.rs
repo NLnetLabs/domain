@@ -4,7 +4,8 @@ use std::{cmp, fmt, hash, ops, str};
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::{Composable, Compressable, Compressor};
-use ::bits::parse::{Parseable, Parser, ShortParser};
+use ::bits::error::ShortBuf;
+use ::bits::parse::{Parseable, Parser};
 use super::error::{DnameError, FromStrError, IndexError, RootNameError};
 use super::label::Label;
 use super::parsed::ParsedDname;
@@ -333,7 +334,7 @@ impl Composable for Dname {
 }
 
 impl Compressable for Dname {
-    fn compress(&self, compressor: &mut Compressor) -> Result<(), ShortParser> {
+    fn compress(&self, compressor: &mut Compressor) -> Result<(), ShortBuf> {
         compressor.compose_name(self)
     }
 }

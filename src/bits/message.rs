@@ -18,9 +18,10 @@ use std::marker::PhantomData;
 use bytes::Bytes;
 use ::iana::{Rcode, Rtype};
 //use ::rdata::Cname;
+use super::error::ShortBuf;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::name::{ParsedDname, ParsedDnameError};
-use super::parse::{Parseable, Parser, ShortParser};
+use super::parse::{Parseable, Parser};
 use super::question::{Question, QuestionParseError};
 use super::rdata::RecordData;
 use super::record::{Record, RecordHeader, RecordHeaderParseError,
@@ -156,9 +157,9 @@ impl Message {
     /// header section.  No further checks are done, though, so if this
     /// function returns `Ok`, the message may still be broken with methods
     /// returning `Err(_)`.
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortParser> {
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortBuf> {
         if bytes.len() < mem::size_of::<HeaderSection>() {
-            Err(ShortParser)
+            Err(ShortBuf)
         }
         else {
             Ok(Message { bytes })
@@ -691,7 +692,7 @@ impl<D: RecordData> Iterator for RecordIter<D> {
 #[derive(Clone, Copy, Debug)]
 pub enum MessageParseError {
     Name(ParsedDnameError),
-    ShortParser,
+    ShortBuf,
 }
 
 impl From<ParsedDnameError> for MessageParseError {
@@ -704,7 +705,7 @@ impl From<QuestionParseError<ParsedDnameError>> for MessageParseError {
     fn from(err: QuestionParseError<ParsedDnameError>) -> Self {
         match err {
             QuestionParseError::Name(err) => MessageParseError::Name(err),
-            QuestionParseError::ShortParser => MessageParseError::ShortParser,
+            QuestionParseError::ShortBuf => MessageParseError::ShortBuf,
         }
     }
 }
@@ -713,15 +714,15 @@ impl From<RecordHeaderParseError<ParsedDnameError>> for MessageParseError {
     fn from(err: RecordHeaderParseError<ParsedDnameError>) -> Self {
         match err {
             RecordHeaderParseError::Name(err) => MessageParseError::Name(err),
-            RecordHeaderParseError::ShortParser
-                => MessageParseError::ShortParser
+            RecordHeaderParseError::ShortBuf
+                => MessageParseError::ShortBuf
         }
     }
 }
 
-impl From<ShortParser> for MessageParseError {
-    fn from(_: ShortParser) -> Self {
-        MessageParseError::ShortParser
+impl From<ShortBuf> for MessageParseError {
+    fn from(_: ShortBuf) -> Self {
+        MessageParseError::ShortBuf
     }
 }
 

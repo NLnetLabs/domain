@@ -21,7 +21,8 @@
 use std::{cmp, error, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes};
 use super::compose::Composable;
-use super::parse::{Parseable, Parser, ShortParser};
+use super::error::ShortBuf;
+use super::parse::{Parseable, Parser};
 /*
 use ::master::{Scanner, ScanResult};
 use super::{Composer, ComposeResult, Parser, ParseResult};
@@ -83,9 +84,9 @@ impl CharStr {
 //--- Parseable and Composable
 
 impl Parseable for CharStr {
-    type Err = ShortParser;
+    type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, ShortParser> {
+    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         let len = parser.parse_u8()? as usize;
         parser.parse_bytes(len).map(|bytes| {
             unsafe { Self::from_bytes_unchecked(bytes) }
