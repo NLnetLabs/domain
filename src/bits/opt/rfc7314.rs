@@ -1,8 +1,10 @@
 //! EDNS Options from RFC 7314
 
-use ::bits::{Composer, ComposeResult, Parser, ParseError, ParseResult};
+use bytes::BufMut;
+use ::bits::compose::Composable;
+use ::bits::parse::Parser;
 use ::iana::OptionCode;
-use super::{OptData, ParsedOptData};
+use super::{OptData, OptionParseError};
 
 
 //------------ Expire --------------------------------------------------------
@@ -20,32 +22,40 @@ impl Expire {
     }
 }
 
-impl OptData for Expire {
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        let target = target.as_mut();
-        target.compose_u16(OptionCode::EdnsExpire.into())?;
+
+//--- Composable and OptData
+
+impl Composable for Expire {
+    fn compose_len(&self) -> usize {
         match self.0 {
-            Some(expire) => {
-                target.compose_u16(4)?;
-                target.compose_u32(expire)
-            }
-            None => {
-                target.compose_u16(0)
-            }
+            Some(_) => 4,
+            None => 0,
+        }
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        if let Some(value) = self.0 {
+            value.compose(buf)
         }
     }
 }
 
-impl<'a> ParsedOptData<'a> for Expire {
-    fn parse(code: OptionCode, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
+impl OptData for Expire {
+    type ParseErr = OptionParseError;
+
+    fn code(&self) -> OptionCode {
+        OptionCode::EdnsExpire
+    }
+
+    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
+             -> Result<Option<Self>, Self::ParseErr> {
         if code != OptionCode::EdnsExpire {
             return Ok(None)
         }
-        match parser.remaining() {
+        match len {
             0 => Ok(Some(Self::new(None))),
             4 => Ok(Some(Self::new(Some(parser.parse_u32()?)))),
-            _ => Err(ParseError::FormErr)
+            _ => Err(OptionParseError::InvalidLength(len))
         }
     }
 }

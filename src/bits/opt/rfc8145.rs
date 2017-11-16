@@ -1,59 +1,50 @@
 //! EDNS Options from RFC 8145.
 
-use ::bits::{Composer, ComposeResult, Parser, ParseError, ParseResult};
+use bytes::{BufMut, Bytes};
+use ::bits::compose::Composable;
+use ::bits::parse::Parser;
 use ::iana::OptionCode;
-use super::{OptData, ParsedOptData};
+use super::{OptData, OptionParseError};
 
 
 //------------ KeyTag -------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct KeyTag<B: AsRef<[u8]>>(B);
-
-impl<B: AsRef<[u8]>> KeyTag<B> {
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct KeyTag {
+    bytes: Bytes,
 }
 
-impl<'a> KeyTag<&'a [u8]> {
-    pub fn new(bytes: &'a [u8]) -> Self {
-        KeyTag(bytes)
+impl KeyTag {
+    pub fn new(bytes: Bytes) -> Self {
+        KeyTag { bytes }
     }
 }
 
-impl KeyTag<Vec<u8>> {
-    pub fn new() -> Self {
-        KeyTag(Vec::new())
+impl Composable for KeyTag {
+    fn compose_len(&self) -> usize {
+        self.bytes.len()
     }
 
-    pub fn push(&mut self, tag: u16) {
-        if self.0.len() >= (0xFFFF - 2) {
-            panic!("excessively large Keytag");
-        }
-        self.0.push((tag & 0xFF00 >> 8) as u8);
-        self.0.push((tag & 0xFF) as u8);
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self.bytes.as_ref())
     }
 }
 
-impl<B: AsRef<[u8]>> OptData for KeyTag<B> {
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        assert!(self.0.as_ref().len() <= 0xFFFF);
-        let target = target.as_mut();
-        target.compose_u16(OptionCode::EdnsKeyTag.into())?;
-        target.compose_u16(self.0.as_ref().len() as u16)?;
-        target.compose_bytes(&self.0.as_ref())
-    }
-}
+impl OptData for KeyTag {
+    type ParseErr = OptionParseError;
 
-impl<'a> ParsedOptData<'a> for KeyTag<&'a [u8]> {
-    fn parse(code: OptionCode, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
+    fn code(&self) -> OptionCode {
+        OptionCode::EdnsKeyTag
+    }
+
+    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
+             -> Result<Option<Self>, OptionParseError> {
         if code != OptionCode::EdnsKeyTag {
             return Ok(None)
         }
-        if parser.remaining() % 2 == 1 {
-            Err(ParseError::FormErr)
+        if len % 2 == 1 {
+            return Err(OptionParseError::InvalidLength(len))
         }
-        else {
-            Ok(Some(Self::new(parser.parse_remaining()?)))
-        }
+        Ok(Some(Self::new(parser.parse_bytes(len)?)))
     }
 }

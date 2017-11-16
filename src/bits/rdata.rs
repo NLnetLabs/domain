@@ -46,12 +46,15 @@ pub trait RecordData: Composable + Sized {
 
     /// Parses the record data.
     ///
-    /// The record data is for a record of type `rtype`. The function may can
+    /// The record data is for a record of type `rtype`. The function may
     /// decide whether it wants to parse data for that type and return
     /// `Ok(None)` if it doesn’t. The data is `rdlen` bytes long and starts
     /// at the current position of `parser`. Their is no guarantee that the
     /// parser will have `rdlen` bytes left. If it doesn’t, the function
     /// should produce an error.
+    ///
+    /// If the function doesn’t want to process the data, it must not touch
+    /// the parser. In particual, it must not advance it.
     fn parse(rtype: Rtype, rdlen: usize, parser: &mut Parser)
              -> Result<Option<Self>, Self::ParseErr>;
 }

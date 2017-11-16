@@ -300,7 +300,7 @@ impl Parseable for Dname {
 
     fn parse(parser: &mut Parser) -> Result<Self, DnameError> {
         let len = {
-            let mut tmp = parser.peek();
+            let mut tmp = parser.peek_all();
             loop {
                 if tmp.is_empty() {
                     return Err(DnameError::ShortData)

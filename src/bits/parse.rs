@@ -46,6 +46,14 @@ impl Parser {
     pub fn from_bytes(bytes: Bytes) -> Self {
         Parser { bytes, pos: 0 }
     }
+
+    /// Extracts the underlying bytes value from the parser.
+    ///
+    /// This will be the same bytes value the parser was created with. It
+    /// will not be modified by parsing at all.
+    pub fn unwrap(self) -> Bytes {
+        self.bytes
+    }
 }
 
 impl Parser {
@@ -70,7 +78,12 @@ impl Parser {
     }
 
     /// Returns a reference to a slice of the bytes left to parse.
-    pub fn peek(&self) -> &[u8] {
+    pub fn peek(&self, len: usize) -> Result<&[u8], ShortParser> {
+        self.check_len(len)?;
+        Ok(self.peek_all())
+    }
+
+    pub fn peek_all(&self) -> &[u8] {
         &self.bytes.as_ref()[self.pos..]
     }
 
@@ -132,8 +145,7 @@ impl Parser {
     /// Advances the parser by one byte. If there aren’t enough bytes left,
     /// leaves the parser untouched and returns an error, instead.
     pub fn parse_i8(&mut self) -> Result<i8, ShortParser> {
-        self.check_len(1)?;
-        let res = self.peek()[0] as i8;
+        let res = self.peek(1)?[0] as i8;
         self.pos += 1;
         Ok(res)
     }
@@ -143,8 +155,7 @@ impl Parser {
     /// Advances the parser by one byte. If there aren’t enough bytes left,
     /// leaves the parser untouched and returns an error, instead.
     pub fn parse_u8(&mut self) -> Result<u8, ShortParser> {
-        self.check_len(1)?;
-        let res = self.peek()[0];
+        let res = self.peek(1)?[0];
         self.pos += 1;
         Ok(res)
     }
@@ -156,8 +167,7 @@ impl Parser {
     /// aren’t enough bytes left, leaves the parser untouched and returns an
     /// error, instead.
     pub fn parse_i16(&mut self) -> Result<i16, ShortParser> {
-        self.check_len(2)?;
-        let res = BigEndian::read_i16(self.peek());
+        let res = BigEndian::read_i16(self.peek(2)?);
         self.pos += 2;
         Ok(res)
     }
@@ -169,8 +179,7 @@ impl Parser {
     /// aren’t enough bytes left, leaves the parser untouched and returns an
     /// error, instead.
     pub fn parse_u16(&mut self) -> Result<u16, ShortParser> {
-        self.check_len(2)?;
-        let res = BigEndian::read_u16(self.peek());
+        let res = BigEndian::read_u16(self.peek(2)?);
         self.pos += 2;
         Ok(res)
     }
@@ -182,8 +191,7 @@ impl Parser {
     /// there aren’t enough bytes left, leaves the parser untouched and
     /// returns an error, instead.
     pub fn parse_i32(&mut self) -> Result<i32, ShortParser> {
-        self.check_len(4)?;
-        let res = BigEndian::read_i32(self.peek());
+        let res = BigEndian::read_i32(self.peek(4)?);
         self.pos += 4;
         Ok(res)
     }
@@ -195,8 +203,7 @@ impl Parser {
     /// there aren’t enough bytes left, leaves the parser untouched and
     /// returns an error, instead.
     pub fn parse_u32(&mut self) -> Result<u32, ShortParser> {
-        self.check_len(4)?;
-        let res = BigEndian::read_u32(self.peek());
+        let res = BigEndian::read_u32(self.peek(4)?);
         self.pos += 4;
         Ok(res)
     }

@@ -1,9 +1,11 @@
 //! EDNS Options from RFC 7830
 
+use bytes::BufMut;
 use rand::random;
-use ::bits::{Composer, ComposeResult, Parser, ParseResult};
+use ::bits::compose::Composable;
+use ::bits::parse::{Parser, ShortParser};
 use ::iana::OptionCode;
-use super::{OptData, ParsedOptData};
+use super::OptData;
 
 
 //------------ PaddingMode ---------------------------------------------------
@@ -38,31 +40,41 @@ impl Padding {
     }
 }
 
-impl OptData for Padding {
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        let target = target.as_mut();
-        target.compose_u16(OptionCode::Padding.into())?;
-        target.compose_u16(self.len)?;
+impl Composable for Padding {
+    fn compose_len(&self) -> usize {
+        self.len as usize
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
         match self.mode {
             PaddingMode::Zero => {
-                target.compose_empty(self.len as usize)
+                for _ in 0..self.len {
+                    buf.put_u8(0)
+                }
             }
             PaddingMode::Random => {
                 for _ in 0..self.len {
-                    target.compose_u8(random())?
+                    buf.put_u8(random())
                 }
-                Ok(())
             }
         }
     }
 }
 
-impl<'a> ParsedOptData<'a> for Padding {
-    fn parse(code: OptionCode, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
+impl OptData for Padding {
+    type ParseErr = ShortParser;
+
+    fn code(&self) -> OptionCode {
+        OptionCode::Padding
+    }
+
+    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
+             -> Result<Option<Self>, Self::ParseErr> {
         if code != OptionCode::Padding {
             return Ok(None)
         }
-        Ok(Some(Padding::new(parser.remaining() as u16, PaddingMode::Zero)))
+        parser.advance(len)?;
+        Ok(Some(Padding::new(len as u16, PaddingMode::Zero)))
     }
 }
+

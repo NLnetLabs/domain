@@ -6,10 +6,12 @@
 //! `rdata` module and the types defined for operating on them differ from
 //! how other record types are handled.
 
+use bytes::{BufMut, Bytes};
 use std::marker::PhantomData;
 use ::iana::{OptionCode, Rtype};
-use super::{Composer, ComposeResult, ParsedRecordData, Parser, ParseResult,
-            RecordData};
+use super::compose::{Composable, Compressable, Compressor};
+use super::parse::{Parser, ShortParser};
+use super::rdata::RecordData;
 
 
 pub mod rfc5001;
@@ -26,36 +28,55 @@ pub mod rfc8145;
 //------------ Opt -----------------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct Opt<'a>(Parser<'a>);
+pub struct Opt {
+    bytes: Bytes,
+}
 
-impl<'a> Opt<'a> {
-    pub fn iter<O: ParsedOptData<'a>>(&self) -> OptIter<'a, O> {
-        OptIter::new(self.0.clone())
+impl Opt {
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortParser> {
+        let mut parser = Parser::from_bytes(bytes);
+        while parser.remaining() > 0 {
+            parser.advance(2)?;
+            let len = parser.parse_u16()?;
+            parser.advance(len as usize)?;
+        }
+        Ok(Opt { bytes: parser.unwrap() })
+    }
+
+    pub fn iter<D: OptData>(&self) -> OptIter<D> {
+        OptIter::new(self.bytes.clone())
     }
 }
 
-impl<'a> RecordData for Opt<'a> {
+impl RecordData for Opt {
+    type ParseErr = ShortParser;
+
     fn rtype(&self) -> Rtype {
         Rtype::Opt
     }
 
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        /// Technically, there shouldn’t be name compression in OPT record
-        /// data. So we should be fine just copying the data verbatim.
-        target.as_mut().compose_bytes(self.0.bytes())
+    fn parse(rtype: Rtype, rdlen: usize, parser: &mut Parser)
+             -> Result<Option<Self>, Self::ParseErr> {
+        if rtype != Rtype::Opt {
+            return Ok(None)
+        }
+        Self::from_bytes(parser.parse_bytes(rdlen)?).map(Some)
     }
 }
 
+impl Composable for Opt {
+    fn compose_len(&self) -> usize {
+        self.bytes.len()
+    }
 
-impl<'a> ParsedRecordData<'a> for Opt<'a> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
-        if rtype == Rtype::Opt {
-            Ok(Some(Opt(parser.clone())))
-        }
-        else {
-            Ok(None)
-        }
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self.bytes.as_ref())
+    }
+}
+
+impl Compressable for Opt {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortParser> {
+        buf.compose(self)
     }
 }
 
@@ -63,19 +84,19 @@ impl<'a> ParsedRecordData<'a> for Opt<'a> {
 //------------ OptIter -------------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct OptIter<'a, O: ParsedOptData<'a>> { 
-    parser: Parser<'a>,
-    marker: PhantomData<O>
+pub struct OptIter<D: OptData> { 
+    parser: Parser,
+    marker: PhantomData<D>
 }
 
-impl<'a, O: ParsedOptData<'a>> OptIter<'a, O> {
-    fn new(parser: Parser<'a>) -> Self {
-        OptIter { parser, marker: PhantomData }
+impl<D: OptData> OptIter<D> {
+    fn new(bytes: Bytes) -> Self {
+        OptIter { parser: Parser::from_bytes(bytes), marker: PhantomData }
     }
 }
 
-impl<'a, O: ParsedOptData<'a>> Iterator for OptIter<'a, O> {
-    type Item = ParseResult<O>;
+impl<D: OptData> Iterator for OptIter<D> {
+    type Item = Result<D, D::ParseErr>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.parser.remaining() > 0 {
@@ -89,26 +110,38 @@ impl<'a, O: ParsedOptData<'a>> Iterator for OptIter<'a, O> {
     }
 }
 
-impl<'a, O: ParsedOptData<'a>> OptIter<'a, O> {
-    fn next_step(&mut self) -> ParseResult<Option<O>> {
-        let code = self.parser.parse_u16()?.into();
-        let len = self.parser.parse_u16()? as usize;
-        self.parser.set_limit(len)?;
-        O::parse(code, &mut self.parser)
+impl<D: OptData> OptIter<D> {
+    fn next_step(&mut self) -> Result<Option<D>, D::ParseErr> {
+        let code = self.parser.parse_u16().unwrap().into();
+        let len = self.parser.parse_u16().unwrap() as usize;
+        D::parse(code, len, &mut self.parser)
     }
 }
 
 
 //------------ OptData -------------------------------------------------------
 
-pub trait OptData: Sized {
-    fn compose<C: AsMut<Composer>>(&self, target: C) -> ComposeResult<()>;
+pub trait OptData: Composable + Sized {
+    type ParseErr;
+
+    fn code(&self) -> OptionCode;
+
+    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
+             -> Result<Option<Self>, Self::ParseErr>;
 }
 
 
-pub trait ParsedOptData<'a>: OptData {
-    fn parse(code: OptionCode, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>>;
+//------------ OptionParseError ---------------------------------------------
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum OptionParseError {
+    InvalidLength(usize),
+    ShortBuf,
 }
 
+impl From<ShortParser> for OptionParseError {
+    fn from(_: ShortParser) -> Self {
+        OptionParseError::ShortBuf
+    }
+}
 

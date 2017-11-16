@@ -103,6 +103,7 @@ pub mod compose;
 pub mod header;
 pub mod message;
 pub mod name;
+pub mod opt;
 pub mod parse;
 pub mod question;
 pub mod rdata;
@@ -110,5 +111,4 @@ pub mod record;
 
 /*
 pub mod message_builder;
-pub mod opt;
 */

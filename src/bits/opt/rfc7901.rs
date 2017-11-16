@@ -1,51 +1,77 @@
 //! EDNS Options from RFC 7901
 
-use ::bits::{Composer, ComposeError, ComposeResult, DName, ParsedDName,
-             Parser, ParseResult};
+use bytes::BufMut;
+use ::bits::compose::Composable;
+use ::bits::name::{Dname, DnameError};
+use ::bits::parse::{Parser, ShortParser};
 use ::iana::OptionCode;
-use super::{OptData, ParsedOptData};
+use super::OptData;
 
 
 //------------ Chain --------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Chain<N: DName>(N);
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Chain {
+    start: Dname,
+}
 
-impl<N: DName> Chain<N> {
-    pub fn new(name: N) -> Self {
-        Chain(name)
+impl Chain {
+    pub fn new(start: Dname) -> Self {
+        Chain { start }
     }
 
-    pub fn name(&self) -> &N {
-        &self.0
+    pub fn start(&self) -> &Dname {
+        &self.start
     }
 }
 
-impl<N: DName> OptData for Chain<N> {
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        let target = target.as_mut();
-        target.compose_u16(OptionCode::Chain.into())?;
-        let pos = target.pos();
-        target.compose_u16(0)?;
-        target.compose_dname(&self.0)?;
-        let len = target.pos() - pos;
-        if len > ::std::u16::MAX as usize {
-            return Err(ComposeError::SizeExceeded)
-        }
-        target.update_u16(pos, len as u16);
-        Ok(())
+
+//--- Composable and OptData
+
+impl Composable for Chain {
+    fn compose_len(&self) -> usize {
+        self.start.compose_len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.start.compose(buf)
     }
 }
 
-impl<'a> ParsedOptData<'a> for Chain<ParsedDName<'a>> {
-    fn parse(code: OptionCode, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
+impl OptData for Chain {
+    type ParseErr = ChainParseError;
+
+    fn code(&self) -> OptionCode {
+        OptionCode::Chain
+    }
+
+    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
+             -> Result<Option<Self>, ChainParseError> {
         if code != OptionCode::Chain {
             return Ok(None)
         }
-        let name = ParsedDName::parse(parser)?;
-        parser.exhausted()?;
-        Ok(Some(Chain::new(name)))
+        Ok(Some(Chain::new(Dname::from_bytes(parser.parse_bytes(len)?)?)))
+    }
+}
+
+
+//------------ ChainParseError -----------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChainParseError {
+    Name(DnameError),
+    ShortBuf,
+}
+
+impl From<DnameError> for ChainParseError {
+    fn from(err: DnameError) -> ChainParseError {
+        ChainParseError::Name(err)
+    }
+}
+
+impl From<ShortParser> for ChainParseError {
+    fn from(_: ShortParser) -> ChainParseError {
+        ChainParseError::ShortBuf
     }
 }
 
