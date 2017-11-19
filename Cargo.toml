@@ -15,10 +15,12 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-bytes         = "0.4"
-rand          = "0.3"
-futures       = "0.1.14"
-tokio-core    = "0.1.9"
+bytes          = "0.4"
+rand           = "0.3"
+failure        = "0.1"
+failure_derive = "0.1"
+futures        = "0.1.14"
+tokio-core     = "0.1.9"
 
 [dev-dependencies]
 argparse     = "0.2"

@@ -344,9 +344,12 @@ impl<N: Compressable> Compressable for RecordHeader<N> {
 
 //------------ RecordHeaderParseError ----------------------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 pub enum RecordHeaderParseError<N=ParsedDnameError> {
+    #[fail(display="{}", _0)]
     Name(N),
+
+    #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
 
@@ -359,10 +362,15 @@ impl<N> From<ShortBuf> for RecordHeaderParseError<N> {
 
 //------------ RecordParseError ----------------------------------------------
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 pub enum RecordParseError<N, D> {
+    #[fail(display="{}", _0)]
     Name(N),
+
+    #[fail(display="{}", _0)]
     Data(D),
+
+    #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
 

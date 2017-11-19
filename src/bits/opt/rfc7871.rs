@@ -111,11 +111,18 @@ impl OptData for ClientSubnet {
 
 //------------ ClientSubnetParseError ----------------------------------------
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 pub enum OptionParseError {
+    #[fail(display="invalid family {}", _0)]
     InvalidFamily(u16),
+
+    #[fail(display="invalid length {} for IPv4 address", _0)]
     InvalidV4Length(usize),
+
+    #[fail(display="invalid length {} for IPv6 address", _0)]
     InvalidV6Length(usize),
+
+    #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
 
@@ -124,3 +131,4 @@ impl From<ShortBuf> for OptionParseError {
         OptionParseError::ShortBuf
     }
 }
+

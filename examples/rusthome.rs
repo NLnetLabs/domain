@@ -1,3 +1,4 @@
+/*
 //! Download and print the Rust homepage.
 //!
 //! This is the [toy HTTP+TLS client] example from the [futures tutorial]
@@ -26,7 +27,9 @@ use domain::resolv::Resolver;
 use domain::resolv::lookup::lookup_host;
 
 #[allow(unknown_lints, string_lit_as_bytes)]
+*/
 fn main() {
+/*
     let mut core = Core::new().unwrap();
     let handle = core.handle();
     let resolver = Resolver::new(&handle);
@@ -56,4 +59,5 @@ fn main() {
 
     let (_socket, data) = core.run(response).unwrap();
     println!("{}", String::from_utf8_lossy(&data));
+*/
 }

@@ -224,9 +224,12 @@ pub trait OptData: Composable + Sized {
 
 //------------ OptionParseError ---------------------------------------------
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 pub enum OptionParseError {
+    #[fail(display="invalid length {}", _0)]
     InvalidLength(usize),
+
+    #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
 

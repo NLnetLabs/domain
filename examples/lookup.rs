@@ -1,3 +1,4 @@
+/*
 extern crate domain;
 
 use std::env;
@@ -58,8 +59,10 @@ fn parse_queryopt(conf: &mut ResolvConf, arg: &str) {
         }
     }
 }
+*/
 
 fn main() {
+/*
     let mut conf = ResolvConf::default();
     let mut names = Vec::new();
     for arg in env::args().skip(1) {
@@ -86,4 +89,5 @@ fn main() {
             println!("Not a domain name: {}", name)
         }
     }
+*/
 }

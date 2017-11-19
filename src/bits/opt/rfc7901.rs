@@ -68,9 +68,12 @@ impl OptData for Chain {
 
 //------------ ChainParseError -----------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 pub enum ChainParseError {
+    #[fail(display="{}", _0)]
     Name(DnameError),
+
+    #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
 

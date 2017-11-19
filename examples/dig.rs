@@ -1,3 +1,4 @@
+/*
 extern crate argparse;
 extern crate domain;
 extern crate tokio_core;
@@ -175,8 +176,10 @@ fn print_records(section: &mut RecordSection) {
 
 
 //------------ Main Function ------------------------------------------------
+*/
 
 fn main() {
+/*
     let options = Options::from_args();
     let response = query(options);
     let len = response.len();
@@ -186,4 +189,5 @@ fn main() {
     println!(";; WHEN: not yet available.");
     println!(";; MSG SIZE  rcvd: {} bytes", len);
     println!("");
+*/
 }

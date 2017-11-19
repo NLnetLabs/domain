@@ -689,9 +689,12 @@ impl<D: RecordData> Iterator for RecordIter<D> {
 
 //------------ MessageParseError ---------------------------------------------
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 pub enum MessageParseError {
+    #[fail(display="{}", _0)]
     Name(ParsedDnameError),
+
+    #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
 

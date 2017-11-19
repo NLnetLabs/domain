@@ -18,7 +18,7 @@
 //! [`CharStrBuf`]: struct.CharStrBuf.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{cmp, error, fmt, hash, ops, str};
+use std::{cmp, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes};
 use super::compose::Composable;
 use super::error::ShortBuf;
@@ -200,32 +200,24 @@ impl fmt::Debug for CharStr {
 
 //------------ CharStrError --------------------------------------------------
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[fail(display="illegal character string")]
 pub struct CharStrError;
 
-impl error::Error for CharStrError {
-    fn description(&self) -> &str {
-        "illegal character string"
-    }
-}
-
-impl fmt::Display for CharStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("illegal character string")
-    }
-}
 
 //------------ FromStrError --------------------------------------------
 
 /// An error happened when converting a Rust string to a DNS character string.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 pub enum FromStrError {
     /// The string ended when there should have been more characters.
     ///
     /// This most likely happens inside escape sequences and quoting.
+    #[fail(display="unexpected end of input")]
     UnexpectedEnd,
 
     /// A character string has more than 255 octets.
+    #[fail(display="character string with more than 255 octets")]
     LongString,
 
     /// An illegal escape sequence was encountered.
@@ -233,11 +225,13 @@ pub enum FromStrError {
     /// Escape sequences are a backslash character followed by either a
     /// three decimal digit sequence encoding a byte value or a single
     /// other printable ASCII character.
+    #[fail(display="illegal escape sequence")]
     IllegalEscape,
 
     /// An illegal character was encountered.
     ///
     /// Only printable ASCII characters are allowed.
+    #[fail(display="illegal character")]
     IllegalCharacter,
 }
 
@@ -251,31 +245,6 @@ impl From<PushError> for FromStrError {
 }
 
 
-//--- Error
-
-impl error::Error for FromStrError {
-    fn description(&self) -> &str {
-        use self::FromStrError::*;
-
-        match *self {
-            UnexpectedEnd => "unexpected end of input",
-            LongString => "character string with more than 255 octets",
-            IllegalEscape => "illegal escape sequence",
-            IllegalCharacter => "illegal character",
-        }
-    }
-}
-
-
-//--- Display
-
-impl fmt::Display for FromStrError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        error::Error::description(self).fmt(f)
-    }
-}
-
-
 //------------ PushError -----------------------------------------------------
 
 /// An error happened while adding data to a [`CharStrBuf`].
@@ -284,30 +253,9 @@ impl fmt::Display for FromStrError {
 /// exceeded the length limit of 255 octets.
 ///
 /// [`CharStrBuf`]: ../struct.CharStrBuf.html
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[fail(display="adding bytes would exceed the size limit")]
 pub struct PushError;
-
-impl error::Error for PushError {
-    fn description(&self) -> &str {
-        "adding bytes would exceed the size limit"
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        None
-    }
-}
-
-impl fmt::Debug for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "PushError".fmt(f)
-    }
-}
-
-impl fmt::Display for PushError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        "adding bytes would exceed the size limit".fmt(f)
-    }
-}
 
 
 //============ Internal Helpers =============================================

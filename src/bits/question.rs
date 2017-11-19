@@ -100,9 +100,12 @@ impl<N: Compressable> Compressable for Question<N> {
 
 //------------ ParseQuestionError -------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 pub enum QuestionParseError<N=ParsedDnameError> {
+    #[fail(display="{}", _0)]
     Name(N),
+    
+    #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
 
