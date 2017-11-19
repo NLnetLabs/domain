@@ -3,6 +3,10 @@
 use std::cmp;
 use std::fmt;
 use std::hash;
+use bytes::BufMut;
+use ::bits::compose::Composable;
+use ::bits::error::ShortBuf;
+use ::bits::parse::{Parseable, Parser};
 
 
 //------------ OptionCode ---------------------------------------------------
@@ -77,6 +81,27 @@ impl OptionCode {
             EdnsKeyTag => 14,
             Int(v) => v
         }
+    }
+}
+
+
+//--- Parseable and Composable
+
+impl Parseable for OptionCode {
+    type Err = ShortBuf;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        u16::parse(parser).map(OptionCode::from_int)
+    }
+}
+
+impl Composable for OptionCode {
+    fn compose_len(&self) -> usize {
+        2
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.to_int().compose(buf)
     }
 }
 

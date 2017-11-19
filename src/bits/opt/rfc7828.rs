@@ -2,6 +2,8 @@
 
 use bytes::BufMut;
 use ::bits::compose::Composable;
+use ::bits::error::ShortBuf;
+use ::bits::message_builder::OptBuilder;
 use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::{OptData, OptionParseError};
@@ -15,6 +17,11 @@ pub struct TcpKeepalive(u16);
 impl TcpKeepalive {
     pub fn new(timeout: u16) -> Self {
         TcpKeepalive(timeout)
+    }
+
+    pub fn push(builder: &mut OptBuilder, timeout: u16)
+                -> Result<(), ShortBuf> {
+        builder.push(&Self::new(timeout))
     }
 
     pub fn timeout(&self) -> u16 {

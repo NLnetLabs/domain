@@ -45,6 +45,21 @@ impl<N> Question<N> {
 }
 
 
+//--- From
+
+impl<N> From<(N, Rtype, Class)> for Question<N> {
+    fn from((name, rtype, class): (N, Rtype, Class)) -> Self {
+        Question::new(name, rtype, class)
+    }
+}
+
+impl<N> From<(N, Rtype)> for Question<N> {
+    fn from((name, rtype): (N, Rtype)) -> Self {
+        Question::new(name, rtype, Class::In)
+    }
+}
+
+
 //--- Parseable, Composable, and Compressable
 
 impl<N: Parseable> Parseable for Question<N> {

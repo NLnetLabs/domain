@@ -16,7 +16,7 @@
 
 use std::ops;
 use std::collections::HashMap;
-use bytes::{BigEndian, BufMut, BytesMut};
+use bytes::{BigEndian, BufMut, Bytes, BytesMut};
 use super::error::ShortBuf;
 use super::name::{Dname, Label, ToDname};
 
@@ -108,6 +108,16 @@ impl Composable for u32 {
     }
 }
 
+impl Composable for [u8] {
+    fn compose_len(&self) -> usize {
+        self.len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self)
+    }
+}
+
 
 //------------ Compressable --------------------------------------------------
 
@@ -123,19 +133,104 @@ pub trait Compressable {
 /// This type is used for name compression through the
 /// `Composable::compose_compressed` method.
 ///
-/// Note: The implementation is rather naive right now and could do with a
-///       smarter approach.
+/// Note: Name compression is currently implemented in a rather naive way
+///       and could do with a smarter approach.
 #[derive(Clone, Debug, )]
 pub struct Compressor {
+    /// The bytes buffer we work on.
     buf: BytesMut,
+
+    /// Index of where in `buf` the message starts.
     start: usize,
-    map: HashMap<Dname, u16>,
+
+    /// The maximum size of `buf` in bytes.
+    limit: usize,
+
+    /// The number of bytes to grow each time we run out of space.
+    ///
+    /// If this is 0, we grow exactly once to the size given by `limit`.
+    page_size: usize,
+
+    /// The optional compression map.
+    ///
+    /// This keeps the position relative to the start of the message for each
+    /// name we’ve ever written.
+    map: Option<HashMap<Dname, u16>>,
 }
 
 impl Compressor {
-    /// Creates a new empty compressor.
-    pub fn new(buf: BytesMut) -> Self {
-        Compressor { start: buf.remaining_mut(), buf, map: HashMap::new() }
+    /// Creates a compressor from the given bytes buffer.
+    ///
+    /// The compressor will have a default limit equal to the buffer’s current
+    /// capacity and a page size of 0.
+    pub fn from_buf(buf: BytesMut) -> Self {
+        Compressor {
+            start: buf.remaining_mut(),
+            limit: buf.capacity(),
+            page_size: 0,
+            buf,
+            map: None }
+    }
+
+    /// Creates a new compressor with the given capacity.
+    ///
+    /// The compressor will have a default limit equal to the given capacity
+    /// and a page size of 0.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self::from_buf(BytesMut::with_capacity(capacity))
+    }
+
+    pub fn enable_compression(&mut self) {
+        if self.map.is_none() {
+            self.map = Some(HashMap::new())
+        }
+    }
+
+    /// Sets the size limit for the compressor.
+    ///
+    /// This limit only regards the part of the underlying buffer that is
+    /// being built by the compressor. That is, if the compressor was created
+    /// on top of a buffer that already contained data, the buffer will never
+    /// exceed that amount of data plus `limit`.
+    ///
+    /// If you try to set the limit to a value smaller than what’s already
+    /// there, it will silently be increased to the current size.
+    ///
+    /// A new compressor starts out with a size limit equal to the capacity
+    /// of the buffer it is being created with.
+    pub fn set_limit(&mut self, limit: usize) {
+        let limit = limit + self.start;
+        self.limit = ::std::cmp::max(limit, self.buf.len())
+    }
+
+    /// Sets the number of bytes by which the buffer should be grown.
+    ///
+    /// Each time the buffer runs out of capacity and is still below its
+    /// size limit, it will be grown by `page_size` bytes. This may result in
+    /// a buffer with more capacity than the limit.
+    ///
+    /// If `page_size` is set to 0, the buffer will be expanded only once to
+    /// match the size limit.
+    ///
+    /// A new compressor starts out with a page size of 0.
+    pub fn set_page_size(&mut self, page_size: usize) {
+        self.page_size = page_size
+    }
+
+    pub fn unwrap(self) -> BytesMut {
+        self.buf
+    }
+
+    pub fn freeze(self) -> Bytes {
+        self.buf.freeze()
+    }
+
+    pub fn slice(&self) -> &[u8] {
+        &self.buf.as_ref()[self.start..]
+    }
+
+    pub fn slice_mut(&mut self) -> &mut [u8] {
+        &mut self.buf.as_mut()[self.start..]
     }
 
     /// Composes a the given name compressed into the buffer.
@@ -148,7 +243,7 @@ impl Compressor {
             }
             let pos = {
                 let first = name.first();
-                let pos = self.start - self.buf.remaining_mut();
+                let pos = self.buf.len() - self.start;
                 self.compose(first)?;
                 pos
             };
@@ -169,24 +264,29 @@ impl Compressor {
 
     pub fn compose<C>(&mut self, what: &C) -> Result<(), ShortBuf>
                    where C: Composable + ?Sized {
-        if self.buf.remaining_mut() < what.compose_len() {
+        if self.remaining_mut() < what.compose_len() {
             return Err(ShortBuf)
         }
-        what.compose(&mut self.buf);
+        what.compose(self);
         Ok(())
     }
 
     fn add_name(&mut self, name: &Dname, pos: usize) {
-        if pos > 0x3FFF {
-            // Position exceeds encodable position. Don’t add the name, then.
-            return
+        if let Some(ref mut map) = self.map {
+            if pos > 0x3FFF {
+                // Position exceeds encodable position. Don’t add.
+                return
+            }
+            map.insert(name.clone(), pos as u16);
         }
-        self.map.insert(name.clone(), pos as u16);
     }
 
     /// Returns the index of a name if it is known.
     fn get_pos(&self, name: &Dname) -> Option<u16> {
-        self.map.get(name).map(|v| *v)
+        match self.map {
+            Some(ref map) => map.get(name).map(|v| *v),
+            None => None
+        }
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -195,6 +295,16 @@ impl Compressor {
 
     pub fn as_slice_mut(&mut self) -> &mut [u8] {
         self.buf.as_mut()
+    }
+
+    fn grow(&mut self) {
+        if self.page_size == 0 {
+            let additional = self.limit - self.buf.capacity();
+            self.buf.reserve(additional)
+        }
+        else {
+            self.buf.reserve(self.page_size)
+        }
     }
 }
 
@@ -247,14 +357,21 @@ impl ops::DerefMut for Compressor {
 
 impl BufMut for Compressor {
     fn remaining_mut(&self) -> usize {
-        self.buf.remaining_mut()
+        self.limit - self.buf.len()
     }
 
     unsafe fn advance_mut(&mut self, cnt: usize) {
+        assert!(cnt <= self.remaining_mut());
+        while cnt > self.buf.remaining_mut() {
+            self.grow();
+        }
         self.buf.advance_mut(cnt)
     }
 
     unsafe fn bytes_mut(&mut self) -> &mut [u8] {
+        if self.buf.remaining_mut() == 0 && self.remaining_mut() > 0 {
+            self.grow()
+        }
         self.buf.bytes_mut()
     }
 }

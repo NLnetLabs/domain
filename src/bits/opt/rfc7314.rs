@@ -2,6 +2,8 @@
 
 use bytes::BufMut;
 use ::bits::compose::Composable;
+use ::bits::error::ShortBuf;
+use ::bits::message_builder::OptBuilder;
 use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::{OptData, OptionParseError};
@@ -15,6 +17,11 @@ pub struct Expire(Option<u32>);
 impl Expire {
     pub fn new(expire: Option<u32>) -> Self {
         Expire(expire)
+    }
+
+    pub fn push(builder: &mut OptBuilder, expire: Option<u32>)
+                -> Result<(), ShortBuf> {
+        builder.push(&Self::new(expire))
     }
 
     pub fn expire(&self) -> Option<u32> {

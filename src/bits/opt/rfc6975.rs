@@ -4,6 +4,7 @@ use std::slice;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
 use ::bits::error::ShortBuf;
+use ::bits::message_builder::OptBuilder;
 use ::bits::parse::Parser;
 use ::iana::{OptionCode, SecAlg};
 use super::OptData;
@@ -25,6 +26,17 @@ macro_rules! option_type {
 
             pub fn iter(&self) -> SecAlgsIter {
                 SecAlgsIter::new(self.bytes.as_ref())
+            }
+
+            pub fn push(builder: &mut OptBuilder, algs: &[SecAlg])
+                        -> Result<(), ShortBuf> {
+                assert!(algs.len() <= ::std::u16::MAX as usize);
+                builder.build(OptionCode::$name, algs.len() as u16, |buf| {
+                    for alg in algs {
+                        buf.compose(&alg.to_int())?
+                    }
+                    Ok(())
+                })
             }
         }
 

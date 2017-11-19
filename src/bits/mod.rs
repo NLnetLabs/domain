@@ -1,7 +1,3 @@
-// TODO:
-//
-//    o  Rename ShortParser into something more generic.
-//
 //! DNS data.
 //!
 //! This module provides types and traits for working with DNS data as well
@@ -103,6 +99,7 @@ pub mod compose;
 pub mod error;
 pub mod header;
 pub mod message;
+pub mod message_builder;
 pub mod name;
 pub mod opt;
 pub mod parse;
@@ -110,6 +107,3 @@ pub mod question;
 pub mod rdata;
 pub mod record;
 
-/*
-pub mod message_builder;
-*/

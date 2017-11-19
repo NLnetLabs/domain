@@ -83,13 +83,18 @@
 //! [`new()`]: struct.MessageBuilder.html#method.new
 //! [`from_vec()`]: struct.MessageBuilder.html#method.from_vec
 
-use std::mem;
-use ::iana::{Class, OptRcode, Rtype};
-use super::{Composer, ComposeError, ComposeMode, ComposeResult,
-            ComposeSnapshot, DName, DNameSlice, HeaderSection, Header,
-            HeaderCounts, Message, Question, Record, RecordData};
-use super::record::RecordBuilder;
-use super::opt::OptData;
+use std::{mem, ops};
+use std::marker::PhantomData;
+use bytes::{BigEndian, BufMut, ByteOrder, Bytes, BytesMut};
+use iana::opt::OptionCode;
+use super::compose::{Composable, Compressable, Compressor};
+use super::error::ShortBuf;
+use super::header::{Header, HeaderCounts, HeaderSection};
+use super::name::ToDname;
+use super::opt::{OptData, OptHeader};
+use super::question::Question;
+use super::rdata::RecordData;
+use super::record::Record;
 
 
 //------------ MessageBuilder -----------------------------------------------
@@ -106,44 +111,35 @@ pub struct MessageBuilder {
 }
 
 
-/// # Creation
+/// # Creation and Preparation
 ///
 impl MessageBuilder {
-    /// Creates a new empty DNS message.
-    ///
-    /// The `mode` argument decides whether the message will have a size
-    /// limit and whether it should include the length prefix for use with
-    /// stream transports. If `compress` is `true`, name compression will
-    /// be enabled for the message.
-    ///
-    /// This function may fail if the size limit in `mode` is too small to
-    /// even add the header section.
-    pub fn new(mode: ComposeMode, compress: bool) -> ComposeResult<Self> {
-        Self::from_composer(Composer::new(mode, compress))
+    pub fn from_buf(buf: BytesMut) -> Self {
+        MessageBuilder { target: MessageTarget::from_buf(buf) }
     }
 
-    /// Creates a new DNS message appended to the content of a bytes vector.
-    ///
-    /// The `mode` argument decides whether the message will have a size
-    /// limit and whether it should include the length prefix for use with
-    /// stream transports. If `compress` is `true`, name compression will
-    /// be enabled for the message.
-    ///
-    /// This function may fail if the size limit in `mode` is too small to
-    /// even add the header section.
-    pub fn from_vec(vec: Vec<u8>, mode: ComposeMode, compress: bool)
-                    -> ComposeResult<Self> {
-        Self::from_composer(Composer::from_vec(vec, mode, compress))
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self::from_buf(BytesMut::with_capacity(capacity))
     }
 
-    /// Creates a new DNS message atop an existing composer.
-    ///
-    /// This doesn’t reset the composer but starts off after whatever is in
-    /// there already. As this may result in invalid message, user discretion
-    /// is advised.
-    pub fn from_composer(mut composer: Composer) -> ComposeResult<Self> {
-        try!(composer.compose_empty(mem::size_of::<HeaderSection>()));
-        Ok(MessageBuilder{target: MessageTarget::new(composer)})
+    pub fn with_params(initial: usize, limit: usize, page_size: usize)
+                       -> Self {
+        let mut res = Self::with_capacity(initial);
+        res.set_limit(limit);
+        res.set_page_size(page_size);
+        res
+    }
+
+    pub fn enable_compression(&mut self) {
+        self.target.buf.enable_compression()
+    }
+
+    pub fn set_limit(&mut self, limit: usize) {
+        self.target.buf.set_limit(limit)
+    }
+
+    pub fn set_page_size(&mut self, page_size: usize) {
+        self.target.buf.set_page_size(page_size)
     }
 }
 
@@ -161,6 +157,14 @@ impl MessageBuilder {
         self.target.header_mut()
     }
 
+    pub fn snapshot(&self) -> Snapshot<Self> {
+        self.target.snapshot()
+    }
+
+    pub fn rewind(&mut self, snapshot: Snapshot<Self>) {
+        self.target.rewind(snapshot)
+    }
+
     /// Appends a new question to the message.
     ///
     /// This function is generic over anything that can be converted into a
@@ -170,22 +174,15 @@ impl MessageBuilder {
     /// the latter case.
     ///
     /// [`Question`]: ../question/struct.Question.html
-    pub fn push<N: DName, Q: Into<Question<N>>>(&mut self, question: Q)
-                          -> ComposeResult<()> {
-        self.target.push(|target| question.into().compose(target),
-                         |counts| counts.inc_qdcount(1))
-    }
-
-    /// Rewinds to the beginning of the question section.
-    ///
-    /// This drops all previously assembled questions.
-    pub fn rewind(&mut self) {
-        self.target.rewind(|counts| counts.set_qdcount(0));
+    pub fn push<N: ToDname>(&mut self, question: &Question<N>)
+                            -> Result<(), ShortBuf> {
+        self.target.push(|target| question.compress(target),
+                         |counts| counts.inc_qdcount())
     }
 
     /// Proceeds to building the answer section.
     pub fn answer(self) -> AnswerBuilder {
-        AnswerBuilder::new(self.target.commit())
+        AnswerBuilder::new(self.target)
     }
 
     /// Proceeds to building the authority section, skipping the answer.
@@ -200,6 +197,11 @@ impl MessageBuilder {
         self.answer().authority().additional()
     }
 
+    /// Proceeds to building the OPT record.
+    pub fn opt(self) -> Result<OptBuilder, ShortBuf> {
+        self.additional().opt()
+    }
+
     /// Returns a reference to the message assembled so far.
     ///
     /// This method requires a `&mut self` since it may need to update some
@@ -211,11 +213,15 @@ impl MessageBuilder {
         self.target.preview()
     }
 
-    /// Finishes the message and returns the underlying target.
+    /// Finishes the message and returns the underlying bytes buffer.
     ///
     /// This will result in a message with all three record sections empty.
-    pub fn finish(self) -> Vec<u8> {
-        self.target.finish()
+    pub fn finish(self) -> BytesMut {
+        self.target.unwrap()
+    }
+
+    pub fn freeze(self) -> Bytes {
+        self.target.freeze()
     }
 }
 
@@ -238,10 +244,12 @@ pub struct AnswerBuilder {
 
 impl AnswerBuilder {
     /// Creates a new answer builder from a compser.
-    fn new(composer: Composer) -> Self {
-        AnswerBuilder { 
-            target: MessageTarget::new(composer)
-        }
+    fn new(target: MessageTarget) -> Self {
+        AnswerBuilder { target }
+    }
+
+    pub fn set_limit(&mut self, limit: usize) {
+        self.target.buf.set_limit(limit)
     }
 
     /// Returns a reference to the messages header.
@@ -254,6 +262,14 @@ impl AnswerBuilder {
         self.target.header_mut()
     }
 
+    pub fn snapshot(&self) -> Snapshot<Self> {
+        self.target.snapshot()
+    }
+
+    pub fn rewind(&mut self, snapshot: Snapshot<Self>) {
+        self.target.rewind(snapshot)
+    }
+
     /// Appends a new resource record to the answer section.
     ///
     /// This method is generic over anything that can be converted into a
@@ -262,29 +278,27 @@ impl AnswerBuilder {
     /// the class which will then be assumed to be `Class::In`.
     ///
     /// [`Record`]: ../record/struct.Record.html
-    pub fn push<N, D, R>(&mut self, record: R) -> ComposeResult<()>
-                where N: DName,
-                      D: RecordData,
-                      R: Into<Record<N, D>> {
-        self.target.push(|target| record.into().compose(target),
-                         |counts| counts.inc_ancount(1))
-    }
-
-    /// Rewinds to the beginning of the answer section.
-    ///
-    /// This drops all previously assembled answer records.
-    pub fn rewind(&mut self) {
-        self.target.rewind(|counts| counts.set_ancount(0))
+    pub fn push<N, D>(&mut self, record: &Record<N, D>)
+                      -> Result<(), ShortBuf>
+                where N: ToDname,
+                      D: RecordData {
+        self.target.push(|target| record.compress(target),
+                         |counts| counts.inc_ancount())
     }
 
     /// Proceeds to building the authority section.
     pub fn authority(self) -> AuthorityBuilder {
-        AuthorityBuilder::new(self.target.commit())
+        AuthorityBuilder::new(self.target)
     }
 
     /// Proceeds to building the additional section, skipping authority.
     pub fn additional(self) -> AdditionalBuilder {
         self.authority().additional()
+    }
+
+    /// Proceeds to building the OPT record.
+    pub fn opt(self) -> Result<OptBuilder, ShortBuf> {
+        self.additional().opt()
     }
 
     /// Returns a reference to the message assembled so far.
@@ -298,12 +312,15 @@ impl AnswerBuilder {
         self.target.preview()
     }
 
-    /// Finishes the message.
+    /// Finishes the message and returns the underlying bytes buffer.
     ///
-    /// The resulting message will have empty authority and additional
-    /// sections.
-    pub fn finish(self) -> Vec<u8> {
-        self.target.finish()
+    /// This will result in a message with all three record sections empty.
+    pub fn finish(self) -> BytesMut {
+        self.target.unwrap()
+    }
+
+    pub fn freeze(self) -> Bytes {
+        self.target.freeze()
     }
 }
 
@@ -327,10 +344,12 @@ pub struct AuthorityBuilder {
 
 impl AuthorityBuilder {
     /// Creates a new authority builder from a compser.
-    fn new(composer: Composer) -> Self {
-        AuthorityBuilder { 
-            target: MessageTarget::new(composer)
-        }
+    fn new(target: MessageTarget) -> Self {
+        AuthorityBuilder { target }
+    }
+
+    pub fn set_limit(&mut self, limit: usize) {
+        self.target.buf.set_limit(limit)
     }
 
     /// Returns a reference to the messages header.
@@ -343,6 +362,14 @@ impl AuthorityBuilder {
         self.target.header_mut()
     }
 
+    pub fn snapshot(&self) -> Snapshot<Self> {
+        self.target.snapshot()
+    }
+
+    pub fn rewind(&mut self, snapshot: Snapshot<Self>) {
+        self.target.rewind(snapshot)
+    }
+
     /// Appends a new resource record to the authority section.
     ///
     /// This method is generic over anything that can be converted into a
@@ -351,24 +378,22 @@ impl AuthorityBuilder {
     /// the class which will then be assumed to be `Class::In`.
     ///
     /// [`Record`]: ../record/struct.Record.html
-    pub fn push<N, D, R>(&mut self, record: R) -> ComposeResult<()>
-                where N: DName,
-                      D: RecordData,
-                      R: Into<Record<N, D>> {
-        self.target.push(|target| record.into().compose(target),
-                         |counts| counts.inc_nscount(1))
-    }
-
-    /// Rewinds to the beginning of the authority section.
-    ///
-    /// This drops all previously assembled authority records.
-    pub fn rewind(&mut self) {
-        self.target.rewind(|counts| counts.set_nscount(0))
+    pub fn push<N, D>(&mut self, record: &Record<N, D>)
+                      -> Result<(), ShortBuf>
+                where N: ToDname,
+                      D: RecordData {
+        self.target.push(|target| record.compress(target),
+                         |counts| counts.inc_nscount())
     }
 
     /// Proceeds to building the additional section.
     pub fn additional(self) -> AdditionalBuilder {
-        AdditionalBuilder::new(self.target.commit())
+        AdditionalBuilder::new(self.target)
+    }
+
+    /// Proceeds to building the OPT record.
+    pub fn opt(self) -> Result<OptBuilder, ShortBuf> {
+        self.additional().opt()
     }
 
     /// Returns a reference to the message assembled so far.
@@ -382,11 +407,15 @@ impl AuthorityBuilder {
         self.target.preview()
     }
 
-    /// Finishes the message.
+    /// Finishes the message and returns the underlying bytes buffer.
     ///
-    /// The resulting message will have an empty additional section.
-    pub fn finish(self) -> Vec<u8> {
-        self.target.finish()
+    /// This will result in a message with all three record sections empty.
+    pub fn finish(self) -> BytesMut {
+        self.target.unwrap()
+    }
+
+    pub fn freeze(self) -> Bytes {
+        self.target.freeze()
     }
 }
 
@@ -411,10 +440,8 @@ pub struct AdditionalBuilder {
 
 impl AdditionalBuilder {
     /// Creates a new additional builder from a compser.
-    fn new(composer: Composer) -> Self {
-        AdditionalBuilder { 
-            target: MessageTarget::new(composer)
-        }
+    fn new(target: MessageTarget) -> Self {
+        AdditionalBuilder { target }
     }
 
     /// Returns a reference to the messages header.
@@ -422,9 +449,21 @@ impl AdditionalBuilder {
         self.target.header()
     }
 
+    pub fn set_limit(&mut self, limit: usize) {
+        self.target.buf.set_limit(limit)
+    }
+
     /// Returns a mutable reference to the messages header.
     pub fn header_mut(&mut self) -> &mut Header {
         self.target.header_mut()
+    }
+
+    pub fn snapshot(&self) -> Snapshot<Self> {
+        self.target.snapshot()
+    }
+
+    pub fn rewind(&mut self, snapshot: Snapshot<Self>) {
+        self.target.rewind(snapshot)
     }
 
     /// Appends a new resource record to the additional section.
@@ -435,44 +474,17 @@ impl AdditionalBuilder {
     /// the class which will then be assumed to be `Class::In`.
     ///
     /// [`Record`]: ../record/struct.Record.html
-    pub fn push<N, D, R>(&mut self, record: R) -> ComposeResult<()>
-                where N: DName,
-                      D: RecordData,
-                      R: Into<Record<N, D>> {
-        self.target.push(|target| record.into().compose(target),
-                         |counts| counts.inc_arcount(1))
+    pub fn push<N, D>(&mut self, record: &Record<N, D>)
+                      -> Result<(), ShortBuf>
+                where N: ToDname,
+                      D: RecordData {
+        self.target.push(|target| record.compress(target),
+                         |counts| counts.inc_arcount())
     }
 
-    /// Starts appending an OPT record to the section.
-    ///
-    /// The method expects the values of the OPT record that are encoded in
-    /// various fields of the record header.
-    ///
-    /// The *payload_size* field contains
-    /// the maximum size of UDP payload a requestor can assemble and process.
-    /// 
-    /// The `rcode` argument should contain the Rcode used for a response
-    /// or `OptRcode::NoError` for a message. Only the upper eight bits are
-    /// used here, the lower for bits go into the message header’s rcode
-    /// field.
-    ///
-    /// The `dnssec_ok` flag indicates whether a sender is prepared to
-    /// receive and process DNSSEC-related resource records in a response.
-    /// In a response it must be equal to its value in a request.
-    /// 
-    /// This method trades in the additional section builder for an OPT
-    /// record builder. Once the record is finished, it can be traded back
-    /// to continue building the additional section.
-    pub fn build_opt(self, payload_size: u16, rcode: OptRcode,
-                     dnssec_ok: bool) -> ComposeResult<OptBuilder> {
-        OptBuilder::new(self, payload_size, rcode, dnssec_ok)
-    }
-
-    /// Rewinds to the beginning of the additional section.
-    ///
-    /// This drops all previously assembled additonal records.
-    pub fn rewind(&mut self) {
-        self.target.rewind(|counts| counts.set_arcount(0))
+    /// Proceeds to building the OPT record.
+    pub fn opt(self) -> Result<OptBuilder, ShortBuf> {
+        OptBuilder::new(self.target)
     }
 
     /// Returns a reference to the message assembled so far.
@@ -486,63 +498,94 @@ impl AdditionalBuilder {
         self.target.preview()
     }
 
-    /// Finishes the message.
-    pub fn finish(self) -> Vec<u8> {
-        self.target.finish()
+    /// Finishes the message and returns the underlying bytes buffer.
+    ///
+    /// This will result in a message with all three record sections empty.
+    pub fn finish(self) -> BytesMut {
+        self.target.unwrap()
     }
-}
 
-impl AsRef<Message> for AdditionalBuilder {
-    fn as_ref(&self) -> &Message {
-        self.target.as_ref()
+    pub fn freeze(self) -> Bytes {
+        self.target.freeze()
     }
 }
 
 
 //------------ OptBuilder ----------------------------------------------------
 
-/// A type for building an OPT record on the fly.
-///
-/// The OPT record is part of the additional section. You can therefore get
-/// hold of a value of this type through the `AdditionalBuilder::build_opt()`
-/// method.
-///
-/// You use this value to add options to the record via the `push()` method.
-/// Once you are done, call `complete()` to finish up the record and get the
-/// additional builder back.
 #[derive(Clone, Debug)]
 pub struct OptBuilder {
-    builder: RecordBuilder<ComposeSnapshot>,
+    target: MessageTarget,
+    pos: usize,
 }
 
 impl OptBuilder {
-    /// Creates a new OPT builder from an additional builder
-    fn new(builder: AdditionalBuilder, payload_size: u16, rcode: OptRcode,
-           dnssec_ok: bool) -> ComposeResult<Self> {
-        let mut ttl = (rcode.ext() as u32) << 24;
-        if dnssec_ok {
-            ttl |= 0x8000
-        }
-        let builder = RecordBuilder::new(builder.target.composer,
-                                         &DNameSlice::root(),
-                                         Class::Int(payload_size),
-                                         Rtype::Opt, ttl)?;
-        Ok(OptBuilder { builder })
+    fn new(mut target: MessageTarget) -> Result<Self, ShortBuf> {
+        let pos = target.len();
+        target.compose(&OptHeader::default())?;
+        target.compose(&0u16)?;
+        Ok(OptBuilder { pos, target })
     }
 
     /// Pushes an option to the OPT record.
-    pub fn push<O: OptData>(&mut self, option: O) -> ComposeResult<()> {
-        option.compose(&mut self.builder)
+    pub fn push<O: OptData>(&mut self, option: &O) -> Result<(), ShortBuf> {
+        self.target.compose(&option.code())?;
+        let len = option.compose_len();
+        assert!(len <= ::std::u16::MAX as usize);
+        self.target.compose(&(len as u16))?;
+        self.target.compose(option)
+    }
+
+    pub(super) fn build<F>(&mut self, code: OptionCode, len: u16, op: F)
+                           -> Result<(), ShortBuf>
+                        where F: FnOnce(&mut Compressor)
+                                        -> Result<(), ShortBuf> {
+        self.target.compose(&code)?;
+        self.target.compose(&len)?;
+        op(&mut self.target.buf)
     }
 
     /// Completes the OPT record and returns the additional section builder.
-    pub fn complete(self) -> ComposeResult<AdditionalBuilder> {
-        let mut target = MessageTarget { composer: self.builder.finish()? };
-        target.counts_mut().inc_arcount(1)?;
-        Ok(AdditionalBuilder { target })
+    pub fn additional(self) -> AdditionalBuilder {
+        AdditionalBuilder::new(self.complete())
+    }
+
+    /// Finishes the message and returns the underlying bytes buffer.
+    ///
+    /// This will result in a message with all three record sections empty.
+    pub fn finish(self) -> BytesMut {
+        self.complete().unwrap()
+    }
+
+    pub fn freeze(self) -> Bytes {
+        self.complete().freeze()
+    }
+
+    fn complete(mut self) -> MessageTarget {
+        let len = self.target.len()
+                - (self.pos + mem::size_of::<OptHeader>() + 2);
+        assert!(len <= ::std::u16::MAX as usize);
+        BigEndian::write_u16(&mut self.target.as_slice_mut()[self.pos..],
+                             len as u16);
+        self.target.counts_mut().inc_arcount();
+        self.target
     }
 }
 
+impl ops::Deref for OptBuilder {
+    type Target = OptHeader;
+
+    fn deref(&self) -> &Self::Target {
+        OptHeader::for_record_slice(&self.target.as_slice()[self.pos..])
+    }
+}
+
+impl ops::DerefMut for OptBuilder {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        OptHeader::for_record_slice_mut(&mut self.target.as_slice_mut()
+                                                                 [self.pos..])
+    }
+}
 
 //------------ MessageTarget -------------------------------------------------
 
@@ -551,81 +594,114 @@ impl OptBuilder {
 /// This private type does all the heavy lifting for constructing messages.
 #[derive(Clone, Debug)]
 struct MessageTarget {
-    composer: ComposeSnapshot,
+    buf: Compressor,
+    start: usize,
 }
 
 
 impl MessageTarget {
-    /// Creates a new message target atop a given composer.
-    fn new(composer: Composer) -> Self {
-        MessageTarget{composer: composer.snapshot()}
+    /// Creates a new message target atop a given buffer.
+    fn from_buf(mut buf: BytesMut) -> Self {
+        let start = buf.len();
+        if buf.remaining_mut() < 2 + mem::size_of::<HeaderSection>() {
+            let additional = 2 + mem::size_of::<HeaderSection>()
+                           - buf.remaining_mut();
+            buf.reserve(additional)
+        }
+        0u16.compose(&mut buf);
+        let mut buf = Compressor::from_buf(buf);
+        HeaderSection::default().compose(&mut buf);
+        MessageTarget { buf, start }
     }
 
     /// Returns a reference to the message’s header.
     fn header(&self) -> &Header {
-        Header::from_message(self.composer.so_far())
+        Header::for_message_slice(self.buf.slice())
     }
 
     /// Returns a mutable reference to the message’s header.
     fn header_mut(&mut self) -> &mut Header {
-        Header::from_message_mut(self.composer.so_far_mut())
+        Header::for_message_slice_mut(self.buf.slice_mut())
+    }
+
+    fn counts(&self) -> &HeaderCounts {
+        HeaderCounts::for_message_slice(self.buf.slice())
     }
 
     /// Returns a mutable reference to the message’s header counts.
     fn counts_mut(&mut self) -> &mut HeaderCounts {
-        HeaderCounts::from_message_mut(self.composer.so_far_mut())
+        HeaderCounts::for_message_slice_mut(self.buf.slice_mut())
     }
 
     /// Pushes something to the end of the message.
     ///
     /// There’s two closures here. The first one, `composeop` actually
     /// writes the data. The second, `incop` increments the counter in the
-    /// messages header to reflect the new element.
-    fn push<O, I>(&mut self, composeop: O, incop: I) -> ComposeResult<()>
-            where O: FnOnce(&mut Composer) -> ComposeResult<()>,
-                  I: FnOnce(&mut HeaderCounts) -> ComposeResult<()> {
-        if !self.composer.is_truncated() {
-            self.composer.mark_checkpoint();
-            match composeop(&mut self.composer) {
-                Ok(()) => {
-                    try!(incop(self.counts_mut()));
-                    Ok(())
-                }
-                Err(ComposeError::SizeExceeded) => Ok(()),
-                Err(error) => Err(error)
-            }
+    /// messages header to reflect the new element. The latter is assumed to
+    /// never fail. This means you need to check before you push whether
+    /// there is still space in whatever counter you plan to increase.
+    /// `HeaderCount`’s `inc_*` methods, which are supposed to be used here,
+    /// have assertions for your own safety.
+    fn push<O, I, E>(&mut self, composeop: O, incop: I) -> Result<(), E>
+            where O: FnOnce(&mut Compressor) -> Result<(), E>,
+                  I: FnOnce(&mut HeaderCounts) {
+        composeop(&mut self.buf).map(|()| incop(self.counts_mut()))
+    }
+
+    fn snapshot<T>(&self) -> Snapshot<T> {
+        Snapshot {
+            pos: self.buf.len(),
+            counts: self.counts().clone(),
+            marker: PhantomData,
         }
-        else { Ok(()) }
     }
 
-    /// Returns a reference to the message assembled so far.
+    fn rewind<T>(&mut self, snapshot: Snapshot<T>) {
+        self.buf.truncate(snapshot.pos);
+        self.counts_mut().set(&snapshot.counts);
+    }
+
+    fn update_shim(&mut self) {
+        let len = (self.buf.len() - self.start) as u16;
+        BigEndian::write_u16(&mut self.buf.as_slice_mut()[self.start..], len);
+    }
+
     fn preview(&mut self) -> &[u8] {
-        self.composer.preview()
+        self.update_shim();
+        self.buf.as_slice()
     }
 
-    /// Finishes the message building and extracts the underlying vector.
-    fn finish(mut self) -> Vec<u8> {
-        let tc = self.composer.is_truncated();
-        self.header_mut().set_tc(tc);
-        self.composer.commit().finish()
+    fn unwrap(mut self) -> BytesMut {
+        self.update_shim();
+        self.buf.unwrap()
     }
 
-    /// Rewinds the compose snapshots and allows updating the header counts.
-    fn rewind<F>(&mut self, op: F)
-              where F: FnOnce(&mut HeaderCounts) {
-        op(self.counts_mut());
-        self.composer.rewind()
+    fn freeze(mut self) -> Bytes {
+        self.update_shim();
+        self.unwrap().freeze()
     }
+}
 
-    /// Commit the compose snapshot.
-    fn commit(self) -> Composer {
-        self.composer.commit()
+impl ops::Deref for MessageTarget {
+    type Target = Compressor;
+
+    fn deref(&self) -> &Self::Target {
+        &self.buf
+    }
+}
+
+impl ops::DerefMut for MessageTarget {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buf
     }
 }
 
 
-impl AsRef<Message> for MessageTarget {
-    fn as_ref(&self) -> &Message {
-        unsafe { Message::from_bytes_unsafe(self.composer.so_far()) }
-    }
+//------------ Snapshot ------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Snapshot<T> {
+    pos: usize,
+    counts: HeaderCounts,
+    marker: PhantomData<T>,
 }

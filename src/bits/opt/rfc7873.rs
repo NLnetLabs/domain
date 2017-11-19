@@ -3,6 +3,8 @@
 use std::mem;
 use bytes::BufMut;
 use ::bits::compose::Composable;
+use ::bits::error::ShortBuf;
+use ::bits::message_builder::OptBuilder;
 use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::{OptData, OptionParseError};
@@ -16,6 +18,11 @@ pub struct Cookie([u8; 8]);
 impl Cookie {
     pub fn new(cookie: [u8; 8]) -> Self {
         Cookie(cookie)
+    }
+
+    pub fn push(builder: &mut OptBuilder, cookie: [u8; 8])
+                -> Result<(), ShortBuf> {
+        builder.push(&Self::new(cookie))
     }
 
     pub fn cookie(&self) -> &[u8; 8] {

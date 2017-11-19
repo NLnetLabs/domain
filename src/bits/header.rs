@@ -19,8 +19,11 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use std::mem;
-use bytes::{BigEndian, ByteOrder};
+use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Opcode, Rcode};
+use super::compose::Composable;
+use super::error::ShortBuf;
+use super::parse::{Parseable, Parser};
 
 
 //------------ Header --------------------------------------------------
@@ -51,7 +54,7 @@ use ::iana::{Opcode, Rcode};
 /// [Field Access]: #field-access 
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 4035]: https://tools.ietf.org/html/rfc4035
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Header {
     /// The actual header in its wire format representation.
     ///
@@ -278,7 +281,7 @@ impl Header {
 ///
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HeaderCounts {
     /// The actual headers in their wire-format representation.
     ///
@@ -324,6 +327,16 @@ impl HeaderCounts {
     pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
+
+    /// Returns a mutable reference to the underlying byte slice.
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
+        &mut self.inner
+    }
+
+    /// Sets the counts to those from `counts`.
+    pub fn set(&mut self, counts: &HeaderCounts) {
+        self.as_slice_mut().copy_from_slice(counts.as_slice())
+    }
 }
 
 
@@ -345,6 +358,17 @@ impl HeaderCounts {
         self.set_u16(0, value)
     }
 
+    /// Increases the value of the QDCOUNT field by own.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the count is already at its maximum.
+    pub fn inc_qdcount(&mut self) {
+        let count = self.qdcount();
+        assert!(count < ::std::u16::MAX);
+        self.set_qdcount(count + 1);
+    }
+
     /// Returns the value of the ANCOUNT field.
     ///
     /// This field contains the number of resource records in the second
@@ -356,6 +380,17 @@ impl HeaderCounts {
     /// Sets the value of the ANCOUNT field.
     pub fn set_ancount(&mut self, value: u16) {
         self.set_u16(2, value)
+    }
+
+    /// Increases the value of the ANCOUNT field by own.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the count is already at its maximum.
+    pub fn inc_ancount(&mut self) {
+        let count = self.ancount();
+        assert!(count < ::std::u16::MAX);
+        self.set_ancount(count + 1);
     }
 
     /// Returns the value of the NSCOUNT field.
@@ -371,6 +406,17 @@ impl HeaderCounts {
         self.set_u16(4, value)
     }
 
+    /// Increases the value of the NSCOUNT field by own.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the count is already at its maximum.
+    pub fn inc_nscount(&mut self) {
+        let count = self.nscount();
+        assert!(count < ::std::u16::MAX);
+        self.set_nscount(count + 1);
+    }
+
     /// Returns the value of the ARCOUNT field.
     ///
     /// This field contains the number of resource records in the fourth
@@ -382,6 +428,17 @@ impl HeaderCounts {
     /// Sets the value of the ARCOUNT field.
     pub fn set_arcount(&mut self, value: u16) {
         self.set_u16(6, value)
+    }
+
+    /// Increases the value of the ARCOUNT field by own.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the count is already at its maximum.
+    pub fn inc_arcount(&mut self) {
+        let count = self.arcount();
+        assert!(count < ::std::u16::MAX);
+        self.set_arcount(count + 1);
     }
 
 
@@ -459,7 +516,7 @@ impl HeaderCounts {
 /// The complete header section of a DNS message.
 ///
 /// Consists of a `Header` and a `HeaderCounts`.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HeaderSection {
     inner: [u8; 12]
 }
@@ -522,6 +579,30 @@ impl HeaderSection {
     /// Returns a mutable reference to the header counts.
     pub fn counts_mut(&mut self) -> &mut HeaderCounts {
         HeaderCounts::for_message_slice_mut(&mut self.inner)
+    }
+}
+
+
+//--- Parseable and Composable
+
+impl Parseable for HeaderSection {
+    type Err = ShortBuf;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        let slice = parser.peek(12)?;
+        let mut res = Self::default();
+        res.inner.copy_from_slice(slice);
+        Ok(res)
+    }
+}
+
+impl Composable for HeaderSection {
+    fn compose_len(&self) -> usize {
+        12
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(&self.inner)
     }
 }
 

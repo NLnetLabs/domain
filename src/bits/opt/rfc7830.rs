@@ -4,6 +4,7 @@ use bytes::BufMut;
 use rand::random;
 use ::bits::compose::Composable;
 use ::bits::error::ShortBuf;
+use ::bits::message_builder::OptBuilder;
 use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::OptData;
@@ -30,6 +31,11 @@ pub struct Padding {
 impl Padding {
     pub fn new(len: u16, mode: PaddingMode) -> Self {
         Padding { len, mode }
+    }
+    
+    pub fn push(builder: &mut OptBuilder, len: u16, mode: PaddingMode)
+                -> Result<(), ShortBuf> {
+        builder.push(&Self::new(len, mode))
     }
 
     pub fn len(&self) -> u16 {

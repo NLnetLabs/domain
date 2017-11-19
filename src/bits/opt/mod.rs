@@ -6,11 +6,13 @@
 //! `rdata` module and the types defined for operating on them differ from
 //! how other record types are handled.
 
-use bytes::{BufMut, Bytes};
+use std::mem;
 use std::marker::PhantomData;
-use ::iana::{OptionCode, Rtype};
+use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
+use ::iana::{OptionCode, OptRcode, Rtype};
 use super::compose::{Composable, Compressable, Compressor};
 use super::error::ShortBuf;
+use super::header::Header;
 use super::parse::Parser;
 use super::rdata::RecordData;
 
@@ -78,6 +80,94 @@ impl Composable for Opt {
 impl Compressable for Opt {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose(self)
+    }
+}
+
+
+//------------ OptHeader -----------------------------------------------------
+
+/// The header of an OPT record.
+///
+/// The OPT record reappropriates the record header for encoding some
+/// basic information. This type provides access to this information. It
+/// consists of the record header accept for its `rdlen` field.
+///
+/// This is so that `OptBuilder` can safely deref to this type.
+///
+//    +------------+--------------+------------------------------+
+//    | Field Name | Field Type   | Description                  |
+//    +------------+--------------+------------------------------+
+//    | NAME       | domain name  | MUST be 0 (root domain)      |
+//    | TYPE       | u_int16_t    | OPT (41)                     |
+//    | CLASS      | u_int16_t    | requestor's UDP payload size |
+//    | TTL        | u_int32_t    | extended RCODE and flags     |
+//    | RDLEN      | u_int16_t    | length of all RDATA          |
+//    | RDATA      | octet stream | {attribute,value} pairs      |
+//    +------------+--------------+------------------------------+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct OptHeader {
+    /// The bytes of the header.
+    inner: [u8; 9],
+}
+
+impl OptHeader {
+    pub fn for_record_slice(slice: &[u8]) -> &OptHeader {
+        assert!(slice.len() >= mem::size_of::<Self>());
+        unsafe { &*(slice.as_ptr() as *const OptHeader) }
+    }
+
+    pub fn for_record_slice_mut(slice: &mut [u8]) -> &mut OptHeader {
+        assert!(slice.len() >= mem::size_of::<Self>());
+        unsafe { &mut *(slice.as_ptr() as *mut OptHeader) }
+    }
+
+    pub fn udp_payload_size(&self) -> u16 {
+        BigEndian::read_u16(&self.inner[3..])
+    }
+
+    pub fn set_udp_payload_size(&mut self, value: u16) {
+        BigEndian::write_u16(&mut self.inner[3..], value)
+    }
+
+    pub fn rcode(&self, header: &Header) -> OptRcode {
+        OptRcode::from_parts(header.rcode(), self.inner[5])
+    }
+
+    pub fn set_rcode(&mut self, rcode: OptRcode) {
+        self.inner[5] = rcode.ext()
+    }
+
+    pub fn version(&self) -> u8 {
+        self.inner[6]
+    }
+
+    pub fn dnssec_ok(&self) -> bool {
+        self.inner[7] & 0x80 != 0
+    }
+
+    pub fn set_dnssec_ok(&mut self, value: bool) {
+        if value {
+            self.inner[7] |= 0x80
+        }
+        else {
+            self.inner[7] &= 0x7F
+        }
+    }
+}
+
+impl Default for OptHeader {
+    fn default() -> Self {
+        OptHeader { inner: [0, 41, 0, 0, 0, 0, 0, 0, 0] }
+    }
+}
+
+impl Composable for OptHeader {
+    fn compose_len(&self) -> usize {
+        9
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(&self.inner)
     }
 }
 

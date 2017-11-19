@@ -4,6 +4,7 @@ use std::fmt;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
 use ::bits::error::ShortBuf;
+use ::bits::message_builder::OptBuilder;
 use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::OptData;
@@ -22,6 +23,15 @@ pub struct Nsid {
 impl Nsid {
     pub fn new(bytes: Bytes) -> Self {
         Nsid { bytes }
+    }
+
+    pub fn push<T: AsRef<[u8]>>(builder: &mut OptBuilder, data: &T)
+                                -> Result<(), ShortBuf> {
+        let data = data.as_ref();
+        assert!(data.len() <= ::std::u16::MAX as usize);
+        builder.build(OptionCode::Nsid, data.len() as u16, |buf| {
+            buf.compose(data)
+        })
     }
 }
 

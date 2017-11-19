@@ -5,6 +5,7 @@ use std::net::IpAddr;
 use bytes::BufMut;
 use ::bits::compose::Composable;
 use ::bits::error::ShortBuf;
+use ::bits::message_builder::OptBuilder;
 use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::OptData;
@@ -24,6 +25,11 @@ impl ClientSubnet {
     pub fn new(source_prefix_len: u8, scope_prefix_len: u8, addr: IpAddr)
                -> ClientSubnet {
         ClientSubnet { source_prefix_len, scope_prefix_len, addr }
+    }
+
+    pub fn push(builder: &mut OptBuilder, source_prefix_len: u8,
+                scope_prefix_len: u8, addr: IpAddr) -> Result<(), ShortBuf> {
+        builder.push(&Self::new(source_prefix_len, scope_prefix_len, addr))
     }
 
     pub fn source_prefix_len(&self) -> u8 { self.source_prefix_len }

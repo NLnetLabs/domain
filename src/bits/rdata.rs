@@ -27,7 +27,7 @@
 use std::fmt;
 use bytes::{BufMut, Bytes};
 use ::iana::Rtype;
-use super::compose::Composable;
+use super::compose::{Composable, Compressable, Compressor};
 use super::error::ShortBuf;
 use super::parse::Parser;
 
@@ -35,7 +35,7 @@ use super::parse::Parser;
 //----------- RecordData -----------------------------------------------------
 
 /// A trait for types representing record data.
-pub trait RecordData: Composable + Sized {
+pub trait RecordData: Composable + Compressable + Sized {
     /// The type of an error returned when parsing fails.
     type ParseErr: Clone;
 
@@ -100,7 +100,7 @@ impl UnknownRecordData {
 }
 
 
-//--- Composable and RecordData
+//--- Composable, Compressable, and RecordData
 
 impl Composable for UnknownRecordData {
     fn compose_len(&self) -> usize {
@@ -109,6 +109,12 @@ impl Composable for UnknownRecordData {
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
         buf.put_slice(self.data.as_ref())
+    }
+}
+
+impl Compressable for UnknownRecordData {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        buf.compose(self)
     }
 }
 

@@ -3,7 +3,8 @@
 use bytes::BufMut;
 use ::bits::compose::Composable;
 use ::bits::error::ShortBuf;
-use ::bits::name::{Dname, DnameError};
+use ::bits::message_builder::OptBuilder;
+use ::bits::name::{Dname, DnameError, ToDname};
 use ::bits::parse::Parser;
 use ::iana::OptionCode;
 use super::OptData;
@@ -19,6 +20,15 @@ pub struct Chain {
 impl Chain {
     pub fn new(start: Dname) -> Self {
         Chain { start }
+    }
+
+    pub fn push<N: ToDname>(builder: &mut OptBuilder, start: &N)
+                            -> Result<(), ShortBuf> {
+        let len = start.compose_len();
+        assert!(len <= ::std::u16::MAX as usize);
+        builder.build(OptionCode::Chain, len as u16, |buf| {
+            buf.compose(start)
+        })
     }
 
     pub fn start(&self) -> &Dname {
