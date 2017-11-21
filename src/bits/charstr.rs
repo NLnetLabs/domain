@@ -20,13 +20,12 @@
 
 use std::{cmp, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes};
+use ::master::error::{ScanError, SyntaxError};
+use ::master::source::CharSource;
+use ::master::scanner::{Scannable, Scanner};
 use super::compose::Composable;
 use super::error::ShortBuf;
 use super::parse::{Parseable, Parser};
-/*
-use ::master::{Scanner, ScanResult};
-use super::{Composer, ComposeResult, Parser, ParseResult};
-*/
 
 
 //------------ CharStr -------------------------------------------------------
@@ -102,6 +101,24 @@ impl Composable for CharStr {
     fn compose<B: BufMut>(&self, buf: &mut B) {
         buf.put_u8(self.len() as u8);
         buf.put_slice(self.as_ref());
+    }
+}
+
+
+//--- Scannable
+
+impl Scannable for CharStr {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError<C::Err>> {
+        scanner.scan_byte_phrase(|res| {
+            if res.len() > 255 {
+                Err(SyntaxError::LongCharStr)
+            }
+            else
+            {
+                Ok(unsafe { CharStr::from_bytes_unchecked(res) })
+            }
+        })
     }
 }
 

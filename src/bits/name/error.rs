@@ -85,10 +85,6 @@ pub enum FromStrError {
     #[fail(display="illegal character")]
     IllegalCharacter,
 
-    /// An absolute name was encountered.
-    #[fail(display="absolute domain name")]
-    AbsoluteName,
-
     /// The name has more than 255 characters.
     #[fail(display="long domain name")]
     LongName,

@@ -109,16 +109,16 @@ pub use self::record::{GenericRecord, Record};
 
 //--- Modules
 
-pub mod charstr;
-pub mod compose;
-pub mod error;
-pub mod header;
-pub mod message;
-pub mod message_builder;
-pub mod name;
-pub mod opt;
-pub mod parse;
-pub mod question;
-pub mod rdata;
-pub mod record;
+    pub mod charstr;
+    pub mod compose;
+    pub mod error;
+    pub mod header;
+    pub mod message;
+    pub mod message_builder;
+    pub mod name;
+    pub mod opt;
+    pub mod parse;
+    pub mod question;
+    pub mod rdata;
+    pub mod record;
 

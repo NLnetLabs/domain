@@ -1,6 +1,10 @@
 //! A domain name that can be both relative or absolute.
 
 use std::str;
+use std::ascii::AsciiExt;
+use ::master::error::{ScanError, SyntaxError};
+use ::master::scanner::{Scannable, Scanner, Symbol};
+use ::master::source::CharSource;
 use super::builder::DnameBuilder;
 use super::dname::Dname;
 use super::error::FromStrError;
@@ -171,6 +175,57 @@ impl str::FromStr for UncertainDname {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::_from_chars(s.chars(), DnameBuilder::with_capacity(s.len()))
+    }
+}
+
+
+//--- Scannable
+
+impl Scannable for UncertainDname {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError<C::Err>> {
+        scanner.scan_word(
+            DnameBuilder::new(),
+            |name, symbol| {
+                match symbol {
+                    Symbol::Char('.') => {
+                        if name.in_label() {
+                            name.end_label();
+                        }
+                        else {
+                            return Err(SyntaxError::IllegalName)
+                        }
+                    }
+                    Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
+                        if ch.is_ascii() {
+                            if let Err(_) = name.push(ch as u8) {
+                                return Err(SyntaxError::IllegalName)
+                            }
+                        }
+                        else {
+                            return Err(SyntaxError::IllegalName)
+                        }
+                    }
+                    Symbol::DecimalEscape(ch) => {
+                        if let Err(_) = name.push(ch) {
+                            return Err(SyntaxError::IllegalName)
+                        }
+                    }
+                    _ => unreachable!()
+                }
+                Ok(())
+            },
+            |name| {
+                if name.in_label() || name.is_empty() {
+                    Ok(name.finish().into())
+                }
+                else {
+                    name.into_dname()
+                        .map(Into::into)
+                        .map_err(|_| SyntaxError::IllegalName)
+                }
+            }
+        )
     }
 }
 

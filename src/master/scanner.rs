@@ -1,38 +1,86 @@
+//! Scanning master file tokens.
 
-use std::str;
-use ::bits::CharStrBuf;
-use ::bits::{DNameBuf, DNameSlice};
-use ::bits::name::{DNameBuilder, DNameBuildInto};
-use super::error::{Pos, ScanResult, SyntaxError, SyntaxResult};
+use std::ascii::AsciiExt;
+use bytes::{BufMut, Bytes, BytesMut};
+use super::error::{ScanError, SyntaxError, Pos};
+use super::source::CharSource;
 
 
 //------------ Scanner -------------------------------------------------------
 
-/// A trait for a scanner of master format tokens.
-///
-/// The master format is using a small number of different token types. This
-/// trait provides a way to access a sequence of such tokens. There is a
-/// method prefix by `scan_` for each type of token that tries to scan a
-/// token of the given type. If it succeeds, it returns the token and
-/// progresses to the end of the token. If it fails, it returns an error and
-/// reverts to the position before the scanning attempt unless an IO error
-/// occured in which case the scanner becomes ‘broken.’
-///
-/// The methods that provide access to the token’s content do so through
-/// closures to let the user decide if and how copies ought to be made. Note
-/// that since the scanner may throw away the content at any time after the
-/// closure returns, you cannot keep the slice references passed in. This is
-/// not on purpose, not a mistake with the lifetime arguments.
-pub trait Scanner {
-    /// # Fundamental Methods
+#[derive(Clone, Debug)]
+pub struct Scanner<C: CharSource> {
+    /// The underlying character source.
+    chars: C,
+
+    /// The buffer for rejected tokens.
     ///
+    /// It will be kept short by flushing it every time we successfully read
+    /// to its end.
+    buf: Vec<Symbol>,
+
+    /// Index in `buf` of the start of the token currently being read.
+    start: usize,
+
+    /// Index in `buf` of the next character to be read.
+    cur: usize,
+
+    /// Human-friendly position in `reader` of `start`.
+    start_pos: Pos,
+
+    /// Human-friendly position in `reader` of `cur`.
+    cur_pos: Pos,
+
+    /// Was the start of token in a parenthesized group?
+    paren: bool,
+
+    /// Our newline mode
+    newline: NewlineMode,
+}
+
+
+/// # Creation
+///
+impl<C: CharSource> Scanner<C> {
+    /// Creates a new scanner.
+    pub fn new(chars: C) -> Self {
+        Scanner::with_pos(chars, Pos::new())
+    }
+
+    /// Creates a new scanner using the given character source and position.
+    ///
+    /// The scanner will assume that the current position of `chars`
+    /// corresponds to the human-friendly position `pos`.
+    pub fn with_pos(chars: C, pos: Pos) -> Self {
+        Scanner {
+            chars,
+            buf: Vec::new(),
+            start: 0,
+            cur: 0,
+            start_pos: pos,
+            cur_pos: pos,
+            paren: false,
+            newline: NewlineMode::Unknown,
+        }
+    }
+}
+
+
+/// # Fundamental Scanning
+///
+impl<C: CharSource> Scanner<C> {
     /// Returns whether the scanner has reached the end of data.
-    ///
-    /// This will return `false` if reading results in an IO error.
-    fn is_eof(&mut self) -> bool;
+    pub fn is_eof(&mut self) -> bool {
+        match self.peek() {
+            Ok(Some(_)) => false,
+            _ => true
+        }
+    }
 
     /// Returns the current position of the scanner.
-    fn pos(&self) -> Pos;
+    pub fn pos(&self) -> Pos {
+        self.cur_pos
+    }
 
     /// Scans a word token.
     ///
@@ -43,40 +91,34 @@ pub trait Scanner {
     /// required. That is, you can scan for two subsequent word tokens
     /// without worrying about the space between them.
     ///
-    /// A reference to the content of the actual word (ie., without any
-    /// trailing space) is passed to the provided closure. This is the raw
-    /// content without any escape sequences translated. If the closure likes
-    /// the content, it can return something which will then become the
-    /// return value of the entire method. Otherwise, it returns a syntax
-    /// error. In this case, the whole method will fails returning the syntax
-    /// error and the position of the start of the token.
-    fn scan_word<T, F>(&mut self, f: F) -> ScanResult<T>
-                 where F: FnOnce(&[u8]) -> SyntaxResult<T>;
-
-    /// Scans a word, processing each character of its content separatedly. 
-    ///
-    /// This method is similar to [scan_word()](#tymethod.scan_word) but the
-    /// closure is called for each character of the content. Escape sequences
-    /// are translated into the character they stand for. For each character,
-    /// the closure receives the character value and a boolean
-    /// indicating whether the character was in fact translated from an
-    /// escape sequence. Ie., the content `b"f"` will be translated into one
-    /// single closure call with `f(b'f', false)`, whereas the content
-    /// `b"\102"` will also be just one call but with `f(b'f', true)`.
-    ///
-    /// If the closure returns `Ok(())`, the method proceeds to the next
-    /// content character or, if there are no more characters, itself returns
-    /// `Ok(())`. If the closure returns an error, the method returns to the
-    /// start of the token and returns the error with that position.
-    fn scan_word_bytes<F>(&mut self, mut f: F) -> ScanResult<()>
-                       where F: FnMut(u8, bool) -> SyntaxResult<()> {
-        self.scan_word_into((), |_, b, escape| f(b, escape), |_| Ok(()))
+    /// The method starts out with a `target` value and two closures. The
+    /// first closure, `symbolop`, is being fed symbols of the word one by one
+    /// and should feed them into the target. Once the word ended, the
+    /// second closure is called to convert the target into the final result.
+    /// Both can error out at any time stopping processing and leading the
+    /// scanner to revert to the beginning of the token.
+    pub fn scan_word<T, U, F, G>(&mut self, mut target: T, mut symbolop: F,
+                                 finalop: G) -> Result<U, ScanError<C::Err>>
+                     where F: FnMut(&mut T, Symbol)
+                                    -> Result<(), SyntaxError>,
+                           G: FnOnce(T) -> Result<U, SyntaxError> {
+        match self.peek()? {
+            Some(ch) if ch.is_word_char() => { }
+            Some(ch) => return self.err(SyntaxError::Unexpected(ch)),
+            None => return self.err(SyntaxError::UnexpectedEof)
+        };
+        while let Some(ch) = self.cond_read(Symbol::is_word_char)? {
+            if let Err(err) = symbolop(&mut target, ch) {
+                return self.err_cur(err)
+            }
+        }
+        let res = match finalop(target) {
+            Ok(res) => res,
+            Err(err) => return self.err(err)
+        };
+        self.skip_delimiter()?;
+        Ok(res)
     }
-
-    fn scan_word_into<T, U, F, G>(&mut self, target: T, f: F, g: G)
-                               -> ScanResult<U>
-                      where F: FnMut(&mut T, u8, bool) -> SyntaxResult<()>,
-                            G: FnOnce(T) -> SyntaxResult<U>;
 
     /// Scans a quoted word.
     ///
@@ -87,232 +129,778 @@ pub trait Scanner {
     /// followed by a [newline](#tymethod.scan_newline). This space is not
     /// part of the content but quietly skipped over.
     ///
-    /// The reference to the raw content of the quoted word is given to the
-    /// closure `f` which needs to decide of it fulfills its own
-    /// requirements. If it does, it can translate it into a return value
-    /// which is also returned by the method. Otherwise, it returns a syntax
-    /// error which is reported by the method with the position of the
-    /// first double quote.
-    fn scan_quoted<T, F>(&mut self, f: F) -> ScanResult<T>
-                   where F: FnOnce(&[u8]) -> SyntaxResult<T>;
+    /// The method starts out with a `target` value and two closures. The
+    /// first closure, `symbolop`, is being fed symbols of the word one by one
+    /// and should feed them into the target. Once the word ended, the
+    /// second closure is called to convert the target into the final result.
+    /// Both can error out at any time stopping processing and leading the
+    /// scanner to revert to the beginning of the token.
+    pub fn scan_quoted<T, U, F, G>(&mut self, mut target: T, mut symbolop: F,
+                                   finalop: G) -> Result<U, ScanError<C::Err>>
+                       where F: FnMut(&mut T, Symbol)
+                                    -> Result<(), SyntaxError>,
+                             G: FnOnce(T) -> Result<U, SyntaxError> {
+        match self.read()? {
+            Some(Symbol::Char('"')) => { }
+            Some(ch) => return self.err(SyntaxError::Unexpected(ch)),
+            None => return self.err(SyntaxError::UnexpectedEof)
+        }
+        loop {
+            match self.read()? {
+                Some(Symbol::Char('"')) => break,
+                Some(ch) => {
+                    if let Err(err) = symbolop(&mut target, ch) {
+                        return self.err(err)
+                    }
+                }
+                None => return self.err(SyntaxError::UnexpectedEof),
+            }
+        }
+        let res = match finalop(target) {
+            Ok(res) => res,
+            Err(err) => return self.err(err)
+        };
+        self.skip_delimiter()?;
+        Ok(res)
+    }
 
-    /// Scans a quoted word, processing the content characters separatedly. 
-    ///
-    /// This method is similar to [scan_quoted()](#tymethod.scan_quoted) but
-    /// the closure is called for each character of the content. Escape
-    /// sequences are translated into the character they stand for. For each
-    /// character, the closure receives the character value and a boolean
-    /// indicating whether the character was in fact translated from an
-    /// escape sequence. Ie., the content `b"f"` will be translated into one
-    /// single closure call with `f(b'f', false)`, whereas the content
-    /// `b"\102"` will also be just one call but with `f(b'f', true)`.
-    ///
-    /// If the closure returns `Ok(())`, the method proceeds to the next
-    /// content character or, if there are no more characters, itself returns
-    /// `Ok(())`. If the closure returns an error, the method returns to the
-    /// start of the token and returns the error with that position.
-    fn scan_quoted_bytes<F>(&mut self, f: F) -> ScanResult<()>
-                         where F: FnMut(u8, bool) -> SyntaxResult<()>;
-
-    /// Scans phrase: a normal or quoted word.
+    /// Scans a phrase: a normal word or a quoted word.
     ///
     /// This method behaves like [scan_quoted()](#tymethod.scan_quoted) if
     /// the next character is a double quote or like
     /// [scan_word()](#tymethod.scan_word) otherwise.
-    fn scan_phrase<T, F>(&mut self, f: F) -> ScanResult<T>
-                   where F: FnOnce(&[u8]) -> SyntaxResult<T>;
-
-    /// Scans a phrase and converts it into a string slice.
-    ///
-    /// This method is similar to [scan_phrase()](#tymethod.scan_phrase)
-    /// but passes a string slice to the closure instead of a bytes slice.
-    /// There are no allocations and the method syntax errors out if the
-    /// content contains non-ASCII characters.
-    fn scan_str_phrase<T, F>(&mut self, f: F) -> ScanResult<T>
-                       where F: FnOnce(&str) -> SyntaxResult<T> {
-        self.scan_phrase(|slice| {
-            f(try!(str::from_utf8(slice)))
-        })
+    pub fn scan_phrase<T, U, F, G>(&mut self, target: T, symbolop: F,
+                                   finalop: G) -> Result<U, ScanError<C::Err>>
+                       where F: FnMut(&mut T, Symbol)
+                                    -> Result<(), SyntaxError>,
+                             G: FnOnce(T) -> Result<U, SyntaxError> {
+        if let Some(Symbol::Char('"')) = self.peek()? {
+            self.scan_quoted(target, symbolop, finalop)
+        }
+        else {
+            self.scan_word(target, symbolop, finalop)
+        }
     }
 
-    /// Scans a phrase, processing the content characters separatedly.
+    /// Scans a phrase with byte content into a `Bytes` value.
     ///
-    /// This method behaves like
-    /// [scan_quoted_bytes()](#tymethod.scan_quoted_bytes) if
-    /// the next character is a double quote or like
-    /// [scan_word_bytes()](#tymethod.scan_word_bytes) otherwise.
-    fn scan_phrase_bytes<F>(&mut self, f: F) -> ScanResult<()>
-                         where F: FnMut(u8, bool) -> SyntaxResult<()>;
-
-    /// Scans a phrase and returns a copy of it.
-    ///
-    /// The copy will have all escape sequences translated.
-    fn scan_phrase_copy(&mut self) -> ScanResult<Vec<u8>> {
-        let mut res = Vec::new();
-        try!(self.scan_phrase_bytes(|ch, _| { res.push(ch); Ok(()) }));
-        Ok(res)
+    /// The method scans a phrase that consists of byte only and puts these
+    /// bytes into a `Bytes` value. Once the word ends, the caller is given
+    /// a chance to convert the value into something else via the closure
+    /// `finalop`. This closure can fail, resulting in an error and
+    /// back-tracking to the beginning of the phrase.
+    pub fn scan_byte_phrase<U, G>(&mut self, finalop: G)
+                                  -> Result<U, ScanError<C::Err>>
+                            where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
+        self.scan_phrase(
+            BytesMut::new(),
+            |buf, symbol| symbol.push_to_buf(buf),
+            |buf| finalop(buf.freeze())
+        )
     }
 
-    /// Scans a newline.
-    ///
-    /// A newline is either an optional comment followed by either a CR or
-    /// LF character or the end of file. The latter is so that a file lacking
-    /// a line feed after its last line is still parsed successfully.
-    fn scan_newline(&mut self) -> ScanResult<()>;
+    /// Scans a phrase with Unicode text into a `String`.
+    pub fn scan_string_phrase(&mut self)
+                              -> Result<String, ScanError<C::Err>> {
+        self.scan_phrase(
+            String::new(),
+            |res, ch| {
+                let ch = match ch {
+                    Symbol::Char(ch) | Symbol::SimpleEscape(ch) => ch,
+                    Symbol::DecimalEscape(ch) => ch as char,
+                    Symbol::Newline => unreachable!(),
+                };
+                res.push(ch);
+                Ok(())
+            },
+            |res| Ok(res)
+        )
+    }
 
-    /// Scans a non-empty sequence of space.
+    /// Scans over a mandatory newline.
+    ///
+    /// A newline is either an optional comment followed by a newline sequence
+    /// or the end of file. The latter is so that a file lacking a line feed
+    /// after its last line is still parsed successfully.
+    pub fn scan_newline(&mut self) -> Result<(), ScanError<C::Err>> {
+        match self.read()? {
+            Some(Symbol::Char(';')) => {
+                while let Some(ch) = self.read()? {
+                    if ch.is_newline() {
+                        break
+                    }
+                }
+                self.ok(())
+            }
+            Some(Symbol::Newline) => self.ok(()),
+            None => self.ok(()),
+            _ => self.err(SyntaxError::ExpectedNewline)
+        }
+    }
+
+    /// Scans over a mandatory sequence of space.
     ///
     /// There are two flavors of space. The simple form is any sequence
-    /// of a space character `b' '` or a horizontal tab 'b`\t'`. However,
+    /// of a space character `' '` or a horizontal tab '`\t'`. However,
     /// a parenthesis can be used to turn [newlines](#tymethod.scan_newline)
     /// into normal space. This method recognises parentheses and acts
     /// accordingly.
-    fn scan_space(&mut self) -> ScanResult<()>;
+    pub fn scan_space(&mut self) -> Result<(), ScanError<C::Err>> {
+        if self.skip_space()? {
+            self.ok(())
+        }
+        else {
+            self.err(SyntaxError::ExpectedSpace)
+        }
+    }
 
-    /// Scans a possibly empty sequence of space.
-    fn scan_opt_space(&mut self) -> ScanResult<()>;
+    /// Scans over an optional sequence of space.
+    pub fn scan_opt_space(&mut self) -> Result<(), ScanError<C::Err>> {
+        self.skip_space()?;
+        Ok(())
+    }
 
     /// Skips over an entry.
     ///
     /// Keeps reading until it successfully scans a newline. The method
     /// tries to be smart about that and considers parentheses, quotes, and
     /// escapes but also tries its best to not fail.
-    fn skip_entry(&mut self) -> ScanResult<()>;
-
-    /// # Helper Methods
-    ///
-    /// Scans a phrase containing a 16 bit integer in decimal representation.
-    fn scan_u16(&mut self) -> ScanResult<u16> {
-        self.scan_phrase(|slice| {
-            let slice = match str::from_utf8(slice) {
-                Ok(slice) => slice,
-                Err(_) => return Err(SyntaxError::IllegalInteger)
-            };
-            Ok(try!(u16::from_str_radix(slice, 10)))
-        })
-    }
-
-    /// Scans a phrase containing a 32 bit integer in decimal representation.
-    fn scan_u32(&mut self) -> ScanResult<u32> {
-        self.scan_phrase(|slice| {
-            let slice = match str::from_utf8(slice) {
-                Ok(slice) => slice,
-                Err(_) => return Err(SyntaxError::IllegalInteger)
-            };
-            Ok(try!(u32::from_str_radix(slice, 10)))
-        })
-    }
-
-    /// Scans a word containing a sequence of pairs of hex digits.
-    ///
-    /// Each pair is translated to its byte value and passed to the
-    /// closure `f`.
-    fn scan_hex_word<F>(&mut self, mut f: F) -> ScanResult<()>
-                     where F: FnMut(u8) -> SyntaxResult<()> {
-        self.scan_word(|mut slice| {
-            while slice.len() >=2 {
-                let (l, r) = slice.split_at(2);
-                let res = try!(trans_hexdig(l[0])) << 4
-                        | try!(trans_hexdig(l[1]));
-                try!(f(res));
-                slice = r;
+    pub fn skip_entry(&mut self) -> Result<(), ScanError<C::Err>> {
+        let mut quote = false;
+        loop {
+            match self.read()? {
+                None => break,
+                Some(Symbol::Newline) => {
+                    if !quote && !self.paren {
+                        break
+                    }
+                }
+                Some(Symbol::Char('"')) => quote = !quote,
+                Some(Symbol::Char('(')) => {
+                    if !quote {
+                        if self.paren {
+                            return self.err(SyntaxError::NestedParentheses)
+                        }
+                        self.paren = true
+                    }
+                }
+                Some(Symbol::Char(')')) => {
+                    if !quote {
+                        if !self.paren {
+                            return self.err(SyntaxError::Unexpected(')'.into()))
+                        }
+                        self.paren = false
+                    }
+                }
+                _ => { }
             }
-            if slice.len() == 1 {
-                Err(SyntaxError::Unexpected(slice[0]))
-            }
-            else {
-                Ok(())
-            }
-        })
+        }
+        self.ok(())
     }
 
     /// Skips over the word with the content `literal`.
     ///
     /// The content indeed needs to be literally the literal. Escapes are
     /// not translated before comparison and case has to be as is.
-    fn skip_literal(&mut self, literal: &[u8]) -> ScanResult<()> {
-        self.scan_word(|s| {
-            if s == literal {
+    pub fn skip_literal(&mut self, literal: &str)
+                        -> Result<(), ScanError<C::Err>> {
+        self.scan_word(
+            literal,
+            |left, symbol| {
+                let first = match left.chars().next() {
+                    Some(ch) => ch,
+                    None => return Err(SyntaxError::Expected(literal.into()))
+                };
+                match symbol {
+                    Symbol::Char(ch) if ch == first => {
+                        *left = &left[ch.len_utf8()..];
+                        Ok(())
+                    }
+                    _ => Err(SyntaxError::Expected(literal.into()))
+                }
+            },
+            |left| {
+                if left.is_empty() {
+                    Ok(())
+                }
+                else {
+                    Err(SyntaxError::Expected(literal.into()))
+                }
+            }
+        )
+    }
+}
+
+/// # Complex Scanning
+///
+impl<C: CharSource> Scanner<C> {
+    /// Scans a word containing a sequence of pairs of hex digits.
+    ///
+    /// The word is returned as a `Bytes` value with each byte representing
+    /// the decoded value of one hex digit pair.
+    pub fn scan_hex_word(&mut self) -> Result<Bytes, ScanError<C::Err>> {
+        self.scan_word(
+            (BytesMut::new(), None), // result and optional first char.
+            |&mut (ref mut res, ref mut first), symbol | {
+                let ch = match symbol {
+                    Symbol::Char(ch) => {
+                        match ch.to_digit(16) {
+                            Some(ch) => ch,
+                            _ => return Err(SyntaxError::Unexpected(symbol)),
+                        }
+                    }
+                    _ => return Err(SyntaxError::Unexpected(symbol))
+                };
+                if let Some(ch1) = *first {
+                    if res.remaining_mut() == 0 {
+                        res.reserve(1)
+                    }
+                    res.put_u8((ch1 as u8) << 4 | (ch as u8));
+                }
+                else {
+                    *first = Some(ch)
+                }
                 Ok(())
+            },
+            |(res, first)| {
+                if let Some(ch) = first {
+                    Err(SyntaxError::Unexpected(
+                            Symbol::Char(::std::char::from_digit(ch, 16)
+                                                                .unwrap())))
+                }
+                else {
+                    Ok(res.freeze())
+                }
             }
-            else {
-                Err(SyntaxError::Expected(literal.into()))
-            }
-        })
-    }
-
-    /// Scans a domain name and returns an owned domain name.
-    ///
-    /// If the name is relative, it is made absolute by appending `origin`.
-    /// If there is no origin given, a syntax error is returned.
-    fn scan_dname(&mut self, origin: Option<&DNameSlice>)
-                  -> ScanResult<DNameBuf> {
-        let target = DNameBuilder::new(origin);
-        self.scan_word_into(target, |target, b, escaped| {
-            if b == b'.' && !escaped {
-                target.end_label()
-            }
-            else {
-                try!(target.push(b))
-            }
-            Ok(())
-        }, |target| { Ok(try!(target.done())) })
-    }
-
-    /// Scans a domain name into a bytes vec.
-    ///
-    /// The name is scanned and its wire format representation is appened
-    /// to the end of `target`. If the scanned name is relative, it is made
-    /// absolute by appending `origin`. If there is no origin given, a
-    /// syntax error is returned.
-    fn scan_dname_into(&mut self, origin: Option<&DNameSlice>,
-                       target: &mut Vec<u8>) -> ScanResult<()> {
-        let target = DNameBuildInto::new(target, origin);
-        try!(self.scan_word_into(target, |target, b, escaped| {
-            if b == b'.' && !escaped {
-                target.end_label()
-            }
-            else {
-                try!(target.push(b))
-            }
-            Ok(())
-        }, |target| { try!(target.done()); Ok(()) }));
-        Ok(())
-    }
-
-    /// Scans a character string and returns it as an owned value.
-    fn scan_charstr(&mut self) -> ScanResult<CharStrBuf> {
-        let mut res = Vec::new();
-        try!(self.scan_charstr_into(&mut res));
-        Ok(CharStrBuf::from_vec(res).unwrap())
-    }
-
-    /// Scans a character string into a bytes vec.
-    ///
-    /// The string is scanned and its wire format representation is appened
-    /// to the end of `target`.
-    fn scan_charstr_into(&mut self, target: &mut Vec<u8>) -> ScanResult<()> {
-        let mut len = 0;
-        self.scan_phrase_bytes(|ch, _| {
-            if len == 255 { Err(SyntaxError::LongCharStr) }
-            else {
-                target.push(ch);
-                len += 1;
-                Ok(())
-            }
-        })
+        )
     }
 }
 
 
-//------------ Helper Functions ----------------------------------------------
-
-fn trans_hexdig(dig: u8) -> SyntaxResult<u8> {
-    match dig {
-        b'0' ... b'9' => Ok(dig - b'0'),
-        b'A' ... b'F' => Ok(dig - b'A' + 10),
-        b'a' ... b'f' => Ok(dig - b'a' + 10),
-        _ => Err(SyntaxError::Unexpected(dig))
+/// # Fundamental Reading, Processing, and Back-tracking
+///
+impl<C: CharSource> Scanner<C> {
+    /// Reads a char from the source.
+    ///
+    /// This function is here to for error conversion only.
+    fn chars_next(&mut self) -> Result<Option<char>, ScanError<C::Err>> {
+        self.chars.next().map_err(|err| {
+            let mut pos = self.cur_pos.clone();
+            for ch in &self.buf {
+                pos.update(*ch)
+            }
+            ScanError::Source(err, pos)
+        })
     }
+
+    /// Tries to read at least one additional character into the buffer.
+    ///
+    /// Returns whether that succeeded.
+    fn source_symbol(&mut self) -> Result<bool, ScanError<C::Err>> {
+        let ch = match self.chars_next()? {
+            Some(ch) => ch,
+            None => return Ok(false),
+        };
+        if ch == '\\' {
+            self.source_escape()
+        }
+        else {
+            self.source_normal(ch)
+        }
+    }
+
+    /// Tries to read and return the content of an escape sequence.
+    fn source_escape(&mut self) -> Result<bool, ScanError<C::Err>> {
+        let ch = match self.chars_next()? {
+            Some(ch) if ch.is_digit(10) => {
+                let ch = ch.to_digit(10).unwrap() * 100;
+                let ch2 = match self.chars_next()? {
+                    Some(ch) => match ch.to_digit(10) {
+                        Some(ch) => ch * 10,
+                        None => {
+                            return self.err_cur(SyntaxError::IllegalEscape)
+                        }
+                    }
+                    None => {
+                        return self.err_cur(SyntaxError::UnexpectedEof)
+                    }
+                };
+                let ch3 = match self.chars_next()? {
+                    Some(ch)  => match ch.to_digit(10) {
+                        Some(ch) => ch,
+                        None => {
+                            return self.err_cur(SyntaxError::IllegalEscape)
+                        }
+                    }
+                    None => {
+                        return self.err_cur(SyntaxError::UnexpectedEof)
+                    }
+                };
+                let res = ch + ch2 + ch3;
+                if res > 255 {
+                    return self.err_cur(SyntaxError::IllegalEscape)
+                }
+                else {
+                    Symbol::DecimalEscape(res as u8)
+                }
+            }
+            Some(ch) => Symbol::SimpleEscape(ch),
+            None => {
+                return self.err_cur(SyntaxError::UnexpectedEof)
+            }
+        };
+        self.buf.push(ch);
+        Ok(true)
+    }
+
+    /// Tries to source a normal character.
+    ///
+    fn source_normal(&mut self, ch: char) -> Result<bool, ScanError<C::Err>> {
+        match self.newline {
+            NewlineMode::Single(sep) => {
+                if ch == sep {
+                    self.buf.push(Symbol::Newline)
+                }
+                else {
+                    self.buf.push(Symbol::Char(ch))
+                }
+                Ok(true)
+            }
+            NewlineMode::Double(first, second) => {
+                if ch != first {
+                    self.buf.push(Symbol::Char(ch));
+                    Ok(true)
+                }
+                else {
+                    match self.chars_next()? {
+                        Some(ch) if ch == second => {
+                            self.buf.push(Symbol::Newline);
+                            Ok(true)
+                        }
+                        Some(ch) => {
+                            self.buf.push(Symbol::Char(first));
+                            self.buf.push(Symbol::Char(ch));
+                            Ok(true)
+                        }
+                        None => {
+                            // Half a newline is still EOF.
+                            Ok(false)
+                        }
+                    }
+                }
+            }
+            NewlineMode::Unknown => {
+                if ch != '\r' && ch != '\n' {
+                    self.buf.push(Symbol::Char(ch));
+                    Ok(true)
+                }
+                else if let Some(second) = self.chars_next()? {
+                    match (ch, second) {
+                        ('\r', '\n') | ('\n', '\r') => {
+                            self.newline = NewlineMode::Double(ch, second);
+                            self.buf.push(Symbol::Newline);
+                        }
+                        ('\r', '\r') | ('\n', '\n')  => {
+                            self.newline = NewlineMode::Single(ch);
+                            self.buf.push(Symbol::Newline);
+                            self.buf.push(Symbol::Newline);
+                        }
+                        ('\r', _) | ('\n', _) => {
+                            self.newline = NewlineMode::Single(ch);
+                            self.buf.push(Symbol::Newline);
+                            self.buf.push(Symbol::Char(second));
+                        }
+                        _ => {
+                            self.buf.push(Symbol::Char(ch));
+                            self.buf.push(Symbol::Char(second));
+                        }
+                    }
+                    Ok(true)
+                }
+                else {
+                    if ch == '\r' || ch == '\n' {
+                        self.buf.push(Symbol::Newline);
+                    }
+                    else {
+                        self.buf.push(Symbol::Char(ch))
+                    }
+                    Ok(true)
+                }
+            }
+        }
+    }
+    
+    /// Tries to peek at the next symbol.
+    ///
+    /// On success, returns the symbol. It the end of the
+    /// underlying source is reached, returns `Ok(None)`. If reading on the
+    /// underlying source results in an error, returns that.
+    fn peek(&mut self) -> Result<Option<Symbol>, ScanError<C::Err>> {
+        if self.buf.len() == self.cur {
+            if !self.source_symbol()? {
+                return Ok(None)
+            }
+        }
+        Ok(Some(self.buf[self.cur]))
+    }
+
+    /// Tries to read a symbol.
+    ///
+    /// On success, returns the `Ok(Some(_))` character. It the end of the
+    /// underlying source is reached, returns `Ok(None)`. If reading on the
+    /// underlying source results in an error, returns that.
+    fn read(&mut self) -> Result<Option<Symbol>, ScanError<C::Err>> {
+        self.peek().map(|res| match res {
+            Some(ch) => {
+                self.cur += 1;
+                self.cur_pos.update(ch);
+                Some(ch)
+            }
+            None => None
+        })
+    }
+
+    /// Progresses the scanner to the current position and returns `t`.
+    fn ok<T>(&mut self, t: T) -> Result<T, ScanError<C::Err>> {
+        if self.buf.len() == self.cur {
+            self.buf.clear();
+            self.start = 0;
+            self.cur = 0;
+        } else {
+            self.start = self.cur;
+        }
+        self.start_pos = self.cur_pos;
+        Ok(t)
+    }
+
+    /// Backtracks to the last token start and reports an error there.
+    ///
+    /// Returns a syntax error with the given error value and the position
+    /// of the token start.
+    ///
+    /// The method is generic over whatever type `T` so it can be used to
+    /// create whatever particular result is needed.
+    fn err<T>(&mut self, err: SyntaxError) -> Result<T, ScanError<C::Err>> {
+        let pos = self.start_pos;
+        self.err_at(err, pos)
+    }
+
+    fn err_cur<T>(&mut self, err: SyntaxError)
+                  -> Result<T, ScanError<C::Err>> {
+        let pos = self.cur_pos;
+        self.err_at(err, pos)
+    }
+
+    /// Reports an error at current position and then backtracks.
+    fn err_at<T>(&mut self, err: SyntaxError, pos: Pos)
+                 -> Result<T, ScanError<C::Err>> {
+        self.cur = self.start;
+        self.cur_pos = self.start_pos;
+        Err(ScanError::Syntax(err, pos))
+    }
+}
+
+/// # More Complex Internal Reading
+///
+impl<C: CharSource> Scanner<C> {
+    /// Reads a symbol if it is accepted by a closure.
+    ///
+    /// The symbol is passed to the closure which should return `true` if
+    /// it accepts it in which case the method returns `Ok(Some(_))`. If
+    /// the closure returns `false` or the end of file is reached, `Ok(None)`
+    /// is returned.
+    ///
+    /// The method does not progress or backtrack.
+    fn cond_read<F>(&mut self, f: F)
+                         -> Result<Option<Symbol>, ScanError<C::Err>>
+                      where F: FnOnce(Symbol) -> bool {
+        match self.peek()? {
+            Some(ch) if f(ch) => self.read(),
+            _ => Ok(None)
+        }
+    }
+
+    /// Skips over delimiting space.
+    ///
+    /// A delimiter is a non-empty sequence of space (which means that
+    /// something like `"foo(bar"` qualifies as the two words `"foo"` and
+    /// `"bar".) or if the following byte is the beginning of a newline or
+    /// if the scanner has reached end-of-file.
+    ///
+    /// Progresses the scanner on success, otherwise backtracks with an
+    /// ‘unexpected space’ error.
+    fn skip_delimiter(&mut self) -> Result<(), ScanError<C::Err>> {
+        if self.skip_space()? {
+            self.ok(())
+        }
+        else {
+            match self.peek()? {
+                Some(ch) if ch.is_newline_ahead() => self.ok(()),
+                None => self.ok(()),
+                _ => self.err(SyntaxError::ExpectedSpace)
+            }
+        }
+    }
+
+    /// Skips over space.
+    ///
+    /// Normally, space is ordinary white space (`' '` and `'\t'`).
+    /// However, an opening parenthesis can be used to make newlines appear
+    /// as space, too. A closing parenthesis resets this behaviour.
+    ///
+    /// This method cleverly hides all of this and simply walks over whatever
+    /// is space. It returns whether there was at least one character of
+    /// space.  It does not progress the scanner but backtracks on error.
+    fn skip_space(&mut self) -> Result<bool, ScanError<C::Err>> {
+        let mut res = false;
+        loop {
+            if self.paren {
+                match self.cond_read(Symbol::is_paren_space)? {
+                    None => break,
+                    Some(Symbol::Char('(')) => {
+                        let pos = self.cur_pos.prev();
+                        return self.err_at(SyntaxError::NestedParentheses,
+                                           pos)
+                    }
+                    Some(Symbol::Char(')')) => {
+                        self.paren = false;
+                    }
+                    Some(Symbol::Char(';')) => {
+                        while let Some(ch) = self.read()? {
+                            if ch.is_newline() {
+                                break
+                            }
+                        }
+                    }
+                    _ => { }
+                }
+            }
+            else {
+                match self.cond_read(Symbol::is_non_paren_space)? {
+                    None => break,
+                    Some(Symbol::Char('(')) => {
+                        self.paren = true;
+                    }
+                    Some(Symbol::Char(')')) => {
+                        let pos = self.cur_pos.prev();
+                        return self.err_at(SyntaxError::Unexpected(
+                                                    Symbol::Char(')')), pos)
+                    }
+                    _ => { }
+                }
+            }
+            res = true;
+        }
+        Ok(res)
+    }
+}
+
+
+//------------ Scannable -----------------------------------------------------
+
+pub trait Scannable: Sized {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError<C::Err>>;
+}
+
+impl Scannable for u32 {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError<C::Err>> {
+        scanner.scan_phrase(
+            0u32,
+            |res, symbol| {
+                let ch = match symbol {
+                    Symbol::Char(ch) => {
+                        if let Some(value) = ch.to_digit(10) {
+                            value
+                        }
+                        else {
+                            return Err(SyntaxError::Unexpected(symbol))
+                        }
+                    }
+                    _ => return Err(SyntaxError::Unexpected(symbol))
+                };
+                *res = match res.checked_mul(10) {
+                    Some(res) => res,
+                    None => return Err(SyntaxError::IllegalInteger)
+                };
+                *res = match res.checked_add(ch) {
+                    Some(res) => res,
+                    None => return Err(SyntaxError::IllegalInteger)
+                };
+                Ok(())
+            },
+            |res| Ok(res)
+        )
+    }
+}
+
+impl Scannable for u16 {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError<C::Err>> {
+        scanner.scan_phrase(
+            0u16,
+            |res, symbol| {
+                let ch = match symbol {
+                    Symbol::Char(ch) => {
+                        if let Some(value) = ch.to_digit(10) {
+                            value as u16
+                        }
+                        else {
+                            return Err(SyntaxError::Unexpected(symbol))
+                        }
+                    }
+                    _ => return Err(SyntaxError::Unexpected(symbol))
+                };
+                *res = match res.checked_mul(10) {
+                    Some(res) => res,
+                    None => return Err(SyntaxError::IllegalInteger)
+                };
+                *res = match res.checked_add(ch) {
+                    Some(res) => res,
+                    None => return Err(SyntaxError::IllegalInteger)
+                };
+                Ok(())
+            },
+            |res| Ok(res)
+        )
+    }
+}
+
+
+//------------ Symbol --------------------------------------------------------
+
+/// A single symbol parsed from a master file.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Symbol {
+    /// An unescaped Unicode character.
+    Char(char),
+
+    /// An escape character by simply being backslashed.
+    SimpleEscape(char),
+
+    /// An escaped character using the decimal escape sequence.
+    DecimalEscape(u8),
+
+    /// A new line.
+    ///
+    /// This needs special treatment because of the varying encoding of
+    /// newlines on different systems.
+    Newline,
+}
+
+impl Symbol {
+    /// Converts the symbol into a byte if it represents one.
+    ///
+    /// Both domain names and character strings operate on bytes instead of
+    /// (Unicode) characters. These bytes can be represented by ASCII
+    /// characters, both plain or through a simple escape, or by a decimal
+    /// escape.
+    ///
+    /// This method returns such a byte or a `SyntaxError::Unexpected(_)` if
+    /// the symbol isn’t such a byte.
+    pub fn into_byte(self) -> Result<u8, SyntaxError> {
+        match self {
+            Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
+                if ch.is_ascii() {
+                    Ok(ch as u8)
+                }
+                else {
+                    Err(SyntaxError::Unexpected(self))
+                }
+            }
+            Symbol::DecimalEscape(ch) => Ok(ch),
+            _ => Err(SyntaxError::Unexpected(self))
+        }
+    }
+
+    /// Pushes a symbol that is a byte to the end of a byte buffer.
+    ///
+    /// If the symbol is a byte as per the rules described in `into_byte`,
+    /// it will be pushed to the end of `buf`, reserving additional space
+    /// if there isn’t enough space remaining.
+    pub fn push_to_buf(self, buf: &mut BytesMut) -> Result<(), SyntaxError> {
+        self.into_byte().map(|ch| {
+            if buf.remaining_mut() == 0 {
+                buf.reserve(1);
+            }
+            buf.put_u8(ch)
+        })
+    }
+
+    /// Checks for space-worthy character outside a parenthesized group.
+    ///
+    /// These are horizontal white space plus opening and closing parentheses
+    /// which need special treatment.
+    fn is_non_paren_space(self) -> bool {
+        match self {
+            Symbol::Char(ch) => {
+                ch == ' ' || ch == '\t' || ch == '(' || ch == ')'
+            }
+            _ => false
+        }
+    }
+
+    /// Checks for space-worthy character inside a parenthesized group.
+    ///
+    /// These are all from `is_non_paren_space()` plus a semicolon and line
+    /// break characters.
+    fn is_paren_space(self) -> bool {
+        match self {
+            Symbol::Char(ch) => {
+                ch == ' ' || ch == '\t' || ch == '(' || ch == ')' ||
+                ch == ';'
+            }
+            Symbol::Newline => true,
+            _ => false
+        }
+    }
+
+    fn is_newline(self) -> bool {
+        match self {
+            Symbol::Newline => true,
+            _ => false,
+        }
+    }
+
+    fn is_newline_ahead(self) -> bool {
+        match self {
+            Symbol::Char(';') => true,
+            Symbol::Newline => true,
+            _ => false,
+        }
+    }
+
+    fn is_word_char(self) -> bool {
+        match self {
+            Symbol::Char(ch) => {
+                ch != ' ' && ch != '\t' && 
+                ch != '(' && ch != ')' && ch != ';' && ch != '"'
+            }
+            Symbol::Newline => false,
+            _ => true
+        }
+    }
+}
+
+impl From<char> for Symbol {
+    fn from(ch: char) -> Self {
+        Symbol::Char(ch)
+    }
+}
+
+
+//------------ NewLineMode ---------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NewlineMode {
+    /// Each occurence of the content is a newline.
+    Single(char),
+
+    /// Each combination of the two chars is a newline.
+    Double(char, char),
+
+    /// We don’t know yet.
+    Unknown,
 }
 

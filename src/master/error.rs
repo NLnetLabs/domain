@@ -1,11 +1,11 @@
 /// Errors when dealing with master data.
 
-use std::io;
 use std::net::AddrParseError;
 use std::num::ParseIntError;
 use std::result;
 use std::str::Utf8Error;
 use ::bits::name;
+use super::scanner::Symbol;
 
 
 //------------ SyntaxError ---------------------------------------------------
@@ -13,9 +13,10 @@ use ::bits::name;
 /// A syntax error happened while scanning master data.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SyntaxError {
-    Expected(Vec<u8>),
+    Expected(String),
     ExpectedNewline,
     ExpectedSpace,
+    IllegalChar(char),
     IllegalEscape,
     IllegalInteger,
     IllegalAddr(AddrParseError),
@@ -31,9 +32,9 @@ pub enum SyntaxError {
     NoLastOwner,
     NoOrigin,
     RelativeName,
-    Unexpected(u8),
+    Unexpected(Symbol),
     UnexpectedEof,
-    UnknownClass(Vec<u8>),
+    UnknownClass(String),
     UnknownProto(String),
     UnknownServ(String),
 }
@@ -62,11 +63,10 @@ impl From<name::FromStrError> for SyntaxError {
         match err {
             name::FromStrError::UnexpectedEnd => SyntaxError::UnexpectedEof,
             name::FromStrError::EmptyLabel => SyntaxError::IllegalName,
+            name::FromStrError::BinaryLabel => SyntaxError::IllegalName,
             name::FromStrError::LongLabel => SyntaxError::LongLabel,
             name::FromStrError::IllegalEscape => SyntaxError::IllegalEscape,
             name::FromStrError::IllegalCharacter => SyntaxError::IllegalName,
-            name::FromStrError::IllegalBinary => SyntaxError::IllegalName,
-            name::FromStrError::RelativeName => SyntaxError::RelativeName,
             name::FromStrError::LongName => SyntaxError::LongName,
         }
     }
@@ -82,31 +82,10 @@ pub type SyntaxResult<T> = result::Result<T, SyntaxError>;
 
 /// An error happened while scanning master data.
 #[derive(Debug)]
-pub enum ScanError {
-    Io(io::Error),
-    Syntax(SyntaxError, Pos)
+pub enum ScanError<S> {
+    Source(S, Pos),
+    Syntax(SyntaxError, Pos),
 }
-
-impl ScanError {
-    pub fn is_eof(&self) -> bool {
-        if let ScanError::Syntax(SyntaxError::UnexpectedEof, _) = *self {
-            true
-        }
-        else { false }
-    }
-}
-
-impl From<io::Error> for ScanError {
-    fn from(err: io::Error) -> ScanError {
-        ScanError::Io(err)
-    }
-}
-
-
-//------------ ScanResult ----------------------------------------------------
-
-/// A result with a scan error.
-pub type ScanResult<T> = result::Result<T, ScanError>;
 
 
 //------------ Pos -----------------------------------------------------------
@@ -126,10 +105,12 @@ impl Pos {
     pub fn line(&self) -> usize { self.line }
     pub fn col(&self) -> usize { self.col }
 
-    pub fn update(&mut self, ch: u8) {
+    pub fn update(&mut self, ch: Symbol) {
         match ch {
-            b'\n' => { self.line += 1; self.col = 1 }
-            _ => self.col += 1
+            Symbol::Char(_) => self.col += 1,
+            Symbol::SimpleEscape(_) => self.col += 2,
+            Symbol::DecimalEscape(_) => self.col += 4,
+            Symbol::Newline => { self.line += 1; self.col = 1 }
         }
     }
 

@@ -27,8 +27,8 @@ extern crate rand;
 
 pub mod bits;
 pub mod iana;
-/*
 pub mod master;
+/*
 pub mod rdata;
 pub mod utils;
 pub mod resolv;
