@@ -1,11 +1,9 @@
 /// Errors when dealing with master data.
 
+use std::io;
 use std::net::AddrParseError;
-use std::num::ParseIntError;
-use std::result;
-use std::str::Utf8Error;
 use ::bits::name;
-use super::scanner::Symbol;
+use super::scan::Symbol;
 
 
 //------------ SyntaxError ---------------------------------------------------
@@ -16,15 +14,11 @@ pub enum SyntaxError {
     Expected(String),
     ExpectedNewline,
     ExpectedSpace,
-    IllegalChar(char),
     IllegalEscape,
-    IllegalInteger,
+    IllegalInteger, // TODO Add kind
     IllegalAddr(AddrParseError),
-    IllegalName,
-    IllegalString(Utf8Error),
+    IllegalName(name::FromStrError),
     LongCharStr,
-    LongLabel,
-    LongName,
     LongGenericData,
     NestedParentheses,
     NoDefaultTtl,
@@ -39,51 +33,25 @@ pub enum SyntaxError {
     UnknownServ(String),
 }
 
-impl From<ParseIntError> for SyntaxError {
-    fn from(_: ParseIntError) -> SyntaxError {
-        SyntaxError::IllegalInteger
-    }
-}
-
 impl From<AddrParseError> for SyntaxError {
     fn from(err: AddrParseError) -> SyntaxError {
         SyntaxError::IllegalAddr(err)
     }
 }
 
-impl From<Utf8Error> for SyntaxError {
-    fn from(err: Utf8Error) -> SyntaxError {
-        SyntaxError::IllegalString(err)
-    }
-}
-
-#[allow(match_same_arms)]
 impl From<name::FromStrError> for SyntaxError {
     fn from(err: name::FromStrError) -> SyntaxError {
-        match err {
-            name::FromStrError::UnexpectedEnd => SyntaxError::UnexpectedEof,
-            name::FromStrError::EmptyLabel => SyntaxError::IllegalName,
-            name::FromStrError::BinaryLabel => SyntaxError::IllegalName,
-            name::FromStrError::LongLabel => SyntaxError::LongLabel,
-            name::FromStrError::IllegalEscape => SyntaxError::IllegalEscape,
-            name::FromStrError::IllegalCharacter => SyntaxError::IllegalName,
-            name::FromStrError::LongName => SyntaxError::LongName,
-        }
+        SyntaxError::IllegalName(err)
     }
 }
 
-
-//------------ SyntaxError ---------------------------------------------------
-
-/// A result with a syntax error.
-pub type SyntaxResult<T> = result::Result<T, SyntaxError>;
 
 //------------ ScanError -----------------------------------------------------
 
 /// An error happened while scanning master data.
 #[derive(Debug)]
-pub enum ScanError<S> {
-    Source(S, Pos),
+pub enum ScanError {
+    Source(io::Error, Pos),
     Syntax(SyntaxError, Pos),
 }
 

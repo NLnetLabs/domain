@@ -1,9 +1,16 @@
 //! Scanning master file tokens.
 
+use std::io;
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes, BytesMut};
 use super::error::{ScanError, SyntaxError, Pos};
-use super::source::CharSource;
+
+
+//------------ CharSource ----------------------------------------------------
+
+pub trait CharSource {
+    fn next(&mut self) -> Result<Option<char>, io::Error>;
+}
 
 
 //------------ Scanner -------------------------------------------------------
@@ -98,7 +105,7 @@ impl<C: CharSource> Scanner<C> {
     /// Both can error out at any time stopping processing and leading the
     /// scanner to revert to the beginning of the token.
     pub fn scan_word<T, U, F, G>(&mut self, mut target: T, mut symbolop: F,
-                                 finalop: G) -> Result<U, ScanError<C::Err>>
+                                 finalop: G) -> Result<U, ScanError>
                      where F: FnMut(&mut T, Symbol)
                                     -> Result<(), SyntaxError>,
                            G: FnOnce(T) -> Result<U, SyntaxError> {
@@ -136,7 +143,7 @@ impl<C: CharSource> Scanner<C> {
     /// Both can error out at any time stopping processing and leading the
     /// scanner to revert to the beginning of the token.
     pub fn scan_quoted<T, U, F, G>(&mut self, mut target: T, mut symbolop: F,
-                                   finalop: G) -> Result<U, ScanError<C::Err>>
+                                   finalop: G) -> Result<U, ScanError>
                        where F: FnMut(&mut T, Symbol)
                                     -> Result<(), SyntaxError>,
                              G: FnOnce(T) -> Result<U, SyntaxError> {
@@ -170,7 +177,7 @@ impl<C: CharSource> Scanner<C> {
     /// the next character is a double quote or like
     /// [scan_word()](#tymethod.scan_word) otherwise.
     pub fn scan_phrase<T, U, F, G>(&mut self, target: T, symbolop: F,
-                                   finalop: G) -> Result<U, ScanError<C::Err>>
+                                   finalop: G) -> Result<U, ScanError>
                        where F: FnMut(&mut T, Symbol)
                                     -> Result<(), SyntaxError>,
                              G: FnOnce(T) -> Result<U, SyntaxError> {
@@ -190,7 +197,7 @@ impl<C: CharSource> Scanner<C> {
     /// `finalop`. This closure can fail, resulting in an error and
     /// back-tracking to the beginning of the phrase.
     pub fn scan_byte_phrase<U, G>(&mut self, finalop: G)
-                                  -> Result<U, ScanError<C::Err>>
+                                  -> Result<U, ScanError>
                             where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
         self.scan_phrase(
             BytesMut::new(),
@@ -201,7 +208,7 @@ impl<C: CharSource> Scanner<C> {
 
     /// Scans a phrase with Unicode text into a `String`.
     pub fn scan_string_phrase(&mut self)
-                              -> Result<String, ScanError<C::Err>> {
+                              -> Result<String, ScanError> {
         self.scan_phrase(
             String::new(),
             |res, ch| {
@@ -222,7 +229,7 @@ impl<C: CharSource> Scanner<C> {
     /// A newline is either an optional comment followed by a newline sequence
     /// or the end of file. The latter is so that a file lacking a line feed
     /// after its last line is still parsed successfully.
-    pub fn scan_newline(&mut self) -> Result<(), ScanError<C::Err>> {
+    pub fn scan_newline(&mut self) -> Result<(), ScanError> {
         match self.read()? {
             Some(Symbol::Char(';')) => {
                 while let Some(ch) = self.read()? {
@@ -245,7 +252,7 @@ impl<C: CharSource> Scanner<C> {
     /// a parenthesis can be used to turn [newlines](#tymethod.scan_newline)
     /// into normal space. This method recognises parentheses and acts
     /// accordingly.
-    pub fn scan_space(&mut self) -> Result<(), ScanError<C::Err>> {
+    pub fn scan_space(&mut self) -> Result<(), ScanError> {
         if self.skip_space()? {
             self.ok(())
         }
@@ -255,7 +262,7 @@ impl<C: CharSource> Scanner<C> {
     }
 
     /// Scans over an optional sequence of space.
-    pub fn scan_opt_space(&mut self) -> Result<(), ScanError<C::Err>> {
+    pub fn scan_opt_space(&mut self) -> Result<(), ScanError> {
         self.skip_space()?;
         Ok(())
     }
@@ -265,7 +272,7 @@ impl<C: CharSource> Scanner<C> {
     /// Keeps reading until it successfully scans a newline. The method
     /// tries to be smart about that and considers parentheses, quotes, and
     /// escapes but also tries its best to not fail.
-    pub fn skip_entry(&mut self) -> Result<(), ScanError<C::Err>> {
+    pub fn skip_entry(&mut self) -> Result<(), ScanError> {
         let mut quote = false;
         loop {
             match self.read()? {
@@ -302,8 +309,7 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// The content indeed needs to be literally the literal. Escapes are
     /// not translated before comparison and case has to be as is.
-    pub fn skip_literal(&mut self, literal: &str)
-                        -> Result<(), ScanError<C::Err>> {
+    pub fn skip_literal(&mut self, literal: &str) -> Result<(), ScanError> {
         self.scan_word(
             literal,
             |left, symbol| {
@@ -338,7 +344,7 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// The word is returned as a `Bytes` value with each byte representing
     /// the decoded value of one hex digit pair.
-    pub fn scan_hex_word(&mut self) -> Result<Bytes, ScanError<C::Err>> {
+    pub fn scan_hex_word(&mut self) -> Result<Bytes, ScanError> {
         self.scan_word(
             (BytesMut::new(), None), // result and optional first char.
             |&mut (ref mut res, ref mut first), symbol | {
@@ -383,7 +389,7 @@ impl<C: CharSource> Scanner<C> {
     /// Reads a char from the source.
     ///
     /// This function is here to for error conversion only.
-    fn chars_next(&mut self) -> Result<Option<char>, ScanError<C::Err>> {
+    fn chars_next(&mut self) -> Result<Option<char>, ScanError> {
         self.chars.next().map_err(|err| {
             let mut pos = self.cur_pos.clone();
             for ch in &self.buf {
@@ -396,7 +402,7 @@ impl<C: CharSource> Scanner<C> {
     /// Tries to read at least one additional character into the buffer.
     ///
     /// Returns whether that succeeded.
-    fn source_symbol(&mut self) -> Result<bool, ScanError<C::Err>> {
+    fn source_symbol(&mut self) -> Result<bool, ScanError> {
         let ch = match self.chars_next()? {
             Some(ch) => ch,
             None => return Ok(false),
@@ -410,7 +416,7 @@ impl<C: CharSource> Scanner<C> {
     }
 
     /// Tries to read and return the content of an escape sequence.
-    fn source_escape(&mut self) -> Result<bool, ScanError<C::Err>> {
+    fn source_escape(&mut self) -> Result<bool, ScanError> {
         let ch = match self.chars_next()? {
             Some(ch) if ch.is_digit(10) => {
                 let ch = ch.to_digit(10).unwrap() * 100;
@@ -455,7 +461,7 @@ impl<C: CharSource> Scanner<C> {
 
     /// Tries to source a normal character.
     ///
-    fn source_normal(&mut self, ch: char) -> Result<bool, ScanError<C::Err>> {
+    fn source_normal(&mut self, ch: char) -> Result<bool, ScanError> {
         match self.newline {
             NewlineMode::Single(sep) => {
                 if ch == sep {
@@ -535,7 +541,7 @@ impl<C: CharSource> Scanner<C> {
     /// On success, returns the symbol. It the end of the
     /// underlying source is reached, returns `Ok(None)`. If reading on the
     /// underlying source results in an error, returns that.
-    fn peek(&mut self) -> Result<Option<Symbol>, ScanError<C::Err>> {
+    fn peek(&mut self) -> Result<Option<Symbol>, ScanError> {
         if self.buf.len() == self.cur {
             if !self.source_symbol()? {
                 return Ok(None)
@@ -549,7 +555,7 @@ impl<C: CharSource> Scanner<C> {
     /// On success, returns the `Ok(Some(_))` character. It the end of the
     /// underlying source is reached, returns `Ok(None)`. If reading on the
     /// underlying source results in an error, returns that.
-    fn read(&mut self) -> Result<Option<Symbol>, ScanError<C::Err>> {
+    fn read(&mut self) -> Result<Option<Symbol>, ScanError> {
         self.peek().map(|res| match res {
             Some(ch) => {
                 self.cur += 1;
@@ -561,7 +567,7 @@ impl<C: CharSource> Scanner<C> {
     }
 
     /// Progresses the scanner to the current position and returns `t`.
-    fn ok<T>(&mut self, t: T) -> Result<T, ScanError<C::Err>> {
+    fn ok<T>(&mut self, t: T) -> Result<T, ScanError> {
         if self.buf.len() == self.cur {
             self.buf.clear();
             self.start = 0;
@@ -580,20 +586,19 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// The method is generic over whatever type `T` so it can be used to
     /// create whatever particular result is needed.
-    fn err<T>(&mut self, err: SyntaxError) -> Result<T, ScanError<C::Err>> {
+    fn err<T>(&mut self, err: SyntaxError) -> Result<T, ScanError> {
         let pos = self.start_pos;
         self.err_at(err, pos)
     }
 
-    fn err_cur<T>(&mut self, err: SyntaxError)
-                  -> Result<T, ScanError<C::Err>> {
+    fn err_cur<T>(&mut self, err: SyntaxError) -> Result<T, ScanError> {
         let pos = self.cur_pos;
         self.err_at(err, pos)
     }
 
     /// Reports an error at current position and then backtracks.
     fn err_at<T>(&mut self, err: SyntaxError, pos: Pos)
-                 -> Result<T, ScanError<C::Err>> {
+                 -> Result<T, ScanError> {
         self.cur = self.start;
         self.cur_pos = self.start_pos;
         Err(ScanError::Syntax(err, pos))
@@ -612,7 +617,7 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// The method does not progress or backtrack.
     fn cond_read<F>(&mut self, f: F)
-                         -> Result<Option<Symbol>, ScanError<C::Err>>
+                         -> Result<Option<Symbol>, ScanError>
                       where F: FnOnce(Symbol) -> bool {
         match self.peek()? {
             Some(ch) if f(ch) => self.read(),
@@ -629,7 +634,7 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// Progresses the scanner on success, otherwise backtracks with an
     /// ‘unexpected space’ error.
-    fn skip_delimiter(&mut self) -> Result<(), ScanError<C::Err>> {
+    fn skip_delimiter(&mut self) -> Result<(), ScanError> {
         if self.skip_space()? {
             self.ok(())
         }
@@ -651,7 +656,7 @@ impl<C: CharSource> Scanner<C> {
     /// This method cleverly hides all of this and simply walks over whatever
     /// is space. It returns whether there was at least one character of
     /// space.  It does not progress the scanner but backtracks on error.
-    fn skip_space(&mut self) -> Result<bool, ScanError<C::Err>> {
+    fn skip_space(&mut self) -> Result<bool, ScanError> {
         let mut res = false;
         loop {
             if self.paren {
@@ -700,12 +705,12 @@ impl<C: CharSource> Scanner<C> {
 
 pub trait Scannable: Sized {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError<C::Err>>;
+                           -> Result<Self, ScanError>;
 }
 
 impl Scannable for u32 {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError<C::Err>> {
+                           -> Result<Self, ScanError> {
         scanner.scan_phrase(
             0u32,
             |res, symbol| {
@@ -737,7 +742,7 @@ impl Scannable for u32 {
 
 impl Scannable for u16 {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError<C::Err>> {
+                           -> Result<Self, ScanError> {
         scanner.scan_phrase(
             0u16,
             |res, symbol| {

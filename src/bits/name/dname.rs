@@ -1,11 +1,13 @@
 /// Uncompressed, absolute domain names.
 
-use std::{cmp, fmt, hash, ops, str};
+use std::{cmp, fmt, hash, io, ops, str};
 use std::ascii::AsciiExt;
+use std::io::Write;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::{Composable, Compressable, Compressor};
 use ::bits::error::ShortBuf;
 use ::bits::parse::{Parseable, Parser};
+use ::master::print::{Printable, Printer};
 use super::error::{DnameError, FromStrError, IndexError, RootNameError};
 use super::label::Label;
 use super::parsed::ParsedDname;
@@ -460,14 +462,8 @@ impl hash::Hash for Dname {
 
 impl fmt::Display for Dname {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut iter = self.iter();
-        match iter.next() {
-            Some(label) => label.fmt(f)?,
-            None => return Ok(())
-        }
-        while let Some(label) = iter.next() {
-            f.write_str(".")?;
-            label.fmt(f)?;
+        for label in self.iter() {
+            write!(f, ".{}", label)?
         }
         Ok(())
     }
@@ -476,6 +472,16 @@ impl fmt::Display for Dname {
 impl fmt::Debug for Dname {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Dname({})", self)
+    }
+}
+
+
+//--- Printable
+
+impl Printable for Dname {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        write!(printer.item()?, "{}", self)
     }
 }
 

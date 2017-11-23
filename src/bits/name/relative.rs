@@ -1,9 +1,11 @@
 /// Uncompressed, relative domain names.
 
-use std::{cmp, fmt, hash, ops};
+use std::{cmp, fmt, hash, io, ops};
 use std::ascii::AsciiExt;
+use std::io::Write;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Composable;
+use ::master::print::{Printable, Printer};
 use super::builder::DnameBuilder;
 use super::chain::Chain;
 use super::dname::Dname;
@@ -456,6 +458,16 @@ impl fmt::Display for RelativeDname {
 impl fmt::Debug for RelativeDname {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "RelativeDname({})", self)
+    }
+}
+
+
+//--- Printable
+
+impl Printable for RelativeDname {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        write!(printer.item()?, "{}", self)
     }
 }
 

@@ -2,27 +2,17 @@
 //!
 //! This is here so we can read from things that aren’t ASCII or UTF-8.
 
-use std::io;
+use std::{error, fmt, io};
 use std::ascii::AsciiExt;
 use std::io::Read;
 use std::fs::File;
-
-
-//------------ CharSource ----------------------------------------------------
-
-pub trait CharSource {
-    type Err;
-
-    fn next(&mut self) -> Result<Option<char>, Self::Err>;
-}
+use super::scan::CharSource;
 
 
 //------------ str -----------------------------------------------------------
 
 impl<'a> CharSource for &'a str {
-    type Err = ();
-
-    fn next(&mut self) -> Result<Option<char>, ()> {
+    fn next(&mut self) -> Result<Option<char>, io::Error> {
         let res = match self.chars().next() {
             Some(ch) => ch,
             None => return Ok(None),
@@ -39,28 +29,23 @@ pub struct AsciiFile {
     file: Option<File>,
 }
 
-
 impl CharSource for AsciiFile {
-    type Err = AsciiFileError;
-
-    fn next(&mut self) -> Result<Option<char>, Self::Err> {
+    fn next(&mut self) -> Result<Option<char>, io::Error> {
         let res = match self.file {
             Some(ref mut file) => {
                 let mut buf = [0u8];
-                match file.read(&mut buf) {
-                    Ok(1) => {
+                match file.read(&mut buf)? {
+                    1 => {
                         if buf[0].is_ascii() {
                             return Ok(Some(buf[0] as char));
                         }
-                        Err(AsciiFileError::CharRange(buf[0]))
+                        Err(io::Error::new(io::ErrorKind::InvalidData,
+                                           AsciiError(buf[0])))
                     }
-                    Ok(0) => {
+                    0 => {
                         Ok(None)
                     }
-                    Ok(_) => unreachable!(),
-                    Err(err) => {
-                        Err(AsciiFileError::Io(err))
-                    }
+                    _ => unreachable!(),
                 }
             }
             None => return Ok(None),
@@ -71,12 +56,20 @@ impl CharSource for AsciiFile {
 }
 
 
-//------------ AsciiFileError ------------------------------------------------
+//------------ AsciiError ----------------------------------------------------
 
-pub enum AsciiFileError {
-    CharRange(u8),
-    Io(io::Error),
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AsciiError(u8);
+
+impl error::Error for AsciiError {
+    fn description(&self) -> &str {
+        "invalid ASCII character"
+    }
 }
 
-
+impl fmt::Display for AsciiError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "invalid ASCII character '{}'", self.0)
+    }
+}
 

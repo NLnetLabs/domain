@@ -1,10 +1,11 @@
 //! A domain name that can be both relative or absolute.
 
-use std::str;
+use std::{fmt, io, str};
 use std::ascii::AsciiExt;
-use ::master::error::{ScanError, SyntaxError};
-use ::master::scanner::{Scannable, Scanner, Symbol};
-use ::master::source::CharSource;
+use std::io::Write;
+use ::master::error::ScanError;
+use ::master::print::{Printable, Printer};
+use ::master::scan::{CharSource, Scannable, Scanner, Symbol};
 use super::builder::DnameBuilder;
 use super::dname::Dname;
 use super::error::FromStrError;
@@ -17,7 +18,7 @@ use super::relative::RelativeDname;
 ///
 /// This type is helpful when reading a domain name from some source where it
 /// may end up being absolute or not.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum UncertainDname {
     Absolute(Dname),
     Relative(RelativeDname),
@@ -72,7 +73,7 @@ impl UncertainDname {
                 ' ' ... '-' | '/' ... '[' | ']' ... '~' => {
                     target.push(ch as u8)?
                 }
-                _ => return Err(FromStrError::IllegalCharacter)
+                _ => return Err(FromStrError::IllegalCharacter(ch))
             }
         }
         if target.in_label() || target.is_empty() {
@@ -183,7 +184,7 @@ impl str::FromStr for UncertainDname {
 
 impl Scannable for UncertainDname {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError<C::Err>> {
+                           -> Result<Self, ScanError> {
         scanner.scan_word(
             DnameBuilder::new(),
             |name, symbol| {
@@ -193,22 +194,23 @@ impl Scannable for UncertainDname {
                             name.end_label();
                         }
                         else {
-                            return Err(SyntaxError::IllegalName)
+                            return Err(FromStrError::EmptyLabel.into())
                         }
                     }
                     Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
                         if ch.is_ascii() {
-                            if let Err(_) = name.push(ch as u8) {
-                                return Err(SyntaxError::IllegalName)
+                            if let Err(err) = name.push(ch as u8) {
+                                return Err(FromStrError::from(err).into())
                             }
                         }
                         else {
-                            return Err(SyntaxError::IllegalName)
+                            return Err(FromStrError::IllegalCharacter(ch)
+                                                    .into())
                         }
                     }
                     Symbol::DecimalEscape(ch) => {
-                        if let Err(_) = name.push(ch) {
-                            return Err(SyntaxError::IllegalName)
+                        if let Err(err) = name.push(ch) {
+                            return Err(FromStrError::from(err).into())
                         }
                     }
                     _ => unreachable!()
@@ -222,13 +224,49 @@ impl Scannable for UncertainDname {
                 else {
                     name.into_dname()
                         .map(Into::into)
-                        .map_err(|_| SyntaxError::IllegalName)
+                        .map_err(|err| FromStrError::from(err).into())
                 }
             }
         )
     }
 }
 
+
+//--- Display and Debug
+
+impl fmt::Display for UncertainDname {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.fmt(f),
+            UncertainDname::Relative(ref name) => name.fmt(f),
+        }
+    }
+}
+
+impl fmt::Debug for UncertainDname {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            UncertainDname::Absolute(ref name) => {
+                write!(f, "UncertainDname::Absolute({})", name)
+            }
+            UncertainDname::Relative(ref name) => {
+                write!(f, "UncertainDname::Relative({})", name)
+            }
+        }
+    }
+}
+
+
+//--- Printable
+
+impl Printable for UncertainDname {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        write!(printer.item()?, "{}", self)
+    }
+}
+
+    
 
 //------------ Santa’s Little Helpers ----------------------------------------
 

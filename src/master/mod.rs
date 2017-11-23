@@ -7,8 +7,9 @@ pub use self::scanner::Scanner;
 
 
 pub mod error;
+pub mod print;
 pub mod source;
-pub mod scanner;
+pub mod scan;
 
 /*
 pub mod entry;

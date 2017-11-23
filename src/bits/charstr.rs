@@ -18,11 +18,11 @@
 //! [`CharStrBuf`]: struct.CharStrBuf.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{cmp, fmt, hash, ops, str};
+use std::{cmp, fmt, hash, ops, io, str};
 use bytes::{BufMut, Bytes};
 use ::master::error::{ScanError, SyntaxError};
-use ::master::source::CharSource;
-use ::master::scanner::{Scannable, Scanner};
+use ::master::print::{Printable, Printer};
+use ::master::scan::{CharSource, Scannable, Scanner};
 use super::compose::Composable;
 use super::error::ShortBuf;
 use super::parse::{Parseable, Parser};
@@ -105,11 +105,11 @@ impl Composable for CharStr {
 }
 
 
-//--- Scannable
+//--- Scannable and Printable
 
 impl Scannable for CharStr {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError<C::Err>> {
+                           -> Result<Self, ScanError> {
         scanner.scan_byte_phrase(|res| {
             if res.len() > 255 {
                 Err(SyntaxError::LongCharStr)
@@ -119,6 +119,17 @@ impl Scannable for CharStr {
                 Ok(unsafe { CharStr::from_bytes_unchecked(res) })
             }
         })
+    }
+}
+
+impl Printable for CharStr {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        let mut wr = printer.item()?;
+        for ch in &self.inner {
+            wr.print_byte(ch)?
+        }
+        Ok(())
     }
 }
 

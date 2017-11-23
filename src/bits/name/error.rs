@@ -82,8 +82,8 @@ pub enum FromStrError {
     /// An illegal character was encountered.
     ///
     /// Only printable ASCII characters are allowed.
-    #[fail(display="illegal character")]
-    IllegalCharacter,
+    #[fail(display="illegal character '{}'", _0)]
+    IllegalCharacter(char),
 
     /// The name has more than 255 characters.
     #[fail(display="long domain name")]

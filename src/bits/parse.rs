@@ -228,7 +228,7 @@ pub trait Parseable: Sized {
     /// Skips over a value of this type at the beginning of `parser`.
     ///
     /// This function is the same as `parse` but doesn’t return the result.
-    /// It can be used if the content of `parser` is correct.
+    /// It can be used to check if the content of `parser` is correct.
     fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
         Self::parse(parser).map(|_| ())
     }

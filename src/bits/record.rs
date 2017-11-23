@@ -7,14 +7,18 @@
 //! [`Record`]: struct.Record.html
 //! [`GenericRecord`]: type.GenericRecord.html
 
-use std::fmt;
+use std::{fmt, io};
 use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Class, Rtype};
+//use ::master::error::ScanError;
+use ::master::print::{Printable, Printer};
+//use ::master::scan::{CharSource, Scannable, Scanner};
 use super::compose::{Composable, Compressable, Compressor};
 use super::error::ShortBuf;
 use super::name::{ParsedDname, ParsedDnameError};
 use super::parse::{Parseable, Parser};
 use super::rdata::RecordData;
+use super::ttl::{ParseTtlError, Ttl};
 
 
 //------------ Record --------------------------------------------------------
@@ -77,7 +81,7 @@ use super::rdata::RecordData;
 pub struct Record<N, D> {
     name: N,
     class: Class,
-    ttl: i32,
+    ttl: Ttl,
     data: D
 }
 
@@ -86,7 +90,7 @@ pub struct Record<N, D> {
 ///
 impl<N, D> Record<N, D> {
     /// Creates a new record from its parts.
-    pub fn new(name: N, class: Class, ttl: i32, data: D) -> Self {
+    pub fn new(name: N, class: Class, ttl: Ttl, data: D) -> Self {
         Record { name, class, ttl, data }
     }
 
@@ -114,12 +118,12 @@ impl<N, D> Record<N, D> {
     }
 
     /// Returns the record’s time-to-live.
-    pub fn ttl(&self) -> i32 {
+    pub fn ttl(&self) -> Ttl {
         self.ttl
     }
 
     /// Sets the record’s time-to-live.
-    pub fn set_ttl(&mut self, ttl: i32) {
+    pub fn set_ttl(&mut self, ttl: Ttl) {
         self.ttl = ttl
     }
 
@@ -193,22 +197,45 @@ impl<N: Compressable, D: RecordData + Compressable> Compressable
 }
 
 
+//--- Scannable and Printable
+
+/*
+impl<N: Scannable> Scannable for Record<N, MasterRecordData> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError<C::Err>> {
+    }
+}
+*/
+
+impl<N, D> Printable for Record<N, D>
+     where N: Printable, D: RecordData + Printable {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        self.name.print(printer)?;
+        self.ttl.print(printer)?;
+        self.class.print(printer)?;
+        self.data.rtype().print(printer)?;
+        self.data.print(printer)
+    }
+}
+
+
 //--- From
 
-impl<N, D> From<(N, Class, i32, D)> for Record<N, D> {
-    fn from(x: (N, Class, i32, D)) -> Self {
+impl<N, D> From<(N, Class, Ttl, D)> for Record<N, D> {
+    fn from(x: (N, Class, Ttl, D)) -> Self {
         Record::new(x.0, x.1, x.2, x.3)
     }
 }
 
-impl<N, D> From<(N, i32, D)> for Record<N, D> {
-    fn from(x: (N, i32, D)) -> Self {
+impl<N, D> From<(N, Ttl, D)> for Record<N, D> {
+    fn from(x: (N, Ttl, D)) -> Self {
         Record::new(x.0, Class::In, x.1, x.2)
     }
 }
 
 
-//--- Display
+//--- Display and Printable
 
 impl<N, D> fmt::Display for Record<N, D>
      where N: fmt::Display, D: RecordData + fmt::Display {
@@ -228,13 +255,13 @@ pub struct RecordHeader<N=ParsedDname> {
     name: N,
     rtype: Rtype,
     class: Class,
-    ttl: i32,
+    ttl: Ttl,
     rdlen: u16,
 }
 
 impl<N> RecordHeader<N> {
     /// Creates a new record header from its components.
-    pub fn new(name: N, rtype: Rtype, class: Class, ttl: i32, rdlen: u16)
+    pub fn new(name: N, rtype: Rtype, class: Class, ttl: Ttl, rdlen: u16)
                -> Self {
         RecordHeader { name, rtype, class, ttl, rdlen }
     }
@@ -285,7 +312,7 @@ impl<N> RecordHeader<N> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> i32 {
+    pub fn ttl(&self) -> Ttl {
         self.ttl
     }
 
@@ -311,7 +338,7 @@ impl<N: Parseable> Parseable for RecordHeader<N> {
                 N::parse(parser).map_err(RecordHeaderParseError::Name)?,
                 Rtype::parse(parser)?,
                 Class::parse(parser)?,
-                parser.parse_i32()?,
+                Ttl::parse(parser)?,
                 parser.parse_u16()?
         ))
     }
@@ -349,6 +376,9 @@ pub enum RecordHeaderParseError<N=ParsedDnameError> {
     #[fail(display="{}", _0)]
     Name(N),
 
+    #[fail(display="{}", _0)]
+    Ttl(ParseTtlError),
+
     #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
@@ -356,6 +386,12 @@ pub enum RecordHeaderParseError<N=ParsedDnameError> {
 impl<N> From<ShortBuf> for RecordHeaderParseError<N> {
     fn from(_: ShortBuf) -> Self {
         RecordHeaderParseError::ShortBuf
+    }
+}
+
+impl<N> From<ParseTtlError> for RecordHeaderParseError<N> {
+    fn from(err: ParseTtlError) -> Self {
+        RecordHeaderParseError::Ttl(err)
     }
 }
 
@@ -368,6 +404,9 @@ pub enum RecordParseError<N, D> {
     Name(N),
 
     #[fail(display="{}", _0)]
+    Ttl(ParseTtlError),
+
+    #[fail(display="{}", _0)]
     Data(D),
 
     #[fail(display="unexpected end of buffer")]
@@ -378,8 +417,15 @@ impl<N, D> From<RecordHeaderParseError<N>> for RecordParseError<N, D> {
     fn from(err: RecordHeaderParseError<N>) -> Self {
         match err {
             RecordHeaderParseError::Name(err) => RecordParseError::Name(err),
+            RecordHeaderParseError::Ttl(err) => RecordParseError::Ttl(err),
             RecordHeaderParseError::ShortBuf => RecordParseError::ShortBuf
         }
+    }
+}
+
+impl<N, D> From<ParseTtlError> for RecordParseError<N, D> {
+    fn from(err: ParseTtlError) -> Self {
+        RecordParseError::Ttl(err)
     }
 }
 

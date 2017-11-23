@@ -26,6 +26,7 @@ use super::question::{Question, QuestionParseError};
 use super::rdata::RecordData;
 use super::record::{Record, RecordHeader, RecordHeaderParseError,
                     RecordParseError};
+use super::ttl::ParseTtlError;
 
 
 //------------ Message -------------------------------------------------------
@@ -694,6 +695,9 @@ pub enum MessageParseError {
     #[fail(display="{}", _0)]
     Name(ParsedDnameError),
 
+    #[fail(display="{}", _0)]
+    Ttl(ParseTtlError),
+
     #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
@@ -717,6 +721,7 @@ impl From<RecordHeaderParseError<ParsedDnameError>> for MessageParseError {
     fn from(err: RecordHeaderParseError<ParsedDnameError>) -> Self {
         match err {
             RecordHeaderParseError::Name(err) => MessageParseError::Name(err),
+            RecordHeaderParseError::Ttl(err) => MessageParseError::Ttl(err),
             RecordHeaderParseError::ShortBuf
                 => MessageParseError::ShortBuf
         }

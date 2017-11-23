@@ -1,10 +1,12 @@
 //! Parsed domain names.
 
-use std::cmp;
+use std::{cmp, fmt, hash, io};
+use std::io::Write;
 use bytes::BufMut;
 use ::bits::compose::{Composable, Compressable, Compressor};
 use ::bits::error::ShortBuf;
 use ::bits::parse::{Parseable, Parser};
+use ::master::print::{Printable, Printer};
 use super::error::{LabelTypeError, ParsedDnameError};
 use super::label::Label;
 use super::traits::{ToLabelIter, ToDname};
@@ -41,6 +43,7 @@ use super::traits::{ToLabelIter, ToDname};
 ///
 /// [`Parser`]: ../parse/struct.Parser.html
 /// [`ToDname`]: trait.ToDname.html
+#[derive(Clone)]
 pub struct ParsedDname {
     /// A parser positioned at the beginning of the name.
     parser: Parser,
@@ -228,6 +231,45 @@ impl<N: ToDname> PartialOrd<N> for ParsedDname {
 impl Ord for ParsedDname {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.iter().cmp(other.iter())
+    }
+}
+
+
+//--- Hash
+
+impl hash::Hash for ParsedDname {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        for item in self.iter() {
+            item.hash(state)
+        }
+    }
+}
+
+
+//--- Display and Debug
+
+impl fmt::Display for ParsedDname {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for label in self.iter() {
+            write!(f, ".{}", label)?
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for ParsedDname {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ParsedDname({})", self)
+    }
+}
+
+
+//--- Printable
+
+impl Printable for ParsedDname {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        write!(printer.item()?, "{}", self)
     }
 }
 
