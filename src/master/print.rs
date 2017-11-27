@@ -52,35 +52,35 @@ impl<'a, W: io::Write + 'a> io::Write for PrintItem<'a, W> {
 }
 
 
-//------------ Printable -----------------------------------------------------
+//------------ Print ---------------------------------------------------------
 
-pub trait Printable {
+pub trait Print {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error>;
 }
 
-impl Printable for u8 {
+impl Print for u8 {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self)
     }
 }
 
-impl Printable for u16 {
+impl Print for u16 {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self)
     }
 }
 
-impl Printable for u32 {
+impl Print for u32 {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self)
     }
 }
 
-impl Printable for Ipv4Addr {
+impl Print for Ipv4Addr {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self)

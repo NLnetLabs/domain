@@ -14,8 +14,8 @@ use ::bits::error::ShortBuf;
 use ::bits::parse::{Parse, ParseAll, Parser};
 use ::bits::rdata::RtypeRecordData;
 use ::iana::Rtype;
-use ::master::print::{Printable, Printer};
-use ::master::scan::{CharSource, Scannable, Scanner, ScanError};
+use ::master::print::{Print, Printer};
+use ::master::scan::{CharSource, Scan, Scanner, ScanError};
 
 
 //------------ Aaaa ---------------------------------------------------------
@@ -93,9 +93,9 @@ impl Compress for Aaaa {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl Scannable for Aaaa {
+impl Scan for Aaaa {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_string_phrase(|res| {
@@ -104,7 +104,7 @@ impl Scannable for Aaaa {
     }
 }
 
-impl Printable for Aaaa {
+impl Print for Aaaa {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self.addr)

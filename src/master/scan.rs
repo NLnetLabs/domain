@@ -715,14 +715,14 @@ impl<C: CharSource> Scanner<C> {
 }
 
 
-//------------ Scannable -----------------------------------------------------
+//------------ Scan ----------------------------------------------------------
 
-pub trait Scannable: Sized {
+pub trait Scan: Sized {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError>;
 }
 
-impl Scannable for u32 {
+impl Scan for u32 {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_phrase(
@@ -754,7 +754,7 @@ impl Scannable for u32 {
     }
 }
 
-impl Scannable for u16 {
+impl Scan for u16 {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_phrase(
@@ -787,7 +787,7 @@ impl Scannable for u16 {
 }
 
 
-impl Scannable for u8 {
+impl Scan for u8 {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_phrase(

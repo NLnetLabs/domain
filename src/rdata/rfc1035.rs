@@ -18,8 +18,8 @@ use ::bits::parse::{ParseAll, ParseAllError, ParseOpenError, Parse,
                     Parser};
 use ::bits::rdata::RtypeRecordData;
 use ::bits::serial::Serial;
-use ::master::print::{Printable, Printer};
-use ::master::scan::{CharSource, ScanError, Scannable, Scanner};
+use ::master::print::{Print, Printer};
+use ::master::scan::{CharSource, ScanError, Scan, Scanner};
 
 
 //------------ dname_type! --------------------------------------------------
@@ -98,16 +98,16 @@ macro_rules! dname_type {
         }
 
 
-        //--- Scannable and Printable
+        //--- Scan and Print
 
-        impl<N: Scannable> Scannable for $target<N> {
+        impl<N: Scan> Scan for $target<N> {
             fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                                    -> Result<Self, ScanError> {
                 N::scan(scanner).map(Self::new)
             }
         }
 
-        impl<N: Printable> Printable for $target<N> {
+        impl<N: Print> Print for $target<N> {
             fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                                    -> Result<(), io::Error> {
                 self.$field.print(printer)
@@ -232,16 +232,16 @@ impl Compress for A {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl Scannable for A {
+impl Scan for A {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_string_phrase(|res| A::from_str(&res).map_err(Into::into))
     }
 }
 
-impl Printable for A {
+impl Print for A {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self.addr)
@@ -382,16 +382,16 @@ impl Compress for Hinfo {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl Scannable for Hinfo {
+impl Scan for Hinfo {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         Ok(Self::new(CharStr::scan(scanner)?, CharStr::scan(scanner)?))
     }
 }
 
-impl Printable for Hinfo {
+impl Print for Hinfo {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         self.cpu.print(printer)?;
@@ -562,16 +562,16 @@ impl<N: Compress> Compress for Minfo<N> {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl<N: Scannable> Scannable for Minfo<N> {
+impl<N: Scan> Scan for Minfo<N> {
     fn scan<C: CharSource>(scanner: &mut  Scanner<C>)
                            -> Result<Self, ScanError> {
         Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?))
     }
 }
 
-impl<N: Printable> Printable for Minfo<N> {
+impl<N: Print> Print for Minfo<N> {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         self.rmailbx.print(printer)?;
@@ -686,16 +686,16 @@ impl<N: Compress> Compress for Mx<N> {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl<N: Scannable> Scannable for Mx<N> {
+impl<N: Scan> Scan for Mx<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         Ok(Self::new(u16::scan(scanner)?, N::scan(scanner)?))
     }
 }
 
-impl<N: Printable> Printable for Mx<N> {
+impl<N: Print> Print for Mx<N> {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         self.preference.print(printer)?;
@@ -977,9 +977,9 @@ impl<N: Compress> Compress for Soa<N> {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl<N: Scannable> Scannable for Soa<N> {
+impl<N: Scan> Scan for Soa<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?,
@@ -989,7 +989,7 @@ impl<N: Scannable> Scannable for Soa<N> {
     }
 }
 
-impl<N: Printable> Printable for Soa<N> {
+impl<N: Print> Print for Soa<N> {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         self.mname.print(printer)?;
@@ -1124,9 +1124,9 @@ impl Compress for Txt {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl Scannable for Txt {
+impl Scan for Txt {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         let first = CharStr::scan(scanner)?;
@@ -1143,7 +1143,7 @@ impl Scannable for Txt {
     }
 }
 
-impl Printable for Txt {
+impl Print for Txt {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         for item in self.iter() {
@@ -1295,9 +1295,9 @@ impl Compress for Wks {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl Scannable for Wks {
+impl Scan for Wks {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         let address = scanner.scan_string_phrase(|res| {
@@ -1312,7 +1312,7 @@ impl Scannable for Wks {
     }
 }
 
-impl Printable for Wks {
+impl Print for Wks {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         self.address.print(printer)?;

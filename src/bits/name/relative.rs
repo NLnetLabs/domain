@@ -5,7 +5,7 @@ use std::ascii::AsciiExt;
 use std::io::Write;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Compose;
-use ::master::print::{Printable, Printer};
+use ::master::print::{Print, Printer};
 use super::builder::DnameBuilder;
 use super::chain::Chain;
 use super::dname::Dname;
@@ -462,9 +462,9 @@ impl fmt::Debug for RelativeDname {
 }
 
 
-//--- Printable
+//--- Print
 
-impl Printable for RelativeDname {
+impl Print for RelativeDname {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self)

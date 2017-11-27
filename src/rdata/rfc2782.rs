@@ -10,8 +10,8 @@ use ::bits::error::ShortBuf;
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::{Parse, ParseAll, Parser, ParseOpenError};
 use ::bits::rdata::RtypeRecordData;
-use ::master::print::{Printable, Printer};
-use ::master::scan::{CharSource, Scannable, Scanner, ScanError};
+use ::master::print::{Print, Printer};
+use ::master::scan::{CharSource, Scan, Scanner, ScanError};
 use ::iana::Rtype;
 
 
@@ -92,9 +92,9 @@ impl<N> RtypeRecordData for Srv<N> {
 }
 
 
-//--- Scannable, Printable, and Display
+//--- Scan, Print, and Display
 
-impl<N: Scannable> Scannable for Srv<N> {
+impl<N: Scan> Scan for Srv<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         Ok(Self::new(u16::scan(scanner)?, u16::scan(scanner)?,
@@ -102,7 +102,7 @@ impl<N: Scannable> Scannable for Srv<N> {
     }
 }
 
-impl<N: Printable> Printable for Srv<N> {
+impl<N: Print> Print for Srv<N> {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         self.priority.print(printer)?;

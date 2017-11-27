@@ -21,8 +21,8 @@
 use std::{cmp, fmt, hash, ops, io};
 use bytes::{BufMut, Bytes};
 use ::master::error::{ScanError, SyntaxError};
-use ::master::print::{Printable, Printer};
-use ::master::scan::{CharSource, Scannable, Scanner};
+use ::master::print::{Print, Printer};
+use ::master::scan::{CharSource, Scan, Scanner};
 use super::compose::Compose;
 use super::error::ShortBuf;
 use super::parse::{ParseAll, ParseAllError, Parse, Parser};
@@ -127,9 +127,9 @@ impl Compose for CharStr {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl Scannable for CharStr {
+impl Scan for CharStr {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_byte_phrase(|res| {
@@ -144,7 +144,7 @@ impl Scannable for CharStr {
     }
 }
 
-impl Printable for CharStr {
+impl Print for CharStr {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         let mut wr = printer.item()?;

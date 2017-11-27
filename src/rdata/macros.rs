@@ -100,14 +100,14 @@ macro_rules! master_types {
             }
         }
 
-        //--- (Scan) and Printable
+        //--- (Scan) and Print
 
         impl MasterRecordData {
             pub fn scan<C>(rtype: ::iana::Rtype,
                            scanner: &mut ::master::scan::Scanner<C>)
                            -> Result<Self, ::master::scan::ScanError>
                         where C: ::master::scan::CharSource {
-                use ::master::scan::Scannable;
+                use ::master::scan::Scan;
 
                 match rtype {
                     $(
@@ -126,7 +126,7 @@ macro_rules! master_types {
             }
         }
 
-        impl ::master::print::Printable for MasterRecordData {
+        impl ::master::print::Print for MasterRecordData {
             fn print<W>(&self, printer: &mut ::master::print::Printer<W>)
                         -> Result<(), ::std::io::Error>
                      where W: ::std::io::Write {

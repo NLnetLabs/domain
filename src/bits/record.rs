@@ -11,7 +11,7 @@ use std::{fmt, io};
 use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Class, Rtype};
 //use ::master::error::ScanError;
-use ::master::print::{Printable, Printer};
+use ::master::print::{Print, Printer};
 //use ::master::scan::{CharSource, Scannable, Scanner};
 use super::compose::{Compose, Compress, Compressor};
 use super::error::ShortBuf;
@@ -199,7 +199,7 @@ impl<N: Compress, D: RecordData + Compress> Compress
 }
 
 
-//--- Scannable and Printable
+//--- Scannable and Print
 
 /*
 impl<N: Scannable> Scannable for Record<N, MasterRecordData> {
@@ -209,8 +209,8 @@ impl<N: Scannable> Scannable for Record<N, MasterRecordData> {
 }
 */
 
-impl<N, D> Printable for Record<N, D>
-     where N: Printable, D: RecordData + Printable {
+impl<N, D> Print for Record<N, D>
+     where N: Print, D: RecordData + Print {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         self.name.print(printer)?;
@@ -237,7 +237,7 @@ impl<N, D> From<(N, u32, D)> for Record<N, D> {
 }
 
 
-//--- Display and Printable
+//--- Display and Print
 
 impl<N, D> fmt::Display for Record<N, D>
      where N: fmt::Display, D: RecordData + fmt::Display {

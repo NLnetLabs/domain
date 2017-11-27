@@ -5,7 +5,7 @@ use std::io::Write;
 use bytes::BufMut;
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::error::ShortBuf;
-use ::master::print::{Printable, Printer};
+use ::master::print::{Print, Printer};
 use super::error::LongNameError;
 use super::label::Label;
 use super::traits::{ToLabelIter, ToRelativeDname, ToDname};
@@ -101,7 +101,7 @@ impl<L: ToRelativeDname, R: ToRelativeDname> ToRelativeDname for Chain<L, R> {
 impl<L: ToRelativeDname, R: ToDname> ToDname for Chain<L, R> {
 }
 
-impl<L: fmt::Display, R: fmt::Display> Printable for Chain<L, R> {
+impl<L: fmt::Display, R: fmt::Display> Print for Chain<L, R> {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}.{}", self.left, self.right)

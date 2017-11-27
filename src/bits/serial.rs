@@ -2,8 +2,8 @@
 
 use std::{cmp, fmt, io, str};
 use bytes::BufMut;
-use ::master::scan::{CharSource, Scannable, ScanError, Scanner};
-use ::master::print::{Printable, Printer};
+use ::master::scan::{CharSource, Scan, ScanError, Scanner};
+use ::master::print::{Print, Printer};
 use super::compose::Compose;
 use super::parse::{Parse, ParseAll, Parser};
 
@@ -97,16 +97,16 @@ impl Compose for Serial {
 }
 
 
-//--- Scannable and Printable
+//--- Scan and Print
 
-impl Scannable for Serial {
+impl Scan for Serial {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         u32::scan(scanner).map(Into::into)
     }
 }
 
-impl Printable for Serial {
+impl Print for Serial {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         self.0.print(printer)

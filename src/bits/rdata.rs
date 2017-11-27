@@ -28,8 +28,8 @@ use std::{fmt, io};
 use std::io::Write;
 use bytes::{BufMut, Bytes, BytesMut};
 use ::iana::Rtype;
-use ::master::print::{Printable, Printer};
-use ::master::scan::{CharSource, Scannable, Scanner, ScanError, SyntaxError};
+use ::master::print::{Print, Printer};
+use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use super::compose::{Compose, Compress, Compressor};
 use super::error::ShortBuf;
 use super::parse::{ParseAll, Parser};
@@ -210,9 +210,9 @@ impl ParseRecordData for UnknownRecordData {
 }
 
 
-//--- Printable, and Display
+//--- Print, and Display
 
-impl Printable for UnknownRecordData {
+impl Print for UnknownRecordData {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "\\# {}", self.data.len())?;

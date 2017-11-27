@@ -4,8 +4,8 @@ use std::{fmt, io, str};
 use std::ascii::AsciiExt;
 use std::io::Write;
 use ::master::error::ScanError;
-use ::master::print::{Printable, Printer};
-use ::master::scan::{CharSource, Scannable, Scanner, Symbol};
+use ::master::print::{Print, Printer};
+use ::master::scan::{CharSource, Scan, Scanner, Symbol};
 use super::builder::DnameBuilder;
 use super::dname::Dname;
 use super::error::FromStrError;
@@ -180,9 +180,9 @@ impl str::FromStr for UncertainDname {
 }
 
 
-//--- Scannable
+//--- Scan
 
-impl Scannable for UncertainDname {
+impl Scan for UncertainDname {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_word(
@@ -257,9 +257,9 @@ impl fmt::Debug for UncertainDname {
 }
 
 
-//--- Printable
+//--- Print
 
-impl Printable for UncertainDname {
+impl Print for UncertainDname {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self)

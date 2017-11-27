@@ -6,7 +6,7 @@ use bytes::BufMut;
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::error::ShortBuf;
 use ::bits::parse::{Parse, ParseAll, Parser};
-use ::master::print::{Printable, Printer};
+use ::master::print::{Print, Printer};
 use super::error::{LabelTypeError};
 use super::label::Label;
 use super::traits::{ToLabelIter, ToDname};
@@ -283,9 +283,9 @@ impl fmt::Debug for ParsedDname {
 }
 
 
-//--- Printable
+//--- Print
 
-impl Printable for ParsedDname {
+impl Print for ParsedDname {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self)

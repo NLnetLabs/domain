@@ -7,8 +7,8 @@ use bytes::{BufMut, Bytes};
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::error::ShortBuf;
 use ::bits::parse::{Parse, ParseAll, Parser};
-use ::master::print::{Printable, Printer};
-use ::master::scan::{CharSource, Scannable, Scanner, ScanError, SyntaxError};
+use ::master::print::{Print, Printer};
+use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use super::error::{FromStrError, IndexError, LabelTypeError,
                    SplitLabelError, RootNameError};
 use super::label::Label;
@@ -497,9 +497,9 @@ impl fmt::Debug for Dname {
 }
 
 
-//--- Scannable and  Printable
+//--- Scan and Print
 
-impl Scannable for Dname {
+impl Scan for Dname {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.try_scan(UncertainDname::scan, |res| {
@@ -508,7 +508,7 @@ impl Scannable for Dname {
     }
 }
 
-impl Printable for Dname {
+impl Print for Dname {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
         write!(printer.item()?, "{}", self)
