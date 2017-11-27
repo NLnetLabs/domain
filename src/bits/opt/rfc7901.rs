@@ -1,13 +1,13 @@
 //! EDNS Options from RFC 7901
 
 use bytes::BufMut;
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::name::{Dname, DnameError, ToDname};
-use ::bits::parse::Parser;
+use ::bits::name::{Dname, ToDname};
+use ::bits::parse::{ParseAll, Parser};
 use ::iana::OptionCode;
-use super::OptData;
+use super::CodeOptData;
 
 
 //------------ Chain --------------------------------------------------------
@@ -37,9 +37,17 @@ impl Chain {
 }
 
 
-//--- Composable and OptData
+//--- ParseAll and Compose
 
-impl Composable for Chain {
+impl ParseAll for Chain {
+    type Err = <Dname as ParseAll>::Err;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        Dname::parse_all(parser, len).map(Self::new)
+    }
+}
+
+impl Compose for Chain {
     fn compose_len(&self) -> usize {
         self.start.compose_len()
     }
@@ -49,43 +57,10 @@ impl Composable for Chain {
     }
 }
 
-impl OptData for Chain {
-    type ParseErr = ChainParseError;
 
-    fn code(&self) -> OptionCode {
-        OptionCode::Chain
-    }
+//--- CodeOptData
 
-    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-             -> Result<Option<Self>, ChainParseError> {
-        if code != OptionCode::Chain {
-            return Ok(None)
-        }
-        Ok(Some(Chain::new(Dname::from_bytes(parser.parse_bytes(len)?)?)))
-    }
-}
-
-
-//------------ ChainParseError -----------------------------------------------
-
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum ChainParseError {
-    #[fail(display="{}", _0)]
-    Name(DnameError),
-
-    #[fail(display="unexpected end of buffer")]
-    ShortBuf,
-}
-
-impl From<DnameError> for ChainParseError {
-    fn from(err: DnameError) -> ChainParseError {
-        ChainParseError::Name(err)
-    }
-}
-
-impl From<ShortBuf> for ChainParseError {
-    fn from(_: ShortBuf) -> ChainParseError {
-        ChainParseError::ShortBuf
-    }
+impl CodeOptData for Chain {
+    const CODE: OptionCode = OptionCode::Chain;
 }
 

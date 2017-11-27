@@ -4,7 +4,7 @@ use std::{cmp, fmt, hash, io, ops};
 use std::ascii::AsciiExt;
 use std::io::Write;
 use bytes::{BufMut, Bytes};
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::master::print::{Printable, Printer};
 use super::builder::DnameBuilder;
 use super::chain::Chain;
@@ -145,7 +145,7 @@ impl RelativeDname {
     /// greater than the size limit of 255. Note that in this case you will
     /// loose both `self` and `other`, so it might be worthwhile to check
     /// first.
-    pub fn chain<N: Composable>(self, other: N)
+    pub fn chain<N: Compose>(self, other: N)
                                 -> Result<Chain<Self, N>, LongNameError> {
         Chain::new(self, other)
     }
@@ -334,9 +334,9 @@ impl RelativeDname {
 }
 
 
-//--- Composable
+//--- Compose
 
-impl Composable for RelativeDname {
+impl Compose for RelativeDname {
     fn compose_len(&self) -> usize {
         self.bytes.len()
     }

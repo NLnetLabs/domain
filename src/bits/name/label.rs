@@ -3,7 +3,7 @@
 use std::{cmp, fmt, hash, mem, ops};
 use std::ascii::AsciiExt;
 use bytes::BufMut;
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use super::error::{LabelTypeError, LongLabelError, SplitLabelError};
 
 
@@ -111,9 +111,9 @@ impl Label {
 }
 
 
-//--- Composable
+//--- Compose
 
-impl Composable for Label {
+impl Compose for Label {
     fn compose_len(&self) -> usize {
         self.len() + 1
     }

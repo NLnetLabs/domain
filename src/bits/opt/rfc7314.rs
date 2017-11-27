@@ -1,12 +1,12 @@
 //! EDNS Options from RFC 7314
 
 use bytes::BufMut;
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::Parser;
+use ::bits::parse::{ParseAll, Parser, ParseAllError};
 use ::iana::OptionCode;
-use super::{OptData, OptionParseError};
+use super::CodeOptData;
 
 
 //------------ Expire --------------------------------------------------------
@@ -15,6 +15,7 @@ use super::{OptData, OptionParseError};
 pub struct Expire(Option<u32>);
 
 impl Expire {
+
     pub fn new(expire: Option<u32>) -> Self {
         Expire(expire)
     }
@@ -30,9 +31,22 @@ impl Expire {
 }
 
 
-//--- Composable and OptData
+//--- ParseAll and Compose
 
-impl Composable for Expire {
+impl ParseAll for Expire {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len == 0 {
+            Ok(Expire::new(None))
+        }
+        else {
+            u32::parse_all(parser, len).map(|res| Expire::new(Some(res)))
+        }
+    }
+}
+
+impl Compose for Expire {
     fn compose_len(&self) -> usize {
         match self.0 {
             Some(_) => 4,
@@ -47,23 +61,10 @@ impl Composable for Expire {
     }
 }
 
-impl OptData for Expire {
-    type ParseErr = OptionParseError;
 
-    fn code(&self) -> OptionCode {
-        OptionCode::EdnsExpire
-    }
+//--- OptData
 
-    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-             -> Result<Option<Self>, Self::ParseErr> {
-        if code != OptionCode::EdnsExpire {
-            return Ok(None)
-        }
-        match len {
-            0 => Ok(Some(Self::new(None))),
-            4 => Ok(Some(Self::new(Some(parser.parse_u32()?)))),
-            _ => Err(OptionParseError::InvalidLength(len))
-        }
-    }
+impl CodeOptData for Expire {
+    const CODE: OptionCode = OptionCode::EdnsExpire;
 }
 

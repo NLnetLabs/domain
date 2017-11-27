@@ -3,12 +3,12 @@
 use std::mem;
 use std::net::IpAddr;
 use bytes::BufMut;
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::Parser;
+use ::bits::parse::{ParseAll, Parser};
 use ::iana::OptionCode;
-use super::OptData;
+use super::CodeOptData;
 
 
 //------------ ClientSubnet --------------------------------------------------
@@ -38,46 +38,13 @@ impl ClientSubnet {
 }
 
 
-//--- Composable and OptData
+//--- ParseAll and Compose
 
-impl Composable for ClientSubnet {
-    fn compose_len(&self) -> usize {
-        match self.addr {
-            IpAddr::V4(_) => 8,
-            IpAddr::V6(_) => 20,
-        }
-    }
 
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        match self.addr {
-            IpAddr::V4(addr) => {
-                1u16.compose(buf);
-                self.source_prefix_len.compose(buf);
-                self.scope_prefix_len.compose(buf);
-                buf.put_slice(&addr.octets());
-            }
-            IpAddr::V6(addr) => {
-                2u16.compose(buf);
-                self.source_prefix_len.compose(buf);
-                self.scope_prefix_len.compose(buf);
-                buf.put_slice(&addr.octets());
-            }
-        }
-    }
-}
+impl ParseAll for ClientSubnet {
+    type Err = OptionParseError;
 
-impl OptData for ClientSubnet {
-    type ParseErr = OptionParseError;
-
-    fn code(&self) -> OptionCode {
-        OptionCode::EdnsClientSubnet
-    }
-
-    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-             -> Result<Option<Self>, Self::ParseErr> {
-        if code != OptionCode::EdnsClientSubnet {
-            return Ok(None)
-        }
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
         let family = parser.parse_u16()?;
         let source_prefix_len = parser.parse_u8()?;
         let scope_prefix_len = parser.parse_u8()?;
@@ -104,8 +71,41 @@ impl OptData for ClientSubnet {
             }
             _ => return Err(OptionParseError::InvalidFamily(family))
         };
-        Ok(Some(ClientSubnet::new(source_prefix_len, scope_prefix_len, addr)))
+        Ok(ClientSubnet::new(source_prefix_len, scope_prefix_len, addr))
     }
+}
+
+impl Compose for ClientSubnet {
+    fn compose_len(&self) -> usize {
+        match self.addr {
+            IpAddr::V4(_) => 8,
+            IpAddr::V6(_) => 20,
+        }
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        match self.addr {
+            IpAddr::V4(addr) => {
+                1u16.compose(buf);
+                self.source_prefix_len.compose(buf);
+                self.scope_prefix_len.compose(buf);
+                buf.put_slice(&addr.octets());
+            }
+            IpAddr::V6(addr) => {
+                2u16.compose(buf);
+                self.source_prefix_len.compose(buf);
+                self.scope_prefix_len.compose(buf);
+                buf.put_slice(&addr.octets());
+            }
+        }
+    }
+}
+
+
+//--- CodeOptData
+
+impl CodeOptData for ClientSubnet {
+    const CODE: OptionCode = OptionCode::EdnsClientSubnet;
 }
 
 

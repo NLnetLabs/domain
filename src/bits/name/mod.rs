@@ -48,13 +48,14 @@
 
 pub use self::builder::DnameBuilder;
 pub use self::chain::{Chain, ChainIter};
-pub use self::dname::{Dname};
-pub use self::error::{DnameError, FromStrError, IndexError, LabelTypeError,
-                      LongLabelError, LongNameError, ParsedDnameError,
+pub use self::dname::{Dname, DnameError, DnameParseError, DnameBytesError};
+pub use self::error::{FromStrError, IndexError, LabelTypeError,
+                      LongLabelError, LongNameError, 
                       PushError, RelativeDnameError,
                       RootNameError, SplitLabelError, StripSuffixError};
 pub use self::label::Label;
-pub use self::parsed::{ParsedDname, ParsedDnameIter};
+pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedDnameError,
+                       ParsedDnameAllError};
 pub use self::relative::{RelativeDname, DnameIter};
 pub use self::traits::{ToLabelIter, ToRelativeDname, ToDname};
 pub use self::uncertain::UncertainDname;

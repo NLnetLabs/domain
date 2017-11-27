@@ -88,26 +88,26 @@ macro_rules! int_enum {
         }
 
 
-        //--- Parseable and Composable
+        //--- Parse and Compose
 
-        impl $crate::bits::parse::Parseable for $ianatype {
+        impl $crate::bits::parse::Parse for $ianatype {
             type Err = $crate::bits::error::ShortBuf;
 
             fn parse(parser: &mut $crate::bits::parse::Parser)
                      -> Result<Self, Self::Err> {
-                <$inttype as $crate::bits::parse::Parseable>::parse(parser)
+                <$inttype as $crate::bits::parse::Parse>::parse(parser)
                     .map(Self::from_int)
             }
         }
 
-        impl $crate::bits::compose::Composable for $ianatype {
+        impl $crate::bits::compose::Compose for $ianatype {
             fn compose_len(&self) -> usize {
-                <$inttype as $crate::bits::compose::Composable>
+                <$inttype as $crate::bits::compose::Compose>
                     ::compose_len(&self.to_int())
             }
 
             fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
-                $crate::bits::compose::Composable::compose(&self.to_int(), buf)
+                $crate::bits::compose::Compose::compose(&self.to_int(), buf)
             }
         }
 

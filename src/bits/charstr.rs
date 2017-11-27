@@ -18,19 +18,19 @@
 //! [`CharStrBuf`]: struct.CharStrBuf.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{cmp, fmt, hash, ops, io, str};
+use std::{cmp, fmt, hash, ops, io};
 use bytes::{BufMut, Bytes};
 use ::master::error::{ScanError, SyntaxError};
 use ::master::print::{Printable, Printer};
 use ::master::scan::{CharSource, Scannable, Scanner};
-use super::compose::Composable;
+use super::compose::Compose;
 use super::error::ShortBuf;
-use super::parse::{Parseable, Parser};
+use super::parse::{ParseAll, ParseAllError, Parse, Parser};
 
 
 //------------ CharStr -------------------------------------------------------
 
-/// A slice of a DNS character string.
+/// A DNS character string.
 ///
 /// A character string consists of up to 255 bytes of binary data. This type
 /// wraps a bytes slice enforcing the length limitation. It derefs into the
@@ -69,6 +69,10 @@ impl CharStr {
         else { Ok(unsafe { Self::from_bytes_unchecked(bytes) })}
     }
 
+    pub fn into_bytes(self) -> Bytes {
+        self.inner
+    }
+
     pub fn as_bytes(&self) -> &Bytes {
         &self.inner
     }
@@ -80,20 +84,38 @@ impl CharStr {
 }
 
 
-//--- Parseable and Composable
+//--- Parse, ParseAll, and Compose
 
-impl Parseable for CharStr {
+impl Parse for CharStr {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         let len = parser.parse_u8()? as usize;
         parser.parse_bytes(len).map(|bytes| {
             unsafe { Self::from_bytes_unchecked(bytes) }
         })
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        let len = parser.parse_u8()? as usize;
+        parser.advance(len)
+    }
 }
 
-impl Composable for CharStr {
+impl ParseAll for CharStr {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        let char_len = parser.parse_u8()? as usize;
+        ParseAllError::check(char_len + 1, len)?;
+        parser.parse_bytes(char_len).map_err(Into::into).map(|bytes| {
+            unsafe { Self::from_bytes_unchecked(bytes) }
+        })
+    }
+}
+
+
+impl Compose for CharStr {
     fn compose_len(&self) -> usize {
         self.len() + 1
     }

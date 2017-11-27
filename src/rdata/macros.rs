@@ -14,75 +14,137 @@ macro_rules! master_types {
         /// This enum contains variants for all the implemented record data
         /// types in their owned form plus the `Generic` variant record data
         /// of any other type.
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd)]
         pub enum MasterRecordData {
             $(
                 $(
                     $rtype($full_rtype),
                 )*
             )*
-            Generic(::iana::Rtype, Vec<u8>),
+            Other(::bits::rdata::UnknownRecordData),
         }
 
-        impl MasterRecordData {
-            pub fn scan<S>(rtype: ::iana::Rtype, scanner: &mut S,
-                           origin: Option<&::bits::name::DNameSlice>)
-                           -> ::master::ScanResult<Self>
-                        where S: ::master::Scanner {
-                // First try the generic format for everything.
-                let err = match ::rdata::generic::scan(scanner) {
-                    Ok(some) => {
-                        return Ok(MasterRecordData::Generic(rtype, some))
+        //--- From
+
+        $(
+            $(
+                impl From<$full_rtype> for MasterRecordData {
+                    fn from(value: $full_rtype) -> Self {
+                        MasterRecordData::$rtype(value)
                     }
-                    Err(err) => err
-                };
-                // Now see if we have a master type that can parse this for
-                // real.
-                match rtype {
+                }
+            )*
+        )*
+
+
+        //--- Compose and Compress
+
+        impl ::bits::compose::Compose for MasterRecordData {
+            fn compose_len(&self) -> usize {
+                match *self {
                     $(
                         $(
-                            ::iana::Rtype::$rtype => {
-                                $rtype::scan(scanner, origin)
-                                    .map(MasterRecordData::$rtype)
+                            MasterRecordData::$rtype(ref inner) => {
+                                inner.compose_len()
                             }
                         )*
                     )*
-                    // We don’t. Good thing we kept the error.
-                    _ => Err(err)
+                    MasterRecordData::Other(ref inner) => inner.compose_len()
+                }
+            }
+
+            fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
+                match *self {
+                    $(
+                        $(
+                            MasterRecordData::$rtype(ref inner) => {
+                                inner.compose(buf)
+                            }
+                        )*
+                    )*
+                    MasterRecordData::Other(ref inner) => inner.compose(buf)
                 }
             }
         }
 
-        impl ::bits::RecordData for MasterRecordData {
+        impl ::bits::compose::Compress for MasterRecordData {
+            fn compress(&self, buf: &mut ::bits::compose::Compressor)
+                        -> Result<(), ::bits::error::ShortBuf> {
+                match *self {
+                    $(
+                        $(
+                            MasterRecordData::$rtype(ref inner) => {
+                                inner.compress(buf)
+                            }
+                        )*
+                    )*
+                    MasterRecordData::Other(ref inner) => inner.compress(buf)
+                }
+            }
+        }
+
+        //--- RecordData
+
+        impl ::bits::rdata::RecordData for MasterRecordData {
             fn rtype(&self) -> ::iana::Rtype {
                 match *self {
                     $(
                         $(
-                            MasterRecordData::$rtype(ref data) => {
-                                data.rtype()
+                            MasterRecordData::$rtype(ref inner) => {
+                                inner.rtype()
                             }
                         )*
                     )*
-                    MasterRecordData::Generic(rtype, _) => rtype
+                    MasterRecordData::Other(ref inner) => inner.rtype()
                 }
             }
+        }
 
-            fn compose<C>(&self, mut target: C) -> ::bits::ComposeResult<()>
-                       where C: AsMut<::bits::Composer> {
-                match *self {
+        //--- (Scan) and Printable
+
+        impl MasterRecordData {
+            pub fn scan<C>(rtype: ::iana::Rtype,
+                           scanner: &mut ::master::scan::Scanner<C>)
+                           -> Result<Self, ::master::scan::ScanError>
+                        where C: ::master::scan::CharSource {
+                use ::master::scan::Scannable;
+
+                match rtype {
                     $(
                         $(
-                            MasterRecordData::$rtype(ref data) => {
-                                data.compose(target)
+                            ::iana::Rtype::$rtype => {
+                                $rtype::scan(scanner)
+                                       .map(MasterRecordData::$rtype)
                             }
                         )*
                     )*
-                    MasterRecordData::Generic(_, ref data) => {
-                        target.as_mut().compose_bytes(data)
+                    _ => {
+                        ::bits::rdata::UnknownRecordData::scan(rtype, scanner)
+                            .map(MasterRecordData::Other)
                     }
                 }
             }
         }
+
+        impl ::master::print::Printable for MasterRecordData {
+            fn print<W>(&self, printer: &mut ::master::print::Printer<W>)
+                        -> Result<(), ::std::io::Error>
+                     where W: ::std::io::Write {
+                match *self {
+                    $(
+                        $(
+                            MasterRecordData::$rtype(ref inner) => {
+                                inner.print(printer)
+                            }
+                        )*
+                    )*
+                    MasterRecordData::Other(ref inner) => inner.print(printer)
+                }
+            }
+        }
+
+        
+        //--- Display
 
         impl ::std::fmt::Display for MasterRecordData {
             fn fmt(&self, f: &mut ::std::fmt::Formatter)
@@ -90,18 +152,18 @@ macro_rules! master_types {
                 match *self {
                     $(
                         $(
-                            MasterRecordData::$rtype(ref data) => {
-                                ::std::fmt::Display::fmt(data, f)
+                            MasterRecordData::$rtype(ref inner) => {
+                                inner.fmt(f)
                             }
                         )*
                     )*
-                    MasterRecordData::Generic(_, ref data) => {
-                        ::rdata::generic::fmt(data, f)
-                    }
+                    MasterRecordData::Other(ref inner) => inner.fmt(f)
                 }
             }
         }
 
+
+        /*
         /// Helper function for `fmt_rdata()`.
         ///
         /// This function contains the part of `fmt_rdata()` that needs to
@@ -134,6 +196,7 @@ macro_rules! master_types {
                 _ => Ok(None)
             }
         }
+        */
     }
 }
 

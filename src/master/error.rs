@@ -19,7 +19,8 @@ pub enum SyntaxError {
     IllegalAddr(AddrParseError),
     IllegalName(name::FromStrError),
     LongCharStr,
-    LongGenericData,
+    UnevenHexString,      // Hex string with an odd number of characters
+    LongGenericData,      // More data then given in the length byte
     NestedParentheses,
     NoDefaultTtl,
     NoLastClass,

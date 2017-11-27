@@ -2,12 +2,12 @@
 
 use std::fmt;
 use bytes::{BufMut, Bytes};
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::Parser;
+use ::bits::parse::{ParseAll, Parser};
 use ::iana::OptionCode;
-use super::OptData;
+use super::CodeOptData;
 
 
 //------------ Nsid ---------------------------------------------------------/
@@ -35,23 +35,20 @@ impl Nsid {
     }
 }
 
-impl OptData for Nsid {
-    type ParseErr = ShortBuf;
+impl ParseAll for Nsid {
+    type Err = ShortBuf;
 
-    fn code(&self) -> OptionCode {
-        OptionCode::Nsid
-    }
-
-    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-             -> Result<Option<Self>, Self::ParseErr> {
-        if code != OptionCode::Nsid {
-            return Ok(None)
-        }
-        parser.parse_bytes(len).map(|bytes| Some(Nsid::new(bytes)))
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        parser.parse_bytes(len).map(Nsid::new)
     }
 }
 
-impl Composable for Nsid {
+impl CodeOptData for Nsid {
+    const CODE: OptionCode = OptionCode::Nsid;
+}
+
+
+impl Compose for Nsid {
     fn compose_len(&self) -> usize {
         self.bytes.len()
     }

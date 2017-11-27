@@ -26,26 +26,32 @@
 
 use std::{fmt, io};
 use std::io::Write;
-use bytes::{BufMut, Bytes};
+use bytes::{BufMut, Bytes, BytesMut};
 use ::iana::Rtype;
 use ::master::print::{Printable, Printer};
-use super::compose::{Composable, Compressable, Compressor};
+use ::master::scan::{CharSource, Scannable, Scanner, ScanError, SyntaxError};
+use super::compose::{Compose, Compress, Compressor};
 use super::error::ShortBuf;
-use super::parse::Parser;
+use super::parse::{ParseAll, Parser};
 
 
 //----------- RecordData -----------------------------------------------------
 
 /// A trait for types representing record data.
-pub trait RecordData: Composable + Compressable + Sized {
-    /// The type of an error returned when parsing fails.
-    type ParseErr: Clone;
-
+pub trait RecordData: Compose + Compress + Sized {
     /// Returns the record type for this record data instance.
     ///
     /// This is a method rather than an associated function to allow one
     /// type to be used for several real record types.
     fn rtype(&self) -> Rtype;
+}
+
+
+//------------ ParseRecordData -----------------------------------------------
+
+pub trait ParseRecordData: RecordData {
+    /// The type of an error returned when parsing fails.
+    type Err;
 
     /// Parses the record data.
     ///
@@ -58,12 +64,38 @@ pub trait RecordData: Composable + Compressable + Sized {
     ///
     /// If the function doesn’t want to process the data, it must not touch
     /// the parser. In particual, it must not advance it.
-    fn parse(rtype: Rtype, rdlen: usize, parser: &mut Parser)
-             -> Result<Option<Self>, Self::ParseErr>;
+    fn parse_data(rtype: Rtype, parser: &mut Parser, rdlen: usize)
+                  -> Result<Option<Self>, Self::Err>;
 }
 
 
-//------------ UnknownRecordData --------------------------------------------
+//------------ RtypeRecordData -----------------------------------------------
+
+pub trait RtypeRecordData {
+    const RTYPE: Rtype;
+}
+
+impl<T: RtypeRecordData + Compose + Compress + Sized> RecordData for T {
+    fn rtype(&self) -> Rtype { Self::RTYPE }
+}
+
+impl<T: RtypeRecordData + ParseAll + Compose + Compress + Sized>
+            ParseRecordData for T {
+    type Err = <Self as ParseAll>::Err;
+
+    fn parse_data(rtype: Rtype, parser: &mut Parser, rdlen: usize)
+                  -> Result<Option<Self>, Self::Err> {
+        if rtype == Self::RTYPE {
+            Self::parse_all(parser, rdlen).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+
+//------------ UnknownRecordData ---------------------------------------------
 
 /// A type for parsing any type of record data.
 ///
@@ -85,7 +117,7 @@ pub trait RecordData: Composable + Compressable + Sized {
 /// [`RecordData::compose()`]: trait.RecordData.html#tymethod.compose
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 3597]: https://tools.ietf.org/html/rfc3597
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UnknownRecordData {
     /// The record type of this data.
     rtype: Rtype,
@@ -99,12 +131,50 @@ impl UnknownRecordData {
     pub fn from_bytes(rtype: Rtype, data: Bytes) -> Self {
         UnknownRecordData { rtype, data }
     }
+
+    /// Scans the record data.
+    ///
+    /// This isn’t implemented via `Scan`, because we need the record type.
+    pub fn scan<C: CharSource>(rtype: Rtype, scanner: &mut Scanner<C>)
+                               -> Result<Self, ScanError> {
+        scanner.skip_literal("\\#")?;
+        let mut len = u16::scan(scanner)? as usize;
+        let mut res = BytesMut::with_capacity(len);
+        while len > 0 {
+            len = scanner.scan_word(
+                (&mut res, len, None), // buffer and optional first char
+                |&mut (ref mut res, ref mut len, ref mut first), symbol| {
+                    if *len == 0 {
+                        return Err(SyntaxError::LongGenericData)
+                    }
+                    let ch = symbol.into_digit(16)? as u8;
+                    if let Some(ch1) = *first {
+                        res.put_u8(ch1 << 4 | ch);
+                        *len = *len - 1;
+                    }
+                    else {
+                        *first = Some(ch)
+                    }
+                    Ok(())
+                },
+                |(_, len, first)| {
+                    if let Some(_) = first {
+                        Err(SyntaxError::UnevenHexString)
+                    }
+                    else {
+                        Ok(len)
+                    }
+                }
+            )?
+        }
+        Ok(UnknownRecordData::from_bytes(rtype, res.freeze()))
+    }
 }
 
 
-//--- Composable, Compressable, and RecordData
+//--- Compose, and Compress
 
-impl Composable for UnknownRecordData {
+impl Compose for UnknownRecordData {
     fn compose_len(&self) -> usize {
         self.data.len()
     }
@@ -114,38 +184,33 @@ impl Composable for UnknownRecordData {
     }
 }
 
-impl Compressable for UnknownRecordData {
+impl Compress for UnknownRecordData {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose(self)
     }
 }
 
-impl RecordData for UnknownRecordData {
-    type ParseErr = ShortBuf;
 
+//--- RecordData and ParseRecordData
+
+impl RecordData for UnknownRecordData {
     fn rtype(&self) -> Rtype {
         self.rtype
     }
+}
 
-    fn parse(rtype: Rtype, rdlen: usize, parser: &mut Parser)
-             -> Result<Option<Self>, Self::ParseErr> {
+impl ParseRecordData for UnknownRecordData {
+    type Err = ShortBuf;
+
+    fn parse_data(rtype: Rtype, parser: &mut Parser, rdlen: usize)
+                  -> Result<Option<Self>, Self::Err> {
         parser.parse_bytes(rdlen)
               .map(|data| Some(Self::from_bytes(rtype, data)))
     }
 }
 
 
-//--- Display and Printable
-
-impl fmt::Display for UnknownRecordData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "\\# {}", self.data.len())?;
-        for ch in self.data.as_ref() {
-            write!(f, " {:02x}", *ch)?
-        }
-        Ok(())
-    }
-}
+//--- Printable, and Display
 
 impl Printable for UnknownRecordData {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
@@ -153,6 +218,16 @@ impl Printable for UnknownRecordData {
         write!(printer.item()?, "\\# {}", self.data.len())?;
         for ch in self.data.as_ref() {
             write!(printer.item()?, " {:02x}", *ch)?
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for UnknownRecordData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "\\# {}", self.data.len())?;
+        for ch in self.data.as_ref() {
+            write!(f, " {:02x}", *ch)?
         }
         Ok(())
     }

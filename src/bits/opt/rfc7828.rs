@@ -1,12 +1,12 @@
 //! EDNS Options from RFC 7828
 
 use bytes::BufMut;
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::Parser;
+use ::bits::parse::{ParseAll, Parser, ParseAllError};
 use ::iana::OptionCode;
-use super::{OptData, OptionParseError};
+use super::CodeOptData;
 
 
 //------------ TcpKeepalive --------------------------------------------------
@@ -30,9 +30,17 @@ impl TcpKeepalive {
 }
 
 
-//--- Composable and OptData
+//--- ParseAll and Compose
 
-impl Composable for TcpKeepalive {
+impl ParseAll for TcpKeepalive {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        u16::parse_all(parser, len).map(Self::new)
+    }
+}
+
+impl Compose for TcpKeepalive {
     fn compose_len(&self) -> usize {
         2
     }
@@ -42,24 +50,10 @@ impl Composable for TcpKeepalive {
     }
 }
 
-impl OptData for TcpKeepalive {
-    type ParseErr = OptionParseError;
 
-    fn code(&self) -> OptionCode {
-        OptionCode::EdnsTcpKeepalive
-    }
+//--- CodeOptData
 
-    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-             -> Result<Option<Self>, Self::ParseErr> {
-        if code != OptionCode::EdnsTcpKeepalive {
-            return Ok(None)
-        }
-        if len == 2 {
-            Ok(Some(Self::new(parser.parse_u16()?)))
-        }
-        else {
-            Err(OptionParseError::InvalidLength(len))
-        }
-    }
+impl CodeOptData for TcpKeepalive {
+    const CODE: OptionCode = OptionCode::EdnsTcpKeepalive;
 }
 

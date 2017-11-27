@@ -3,11 +3,11 @@
 use std::{cmp, fmt, hash, io};
 use std::io::Write;
 use bytes::BufMut;
-use ::bits::compose::{Composable, Compressable, Compressor};
+use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::error::ShortBuf;
-use ::bits::parse::{Parseable, Parser};
+use ::bits::parse::{Parse, ParseAll, Parser};
 use ::master::print::{Printable, Printer};
-use super::error::{LabelTypeError, ParsedDnameError};
+use super::error::{LabelTypeError};
 use super::label::Label;
 use super::traits::{ToLabelIter, ToDname};
 
@@ -50,7 +50,7 @@ pub struct ParsedDname {
 
     /// The length of the uncompressed name in bytes.
     ///
-    /// We need this for implementing `Composable`.
+    /// We need this for implementing `Compose`.
     len: usize,
 
     /// Whether the name is compressed.
@@ -72,12 +72,12 @@ impl ParsedDname {
 }
 
 
-//--- Parseable, Composable, and Compressable
+//--- Parse, Compose, and Compress
 
-impl Parseable for ParsedDname {
+impl Parse for ParsedDname {
     type Err = ParsedDnameError;
 
-    fn parse(parser: &mut Parser) -> Result<Self, ParsedDnameError> {
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         let start = parser.pos();
         let mut len = 0;
 
@@ -90,7 +90,7 @@ impl Parseable for ParsedDname {
                     len += 1;
                     if len > 255 {
                         parser.seek(start).unwrap();
-                        return Err(ParsedDnameError::LongName)
+                        return Err(ParsedDnameError::LongName.into())
                     }
                     let mut res = parser.clone();
                     res.seek(start).unwrap();
@@ -105,7 +105,7 @@ impl Parseable for ParsedDname {
                     len += label_len + 1;
                     if len > 255 {
                         parser.seek(start).unwrap();
-                        return Err(ParsedDnameError::LongName)
+                        return Err(ParsedDnameError::LongName.into())
                     }
                 }
                 Ok(LabelType::Compressed(pos)) => {
@@ -129,7 +129,7 @@ impl Parseable for ParsedDname {
                     len += 1;
                     if len > 255 {
                         parser.seek(start).unwrap();
-                        return Err(ParsedDnameError::LongName)
+                        return Err(ParsedDnameError::LongName.into())
                     }
                     break;
                 }
@@ -141,7 +141,7 @@ impl Parseable for ParsedDname {
                     len += label_len + 1;
                     if len > 255 {
                         parser.seek(start).unwrap();
-                        return Err(ParsedDnameError::LongName)
+                        return Err(ParsedDnameError::LongName.into())
                     }
                 }
                 LabelType::Compressed(pos) => {
@@ -161,7 +161,26 @@ impl Parseable for ParsedDname {
     }
 }
 
-impl Composable for ParsedDname {
+impl ParseAll for ParsedDname {
+    type Err = ParsedDnameAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        let mut tmp = parser.clone();
+        let end = tmp.pos() + len;
+        let res = Self::parse(&mut tmp)?;
+        if tmp.pos() < end {
+            return Err(ParsedDnameAllError::TrailingData)
+        }
+        else if tmp.pos() > end {
+            return Err(ShortBuf.into())
+        }
+        parser.advance(len)?;
+        Ok(res)
+    }
+}
+               
+
+impl Compose for ParsedDname {
     fn compose_len(&self) -> usize {
         self.len
     }
@@ -173,7 +192,7 @@ impl Composable for ParsedDname {
     }
 }
 
-impl Compressable for ParsedDname {
+impl Compress for ParsedDname {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose_name(self)
     }
@@ -370,6 +389,55 @@ impl LabelType {
             0x40 ... 0x4F => Err(LabelTypeError::Extended(ltype).into()),
             _ => Err(LabelTypeError::Undefined.into())
         }
+    }
+}
+
+
+//------------ ParsedDnameError ----------------------------------------------
+
+/// A parsed domain name wasn’t encoded correctly.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum ParsedDnameError {
+    /// A bad label was encountered.
+    #[fail(display="{}", _0)]
+    BadLabel(LabelTypeError),
+
+    /// The name is longer than the 255 bytes limit.
+    #[fail(display="long domain name")]
+    LongName,
+
+    #[fail(display="unexpected end of buffer")]
+    ShortBuf,
+}
+
+impl From<LabelTypeError> for ParsedDnameError {
+    fn from(err: LabelTypeError) -> ParsedDnameError {
+        ParsedDnameError::BadLabel(err)
+    }
+}
+
+impl From<ShortBuf> for ParsedDnameError {
+    fn from(_: ShortBuf) -> Self {
+        ParsedDnameError::ShortBuf
+    }
+}
+
+
+//------------ ParseDnameAllError ---------------------------------------
+
+/// An error happened while parsing a compressed domain name.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum ParsedDnameAllError {
+    #[fail(display="{}", _0)]
+    ParseError(ParsedDnameError),
+
+    #[fail(display="trailing data")]
+    TrailingData,
+}
+
+impl<T: Into<ParsedDnameError>> From<T> for ParsedDnameAllError {
+    fn from(err: T) -> Self {
+        ParsedDnameAllError::ParseError(err.into())
     }
 }
 

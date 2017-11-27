@@ -13,12 +13,11 @@ use ::iana::{Class, Rtype};
 //use ::master::error::ScanError;
 use ::master::print::{Printable, Printer};
 //use ::master::scan::{CharSource, Scannable, Scanner};
-use super::compose::{Composable, Compressable, Compressor};
+use super::compose::{Compose, Compress, Compressor};
 use super::error::ShortBuf;
 use super::name::{ParsedDname, ParsedDnameError};
-use super::parse::{Parseable, Parser};
-use super::rdata::RecordData;
-use super::ttl::{ParseTtlError, Ttl};
+use super::parse::{Parse, Parser};
+use super::rdata::{ParseRecordData, RecordData};
 
 
 //------------ Record --------------------------------------------------------
@@ -81,7 +80,7 @@ use super::ttl::{ParseTtlError, Ttl};
 pub struct Record<N, D> {
     name: N,
     class: Class,
-    ttl: Ttl,
+    ttl: u32,
     data: D
 }
 
@@ -90,7 +89,7 @@ pub struct Record<N, D> {
 ///
 impl<N, D> Record<N, D> {
     /// Creates a new record from its parts.
-    pub fn new(name: N, class: Class, ttl: Ttl, data: D) -> Self {
+    pub fn new(name: N, class: Class, ttl: u32, data: D) -> Self {
         Record { name, class, ttl, data }
     }
 
@@ -118,12 +117,12 @@ impl<N, D> Record<N, D> {
     }
 
     /// Returns the record’s time-to-live.
-    pub fn ttl(&self) -> Ttl {
+    pub fn ttl(&self) -> u32 {
         self.ttl
     }
 
     /// Sets the record’s time-to-live.
-    pub fn set_ttl(&mut self, ttl: Ttl) {
+    pub fn set_ttl(&mut self, ttl: u32) {
         self.ttl = ttl
     }
 
@@ -144,14 +143,17 @@ impl<N, D> Record<N, D> {
 }
 
 
-//--- Parsable, Composable, and Compressor
+//--- Parsable, Compose, and Compressor
 
-impl<N: Parseable, D: RecordData> Parseable for Option<Record<N, D>> {
-    type Err = RecordParseError<N::Err, D::ParseErr>;
+impl<D: ParseRecordData> Parse for Option<Record<ParsedDname, D>> {
+    type Err = RecordParseError<ParsedDnameError, D::Err>;
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
-        let header = RecordHeader::parse(parser)?;
-        match D::parse(header.rtype(), header.rdlen() as usize, parser) {
+        let header = match RecordHeader::parse(parser) {
+            Ok(header) => header,
+            Err(err) => return Err(RecordParseError::Name(err)),
+        };
+        match D::parse_data(header.rtype(), parser, header.rdlen() as usize) {
             Ok(Some(data)) => {
                 Ok(Some(header.into_record(data)))
             }
@@ -166,7 +168,7 @@ impl<N: Parseable, D: RecordData> Parseable for Option<Record<N, D>> {
     }
 }
 
-impl<N: Composable, D: RecordData> Composable for Record<N, D> {
+impl<N: Compose, D: RecordData> Compose for Record<N, D> {
     fn compose_len(&self) -> usize {
         self.name.compose_len() + self.data.compose_len() + 10
     }
@@ -179,7 +181,7 @@ impl<N: Composable, D: RecordData> Composable for Record<N, D> {
     }
 }
 
-impl<N: Compressable, D: RecordData + Compressable> Compressable
+impl<N: Compress, D: RecordData + Compress> Compress
             for Record<N, D> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         self.name.compress(buf)?;
@@ -222,14 +224,14 @@ impl<N, D> Printable for Record<N, D>
 
 //--- From
 
-impl<N, D> From<(N, Class, Ttl, D)> for Record<N, D> {
-    fn from(x: (N, Class, Ttl, D)) -> Self {
+impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
+    fn from(x: (N, Class, u32, D)) -> Self {
         Record::new(x.0, x.1, x.2, x.3)
     }
 }
 
-impl<N, D> From<(N, Ttl, D)> for Record<N, D> {
-    fn from(x: (N, Ttl, D)) -> Self {
+impl<N, D> From<(N, u32, D)> for Record<N, D> {
+    fn from(x: (N, u32, D)) -> Self {
         Record::new(x.0, Class::In, x.1, x.2)
     }
 }
@@ -251,29 +253,30 @@ impl<N, D> fmt::Display for Record<N, D>
 
 /// The header of a resource record.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RecordHeader<N=ParsedDname> {
+pub struct RecordHeader<N> {
     name: N,
     rtype: Rtype,
     class: Class,
-    ttl: Ttl,
+    ttl: u32,
     rdlen: u16,
 }
 
 impl<N> RecordHeader<N> {
     /// Creates a new record header from its components.
-    pub fn new(name: N, rtype: Rtype, class: Class, ttl: Ttl, rdlen: u16)
+    pub fn new(name: N, rtype: Rtype, class: Class, ttl: u32, rdlen: u16)
                -> Self {
         RecordHeader { name, rtype, class, ttl, rdlen }
     }
+}
 
+impl RecordHeader<ParsedDname> {
     /// Parses a record header and then skips over the data.
     pub fn parse_and_skip(parser: &mut Parser)
-                          -> Result<Self, RecordHeaderParseError<N::Err>>
-                          where N: Parseable {
+                          -> Result<Self, ParsedDnameError> {
         let header = Self::parse(parser)?;
         match parser.advance(header.rdlen() as usize) {
             Ok(()) => Ok(header),
-            Err(_) => Err(RecordHeaderParseError::ShortBuf),
+            Err(_) => Err(ShortBuf.into()),
         }
     }
 
@@ -281,12 +284,12 @@ impl<N> RecordHeader<N> {
     ///
     /// If parsing fails, the parser will be positioned at the end of the
     /// record data.
-    pub fn parse_into_record<D: RecordData>(self, parser: &mut Parser)
-                             -> Result<Option<Record<N, D>>,
+    pub fn parse_into_record<D: ParseRecordData>(self, parser: &mut Parser)
+                             -> Result<Option<Record<ParsedDname, D>>,
                                        RecordParseError<ParsedDnameError,
-                                                        D::ParseErr>> {
+                                                        D::Err>> {
         let end = parser.pos() + self.rdlen as usize;
-        match D::parse(self.rtype, self.rdlen as usize, parser)
+        match D::parse_data(self.rtype, parser, self.rdlen as usize)
                 .map_err(RecordParseError::Data)? {
             Some(data) => Ok(Some(self.into_record(data))),
             None => {
@@ -295,7 +298,9 @@ impl<N> RecordHeader<N> {
             }
         }
     }
+}
 
+impl<N> RecordHeader<N> {
     /// Returns a reference to the owner of the record.
     pub fn name(&self) -> &N {
         &self.name
@@ -312,7 +317,7 @@ impl<N> RecordHeader<N> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> Ttl {
+    pub fn ttl(&self) -> u32 {
         self.ttl
     }
 
@@ -328,23 +333,23 @@ impl<N> RecordHeader<N> {
 }
 
 
-//--- Parseable, Composable, and Compressable
+//--- Parse, Compose, and Compress
 
-impl<N: Parseable> Parseable for RecordHeader<N> {
-    type Err = RecordHeaderParseError<N::Err>;
+impl Parse for RecordHeader<ParsedDname> {
+    type Err = ParsedDnameError;
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         Ok(RecordHeader::new(
-                N::parse(parser).map_err(RecordHeaderParseError::Name)?,
+                ParsedDname::parse(parser)?,
                 Rtype::parse(parser)?,
                 Class::parse(parser)?,
-                Ttl::parse(parser)?,
+                u32::parse(parser)?,
                 parser.parse_u16()?
         ))
     }
 }
 
-impl<N: Composable> Composable for RecordHeader<N> {
+impl<N: Compose> Compose for RecordHeader<N> {
     fn compose_len(&self) -> usize {
         self.name.compose_len() + 10
     }
@@ -358,40 +363,13 @@ impl<N: Composable> Composable for RecordHeader<N> {
     }
 }
 
-impl<N: Compressable> Compressable for RecordHeader<N> {
+impl<N: Compress> Compress for RecordHeader<N> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         self.name.compress(buf)?;
         buf.compose(&self.rtype)?;
         buf.compose(&self.class)?;
         buf.compose(&self.ttl)?;
         buf.compose(&self.rdlen)
-    }
-}
-
-
-//------------ RecordHeaderParseError ----------------------------------------
-
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum RecordHeaderParseError<N=ParsedDnameError> {
-    #[fail(display="{}", _0)]
-    Name(N),
-
-    #[fail(display="{}", _0)]
-    Ttl(ParseTtlError),
-
-    #[fail(display="unexpected end of buffer")]
-    ShortBuf,
-}
-
-impl<N> From<ShortBuf> for RecordHeaderParseError<N> {
-    fn from(_: ShortBuf) -> Self {
-        RecordHeaderParseError::ShortBuf
-    }
-}
-
-impl<N> From<ParseTtlError> for RecordHeaderParseError<N> {
-    fn from(err: ParseTtlError) -> Self {
-        RecordHeaderParseError::Ttl(err)
     }
 }
 
@@ -404,29 +382,10 @@ pub enum RecordParseError<N, D> {
     Name(N),
 
     #[fail(display="{}", _0)]
-    Ttl(ParseTtlError),
-
-    #[fail(display="{}", _0)]
     Data(D),
 
     #[fail(display="unexpected end of buffer")]
     ShortBuf,
-}
-
-impl<N, D> From<RecordHeaderParseError<N>> for RecordParseError<N, D> {
-    fn from(err: RecordHeaderParseError<N>) -> Self {
-        match err {
-            RecordHeaderParseError::Name(err) => RecordParseError::Name(err),
-            RecordHeaderParseError::Ttl(err) => RecordParseError::Ttl(err),
-            RecordHeaderParseError::ShortBuf => RecordParseError::ShortBuf
-        }
-    }
-}
-
-impl<N, D> From<ParseTtlError> for RecordParseError<N, D> {
-    fn from(err: ParseTtlError) -> Self {
-        RecordParseError::Ttl(err)
-    }
 }
 
 impl<N, D> From<ShortBuf> for RecordParseError<N, D> {

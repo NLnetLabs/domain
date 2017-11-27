@@ -3,7 +3,7 @@
 use std::{fmt, io, iter};
 use std::io::Write;
 use bytes::BufMut;
-use ::bits::compose::{Composable, Compressable, Compressor};
+use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::error::ShortBuf;
 use ::master::print::{Printable, Printer};
 use super::error::LongNameError;
@@ -34,7 +34,7 @@ pub struct Chain<L, R> {
     right: R,
 }
 
-impl<L: Composable, R: Composable> Chain<L, R> {
+impl<L: Compose, R: Compose> Chain<L, R> {
     /// Creates a new chain from a first and second name.
     pub(super) fn new(left: L, right: R) -> Result<Self, LongNameError> {
         if left.compose_len() + right.compose_len() > 255 {
@@ -46,17 +46,17 @@ impl<L: Composable, R: Composable> Chain<L, R> {
     }
 }
 
-impl<L: ToRelativeDname, R: Composable> Chain<L, R> {
+impl<L: ToRelativeDname, R: Compose> Chain<L, R> {
     /// Extends the chain with another domain name.
     ///
-    /// While the method accepts any `Composable` as the second element of
+    /// While the method accepts any `Compose` as the second element of
     /// the chain, the resulting `Chain` will only implement `ToDname` or
     /// `ToRelativeDname` if other implements `ToDname` or `ToRelativeDname`,
     /// respectively.
     ///
     /// The method will fail with an error if the chained name is longer than
     /// 255 bytes.
-    pub fn chain<N: Composable>(self, other: N)
+    pub fn chain<N: Compose>(self, other: N)
                                 -> Result<Chain<Self, N>, LongNameError> {
         Chain::new(self, other)
     }
@@ -78,7 +78,7 @@ impl<'a, L: ToRelativeDname, R: for<'r> ToLabelIter<'r>> ToLabelIter<'a>
     }
 }
 
-impl<L: Composable, R: Composable> Composable for Chain<L, R> {
+impl<L: Compose, R: Compose> Compose for Chain<L, R> {
     fn compose_len(&self) -> usize {
         self.left.compose_len() + self.right.compose_len()
     }
@@ -89,7 +89,7 @@ impl<L: Composable, R: Composable> Composable for Chain<L, R> {
     }
 }
 
-impl<L: ToRelativeDname, R: ToDname> Compressable for Chain<L, R> {
+impl<L: ToRelativeDname, R: ToDname> Compress for Chain<L, R> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose_name(self)
     }

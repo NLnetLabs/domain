@@ -21,12 +21,10 @@ use ::iana::{Rcode, Rtype};
 use super::error::ShortBuf;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::name::{ParsedDname, ParsedDnameError};
-use super::parse::{Parseable, Parser};
-use super::question::{Question, QuestionParseError};
-use super::rdata::RecordData;
-use super::record::{Record, RecordHeader, RecordHeaderParseError,
-                    RecordParseError};
-use super::ttl::ParseTtlError;
+use super::parse::{Parse, Parser};
+use super::question::Question;
+use super::rdata::ParseRecordData;
+use super::record::{Record, RecordHeader, RecordParseError};
 
 
 //------------ Message -------------------------------------------------------
@@ -218,38 +216,38 @@ impl Message {
     pub fn zone(&self) -> QuestionSection { self.question() }
 
     /// Returns the answer section.
-    pub fn answer(&self) -> Result<RecordSection, MessageParseError> {
+    pub fn answer(&self) -> Result<RecordSection, ParsedDnameError> {
         Ok(self.question().next_section()?)
     }
 
     /// Returns the prerequisite section of an UPDATE message.
     ///
     /// This is identical to `self.answer()`.
-    pub fn prerequisite(&self) -> Result<RecordSection, MessageParseError> {
+    pub fn prerequisite(&self) -> Result<RecordSection, ParsedDnameError> {
         self.answer()
     }
 
     /// Returns the authority section.
-    pub fn authority(&self) -> Result<RecordSection, MessageParseError> {
+    pub fn authority(&self) -> Result<RecordSection, ParsedDnameError> {
         Ok(self.answer()?.next_section()?.unwrap())
     }
 
     /// Returns the update section of an UPDATE message.
     ///
     /// This is identical to `self.authority()`.
-    pub fn update(&self) -> Result<RecordSection, MessageParseError> {
+    pub fn update(&self) -> Result<RecordSection, ParsedDnameError> {
         self.authority()
     }
 
     /// Returns the additional section.
-    pub fn additional(&self) -> Result<RecordSection, MessageParseError> {
+    pub fn additional(&self) -> Result<RecordSection, ParsedDnameError> {
         Ok(self.authority()?.next_section()?.unwrap())
     }
 
     /// Returns all four sections in one fell swoop.
     pub fn sections(&self) -> Result<(QuestionSection, RecordSection,
                                       RecordSection, RecordSection),
-                                     MessageParseError> {
+                                     ParsedDnameError> {
         let question = self.question();
         let answer = question.clone().next_section()?;
         let authority = answer.clone().next_section()?.unwrap();
@@ -293,7 +291,7 @@ impl Message {
     }
 
     /// Returns whether the message contains answers of a given type.
-    pub fn contains_answer<D: RecordData>(&self) -> bool {
+    pub fn contains_answer<D: ParseRecordData>(&self) -> bool {
         let answer = match self.answer() {
             Ok(answer) => answer,
             Err(..) => return false
@@ -391,7 +389,7 @@ pub struct QuestionSection {
     /// The `Result` is here to monitor an error during iteration.
     /// It is used to fuse the iterator after an error and is also returned
     /// by `answer()` should that be called after an error.
-    count: Result<u16, QuestionParseError>
+    count: Result<u16, ParsedDnameError>
 }
 
 impl QuestionSection {
@@ -412,7 +410,7 @@ impl QuestionSection {
     /// the first [`RecordSection`].
     ///
     /// [`RecordSection`]: ../struct.RecordSection.html
-    pub fn answer(mut self) -> Result<RecordSection, QuestionParseError> {
+    pub fn answer(mut self) -> Result<RecordSection, ParsedDnameError> {
         for question in &mut self {
             let _ = try!(question);
         }
@@ -425,7 +423,7 @@ impl QuestionSection {
     /// Proceeds to the answer section.
     ///
     /// This is an alias for the [`answer()`] method.
-    pub fn next_section(self) -> Result<RecordSection, QuestionParseError> {
+    pub fn next_section(self) -> Result<RecordSection, ParsedDnameError> {
         self.answer()
     }
 }
@@ -434,7 +432,7 @@ impl QuestionSection {
 //--- Iterator
 
 impl Iterator for QuestionSection {
-    type Item = Result<Question, QuestionParseError>;
+    type Item = Result<Question<ParsedDname>, ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
@@ -523,7 +521,7 @@ pub struct RecordSection {
     /// The `ParseResult` is here to monitor an error during iteration.
     /// It is used to fuse the iterator after an error and is also returned
     /// by `answer()` should that be called after an error.
-    count: Result<u16, RecordHeaderParseError>
+    count: Result<u16, ParsedDnameError>
 }
 
 
@@ -547,13 +545,13 @@ impl RecordSection {
     ///
     /// The returned limited iterator will continue at the current position
     /// of `self`. It will *not* start from the beginning of the section.
-    pub fn limit_to<D: RecordData>(self) -> RecordIter<D> {
+    pub fn limit_to<D: ParseRecordData>(self) -> RecordIter<D> {
         RecordIter::new(self)
     }
 
     /// Returns the next section if there is one.
     pub fn next_section(mut self)
-                        -> Result<Option<Self>, RecordHeaderParseError> {
+                        -> Result<Option<Self>, ParsedDnameError> {
         let section = match self.section.next_section() {
             Some(section) => section,
             None => return Ok(None)
@@ -572,7 +570,7 @@ impl RecordSection {
 //--- Iterator
 
 impl Iterator for RecordSection {
-    type Item = Result<RecordHeader, RecordHeaderParseError>;
+    type Item = Result<RecordHeader<ParsedDname>, ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
@@ -607,14 +605,14 @@ impl Iterator for RecordSection {
 ///
 /// [`RecordSection::limit_to::<D>()`]: struct.RecordSection.html#method.limit_to
 #[derive(Clone, Debug)]
-pub struct RecordIter<D: RecordData> {
+pub struct RecordIter<D: ParseRecordData> {
     parser: Parser,
     section: Section,
-    count: Result<u16, RecordParseError<ParsedDnameError, D::ParseErr>>,
+    count: Result<u16, ParsedDnameError>,
     marker: PhantomData<D>
 }
 
-impl<D: RecordData> RecordIter<D> {
+impl<D: ParseRecordData> RecordIter<D> {
     /// Creates a new limited record iterator from the given section.
     fn new(section: RecordSection) -> Self {
         RecordIter {
@@ -631,8 +629,7 @@ impl<D: RecordData> RecordIter<D> {
     /// returned by `self`. It will *not* restart from the beginning of the
     /// section.
     pub fn unwrap(self)
-                  -> Result<RecordSection,
-                            RecordParseError<ParsedDnameError, D::ParseErr>> {
+                  -> Result<RecordSection, ParsedDnameError> {
         Ok(RecordSection {
             parser: self.parser,
             section: self.section,
@@ -642,9 +639,7 @@ impl<D: RecordData> RecordIter<D> {
 
     /// Returns the next section if there is one.
     pub fn next_section(self)
-                        -> Result<Option<RecordSection>,
-                                  RecordParseError<ParsedDnameError,
-                                                   D::ParseErr>> {
+                        -> Result<Option<RecordSection>, ParsedDnameError> {
         Ok(self.unwrap()?.next_section()?)
     }
 }
@@ -652,31 +647,31 @@ impl<D: RecordData> RecordIter<D> {
 
 //--- Iterator
 
-impl<D: RecordData> Iterator for RecordIter<D> {
+impl<D: ParseRecordData> Iterator for RecordIter<D> {
     type Item = Result<Record<ParsedDname, D>,
-                       RecordParseError<ParsedDnameError, D::ParseErr>>;
+                       RecordParseError<ParsedDnameError, D::Err>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.count {
                 Ok(count) if count > 0 => {
                     let header = match RecordHeader::parse(&mut self.parser) {
-                        Ok(header) => header,
+                        Ok(header) => {
+                            self.count = Ok(count - 1);
+                            header
+                        }
                         Err(err) => {
-                            let err = RecordParseError::from(err);
                             self.count = Err(err.clone());
-                            return Some(Err(err))
+                            return Some(Err(RecordParseError::Name(err)))
                         }
                     };
                     match header.parse_into_record(&mut self.parser) {
                         Ok(data) => {
-                            self.count = Ok(count - 1);
                             if let Some(record) = data {
                                 return Some(Ok(record))
                             }
                         }
                         Err(err) => {
-                            self.count = Err(err.clone());
                             return Some(Err(err))
                         }
                     }
@@ -684,53 +679,6 @@ impl<D: RecordData> Iterator for RecordIter<D> {
                 _ => return None
             }
         }
-    }
-}
-
-
-//------------ MessageParseError ---------------------------------------------
-
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum MessageParseError {
-    #[fail(display="{}", _0)]
-    Name(ParsedDnameError),
-
-    #[fail(display="{}", _0)]
-    Ttl(ParseTtlError),
-
-    #[fail(display="unexpected end of buffer")]
-    ShortBuf,
-}
-
-impl From<ParsedDnameError> for MessageParseError {
-    fn from(err: ParsedDnameError) -> Self {
-        MessageParseError::Name(err)
-    }
-}
-
-impl From<QuestionParseError<ParsedDnameError>> for MessageParseError {
-    fn from(err: QuestionParseError<ParsedDnameError>) -> Self {
-        match err {
-            QuestionParseError::Name(err) => MessageParseError::Name(err),
-            QuestionParseError::ShortBuf => MessageParseError::ShortBuf,
-        }
-    }
-}
-
-impl From<RecordHeaderParseError<ParsedDnameError>> for MessageParseError {
-    fn from(err: RecordHeaderParseError<ParsedDnameError>) -> Self {
-        match err {
-            RecordHeaderParseError::Name(err) => MessageParseError::Name(err),
-            RecordHeaderParseError::Ttl(err) => MessageParseError::Ttl(err),
-            RecordHeaderParseError::ShortBuf
-                => MessageParseError::ShortBuf
-        }
-    }
-}
-
-impl From<ShortBuf> for MessageParseError {
-    fn from(_: ShortBuf) -> Self {
-        MessageParseError::ShortBuf
     }
 }
 

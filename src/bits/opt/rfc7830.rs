@@ -2,12 +2,12 @@
 
 use bytes::BufMut;
 use rand::random;
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::Parser;
+use ::bits::parse::{ParseAll, Parser};
 use ::iana::OptionCode;
-use super::OptData;
+use super::CodeOptData;
 
 
 //------------ PaddingMode ---------------------------------------------------
@@ -47,7 +47,20 @@ impl Padding {
     }
 }
 
-impl Composable for Padding {
+
+//--- ParseAll and Compose
+
+impl ParseAll for Padding {
+    type Err = ShortBuf;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        // XXX Check whether there really are all zeros.
+        parser.advance(len)?;
+        Ok(Padding::new(len as u16, PaddingMode::Zero))
+    }
+}
+
+impl Compose for Padding {
     fn compose_len(&self) -> usize {
         self.len as usize
     }
@@ -68,20 +81,7 @@ impl Composable for Padding {
     }
 }
 
-impl OptData for Padding {
-    type ParseErr = ShortBuf;
-
-    fn code(&self) -> OptionCode {
-        OptionCode::Padding
-    }
-
-    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-             -> Result<Option<Self>, Self::ParseErr> {
-        if code != OptionCode::Padding {
-            return Ok(None)
-        }
-        parser.advance(len)?;
-        Ok(Some(Padding::new(len as u16, PaddingMode::Zero)))
-    }
+impl CodeOptData for Padding {
+    const CODE: OptionCode = OptionCode::Padding;
 }
 

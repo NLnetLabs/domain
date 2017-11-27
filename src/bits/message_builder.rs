@@ -87,7 +87,7 @@ use std::{mem, ops};
 use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes, BytesMut};
 use iana::opt::OptionCode;
-use super::compose::{Composable, Compressable, Compressor};
+use super::compose::{Compose, Compress, Compressor};
 use super::error::ShortBuf;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::name::ToDname;

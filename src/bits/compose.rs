@@ -8,23 +8,24 @@
 //! trait. Because such buffers do not reallocate, the overall size of the
 //! assembled data needs to be known beforehand.
 //!
-//! This module provides the trait [`Composable`] for types that know how to
+//! This module provides the trait [`Compose`] for types that know how to
 //! compose themselves into a buffer.
 //!
 //! [`BufMut`]: ../../../bytes/trait.BufMut.html
-//! [`Composable`]: trait.Composable.html
+//! [`Compose`]: trait.Compose.html
 
 use std::ops;
 use std::collections::HashMap;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{BigEndian, BufMut, Bytes, BytesMut};
 use super::error::ShortBuf;
 use super::name::{Dname, Label, ToDname};
 
 
-//------------ Composable ----------------------------------------------------
+//------------ Compose -------------------------------------------------------
 
 /// A type that knows how to compose itself.
-pub trait Composable {
+pub trait Compose {
     /// Returns the number of bytes this value will need without compression.
     fn compose_len(&self) -> usize;
 
@@ -37,7 +38,7 @@ pub trait Composable {
     fn compose<B: BufMut>(&self, buf: &mut B);
 }
 
-impl<'a, C: Composable> Composable for &'a C {
+impl<'a, C: Compose> Compose for &'a C {
     fn compose_len(&self) -> usize {
         (*self).compose_len()
     }
@@ -48,7 +49,7 @@ impl<'a, C: Composable> Composable for &'a C {
 }
 
 
-impl Composable for i8 {
+impl Compose for i8 {
     fn compose_len(&self) -> usize {
         1
     }
@@ -58,7 +59,7 @@ impl Composable for i8 {
     }
 }
 
-impl Composable for u8 {
+impl Compose for u8 {
     fn compose_len(&self) -> usize {
         1
     }
@@ -68,7 +69,7 @@ impl Composable for u8 {
     }
 }
 
-impl Composable for i16 {
+impl Compose for i16 {
     fn compose_len(&self) -> usize {
         2
     }
@@ -78,7 +79,7 @@ impl Composable for i16 {
     }
 }
 
-impl Composable for u16 {
+impl Compose for u16 {
     fn compose_len(&self) -> usize {
         2
     }
@@ -88,7 +89,7 @@ impl Composable for u16 {
     }
 }
 
-impl Composable for i32 {
+impl Compose for i32 {
     fn compose_len(&self) -> usize {
         4
     }
@@ -98,7 +99,7 @@ impl Composable for i32 {
     }
 }
 
-impl Composable for u32 {
+impl Compose for u32 {
     fn compose_len(&self) -> usize {
         4
     }
@@ -108,7 +109,7 @@ impl Composable for u32 {
     }
 }
 
-impl Composable for [u8] {
+impl Compose for [u8] {
     fn compose_len(&self) -> usize {
         self.len()
     }
@@ -118,10 +119,30 @@ impl Composable for [u8] {
     }
 }
 
+impl Compose for Ipv4Addr {
+    fn compose_len(&self) -> usize {
+        4
+    }
 
-//------------ Compressable --------------------------------------------------
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(&self.octets())
+    }
+}
 
-pub trait Compressable {
+impl Compose for Ipv6Addr {
+    fn compose_len(&self) -> usize {
+        16
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(&self.octets())
+    }
+}
+        
+
+//------------ Compress ------------------------------------------------------
+
+pub trait Compress {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf>;
 }
 
@@ -131,7 +152,7 @@ pub trait Compressable {
 /// A type helping with compressing domain names.
 ///
 /// This type is used for name compression through the
-/// `Composable::compose_compressed` method.
+/// `Compose::compose_compressed` method.
 ///
 /// Note: Name compression is currently implemented in a rather naive way
 ///       and could do with a smarter approach.
@@ -263,7 +284,7 @@ impl Compressor {
     }
 
     pub fn compose<C>(&mut self, what: &C) -> Result<(), ShortBuf>
-                   where C: Composable + ?Sized {
+                   where C: Compose + ?Sized {
         if self.remaining_mut() < what.compose_len() {
             return Err(ShortBuf)
         }

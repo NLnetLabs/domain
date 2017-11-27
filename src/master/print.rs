@@ -1,8 +1,9 @@
 //! Master file printing.
 
 use std::io;
-use std::io::Write;
 use std::ascii::AsciiExt;
+use std::io::Write;
+use std::net::Ipv4Addr;
 
 
 //------------ Printer -------------------------------------------------------
@@ -58,3 +59,30 @@ pub trait Printable {
                            -> Result<(), io::Error>;
 }
 
+impl Printable for u8 {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        write!(printer.item()?, "{}", self)
+    }
+}
+
+impl Printable for u16 {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        write!(printer.item()?, "{}", self)
+    }
+}
+
+impl Printable for u32 {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        write!(printer.item()?, "{}", self)
+    }
+}
+
+impl Printable for Ipv4Addr {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        write!(printer.item()?, "{}", self)
+    }
+}

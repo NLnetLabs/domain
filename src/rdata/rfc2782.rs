@@ -4,24 +4,30 @@
 //!
 //! [RFC 2782]: https://tools.ietf.org/html/rfc2782
 
-use std::fmt;
-use ::bits::{Composer, ComposeResult, DNameSlice, ParsedRecordData,
-             Parser, ParseResult, RecordData, DName, DNameBuf, ParsedDName};
+use std::{fmt, io};
+use bytes::BufMut;
+use ::bits::error::ShortBuf;
+use ::bits::compose::{Compose, Compress, Compressor};
+use ::bits::parse::{Parse, ParseAll, Parser, ParseOpenError};
+use ::bits::rdata::RtypeRecordData;
+use ::master::print::{Printable, Printer};
+use ::master::scan::{CharSource, Scannable, Scanner, ScanError};
 use ::iana::Rtype;
-use ::master::{Scanner, ScanResult};
 
 
 //------------ Srv ---------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Srv<N: DName> {
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Srv<N> {
     priority: u16,
     weight: u16,
     port: u16,
     target: N
 }
 
-impl<N: DName> Srv<N> {
+impl<N> Srv<N> {
+    pub const RTYPE: Rtype = Rtype::Srv;
+
     pub fn new(priority: u16, weight: u16, port: u16, target: N) -> Self {
         Srv { priority: priority, weight: weight, port: port, target: target }
     }
@@ -32,47 +38,84 @@ impl<N: DName> Srv<N> {
     pub fn target(&self) -> &N { &self.target }
 }
 
-impl<'a> Srv<ParsedDName<'a>> {
-    fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        Ok(Self::new(try!(parser.parse_u16()),
-                     try!(parser.parse_u16()),
-                     try!(parser.parse_u16()),
-                     try!(ParsedDName::parse(parser))))
+
+//--- Parse, ParseAll, Compose and Compress
+
+impl<N: Parse> Parse for Srv<N> {
+    type Err = <N as Parse>::Err;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        Ok(Self::new(u16::parse(parser)?, u16::parse(parser)?,
+                     u16::parse(parser)?, N::parse(parser)?))
     }
 }
 
-impl Srv<DNameBuf> {
-    pub fn scan<S: Scanner>(scanner: &mut S, origin: Option<&DNameSlice>)
-                            -> ScanResult<Self> {
-        Ok(Self::new(try!(scanner.scan_u16()),
-                     try!(scanner.scan_u16()),
-                     try!(scanner.scan_u16()),
-                     try!(DNameBuf::scan(scanner, origin))))
+impl<N: ParseAll> ParseAll for Srv<N> where N::Err: From<ParseOpenError> {
+    type Err = N::Err;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len < 7 {
+            return Err(ParseOpenError::ShortField.into())
+        }
+        Ok(Self::new(u16::parse(parser)?, u16::parse(parser)?,
+                     u16::parse(parser)?, N::parse_all(parser, len - 6)?))
     }
 }
 
-impl<N: DName> RecordData for Srv<N> {
-    fn rtype(&self) -> Rtype { Rtype::Srv }
+impl<N: Compose> Compose for Srv<N> {
+    fn compose_len(&self) -> usize {
+        self.target.compose_len() + 6
+    }
 
-    fn compose<C: AsMut<Composer>>(&self, mut target: C)
-                                   -> ComposeResult<()> {
-        target.as_mut().compose_u16(self.priority)?;
-        target.as_mut().compose_u16(self.weight)?;
-        target.as_mut().compose_u16(self.port)?;
-        self.target.compose(target)
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.priority.compose(buf);
+        self.weight.compose(buf);
+        self.port.compose(buf);
+        self.target.compose(buf);
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Srv<ParsedDName<'a>> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>) -> ParseResult<Option<Self>> {
-        if rtype == Rtype::Srv { Srv::parse_always(parser).map(Some) }
-        else { Ok(None) }
+impl<N: Compress> Compress for Srv<N> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        buf.compose(&self.priority)?;
+        buf.compose(&self.weight)?;
+        buf.compose(&self.port)?;
+        self.target.compress(buf)
     }
 }
 
-impl<N: DName + fmt::Display> fmt::Display for Srv<N> {
+
+//--- RtypeRecordData
+
+impl<N> RtypeRecordData for Srv<N> {
+    const RTYPE: Rtype = Rtype::Srv;
+}
+
+
+//--- Scannable, Printable, and Display
+
+impl<N: Scannable> Scannable for Srv<N> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        Ok(Self::new(u16::scan(scanner)?, u16::scan(scanner)?,
+                     u16::scan(scanner)?, N::scan(scanner)?))
+    }
+}
+
+impl<N: Printable> Printable for Srv<N> {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        self.priority.print(printer)?;
+        self.weight.print(printer)?;
+        self.port.print(printer)?;
+        self.target.print(printer)
+    }
+}
+
+impl<N: fmt::Display> fmt::Display for Srv<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {} {}", self.priority, self.weight, self.port, self.target)
+        write!(f, "{} {} {} {}", self.priority, self.weight, self.port,
+               self.target)
     }
 }
 

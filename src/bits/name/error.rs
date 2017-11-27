@@ -4,49 +4,7 @@
 //! excessive `From` conversions between them, we collect them all here.
 
 use bytes::Bytes;
-use ::bits::error::ShortBuf;
 use super::label::Label;
-
-
-//------------ DnameError ----------------------------------------------------
-
-/// An error happened while creating a domain name from octets.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum DnameError {
-    #[fail(display="{}", _0)]
-    BadLabel(LabelTypeError),
-
-    #[fail(display="compressed domain name")]
-    CompressedName,
-
-    #[fail(display="short data")]
-    ShortData,
-
-    #[fail(display="trailing data")]
-    TrailingData,
-
-    #[fail(display="long domain name")]
-    LongName,
-
-    #[fail(display="relative domain name")]
-    RelativeName,
-}
-
-impl From<ShortBuf> for DnameError {
-    fn from(_: ShortBuf) -> Self {
-        DnameError::ShortData
-    }
-}
-
-impl From<SplitLabelError> for DnameError {
-    fn from(err: SplitLabelError) -> Self {
-        match err {
-            SplitLabelError::Pointer(_) => DnameError::CompressedName,
-            SplitLabelError::BadType(t) => DnameError::BadLabel(t),
-            SplitLabelError::ShortSlice => DnameError::ShortData,
-        }
-    }
-}
 
 
 //------------ FromStrError --------------------------------------------------
@@ -162,35 +120,6 @@ pub struct LongLabelError;
 pub struct LongNameError;
 
 
-//------------ ParsedDnameError ----------------------------------------------
-
-/// An error happened when parsing a possibly compressed domain name.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum ParsedDnameError {
-    /// The parser ended before the name.
-    #[fail(display="unexpected end of buffer")]
-    ShortBuf,
-
-    /// A bad label was encountered.
-    #[fail(display="{}", _0)]
-    BadLabel(LabelTypeError),
-
-    /// The name is longer than the 255 bytes limit.
-    #[fail(display="long domain name")]
-    LongName,
-}
-
-impl From<ShortBuf> for ParsedDnameError {
-    fn from(_: ShortBuf) -> ParsedDnameError {
-        ParsedDnameError::ShortBuf
-    }
-}
-
-impl From<LabelTypeError> for ParsedDnameError {
-    fn from(err: LabelTypeError) -> ParsedDnameError {
-        ParsedDnameError::BadLabel(err)
-    }
-}
 
 
 //------------ PushError -----------------------------------------------------

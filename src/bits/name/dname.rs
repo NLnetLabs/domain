@@ -4,11 +4,13 @@ use std::{cmp, fmt, hash, io, ops, str};
 use std::ascii::AsciiExt;
 use std::io::Write;
 use bytes::{BufMut, Bytes};
-use ::bits::compose::{Composable, Compressable, Compressor};
+use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::error::ShortBuf;
-use ::bits::parse::{Parseable, Parser};
+use ::bits::parse::{Parse, ParseAll, Parser};
 use ::master::print::{Printable, Printer};
-use super::error::{DnameError, FromStrError, IndexError, RootNameError};
+use ::master::scan::{CharSource, Scannable, Scanner, ScanError, SyntaxError};
+use super::error::{FromStrError, IndexError, LabelTypeError,
+                   SplitLabelError, RootNameError};
 use super::label::Label;
 use super::parsed::ParsedDname;
 use super::relative::{RelativeDname, DnameIter};
@@ -61,9 +63,9 @@ impl Dname {
     /// This will only succeed if `bytes` contains a properly encoded
     /// absolute domain name. Because the function checks, this will take
     /// a wee bit of time.
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, DnameError> {
+    pub fn from_bytes(bytes: Bytes) -> Result<Self, DnameBytesError> {
         if bytes.len() > 255 {
-            return Err(DnameError::LongName);
+            return Err(DnameError::LongName.into());
         }
         {
             let mut tmp = bytes.as_ref();
@@ -74,11 +76,11 @@ impl Dname {
                         break;
                     }
                     else {
-                        return Err(DnameError::TrailingData)
+                        return Err(DnameBytesError::TrailingData)
                     }
                 }
                 if tail.is_empty() {
-                    return Err(DnameError::RelativeName)
+                    return Err(ShortBuf.into())
                 }
                 tmp = tail;
             }
@@ -296,17 +298,17 @@ impl Dname {
 }
 
 
-//--- Parseable and Composable
+//--- Parse, ParseAll, and Compose
 
-impl Parseable for Dname {
-    type Err = DnameError;
+impl Parse for Dname {
+    type Err = DnameParseError;
 
-    fn parse(parser: &mut Parser) -> Result<Self, DnameError> {
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         let len = {
             let mut tmp = parser.peek_all();
             loop {
                 if tmp.is_empty() {
-                    return Err(DnameError::ShortData)
+                    return Err(ShortBuf.into())
                 }
                 let (label, tail) = Label::split_from(tmp)?;
                 tmp = tail;
@@ -317,7 +319,7 @@ impl Parseable for Dname {
             parser.remaining() - tmp.len()
         };
         if len > 255 {
-            return Err(DnameError::LongName);
+            return Err(DnameError::LongName.into());
         }
         Ok(unsafe {
             Self::from_bytes_unchecked(parser.parse_bytes(len).unwrap())
@@ -325,7 +327,26 @@ impl Parseable for Dname {
     }
 }
 
-impl Composable for Dname {
+impl ParseAll for Dname {
+    type Err = DnameBytesError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        let mut tmp = parser.clone();
+        let end = tmp.pos() + len;
+        let res = Self::parse(&mut tmp)?;
+        if tmp.pos() < end {
+            return Err(DnameBytesError::TrailingData)
+        }
+        else if tmp.pos() > end {
+            return Err(ShortBuf.into())
+        }
+        parser.advance(len)?;
+        Ok(res)
+    }
+}
+
+
+impl Compose for Dname {
     fn compose_len(&self) -> usize {
         self.bytes.len()
     }
@@ -335,7 +356,7 @@ impl Composable for Dname {
     }
 }
 
-impl Compressable for Dname {
+impl Compress for Dname {
     fn compress(&self, compressor: &mut Compressor) -> Result<(), ShortBuf> {
         compressor.compose_name(self)
     }
@@ -476,7 +497,16 @@ impl fmt::Debug for Dname {
 }
 
 
-//--- Printable
+//--- Scannable and  Printable
+
+impl Scannable for Dname {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        scanner.try_scan(UncertainDname::scan, |res| {
+            res.try_into_absolute().map_err(|_| SyntaxError::RelativeName)
+        })
+    }
+}
 
 impl Printable for Dname {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
@@ -513,6 +543,84 @@ impl Iterator for SuffixIter {
             self.name = None
         }
         Some(res)
+    }
+}
+
+
+//------------ DnameError ----------------------------------------------------
+
+/// A domain name wasn’t encoded correctly.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum DnameError {
+    #[fail(display="{}", _0)]
+    BadLabel(LabelTypeError),
+
+    #[fail(display="compressed domain name")]
+    CompressedName,
+
+    #[fail(display="long domain name")]
+    LongName,
+}
+
+impl From<LabelTypeError> for DnameError {
+    fn from(err: LabelTypeError) -> DnameError {
+        DnameError::BadLabel(err)
+    }
+}
+
+
+//------------ DnameParseError -----------------------------------------------
+
+/// An error happened while parsing a domain name.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum DnameParseError {
+    #[fail(display="{}", _0)]
+    BadName(DnameError),
+
+    #[fail(display="unexpected end of buffer")]
+    ShortBuf,
+}
+
+impl<T: Into<DnameError>> From<T> for DnameParseError {
+    fn from(err: T) -> DnameParseError {
+        DnameParseError::BadName(err.into())
+    }
+}
+
+impl From<SplitLabelError> for DnameParseError {
+    fn from(err: SplitLabelError) -> DnameParseError {
+        match err {
+            SplitLabelError::Pointer(_)
+                => DnameParseError::BadName(DnameError::CompressedName),
+            SplitLabelError::BadType(t)
+                => DnameParseError::BadName(DnameError::BadLabel(t)),
+            SplitLabelError::ShortSlice => DnameParseError::ShortBuf,
+        }
+    }
+}
+
+impl From<ShortBuf> for DnameParseError {
+    fn from(_: ShortBuf) -> DnameParseError {
+        DnameParseError::ShortBuf
+    }
+}
+
+
+//------------ DnameBytesError -----------------------------------------------
+
+/// An error happened while converting a bytes value into a domain name.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum DnameBytesError {
+    #[fail(display="{}", _0)]
+    ParseError(DnameParseError),
+
+    #[fail(display="trailing data")]
+    TrailingData,
+}
+
+impl<T: Into<DnameParseError>> From<T> for DnameBytesError {
+    fn from(err: T) -> DnameBytesError {
+        DnameBytesError::ParseError(err.into())
     }
 }
 

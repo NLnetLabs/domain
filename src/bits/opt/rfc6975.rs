@@ -2,12 +2,12 @@
 
 use std::slice;
 use bytes::{BufMut, Bytes};
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::Parser;
+use ::bits::parse::{ParseAll, Parser};
 use ::iana::{OptionCode, SecAlg};
-use super::OptData;
+use super::CodeOptData;
 
 
 //------------ Dau, Dhu, N3u -------------------------------------------------
@@ -20,6 +20,7 @@ macro_rules! option_type {
         }
 
         impl $name {
+
             pub fn from_bytes(bytes: Bytes) -> Self {
                 $name { bytes }
             }
@@ -40,9 +41,18 @@ macro_rules! option_type {
             }
         }
 
-        //--- Composable and OptData
+        //--- ParseAll, Compose
 
-        impl Composable for $name {
+        impl ParseAll for $name {
+            type Err = ShortBuf;
+
+            fn parse_all(parser: &mut Parser, len: usize)
+                         -> Result<Self, Self::Err> {
+                parser.parse_bytes(len).map(Self::from_bytes)
+            }
+        }
+
+        impl Compose for $name {
             fn compose_len(&self) -> usize {
                 self.bytes.len()
             }
@@ -51,22 +61,12 @@ macro_rules! option_type {
                 buf.put_slice(self.bytes.as_ref())
             }
         }
+
+
+        //--- CodeOptData
         
-        impl OptData for $name {
-            type ParseErr = ShortBuf;
-
-            fn code(&self) -> OptionCode {
-                OptionCode::$name
-            }
-
-            fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-                     -> Result<Option<Self>, Self::ParseErr> {
-                if code != OptionCode::$name {
-                    return Ok(None)
-                }
-                parser.parse_bytes(len)
-                       .map(|bytes| Some(Self::from_bytes(bytes)))
-            }
+        impl CodeOptData for $name {
+            const CODE: OptionCode = OptionCode::$name;
         }
 
         

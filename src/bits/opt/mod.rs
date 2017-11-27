@@ -10,11 +10,11 @@ use std::mem;
 use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
 use ::iana::{OptionCode, OptRcode, Rtype};
-use super::compose::{Composable, Compressable, Compressor};
+use super::compose::{Compose, Compress, Compressor};
 use super::error::ShortBuf;
 use super::header::Header;
-use super::parse::Parser;
-use super::rdata::RecordData;
+use super::parse::{ParseAll, Parser};
+use super::rdata::RtypeRecordData;
 
 
 pub mod rfc5001;
@@ -51,23 +51,18 @@ impl Opt {
     }
 }
 
-impl RecordData for Opt {
-    type ParseErr = ShortBuf;
 
-    fn rtype(&self) -> Rtype {
-        Rtype::Opt
-    }
+//--- ParseAll, Compose, Compress
 
-    fn parse(rtype: Rtype, rdlen: usize, parser: &mut Parser)
-             -> Result<Option<Self>, Self::ParseErr> {
-        if rtype != Rtype::Opt {
-            return Ok(None)
-        }
-        Self::from_bytes(parser.parse_bytes(rdlen)?).map(Some)
+impl ParseAll for Opt {
+    type Err = ShortBuf;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        Self::from_bytes(parser.parse_bytes(len)?)
     }
 }
 
-impl Composable for Opt {
+impl Compose for Opt {
     fn compose_len(&self) -> usize {
         self.bytes.len()
     }
@@ -77,10 +72,14 @@ impl Composable for Opt {
     }
 }
 
-impl Compressable for Opt {
+impl Compress for Opt {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose(self)
     }
+}
+
+impl RtypeRecordData for Opt {
+    const RTYPE: Rtype = Rtype::Opt;
 }
 
 
@@ -161,7 +160,7 @@ impl Default for OptHeader {
     }
 }
 
-impl Composable for OptHeader {
+impl Compose for OptHeader {
     fn compose_len(&self) -> usize {
         9
     }
@@ -205,37 +204,41 @@ impl<D: OptData> OptIter<D> {
     fn next_step(&mut self) -> Result<Option<D>, D::ParseErr> {
         let code = self.parser.parse_u16().unwrap().into();
         let len = self.parser.parse_u16().unwrap() as usize;
-        D::parse(code, len, &mut self.parser)
+        D::parse_option(code, &mut self.parser, len)
     }
 }
 
 
 //------------ OptData -------------------------------------------------------
 
-pub trait OptData: Composable + Sized {
+pub trait OptData: Compose + Sized {
     type ParseErr;
 
     fn code(&self) -> OptionCode;
 
-    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-             -> Result<Option<Self>, Self::ParseErr>;
+    fn parse_option(code: OptionCode, parser: &mut Parser, len: usize)
+                    -> Result<Option<Self>, Self::ParseErr>;
 }
 
 
-//------------ OptionParseError ---------------------------------------------
+//------------ CodeOptData ---------------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum OptionParseError {
-    #[fail(display="invalid length {}", _0)]
-    InvalidLength(usize),
-
-    #[fail(display="unexpected end of buffer")]
-    ShortBuf,
+pub trait CodeOptData {
+    const CODE: OptionCode;
 }
 
-impl From<ShortBuf> for OptionParseError {
-    fn from(_: ShortBuf) -> Self {
-        OptionParseError::ShortBuf
+impl<T: CodeOptData + ParseAll + Compose + Sized> OptData for T {
+    type ParseErr = <Self as ParseAll>::Err;
+
+    fn code(&self) -> OptionCode { Self::CODE }
+
+    fn parse_option(code: OptionCode, parser: &mut Parser, len: usize)
+                    -> Result<Option<Self>, Self::ParseErr> {
+        if code == Self::CODE {
+            Self::parse_all(parser, len).map(Some)
+        }
+        else {
+            Ok(None)
+        }
     }
 }
-

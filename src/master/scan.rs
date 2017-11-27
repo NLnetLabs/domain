@@ -3,7 +3,9 @@
 use std::io;
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes, BytesMut};
-use super::error::{ScanError, SyntaxError, Pos};
+
+// XXX Move these here for more compact imports.
+pub use super::error::{ScanError, SyntaxError, Pos};
 
 
 //------------ CharSource ----------------------------------------------------
@@ -88,6 +90,15 @@ impl<C: CharSource> Scanner<C> {
     pub fn pos(&self) -> Pos {
         self.cur_pos
     }
+
+    pub fn try_scan<T, U, F, G>(&mut self, scanop: F, finalop: G)
+                                -> Result<U, ScanError>
+                    where F: FnOnce(&mut Self) -> Result<T, ScanError>,
+                          G: FnOnce(T) -> Result<U, SyntaxError> {
+        let res = scanop(self)?;
+        finalop(res).or_else(|err| self.err(err))
+    }
+
 
     /// Scans a word token.
     ///
@@ -207,8 +218,10 @@ impl<C: CharSource> Scanner<C> {
     }
 
     /// Scans a phrase with Unicode text into a `String`.
-    pub fn scan_string_phrase(&mut self)
-                              -> Result<String, ScanError> {
+    pub fn scan_string_phrase<U, G>(&mut self, finalop: G)
+                                    -> Result<U, ScanError>
+                              where G: FnOnce(String)
+                                              -> Result<U, SyntaxError> {
         self.scan_phrase(
             String::new(),
             |res, ch| {
@@ -220,7 +233,7 @@ impl<C: CharSource> Scanner<C> {
                 res.push(ch);
                 Ok(())
             },
-            |res| Ok(res)
+            |res| finalop(res)
         )
     }
 
@@ -344,7 +357,8 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// The word is returned as a `Bytes` value with each byte representing
     /// the decoded value of one hex digit pair.
-    pub fn scan_hex_word(&mut self) -> Result<Bytes, ScanError> {
+    pub fn scan_hex_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+                         where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
         self.scan_word(
             (BytesMut::new(), None), // result and optional first char.
             |&mut (ref mut res, ref mut first), symbol | {
@@ -375,7 +389,7 @@ impl<C: CharSource> Scanner<C> {
                                                                 .unwrap())))
                 }
                 else {
-                    Ok(res.freeze())
+                    finalop(res.freeze())
                 }
             }
         )
@@ -773,6 +787,39 @@ impl Scannable for u16 {
 }
 
 
+impl Scannable for u8 {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        scanner.scan_phrase(
+            0u8,
+            |res, symbol| {
+                let ch = match symbol {
+                    Symbol::Char(ch) => {
+                        if let Some(value) = ch.to_digit(10) {
+                            value as u8
+                        }
+                        else {
+                            return Err(SyntaxError::Unexpected(symbol))
+                        }
+                    }
+                    _ => return Err(SyntaxError::Unexpected(symbol))
+                };
+                *res = match res.checked_mul(10) {
+                    Some(res) => res,
+                    None => return Err(SyntaxError::IllegalInteger)
+                };
+                *res = match res.checked_add(ch) {
+                    Some(res) => res,
+                    None => return Err(SyntaxError::IllegalInteger)
+                };
+                Ok(())
+            },
+            |res| Ok(res)
+        )
+    }
+}
+
+
 //------------ Symbol --------------------------------------------------------
 
 /// A single symbol parsed from a master file.
@@ -816,6 +863,18 @@ impl Symbol {
             }
             Symbol::DecimalEscape(ch) => Ok(ch),
             _ => Err(SyntaxError::Unexpected(self))
+        }
+    }
+
+    pub fn into_digit(self, base: u32) -> Result<u32, SyntaxError> {
+        if let Symbol::Char(ch) = self {
+            match ch.to_digit(base) {
+                Some(ch) => Ok(ch),
+                None => Err(SyntaxError::Unexpected(self))
+            }
+        }
+        else {
+            Err(SyntaxError::Unexpected(self))
         }
     }
 

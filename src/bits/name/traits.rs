@@ -1,6 +1,6 @@
 //! Domain name-related traits.
 
-use ::bits::compose::{Composable, Compressable};
+use ::bits::compose::{Compose, Compress};
 use bytes::BytesMut;
 use super::dname::Dname;
 use super::label::Label;
@@ -72,7 +72,7 @@ pub trait ToLabelIter<'a> {
 ///
 /// [`Chain<L, R>`]: struct.Chain.html
 /// [`RelativeDname`]: struct.RelativeDname.html
-pub trait ToRelativeDname: Composable + for<'a> ToLabelIter<'a> {
+pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// Creates an uncompressed value of the domain name.
     ///
     /// The method has a default implementation that composes the name into
@@ -105,7 +105,7 @@ pub trait ToRelativeDname: Composable + for<'a> ToLabelIter<'a> {
 /// [`Chain<L, R>`]: struct.Chain.html
 /// [`Dname`]: struct.Dname.html
 /// [`ParsedDname`]: struct.ParsedDname.html
-pub trait ToDname: Composable + Compressable + for<'a> ToLabelIter<'a> {
+pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
     /// Creates an uncompressed value of the domain name.
     ///
     /// The method has a default implementation that composes the name into

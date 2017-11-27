@@ -4,9 +4,9 @@ use std::cmp;
 use std::fmt;
 use std::hash;
 use bytes::BufMut;
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
-use ::bits::parse::{Parseable, Parser};
+use ::bits::parse::{Parse, Parser};
 
 
 //------------ OptionCode ---------------------------------------------------
@@ -85,9 +85,9 @@ impl OptionCode {
 }
 
 
-//--- Parseable and Composable
+//--- Parse and Compose
 
-impl Parseable for OptionCode {
+impl Parse for OptionCode {
     type Err = ShortBuf;
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
@@ -95,7 +95,7 @@ impl Parseable for OptionCode {
     }
 }
 
-impl Composable for OptionCode {
+impl Compose for OptionCode {
     fn compose_len(&self) -> usize {
         2
     }

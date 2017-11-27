@@ -21,9 +21,9 @@
 use std::mem;
 use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Opcode, Rcode};
-use super::compose::Composable;
+use super::compose::Compose;
 use super::error::ShortBuf;
-use super::parse::{Parseable, Parser};
+use super::parse::{Parse, Parser};
 
 
 //------------ Header --------------------------------------------------
@@ -583,9 +583,9 @@ impl HeaderSection {
 }
 
 
-//--- Parseable and Composable
+//--- Parse and Compose
 
-impl Parseable for HeaderSection {
+impl Parse for HeaderSection {
     type Err = ShortBuf;
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
@@ -596,7 +596,7 @@ impl Parseable for HeaderSection {
     }
 }
 
-impl Composable for HeaderSection {
+impl Compose for HeaderSection {
     fn compose_len(&self) -> usize {
         12
     }

@@ -1,13 +1,12 @@
 //! EDNS Options form RFC 7873
 
-use std::mem;
 use bytes::BufMut;
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::Parser;
+use ::bits::parse::{ParseAll, ParseAllError, Parser};
 use ::iana::OptionCode;
-use super::{OptData, OptionParseError};
+use super::CodeOptData;
 
 
 //------------ Cookie --------------------------------------------------------
@@ -31,9 +30,21 @@ impl Cookie {
 }
 
 
-//--- Composable and OptData
+//--- ParseAll and Compose
 
-impl Composable for Cookie {
+impl ParseAll for Cookie {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        ParseAllError::check(8, len)?;
+        let mut res = [0u8; 8];
+        parser.parse_buf(&mut res[..])?;
+        Ok(Self::new(res))
+    }
+}
+
+
+impl Compose for Cookie {
     fn compose_len(&self) -> usize {
         8
     }
@@ -43,26 +54,10 @@ impl Composable for Cookie {
     }
 }
 
-impl OptData for Cookie {
-    type ParseErr = OptionParseError;
 
-    fn code(&self) -> OptionCode {
-        OptionCode::Cookie
-    }
+//--- OptData
 
-    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-             -> Result<Option<Self>, OptionParseError> {
-        if code != OptionCode::Cookie {
-            return Ok(None)
-        }
-        if len != 8 {
-            return Err(OptionParseError::InvalidLength(len))
-        }
-        let bytes: &[u8; 8] = unsafe {
-            mem::transmute(parser.parse_bytes(8)?.as_ptr())
-        };
-        parser.advance(8)?;
-        Ok(Some(Cookie::new(*bytes)))
-    }
+impl CodeOptData for Cookie {
+    const CODE: OptionCode = OptionCode::Cookie;
 }
 

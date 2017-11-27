@@ -1,15 +1,14 @@
 use bytes::BufMut;
 use ::iana::{Class, Rtype};
-use super::compose::{Composable, Compressable, Compressor};
+use super::compose::{Compose, Compress, Compressor};
 use super::error::ShortBuf;
-use super::name::{ParsedDname, ParsedDnameError};
-use super::parse::{Parseable, Parser};
+use super::parse::{Parse, Parser};
 
 
 //------------ Question ------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Question<N=ParsedDname> {
+pub struct Question<N> {
     qname: N,
     qtype: Rtype,
     qclass: Class,
@@ -60,23 +59,21 @@ impl<N> From<(N, Rtype)> for Question<N> {
 }
 
 
-//--- Parseable, Composable, and Compressable
+//--- Parse, Compose, and Compress
 
-impl<N: Parseable> Parseable for Question<N> {
-    type Err = QuestionParseError<N::Err>;
+impl<N: Parse> Parse for Question<N> {
+    type Err = <N as Parse>::Err;
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         Ok(Question::new(
-            N::parse(parser).map_err(QuestionParseError::Name)?,
-            Rtype::parse(parser)
-                  .map_err(|_| QuestionParseError::ShortBuf)?,
-            Class::parse(parser)
-                  .map_err(|_| QuestionParseError::ShortBuf)?
+            N::parse(parser)?,
+            Rtype::parse(parser)?,
+            Class::parse(parser)?
         ))
     }
 }
 
-impl<N: Composable> Composable for Question<N> {
+impl<N: Compose> Compose for Question<N> {
     fn compose_len(&self) -> usize {
         self.qname.compose_len() + self.qtype.compose_len()
             + self.qclass.compose_len()
@@ -89,23 +86,11 @@ impl<N: Composable> Composable for Question<N> {
     }
 }
 
-impl<N: Compressable> Compressable for Question<N> {
+impl<N: Compress> Compress for Question<N> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         self.qname.compress(buf)?;
         buf.compose(&self.qtype)?;
         buf.compose(&self.qclass)
     }
-}
-
-
-//------------ ParseQuestionError -------------------------------------------
-
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum QuestionParseError<N=ParsedDnameError> {
-    #[fail(display="{}", _0)]
-    Name(N),
-    
-    #[fail(display="unexpected end of buffer")]
-    ShortBuf,
 }
 

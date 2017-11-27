@@ -4,18 +4,22 @@
 //!
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{borrow, fmt, mem, ops};
-use std::borrow::Cow;
+use std::{fmt, io, ops};
+use std::io::Write;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
-use ::bits::charstr::{CharStr, CharStrBuf};
-use ::bits::compose::{Composable, Composer, ComposeResult};
-use ::bits::name::{DName, DNameBuf, DNameSlice, ParsedDName};
-use ::bits::parse::{Parser, ParseError, ParseResult};
-use ::bits::rdata::{ParsedRecordData, RecordData};
+use bytes::{BufMut, Bytes, BytesMut};
 use ::iana::Rtype;
-use ::master::{Scanner, ScanResult, SyntaxError};
-use ::utils::netdb::{ProtoEnt, ServEnt};
+use ::bits::charstr::CharStr;
+use ::bits::compose::{Compose, Compress, Compressor};
+use ::bits::error::ShortBuf;
+use ::bits::name::ParsedDname;
+use ::bits::parse::{ParseAll, ParseAllError, ParseOpenError, Parse,
+                    Parser};
+use ::bits::rdata::RtypeRecordData;
+use ::bits::serial::Serial;
+use ::master::print::{Printable, Printer};
+use ::master::scan::{CharSource, ScanError, Scannable, Scanner};
 
 
 //------------ dname_type! --------------------------------------------------
@@ -26,12 +30,12 @@ use ::utils::netdb::{ProtoEnt, ServEnt};
 /// and `Display` traits.
 macro_rules! dname_type {
     ($target:ident, $rtype:ident, $field:ident) => {
-        #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-        pub struct $target<N: DName> {
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct $target<N> {
             $field: N
         }
 
-        impl<N: DName> $target<N> {
+        impl<N> $target<N> {
             pub fn new($field: N) -> Self {
                 $target { $field: $field }
             }
@@ -39,52 +43,101 @@ macro_rules! dname_type {
             pub fn $field(&self) -> &N {
                 &self.$field
             }
-
-            pub fn rtype() -> Rtype { Rtype::$rtype }
         }
 
-        impl $target<DNameBuf> {
-            pub fn scan<S: Scanner>(scanner: &mut S,
-                                    origin: Option<&DNameSlice>)
-                                    -> ScanResult<Self> {
-                scanner.scan_dname(origin).map(Self::new)
-            }
-        }
+        //--- From and FromStr
 
-        impl<'a> $target<ParsedDName<'a>> {
-            fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-                ParsedDName::parse(parser).map(Self::new)
-            }
-        }
-
-        impl<N: DName> RecordData for $target<N> {
-            fn rtype(&self) -> Rtype { Rtype::$rtype }
-
-            fn compose<C: AsMut<Composer>>(&self, target: C)
-                                        -> ComposeResult<()> {
-                self.$field.compose_compressed(target)
-            }
-        }
-
-        impl<'a> ParsedRecordData<'a> for $target<ParsedDName<'a>> {
-            fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-                     -> ParseResult<Option<Self>> {
-                if rtype == Rtype::$rtype {
-                    $target::parse_always(parser).map(Some)
-                }
-                else { Ok(None) }
-            }
-        }
-
-        impl<N: DName> From<N> for $target<N> {
+        impl<N> From<N> for $target<N> {
             fn from(name: N) -> Self {
                 Self::new(name)
             }
         }
 
-        impl<N: DName + fmt::Display> fmt::Display for $target<N> {
+        impl<N: FromStr> FromStr for $target<N> {
+            type Err = N::Err;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                N::from_str(s).map(Self::new)
+            }
+        }
+
+        
+        //--- Parse, ParseAll, Compose, and Compress
+
+        impl Parse for $target<ParsedDname> {
+            type Err = <ParsedDname as Parse>::Err;
+
+            fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+                ParsedDname::parse(parser).map(Self::new)
+            }
+        }
+
+        impl ParseAll for $target<ParsedDname> {
+            type Err = <ParsedDname as ParseAll>::Err;
+
+            fn parse_all(parser: &mut Parser, len: usize)
+                         -> Result<Self, Self::Err> {
+                ParsedDname::parse_all(parser, len).map(Self::new)
+            }
+        }
+
+        impl<N: Compose> Compose for $target<N> {
+            fn compose_len(&self) -> usize {
+                self.$field.compose_len()
+            }
+        
+            fn compose<B: BufMut>(&self, buf: &mut B) {
+                self.$field.compose(buf)
+            }
+        }
+
+        impl<N: Compress> Compress for $target<N> {
+            fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+                self.$field.compress(buf)
+            }
+        }
+
+
+        //--- Scannable and Printable
+
+        impl<N: Scannable> Scannable for $target<N> {
+            fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                                   -> Result<Self, ScanError> {
+                N::scan(scanner).map(Self::new)
+            }
+        }
+
+        impl<N: Printable> Printable for $target<N> {
+            fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                                   -> Result<(), io::Error> {
+                self.$field.print(printer)
+            }
+        }
+
+
+        //--- RtypeRecordData
+
+        impl<N> RtypeRecordData for $target<N> {
+            const RTYPE: Rtype = Rtype::$rtype;
+        }
+
+
+        //--- Deref
+
+        impl<N> ops::Deref for $target<N> {
+            type Target = N;
+
+            fn deref(&self) -> &Self::Target {
+                &self.$field
+            }
+        }
+
+
+        //--- Display
+
+        impl<N: fmt::Display> fmt::Display for $target<N> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                fmt::Display::fmt(&self.$field, f)
+                self.$field.fmt(f)
             }
         }
     }
@@ -100,7 +153,7 @@ macro_rules! dname_type {
 /// usual dotted notation.
 ///
 /// The A record type is defined in RFC 1035, section 3.4.1.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct A {
     addr: Ipv4Addr,
 }
@@ -118,44 +171,124 @@ impl A {
 
     pub fn addr(&self) -> Ipv4Addr { self.addr }
     pub fn set_addr(&mut self, addr: Ipv4Addr) { self.addr = addr }
+}
 
-    pub fn rtype() -> Rtype { Rtype::A }
 
-    fn parse_always(parser: &mut Parser) -> ParseResult<Self> {
-        Ok(A::new(Ipv4Addr::new(try!(parser.parse_u8()),
-                                try!(parser.parse_u8()),
-                                try!(parser.parse_u8()),
-                                try!(parser.parse_u8()))))
-    }
+//--- From and FromStr
 
-    pub fn scan<S: Scanner>(scanner: &mut S, _origin: Option<&DNameSlice>)
-                            -> ScanResult<Self> {
-        scanner.scan_str_phrase(|slice| {
-            let addr = try!(Ipv4Addr::from_str(slice));
-            Ok(A::new(addr))
-        })
+impl From<Ipv4Addr> for A {
+    fn from(addr: Ipv4Addr) -> Self {
+        Self::new(addr)
     }
 }
 
-impl RecordData for A {
-    fn rtype(&self) -> Rtype { A::rtype() }
-    
-    fn compose<C: AsMut<Composer>>(&self, mut target: C)
-                                   -> ComposeResult<()> {
-        for i in &self.addr.octets() {
-            try!(target.as_mut().compose_u8(*i))
-        }
-        Ok(())
+impl From<A> for Ipv4Addr {
+    fn from(a: A) -> Self {
+        a.addr
     }
 }
 
-impl<'a> ParsedRecordData<'a> for A {
-    fn parse(rtype: Rtype, parser: &mut Parser) -> ParseResult<Option<Self>> {
-        if rtype == Rtype::A { A::parse_always(parser).map(Some) }
-        else { Ok(None) }
+impl FromStr for A {
+    type Err = <Ipv4Addr as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ipv4Addr::from_str(s).map(A::new)
     }
 }
 
+
+//--- Parse, ParseAll, Compose, and Compress
+
+impl Parse for A {
+    type Err = <Ipv4Addr as Parse>::Err;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        Ipv4Addr::parse(parser).map(Self::new)
+    }
+}
+
+impl ParseAll for A {
+    type Err = <Ipv4Addr as ParseAll>::Err;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        Ipv4Addr::parse_all(parser, len).map(Self::new)
+    }
+}
+
+impl Compose for A {
+    fn compose_len(&self) -> usize {
+        4
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.addr.compose(buf)
+    }
+}
+
+impl Compress for A {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        buf.compose(self)
+    }
+}
+
+
+//--- Scannable and Printable
+
+impl Scannable for A {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        scanner.scan_string_phrase(|res| A::from_str(&res).map_err(Into::into))
+    }
+}
+
+impl Printable for A {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        write!(printer.item()?, "{}", self.addr)
+    }
+}
+
+
+//--- RtypeRecordData
+
+impl RtypeRecordData for A {
+    const RTYPE: Rtype = Rtype::A;
+}
+
+
+//--- Deref and DerefMut
+
+impl ops::Deref for A {
+    type Target = Ipv4Addr;
+
+    fn deref(&self) -> &Self::Target {
+        &self.addr
+    }
+}
+
+impl ops::DerefMut for A {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.addr
+    }
+}
+
+
+//--- AsRef and AsMut
+
+impl AsRef<Ipv4Addr> for A {
+    fn as_ref(&self) -> &Ipv4Addr {
+        &self.addr
+    }
+}
+
+impl AsMut<Ipv4Addr> for A {
+    fn as_mut(&mut self) -> &mut Ipv4Addr {
+        &mut self.addr
+    }
+}
+
+
+//--- Display
 
 impl fmt::Display for A {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -183,68 +316,105 @@ dname_type!(Cname, Cname, cname);
 /// specifically the CPU type and operating system type.
 ///
 /// The Hinfo type is defined in RFC 1035, section 3.3.2.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Hinfo<C: AsRef<CharStr>> {
-    cpu: C,
-    os: C
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Hinfo {
+    cpu: CharStr,
+    os: CharStr,
 }
 
-impl<C: AsRef<CharStr>> Hinfo<C> {
+impl Hinfo {
     /// Creates a new Hinfo record data from the components.
-    pub fn new(cpu: C, os: C) -> Self {
+    pub fn new(cpu: CharStr, os: CharStr) -> Self {
         Hinfo{cpu: cpu, os: os}
     }
 
     /// The CPU type of the host.
-    pub fn cpu(&self) -> &C {
+    pub fn cpu(&self) -> &CharStr {
         &self.cpu
     }
 
     /// The operating system type of the host.
-    pub fn os(&self) -> &C {
+    pub fn os(&self) -> &CharStr {
         &self.os
     }
-
-    pub fn rtype() -> Rtype { Rtype::Hinfo }
 }
 
-impl<'a> Hinfo<&'a CharStr> {
-    fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        Ok(Self::new(try!(CharStr::parse(parser)),
-                     try!(CharStr::parse(parser))))
+//--- Parse, Compose, and Compress
+
+impl Parse for Hinfo {
+    type Err = ShortBuf;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        Ok(Self::new(CharStr::parse(parser)?, CharStr::parse(parser)?))
     }
 }
 
-impl Hinfo<CharStrBuf> {
-    pub fn scan<S: Scanner>(scanner: &mut S, _origin: Option<&DNameSlice>)
-                            -> ScanResult<Self> {
-        Ok(Self::new(try!(CharStrBuf::scan(scanner)),
-                     try!(CharStrBuf::scan(scanner))))
+impl ParseAll for Hinfo {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize)
+                    -> Result<Self, Self::Err> {
+        let cpu = CharStr::parse(parser)?;
+        let len = match len.checked_sub(cpu.len() + 1) {
+            Some(len) => len,
+            None => return Err(ParseAllError::ShortField)
+        };
+        let os = CharStr::parse_all(parser, len)?;
+        Ok(Hinfo::new(cpu, os))
     }
 }
 
-impl<S: AsRef<CharStr>> RecordData for Hinfo<S> {
-    fn rtype(&self) -> Rtype { Rtype::Hinfo }
+impl Compose for Hinfo {
+    fn compose_len(&self) -> usize {
+        self.cpu.compose_len() + self.os.compose_len()
+    }
 
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        try!(self.cpu.as_ref().compose(target.as_mut()));
-        self.os.as_ref().compose(target.as_mut())
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.cpu.compose(buf);
+        self.os.compose(buf);
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Hinfo<&'a CharStr> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
-        if rtype == Rtype::Hinfo { Hinfo::parse_always(parser).map(Some) }
-        else { Ok(None) }
+impl Compress for Hinfo {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        buf.compose(self)
     }
 }
 
-impl<S: AsRef<CharStr>> fmt::Display for Hinfo<S> {
+
+//--- Scannable and Printable
+
+impl Scannable for Hinfo {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        Ok(Self::new(CharStr::scan(scanner)?, CharStr::scan(scanner)?))
+    }
+}
+
+impl Printable for Hinfo {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        self.cpu.print(printer)?;
+        self.os.print(printer)
+    }
+}
+
+
+//--- RtypeRecordData
+
+impl RtypeRecordData for Hinfo {
+    const RTYPE: Rtype = Rtype::Hinfo;
+}
+
+
+//--- Display
+
+impl fmt::Display for Hinfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.cpu.as_ref(), self.os.as_ref())
+        write!(f, "{} {}", self.cpu, self.os)
     }
 }
+
 
 //------------ Mb -----------------------------------------------------------
 
@@ -308,13 +478,13 @@ dname_type!(Mg, Mg, madname);
 /// The Minfo record is experimental.
 ///
 /// The Minfo record type is defined in RFC 1035, section 3.3.7.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Minfo<N: DName> {
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Minfo<N=ParsedDname> {
     rmailbx: N,
     emailbx: N,
 }
 
-impl<N: DName> Minfo<N> {
+impl<N> Minfo<N> {
     /// Creates a new Minfo record data from the components.
     pub fn new(rmailbx: N, emailbx: N) -> Self {
         Minfo { rmailbx: rmailbx, emailbx: emailbx }
@@ -340,39 +510,86 @@ impl<N: DName> Minfo<N> {
     }
 }
 
-impl<'a> Minfo<ParsedDName<'a>> {
-    fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        Ok(Minfo::new(try!(ParsedDName::parse(parser)),
-                      try!(ParsedDName::parse(parser))))
+
+//--- Parse, ParseAll, Compose, and Compress
+
+impl<N: Parse> Parse for Minfo<N> {
+    type Err = N::Err;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        Ok(Self::new(N::parse(parser)?, N::parse(parser)?))
     }
 }
 
-impl Minfo<DNameBuf> {
-    pub fn scan<S: Scanner>(scanner: &mut S, origin: Option<&DNameSlice>)
-                            -> ScanResult<Self> {
-        Ok(Self::new(try!(DNameBuf::scan(scanner, origin)),
-                     try!(DNameBuf::scan(scanner, origin))))
+impl<N: Parse + ParseAll> ParseAll for Minfo<N>
+     where <N as ParseAll>::Err: From<<N as Parse>::Err> + From<ShortBuf> {
+    type Err = <N as ParseAll>::Err;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        let pos = parser.pos();
+        let rmailbx = N::parse(parser)?;
+        let rlen = parser.pos() - pos;
+        let len = if len <= rlen {
+            // Because a domain name can never be empty, we seek back to the
+            // beginning and reset the length to zero.
+            parser.seek(pos)?;
+            0
+        }
+        else {
+            len - rlen
+        };
+        let emailbx = N::parse_all(parser, len)?;
+        Ok(Self::new(rmailbx, emailbx))
     }
 }
 
-impl<N: DName> RecordData for Minfo<N> {
-    fn rtype(&self) -> Rtype { Rtype::Minfo }
+impl<N: Compose> Compose for Minfo<N> {
+    fn compose_len(&self) -> usize {
+        self.rmailbx.compose_len() + self.emailbx.compose_len()
+    }
 
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        try!(self.rmailbx.compose(target.as_mut()));
-        self.emailbx.compose(target.as_mut())
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.rmailbx.compose(buf);
+        self.emailbx.compose(buf);
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Minfo<ParsedDName<'a>> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
-        if rtype == Rtype::Minfo { Minfo::parse_always(parser).map(Some) }
-        else { Ok(None) }
+impl<N: Compress> Compress for Minfo<N> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        self.rmailbx.compress(buf)?;
+        self.emailbx.compress(buf)
     }
 }
 
-impl<N: DName + fmt::Display> fmt::Display for Minfo<N> {
+
+//--- Scannable and Printable
+
+impl<N: Scannable> Scannable for Minfo<N> {
+    fn scan<C: CharSource>(scanner: &mut  Scanner<C>)
+                           -> Result<Self, ScanError> {
+        Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?))
+    }
+}
+
+impl<N: Printable> Printable for Minfo<N> {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        self.rmailbx.print(printer)?;
+        self.emailbx.print(printer)
+    }
+}
+
+
+//--- RecordData
+
+impl<N> RtypeRecordData for Minfo<N> {
+    const RTYPE: Rtype = Rtype::Minfo;
+}
+
+
+//--- Display
+
+impl<N: fmt::Display> fmt::Display for Minfo<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.rmailbx, self.emailbx)
     }
@@ -400,13 +617,13 @@ dname_type!(Mr, Mr, newname);
 /// the owner name.
 ///
 /// The Mx record type is defined in RFC 1035, section 3.3.9.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Mx<N: DName> {
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Mx<N=ParsedDname> {
     preference: u16,
     exchange: N,
 }
 
-impl<N: DName> Mx<N> {
+impl<N> Mx<N> {
     /// Creates a new Mx record data from the components.
     pub fn new(preference: u16, exchange: N) -> Self {
         Mx { preference: preference, exchange: exchange }
@@ -426,39 +643,77 @@ impl<N: DName> Mx<N> {
     }
 }
 
-impl<'a> Mx<ParsedDName<'a>> {
-    fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        Ok(Self::new(try!(parser.parse_u16()),
-                     try!(ParsedDName::parse(parser))))
+
+//--- Parse, ParseAll, Compose, Compress
+
+impl<N: Parse> Parse for Mx<N>
+     where N::Err: From<ShortBuf> {
+    type Err = N::Err;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        Ok(Self::new(u16::parse(parser)?, N::parse(parser)?))
     }
 }
 
-impl Mx<DNameBuf> {
-    pub fn scan<S: Scanner>(scanner: &mut S, origin: Option<&DNameSlice>)
-                            -> ScanResult<Self> {
-        Ok(Self::new(try!(scanner.scan_u16()),
-                     try!(DNameBuf::scan(scanner, origin))))
+impl<N: ParseAll> ParseAll for Mx<N>
+     where N::Err: From<ParseOpenError> + From<ShortBuf> {
+    type Err = N::Err;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len < 3 {
+            return Err(ParseOpenError::ShortField.into())
+        }
+        Ok(Self::new(u16::parse(parser)?, N::parse_all(parser, len - 2)?))
     }
 }
 
-impl<N: DName> RecordData for Mx<N> {
-    fn rtype(&self) -> Rtype { Rtype::Mx }
+impl<N: Compose> Compose for Mx<N> {
+    fn compose_len(&self) -> usize {
+        self.exchange.compose_len() + 2
+    }
 
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        try!(target.as_mut().compose_u16(self.preference));
-        self.exchange.compose(target)
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.preference.compose(buf);
+        self.exchange.compose(buf);
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Mx<ParsedDName<'a>> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
-        if rtype == Rtype::Mx { Mx::parse_always(parser).map(Some) }
-        else { Ok(None) }
+impl<N: Compress> Compress for Mx<N> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        buf.compose(&self.preference)?;
+        self.exchange.compress(buf)
     }
 }
 
-impl<N: DName + fmt::Display> fmt::Display for Mx<N> {
+
+//--- Scannable and Printable
+
+impl<N: Scannable> Scannable for Mx<N> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        Ok(Self::new(u16::scan(scanner)?, N::scan(scanner)?))
+    }
+}
+
+impl<N: Printable> Printable for Mx<N> {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        self.preference.print(printer)?;
+        self.exchange.print(printer)
+    }
+}
+
+
+//--- RtypeRecordData
+
+impl<N> RtypeRecordData for Mx<N> {
+    const RTYPE: Rtype = Rtype::Mx;
+}
+
+
+//--- Display
+
+impl<N: fmt::Display> fmt::Display for Mx<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.preference, self.exchange)
     }
@@ -483,58 +738,102 @@ dname_type!(Ns, Ns, nsdname);
 /// allowed in master files.
 ///
 /// The Null record type is defined in RFC 1035, section 3.3.10.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Null<D: AsRef<[u8]>> {
-    data: D
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Null {
+    data: Bytes,
 }
 
-impl<D: AsRef<[u8]>> Null<D> {
+impl Null {
     /// Creates new, empty owned Null record data.
-    pub fn new(data: D) -> Self {
-        Null { data: data }
+    pub fn new(data: Bytes) -> Self {
+        Null { data }
     }
 
     /// The raw content of the record.
-    pub fn data(&self) -> &[u8] {
+    pub fn data(&self) -> &Bytes {
+        &self.data
+    }
+}
+
+
+//--- From
+
+impl From<Bytes> for Null {
+    fn from(data: Bytes) -> Self {
+        Self::new(data)
+    }
+}
+
+
+//--- ParseAll, Compose, and Compress
+
+impl ParseAll for Null {
+    type Err = ShortBuf;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        parser.parse_bytes(len).map(Self::new)
+    }
+}
+
+impl Compose for Null {
+    fn compose_len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self.data.as_ref())
+    }
+}
+
+impl Compress for Null {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        buf.compose(self)
+    }
+}
+
+
+//--- RtypeRecordData
+
+impl RtypeRecordData for Null {
+    const RTYPE: Rtype = Rtype::Null;
+}
+
+
+//--- Deref
+
+impl ops::Deref for Null {
+    type Target = Bytes;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+
+//--- AsRef
+
+impl AsRef<Bytes> for Null {
+    fn as_ref(&self) -> &Bytes {
+        &self.data
+    }
+}
+
+impl AsRef<[u8]> for Null {
+    fn as_ref(&self) -> &[u8] {
         self.data.as_ref()
     }
 }
 
-impl<'a> Null<&'a [u8]> {
-    fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        let len = parser.remaining();
-        parser.parse_bytes(len).map(Null::new)
-    }
-}
 
-impl<D: AsRef<[u8]>> RecordData for Null<D> {
-    fn rtype(&self) -> Rtype { Rtype::Null }
+//--- Display
 
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        target.as_mut().compose_bytes(self.data())
-    }
-}
-
-impl<'a> ParsedRecordData<'a> for Null<&'a [u8]> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
-        if rtype == Rtype::Null { Null::parse_always(parser).map(Some) }
-        else { Ok(None) }
-    }
-}
-
-impl<D: AsRef<[u8]>> fmt::Display for Null<D> {
+impl fmt::Display for Null {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "\\# {} ", self.data().len()));
-        let mut iter = self.data().iter();
-        loop {
-            for _ in 0..8 {
-                match iter.next() {
-                    Some(ch) => try!(write!(f, "{:02x}", ch)),
-                    None => return Ok(()),
-                }
-            }
+        write!(f, "\\# {}", self.data().len())?;
+        for ch in self.data().iter() {
+            write!(f, " {:02x}", ch)?;
         }
+        Ok(())
     }
 }
 
@@ -554,24 +853,24 @@ dname_type!(Ptr, Ptr, ptrdname);
 
 /// Soa record data.
 ///
-/// Soa records mark the top of a zone and contain information pertinent for
+/// Soa records mark the top of a zone and contain information pertinent to
 /// name server maintenance operations.
 ///
 /// The Soa record type is defined in RFC 1035, section 3.3.13.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Soa<N: DName> {
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd)]
+pub struct Soa<N=ParsedDname> {
     mname: N,
     rname: N,
-    serial: u32,
+    serial: Serial,
     refresh: u32,
     retry: u32,
     expire: u32,
-    minimum: u32
+    minimum:u32 
 }
 
-impl<N: DName> Soa<N> {
+impl<N> Soa<N> {
     /// Creates new Soa record data from content.
-    pub fn new(mname: N, rname: N, serial: u32,
+    pub fn new(mname: N, rname: N, serial: Serial,
                refresh: u32, retry: u32, expire: u32, minimum: u32) -> Self {
         Soa { mname: mname, rname: rname, serial: serial,
               refresh: refresh, retry: retry, expire: expire,
@@ -589,7 +888,7 @@ impl<N: DName> Soa<N> {
     }
 
     /// The serial number of the original copy of the zone.
-    pub fn serial(&self) -> u32 {
+    pub fn serial(&self) -> Serial {
         self.serial
     }
 
@@ -614,59 +913,109 @@ impl<N: DName> Soa<N> {
     }
 }
 
-impl<'a> Soa<ParsedDName<'a>> {
-    fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        Ok(Self::new(try!(ParsedDName::parse(parser)),
-                     try!(ParsedDName::parse(parser)),
-                     try!(parser.parse_u32()),
-                     try!(parser.parse_u32()),
-                     try!(parser.parse_u32()),
-                     try!(parser.parse_u32()),
-                     try!(parser.parse_u32())))
+
+//--- Parse, ParseAll, Compose, and Compress
+
+impl<N: Parse> Parse for Soa<N> where N::Err: From<ShortBuf> {
+    type Err = N::Err;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        Ok(Self::new(N::parse(parser)?, N::parse(parser)?,
+                     Serial::parse(parser)?, u32::parse(parser)?,
+                     u32::parse(parser)?, u32::parse(parser)?,
+                     u32::parse(parser)?))
     }
 }
 
-impl Soa<DNameBuf> {
-    pub fn scan<S: Scanner>(scanner: &mut S, origin: Option<&DNameSlice>)
-                            -> ScanResult<Self> {
-        Ok(Self::new(try!(DNameBuf::scan(scanner, origin)),
-                     try!(DNameBuf::scan(scanner, origin)),
-                     try!(scanner.scan_u32()),
-                     try!(scanner.scan_u32()),
-                     try!(scanner.scan_u32()),
-                     try!(scanner.scan_u32()),
-                     try!(scanner.scan_u32())))
+impl<N: ParseAll + Parse> ParseAll for Soa<N>
+        where <N as ParseAll>::Err: From<<N as Parse>::Err>,
+              <N as ParseAll>::Err: From<ParseAllError>,
+              <N as Parse>::Err: From<ShortBuf> {
+    type Err = <N as ParseAll>::Err;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        let tmp = parser.clone();
+        let res = <Self as Parse>::parse(parser)?;
+        if tmp.pos() - parser.pos() < len {
+            Err(ParseAllError::TrailingData.into())
+        }
+        else if tmp.pos() - parser.pos() > len {
+            Err(ParseAllError::ShortField.into())
+        }
+        else {
+            Ok(res)
+        }
     }
 }
 
-impl<N: DName> RecordData for Soa<N> {
-    fn rtype(&self) -> Rtype { Rtype::Soa }
+impl<N: Compose> Compose for Soa<N> {
+    fn compose_len(&self) -> usize {
+        self.mname.compose_len() + self.rname.compose_len() + (5 * 4)
+    }
 
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        try!(self.mname.compose(target.as_mut()));
-        try!(self.rname.compose(target.as_mut()));
-        try!(self.serial.compose(target.as_mut()));
-        try!(self.refresh.compose(target.as_mut()));
-        try!(self.retry.compose(target.as_mut()));
-        try!(self.expire.compose(target.as_mut()));
-        try!(self.minimum.compose(target.as_mut()));
-        Ok(())
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.mname.compose(buf);
+        self.rname.compose(buf);
+        self.serial.compose(buf);
+        self.refresh.compose(buf);
+        self.retry.compose(buf);
+        self.expire.compose(buf);
+        self.minimum.compose(buf);
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Soa<ParsedDName<'a>> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
-        if rtype == Rtype::Soa { Soa::parse_always(parser).map(Some) }
-        else { Ok(None) }
+impl<N: Compress> Compress for Soa<N> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        self.mname.compress(buf)?;
+        self.rname.compress(buf)?;
+        buf.compose(&self.serial)?;
+        buf.compose(&self.refresh)?;
+        buf.compose(&self.retry)?;
+        buf.compose(&self.expire)?;
+        buf.compose(&self.minimum)
     }
 }
 
-impl<N: DName + fmt::Display> fmt::Display for Soa<N> {
+
+//--- Scannable and Printable
+
+impl<N: Scannable> Scannable for Soa<N> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?,
+                     Serial::scan(scanner)?, u32::scan(scanner)?,
+                     u32::scan(scanner)?, u32::scan(scanner)?,
+                     u32::scan(scanner)?))
+    }
+}
+
+impl<N: Printable> Printable for Soa<N> {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        self.mname.print(printer)?;
+        self.rname.print(printer)?;
+        self.serial.print(printer)?;
+        self.refresh.print(printer)?;
+        self.retry.print(printer)?;
+        self.expire.print(printer)?;
+        self.minimum.print(printer)
+    }
+}
+
+
+//--- RecordData
+
+impl<N> RtypeRecordData for Soa<N> {
+    const RTYPE: Rtype = Rtype::Soa;
+}
+
+
+//--- Display
+
+impl<N: fmt::Display> fmt::Display for Soa<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {} {} {} {} {}", self.mname, self.rname,
-               self.serial, self.refresh, self.retry, self.expire,
-               self.minimum)
+        write!(f, "{} {} {} {} {} {} {}", self.mname, self.rname, self.serial,
+               self.refresh, self.retry, self.expire, self.minimum)
     }
 }
 
@@ -678,15 +1027,15 @@ impl<N: DName + fmt::Display> fmt::Display for Soa<N> {
 /// Txt records hold descriptive text.
 ///
 /// The Txt record type is defined in RFC 1035, section 3.3.14.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Txt<T: AsRef<[u8]>> {
-    text: T,
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Txt {
+    text: Bytes,
 }
 
-impl<T: AsRef<[u8]>> Txt<T> {
-    /// Creates a new Txt record from content.
-    pub fn new(text: T) -> Self {
-        Txt { text: text }
+impl Txt {
+    /// Creates a new Txt record from a single character string.
+    pub fn new(text: CharStr) -> Self {
+        Txt { text: text.into_bytes() }
     }
 
     /// Returns an iterator over the text items.
@@ -694,128 +1043,165 @@ impl<T: AsRef<[u8]>> Txt<T> {
     /// The Txt format contains one or more length-delimited byte strings.
     /// This method returns an iterator over each of them.
     pub fn iter(&self) -> TxtIter {
-        TxtIter::new(self.text.as_ref())
+        TxtIter::new(self.text.clone())
     }
 
     /// Returns the text content.
     ///
-    /// If the raw content is only a single character-string, returns a
-    /// borrow else creates an owned vec by concatenating all the parts.
-    pub fn text(&self) -> Cow<[u8]> {
-        let text = self.text.as_ref();
-        if text.is_empty() {
-            Cow::Borrowed(b"")
-        }
-        else if (text[0] as usize) == text.len() - 1 {
-            Cow::Borrowed(&text[1..])
+    /// If the data is only one single character string, returns a simple
+    /// clone of the slice with the data. If there are several character
+    /// strings, their content will be copied together into one single,
+    /// newly allocated bytes value.
+    ///
+    /// Access to the individual character strings is possible via iteration.
+    pub fn text(&self) -> Bytes {
+        if self.text[0] as usize == self.text.len() + 1 {
+            self.text.slice_from(1)
         }
         else {
-            let mut res = Vec::new();
+            // Capacity will be a few bytes too much. Probably better than
+            // re-allocating.
+            let mut res = BytesMut::with_capacity(self.text.len());
             for item in self.iter() {
-                res.extend_from_slice(item)
+                res.put_slice(item.as_ref());
             }
-            Cow::Owned(res)
+            res.freeze()
         }
     }
 }
 
-impl<'a> Txt<&'a [u8]> {
-    fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        let len = parser.remaining();
-        let bytes = try!(parser.parse_bytes(len));
-        let mut tmp = bytes;
-        while !tmp.is_empty() {
-            let len = tmp[0] as usize;
-            if len > tmp.len() {
-                return Err(ParseError::FormErr)
-            }
-            tmp = &tmp[len..];
+
+//--- IntoIterator
+
+impl IntoIterator for Txt {
+    type Item = CharStr;
+    type IntoIter = TxtIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a Txt {
+    type Item = CharStr;
+    type IntoIter = TxtIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+
+//--- ParseAll, Compose, and Compress
+
+impl ParseAll for Txt {
+    type Err = ParseOpenError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        let text = parser.parse_bytes(len)?;
+        let mut tmp = Parser::from_bytes(text.clone());
+        while tmp.remaining() > 0 {
+            CharStr::skip(&mut tmp).map_err(|_| ParseOpenError::ShortField)?
         }
-        Ok(Self::new(bytes))
+        Ok(Txt { text })
     }
 }
 
-impl Txt<Vec<u8>> {
-    pub fn scan<S: Scanner>(scanner: &mut S, _origin: Option<&DNameSlice>)
-                            -> ScanResult<Self> {
-        let mut target = Vec::new();
-        let mut len = 0;
-        let mut pos = target.len();
-        target.push(0);
-        try!(scanner.scan_phrase_bytes(|ch, _| {
-            target.push(ch);
-            if len == 254 {
-                target[pos] = 255;
-                len = 0;
-                pos = target.len();
-                target.push(0);
-            }
-            else {
-                len += 1
-            }
-            Ok(())
-        }));
-        target[pos] = len;
-        Ok(Self::new(target))
+impl Compose for Txt {
+    fn compose_len(&self) -> usize {
+        self.text.len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self.text.as_ref())
     }
 }
 
-impl<T: AsRef<[u8]>> RecordData for Txt<T> {
-    fn rtype(&self) -> Rtype { Rtype::Txt }
-
-    fn compose<C: AsMut<Composer>>(&self, target: C) -> ComposeResult<()> {
-        self.text.as_ref().compose(target)
+impl Compress for Txt {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        buf.compose(self)
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Txt<&'a [u8]> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
-        if rtype == Rtype::Txt { Txt::parse_always(parser).map(Some) }
-        else { Ok(None) }
+
+//--- Scannable and Printable
+
+impl Scannable for Txt {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        let first = CharStr::scan(scanner)?;
+        let second = match CharStr::scan(scanner) {
+            Err(_) => return Ok(Txt::new(first)),
+            Ok(second) => second,
+        };
+        let mut text = first.into_bytes();
+        text.extend_from_slice(second.as_ref());
+        while let Ok(some) = CharStr::scan(scanner) {
+            text.extend_from_slice(some.as_ref());
+        }
+        Ok(Txt { text })
     }
 }
 
-impl<T: AsRef<[u8]>> fmt::Display for Txt<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for text in self.iter() {
-            try!(text.fmt(f))
+impl Printable for Txt {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        for item in self.iter() {
+            item.print(printer)?
         }
         Ok(())
     }
 }
 
 
-//--- TxtIter
+//--- RecordData
 
-/// An iterator over the character strings of a Txt record.
-#[derive(Clone, Debug, PartialEq)]
-pub struct TxtIter<'a> {
-    text: &'a [u8],
+impl RtypeRecordData for Txt {
+    const RTYPE: Rtype = Rtype::Txt;
 }
 
-impl<'a> TxtIter<'a> {
-    fn new(text: &'a [u8])-> Self {
-        TxtIter { text: text }
+
+//--- Display
+
+impl fmt::Display for Txt {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut items = self.iter();
+        match items.next() {
+            Some(item) => item.fmt(f)?,
+            None => return Ok(())
+        }
+        for item in items {
+            write!(f, " {}", item)?;
+        }
+        Ok(())
     }
 }
 
-impl<'a> Iterator for TxtIter<'a> {
-    type Item = &'a CharStr;
+
+//------------ TxtIter -------------------------------------------------------
+
+/// An iterator over the character strings of a Txt record.
+#[derive(Clone, Debug)]
+pub struct TxtIter {
+    parser: Parser,
+}
+
+impl TxtIter {
+    fn new(text: Bytes)-> Self {
+        TxtIter { parser: Parser::from_bytes(text) }
+    }
+}
+
+impl Iterator for TxtIter {
+    type Item = CharStr;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.text.split_first().map(|(len, tail)| {
-            let len = *len as usize;
-            if tail.len() <= len {
-                self.text = b"";
-                CharStr::from_bytes(tail).unwrap()
-            }
-            else {
-                let (head, tail) = tail.split_at(len);
-                self.text = tail;
-                CharStr::from_bytes(head).unwrap()
-            }
-        })
+        if self.parser.remaining() == 0 {
+            None
+        }
+        else {
+            Some(CharStr::parse(&mut self.parser).unwrap())
+        }
     }
 }
 
@@ -828,17 +1214,18 @@ impl<'a> Iterator for TxtIter<'a> {
 /// protocol on a particular internet address.
 ///
 /// The Wks record type is defined in RFC 1035, section 3.4.2.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Wks<B: AsRef<WksBitmap>> {
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Wks {
     address: Ipv4Addr,
     protocol: u8,
-    bitmap: B,
+    bitmap: Bytes,
 }
 
-impl<B: AsRef<WksBitmap>> Wks<B> {
+
+impl Wks {
     /// Creates a new record data from components.
-    pub fn new(address: Ipv4Addr, protocol: u8, bitmap: B) -> Self {
-        Wks { address: address, protocol: protocol, bitmap: bitmap }
+    pub fn new(address: Ipv4Addr, protocol: u8, bitmap: Bytes) -> Self {
+        Wks { address, protocol, bitmap }
     }
 
     /// The IPv4 address of the host this record refers to.
@@ -854,243 +1241,108 @@ impl<B: AsRef<WksBitmap>> Wks<B> {
     }
 
     /// A bitmap indicating the ports where service is being provided.
-    pub fn bitmap(&self) -> &WksBitmap {
-        self.bitmap.as_ref()
+    pub fn bitmap(&self) -> &Bytes {
+        &self.bitmap
     }
 
     /// Returns whether a certain service is being provided.
     pub fn serves(&self, port: u16) -> bool {
-        self.bitmap.as_ref().serves(port)
+        let octet = (port / 8) as usize;
+        let bit = (port % 8) as usize;
+        match self.bitmap.get(octet) {
+            Some(x) => (x >> bit) > 0,
+            None => false
+        }
     }
 
     /// Returns an iterator over the served ports.
     pub fn iter(&self) -> WksIter {
-        self.bitmap.as_ref().iter()
+        WksIter::new(self.bitmap.clone())
     }
 }
 
-impl<'a> Wks<&'a WksBitmap> {
-    fn parse_always(parser: &mut Parser<'a>) -> ParseResult<Self> {
-        let addr = Ipv4Addr::new(try!(parser.parse_u8()),
-                                 try!(parser.parse_u8()),
-                                 try!(parser.parse_u8()),
-                                 try!(parser.parse_u8()));
-        let proto = try!(parser.parse_u8());
-        let len = parser.remaining();
-        let bitmap = WksBitmap::from_bytes(try!(parser.parse_bytes(len)));
-        Ok(Wks::new(addr, proto, bitmap))
-    }
-}
 
-impl Wks<WksBitmapBuf> {
-    pub fn scan<S: Scanner>(scanner: &mut S, origin: Option<&DNameSlice>)
-                            -> ScanResult<Self> {
-        let a = try!(A::scan(scanner, origin));
-        let proto = try!(scanner.scan_str_phrase(|s| {
-            if let Some(ent) = ProtoEnt::by_name(s) {
-                Ok(ent.proto)
-            }
-            else if let Ok(number) = u8::from_str_radix(s, 10) {
-                Ok(number)
-            }
-            else {
-                Err(SyntaxError::UnknownProto(s.into()))
-            }
-        }));
+//--- ParseAll, Compose, Compress
 
-        let mut bitmap = WksBitmapBuf::new();
-        while let Ok(()) = scanner.scan_str_phrase(|s| {
-            if let Some(ent) = ServEnt::by_name(s) {
-                bitmap.set_serves(ent.port, true);
-                Ok(())
-            }
-            else if let Ok(number) = u16::from_str_radix(s, 10) {
-                bitmap.set_serves(number, true);
-                Ok(())
-            }
-            else {
-                Err(SyntaxError::UnknownServ(s.into()))
-            }
-        }) { }
-        Ok(Self::new(a.addr(), proto, bitmap))
-    }
-}
+impl ParseAll for Wks {
+    type Err = ParseOpenError;
 
-impl<B: AsRef<WksBitmap>> RecordData for Wks<B> {
-    fn rtype(&self) -> Rtype { Rtype::Wks }
-
-    fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        for i in &self.address.octets() {
-            try!(i.compose(target.as_mut()))
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len < 5 {
+            return Err(ParseOpenError::ShortField)
         }
-        try!(self.protocol.compose(target.as_mut()));
-        self.bitmap.as_ref().as_bytes().compose(target)
+        Ok(Self::new(Ipv4Addr::parse(parser)?, u8::parse(parser)?,
+                     parser.parse_bytes(len - 5)?))
     }
 }
 
-impl<'a> ParsedRecordData<'a> for Wks<&'a WksBitmap> {
-    fn parse(rtype: Rtype, parser: &mut Parser<'a>)
-             -> ParseResult<Option<Self>> {
-        if rtype == Rtype::Wks { Wks::parse_always(parser).map(Some) }
-        else { Ok(None) }
+impl Compose for Wks {
+    fn compose_len(&self) -> usize {
+        self.bitmap.len() + 5
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.address.compose(buf);
+        self.protocol.compose(buf);
+        self.bitmap.compose(buf);
     }
 }
 
-impl<B: AsRef<WksBitmap>> fmt::Display for Wks<B> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "{} {}", self.address, self.protocol));
-        for port in self.iter() {
-            try!(write!(f, " {}", port));
+impl Compress for Wks {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        buf.compose(self)
+    }
+}
+
+
+//--- Scannable and Printable
+
+impl Scannable for Wks {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        let address = scanner.scan_string_phrase(|res| {
+            Ipv4Addr::from_str(&res).map_err(Into::into)
+        })?;
+        let protocol = u8::scan(scanner)?;
+        let mut builder = WksBuilder::new(address, protocol);
+        while let Ok(service) = u16::scan(scanner) {
+            builder.add_service(service)
+        }
+        Ok(builder.finish())
+    }
+}
+
+impl Printable for Wks {
+    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
+                           -> Result<(), io::Error> {
+        self.address.print(printer)?;
+        self.protocol.print(printer)?;
+        for service in self.iter() {
+            service.print(printer)?;
         }
         Ok(())
     }
 }
 
 
-//------------ WksBitmap -----------------------------------------------------
+//--- RecordData
 
-#[derive(Debug)]
-pub struct WksBitmap {
-    inner: [u8]
+impl RtypeRecordData for Wks {
+    const RTYPE: Rtype = Rtype::Wks;
 }
 
 
-impl WksBitmap {
-    pub fn from_bytes(bytes: &[u8]) -> &Self {
-        unsafe { mem::transmute(bytes) }
-    }
+//--- Display
 
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.inner
-    }
-
-    pub fn iter(&self) -> WksIter {
-        WksIter::new(&self.inner)
-    }
-
-    /// Returns whether a certain service is being provided.
-    pub fn serves(&self, port: u16) -> bool {
-        let (octet, bit) = WksBitmap::port_location(port);
-        match self.inner.get(octet) {
-            Some(x) => (x >> bit) > 0,
-            None => false
+impl fmt::Display for Wks {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.address, self.protocol)?;
+        for service in self.iter() {
+            write!(f, " {}", service)?;
         }
-    }
-
-    /// Translates a port number to where it’ll be in the bitmap.
-    ///
-    /// Returns a pair of the index in the bytes slice and the bit number in
-    /// that slice.
-    fn port_location(port: u16) -> (usize, usize) {
-        ((port / 8) as usize, (port % 8) as usize)
+        Ok(())
     }
 }
-
-
-//--- From
-
-impl<'a> From<&'a [u8]> for &'a WksBitmap {
-    fn from(x: &'a [u8]) -> Self {
-        WksBitmap::from_bytes(x)
-    }
-}
-
-
-//--- AsRef
-
-impl AsRef<WksBitmap> for WksBitmap {
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
-
-
-//--- PartialEq
-
-impl PartialEq for WksBitmap {
-    fn eq(&self, other: &Self) -> bool {
-        let mut s = &self.inner;
-        let mut o = &other.inner;
-        while let Some((&0, head)) = s.split_last() { s = head }
-        while let Some((&0, head)) = o.split_last() { o = head }
-        s == o
-    }
-}
-
-impl<T: AsRef<WksBitmap>> PartialEq<T> for WksBitmap {
-    fn eq(&self, other: &T) -> bool {
-        self.eq(other.as_ref())
-    }
-}
-
-impl Eq for WksBitmap { }
-
-
-//------------ WksBitmapBuf --------------------------------------------------
-
-#[derive(Clone, Debug, Default)]
-pub struct WksBitmapBuf {
-    inner: Vec<u8>,
-}
-
-
-impl WksBitmapBuf {
-    pub fn new() -> Self {
-        WksBitmapBuf::from_vec(Vec::new())
-    }
-
-    pub fn from_vec(vec: Vec<u8>) -> Self {
-        WksBitmapBuf{inner: vec}
-    }
-
-    /// Enables or disables the given service.
-    pub fn set_serves(&mut self, port: u16, enable: bool) {
-        let (octet, bit) = WksBitmap::port_location(port);
-        if self.inner.len() <= octet {
-            self.inner.resize(octet + 1, 0);
-        }
-        if enable {
-            self.inner[octet] |= 1 << bit
-        }
-        else {
-            self.inner[octet] &= 0xFF ^ (1 << bit)
-        }
-    }
-}
-
-
-//--- Deref, Borrow, AsRef
-
-impl ops::Deref for WksBitmapBuf {
-    type Target = WksBitmap;
-
-    fn deref(&self) -> &Self::Target {
-        WksBitmap::from_bytes(&self.inner)
-    }
-}
-
-impl borrow::Borrow<WksBitmap> for WksBitmapBuf {
-    fn borrow(&self) -> &WksBitmap {
-        self
-    }
-}
-
-impl AsRef<WksBitmap> for WksBitmapBuf {
-    fn as_ref(&self) -> &WksBitmap {
-        self
-    }
-}
-
-
-//--- PartialEq, Eq
-
-impl<T: AsRef<WksBitmap>> PartialEq<T> for WksBitmapBuf {
-    fn eq(&self, other: &T) -> bool {
-        other.as_ref().eq(self)
-    }
-}
-
-impl Eq for WksBitmapBuf { }
 
 
 //------------ WksIter -------------------------------------------------------
@@ -1098,16 +1350,16 @@ impl Eq for WksBitmapBuf { }
 /// An iterator over the services active in a Wks record.
 ///
 /// This iterates over the port numbers in growing order.
-#[derive(Clone, Debug, PartialEq)]
-pub struct WksIter<'a> {
-    bitmap: &'a [u8],
+#[derive(Clone, Debug)]
+pub struct WksIter {
+    bitmap: Bytes,
     octet: usize,
     bit: usize
 }
 
-impl<'a> WksIter<'a> {
-    fn new(bitmap: &'a [u8]) -> Self {
-        WksIter { bitmap: bitmap, octet: 0, bit: 0 }
+impl WksIter {
+    fn new(bitmap: Bytes) -> Self {
+        WksIter { bitmap, octet: 0, bit: 0 }
     }
 
     fn serves(&self) -> bool {
@@ -1115,7 +1367,7 @@ impl<'a> WksIter<'a> {
     }
 }
 
-impl<'a> Iterator for WksIter<'a> {
+impl Iterator for WksIter {
     type Item = u16;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1133,44 +1385,32 @@ impl<'a> Iterator for WksIter<'a> {
 }
 
 
-//============ Type Aliases =================================================
+//------------ WksBuilder ----------------------------------------------------
 
-pub mod parsed {
-    use ::bits::{CharStr, ParsedDName};
-
-    pub type A = super::A;
-    pub type Cname<'a> = super::Cname<ParsedDName<'a>>;
-    pub type Hinfo<'a> = super::Hinfo<&'a CharStr>;
-    pub type Mb<'a> = super::Mb<ParsedDName<'a>>;
-    pub type Md<'a> = super::Md<ParsedDName<'a>>;
-    pub type Mf<'a> = super::Mf<ParsedDName<'a>>;
-    pub type Mg<'a> = super::Mg<ParsedDName<'a>>;
-    pub type Minfo<'a> = super::Minfo<ParsedDName<'a>>;
-    pub type Mr<'a> = super::Mr<ParsedDName<'a>>;
-    pub type Mx<'a> = super::Mx<ParsedDName<'a>>;
-    pub type Ns<'a> = super::Ns<ParsedDName<'a>>;
-    pub type Ptr<'a> = super::Ptr<ParsedDName<'a>>;
-    pub type Soa<'a> = super::Soa<ParsedDName<'a>>;
-    pub type Txt<'a> = super::Txt<&'a [u8]>;
-    pub type Wks<'a> = super::Wks<&'a super::WksBitmap>;
+#[derive(Clone, Debug)]
+pub struct WksBuilder {
+    address: Ipv4Addr,
+    protocol: u8,
+    bitmap: BytesMut,
 }
 
-pub mod owned {
-    use ::bits::{CharStrBuf, DNameBuf};
+impl WksBuilder {
+    pub fn new(address: Ipv4Addr, protocol: u8) -> Self {
+        WksBuilder { address, protocol, bitmap: BytesMut::new() }
+    }
 
-    pub type A = super::A;
-    pub type Cname = super::Cname<DNameBuf>;
-    pub type Hinfo = super::Hinfo<CharStrBuf>;
-    pub type Mb = super::Mb<DNameBuf>;
-    pub type Md = super::Md<DNameBuf>;
-    pub type Mf = super::Mf<DNameBuf>;
-    pub type Mg = super::Mg<DNameBuf>;
-    pub type Minfo = super::Minfo<DNameBuf>;
-    pub type Mr = super::Mr<DNameBuf>;
-    pub type Mx = super::Mx<DNameBuf>;
-    pub type Ns = super::Ns<DNameBuf>;
-    pub type Ptr = super::Ptr<DNameBuf>;
-    pub type Soa = super::Soa<DNameBuf>;
-    pub type Txt = super::Txt<DNameBuf>;
-    pub type Wks = super::Wks<DNameBuf>;
+    pub fn add_service(&mut self, service: u16) {
+        let octet = (service >> 2) as usize;
+        let bit = 1 << (service & 0x3);
+        while self.bitmap.len() < octet + 1 {
+            self.bitmap.extend_from_slice(b"0")
+        }
+        self.bitmap[octet] |= bit;
+    }
+
+    pub fn finish(self) -> Wks {
+        Wks::new(self.address, self.protocol, self.bitmap.freeze())
+    }
 }
+
+

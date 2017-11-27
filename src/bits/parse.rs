@@ -1,11 +1,12 @@
 //! Parsing DNS wire-format data.
 //!
 //! This module provides a [`Parser`] that helps extracting data from DNS
-//! messages and a trait [`Parseable`] for types that know how to parse
+//! messages and a trait [`Parse`] for types that know how to parse
 //! themselves.
 //!
 //! [`Parser`]: struct.Parser.html
-//! [`Parseable`]: trait.Parseable.html
+//! [`Parse`]: trait.Parse.html
+use std::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{BigEndian, ByteOrder, Bytes};
 use super::error::ShortBuf;
 
@@ -133,11 +134,19 @@ impl Parser {
     pub fn parse_bytes(&mut self, len: usize) -> Result<Bytes, ShortBuf> {
         let end = self.pos + len;
         if end > self.bytes.len() {
-            return Err(ShortBuf.into())
+            return Err(ShortBuf)
         }
         let res = self.bytes.slice(self.pos, end);
         self.pos = end;
         Ok(res)
+    }
+
+    /// Fills the provided buffer by taking bytes from the parser.
+    pub fn parse_buf(&mut self, buf: &mut [u8]) -> Result<(), ShortBuf> {
+        let pos = self.pos;
+        self.advance(buf.len())?;
+        buf.copy_from_slice(&self.bytes.as_ref()[pos..self.pos]);
+        Ok(())
     }
 
     /// Takes a `i8` from the beginning of the parser.
@@ -210,12 +219,12 @@ impl Parser {
 }
 
 
-//------------ Parseable ------------------------------------------------------
+//------------ Parse ------------------------------------------------------
 
 /// A type that knows how to extrac a value of itself from a parser.
-pub trait Parseable: Sized {
+pub trait Parse: Sized {
     /// The type of an error returned when parsing fails.
-    type Err;
+    type Err: From<ShortBuf>;
 
     /// Extracts a value from the beginning of `parser`.
     ///
@@ -234,45 +243,200 @@ pub trait Parseable: Sized {
     }
 }
 
-impl Parseable for i8 {
+impl Parse for i8 {
     type Err = ShortBuf;
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_i8()
     }
 }
 
-impl Parseable for u8 {
+impl Parse for u8 {
     type Err = ShortBuf;
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_u8()
     }
 }
 
-impl Parseable for i16 {
+impl Parse for i16 {
     type Err = ShortBuf;
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_i16()
     }
 }
 
-impl Parseable for u16 {
+impl Parse for u16 {
     type Err = ShortBuf;
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_u16()
     }
 }
 
-impl Parseable for i32 {
+impl Parse for i32 {
     type Err = ShortBuf;
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_i32()
     }
 }
 
-impl Parseable for u32 {
+impl Parse for u32 {
     type Err = ShortBuf;
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_u32()
+    }
+}
+
+impl Parse for Ipv4Addr {
+    type Err = ShortBuf;
+
+    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+        Ok(Self::new(
+            u8::parse(parser)?,
+            u8::parse(parser)?,
+            u8::parse(parser)?,
+            u8::parse(parser)?
+        ))
+    }
+}
+
+impl Parse for Ipv6Addr {
+    type Err = ShortBuf;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        let mut buf = [0u8; 16];
+        parser.parse_buf(&mut buf)?;
+        Ok(buf.into())
+    }
+}
+
+
+//------------ ParseAll ------------------------------------------------------
+
+pub trait ParseAll: Sized {
+    type Err: From<ShortBuf>;
+
+    fn parse_all(parser: &mut Parser, len: usize)
+                 -> Result<Self, Self::Err>;
+}
+
+impl ParseAll for u16 {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len < 2 {
+            Err(ParseAllError::ShortField)
+        }
+        else if len > 2 {
+            Err(ParseAllError::TrailingData)
+        }
+        else {
+            Ok(Self::parse(parser)?)
+        }
+    }
+}
+
+impl ParseAll for u32 {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len < 4 {
+            Err(ParseAllError::ShortField)
+        }
+        else if len > 4 {
+            Err(ParseAllError::TrailingData)
+        }
+        else {
+            Ok(Self::parse(parser)?)
+        }
+    }
+}
+
+impl ParseAll for Ipv4Addr {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len < 4 {
+            Err(ParseAllError::ShortField)
+        }
+        else if len > 4 {
+            Err(ParseAllError::TrailingData)
+        }
+        else {
+            Ok(Self::parse(parser)?)
+        }
+    }
+}
+
+impl ParseAll for Ipv6Addr {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len < 16 {
+            Err(ParseAllError::ShortField)
+        }
+        else if len > 16 {
+            Err(ParseAllError::TrailingData)
+        }
+        else {
+            Ok(Self::parse(parser)?)
+        }
+    }
+}
+
+
+//------------ ParseOpenError ------------------------------------------------
+
+/// An error happened when parsing all of a minimum length, open size type.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum ParseOpenError {
+    #[fail(display="short field")]
+    ShortField,
+
+    #[fail(display="unexpected end of buffer")]
+    ShortBuf
+}
+
+impl From<ShortBuf> for ParseOpenError {
+    fn from(_: ShortBuf) -> Self {
+        ParseOpenError::ShortBuf
+    }
+}
+
+
+//--------- ParseAllError ----------------------------------------------------
+
+/// An error happened while trying to length-parse a type with built-in limit.
+///
+/// This error type is used for type that have their own length indicators
+/// and where any possible byte combination is valid.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum ParseAllError {
+    #[fail(display="trailing data")]
+    TrailingData,
+
+    #[fail(display="short field")]
+    ShortField,
+
+    #[fail(display="unexpected end of buffer")]
+    ShortBuf
+}
+
+impl ParseAllError {
+    pub fn check(expected: usize, got: usize) -> Result<(), Self> {
+        if expected < got {
+            Err(ParseAllError::TrailingData)
+        }
+        else if expected > got {
+            Err(ParseAllError::ShortField)
+        }
+        else {
+            Ok(())
+        }
+    }
+}
+
+impl From<ShortBuf> for ParseAllError {
+    fn from(_: ShortBuf) -> Self {
+        ParseAllError::ShortBuf
     }
 }
 

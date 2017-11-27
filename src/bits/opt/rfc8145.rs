@@ -1,12 +1,12 @@
 //! EDNS Options from RFC 8145.
 
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
-use ::bits::compose::Composable;
+use ::bits::compose::Compose;
 use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::Parser;
+use ::bits::parse::{ParseAll, ParseAllError, Parser};
 use ::iana::OptionCode;
-use super::{OptData, OptionParseError};
+use super::CodeOptData;
 
 
 //------------ KeyTag -------------------------------------------------------
@@ -38,7 +38,23 @@ impl KeyTag {
     }
 }
 
-impl Composable for KeyTag {
+
+//--- ParseAll and Compose
+
+impl ParseAll for KeyTag {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len % 2 == 1 {
+            Err(ParseAllError::TrailingData)
+        }
+        else {
+            Ok(Self::new(parser.parse_bytes(len)?))
+        }
+    }
+}
+
+impl Compose for KeyTag {
     fn compose_len(&self) -> usize {
         self.bytes.len()
     }
@@ -48,24 +64,15 @@ impl Composable for KeyTag {
     }
 }
 
-impl OptData for KeyTag {
-    type ParseErr = OptionParseError;
 
-    fn code(&self) -> OptionCode {
-        OptionCode::EdnsKeyTag
-    }
+//--- CodeOptData
 
-    fn parse(code: OptionCode, len: usize, parser: &mut Parser)
-             -> Result<Option<Self>, OptionParseError> {
-        if code != OptionCode::EdnsKeyTag {
-            return Ok(None)
-        }
-        if len % 2 == 1 {
-            return Err(OptionParseError::InvalidLength(len))
-        }
-        Ok(Some(Self::new(parser.parse_bytes(len)?)))
-    }
+impl CodeOptData for KeyTag {
+    const CODE: OptionCode = OptionCode::EdnsKeyTag;
 }
+
+
+//--- IntoIterator
 
 impl<'a> IntoIterator for &'a KeyTag {
     type Item = u16;
