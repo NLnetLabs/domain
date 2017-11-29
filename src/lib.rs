@@ -23,7 +23,7 @@ extern crate failure;
 #[macro_use] extern crate failure_derive;
 /*#[macro_use]*/ extern crate futures;
 extern crate rand;
-/*#[macro_use]*/ extern crate tokio_core;
+/*#[macro_use]*/ extern crate tokio;
 
 pub mod bits;
 pub mod iana;
