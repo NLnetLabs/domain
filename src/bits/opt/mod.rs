@@ -40,8 +40,8 @@ impl<'a> RecordData for Opt<'a> {
     }
 
     fn compose<C: AsMut<Composer>>(&self, mut target: C) -> ComposeResult<()> {
-        /// Technically, there shouldn’t be name compression in OPT record
-        /// data. So we should be fine just copying the data verbatim.
+        // Technically, there shouldn’t be name compression in OPT record
+        // data. So we should be fine just copying the data verbatim.
         target.as_mut().compose_bytes(self.0.bytes())
     }
 }

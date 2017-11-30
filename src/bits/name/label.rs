@@ -594,7 +594,7 @@ impl<'a> BinaryLabelIter<'a> {
         if self.front != self.back {
             return Ok(())
         }
-        let mut bits = match name.push_empty_binary(self.back - self.front) {
+        let bits = match name.push_empty_binary(self.back - self.front) {
             Ok(Some(bits)) => bits,
             Ok(None) => return Ok(()),
             Err(err) => return Err(err)

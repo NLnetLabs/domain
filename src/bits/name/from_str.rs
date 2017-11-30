@@ -213,7 +213,7 @@ fn bin_binary_label(chars: &mut Chars, target: &mut Vec<u8>)
 /// or there are too many digits.
 ///
 /// The function returns the number of digits read and the delimiter.
-fn bit_digits(chars: &mut Chars, mut target: &mut [u8], radix: u32)
+fn bit_digits(chars: &mut Chars, target: &mut [u8], radix: u32)
               -> Result<(usize, char), FromStrError> {
     for (i, t) in target.iter_mut().enumerate() {
         match chars.next() {
