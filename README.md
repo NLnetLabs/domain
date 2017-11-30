@@ -18,8 +18,10 @@ currently moving the `bits` module to be entirely based on
 [bytes-for-slices](https://github.com/partim/domain/tree/bytes-for-slices)
 branch.
 
-Once that is done, I am planning to simplify the resolver quite a bit. It
-probably needs to adopt recent developments in Tokyo, too.
+Once that is done, I am planning to simplify the resolver quite a bit. In
+order to avoid having to redo that again after the upcoming Tokio
+restructuring, this will wait until after the dust there has settled a
+bit.
 
 As these are all very breaking changes, this will result in version 0.3.0.
 
