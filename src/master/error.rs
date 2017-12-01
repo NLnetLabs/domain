@@ -3,7 +3,7 @@
 use std::io;
 use std::net::AddrParseError;
 use ::bits::name;
-use super::scan::Symbol;
+use super::scan::{Symbol, Token};
 
 
 //------------ SyntaxError ---------------------------------------------------
@@ -28,6 +28,7 @@ pub enum SyntaxError {
     NoOrigin,
     RelativeName,
     Unexpected(Symbol),
+    UnexpectedNewline,
     UnexpectedEof,
     UnknownClass(String),
     UnknownProto(String),
@@ -74,12 +75,12 @@ impl Pos {
     pub fn line(&self) -> usize { self.line }
     pub fn col(&self) -> usize { self.col }
 
-    pub fn update(&mut self, ch: Symbol) {
+    pub fn update(&mut self, ch: Token) {
         match ch {
-            Symbol::Char(_) => self.col += 1,
-            Symbol::SimpleEscape(_) => self.col += 2,
-            Symbol::DecimalEscape(_) => self.col += 4,
-            Symbol::Newline => { self.line += 1; self.col = 1 }
+            Token::Symbol(Symbol::Char(_)) => self.col += 1,
+            Token::Symbol(Symbol::SimpleEscape(_)) => self.col += 2,
+            Token::Symbol(Symbol::DecimalEscape(_)) => self.col += 4,
+            Token::Newline => { self.line += 1; self.col = 1 }
         }
     }
 

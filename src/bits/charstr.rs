@@ -1,25 +1,24 @@
 //! Character strings.
 //!
 //! The somewhat ill-named `<character-string>` is defined in [RFC 1035] as
-//! binary information of up to 255 bytes. As such, it doesn’t necessarily
-//! contain (ASCII-) characters nor is it a string in the Rust-sense.
-//! Character string  are encoded as one octet giving the length followed by
-//! the actual data in that many octets.
+//! binary information of up to 255 octets. As such, it doesn’t necessarily
+//! contain (ASCII-) characters nor is it a string in a Rust-sense.
 //!
-//! The type [`CharStr`] defined in this module wraps a bytes slice making
-//! sure it always adheres to the length limit. It is an unsized type and
-//! is typically used as a reference. Its owned companion is [`CharStrBuf`].
+//! An existing, immutable character string is represented by the type
+//! [`CharStr`]. The type [`CharStrMut`] allows constructing a character
+//! string from individual octets or byte slices.
 //!
-//! When defining types that contain character strings, it is best to make
-//! them generic over `AsRef<CharStr>` so that they can be used both with
-//! `&'a CharStr` for borrowed data and `CharStrBuf` for owned data.
+//! In wire-format, character strings are encoded as one octet giving the
+//! length followed by the actual data in that many octets. The length octet
+//! is not part of the content wrapped by these two types.
 //!
 //! [`CharStr`]: struct.CharStr.html
-//! [`CharStrBuf`]: struct.CharStrBuf.html
+//! [`CharStrMut`]: struct.CharStrMut.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use std::{cmp, fmt, hash, ops, io};
-use bytes::{BufMut, Bytes};
+use std::ascii::AsciiExt;
+use bytes::{BufMut, Bytes, BytesMut};
 use ::master::error::{ScanError, SyntaxError};
 use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, Scan, Scanner};
@@ -30,17 +29,15 @@ use super::parse::{ParseAll, ParseAllError, Parse, Parser};
 
 //------------ CharStr -------------------------------------------------------
 
-/// A DNS character string.
+/// The content of a DNS character string.
 ///
 /// A character string consists of up to 255 bytes of binary data. This type
-/// wraps a bytes slice enforcing the length limitation. It derefs into the
-/// underlying slice allowing both read-only and mutable access to it.
+/// wraps a bytes value enforcing the length limitation. It derefs into the
+/// underlying bytes value for working with the actual content in a familiar
+/// way.
 ///
 /// As per [RFC 1035], character strings compare ignoring ASCII case.
-/// `CharStr`’s implementations of the `std::cmp` act accordingly.
-///
-/// This is an usized type and needs to be used behind a pointer such as
-/// a reference or box.
+/// `CharStr`’s implementations of the `std::cmp` traits act accordingly.
 #[derive(Clone)]
 pub struct CharStr {
     /// The underlying bytes slice.
@@ -51,37 +48,63 @@ pub struct CharStr {
 /// # Creation and Conversion
 ///
 impl CharStr {
-    /// Creates a character string reference from a bytes slice.
+    /// Creates a character string from a bytes value without length check.
     ///
-    /// This function doesn’t check the length of the slice and therefore is
-    /// unsafe.
+    /// As this can break the guarantees made by the type, it is unsafe.
     unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
         CharStr { inner: bytes }
     }
 
-    /// Creates a new character string from the bytes slice.
+    /// Creates a new character string from a bytes value.
     ///
-    /// Returns `Some(_)` if the bytes slice can indeed be used as a
-    /// character string, ie., it is not longer than 255 bytes, or `None`
-    /// otherwise.
+    /// Returns succesfully if the bytes slice can indeed be used as a
+    /// character string, i.e., it is not longer than 255 bytes.
     pub fn from_bytes(bytes: Bytes) -> Result<Self, CharStrError> {
         if bytes.len() > 255 { Err(CharStrError) }
         else { Ok(unsafe { Self::from_bytes_unchecked(bytes) })}
     }
 
+    /// Converts the value into its underlying bytes value.
     pub fn into_bytes(self) -> Bytes {
         self.inner
     }
 
+    /// Returns a reference to the underlying bytes value.
     pub fn as_bytes(&self) -> &Bytes {
         &self.inner
     }
 
-    /// Returns a reference to the character string’s data.
+    /// Returns a reference to a byte slice of the character string’s data.
     pub fn as_slice(&self) -> &[u8] {
         self.inner.as_ref()
     }
+
+    /// Attempts to make the character string mutable.
+    ///
+    /// This will only succeed if the underlying bytes value has unique
+    /// access to its memory. If this fails, you’ll simply get `self` back
+    /// for further consideration.
+    ///
+    /// See [`into_mut`](#method.into_mut) for a variation that copies the
+    /// data if necessary.
+    pub fn try_into_mut(self) -> Result<CharStrMut, Self> {
+        self.inner.try_mut()
+            .map(|b| unsafe { CharStrMut::from_bytes_unchecked(b) })
+            .map_err(|b| unsafe { CharStr::from_bytes_unchecked(b) })
+    }
+
+    /// Provides a mutable version of the character string.
+    ///
+    /// If the underlying bytes value has exclusive access to its memory,
+    /// the function will reuse the bytes value. Otherwise, it will create
+    /// a new buffer and copy `self`’s content into it.
+    pub fn into_mut(self) -> CharStrMut {
+        unsafe { CharStrMut::from_bytes_unchecked(self.inner.into()) }
+    }
 }
+
+
+//--- FromStr
 
 
 //--- Parse, ParseAll, and Compose
@@ -156,19 +179,13 @@ impl Print for CharStr {
 }
 
 
-//--- Deref, DerefMut, Borrow, AsRef
+//--- Deref and AsRef
 
 impl ops::Deref for CharStr {
     type Target = Bytes;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl ops::DerefMut for CharStr {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
     }
 }
 
@@ -185,11 +202,32 @@ impl AsRef<[u8]> for CharStr {
 }
 
 
+//--- IntoIterator
+
+impl IntoIterator for CharStr {
+    type Item = u8;
+    type IntoIter = ::bytes::buf::Iter<::std::io::Cursor<Bytes>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a CharStr {
+    type Item = u8;
+    type IntoIter = ::bytes::buf::Iter<::std::io::Cursor<&'a Bytes>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.inner).into_iter()
+    }
+}
+
+
 //--- PartialEq, Eq
 
 impl<T: AsRef<[u8]>> PartialEq<T> for CharStr {
     fn eq(&self, other: &T) -> bool {
-        self.inner.as_ref().eq(other.as_ref())
+        self.as_slice().eq_ignore_ascii_case(other.as_ref())
     }
 }
 
@@ -200,13 +238,16 @@ impl Eq for CharStr { }
 
 impl<T: AsRef<[u8]>> PartialOrd<T> for CharStr {
     fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
-        self.inner.as_ref().partial_cmp(other.as_ref())
+        self.iter().map(AsciiExt::to_ascii_lowercase)
+            .partial_cmp(other.as_ref().iter()
+                              .map(AsciiExt::to_ascii_lowercase))
     }
 }
 
 impl Ord for CharStr {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.inner.as_ref().cmp(other.inner.as_ref())
+        self.iter().map(AsciiExt::to_ascii_lowercase)
+            .cmp(other.iter().map(AsciiExt::to_ascii_lowercase))
     }
 }
 
@@ -215,7 +256,8 @@ impl Ord for CharStr {
 
 impl hash::Hash for CharStr {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.inner.hash(state)
+        self.iter().map(AsciiExt::to_ascii_lowercase)
+            .for_each(|ch| ch.hash(state))
     }
 }
 
@@ -246,6 +288,76 @@ impl fmt::Debug for CharStr {
         "\")".fmt(f)
     }
 }
+
+
+//------------ CharStrMut ----------------------------------------------------
+
+/// A mutable DNS character string.
+///
+/// This type is solely intended to be used when constructing a character
+/// string from individual bytes or byte slices.
+pub struct CharStrMut {
+    bytes: BytesMut,
+}
+
+
+impl CharStrMut {
+    unsafe fn from_bytes_unchecked(bytes: BytesMut) -> Self {
+        CharStrMut { bytes }
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        unsafe {
+            CharStrMut::from_bytes_unchecked(BytesMut::with_capacity(capacity))
+        }
+    }
+
+    pub fn new() -> Self {
+        unsafe {
+            CharStrMut::from_bytes_unchecked(BytesMut::new())
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.bytes.capacity()
+    }
+
+    pub fn freeze(self) -> CharStr {
+        unsafe { CharStr::from_bytes_unchecked(self.bytes.freeze()) }
+    }
+}
+
+/// # Manipulations
+///
+impl CharStrMut {
+    pub fn reserve(&mut self, additional: usize) {
+        self.bytes.reserve(additional)
+    }
+
+    pub fn push(&mut self, ch: u8) -> Result<(), PushError> {
+        self.extend_from_slice(&[ch])
+    }
+
+    pub fn extend_from_slice(&mut self, extend: &[u8])
+                             -> Result<(), PushError> {
+        if self.bytes.len() + extend.len() > 255 {
+            Err(PushError)
+        }
+        else {
+            self.bytes.extend_from_slice(extend);
+            Ok(())
+        }
+    }
+}
+
 
 
 //------------ CharStrError --------------------------------------------------

@@ -26,7 +26,7 @@ pub struct Scanner<C: CharSource> {
     ///
     /// It will be kept short by flushing it every time we successfully read
     /// to its end.
-    buf: Vec<Symbol>,
+    buf: Vec<Token>,
 
     /// Index in `buf` of the start of the token currently being read.
     start: usize,
@@ -121,11 +121,17 @@ impl<C: CharSource> Scanner<C> {
                                     -> Result<(), SyntaxError>,
                            G: FnOnce(T) -> Result<U, SyntaxError> {
         match self.peek()? {
-            Some(ch) if ch.is_word_char() => { }
-            Some(ch) => return self.err(SyntaxError::Unexpected(ch)),
+            Some(Token::Symbol(ch)) => {
+                if !ch.is_word_char() {
+                    return self.err(SyntaxError::Unexpected(ch))
+                }
+            }
+            Some(Token::Newline) => {
+                return self.err(SyntaxError::UnexpectedNewline)
+            }
             None => return self.err(SyntaxError::UnexpectedEof)
         };
-        while let Some(ch) = self.cond_read(Symbol::is_word_char)? {
+        while let Some(ch) = self.cond_read_symbol(Symbol::is_word_char)? {
             if let Err(err) = symbolop(&mut target, ch) {
                 return self.err_cur(err)
             }
@@ -159,17 +165,25 @@ impl<C: CharSource> Scanner<C> {
                                     -> Result<(), SyntaxError>,
                              G: FnOnce(T) -> Result<U, SyntaxError> {
         match self.read()? {
-            Some(Symbol::Char('"')) => { }
-            Some(ch) => return self.err(SyntaxError::Unexpected(ch)),
+            Some(Token::Symbol(Symbol::Char('"'))) => { }
+            Some(Token::Symbol(ch)) => {
+                return self.err(SyntaxError::Unexpected(ch))
+            }
+            Some(Token::Newline) => {
+                return self.err(SyntaxError::UnexpectedNewline)
+            }
             None => return self.err(SyntaxError::UnexpectedEof)
         }
         loop {
             match self.read()? {
-                Some(Symbol::Char('"')) => break,
-                Some(ch) => {
+                Some(Token::Symbol(Symbol::Char('"'))) => break,
+                Some(Token::Symbol(ch)) => {
                     if let Err(err) = symbolop(&mut target, ch) {
                         return self.err(err)
                     }
+                }
+                Some(Token::Newline) => {
+                    return self.err(SyntaxError::UnexpectedNewline)
                 }
                 None => return self.err(SyntaxError::UnexpectedEof),
             }
@@ -192,7 +206,7 @@ impl<C: CharSource> Scanner<C> {
                        where F: FnMut(&mut T, Symbol)
                                     -> Result<(), SyntaxError>,
                              G: FnOnce(T) -> Result<U, SyntaxError> {
-        if let Some(Symbol::Char('"')) = self.peek()? {
+        if let Some(Token::Symbol(Symbol::Char('"'))) = self.peek()? {
             self.scan_quoted(target, symbolop, finalop)
         }
         else {
@@ -228,7 +242,6 @@ impl<C: CharSource> Scanner<C> {
                 let ch = match ch {
                     Symbol::Char(ch) | Symbol::SimpleEscape(ch) => ch,
                     Symbol::DecimalEscape(ch) => ch as char,
-                    Symbol::Newline => unreachable!(),
                 };
                 res.push(ch);
                 Ok(())
@@ -244,7 +257,7 @@ impl<C: CharSource> Scanner<C> {
     /// after its last line is still parsed successfully.
     pub fn scan_newline(&mut self) -> Result<(), ScanError> {
         match self.read()? {
-            Some(Symbol::Char(';')) => {
+            Some(Token::Symbol(Symbol::Char(';'))) => {
                 while let Some(ch) = self.read()? {
                     if ch.is_newline() {
                         break
@@ -252,7 +265,7 @@ impl<C: CharSource> Scanner<C> {
                 }
                 self.ok(())
             }
-            Some(Symbol::Newline) => self.ok(()),
+            Some(Token::Newline) => self.ok(()),
             None => self.ok(()),
             _ => self.err(SyntaxError::ExpectedNewline)
         }
@@ -290,13 +303,13 @@ impl<C: CharSource> Scanner<C> {
         loop {
             match self.read()? {
                 None => break,
-                Some(Symbol::Newline) => {
+                Some(Token::Newline) => {
                     if !quote && !self.paren {
                         break
                     }
                 }
-                Some(Symbol::Char('"')) => quote = !quote,
-                Some(Symbol::Char('(')) => {
+                Some(Token::Symbol(Symbol::Char('"'))) => quote = !quote,
+                Some(Token::Symbol(Symbol::Char('('))) => {
                     if !quote {
                         if self.paren {
                             return self.err(SyntaxError::NestedParentheses)
@@ -304,7 +317,7 @@ impl<C: CharSource> Scanner<C> {
                         self.paren = true
                     }
                 }
-                Some(Symbol::Char(')')) => {
+                Some(Token::Symbol(Symbol::Char(')'))) => {
                     if !quote {
                         if !self.paren {
                             return self.err(SyntaxError::Unexpected(')'.into()))
@@ -386,7 +399,7 @@ impl<C: CharSource> Scanner<C> {
                 if let Some(ch) = first {
                     Err(SyntaxError::Unexpected(
                             Symbol::Char(::std::char::from_digit(ch, 16)
-                                                                .unwrap())))
+                                                                 .unwrap())))
                 }
                 else {
                     finalop(res.freeze())
@@ -416,7 +429,7 @@ impl<C: CharSource> Scanner<C> {
     /// Tries to read at least one additional character into the buffer.
     ///
     /// Returns whether that succeeded.
-    fn source_symbol(&mut self) -> Result<bool, ScanError> {
+    fn source_token(&mut self) -> Result<bool, ScanError> {
         let ch = match self.chars_next()? {
             Some(ch) => ch,
             None => return Ok(false),
@@ -469,7 +482,7 @@ impl<C: CharSource> Scanner<C> {
                 return self.err_cur(SyntaxError::UnexpectedEof)
             }
         };
-        self.buf.push(ch);
+        self.buf.push(Token::Symbol(ch));
         Ok(true)
     }
 
@@ -479,27 +492,27 @@ impl<C: CharSource> Scanner<C> {
         match self.newline {
             NewlineMode::Single(sep) => {
                 if ch == sep {
-                    self.buf.push(Symbol::Newline)
+                    self.buf.push(Token::Newline)
                 }
                 else {
-                    self.buf.push(Symbol::Char(ch))
+                    self.buf.push(Token::Symbol(Symbol::Char(ch)))
                 }
                 Ok(true)
             }
             NewlineMode::Double(first, second) => {
                 if ch != first {
-                    self.buf.push(Symbol::Char(ch));
+                    self.buf.push(Token::Symbol(Symbol::Char(ch)));
                     Ok(true)
                 }
                 else {
                     match self.chars_next()? {
                         Some(ch) if ch == second => {
-                            self.buf.push(Symbol::Newline);
+                            self.buf.push(Token::Newline);
                             Ok(true)
                         }
                         Some(ch) => {
-                            self.buf.push(Symbol::Char(first));
-                            self.buf.push(Symbol::Char(ch));
+                            self.buf.push(Token::Symbol(Symbol::Char(first)));
+                            self.buf.push(Token::Symbol(Symbol::Char(ch)));
                             Ok(true)
                         }
                         None => {
@@ -511,38 +524,38 @@ impl<C: CharSource> Scanner<C> {
             }
             NewlineMode::Unknown => {
                 if ch != '\r' && ch != '\n' {
-                    self.buf.push(Symbol::Char(ch));
+                    self.buf.push(Token::Symbol(Symbol::Char(ch)));
                     Ok(true)
                 }
                 else if let Some(second) = self.chars_next()? {
                     match (ch, second) {
                         ('\r', '\n') | ('\n', '\r') => {
                             self.newline = NewlineMode::Double(ch, second);
-                            self.buf.push(Symbol::Newline);
+                            self.buf.push(Token::Newline);
                         }
                         ('\r', '\r') | ('\n', '\n')  => {
                             self.newline = NewlineMode::Single(ch);
-                            self.buf.push(Symbol::Newline);
-                            self.buf.push(Symbol::Newline);
+                            self.buf.push(Token::Newline);
+                            self.buf.push(Token::Newline);
                         }
                         ('\r', _) | ('\n', _) => {
                             self.newline = NewlineMode::Single(ch);
-                            self.buf.push(Symbol::Newline);
-                            self.buf.push(Symbol::Char(second));
+                            self.buf.push(Token::Newline);
+                            self.buf.push(Token::Symbol(Symbol::Char(second)));
                         }
                         _ => {
-                            self.buf.push(Symbol::Char(ch));
-                            self.buf.push(Symbol::Char(second));
+                            self.buf.push(Token::Symbol(Symbol::Char(ch)));
+                            self.buf.push(Token::Symbol(Symbol::Char(second)));
                         }
                     }
                     Ok(true)
                 }
                 else {
                     if ch == '\r' || ch == '\n' {
-                        self.buf.push(Symbol::Newline);
+                        self.buf.push(Token::Newline);
                     }
                     else {
-                        self.buf.push(Symbol::Char(ch))
+                        self.buf.push(Token::Symbol(Symbol::Char(ch)))
                     }
                     Ok(true)
                 }
@@ -555,9 +568,9 @@ impl<C: CharSource> Scanner<C> {
     /// On success, returns the symbol. It the end of the
     /// underlying source is reached, returns `Ok(None)`. If reading on the
     /// underlying source results in an error, returns that.
-    fn peek(&mut self) -> Result<Option<Symbol>, ScanError> {
+    fn peek(&mut self) -> Result<Option<Token>, ScanError> {
         if self.buf.len() == self.cur {
-            if !self.source_symbol()? {
+            if !self.source_token()? {
                 return Ok(None)
             }
         }
@@ -569,7 +582,7 @@ impl<C: CharSource> Scanner<C> {
     /// On success, returns the `Ok(Some(_))` character. It the end of the
     /// underlying source is reached, returns `Ok(None)`. If reading on the
     /// underlying source results in an error, returns that.
-    fn read(&mut self) -> Result<Option<Symbol>, ScanError> {
+    fn read(&mut self) -> Result<Option<Token>, ScanError> {
         self.peek().map(|res| match res {
             Some(ch) => {
                 self.cur += 1;
@@ -631,10 +644,22 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// The method does not progress or backtrack.
     fn cond_read<F>(&mut self, f: F)
-                         -> Result<Option<Symbol>, ScanError>
-                      where F: FnOnce(Symbol) -> bool {
+                         -> Result<Option<Token>, ScanError>
+                      where F: FnOnce(Token) -> bool {
         match self.peek()? {
             Some(ch) if f(ch) => self.read(),
+            _ => Ok(None)
+        }
+    }
+
+    fn cond_read_symbol<F>(&mut self, f: F)
+                           -> Result<Option<Symbol>, ScanError>
+                        where F: FnOnce(Symbol) -> bool {
+        match self.peek()? {
+            Some(Token::Symbol(ch)) if f(ch) => {
+                let _ = self.read();
+                Ok(Some(ch))
+            }
             _ => Ok(None)
         }
     }
@@ -674,17 +699,17 @@ impl<C: CharSource> Scanner<C> {
         let mut res = false;
         loop {
             if self.paren {
-                match self.cond_read(Symbol::is_paren_space)? {
+                match self.cond_read(Token::is_paren_space)? {
                     None => break,
-                    Some(Symbol::Char('(')) => {
+                    Some(Token::Symbol(Symbol::Char('('))) => {
                         let pos = self.cur_pos.prev();
                         return self.err_at(SyntaxError::NestedParentheses,
                                            pos)
                     }
-                    Some(Symbol::Char(')')) => {
+                    Some(Token::Symbol(Symbol::Char(')'))) => {
                         self.paren = false;
                     }
-                    Some(Symbol::Char(';')) => {
+                    Some(Token::Symbol(Symbol::Char(';'))) => {
                         while let Some(ch) = self.read()? {
                             if ch.is_newline() {
                                 break
@@ -695,15 +720,15 @@ impl<C: CharSource> Scanner<C> {
                 }
             }
             else {
-                match self.cond_read(Symbol::is_non_paren_space)? {
+                match self.cond_read(Token::is_non_paren_space)? {
                     None => break,
-                    Some(Symbol::Char('(')) => {
+                    Some(Token::Symbol(Symbol::Char('('))) => {
                         self.paren = true;
                     }
-                    Some(Symbol::Char(')')) => {
+                    Some(Token::Symbol(Symbol::Char(')'))) => {
                         let pos = self.cur_pos.prev();
                         return self.err_at(SyntaxError::Unexpected(
-                                                    Symbol::Char(')')), pos)
+                                                             ')'.into()), pos)
                     }
                     _ => { }
                 }
@@ -822,7 +847,6 @@ impl Scan for u8 {
 
 //------------ Symbol --------------------------------------------------------
 
-/// A single symbol parsed from a master file.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Symbol {
     /// An unescaped Unicode character.
@@ -833,12 +857,6 @@ pub enum Symbol {
 
     /// An escaped character using the decimal escape sequence.
     DecimalEscape(u8),
-
-    /// A new line.
-    ///
-    /// This needs special treatment because of the varying encoding of
-    /// newlines on different systems.
-    Newline,
 }
 
 impl Symbol {
@@ -862,7 +880,6 @@ impl Symbol {
                 }
             }
             Symbol::DecimalEscape(ch) => Ok(ch),
-            _ => Err(SyntaxError::Unexpected(self))
         }
     }
 
@@ -892,13 +909,46 @@ impl Symbol {
         })
     }
 
+    pub fn is_word_char(self) -> bool {
+        match self {
+            Symbol::Char(ch) => {
+                ch != ' ' && ch != '\t' && ch != '(' && ch != ')' ||
+                ch != ';' && ch != '"'
+            }
+            _ => true
+        }
+    }
+}
+
+impl From<char> for Symbol {
+    fn from(ch: char) -> Symbol {
+        Symbol::Char(ch)
+    }
+}
+
+
+//------------ Token ---------------------------------------------------------
+
+/// A single symbol parsed from a master file.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Token {
+    Symbol(Symbol),
+
+    /// A new line.
+    ///
+    /// This needs special treatment because of the varying encoding of
+    /// newlines on different systems.
+    Newline,
+}
+
+impl Token {
     /// Checks for space-worthy character outside a parenthesized group.
     ///
     /// These are horizontal white space plus opening and closing parentheses
     /// which need special treatment.
     fn is_non_paren_space(self) -> bool {
         match self {
-            Symbol::Char(ch) => {
+            Token::Symbol(Symbol::Char(ch)) => {
                 ch == ' ' || ch == '\t' || ch == '(' || ch == ')'
             }
             _ => false
@@ -911,45 +961,28 @@ impl Symbol {
     /// break characters.
     fn is_paren_space(self) -> bool {
         match self {
-            Symbol::Char(ch) => {
+            Token::Symbol(Symbol::Char(ch)) => {
                 ch == ' ' || ch == '\t' || ch == '(' || ch == ')' ||
                 ch == ';'
             }
-            Symbol::Newline => true,
+            Token::Newline => true,
             _ => false
         }
     }
 
     fn is_newline(self) -> bool {
         match self {
-            Symbol::Newline => true,
+            Token::Newline => true,
             _ => false,
         }
     }
 
     fn is_newline_ahead(self) -> bool {
         match self {
-            Symbol::Char(';') => true,
-            Symbol::Newline => true,
+            Token::Symbol(Symbol::Char(';')) => true,
+            Token::Newline => true,
             _ => false,
         }
-    }
-
-    fn is_word_char(self) -> bool {
-        match self {
-            Symbol::Char(ch) => {
-                ch != ' ' && ch != '\t' && 
-                ch != '(' && ch != ')' && ch != ';' && ch != '"'
-            }
-            Symbol::Newline => false,
-            _ => true
-        }
-    }
-}
-
-impl From<char> for Symbol {
-    fn from(ch: char) -> Self {
-        Symbol::Char(ch)
     }
 }
 

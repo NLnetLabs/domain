@@ -213,7 +213,6 @@ impl Scan for UncertainDname {
                             return Err(FromStrError::from(err).into())
                         }
                     }
-                    _ => unreachable!()
                 }
                 Ok(())
             },
