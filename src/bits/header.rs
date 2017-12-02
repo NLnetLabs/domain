@@ -2,16 +2,16 @@
 //!
 //! Each DNS message starts with a twelve octet long header section
 //! containing some general information related to the message as well as
-//! the number of records in each of its four sections. Its content and
-//! format are defined in section 4.1.1 of [RFC 1035].
+//! the number of records in each of the four sections that follow the header.
+//! Its content and format are defined in section 4.1.1 of [RFC 1035].
 //!
 //! In order to reflect the fact that changing the section counts may
 //! invalidate the rest of the message whereas the other elements of the
-//! header section can safely be modified, the header section has been split
-//! into two separate types: [`Header`] contains the ‘safe’ part at the
-//! beginning of the section and [`HeaderCounts`] contains the section 
-//! counts. In addition, the [`HeaderSection`] type wraps both of them into
-//! a single type.
+//! header section can safely be modified, the whole header has been split
+//! into two separate types: [`Header`] contains the safely modifyable part
+//! at the beginning and [`HeaderCounts`] contains the section counts. In
+//! addition, the [`HeaderSection`] type wraps both of them into a single
+//! type.
 //!
 //! [`Header`]: struct.Header.html
 //! [`HeaderCounts`]: struct.HeaderCounts.html
@@ -32,7 +32,8 @@ use super::parse::{Parse, Parser, ShortBuf};
 /// This type represents the information contained in the first four bytes of
 /// the header: the message ID, opcode, rcode, and the various flags.
 ///
-/// The header is layed out like this:
+/// The type’s data contains such a header in its wire format which is layed
+/// out like this:
 ///
 /// ```text
 ///                                 1  1  1  1  1  1
@@ -44,11 +45,11 @@ use super::parse::{Parse, Parser, ShortBuf};
 /// +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 /// ```
 ///
-/// Methods are available for each of accessing each of these fields.
+/// Methods are available for accessing each of these fields.
 /// See [Field Access] below.
 ///
-/// Most of this is defined in [RFC 1035], except for the AD and CD flags,
-/// which are defined in [RFC 4035].
+/// The basic structure and most of the fields re defined in [RFC 1035],
+/// except for the AD and CD flags, which are defined in [RFC 4035].
 ///
 /// [Field Access]: #field-access 
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
@@ -69,8 +70,7 @@ impl Header {
     /// The new header has all fields as either zero or false. Thus, the
     /// opcode will be `Opcode::Query` and the response code will be
     /// `Rcode::NoError`.
-    ///
-    pub fn new() -> Header {
+    pub fn new() -> Self {
         Self::default()
     }
 
@@ -78,7 +78,7 @@ impl Header {
     ///
     /// # Panics
     ///
-    /// This function panics if the bytes slice is too short.
+    /// This function panics if the byte slice is too short.
     pub fn for_message_slice(s: &[u8]) -> &Header {
         assert!(s.len() >= mem::size_of::<Header>());
         unsafe { &*(s.as_ptr() as *const Header) }
@@ -88,7 +88,7 @@ impl Header {
     ///
     /// # Panics
     ///
-    /// This function panics if the bytes slice is too short.
+    /// This function panics if the byte slice is too short.
     pub fn for_message_slice_mut(s: &mut [u8]) -> &mut Header {
         assert!(s.len() >= mem::size_of::<Header>());
         unsafe { &mut *(s.as_ptr() as *mut Header) }
@@ -107,8 +107,8 @@ impl Header {
     /// Returns the value of the ID field.
     ///
     /// The ID field is an identifier chosen by whoever created a query
-    /// and is copied into a response. It serves to match incoming responses
-    /// to their request.
+    /// and is copied into a response by a server. It allows matching
+    /// incoming responses to their queries.
     pub fn id(&self) -> u16 {
         BigEndian::read_u16(&self.inner)
     }
@@ -119,13 +119,16 @@ impl Header {
     }
 
     /// Sets the value of the ID field to a randomly chosen number.
+    ///
+    /// This uses [`rand::random`] which may not be good enough.
     pub fn set_random_id(&mut self) { self.set_id(::rand::random()) }
 
     /// Returns whether the QR bit is set.
     ///
     /// The QR bit specifies whether this message is a query (`false`) or
     /// a response (`true`). In other words, this bit is actually stating
-    /// whether the message is *not* a query.
+    /// whether the message is *not* a query. So, perhaps it might be good
+    /// to read ‘QR’ as ‘query response.’
     pub fn qr(&self) -> bool { self.get_bit(2, 7) }
 
     /// Sets the value of the QR bit.
@@ -298,36 +301,42 @@ impl HeaderCounts {
 
     /// Creates a header reference from a byte slice of a message.
     ///
+    /// The slice `message` mut be the whole message, i.e., start with the
+    /// bytes of the [`Header`](struct.Header.html).
+    /// 
     /// # Panics
     ///
     /// This function panics if the bytes slice is too short.
-    pub fn for_message_slice(s: &[u8]) -> &Self {
-        assert!(s.len() >= mem::size_of::<HeaderSection>());
+    pub fn for_message_slice(message: &[u8]) -> &Self {
+        assert!(message.len() >= mem::size_of::<HeaderSection>());
         unsafe {
-            &*((s[mem::size_of::<Header>()..].as_ptr())
+            &*((message[mem::size_of::<Header>()..].as_ptr())
                                                       as *const HeaderCounts)
         }
     }
 
     /// Creates a mutable header reference from a bytes slice of a message.
     ///
+    /// The slice `message` mut be the whole message, i.e., start with the
+    /// bytes of the [`Header`](struct.Header.html).
+    ///
     /// # Panics
     ///
     /// This function panics if the bytes slice is too short.
-    pub fn for_message_slice_mut(s: &mut [u8]) -> &mut Self {
-        assert!(s.len() >= mem::size_of::<HeaderSection>());
+    pub fn for_message_slice_mut(message: &mut [u8]) -> &mut Self {
+        assert!(message.len() >= mem::size_of::<HeaderSection>());
         unsafe {
-            &mut *((s[mem::size_of::<Header>()..].as_ptr())
+            &mut *((message[mem::size_of::<Header>()..].as_ptr())
                                                          as *mut HeaderCounts)
         }
     }
 
-    /// Returns a reference to the underlying byte slice.
+    /// Returns a reference to the raw byte slice of the header counts.
     pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
 
-    /// Returns a mutable reference to the underlying byte slice.
+    /// Returns a mutable reference to the raw byte slice of the header counts.
     pub fn as_slice_mut(&mut self) -> &mut [u8] {
         &mut self.inner
     }
@@ -357,7 +366,7 @@ impl HeaderCounts {
         self.set_u16(0, value)
     }
 
-    /// Increases the value of the QDCOUNT field by own.
+    /// Increases the value of the QDCOUNT field by one.
     ///
     /// # Panics
     ///
@@ -381,7 +390,7 @@ impl HeaderCounts {
         self.set_u16(2, value)
     }
 
-    /// Increases the value of the ANCOUNT field by own.
+    /// Increases the value of the ANCOUNT field by one.
     ///
     /// # Panics
     ///
@@ -405,7 +414,7 @@ impl HeaderCounts {
         self.set_u16(4, value)
     }
 
-    /// Increases the value of the NSCOUNT field by own.
+    /// Increases the value of the NSCOUNT field by one.
     ///
     /// # Panics
     ///
@@ -429,7 +438,7 @@ impl HeaderCounts {
         self.set_u16(6, value)
     }
 
-    /// Increases the value of the ARCOUNT field by own.
+    /// Increases the value of the ARCOUNT field by one.
     ///
     /// # Panics
     ///
@@ -551,7 +560,7 @@ impl HeaderSection {
     }
 
     /// Returns a reference to the underlying bytes slice.
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
 }
@@ -608,11 +617,47 @@ impl Compose for HeaderSection {
 
 //============ Testing ======================================================
 
-/*
 #[cfg(test)]
 mod test {
     use super::*;
     use iana::{Opcode, Rcode};
+
+    #[test]
+    fn for_slice() {
+        let header = b"\x01\x02\x00\x00\x12\x34\x56\x78\x9a\xbc\xde\xf0";
+        let mut vec = Vec::from(&header[..]);
+        assert_eq!(Header::for_message_slice(header).as_slice(),
+                   b"\x01\x02\x00\x00");
+        assert_eq!(Header::for_message_slice_mut(vec.as_mut()).as_slice(),
+                   b"\x01\x02\x00\x00");
+        assert_eq!(HeaderCounts::for_message_slice(header).as_slice(),
+                   b"\x12\x34\x56\x78\x9a\xbc\xde\xf0");
+        assert_eq!(HeaderCounts::for_message_slice_mut(vec.as_mut()).as_slice(),
+                   b"\x12\x34\x56\x78\x9a\xbc\xde\xf0");
+        assert_eq!(HeaderSection::for_message_slice(header).as_slice(),
+                   header);
+        assert_eq!(HeaderSection::for_message_slice_mut(vec.as_mut())
+                                 .as_slice(),
+                   header);
+    }
+
+    #[test]
+    #[should_panic]
+    fn short_header() {
+        Header::for_message_slice(b"134");
+    }
+
+    #[test]
+    #[should_panic]
+    fn short_header_counts() {
+        HeaderCounts::for_message_slice(b"12345678");
+    }
+
+    #[test]
+    #[should_panic]
+    fn short_header_section() {
+        HeaderSection::for_message_slice(b"1234");
+    }
 
     macro_rules! test_field {
         ($get:ident, $set:ident, $default:expr, $($value:expr),*) => {
@@ -623,24 +668,6 @@ mod test {
                 assert_eq!(h.$get(), $value);
             })*
         }
-    }
-
-    #[test]
-    #[should_panic]
-    fn short_header() {
-        Header::from_message(b"134");
-    }
-
-    #[test]
-    #[should_panic]
-    fn short_header_counts() {
-        HeaderCounts::from_message(b"12345678");
-    }
-
-    #[test]
-    #[should_panic]
-    fn short_header_section() {
-        HeaderSection::from_message(b"1234");
     }
 
     #[test]
@@ -665,11 +692,11 @@ mod test {
         assert_eq!(c.ancount(), 0x0304);
         assert_eq!(c.nscount(), 0x0506);
         assert_eq!(c.arcount(), 0x0708);
-        c.inc_qdcount(1).unwrap();
-        c.inc_ancount(1).unwrap();
-        c.inc_nscount(0x0100).unwrap();
-        c.inc_arcount(0x0100).unwrap();
-        assert_eq!(c.inner, [ 1, 3, 3, 5, 6, 6, 8, 8 ]);
+        c.inc_qdcount();
+        c.inc_ancount();
+        c.inc_nscount();
+        c.inc_arcount();
+        assert_eq!(c.inner, [ 1, 3, 3, 5, 5, 7, 7, 9 ]);
         c.set_qdcount(0x0807);
         c.set_ancount(0x0605);
         c.set_nscount(0x0403);
@@ -684,16 +711,46 @@ mod test {
         assert_eq!(c.prcount(), 0x0304);
         assert_eq!(c.upcount(), 0x0506);
         assert_eq!(c.adcount(), 0x0708);
-        c.inc_zocount(1).unwrap();
-        c.inc_prcount(1).unwrap();
-        c.inc_upcount(0x0100).unwrap();
-        c.inc_adcount(0x0100).unwrap();
-        assert_eq!(c.inner, [ 1, 3, 3, 5, 6, 6, 8, 8 ]);
         c.set_zocount(0x0807);
         c.set_prcount(0x0605);
         c.set_upcount(0x0403);
         c.set_adcount(0x0201);
         assert_eq!(c.inner, [ 8, 7, 6, 5, 4, 3, 2, 1 ]);
     }
+
+    #[test]
+    #[should_panic]
+    fn bad_inc_qdcount() {
+        let mut c = HeaderCounts {
+            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff ]
+        };
+        c.inc_qdcount()
+    }
+
+    #[test]
+    #[should_panic]
+    fn bad_inc_ancount() {
+        let mut c = HeaderCounts {
+            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff ]
+        };
+        c.inc_ancount()
+    }
+
+    #[test]
+    #[should_panic]
+    fn bad_inc_nscount() {
+        let mut c = HeaderCounts {
+            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff ]
+        };
+        c.inc_nscount()
+    }
+
+    #[test]
+    #[should_panic]
+    fn bad_inc_arcount() {
+        let mut c = HeaderCounts {
+            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff ]
+        };
+        c.inc_arcount()
+    }
 }
-*/

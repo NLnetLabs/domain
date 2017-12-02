@@ -587,8 +587,7 @@ mod test {
 
     #[test]
     fn parse() {
-        use ::bits::error::ShortBuf;
-        use ::bits::parse::{Parse, Parser};
+        use ::bits::parse::{Parse, Parser, ShortBuf};
 
         let mut parser = Parser::from_static(b"12\x03foo\x02bartail");
         parser.advance(2).unwrap();

@@ -87,8 +87,8 @@
 
 pub use self::charstr::{CharStr, CharStrMut};
 pub use self::compose::{Compose, Compress, Compressor};
-/*
 pub use self::header::{Header, HeaderCounts, HeaderSection};
+/*
 pub use self::message::{Message, MessageBuf};
 pub use self::message_builder::{MessageBuilder, AnswerBuilder,
                                 AuthorityBuilder, AdditionalBuilder};
@@ -104,7 +104,7 @@ pub use self::record::{GenericRecord, Record};
 
 pub mod charstr;
 pub mod compose;
-    pub mod header;
+pub mod header;
     pub mod message;
     pub mod message_builder;
     pub mod name;
