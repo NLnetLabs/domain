@@ -4,7 +4,7 @@ use std::{fmt, io, iter};
 use std::io::Write;
 use bytes::BufMut;
 use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::error::ShortBuf;
+use ::bits::parse::ShortBuf;
 use ::master::print::{Print, Printer};
 use super::error::LongNameError;
 use super::label::Label;

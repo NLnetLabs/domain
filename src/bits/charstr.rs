@@ -32,8 +32,7 @@ use ::master::print::{Print, Printer};
 use ::master::scan::{BadSymbol, CharSource, Scan, Scanner, Symbol,
                      SymbolError};
 use super::compose::Compose;
-use super::error::ShortBuf;
-use super::parse::{ParseAll, ParseAllError, Parse, Parser};
+use super::parse::{ParseAll, ParseAllError, Parse, Parser, ShortBuf};
 
 
 //------------ CharStr -------------------------------------------------------

@@ -12,10 +12,9 @@ use bytes::{BufMut, Bytes, BytesMut};
 use ::iana::Rtype;
 use ::bits::charstr::CharStr;
 use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::error::ShortBuf;
 use ::bits::name::ParsedDname;
 use ::bits::parse::{ParseAll, ParseAllError, ParseOpenError, Parse,
-                    Parser};
+                    Parser, ShortBuf};
 use ::bits::rdata::RtypeRecordData;
 use ::bits::serial::Serial;
 use ::master::print::{Print, Printer};

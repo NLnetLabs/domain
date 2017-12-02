@@ -8,7 +8,6 @@
 //! [`Parse`]: trait.Parse.html
 use std::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{BigEndian, ByteOrder, Bytes};
-use super::error::ShortBuf;
 
 
 //------------ Parser --------------------------------------------------------
@@ -423,6 +422,14 @@ impl From<ShortBuf> for ParseOpenError {
         ParseOpenError::ShortBuf
     }
 }
+
+
+//------------ ShortBuf ------------------------------------------------------
+
+/// An attempt was made to go beyond the end of a buffer.
+#[derive(Clone, Debug, Eq, Fail, PartialEq)]
+#[fail(display="unexpected end of buffer")]
+pub struct ShortBuf;
 
 
 //--------- ParseAllError ----------------------------------------------------

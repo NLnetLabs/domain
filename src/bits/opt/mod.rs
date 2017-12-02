@@ -11,9 +11,8 @@ use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
 use ::iana::{OptionCode, OptRcode, Rtype};
 use super::compose::{Compose, Compress, Compressor};
-use super::error::ShortBuf;
 use super::header::Header;
-use super::parse::{ParseAll, Parser};
+use super::parse::{ParseAll, Parser, ShortBuf};
 use super::rdata::RtypeRecordData;
 
 

@@ -91,7 +91,7 @@ macro_rules! int_enum {
         //--- Parse and Compose
 
         impl $crate::bits::parse::Parse for $ianatype {
-            type Err = $crate::bits::error::ShortBuf;
+            type Err = $crate::bits::parse::ShortBuf;
 
             fn parse(parser: &mut $crate::bits::parse::Parser)
                      -> Result<Self, Self::Err> {

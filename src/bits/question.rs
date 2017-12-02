@@ -1,8 +1,7 @@
 use bytes::BufMut;
 use ::iana::{Class, Rtype};
 use super::compose::{Compose, Compress, Compressor};
-use super::error::ShortBuf;
-use super::parse::{Parse, Parser};
+use super::parse::{Parse, Parser, ShortBuf};
 
 
 //------------ Question ------------------------------------------------------

@@ -2,10 +2,9 @@
 
 use bytes::BufMut;
 use ::bits::compose::Compose;
-use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
 use ::bits::name::{Dname, ToDname};
-use ::bits::parse::{ParseAll, Parser};
+use ::bits::parse::{ParseAll, Parser, ShortBuf};
 use ::iana::OptionCode;
 use super::CodeOptData;
 

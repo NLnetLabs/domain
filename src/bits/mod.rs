@@ -104,7 +104,6 @@ pub use self::record::{GenericRecord, Record};
 
 pub mod charstr;
 pub mod compose;
-    pub mod error;
     pub mod header;
     pub mod message;
     pub mod message_builder;

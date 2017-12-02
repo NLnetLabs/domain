@@ -69,7 +69,7 @@ macro_rules! master_types {
 
         impl ::bits::compose::Compress for MasterRecordData {
             fn compress(&self, buf: &mut ::bits::compose::Compressor)
-                        -> Result<(), ::bits::error::ShortBuf> {
+                        -> Result<(), ::bits::parse::ShortBuf> {
                 match *self {
                     $(
                         $(

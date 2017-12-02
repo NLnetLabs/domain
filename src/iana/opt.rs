@@ -5,8 +5,7 @@ use std::fmt;
 use std::hash;
 use bytes::BufMut;
 use ::bits::compose::Compose;
-use ::bits::error::ShortBuf;
-use ::bits::parse::{Parse, Parser};
+use ::bits::parse::{Parse, Parser, ShortBuf};
 
 
 //------------ OptionCode ---------------------------------------------------

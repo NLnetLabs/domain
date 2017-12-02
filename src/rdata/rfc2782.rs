@@ -6,9 +6,8 @@
 
 use std::{fmt, io};
 use bytes::BufMut;
-use ::bits::error::ShortBuf;
 use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, Parser, ParseOpenError};
+use ::bits::parse::{Parse, ParseAll, Parser, ParseOpenError, ShortBuf};
 use ::bits::rdata::RtypeRecordData;
 use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError};

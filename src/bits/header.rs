@@ -22,8 +22,7 @@ use std::mem;
 use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Opcode, Rcode};
 use super::compose::Compose;
-use super::error::ShortBuf;
-use super::parse::{Parse, Parser};
+use super::parse::{Parse, Parser, ShortBuf};
 
 
 //------------ Header --------------------------------------------------

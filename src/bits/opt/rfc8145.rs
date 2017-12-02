@@ -2,9 +2,8 @@
 
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
 use ::bits::compose::Compose;
-use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, ParseAllError, Parser};
+use ::bits::parse::{ParseAll, ParseAllError, Parser, ShortBuf};
 use ::iana::OptionCode;
 use super::CodeOptData;
 

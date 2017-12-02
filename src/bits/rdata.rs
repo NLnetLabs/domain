@@ -31,8 +31,7 @@ use ::iana::Rtype;
 use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use super::compose::{Compose, Compress, Compressor};
-use super::error::ShortBuf;
-use super::parse::{ParseAll, Parser};
+use super::parse::{ParseAll, Parser, ShortBuf};
 
 
 //----------- RecordData -----------------------------------------------------

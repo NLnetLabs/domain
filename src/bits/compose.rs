@@ -34,8 +34,8 @@ use std::ops;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{BigEndian, BufMut, Bytes, BytesMut};
-use super::error::ShortBuf;
 use super::name::{Dname, Label, ToDname};
+use super::parse::ShortBuf;
 
 
 //------------ Compose -------------------------------------------------------

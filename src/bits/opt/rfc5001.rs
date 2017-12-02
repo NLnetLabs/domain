@@ -3,9 +3,8 @@
 use std::fmt;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Compose;
-use ::bits::error::ShortBuf;
 use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, Parser};
+use ::bits::parse::{ParseAll, Parser, ShortBuf};
 use ::iana::OptionCode;
 use super::CodeOptData;
 

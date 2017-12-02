@@ -14,9 +14,8 @@ use ::iana::{Class, Rtype};
 use ::master::print::{Print, Printer};
 //use ::master::scan::{CharSource, Scannable, Scanner};
 use super::compose::{Compose, Compress, Compressor};
-use super::error::ShortBuf;
 use super::name::{ParsedDname, ParsedDnameError};
-use super::parse::{Parse, Parser};
+use super::parse::{Parse, Parser, ShortBuf};
 use super::rdata::{ParseRecordData, RecordData};
 
 

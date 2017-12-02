@@ -5,8 +5,7 @@ use std::ascii::AsciiExt;
 use std::io::Write;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::error::ShortBuf;
-use ::bits::parse::{Parse, ParseAll, Parser};
+use ::bits::parse::{Parse, ParseAll, Parser, ShortBuf};
 use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use super::error::{FromStrError, IndexError, LabelTypeError,
