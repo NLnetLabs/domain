@@ -91,7 +91,7 @@ impl<L: Compose, R: Compose> Compose for Chain<L, R> {
 
 impl<L: ToRelativeDname, R: ToDname> Compress for Chain<L, R> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose_name(self)
+        buf.compress_name(self)
     }
 }
 

@@ -86,9 +86,8 @@
 //--- Re-exports
 
 pub use self::charstr::{CharStr, CharStrMut};
+pub use self::compose::{Compose, Compress, Compressor};
 /*
-pub use self::compose::{Composable, Composer, ComposeError, ComposeMode,
-                        ComposeResult, ComposeSnapshot};
 pub use self::header::{Header, HeaderCounts, HeaderSection};
 pub use self::message::{Message, MessageBuf};
 pub use self::message_builder::{MessageBuilder, AnswerBuilder,
@@ -104,7 +103,7 @@ pub use self::record::{GenericRecord, Record};
 //--- Modules
 
 pub mod charstr;
-    pub mod compose;
+pub mod compose;
     pub mod error;
     pub mod header;
     pub mod message;

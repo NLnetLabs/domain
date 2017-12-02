@@ -194,7 +194,7 @@ impl Compose for ParsedDname {
 
 impl Compress for ParsedDname {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose_name(self)
+        buf.compress_name(self)
     }
 }
 

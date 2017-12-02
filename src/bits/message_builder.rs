@@ -616,21 +616,21 @@ impl MessageTarget {
 
     /// Returns a reference to the message’s header.
     fn header(&self) -> &Header {
-        Header::for_message_slice(self.buf.slice())
+        Header::for_message_slice(self.buf.so_far())
     }
 
     /// Returns a mutable reference to the message’s header.
     fn header_mut(&mut self) -> &mut Header {
-        Header::for_message_slice_mut(self.buf.slice_mut())
+        Header::for_message_slice_mut(self.buf.so_far_mut())
     }
 
     fn counts(&self) -> &HeaderCounts {
-        HeaderCounts::for_message_slice(self.buf.slice())
+        HeaderCounts::for_message_slice(self.buf.so_far())
     }
 
     /// Returns a mutable reference to the message’s header counts.
     fn counts_mut(&mut self) -> &mut HeaderCounts {
-        HeaderCounts::for_message_slice_mut(self.buf.slice_mut())
+        HeaderCounts::for_message_slice_mut(self.buf.so_far_mut())
     }
 
     /// Pushes something to the end of the message.

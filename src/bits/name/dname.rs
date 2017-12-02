@@ -88,6 +88,10 @@ impl Dname {
         Ok(unsafe { Dname::from_bytes_unchecked(bytes) })
     }
 
+    pub fn from_slice(s: &[u8]) -> Result<Self, DnameBytesError> {
+        Self::from_bytes(s.into())
+    }
+
     /// Creates a domain name from a sequence of characters.
     ///
     /// The sequence must result in a domain name in master format
@@ -358,7 +362,7 @@ impl Compose for Dname {
 
 impl Compress for Dname {
     fn compress(&self, compressor: &mut Compressor) -> Result<(), ShortBuf> {
-        compressor.compose_name(self)
+        compressor.compress_name(self)
     }
 }
 
