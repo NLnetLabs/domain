@@ -609,6 +609,7 @@ impl Compose for HeaderSection {
 
 //============ Testing ======================================================
 
+/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -696,4 +697,4 @@ mod test {
         assert_eq!(c.inner, [ 8, 7, 6, 5, 4, 3, 2, 1 ]);
     }
 }
-
+*/

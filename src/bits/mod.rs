@@ -79,12 +79,14 @@
 //!   actual implementations of the various record types are in the top-level
 //!   [rdata](../rdata/index.html) module, and
 //! * [record](record/index.html) for DNS resource records.
+//!
+//! The main types from each module are being reimported here.
 
 
 //--- Re-exports
 
+pub use self::charstr::{CharStr, CharStrMut};
 /*
-pub use self::charstr::{CharStr, CharStrBuf};
 pub use self::compose::{Composable, Composer, ComposeError, ComposeMode,
                         ComposeResult, ComposeSnapshot};
 pub use self::header::{Header, HeaderCounts, HeaderSection};
@@ -101,7 +103,7 @@ pub use self::record::{GenericRecord, Record};
 
 //--- Modules
 
-    pub mod charstr;
+pub mod charstr;
     pub mod compose;
     pub mod error;
     pub mod header;

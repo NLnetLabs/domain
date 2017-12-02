@@ -48,6 +48,13 @@ impl Parser {
         Parser { bytes, pos: 0 }
     }
 
+    /// Creates a new parser atop a static byte slice.
+    ///
+    /// This function is most useful for testing.
+    pub fn from_static(slice: &'static [u8]) -> Self {
+        Self::from_bytes(Bytes::from_static(slice))
+    }
+
     /// Extracts the underlying bytes value from the parser.
     ///
     /// This will be the same bytes value the parser was created with. It
@@ -316,6 +323,22 @@ pub trait ParseAll: Sized {
 
     fn parse_all(parser: &mut Parser, len: usize)
                  -> Result<Self, Self::Err>;
+}
+
+impl ParseAll for u8 {
+    type Err = ParseAllError;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        if len < 1 {
+            Err(ParseAllError::ShortField)
+        }
+        else if len > 1 {
+            Err(ParseAllError::TrailingData)
+        }
+        else {
+            Ok(Self::parse(parser)?)
+        }
+    }
 }
 
 impl ParseAll for u16 {

@@ -6,6 +6,25 @@ use ::bits::name;
 use super::scan::{Symbol, Token};
 
 
+//------------ SymbolError ---------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum SymbolError {
+    #[fail(display="illegal escape sequence")]
+    BadEscape,
+
+    #[fail(display="unexpected end of input")]
+    ShortInput
+}
+
+
+//------------ BadSymbol -----------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[fail(display="bad symbol '{}'", _0)]
+pub struct BadSymbol(pub Symbol);
+
+
 //------------ SyntaxError ---------------------------------------------------
 
 /// A syntax error happened while scanning master data.
@@ -33,6 +52,12 @@ pub enum SyntaxError {
     UnknownClass(String),
     UnknownProto(String),
     UnknownServ(String),
+}
+
+impl From<BadSymbol> for SyntaxError {
+    fn from(err: BadSymbol) -> SyntaxError {
+        SyntaxError::Unexpected(err.0)
+    }
 }
 
 impl From<AddrParseError> for SyntaxError {

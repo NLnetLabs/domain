@@ -1,11 +1,11 @@
 //! Scanning master file tokens.
 
-use std::io;
+use std::{fmt, io};
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes, BytesMut};
 
 // XXX Move these here for more compact imports.
-pub use super::error::{ScanError, SyntaxError, Pos};
+pub use super::error::{BadSymbol, ScanError, SymbolError, SyntaxError, Pos};
 
 
 //------------ CharSource ----------------------------------------------------
@@ -226,7 +226,7 @@ impl<C: CharSource> Scanner<C> {
                             where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
         self.scan_phrase(
             BytesMut::new(),
-            |buf, symbol| symbol.push_to_buf(buf),
+            |buf, symbol| symbol.push_to_buf(buf).map_err(Into::into),
             |buf| finalop(buf.freeze())
         )
     }
@@ -860,23 +860,74 @@ pub enum Symbol {
 }
 
 impl Symbol {
+    pub fn from_chars<C>(chars: C) -> Result<Option<Self>, SymbolError>
+                      where C: IntoIterator<Item=char> {
+        let mut chars = chars.into_iter();
+        let ch = match chars.next() {
+            Some(ch) => ch,
+            None => return Ok(None),
+        };
+        if ch != '\\' {
+            return Ok(Some(Symbol::Char(ch)))
+        }
+        match chars.next() {
+            Some(ch) if ch.is_digit(10) => {
+                let ch = ch.to_digit(10).unwrap() * 100;
+                let ch2 = match chars.next() {
+                    Some(ch) => match ch.to_digit(10) {
+                        Some(ch) => ch * 10,
+                        None => return Err(SymbolError::BadEscape)
+                    }
+                    None => return Err(SymbolError::ShortInput)
+                };
+                let ch3 = match chars.next() {
+                    Some(ch)  => match ch.to_digit(10) {
+                        Some(ch) => ch,
+                        None => return Err(SymbolError::BadEscape)
+                    }
+                    None => return Err(SymbolError::ShortInput)
+                };
+                let res = ch + ch2 + ch3;
+                if res > 255 {
+                    return Err(SymbolError::BadEscape)
+                }
+                Ok(Some(Symbol::DecimalEscape(res as u8)))
+            }
+            Some(ch) => Ok(Some(Symbol::SimpleEscape(ch))),
+            None => Err(SymbolError::ShortInput)
+        }
+    }
+
+    pub fn from_byte(ch: u8) -> Self {
+        if ch == b' ' || ch == b'"' || ch == b'\\' || ch == b';' {
+            Symbol::SimpleEscape(ch as char)
+        }
+        else if ch < 0x20 || ch > 0x7E {
+            Symbol::DecimalEscape(ch)
+        }
+        else {
+            Symbol::Char(ch as char)
+        }
+    }
+
     /// Converts the symbol into a byte if it represents one.
     ///
     /// Both domain names and character strings operate on bytes instead of
-    /// (Unicode) characters. These bytes can be represented by ASCII
-    /// characters, both plain or through a simple escape, or by a decimal
-    /// escape.
+    /// (Unicode) characters. These bytes can be represented by printable
+    /// ASCII characters (that is, U+0020 to U+007E), both plain or through
+    /// a simple escape, or by a decimal escape.
     ///
-    /// This method returns such a byte or a `SyntaxError::Unexpected(_)` if
-    /// the symbol isn’t such a byte.
-    pub fn into_byte(self) -> Result<u8, SyntaxError> {
+    /// This method returns such a byte or an error otherwise. Note that it
+    /// will succeed for an ASCII space character U+0020 which may be used
+    /// as a word separator in some cases.
+    pub fn into_byte(self) -> Result<u8, BadSymbol> {
         match self {
             Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
-                if ch.is_ascii() {
+                if ch.is_ascii() && ch >= '\u{20}' && ch <= '\u{7E}' {
                     Ok(ch as u8)
                 }
                 else {
-                    Err(SyntaxError::Unexpected(self))
+                    Err(BadSymbol(self))
                 }
             }
             Symbol::DecimalEscape(ch) => Ok(ch),
@@ -900,7 +951,7 @@ impl Symbol {
     /// If the symbol is a byte as per the rules described in `into_byte`,
     /// it will be pushed to the end of `buf`, reserving additional space
     /// if there isn’t enough space remaining.
-    pub fn push_to_buf(self, buf: &mut BytesMut) -> Result<(), SyntaxError> {
+    pub fn push_to_buf(self, buf: &mut BytesMut) -> Result<(), BadSymbol> {
         self.into_byte().map(|ch| {
             if buf.remaining_mut() == 0 {
                 buf.reserve(1);
@@ -923,6 +974,16 @@ impl Symbol {
 impl From<char> for Symbol {
     fn from(ch: char) -> Symbol {
         Symbol::Char(ch)
+    }
+}
+
+impl fmt::Display for Symbol {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Symbol::Char(ch) => write!(f, "{}", ch),
+            Symbol::SimpleEscape(ch) => write!(f, "\\{}", ch),
+            Symbol::DecimalEscape(ch) => write!(f, "\\{:03}", ch),
+        }
     }
 }
 

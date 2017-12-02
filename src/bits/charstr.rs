@@ -12,16 +12,25 @@
 //! length followed by the actual data in that many octets. The length octet
 //! is not part of the content wrapped by these two types.
 //!
+//! A `CharStr` can be constructed from a string slice via the `FromStr`
+//! trait. In this case, the string must consist only of printable ASCII
+//! characters. Space and double quote are allowed and will be accepted with
+//! their ASCII value. Other values need to be escaped via a backslash
+//! followed by the three-digit decimal representation of the value. In
+//! addition, a backslash followed by a non-digit printable ASCII character
+//! is accepted, too, with the ASCII value of this character used.
+//!
 //! [`CharStr`]: struct.CharStr.html
 //! [`CharStrMut`]: struct.CharStrMut.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{cmp, fmt, hash, ops, io};
+use std::{cmp, fmt, hash, ops, io, str};
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes, BytesMut};
 use ::master::error::{ScanError, SyntaxError};
 use ::master::print::{Print, Printer};
-use ::master::scan::{CharSource, Scan, Scanner};
+use ::master::scan::{BadSymbol, CharSource, Scan, Scanner, Symbol,
+                     SymbolError};
 use super::compose::Compose;
 use super::error::ShortBuf;
 use super::parse::{ParseAll, ParseAllError, Parse, Parser};
@@ -62,6 +71,18 @@ impl CharStr {
     pub fn from_bytes(bytes: Bytes) -> Result<Self, CharStrError> {
         if bytes.len() > 255 { Err(CharStrError) }
         else { Ok(unsafe { Self::from_bytes_unchecked(bytes) })}
+    }
+
+    /// Creates a new character string from a byte slice.
+    ///
+    /// The function will create a new bytes value and copy the slice’s
+    /// content.
+    ///
+    /// If the byte slice is longer than 255 bytes, the function will return
+    /// an error.
+    pub fn from_slice(slice: &[u8]) -> Result<Self, CharStrError> {
+        if slice.len() > 255 { Err(CharStrError) }
+        else { Ok(unsafe { Self::from_bytes_unchecked(slice.into()) })}
     }
 
     /// Converts the value into its underlying bytes value.
@@ -106,6 +127,21 @@ impl CharStr {
 
 //--- FromStr
 
+impl str::FromStr for CharStr {
+    type Err = FromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Most likely, everything is ASCII so take `s`’s length as capacity.
+        let mut res = CharStrMut::with_capacity(s.len());
+        let mut chars = s.chars();
+        while let Some(symbol) = Symbol::from_chars(&mut chars)? {
+            res.push(symbol.into_byte()?)?
+        }
+        Ok(res.freeze())
+    }
+}
+
+
 
 //--- Parse, ParseAll, and Compose
 
@@ -137,7 +173,6 @@ impl ParseAll for CharStr {
     }
 }
 
-
 impl Compose for CharStr {
     fn compose_len(&self) -> usize {
         self.len() + 1
@@ -159,8 +194,7 @@ impl Scan for CharStr {
             if res.len() > 255 {
                 Err(SyntaxError::LongCharStr)
             }
-            else
-            {
+            else {
                 Ok(unsafe { CharStr::from_bytes_unchecked(res) })
             }
         })
@@ -266,16 +300,8 @@ impl hash::Hash for CharStr {
 
 impl fmt::Display for CharStr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for &ch in self.inner.iter() {
-            if ch == b' ' || ch == b'\\' {
-                try!(write!(f, "\\{}", ch as char));
-            }
-            else if ch < b' ' || ch >= 0x7F {
-                try!(write!(f, "\\{:03}", ch));
-            }
-            else {
-                try!((ch as char).fmt(f));
-            }
+        for ch in &self.inner {
+            fmt::Display::fmt(&Symbol::from_byte(ch), f)?
         }
         Ok(())
     }
@@ -295,41 +321,68 @@ impl fmt::Debug for CharStr {
 /// A mutable DNS character string.
 ///
 /// This type is solely intended to be used when constructing a character
-/// string from individual bytes or byte slices.
+/// string from individual bytes or byte slices. It derefs directly to
+/// `[u8]` to allow you to manipulate the acutal content but not to extend
+/// it other than through the methods provided by itself.
 pub struct CharStrMut {
     bytes: BytesMut,
 }
 
 
 impl CharStrMut {
+    /// Creates a new value from a bytes buffer unchecked.
+    ///
+    /// Since the buffer may already be longer than it is allowed to be, this
+    /// is unsafe.
     unsafe fn from_bytes_unchecked(bytes: BytesMut) -> Self {
         CharStrMut { bytes }
     }
 
+    /// Creates a new mutable character string from a given bytes buffer.
+    ///
+    /// If `bytes` is longer than 255 bytes, an error is returned.
+    pub fn from_bytes(bytes: BytesMut) -> Result<Self, CharStrError> {
+        if bytes.len() > 255 {
+            Err(CharStrError)
+        }
+        else {
+            Ok(unsafe { Self::from_bytes_unchecked(bytes) })
+        }
+    }
+
+    /// Creates a new mutable character string with the given capacity.
+    ///
+    /// The capacity may be larger than the allowed size of a character
+    /// string.
     pub fn with_capacity(capacity: usize) -> Self {
         unsafe {
             CharStrMut::from_bytes_unchecked(BytesMut::with_capacity(capacity))
         }
     }
 
+    /// Creates a new mutable character string with a default capacity.
     pub fn new() -> Self {
         unsafe {
             CharStrMut::from_bytes_unchecked(BytesMut::new())
         }
     }
 
+    /// Returns the length of the character string assembled so far.
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
 
+    /// Returns whether the character string is still empty.
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
     }
 
+    /// Returns the current capacity of the bytes buffer used for building.
     pub fn capacity(&self) -> usize {
         self.bytes.capacity()
     }
 
+    /// Turns the value into an imutable character string.
     pub fn freeze(self) -> CharStr {
         unsafe { CharStr::from_bytes_unchecked(self.bytes.freeze()) }
     }
@@ -338,14 +391,26 @@ impl CharStrMut {
 /// # Manipulations
 ///
 impl CharStrMut {
+    /// Reserves an `additional` bytes of capacity.
+    ///
+    /// The resulting capacity may be larger than the allowed size of a
+    /// character string.
     pub fn reserve(&mut self, additional: usize) {
         self.bytes.reserve(additional)
     }
 
+    /// Pushes a byte to the end of the character string.
+    ///
+    /// If this would result in a string longer than the allowed 255 bytes,
+    /// returns an error and leaves the string be.
     pub fn push(&mut self, ch: u8) -> Result<(), PushError> {
         self.extend_from_slice(&[ch])
     }
 
+    /// Pushes the content of a byte slice to the end of the character string.
+    ///
+    /// If this would result in a string longer than the allowed 255 bytes,
+    /// returns an error and leaves the string be.
     pub fn extend_from_slice(&mut self, extend: &[u8])
                              -> Result<(), PushError> {
         if self.bytes.len() + extend.len() > 255 {
@@ -359,9 +424,43 @@ impl CharStrMut {
 }
 
 
+//--- Deref and DerefMut
+
+impl ops::Deref for CharStrMut {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+}
+
+impl ops::DerefMut for CharStrMut {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        self.bytes.as_mut()
+    }
+}
+
+
+//--- AsRef and AsMut
+
+impl AsRef<[u8]> for CharStrMut {
+    fn as_ref(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+}
+
+impl AsMut<[u8]> for CharStrMut {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.bytes.as_mut()
+    }
+}
+
 
 //------------ CharStrError --------------------------------------------------
 
+/// A byte sequence does not represent a valid character string.
+///
+/// This can only mean that the sequence is longer than 255 bytes.
 #[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 #[fail(display="illegal character string")]
 pub struct CharStrError;
@@ -376,7 +475,7 @@ pub enum FromStrError {
     ///
     /// This most likely happens inside escape sequences and quoting.
     #[fail(display="unexpected end of input")]
-    UnexpectedEnd,
+    ShortInput,
 
     /// A character string has more than 255 octets.
     #[fail(display="character string with more than 255 octets")]
@@ -388,17 +487,32 @@ pub enum FromStrError {
     /// three decimal digit sequence encoding a byte value or a single
     /// other printable ASCII character.
     #[fail(display="illegal escape sequence")]
-    IllegalEscape,
+    BadEscape,
 
     /// An illegal character was encountered.
     ///
     /// Only printable ASCII characters are allowed.
-    #[fail(display="illegal character")]
-    IllegalCharacter,
+    #[fail(display="illegal character '{}'", _0)]
+    BadSymbol(Symbol),
 }
 
 
 //--- From
+
+impl From<SymbolError> for FromStrError {
+    fn from(err: SymbolError) -> FromStrError {
+        match err {
+            SymbolError::BadEscape => FromStrError::BadEscape,
+            SymbolError::ShortInput => FromStrError::ShortInput,
+        }
+    }
+}
+
+impl From<BadSymbol> for FromStrError {
+    fn from(err: BadSymbol) -> FromStrError {
+        FromStrError::BadSymbol(err.0)
+    }
+}
 
 impl From<PushError> for FromStrError {
     fn from(_: PushError) -> FromStrError {
@@ -409,39 +523,15 @@ impl From<PushError> for FromStrError {
 
 //------------ PushError -----------------------------------------------------
 
-/// An error happened while adding data to a [`CharStrBuf`].
+/// An error happened while adding data to a [`CharStrMut`].
 ///
 /// The only error possible is that the resulting character string would have
 /// exceeded the length limit of 255 octets.
 ///
-/// [`CharStrBuf`]: ../struct.CharStrBuf.html
+/// [`CharStrMut`]: ../struct.CharStrMut.html
 #[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 #[fail(display="adding bytes would exceed the size limit")]
 pub struct PushError;
-
-
-//============ Internal Helpers =============================================
-
-/*
-/// Parses the content of an escape sequence from the beginning of `chars`.
-///
-/// XXX Move to the zonefile modules once they exist.
-fn parse_escape(chars: &mut str::Chars) -> Result<u8, FromStrError> {
-    let ch = try!(chars.next().ok_or(FromStrError::UnexpectedEnd));
-    if ch == '0' || ch == '1' || ch == '2' {
-        let v = ch.to_digit(10).unwrap() * 100
-              + try!(chars.next().ok_or(FromStrError::UnexpectedEnd)
-                     .and_then(|c| c.to_digit(10)
-                                    .ok_or(FromStrError::IllegalEscape)))
-                     * 10
-              + try!(chars.next().ok_or(FromStrError::UnexpectedEnd)
-                     .and_then(|c| c.to_digit(10)
-                                    .ok_or(FromStrError::IllegalEscape)));
-        Ok(v as u8)
-    }
-    else { Ok(ch as u8) }
-}
-*/
 
 
 //============ Testing ======================================================
@@ -449,37 +539,110 @@ fn parse_escape(chars: &mut str::Chars) -> Result<u8, FromStrError> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::cmp;
+    use ::master::scan::Symbol;
+
+    #[test]
+    fn from_slice() {
+        assert_eq!(CharStr::from_slice(b"01234").unwrap().as_slice(),
+                   b"01234");
+        assert_eq!(CharStr::from_slice(b"").unwrap().as_slice(), b"");
+        assert!(CharStr::from_slice(&vec![0; 255]).is_ok());
+        assert!(CharStr::from_slice(&vec![0; 256]).is_err());
+    }
 
     #[test]
     fn from_bytes() {
-        assert_eq!(CharStr::from_bytes(b"01234").unwrap().as_bytes(),
+        assert_eq!(CharStr::from_bytes(Bytes::from_static(b"01234"))
+                           .unwrap() .as_slice(),
                    b"01234");
-        assert_eq!(CharStr::from_bytes(b"").unwrap().as_bytes(), b"");
-        assert!(CharStr::from_bytes(&vec![0; 255]).is_some());
-        assert!(CharStr::from_bytes(&vec![0; 256]).is_none());
+        assert_eq!(CharStr::from_bytes(Bytes::from_static(b""))
+                           .unwrap().as_slice(),
+                   b"");
+        assert!(CharStr::from_bytes(vec![0; 255].into()).is_ok());
+        assert!(CharStr::from_bytes(vec![0; 256].into()).is_err());
     }
 
     #[test]
-    fn parse_and_compose() {
-        use bits::{Parser, Composer, ComposeMode}; 
+    fn from_str() {
+        use std::str::FromStr;
 
-        let mut p = Parser::new(b"\x03foo\x02bar");
-        let foo = CharStr::parse(&mut p).unwrap();
-        assert_eq!(foo.as_bytes(), b"foo");
-        let ba = CharStr::parse(&mut p).unwrap();
-        assert_eq!(ba.as_bytes(), b"ba");
-        assert_eq!(p.remaining(), 1);
-        assert!(CharStr::parse(&mut p).is_err());
+        assert_eq!(CharStr::from_str("foo").unwrap().as_slice(),
+                   b"foo");
+        assert_eq!(CharStr::from_str("f\\oo").unwrap().as_slice(),
+                   b"foo");
+        assert_eq!(CharStr::from_str("foo\\112").unwrap().as_slice(),
+                   b"foo\x70");
+        assert_eq!(CharStr::from_str("\"foo\\\"2\"").unwrap().as_slice(),
+                   b"\"foo\"2\"");
+        assert_eq!(CharStr::from_str("06 dii").unwrap().as_slice(),
+                   b"06 dii");
+        assert_eq!(CharStr::from_str("0\\"), Err(FromStrError::ShortInput));
+        assert_eq!(CharStr::from_str("0\\2"), Err(FromStrError::ShortInput));
+        assert_eq!(CharStr::from_str("0\\2a"),
+                   Err(FromStrError::BadEscape));
+        assert_eq!(CharStr::from_str("ö"),
+                   Err(FromStrError::BadSymbol(Symbol::Char('ö'))));
+        assert_eq!(CharStr::from_str("\x06"),
+                   Err(FromStrError::BadSymbol(Symbol::Char('\x06'))));
+    }
 
-        let mut c = Composer::new(ComposeMode::Unlimited, false);
-        foo.compose(&mut c).unwrap();
-        ba.compose(&mut c).unwrap();
-        assert_eq!(c.finish(), b"\x03foo\x02ba");
+    #[test]
+    fn parse() {
+        use ::bits::error::ShortBuf;
+        use ::bits::parse::{Parse, Parser};
+
+        let mut parser = Parser::from_static(b"12\x03foo\x02bartail");
+        parser.advance(2).unwrap();
+        let foo = CharStr::parse(&mut parser).unwrap();
+        let bar = CharStr::parse(&mut parser).unwrap();
+        assert_eq!(foo.as_slice(), b"foo");
+        assert_eq!(bar.as_slice(), b"ba");
+        assert_eq!(parser.peek_all(), b"rtail");
+
+        assert_eq!(CharStr::parse(&mut Parser::from_static(b"\x04foo")),
+                   Err(ShortBuf))
+    }
+
+    #[test]
+    fn parse_all() {
+        use ::bits::parse::{ParseAll, ParseAllError, Parser};
+
+        let mut parser = Parser::from_static(b"12\x03foo12");
+        parser.advance(2).unwrap();
+        assert_eq!(CharStr::parse_all(&mut parser.clone(), 5),
+                   Err(ParseAllError::TrailingData));
+        assert_eq!(CharStr::parse_all(&mut parser.clone(), 2),
+                   Err(ParseAllError::ShortField));
+        let foo = CharStr::parse_all(&mut parser, 4).unwrap();
+        let bar = u8::parse_all(&mut parser, 1).unwrap();
+        assert_eq!(foo.as_slice(), b"foo");
+        assert_eq!(bar, b'1');
+        assert_eq!(parser.peek_all(), b"2");
+        
+        assert_eq!(CharStr::parse_all(&mut Parser::from_static(b"\x04foo"), 5),
+                   Err(ParseAllError::ShortBuf));
+    }
+
+    #[test]
+    fn compose() {
+        use bytes::BytesMut;
+        use bits::compose::Compose;
+
+        let mut buf = BytesMut::with_capacity(10);
+        let val = CharStr::from_bytes(Bytes::from_static(b"foo")).unwrap();
+        assert_eq!(val.compose_len(), 4);
+        val.compose(&mut buf);
+        assert_eq!(buf, &b"\x03foo"[..]);
+
+        let mut buf = BytesMut::with_capacity(10);
+        let val = CharStr::from_bytes(Bytes::from_static(b"")).unwrap();
+        assert_eq!(val.compose_len(), 1);
+        val.compose(&mut buf);
+        assert_eq!(buf, &b"\x00"[..]);
     }
 
     fn are_eq(l: &[u8], r: &[u8]) -> bool {
-        CharStr::from_bytes(l).unwrap() == CharStr::from_bytes(r).unwrap()
+        CharStr::from_slice(l).unwrap() == CharStr::from_slice(r).unwrap()
     }
 
     #[test]
@@ -497,8 +660,8 @@ mod test {
     }
 
     fn is_ord(l: &[u8], r: &[u8], order: cmp::Ordering) {
-        assert_eq!(CharStr::from_bytes(l).unwrap().cmp(
-                        CharStr::from_bytes(r).unwrap()),
+        assert_eq!(CharStr::from_slice(l)
+                           .unwrap().cmp(&CharStr::from_slice(r).unwrap()),
                    order)
     }
 
@@ -514,13 +677,13 @@ mod test {
 
     #[test]
     fn push() {
-        let mut o = CharStrBuf::new();
+        let mut o = CharStrMut::new();
         o.push(b'f').unwrap();
         o.push(b'o').unwrap();
         o.push(b'o').unwrap();
-        assert_eq!(o.as_bytes(), b"foo");
+        assert_eq!(o.freeze().as_slice(), b"foo");
 
-        let mut o = CharStrBuf::from_vec(vec![0; 254]).unwrap();
+        let mut o = CharStrMut::from_bytes(vec![0; 254].into()).unwrap();
         o.push(b'f').unwrap();
         assert_eq!(o.len(), 255);
         assert!(o.push(b'f').is_err());
@@ -528,29 +691,13 @@ mod test {
 
     #[test]
     fn extend_from_slice() {
-        let mut o = CharStrBuf::from_vec(vec![b'f', b'o', b'o']).unwrap();
-        o.extend_from_slice(CharStr::from_bytes(b"bar").unwrap()).unwrap();
-        assert_eq!(o.as_bytes(), b"foobar");
-        assert!(o.clone().extend_from_slice(&[0u8; 250][..]).is_err());
+        let mut o = CharStrMut::from_bytes(vec![b'f', b'o', b'o'].into())
+                               .unwrap();
+        o.extend_from_slice(b"bar").unwrap();
+        assert_eq!(o.as_ref(), b"foobar");
+        assert!(o.extend_from_slice(&[0u8; 250][..]).is_err());
         o.extend_from_slice(&[0u8; 249][..]).unwrap();
         assert_eq!(o.len(), 255);
-    }
-
-    #[test]
-    fn from_str() {
-        use std::str::FromStr;
-
-        assert_eq!(CharStrBuf::from_str("foo").unwrap().as_bytes(),
-                   b"foo");
-        assert_eq!(CharStrBuf::from_str("f\\oo").unwrap().as_bytes(),
-                   b"foo");
-        assert_eq!(CharStrBuf::from_str("foo\\112").unwrap().as_bytes(),
-                   b"foo\x70");
-        assert_eq!(CharStrBuf::from_str("\"foo\\\"2\"").unwrap().as_bytes(),
-                   b"foo\"2");
-        assert!(CharStrBuf::from_str("ö").is_err());
-        assert!(CharStrBuf::from_str("\x06").is_err());
-        assert!(CharStrBuf::from_str("06 dii").is_err());
     }
 }
 
