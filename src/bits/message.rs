@@ -1,16 +1,16 @@
 //! Accessing exisiting DNS messages.
 //!
 //! This module defines a number of types for disecting the content of a
-//! DNS message in wire format. There are two basic types that wrap the bytes
-//! of such a message: [`Message`] for a unsized bytes slice and
-//! [`MessageBuf`] for an owned message.
+//! DNS message in wire format. Because many of the components of the message
+//! are of varying length, this can only be done iteratively. You start out
+//! with a value of type [`Message`] that wraps the data of a complete
+//! message and progressively trade it in for values of other types
+//! representing other sections of the message.
 //!
-//! Detailed information on the structure of messages and how they are
-//! accessed can be found with the [`Message`] type.
-//!
+//! For all details, see the [`Message`] type.
 //!
 //! [`Message`]: struct.Message.html
-//! [`MessageBuf`]: struct.MessageBuf.html
+
 
 use std::{mem, ops};
 //use std::collections::HashMap;
@@ -23,41 +23,42 @@ use super::name::{ParsedDname, ParsedDnameError};
 use super::parse::{Parse, Parser, ShortBuf};
 use super::question::Question;
 use super::rdata::ParseRecordData;
-use super::record::{Record, RecordHeader, RecordParseError};
+use super::record::{ParsedRecord, Record, RecordParseError};
 
 
 //------------ Message -------------------------------------------------------
 
-/// A slice of a DNS message.
+/// A DNS message.
 ///
-/// This types wraps a bytes slice with the binary content of a DNS message
-/// and allows parsing the content for further processing.
+/// This type wraps a bytes value with the wire-format content of a DNS
+/// message and allows parsing the content for further processing.
 ///
-/// Typically, you create a message slice by passing a slice with its raw
-/// bytes to the [`from_bytes()`] function. This function only does a quick
-/// if there are enough bytes for the minimum message size. All further
-/// parsing happens lazily when you access more of the message.
+/// Typically, you create a message by passing a bytes value with data you
+/// received from the network to the [`from_bytes`] function. This function
+/// does a quick sanity check if the data can be a DNS message at all
+/// before returning a message value. All further parsing happens lazily when
+/// you access more of the message.
 ///
 /// Section 4 of [RFC 1035] defines DNS messages as being divded into five
 /// sections named header, question, answer, authority, and additional.
 ///
-/// The header section is of a fixed sized and can be accessed without
-/// further checks through the methods given under [Header Section]. Most
-/// likely, you will be interested in the first part of the header references 
-/// to which are returned by the [`header()`] and [`header_mut()`] methods.
-/// The second part of the header section contains the number of entries
-/// in the following four sections and is of less interest as there are
-/// more sophisticated ways of accessing these sections. If you do care,
-/// you can get a reference through [`counts()`].
+/// The header section is of a fixed sized and can be accessed at any time
+/// through the methods given under [Header Section]. Most likely, you will
+/// be interested in the first part of the header for which references 
+/// are returned by the [`header`] method.  The second part of the header
+/// section contains the number of entries in the following four sections
+/// and is of less interest as there are more sophisticated ways of accessing
+/// these sections. If you do care, you can get a reference through
+/// [`counts`].
 ///
 /// The question section contains what was asked of the DNS by a request.
-/// These questions consist of a domain name, a record type and class. With
+/// These questions consist of a domain name, a record type, and class. With
 /// normal queries, a requests asks for all records of the given record type
 /// that are owned by the domain name within the class. There will normally
 /// be exactly one question for normal queries. With other query operations,
 /// the questions may refer to different things.
 ///
-/// You can get access to the question section through the [`question()`]
+/// You can get access to the question section through the [`question`]
 /// method. It returns a [`QuestionSection`] value that is an iterator over
 /// questions. Since a single question is a very common case, there is a 
 /// convenience method [`first_question()`] that simple returns the first
@@ -85,8 +86,11 @@ use super::record::{Record, RecordHeader, RecordParseError};
 ///
 /// Each record in the record sections is of a specific type. Each type has
 /// its specific record data. Because there are so many types, we decided
-/// against having a giant enum. Instead, the type representing a record
+/// against having one giant enum. Instead, the type representing a record
 /// section, somewhat obviously named [`RecordSection`], iterates over
+/// [`RecordHeader`] giving you access to all information of the record
+/// except for its data.
+///
 /// [`GenericRecord`]s with limited options on what you can do with the data.
 /// If you are looking for a specific record type, you can get an iterator
 /// limited to records of that type through the `limit_to()` method. This
@@ -569,12 +573,12 @@ impl RecordSection {
 //--- Iterator
 
 impl Iterator for RecordSection {
-    type Item = Result<RecordHeader<ParsedDname>, ParsedDnameError>;
+    type Item = Result<ParsedRecord, ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
             Ok(count) if count > 0 => {
-                match RecordHeader::parse_and_skip(&mut self.parser) {
+                match ParsedRecord::parse(&mut self.parser) {
                     Ok(record) => {
                         self.count = Ok(count - 1);
                         Some(Ok(record))
@@ -605,21 +609,14 @@ impl Iterator for RecordSection {
 /// [`RecordSection::limit_to::<D>()`]: struct.RecordSection.html#method.limit_to
 #[derive(Clone, Debug)]
 pub struct RecordIter<D: ParseRecordData> {
-    parser: Parser,
-    section: Section,
-    count: Result<u16, ParsedDnameError>,
+    section: RecordSection,
     marker: PhantomData<D>
 }
 
 impl<D: ParseRecordData> RecordIter<D> {
     /// Creates a new limited record iterator from the given section.
     fn new(section: RecordSection) -> Self {
-        RecordIter {
-            parser: section.parser,
-            section: section.section,
-            count: Ok(section.count.unwrap()),
-            marker: PhantomData
-        }
+        RecordIter { section, marker: PhantomData }
     }
 
     /// Trades in the limited iterator for the complete iterator.
@@ -627,19 +624,14 @@ impl<D: ParseRecordData> RecordIter<D> {
     /// The complete iterator will continue right after the last record
     /// returned by `self`. It will *not* restart from the beginning of the
     /// section.
-    pub fn unwrap(self)
-                  -> Result<RecordSection, ParsedDnameError> {
-        Ok(RecordSection {
-            parser: self.parser,
-            section: self.section,
-            count: Ok(self.count?)
-        })
+    pub fn unwrap(self) -> RecordSection {
+        self.section
     }
 
     /// Returns the next section if there is one.
     pub fn next_section(self)
                         -> Result<Option<RecordSection>, ParsedDnameError> {
-        Ok(self.unwrap()?.next_section()?)
+        self.section.next_section()
     }
 }
 
@@ -652,30 +644,17 @@ impl<D: ParseRecordData> Iterator for RecordIter<D> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match self.count {
-                Ok(count) if count > 0 => {
-                    let header = match RecordHeader::parse(&mut self.parser) {
-                        Ok(header) => {
-                            self.count = Ok(count - 1);
-                            header
-                        }
-                        Err(err) => {
-                            self.count = Err(err.clone());
-                            return Some(Err(RecordParseError::Name(err)))
-                        }
-                    };
-                    match header.parse_into_record(&mut self.parser) {
-                        Ok(data) => {
-                            if let Some(record) = data {
-                                return Some(Ok(record))
-                            }
-                        }
-                        Err(err) => {
-                            return Some(Err(err))
-                        }
-                    }
+            let record = match self.section.next() {
+                Some(Ok(record)) => record,
+                Some(Err(err)) => {
+                    return Some(Err(RecordParseError::Name(err)))
                 }
-                _ => return None
+                None => return None,
+            };
+            match record.into_record() {
+                Ok(Some(record)) => return Some(Ok(record)),
+                Err(err) => return Some(Err(err)),
+                Ok(None) => { }
             }
         }
     }

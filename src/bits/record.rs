@@ -373,6 +373,93 @@ impl<N: Compress> Compress for RecordHeader<N> {
 }
 
 
+//------------ ParsedRecord --------------------------------------------------
+
+/// A raw record parsed from a message,
+#[derive(Clone, Debug)]
+pub struct ParsedRecord {
+    /// The record’s header.
+    header: RecordHeader<ParsedDname>,
+
+    /// A parser positioned at the beginning of the record’s data.
+    data: Parser,
+}
+
+impl ParsedRecord {
+    pub fn new(header: RecordHeader<ParsedDname>, data: Parser) -> Self {
+        ParsedRecord { header, data }
+    }
+
+    /// Returns a reference to the owner of the record.
+    pub fn name(&self) -> &ParsedDname {
+        self.header.name()
+    }
+
+    /// Returns the record type of the record.
+    pub fn rtype(&self) -> Rtype {
+        self.header.rtype()
+    }
+
+    /// Returns the class of the record.
+    pub fn class(&self) -> Class {
+        self.header.class()
+    }
+
+    /// Returns the TTL of the record.
+    pub fn ttl(&self) -> u32 {
+        self.header.ttl()
+    }
+
+    /// Returns the data length of the record.
+    pub fn rdlen(&self) -> u16 {
+        self.header.rdlen()
+    }
+}
+
+impl ParsedRecord {
+    pub fn to_record<D>(&self) -> Result<Option<Record<ParsedDname, D>>,
+                                           RecordParseError<ParsedDnameError,
+                                                            D::Err>>
+    where D: ParseRecordData
+    {
+        match D::parse_data(self.header.rtype(), &mut self.data.clone(),
+                            self.header.rdlen() as usize)
+                .map_err(RecordParseError::Data)? {
+            Some(data) => Ok(Some(self.header.clone().into_record(data))),
+            None => Ok(None)
+        }
+    }
+
+    pub fn into_record<D>(mut self)
+        -> Result<Option<Record<ParsedDname, D>>,
+                  RecordParseError<ParsedDnameError, D::Err>>
+    where D: ParseRecordData
+    {
+        match D::parse_data(self.header.rtype(), &mut self.data,
+                            self.header.rdlen() as usize)
+                .map_err(RecordParseError::Data)? {
+            Some(data) => Ok(Some(self.header.into_record(data))),
+            None => Ok(None)
+        }
+    }
+}
+
+
+//--- Parse
+//
+//    No Compose or Compress because the data may contain compressed domain
+//    names.
+
+impl Parse for ParsedRecord {
+    type Err = ParsedDnameError;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        let header = RecordHeader::parse(parser)?;
+        Ok(Self::new(header, parser.clone()))
+    }
+}
+
+
 //------------ RecordParseError ----------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
