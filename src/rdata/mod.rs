@@ -22,45 +22,52 @@ pub mod rfc3596;
 
 #[macro_use] mod macros;
 
-use ::bits::name::Dname;
-
-// The master_types! macro (defined in self::macros) creates the
-// MasterRecordData enum produced when parsing master files (aka zone files).
-// 
-// Include all record types that can occur in master files. Place the name of
-// the variant (identical to the type name) on the left side of the double
-// arrow and the name of the type on the right.
+// The rdata_types! macro (defined in self::macros) reexports the record data
+// types here and creates the MasterRecordData and AllRecordData enums
+// containing all record types that can appear in master files or all record
+// types that exist.
 //
-// The macro creates the re-export of the record data type.
-master_types!{
+// All record data types listed here should have the same name as the
+// `Rtype` variant they implement.
+//
+// Add any new module here and then add all record types in that module that
+// can appear in master files under "master" and all others under "pseudo".
+// In both cases, if your type is generic over a domain name type, add `<N>`
+// to it (it can’t be over anything else, so if you have more type arguments,
+// you might have to either newtype with those removes or, God forbid, modify
+// the macro). Each type entry has to be followed by a comma, even the last
+// one.
+rdata_types!{
     rfc1035::{
-        A => A,
-        Cname => Cname<Dname>,
-        Hinfo => Hinfo,
-        Mb => Mb<Dname>,
-        Md => Md<Dname>,
-        Mf => Mf<Dname>,
-        Mg => Mg<Dname>,
-        Minfo => Minfo<Dname>,
-        Mr => Mr<Dname>,
-        Mx => Mx<Dname>,
-        Ns => Ns<Dname>,
-        Ptr => Ptr<Dname>,
-        Soa => Soa<Dname>,
-        Txt => Txt,
-        Wks => Wks,
+        master {
+            A,
+            Cname<N>,
+            Hinfo,
+            Mb<N>,
+            Md<N>,
+            Mf<N>,
+            Minfo<N>,
+            Mr<N>,
+            Mx<N>,
+            Ns<N>,
+            Ptr<N>,
+            Soa<N>,
+            Txt,
+            Wks,
+        }
+        pseudo {
+            Null,
+        }
     }
     rfc2782::{
-        Srv => Srv<Dname>,
+        master {
+            Srv<N>,
+        }
     }
     rfc3596::{
-        Aaaa => Aaaa,
+        master {
+            Aaaa,
+        }
     }
-}
-
-// The pseudo_types! macro (defined in self::macros) creates the re-exports
-// for all the types not part of master_types! above.
-pseudo_types!{
-    rfc1035::{Null};
 }
 
