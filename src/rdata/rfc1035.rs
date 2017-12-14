@@ -1413,3 +1413,26 @@ impl WksBuilder {
 }
 
 
+//------------ parsed sub-module ---------------------------------------------
+
+pub mod parsed {
+    use ::bits::name::ParsedDname;
+
+    pub use super::A;
+    pub type Cname = super::Cname<ParsedDname>;
+    pub use super::Hinfo;
+    pub type Mb = super::Mb<ParsedDname>;
+    pub type Md = super::Md<ParsedDname>;
+    pub type Mf = super::Mf<ParsedDname>;
+    pub type Mg = super::Mg<ParsedDname>;
+    pub type Minfo = super::Minfo<ParsedDname>;
+    pub type Mr = super::Mr<ParsedDname>;
+    pub type Mx = super::Mx<ParsedDname>;
+    pub type Ns = super::Ns<ParsedDname>;
+    pub use super::Null;
+    pub type Ptr = super::Ptr<ParsedDname>;
+    pub type Soa = super::Soa<ParsedDname>;
+    pub use super::Txt;
+    pub use super::Wks;
+}
+

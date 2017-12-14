@@ -71,3 +71,9 @@ rdata_types!{
     }
 }
 
+
+pub mod parsed {
+    pub use super::rfc1035::parsed::*;
+    pub use super::rfc2782::parsed::*;
+    pub use super::rfc3596::parsed::*;
+}

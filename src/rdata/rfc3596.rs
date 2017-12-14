@@ -159,3 +159,8 @@ impl fmt::Display for Aaaa {
 }
 
 
+//------------ parsed --------------------------------------------------------
+
+pub mod parsed {
+    pub use super::Aaaa;
+}

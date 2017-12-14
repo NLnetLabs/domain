@@ -118,3 +118,12 @@ impl<N: fmt::Display> fmt::Display for Srv<N> {
     }
 }
 
+
+//------------ parsed --------------------------------------------------------
+
+pub mod parsed {
+    use ::bits::name::ParsedDname;
+
+    pub type Srv = super::Srv<ParsedDname>;
+}
+

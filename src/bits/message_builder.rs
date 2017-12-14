@@ -57,6 +57,7 @@
 //! nothing else.
 //!
 //! ```
+//! /*
 //! use std::str::FromStr;
 //! use domain::bits::{ComposeMode, DNameBuf, MessageBuilder, Question};
 //! use domain::iana::Rtype;
@@ -71,6 +72,7 @@
 //! msg.push((&name, 86400, A::from_octets(192, 0, 2, 1))).unwrap();
 //! msg.push((&name, 86400, A::from_octets(192, 0, 2, 2))).unwrap();
 //! let _ = msg.finish(); // get the Vec<u8>
+//! */
 //! ```
 //!
 //! [`AdditionalBuilder`]: struct.AdditionalBuilder.html
@@ -114,6 +116,10 @@ pub struct MessageBuilder {
 /// # Creation and Preparation
 ///
 impl MessageBuilder {
+    pub fn new_udp() -> Self {
+        Self::with_params(512, 512, 0)
+    }
+
     pub fn from_buf(buf: BytesMut) -> Self {
         MessageBuilder { target: MessageTarget::from_buf(buf) }
     }
