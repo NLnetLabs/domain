@@ -415,6 +415,7 @@ impl QuestionSection {
     ///
     /// [`RecordSection`]: struct.RecordSection.html
     pub fn answer(mut self) -> Result<RecordSection, ParsedDnameError> {
+        // XXX Use Parser::skip here.
         for question in &mut self {
             let _ = question?;
         }
@@ -576,6 +577,7 @@ impl RecordSection {
             Some(section) => section,
             None => return Ok(None)
         };
+        // XXX Use Parser::skip here.
         for record in &mut self {
             let _ = try!(record);
         }

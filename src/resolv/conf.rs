@@ -22,7 +22,7 @@ use std::path::Path;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::result;
 use std::time::Duration;
-use ::bits::name::{self, DNameBuf, DNameSlice};
+use ::bits::name::{self, Dname};
 
 
 //------------ ResolvOptions ------------------------------------------------
@@ -269,7 +269,7 @@ pub struct ResolvConf {
     pub servers: Vec<ServerConf>,
 
     /// Search list for host-name lookup.
-    pub search: Vec<DNameBuf>,
+    pub search: Vec<Dname>,
 
     /// TODO Sortlist
     /// sortlist: ??
@@ -328,7 +328,7 @@ impl ResolvConf {
             self.servers.push(ServerConf::new(addr))
         }
         if self.search.is_empty() {
-            self.search.push(DNameSlice::root().to_owned())
+            self.search.push(Dname::root())
         }
         for server in &mut self.servers {
             server.request_timeout = self.timeout
@@ -396,8 +396,7 @@ impl ResolvConf {
     }
 
     fn parse_domain(&mut self, mut words: SplitWhitespace) -> Result<()> {
-        let mut domain = try!(DNameBuf::from_str(try!(next_word(&mut words))));
-        domain.append(&DNameSlice::root()).unwrap(); // XXX
+        let domain = try!(Dname::from_str(try!(next_word(&mut words))));
         self.search = Vec::new();
         self.search.push(domain);
         no_more_words(words)
@@ -406,8 +405,7 @@ impl ResolvConf {
     fn parse_search(&mut self, words: SplitWhitespace) -> Result<()> {
         let mut search = Vec::new();
         for word in words {
-            let mut name = try!(DNameBuf::from_str(word));
-            name.append(&DNameSlice::root()).unwrap(); // XXX
+            let name = try!(Dname::from_str(word));
             search.push(name)
         }
         self.search = search;

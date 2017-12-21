@@ -213,12 +213,13 @@
 //------------ Re-exports ----------------------------------------------------
 
 pub use self::conf::ResolvConf;
-pub use self::public::{Query, Resolver};
+//pub use self::public::{Query, Resolver};
 
 
 //------------ Public Modules ------------------------------------------------
 
 pub mod conf;
+/*
 pub mod error;
 pub mod lookup;
 
@@ -236,3 +237,4 @@ mod request;
 mod tcp;
 mod transport;
 mod udp;
+*/

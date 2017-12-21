@@ -485,9 +485,17 @@ impl hash::Hash for Dname {
 //--- Display and Debug
 
 impl fmt::Display for Dname {
+    /// Formats the domain name.
+    ///
+    /// This will produce the domain name in common display format without
+    /// the trailing dot.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for label in self.iter() {
-            write!(f, ".{}", label)?
+        let mut iter = self.iter();
+        write!(f, "{}", iter.next().unwrap())?;
+        for label in iter {
+            if !label.is_root() {
+                write!(f, ".{}", label)?
+            }
         }
         Ok(())
     }
@@ -495,7 +503,7 @@ impl fmt::Display for Dname {
 
 impl fmt::Debug for Dname {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Dname({})", self)
+        write!(f, "Dname({}.)", self)
     }
 }
 
@@ -514,7 +522,7 @@ impl Scan for Dname {
 impl Print for Dname {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
-        write!(printer.item()?, "{}", self)
+        write!(printer.item()?, "{}.", self)
     }
 }
 

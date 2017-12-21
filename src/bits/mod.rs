@@ -88,16 +88,17 @@
 pub use self::charstr::{CharStr, CharStrMut};
 pub use self::compose::{Compose, Compress, Compressor};
 pub use self::header::{Header, HeaderCounts, HeaderSection};
+pub use self::message::{Message, RecordSection};
+pub use self::message_builder::MessageBuilder;
+pub use self::name::{Dname, ParsedDname, RelativeDname};
 /*
-pub use self::message::{Message, MessageBuf};
-pub use self::message_builder::{MessageBuilder, AnswerBuilder,
-                                AuthorityBuilder, AdditionalBuilder};
-pub use self::name::{DName, DNameBuf, DNameSlice, ParsedDName};
 pub use self::parse::{Parser, ParseError, ParseResult};
-pub use self::question::Question;
-pub use self::rdata::{GenericRecordData, ParsedRecordData, RecordData};
-pub use self::record::{GenericRecord, Record};
 */
+pub use self::question::Question;
+/*
+pub use self::rdata::{GenericRecordData, ParsedRecordData, RecordData};
+*/
+pub use self::record::{Record};
 
 
 //--- Modules

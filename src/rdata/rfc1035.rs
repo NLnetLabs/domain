@@ -136,7 +136,7 @@ macro_rules! dname_type {
 
         impl<N: fmt::Display> fmt::Display for $target<N> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                self.$field.fmt(f)
+                write!(f, "{}.", self.$field)
             }
         }
     }
@@ -590,7 +590,7 @@ impl<N> RtypeRecordData for Minfo<N> {
 
 impl<N: fmt::Display> fmt::Display for Minfo<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.rmailbx, self.emailbx)
+        write!(f, "{}. {}.", self.rmailbx, self.emailbx)
     }
 }
 
@@ -714,7 +714,7 @@ impl<N> RtypeRecordData for Mx<N> {
 
 impl<N: fmt::Display> fmt::Display for Mx<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.preference, self.exchange)
+        write!(f, "{} {}.", self.preference, self.exchange)
     }
 }
 
@@ -1013,8 +1013,9 @@ impl<N> RtypeRecordData for Soa<N> {
 
 impl<N: fmt::Display> fmt::Display for Soa<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {} {} {} {} {}", self.mname, self.rname, self.serial,
-               self.refresh, self.retry, self.expire, self.minimum)
+        write!(f, "{}. {}. {} {} {} {} {}",
+               self.mname, self.rname, self.serial, self.refresh, self.retry,
+               self.expire, self.minimum)
     }
 }
 

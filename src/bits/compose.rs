@@ -199,6 +199,12 @@ pub trait Compress {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf>;
 }
 
+impl<'a, C: Compress + 'a> Compress for &'a C {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        (*self).compress(buf)
+    }
+}
+
 
 //------------ Compressor ----------------------------------------------------
 

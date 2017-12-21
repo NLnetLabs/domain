@@ -14,7 +14,7 @@ use ::iana::{Class, Rtype};
 use ::master::print::{Print, Printer};
 //use ::master::scan::{CharSource, Scannable, Scanner};
 use super::compose::{Compose, Compress, Compressor};
-use super::name::{ParsedDname, ParsedDnameError};
+use super::name::{ParsedDname, ParsedDnameError, ToDname};
 use super::parse::{Parse, Parser, ShortBuf};
 use super::rdata::{ParseRecordData, RecordData};
 
@@ -76,7 +76,7 @@ use super::rdata::{ParseRecordData, RecordData};
 /// [`Rtype`]: ../../iana/enum.Rtype.html
 /// [`domain::master`]: ../../master/index.html
 #[derive(Clone, Debug)]
-pub struct Record<N, D> {
+pub struct Record<N: ToDname, D: RecordData> {
     name: N,
     class: Class,
     ttl: u32,
@@ -86,7 +86,7 @@ pub struct Record<N, D> {
 
 /// # Creation and Element Access
 ///
-impl<N, D> Record<N, D> {
+impl<N: ToDname, D: RecordData> Record<N, D> {
     /// Creates a new record from its parts.
     pub fn new(name: N, class: Class, ttl: u32, data: D) -> Self {
         Record { name, class, ttl, data }
@@ -142,6 +142,21 @@ impl<N, D> Record<N, D> {
 }
 
 
+//--- From
+
+impl<N: ToDname, D: RecordData> From<(N, Class, u32, D)> for Record<N, D> {
+    fn from((name, class, ttl, data): (N, Class, u32, D)) -> Self {
+        Self::new(name, class, ttl, data)
+    }
+}
+
+impl<N: ToDname, D: RecordData> From<(N, u32, D)> for Record<N, D> {
+    fn from((name, ttl, data): (N, u32, D)) -> Self {
+        Self::new(name, Class::In, ttl, data)
+    }
+}
+
+
 //--- Parsable, Compose, and Compressor
 
 impl<D: ParseRecordData> Parse for Option<Record<ParsedDname, D>> {
@@ -167,7 +182,7 @@ impl<D: ParseRecordData> Parse for Option<Record<ParsedDname, D>> {
     }
 }
 
-impl<N: Compose, D: RecordData> Compose for Record<N, D> {
+impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
     fn compose_len(&self) -> usize {
         self.name.compose_len() + self.data.compose_len() + 10
     }
@@ -180,7 +195,7 @@ impl<N: Compose, D: RecordData> Compose for Record<N, D> {
     }
 }
 
-impl<N: Compress, D: RecordData + Compress> Compress
+impl<N: ToDname, D: RecordData + Compress> Compress
             for Record<N, D> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         self.name.compress(buf)?;
@@ -208,7 +223,7 @@ impl<N: Scannable> Scannable for Record<N, MasterRecordData> {
 }
 */
 
-impl<N, D> Print for Record<N, D>
+impl<N: ToDname, D: RecordData> Print for Record<N, D>
      where N: Print, D: RecordData + Print {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
@@ -221,27 +236,12 @@ impl<N, D> Print for Record<N, D>
 }
 
 
-//--- From
-
-impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
-    fn from(x: (N, Class, u32, D)) -> Self {
-        Record::new(x.0, x.1, x.2, x.3)
-    }
-}
-
-impl<N, D> From<(N, u32, D)> for Record<N, D> {
-    fn from(x: (N, u32, D)) -> Self {
-        Record::new(x.0, Class::In, x.1, x.2)
-    }
-}
-
-
-//--- Display and Print
+//--- Display
 
 impl<N, D> fmt::Display for Record<N, D>
-     where N: fmt::Display, D: RecordData + fmt::Display {
+     where N: ToDname + fmt::Display, D: RecordData + fmt::Display {
    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}\t{}\t{}\t{}\t{}",
+        write!(f, "{}.\t{}\t{}\t{}\t{}",
                self.name, self.ttl, self.class, self.data.rtype(),
                self.data)
     }
@@ -299,7 +299,7 @@ impl RecordHeader<ParsedDname> {
     }
 }
 
-impl<N> RecordHeader<N> {
+impl<N: ToDname> RecordHeader<N> {
     /// Returns a reference to the owner of the record.
     pub fn name(&self) -> &N {
         &self.name
@@ -326,7 +326,7 @@ impl<N> RecordHeader<N> {
     }
 
     /// Converts the header into an actual record.
-    pub fn into_record<D>(self, data: D) -> Record<N, D> {
+    pub fn into_record<D: RecordData>(self, data: D) -> Record<N, D> {
         Record::new(self.name, self.class, self.ttl, data)
     }
 }
@@ -455,7 +455,9 @@ impl Parse for ParsedRecord {
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         let header = RecordHeader::parse(parser)?;
-        Ok(Self::new(header, parser.clone()))
+        let data = parser.clone();
+        parser.advance(header.rdlen() as usize)?;
+        Ok(Self::new(header, data))
     }
 }
 

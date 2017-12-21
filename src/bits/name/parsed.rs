@@ -84,12 +84,11 @@ impl Parse for ParsedDname {
         // Phase 1: Take labels from the parser until the root label or the
         //          first compressed label. In the latter case, remember where
         //          the actual name ended.
-        let end = loop {
+        let mut parser = loop {
             match LabelType::parse(parser) {
                 Ok(LabelType::Normal(0)) => {
                     len += 1;
                     if len > 255 {
-                        parser.seek(start).unwrap();
                         return Err(BadParsedDname::LongName.into())
                     }
                     let mut res = parser.clone();
@@ -99,24 +98,21 @@ impl Parse for ParsedDname {
                 }
                 Ok(LabelType::Normal(label_len)) => {
                     if let Err(err) = parser.advance(label_len) {
-                        parser.seek(start).unwrap();
                         return Err(err.into())
                     }
                     len += label_len + 1;
                     if len > 255 {
-                        parser.seek(start).unwrap();
                         return Err(BadParsedDname::LongName.into())
                     }
                 }
                 Ok(LabelType::Compressed(pos)) => {
+                    let mut parser = parser.clone();
                     if let Err(err) = parser.seek(pos) {
-                        parser.seek(start).unwrap();
                         return Err(err.into())
                     }
-                    break parser.pos()
+                    break parser
                 }
                 Err(err) => {
-                    parser.seek(start).unwrap();
                     return Err(err)
                 }
             }
@@ -124,29 +120,25 @@ impl Parse for ParsedDname {
 
         // Phase 2: Follow offsets so we can get the length.
         loop {
-            match LabelType::parse(parser)? {
+            match LabelType::parse(&mut parser)? {
                 LabelType::Normal(0) => {
                     len += 1;
                     if len > 255 {
-                        parser.seek(start).unwrap();
                         return Err(BadParsedDname::LongName.into())
                     }
                     break;
                 }
                 LabelType::Normal(label_len) => {
                     if let Err(err) = parser.advance(label_len) {
-                        parser.seek(start).unwrap();
                         return Err(err.into())
                     }
                     len += label_len + 1;
                     if len > 255 {
-                        parser.seek(start).unwrap();
                         return Err(BadParsedDname::LongName.into())
                     }
                 }
                 LabelType::Compressed(pos) => {
                     if let Err(err) = parser.seek(pos) {
-                        parser.seek(start).unwrap();
                         return Err(err.into())
                     }
                 }
@@ -154,10 +146,38 @@ impl Parse for ParsedDname {
         }
 
         // Phase 3: Profit
-        parser.seek(end).unwrap();
-        let mut res = parser.clone();
-        res.seek(start).unwrap();
-        Ok(ParsedDname { parser: res, len, compressed: true })
+        parser.seek(start).unwrap();
+        Ok(ParsedDname { parser, len, compressed: true })
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        let mut len = 0;
+        loop {
+            match LabelType::parse(parser) {
+                Ok(LabelType::Normal(0)) => {
+                    len += 1;
+                    if len > 255 {
+                        return Err(BadParsedDname::LongName.into())
+                    }
+                    return Ok(())
+                }
+                Ok(LabelType::Normal(label_len)) => {
+                    if let Err(err) = parser.advance(label_len) {
+                        return Err(err.into())
+                    }
+                    len += label_len + 1;
+                    if len > 255 {
+                        return Err(BadParsedDname::LongName.into())
+                    }
+                }
+                Ok(LabelType::Compressed(_)) => {
+                    return Ok(())
+                }
+                Err(err) => {
+                    return Err(err)
+                }
+            }
+        }
     }
 }
 
@@ -268,9 +288,17 @@ impl hash::Hash for ParsedDname {
 //--- Display and Debug
 
 impl fmt::Display for ParsedDname {
+    /// Formats the domain name.
+    ///
+    /// This will produce the domain name in common display format without
+    /// the trailing dot.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for label in self.iter() {
-            write!(f, ".{}", label)?
+        let mut iter = self.iter();
+        write!(f, "{}", iter.next().unwrap())?;
+        for label in iter {
+            if !label.is_root() {
+                write!(f, ".{}", label)?
+            }
         }
         Ok(())
     }
@@ -278,7 +306,7 @@ impl fmt::Display for ParsedDname {
 
 impl fmt::Debug for ParsedDname {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ParsedDname({})", self)
+        write!(f, "ParsedDname({}.)", self)
     }
 }
 
@@ -288,7 +316,7 @@ impl fmt::Debug for ParsedDname {
 impl Print for ParsedDname {
     fn print<W: io::Write>(&self, printer: &mut Printer<W>)
                            -> Result<(), io::Error> {
-        write!(printer.item()?, "{}", self)
+        write!(printer.item()?, "{}.", self)
     }
 }
 

@@ -56,6 +56,14 @@ pub trait ToLabelIter<'a> {
     }
 }
 
+impl<'a, 'b, N: ToLabelIter<'b>> ToLabelIter<'b> for &'a N {
+    type LabelIter = N::LabelIter;
+
+    fn iter_labels(&'b self) -> Self::LabelIter {
+        (*self).iter_labels()
+    }
+}
+
 
 //------------ ToRelativeDname -----------------------------------------------
 
@@ -87,6 +95,8 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
         }
     }
 }
+
+impl<'a, N: ToRelativeDname + 'a> ToRelativeDname for &'a N { }
 
 
 //------------ ToDname -------------------------------------------------------
@@ -121,3 +131,4 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
     }
 }
 
+impl<'a, N: ToDname + 'a> ToDname for &'a N { }

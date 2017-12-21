@@ -26,6 +26,16 @@ pub mod rfc7873;
 pub mod rfc7901;
 pub mod rfc8145;
 
+pub use self::rfc5001::Nsid;
+pub use self::rfc6975::{Dau, Dhu, N3u};
+pub use self::rfc7314::Expire;
+pub use self::rfc7828::TcpKeepalive;
+pub use self::rfc7830::Padding;
+pub use self::rfc7871::ClientSubnet;
+pub use self::rfc7873::Cookie;
+pub use self::rfc7901::Chain;
+pub use self::rfc8145::KeyTag;
+
 
 //------------ Opt -----------------------------------------------------------
 
@@ -155,7 +165,7 @@ impl OptHeader {
 
 impl Default for OptHeader {
     fn default() -> Self {
-        OptHeader { inner: [0, 41, 0, 0, 0, 0, 0, 0, 0] }
+        OptHeader { inner: [0, 0, 41, 0, 0, 0, 0, 0, 0] }
     }
 }
 
