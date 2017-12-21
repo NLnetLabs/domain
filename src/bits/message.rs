@@ -151,7 +151,7 @@ pub struct Message {
 /// # Creation and Conversion
 ///
 impl Message {
-    /// Creates a message from a bytes slice.
+    /// Creates a message from a bytes value.
     ///
     /// This fails if the slice is too short to even contain a complete
     /// header section.  No further checks are done, though, so if this
@@ -164,6 +164,11 @@ impl Message {
         else {
             Ok(Message { bytes })
         }
+    }
+
+    /// Creates a message from a bytes value without checking.
+    pub(super) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
+        Message { bytes }
     }
 
     /// Returns a reference to the underlying bytes value.

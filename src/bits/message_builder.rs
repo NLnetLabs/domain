@@ -72,8 +72,8 @@
 //! [`push`]: struct.AdditionalBuilder.html#method.push
 //! 
 //! Once you are done with the additional section, too, you call
-//! [`finish`] to retrieve the underlying bytes buffer or [`freeze`] to get
-//! a bytes value instead.
+//! [`finish`] to retrieve the bytes buffer with the message data or
+//! [`freeze`] to get the [`Message`] instead.
 //!
 //! [`finish`]: struct.AuthorityBuilder.html#method.finish
 //! [`freeze`]: struct.AuthorityBuilder.html#method.freeze
@@ -122,13 +122,14 @@
 //! msg.push((&name, 86400, A::from_octets(192, 0, 2, 2))).unwrap();
 //! let mut msg = msg.opt().unwrap();
 //! msg.set_udp_payload_size(4096);
-//! let _ = msg.freeze(); // get the Bytes
+//! let _ = msg.freeze(); // get the message
 //! ```
 //!
 //! [`AdditionalBuilder`]: struct.AdditionalBuilder.html
 //! [`AnswerBuilder`]: struct.AnswerBuilder.html
 //! [`AuthorityBuilder`]: struct.AuthorityBuilder.html
 //! [`Composer`]: ../compose/Composer.html
+//! [`Message`]: ../message/struct.Messsage.html
 //! [`MessageBuilder`]: struct.MessageBuilder.html
 //! [`OptBuilder`]: struct.OptBuilder.html
 //! [`Question`]: ../question/struct.Question.html
@@ -138,10 +139,11 @@
 
 use std::{mem, ops};
 use std::marker::PhantomData;
-use bytes::{BigEndian, BufMut, ByteOrder, Bytes, BytesMut};
+use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
 use iana::opt::OptionCode;
 use super::compose::{Compose, Compress, Compressor};
 use super::header::{Header, HeaderCounts, HeaderSection};
+use super::message::Message;
 use super::name::ToDname;
 use super::opt::{OptData, OptHeader};
 use super::parse::ShortBuf;
@@ -372,7 +374,7 @@ impl MessageBuilder {
     /// Finishes the messages and returns the bytes value of the message.
     ///
     /// This will result in a message with all three record sections empty.
-    pub fn freeze(self) -> Bytes {
+    pub fn freeze(self) -> Message {
         self.target.freeze()
     }
 }
@@ -514,7 +516,7 @@ impl AnswerBuilder {
     ///
     /// This will result in a message with empty authority and additional
     /// sections.
-    pub fn freeze(self) -> Bytes {
+    pub fn freeze(self) -> Message {
         self.target.freeze()
     }
 }
@@ -649,7 +651,7 @@ impl AuthorityBuilder {
     /// Finishes the message and returns the resulting bytes value.
     ///
     /// This will result in a message with an empty additional section.
-    pub fn freeze(self) -> Bytes {
+    pub fn freeze(self) -> Message {
         self.target.freeze()
     }
 }
@@ -780,7 +782,7 @@ impl AdditionalBuilder {
     }
 
     /// Finishes the message and returns the resulting bytes value.
-    pub fn freeze(self) -> Bytes {
+    pub fn freeze(self) -> Message {
         self.target.freeze()
     }
 }
@@ -790,18 +792,45 @@ impl AdditionalBuilder {
 
 /// Builds an OPT record as part of the additional section of a DNS message,
 ///
-/// This type can be constructed by calling the `opt` method on a
-/// [`MessageBuilder`], [`AnswerBuilder`], [`AuthorityBuilder`], or
-/// [`AdditionalBuilder`].  See the [module documentation] for on overview
+/// This type can be constructed by calling the `opt` method on any other
+/// builder type.  See the [module documentation] for on overview
 /// on building messages.
 ///
+/// As OPT records are part of the additional section, this type will, when
+/// constructed proceed to this section and append an OPT record without any
+/// options to it. Options can be appened via the [`push`] method.
+///
+/// The type also deref-muts to [`OptHeader`] allowing you to modify the
+/// header’s fields such as setting the
+/// [UDP payload size][`OptHeader::set_udp_payload_size`] or the
+/// [DO bit][`OptHeader::set_dnssec_ok`].
+///
+/// Once you have adjusted the OPT record to your liking, you can return to
+/// the additional section via [`additional`]. Note, however, that the OPT
+/// record should be the last record except for a possible TSIG record. You
+/// can also finish the message via [`finish`] or [`freeze`].
+///
+/// [module documentation]: index.html
+/// [`OptHeader`]: ../opt/struct.OptHeader.html
+/// [`additional`]: #method.additional
+/// [`finish`]: #method.finish
+/// [`freeze`]: #method.freeze
+/// [`push`]: #method.push
+/// [`OptHeader::set_udp_payload_size`]: ../opt/struct.OptHeader.html#method.set_udp_payload_size
+/// [`OptHeader::set_dnssec_ok`]: ../opt/struct.OptHeader.html#method.set_dnssec_ok
 #[derive(Clone, Debug)]
 pub struct OptBuilder {
     target: MessageTarget,
+
+    /// The position of in `target` of the start of the OPT record.
     pos: usize,
 }
 
 impl OptBuilder {
+    /// Creates a new OPT builder atop the given target.
+    ///
+    /// This appends the OPT header to the message but doesn’t increase the
+    /// ARCOUNT of the message just yet.
     fn new(mut target: MessageTarget) -> Result<Self, ShortBuf> {
         let pos = target.len();
         target.compose(&OptHeader::default())?;
@@ -810,6 +839,11 @@ impl OptBuilder {
     }
 
     /// Pushes an option to the OPT record.
+    ///
+    /// The method is generic over anything that implements the `OptData`
+    /// trait representing an option. Alternatively, most of these types
+    /// provide a `push` associated function that allows to construct an
+    /// option directly into a record from its data.
     pub fn push<O: OptData>(&mut self, option: &O) -> Result<(), ShortBuf> {
         self.target.compose(&option.code())?;
         let len = option.compose_len();
@@ -818,6 +852,10 @@ impl OptBuilder {
         self.target.compose(option)
     }
 
+    /// Builds an option into the record.
+    ///
+    /// The option will have the option code `code`. Its data will be `len`
+    /// octets long and appened to the record via the `op` closure.
     pub(super) fn build<F>(&mut self, code: OptionCode, len: u16, op: F)
                            -> Result<(), ShortBuf>
                         where F: FnOnce(&mut Compressor)
@@ -827,22 +865,25 @@ impl OptBuilder {
         op(&mut self.target.buf)
     }
 
-    /// Completes the OPT record and returns the additional section builder.
+    /// Completes the OPT record and returns to the additional section builder.
     pub fn additional(self) -> AdditionalBuilder {
         AdditionalBuilder::new(self.complete())
     }
 
     /// Finishes the message and returns the underlying bytes buffer.
-    ///
-    /// This will result in a message with all three record sections empty.
     pub fn finish(self) -> BytesMut {
         self.complete().unwrap()
     }
 
-    pub fn freeze(self) -> Bytes {
+    /// Finishes the message and returns it.
+    pub fn freeze(self) -> Message {
         self.complete().freeze()
     }
 
+    /// Completes building the OPT record.
+    ///
+    /// This will update the RDLEN field of the record header and increase the
+    /// ARCOUNT of the message.
     fn complete(mut self) -> MessageTarget {
         let len = self.target.len()
                 - (self.pos + mem::size_of::<OptHeader>() + 2);
@@ -958,9 +999,15 @@ impl MessageTarget {
         self.buf.unwrap()
     }
 
-    fn freeze(mut self) -> Bytes {
+    fn freeze(mut self) -> Message {
         self.update_shim();
-        self.unwrap().freeze()
+        let bytes = if self.start == 0 {
+            self.buf.unwrap().freeze()
+        }
+        else {
+            self.buf.unwrap().freeze().slice_from(self.start)
+        };
+        unsafe { Message::from_bytes_unchecked(bytes) }
     }
 }
 

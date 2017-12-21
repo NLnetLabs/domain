@@ -92,7 +92,7 @@ impl Options {
         msg.push((&self.name, self.qtype, self.qclass))?;
         let mut msg = msg.opt()?;
         msg.set_udp_payload_size(4096);
-        Ok(Message::from_bytes(msg.freeze())?)
+        Ok(msg.freeze())
     }
 
     fn query(&self, request: Message) -> Result<Message, Error> {
