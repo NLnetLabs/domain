@@ -927,8 +927,8 @@ impl MessageTarget {
     /// Creates a new message target atop a given buffer.
     fn from_buf(mut buf: BytesMut) -> Self {
         let start = buf.len();
-        if buf.remaining_mut() < 2 + mem::size_of::<HeaderSection>() {
-            let additional = 2 + mem::size_of::<HeaderSection>()
+        if buf.remaining_mut() < mem::size_of::<HeaderSection>() {
+            let additional = mem::size_of::<HeaderSection>()
                            - buf.remaining_mut();
             buf.reserve(additional)
         }
@@ -960,11 +960,7 @@ impl MessageTarget {
     ///
     /// There’s two closures here. The first one, `composeop` actually
     /// writes the data. The second, `incop` increments the counter in the
-    /// messages header to reflect the new element. The latter is assumed to
-    /// never fail. This means you need to check before you push whether
-    /// there is still space in whatever counter you plan to increase.
-    /// `HeaderCount`’s `inc_*` methods, which are supposed to be used here,
-    /// have assertions for your own safety.
+    /// messages header to reflect the new element.
     fn push<O, I, E>(&mut self, composeop: O, incop: I) -> Result<(), E>
             where O: FnOnce(&mut Compressor) -> Result<(), E>,
                   I: FnOnce(&mut HeaderCounts) {
@@ -984,23 +980,16 @@ impl MessageTarget {
         self.counts_mut().set(&snapshot.counts);
     }
 
-    fn update_shim(&mut self) {
-        let len = (self.buf.len() - self.start) as u16;
-        BigEndian::write_u16(&mut self.buf.as_slice_mut()[self.start..], len);
-    }
-
     fn preview(&mut self) -> &[u8] {
         self.update_shim();
         self.buf.as_slice()
     }
 
     fn unwrap(mut self) -> BytesMut {
-        self.update_shim();
         self.buf.unwrap()
     }
 
     fn freeze(mut self) -> Message {
-        self.update_shim();
         let bytes = if self.start == 0 {
             self.buf.unwrap().freeze()
         }
@@ -1028,6 +1017,10 @@ impl ops::DerefMut for MessageTarget {
 
 //------------ Snapshot ------------------------------------------------------
 
+/// Contains information about the state of a message.
+///
+/// This type is returned by the `snapshot` method of the various builders and
+/// allows to later return to that state through the `rewind` method.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Snapshot<T> {
     pos: usize,
