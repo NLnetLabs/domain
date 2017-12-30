@@ -1,9 +1,8 @@
 //! Serial numbers.
 
-use std::{cmp, fmt, io, str};
+use std::{cmp, fmt, str};
 use bytes::BufMut;
 use ::master::scan::{CharSource, Scan, ScanError, Scanner};
-use ::master::print::{Print, Printer};
 use super::compose::Compose;
 use super::parse::{Parse, ParseAll, Parser};
 
@@ -97,7 +96,7 @@ impl Compose for Serial {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl Scan for Serial {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -106,10 +105,9 @@ impl Scan for Serial {
     }
 }
 
-impl Print for Serial {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        self.0.print(printer)
+impl fmt::Display for Serial {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -145,15 +143,6 @@ impl cmp::PartialOrd for Serial {
                 None
             }
         }
-    }
-}
-
-
-//--- Display
-
-impl fmt::Display for Serial {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
     }
 }
 

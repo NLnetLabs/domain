@@ -5,9 +5,7 @@ pub use self::error::{Pos, ScanError, ScanResult, SyntaxError, SyntaxResult};
 pub use self::scanner::Scanner;
 */
 
-
 pub mod error;
-pub mod print;
 pub mod source;
 pub mod scan;
 

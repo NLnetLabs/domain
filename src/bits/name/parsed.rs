@@ -1,12 +1,10 @@
 //! Parsed domain names.
 
-use std::{cmp, fmt, hash, io};
-use std::io::Write;
+use std::{cmp, fmt, hash};
 use bytes::BufMut;
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::{Parse, ParseAll, Parser, ParseAllError, ParseOpenError,
                     ShortBuf};
-use ::master::print::{Print, Printer};
 use super::error::{LabelTypeError};
 use super::label::Label;
 use super::traits::{ToLabelIter, ToDname};
@@ -285,7 +283,7 @@ impl hash::Hash for ParsedDname {
 }
 
 
-//--- Display and Debug
+//--- Display
 
 impl fmt::Display for ParsedDname {
     /// Formats the domain name.
@@ -304,19 +302,12 @@ impl fmt::Display for ParsedDname {
     }
 }
 
+
+//--- Debug
+
 impl fmt::Debug for ParsedDname {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ParsedDname({}.)", self)
-    }
-}
-
-
-//--- Print
-
-impl Print for ParsedDname {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        write!(printer.item()?, "{}.", self)
     }
 }
 

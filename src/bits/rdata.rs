@@ -24,11 +24,9 @@
 //! [`domain::rdata`]: ../../rdata/index.html
 //! [`GenericRecordData`]: struct.GenericRecordData.html
 
-use std::{fmt, io};
-use std::io::Write;
+use std::fmt;
 use bytes::{BufMut, Bytes, BytesMut};
 use ::iana::Rtype;
-use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use super::compose::{Compose, Compress, Compressor};
 use super::parse::{ParseAll, Parser, ShortBuf};
@@ -209,18 +207,7 @@ impl ParseRecordData for UnknownRecordData {
 }
 
 
-//--- Print, and Display
-
-impl Print for UnknownRecordData {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        write!(printer.item()?, "\\# {}", self.data.len())?;
-        for ch in self.data.as_ref() {
-            write!(printer.item()?, " {:02x}", *ch)?
-        }
-        Ok(())
-    }
-}
+//--- Display
 
 impl fmt::Display for UnknownRecordData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

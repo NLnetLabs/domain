@@ -4,12 +4,11 @@
 //!
 //! [RFC 2782]: https://tools.ietf.org/html/rfc2782
 
-use std::{fmt, io};
+use std::fmt;
 use bytes::BufMut;
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::{Parse, ParseAll, Parser, ParseOpenError, ShortBuf};
 use ::bits::rdata::RtypeRecordData;
-use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError};
 use ::iana::Rtype;
 
@@ -91,23 +90,13 @@ impl<N> RtypeRecordData for Srv<N> {
 }
 
 
-//--- Scan, Print, and Display
+//--- Scan and Display
 
 impl<N: Scan> Scan for Srv<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         Ok(Self::new(u16::scan(scanner)?, u16::scan(scanner)?,
                      u16::scan(scanner)?, N::scan(scanner)?))
-    }
-}
-
-impl<N: Print> Print for Srv<N> {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        self.priority.print(printer)?;
-        self.weight.print(printer)?;
-        self.port.print(printer)?;
-        self.target.print(printer)
     }
 }
 

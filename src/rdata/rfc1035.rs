@@ -4,8 +4,7 @@
 //!
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{fmt, io, ops};
-use std::io::Write;
+use std::{fmt, ops};
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use bytes::{BufMut, Bytes, BytesMut};
@@ -17,7 +16,6 @@ use ::bits::parse::{ParseAll, ParseAllError, ParseOpenError, Parse,
                     Parser, ShortBuf};
 use ::bits::rdata::RtypeRecordData;
 use ::bits::serial::Serial;
-use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, ScanError, Scan, Scanner};
 
 
@@ -97,7 +95,7 @@ macro_rules! dname_type {
         }
 
 
-        //--- Scan and Print
+        //--- Scan and Display
 
         impl<N: Scan> Scan for $target<N> {
             fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -106,10 +104,9 @@ macro_rules! dname_type {
             }
         }
 
-        impl<N: Print> Print for $target<N> {
-            fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                                   -> Result<(), io::Error> {
-                self.$field.print(printer)
+        impl<N: fmt::Display> fmt::Display for $target<N> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "{}.", self.$field)
             }
         }
 
@@ -128,15 +125,6 @@ macro_rules! dname_type {
 
             fn deref(&self) -> &Self::Target {
                 &self.$field
-            }
-        }
-
-
-        //--- Display
-
-        impl<N: fmt::Display> fmt::Display for $target<N> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "{}.", self.$field)
             }
         }
     }
@@ -231,7 +219,7 @@ impl Compress for A {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl Scan for A {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -240,10 +228,9 @@ impl Scan for A {
     }
 }
 
-impl Print for A {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        write!(printer.item()?, "{}", self.addr)
+impl fmt::Display for A {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.addr.fmt(f)
     }
 }
 
@@ -283,15 +270,6 @@ impl AsRef<Ipv4Addr> for A {
 impl AsMut<Ipv4Addr> for A {
     fn as_mut(&mut self) -> &mut Ipv4Addr {
         &mut self.addr
-    }
-}
-
-
-//--- Display
-
-impl fmt::Display for A {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.addr.fmt(f)
     }
 }
 
@@ -381,7 +359,7 @@ impl Compress for Hinfo {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl Scan for Hinfo {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -390,11 +368,9 @@ impl Scan for Hinfo {
     }
 }
 
-impl Print for Hinfo {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        self.cpu.print(printer)?;
-        self.os.print(printer)
+impl fmt::Display for Hinfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.cpu, self.os)
     }
 }
 
@@ -403,15 +379,6 @@ impl Print for Hinfo {
 
 impl RtypeRecordData for Hinfo {
     const RTYPE: Rtype = Rtype::Hinfo;
-}
-
-
-//--- Display
-
-impl fmt::Display for Hinfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.cpu, self.os)
-    }
 }
 
 
@@ -561,7 +528,7 @@ impl<N: Compress> Compress for Minfo<N> {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl<N: Scan> Scan for Minfo<N> {
     fn scan<C: CharSource>(scanner: &mut  Scanner<C>)
@@ -570,11 +537,9 @@ impl<N: Scan> Scan for Minfo<N> {
     }
 }
 
-impl<N: Print> Print for Minfo<N> {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        self.rmailbx.print(printer)?;
-        self.emailbx.print(printer)
+impl<N: fmt::Display> fmt::Display for Minfo<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}. {}.", self.rmailbx, self.emailbx)
     }
 }
 
@@ -583,15 +548,6 @@ impl<N: Print> Print for Minfo<N> {
 
 impl<N> RtypeRecordData for Minfo<N> {
     const RTYPE: Rtype = Rtype::Minfo;
-}
-
-
-//--- Display
-
-impl<N: fmt::Display> fmt::Display for Minfo<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}. {}.", self.rmailbx, self.emailbx)
-    }
 }
 
 
@@ -685,7 +641,7 @@ impl<N: Compress> Compress for Mx<N> {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl<N: Scan> Scan for Mx<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -694,11 +650,9 @@ impl<N: Scan> Scan for Mx<N> {
     }
 }
 
-impl<N: Print> Print for Mx<N> {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        self.preference.print(printer)?;
-        self.exchange.print(printer)
+impl<N: fmt::Display> fmt::Display for Mx<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}.", self.preference, self.exchange)
     }
 }
 
@@ -707,15 +661,6 @@ impl<N: Print> Print for Mx<N> {
 
 impl<N> RtypeRecordData for Mx<N> {
     const RTYPE: Rtype = Rtype::Mx;
-}
-
-
-//--- Display
-
-impl<N: fmt::Display> fmt::Display for Mx<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}.", self.preference, self.exchange)
-    }
 }
 
 
@@ -976,7 +921,7 @@ impl<N: Compress> Compress for Soa<N> {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl<N: Scan> Scan for Soa<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -988,16 +933,11 @@ impl<N: Scan> Scan for Soa<N> {
     }
 }
 
-impl<N: Print> Print for Soa<N> {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        self.mname.print(printer)?;
-        self.rname.print(printer)?;
-        self.serial.print(printer)?;
-        self.refresh.print(printer)?;
-        self.retry.print(printer)?;
-        self.expire.print(printer)?;
-        self.minimum.print(printer)
+impl<N: fmt::Display> fmt::Display for Soa<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}. {}. {} {} {} {} {}",
+               self.mname, self.rname, self.serial, self.refresh, self.retry,
+               self.expire, self.minimum)
     }
 }
 
@@ -1006,17 +946,6 @@ impl<N: Print> Print for Soa<N> {
 
 impl<N> RtypeRecordData for Soa<N> {
     const RTYPE: Rtype = Rtype::Soa;
-}
-
-
-//--- Display
-
-impl<N: fmt::Display> fmt::Display for Soa<N> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}. {}. {} {} {} {} {}",
-               self.mname, self.rname, self.serial, self.refresh, self.retry,
-               self.expire, self.minimum)
-    }
 }
 
 
@@ -1124,7 +1053,7 @@ impl Compress for Txt {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl Scan for Txt {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -1143,26 +1072,6 @@ impl Scan for Txt {
     }
 }
 
-impl Print for Txt {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        for item in self.iter() {
-            item.print(printer)?
-        }
-        Ok(())
-    }
-}
-
-
-//--- RecordData
-
-impl RtypeRecordData for Txt {
-    const RTYPE: Rtype = Rtype::Txt;
-}
-
-
-//--- Display
-
 impl fmt::Display for Txt {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut items = self.iter();
@@ -1175,6 +1084,13 @@ impl fmt::Display for Txt {
         }
         Ok(())
     }
+}
+
+
+//--- RecordData
+
+impl RtypeRecordData for Txt {
+    const RTYPE: Rtype = Rtype::Txt;
 }
 
 
@@ -1295,7 +1211,7 @@ impl Compress for Wks {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl Scan for Wks {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -1312,13 +1228,11 @@ impl Scan for Wks {
     }
 }
 
-impl Print for Wks {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        self.address.print(printer)?;
-        self.protocol.print(printer)?;
+impl fmt::Display for Wks {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.address, self.protocol)?;
         for service in self.iter() {
-            service.print(printer)?;
+            write!(f, " {}", service)?;
         }
         Ok(())
     }
@@ -1329,19 +1243,6 @@ impl Print for Wks {
 
 impl RtypeRecordData for Wks {
     const RTYPE: Rtype = Rtype::Wks;
-}
-
-
-//--- Display
-
-impl fmt::Display for Wks {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.address, self.protocol)?;
-        for service in self.iter() {
-            write!(f, " {}", service)?;
-        }
-        Ok(())
-    }
 }
 
 

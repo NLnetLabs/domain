@@ -981,15 +981,14 @@ impl MessageTarget {
     }
 
     fn preview(&mut self) -> &[u8] {
-        self.update_shim();
         self.buf.as_slice()
     }
 
-    fn unwrap(mut self) -> BytesMut {
+    fn unwrap(self) -> BytesMut {
         self.buf.unwrap()
     }
 
-    fn freeze(mut self) -> Message {
+    fn freeze(self) -> Message {
         let bytes = if self.start == 0 {
             self.buf.unwrap().freeze()
         }

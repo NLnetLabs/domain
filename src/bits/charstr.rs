@@ -24,11 +24,10 @@
 //! [`CharStrMut`]: struct.CharStrMut.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{cmp, fmt, hash, ops, io, str};
+use std::{cmp, fmt, hash, ops, str};
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes, BytesMut};
 use ::master::error::{ScanError, SyntaxError};
-use ::master::print::{Print, Printer};
 use ::master::scan::{BadSymbol, CharSource, Scan, Scanner, Symbol,
                      SymbolError};
 use super::compose::Compose;
@@ -184,7 +183,7 @@ impl Compose for CharStr {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl Scan for CharStr {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -200,12 +199,10 @@ impl Scan for CharStr {
     }
 }
 
-impl Print for CharStr {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        let mut wr = printer.item()?;
+impl fmt::Display for CharStr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for ch in &self.inner {
-            wr.print_byte(ch)?
+            fmt::Display::fmt(&Symbol::from_byte(ch), f)?
         }
         Ok(())
     }
@@ -295,16 +292,7 @@ impl hash::Hash for CharStr {
 }
 
 
-//--- Display, Debug
-
-impl fmt::Display for CharStr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for ch in &self.inner {
-            fmt::Display::fmt(&Symbol::from_byte(ch), f)?
-        }
-        Ok(())
-    }
-}
+//--- Debug
 
 impl fmt::Debug for CharStr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

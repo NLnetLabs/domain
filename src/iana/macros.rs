@@ -356,16 +356,6 @@ macro_rules! int_enum_str_with_prefix {
             }
         }
 
-        impl ::master::print::Print for $ianatype {
-            fn print<W>(&self, printer: &mut ::master::print::Printer<W>)
-                        -> Result<(), ::std::io::Error>
-                     where W: ::std::io::Write {
-                use ::std::io::Write;
-
-                write!(printer.item()?, "{}", self)
-            }
-        }
-
         from_str_error!($error);
     }
 }

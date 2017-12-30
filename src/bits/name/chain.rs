@@ -1,11 +1,9 @@
 //! A chain of domain names.
 //!
-use std::{fmt, io, iter};
-use std::io::Write;
+use std::{fmt, iter};
 use bytes::BufMut;
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::ShortBuf;
-use ::master::print::{Print, Printer};
 use super::error::LongNameError;
 use super::label::Label;
 use super::traits::{ToLabelIter, ToRelativeDname, ToDname};
@@ -101,10 +99,9 @@ impl<L: ToRelativeDname, R: ToRelativeDname> ToRelativeDname for Chain<L, R> {
 impl<L: ToRelativeDname, R: ToDname> ToDname for Chain<L, R> {
 }
 
-impl<L: fmt::Display, R: fmt::Display> Print for Chain<L, R> {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        write!(printer.item()?, "{}.{}", self.left, self.right)
+impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}.{}", self.left, self.right)
     }
 }
 

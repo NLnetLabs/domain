@@ -7,11 +7,10 @@
 //! [`Record`]: struct.Record.html
 //! [`GenericRecord`]: type.GenericRecord.html
 
-use std::{fmt, io};
+use std::fmt;
 use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Class, Rtype};
 //use ::master::error::ScanError;
-use ::master::print::{Print, Printer};
 //use ::master::scan::{CharSource, Scannable, Scanner};
 use super::compose::{Compose, Compress, Compressor};
 use super::name::{ParsedDname, ParsedDnameError, ToDname};
@@ -213,7 +212,7 @@ impl<N: ToDname, D: RecordData + Compress> Compress
 }
 
 
-//--- Scannable and Print
+//--- Scan and Display
 
 /*
 impl<N: Scannable> Scannable for Record<N, MasterRecordData> {
@@ -223,25 +222,10 @@ impl<N: Scannable> Scannable for Record<N, MasterRecordData> {
 }
 */
 
-impl<N: ToDname, D: RecordData> Print for Record<N, D>
-     where N: Print, D: RecordData + Print {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        self.name.print(printer)?;
-        self.ttl.print(printer)?;
-        self.class.print(printer)?;
-        self.data.rtype().print(printer)?;
-        self.data.print(printer)
-    }
-}
-
-
-//--- Display
-
 impl<N, D> fmt::Display for Record<N, D>
      where N: ToDname + fmt::Display, D: RecordData + fmt::Display {
    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.\t{}\t{}\t{}\t{}",
+        write!(f, "{}. {} {} {} {}",
                self.name, self.ttl, self.class, self.data.rtype(),
                self.data)
     }

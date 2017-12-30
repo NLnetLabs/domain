@@ -4,8 +4,7 @@
 //!
 //! [RFC 3596]: https://tools.ietf.org/html/rfc3596
 
-use std::{fmt, io, ops};
-use std::io::Write;
+use std::{fmt, ops};
 use std::net::Ipv6Addr;
 use std::str::FromStr;
 use bytes::BufMut;
@@ -13,7 +12,6 @@ use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::{Parse, ParseAll, Parser, ShortBuf};
 use ::bits::rdata::RtypeRecordData;
 use ::iana::Rtype;
-use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError};
 
 
@@ -92,7 +90,7 @@ impl Compress for Aaaa {
 }
 
 
-//--- Scan and Print
+//--- Scan and Display
 
 impl Scan for Aaaa {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
@@ -103,10 +101,9 @@ impl Scan for Aaaa {
     }
 }
 
-impl Print for Aaaa {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        write!(printer.item()?, "{}", self.addr)
+impl fmt::Display for Aaaa {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.addr.fmt(f)
     }
 }
 
@@ -146,15 +143,6 @@ impl AsRef<Ipv6Addr> for Aaaa {
 impl AsMut<Ipv6Addr> for Aaaa {
     fn as_mut(&mut self) -> &mut Ipv6Addr {
         &mut self.addr
-    }
-}
-
-
-//--- Display
-
-impl fmt::Display for Aaaa {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.addr.fmt(f)
     }
 }
 

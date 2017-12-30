@@ -1,10 +1,8 @@
 //! A domain name that can be both relative or absolute.
 
-use std::{fmt, io, str};
+use std::{fmt, str};
 use std::ascii::AsciiExt;
-use std::io::Write;
 use ::master::error::ScanError;
-use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, Scan, Scanner, Symbol};
 use super::builder::DnameBuilder;
 use super::dname::Dname;
@@ -255,17 +253,6 @@ impl fmt::Debug for UncertainDname {
     }
 }
 
-
-//--- Print
-
-impl Print for UncertainDname {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        write!(printer.item()?, "{}", self)
-    }
-}
-
-    
 
 //------------ Santa’s Little Helpers ----------------------------------------
 

@@ -1,12 +1,10 @@
 /// Uncompressed, absolute domain names.
 
-use std::{cmp, fmt, hash, io, ops, str};
+use std::{cmp, fmt, hash, ops, str};
 use std::ascii::AsciiExt;
-use std::io::Write;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::{Parse, ParseAll, Parser, ShortBuf};
-use ::master::print::{Print, Printer};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use super::error::{FromStrError, IndexError, LabelTypeError,
                    SplitLabelError, RootNameError};
@@ -482,7 +480,16 @@ impl hash::Hash for Dname {
 }
 
 
-//--- Display and Debug
+//--- Scan and Display
+
+impl Scan for Dname {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        scanner.try_scan(UncertainDname::scan, |res| {
+            res.try_into_absolute().map_err(|_| SyntaxError::RelativeName)
+        })
+    }
+}
 
 impl fmt::Display for Dname {
     /// Formats the domain name.
@@ -501,28 +508,12 @@ impl fmt::Display for Dname {
     }
 }
 
+
+//--- Debug
+
 impl fmt::Debug for Dname {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Dname({}.)", self)
-    }
-}
-
-
-//--- Scan and Print
-
-impl Scan for Dname {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
-        scanner.try_scan(UncertainDname::scan, |res| {
-            res.try_into_absolute().map_err(|_| SyntaxError::RelativeName)
-        })
-    }
-}
-
-impl Print for Dname {
-    fn print<W: io::Write>(&self, printer: &mut Printer<W>)
-                           -> Result<(), io::Error> {
-        write!(printer.item()?, "{}.", self)
     }
 }
 
