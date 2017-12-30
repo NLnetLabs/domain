@@ -1,4 +1,5 @@
 extern crate bytes;
+extern crate chrono;
 extern crate domain;
 extern crate failure;
 
@@ -6,8 +7,9 @@ use std::{env, io};
 use std::net::{SocketAddr, UdpSocket};
 use std::process::exit;
 use std::str::FromStr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use bytes::BytesMut;
+use chrono::{DateTime, Local};
 use failure::Error;
 use domain::bits::{Dname, Message, MessageBuilder, ParsedDname, RecordSection};
 use domain::iana::{Class, Rtype};
@@ -88,6 +90,7 @@ impl Options {
 impl Options {
     fn create_request(&self) -> Result<Message, Error> {
         let mut msg = MessageBuilder::new_udp();
+        msg.header_mut().set_random_id();
         msg.header_mut().set_rd(true);
         msg.push((&self.name, self.qtype, self.qclass))?;
         let mut msg = msg.opt()?;
@@ -95,10 +98,14 @@ impl Options {
         Ok(msg.freeze())
     }
 
-    fn query(&self, request: Message) -> Result<Message, Error> {
+    fn query(&self, request: Message) -> Result<Response, Error> {
+        let start = Local::now();
         for server in &self.conf.servers {
-            if let Some(res) = self.query_udp(&request, server.addr)? {
-                return Ok(res)
+            let now = Instant::now();
+            if let Some(message) = self.query_udp(&request, server.addr)? {
+                let duration = Instant::now().duration_since(now);
+                return Ok(Response { message, server: server.addr,start,
+                                     duration })
             }
         }
         Err(io::Error::new(io::ErrorKind::TimedOut,
@@ -139,57 +146,70 @@ impl Options {
         Ok(None)
     }
 
-    fn print_result(&self, response: Message) -> Result<(), Error> {
+    fn print_result(&self, response: Response) -> Result<(), Error> {
         println!(";; Got answer:");
         println!(";; ->>HEADER<<- opcode: {}, status: {}, id: {}",
-                 response.header().opcode(), response.header().rcode(),
-                 response.header().id());
+                 response.message.header().opcode(),
+                 response.message.header().rcode(),
+                 response.message.header().id());
         print!(";; flags:");
-        if response.header().qr() { print!(" qr"); }
-        if response.header().aa() { print!(" aa"); }
-        if response.header().tc() { print!(" tc"); }
-        if response.header().rd() { print!(" rd"); }
-        if response.header().ra() { print!(" ra"); }
-        if response.header().ad() { print!(" ad"); }
-        if response.header().cd() { print!(" cd"); }
+        if response.message.header().qr() { print!(" qr"); }
+        if response.message.header().aa() { print!(" aa"); }
+        if response.message.header().tc() { print!(" tc"); }
+        if response.message.header().rd() { print!(" rd"); }
+        if response.message.header().ra() { print!(" ra"); }
+        if response.message.header().ad() { print!(" ad"); }
+        if response.message.header().cd() { print!(" cd"); }
         println!("; QUERY: {}, ANSWER: {}, AUTHORITY: {}, ADDITIONAL: {}",
-                 response.header_counts().qdcount(),
-                 response.header_counts().ancount(),
-                 response.header_counts().nscount(),
-                 response.header_counts().arcount());
+                 response.message.header_counts().qdcount(),
+                 response.message.header_counts().ancount(),
+                 response.message.header_counts().nscount(),
+                 response.message.header_counts().arcount());
         println!("");
 
-        let mut question = response.question();
-        if response.header_counts().qdcount() > 0 {
+        let mut question = response.message.question();
+        if response.message.header_counts().qdcount() > 0 {
             println!(";; QUESTION SECTION");
             for item in &mut question {
                 let item = item.unwrap();
-                println!("; {}", item);
+                self.print_cell(format!(";{}", item.qname()), 32);
+                self.print_cell(format!("{}", item.qclass()), 8);
+                self.print_cell(format!("{}", item.qtype()), 8);
+                println!("");
             }
             println!("");
         }
 
         let mut answer = question.answer().unwrap();
-        if response.header_counts().ancount() > 0 {
+        if response.message.header_counts().ancount() > 0 {
             println!(";; ANSWER SECTION");
             self.print_records(&mut answer);
             println!("");
         }
 
         let mut authority = answer.next_section().unwrap().unwrap();
-        if response.header_counts().nscount() > 0 {
+        if response.message.header_counts().nscount() > 0 {
             println!(";; AUTHORITY SECTION");
             self.print_records(&mut authority);
             println!("");
         }
 
         let mut additional = authority.next_section().unwrap().unwrap();
-        if response.header_counts().arcount() > 0 {
+        if response.message.header_counts().arcount() > 0 {
             println!(";; ADDITIONAL SECTION");
             self.print_records(&mut additional);
             println!("");
         }
 
+        println!(";; Query time: {} ms",
+                 response.duration.as_secs() * 1000
+                 + (response.duration.subsec_nanos() / 1_000_000) as u64);
+        println!(";; SERVER: {}#{}",
+                 response.server.ip(), response.server.port());
+        println!(";; WHEN: {}",
+                 response.start.format("%a %b %e %T %Z %Y"));
+        println!(";; MSG SIZE  rcvd: {}", response.message.len());
+        println!("");
         Ok(())
     }
 
@@ -198,8 +218,19 @@ impl Options {
             let record = record.unwrap()
                                .into_record::<AllRecordData<ParsedDname>>()
                                .unwrap().unwrap();
-            println!("{}", record);
+            // XXX We don’t have proper Display impls yet, so we need to
+            //     convert to strings first to get the formatting.
+            self.print_cell(format!("{}", record.name()), 24);
+            self.print_cell(format!("{}", record.ttl()), 8);
+            self.print_cell(format!("{}", record.class()), 8);
+            self.print_cell(format!("{}", record.rtype()), 8);
+            println!("{}", record.data());
         }
+    }
+
+    fn print_cell(&self, cell: String, len: usize) {
+        // XXX dig uses tabs
+        print!("{0:1$}", cell, len);
     }
 
     fn run() -> Result<(), Error> {
@@ -208,6 +239,16 @@ impl Options {
         let response = options.query(request)?;
         options.print_result(response)
     }
+}
+
+
+//------------ Response -----------------------------------------------------
+
+struct Response {
+    message: Message,
+    server: SocketAddr,
+    start: DateTime<Local>,
+    duration: Duration,
 }
 
 

@@ -878,8 +878,8 @@ impl<N: ParseAll + Parse> ParseAll for Soa<N>
     type Err = <N as ParseAll>::Err;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        let tmp = parser.clone();
-        let res = <Self as Parse>::parse(parser)?;
+        let mut tmp = parser.clone();
+        let res = <Self as Parse>::parse(&mut tmp)?;
         if tmp.pos() - parser.pos() < len {
             Err(ParseAllError::TrailingData.into())
         }
@@ -887,6 +887,7 @@ impl<N: ParseAll + Parse> ParseAll for Soa<N>
             Err(ParseAllError::ShortField.into())
         }
         else {
+            parser.advance(len)?;
             Ok(res)
         }
     }

@@ -23,6 +23,7 @@ futures        = "0.1.14"
 tokio          = { git = "https://github.com/tokio-rs/tokio.git", branch="new-crate" }
 
 [dev-dependencies]
+chrono       = "0.4"
 native-tls   = "0.1.2"
 tokio-io     = "0.1.2"
 tokio-tls    = "0.1.2"
