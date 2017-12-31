@@ -5,6 +5,7 @@
 
 use bytes::Bytes;
 use super::label::Label;
+use super::builder::PushError;
 
 
 //------------ FromStrError --------------------------------------------------
@@ -110,31 +111,6 @@ pub enum LabelTypeError {
 #[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 #[fail(display="long label")]
 pub struct LongLabelError;
-
-
-//------------ LongNameError -------------------------------------------------
-
-/// An attempt was made to strip a suffix that wasn’t actually a suffix.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="long domain name")]
-pub struct LongNameError;
-
-
-
-
-//------------ PushError -----------------------------------------------------
-
-/// An error happened while trying to push data to a domain name builder.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum PushError {
-    /// The current label would exceed the limit of 63 bytes.
-    #[fail(display="long label")]
-    LongLabel,
-
-    /// The name would exceed the limit of 255 bytes.
-    #[fail(display="long domain name")]
-    LongName,
-}
 
 
 //------------ RelativeDnameError --------------------------------------------

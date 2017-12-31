@@ -2,12 +2,15 @@
 
 use std::{fmt, str};
 use std::ascii::AsciiExt;
+use bytes::BufMut;
+use ::bits::compose::Compose;
 use ::master::error::ScanError;
 use ::master::scan::{CharSource, Scan, Scanner, Symbol};
 use super::builder::DnameBuilder;
 use super::dname::Dname;
 use super::error::FromStrError;
-use super::relative::RelativeDname;
+use super::relative::{DnameIter, RelativeDname};
+use super::traits::ToLabelIter;
 
 
 //------------ UncertainDname ------------------------------------------------
@@ -152,6 +155,25 @@ impl UncertainDname {
 }
 
 
+//--- Compose
+
+impl Compose for UncertainDname {
+    fn compose_len(&self) -> usize {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.compose_len(),
+            UncertainDname::Relative(ref name) => name.compose_len(),
+        }
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.compose(buf),
+            UncertainDname::Relative(ref name) => name.compose(buf),
+        }
+    }
+}
+
+
 //--- From
 
 impl From<Dname> for UncertainDname {
@@ -225,6 +247,20 @@ impl Scan for UncertainDname {
                 }
             }
         )
+    }
+}
+
+
+//--- ToLabelIter
+
+impl<'a> ToLabelIter<'a> for UncertainDname {
+    type LabelIter = DnameIter<'a>;
+
+    fn iter_labels(&'a self) -> Self::LabelIter {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.iter_labels(),
+            UncertainDname::Relative(ref name) => name.iter_labels(),
+        }
     }
 }
 

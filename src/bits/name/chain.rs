@@ -1,29 +1,36 @@
 //! A chain of domain names.
 //!
+//! This is a private module. Its public types are re-exported by the parent
+//! crate.
+
 use std::{fmt, iter};
 use bytes::BufMut;
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::ShortBuf;
-use super::error::LongNameError;
 use super::label::Label;
 use super::traits::{ToLabelIter, ToRelativeDname, ToDname};
+use super::uncertain::UncertainDname;
 
 
 //------------ Chain ---------------------------------------------------------
 
-/// A type stringing two domain names together.
+/// Two domain names chained together.
 ///
 /// This type is the result of calling the `chain` method on
-/// [`RelativeDname`] or on [`Chain`] itself.
+/// [`RelativeDname`], [`UncertainDname`], or on [`Chain`] itself.
 ///
 /// The chain can be both an absolute or relative domain name—and implements
 /// the respective traits [`ToDname`] or [`ToRelativeDname`]—, depending on
 /// whether the second name is absolute or relative.
 ///
+/// A chain on an uncertain name is special in that the second name is only
+/// used if the uncertain name is relative.
+///
 /// [`RelativeDname`]: struct.RelativeDname.html#method.chain
 /// [`Chain`]: #method.chain
 /// [`ToDname`]: trait.ToDname.html
 /// [`ToRelativeDname`]: trait.ToRelativeDname.html
+/// [`UncertainDname`]: struct.UncertainDname.html#method.chain
 pub struct Chain<L, R> {
     /// The first domain name.
     left: L,
@@ -34,9 +41,9 @@ pub struct Chain<L, R> {
 
 impl<L: Compose, R: Compose> Chain<L, R> {
     /// Creates a new chain from a first and second name.
-    pub(super) fn new(left: L, right: R) -> Result<Self, LongNameError> {
+    pub(super) fn new(left: L, right: R) -> Result<Self, LongChainError> {
         if left.compose_len() + right.compose_len() > 255 {
-            Err(LongNameError)
+            Err(LongChainError)
         }
         else {
             Ok(Chain { left, right })
@@ -47,15 +54,19 @@ impl<L: Compose, R: Compose> Chain<L, R> {
 impl<L: ToRelativeDname, R: Compose> Chain<L, R> {
     /// Extends the chain with another domain name.
     ///
-    /// While the method accepts any `Compose` as the second element of
-    /// the chain, the resulting `Chain` will only implement `ToDname` or
-    /// `ToRelativeDname` if other implements `ToDname` or `ToRelativeDname`,
-    /// respectively.
+    /// While the method accepts anything [`Compose`] as the second element of
+    /// the chain, the resulting `Chain` will only implement [`ToDname`] or
+    /// [`ToRelativeDname`] if if also implements [`ToDname`] or
+    /// [`ToRelativeDname`], respectively.
     ///
     /// The method will fail with an error if the chained name is longer than
     /// 255 bytes.
+    ///
+    /// [`Compose`]: ../compose/trait.Compose.html
+    /// [`ToDname`]: trait.ToDname.html
+    /// [`ToRelativeDname`]: trait.ToRelativeDname.html
     pub fn chain<N: Compose>(self, other: N)
-                                -> Result<Chain<Self, N>, LongNameError> {
+                                -> Result<Chain<Self, N>, LongChainError> {
         Chain::new(self, other)
     }
 }
@@ -105,13 +116,36 @@ impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
     }
 }
 
+impl<'a, R: ToDname> ToLabelIter<'a> for Chain<UncertainDname, R> {
+    type LabelIter = ChainIter<'a, UncertainDname, R>;
+
+    fn iter_labels(&'a self) -> Self::LabelIter {
+        unimplemented!()
+    }
+}
+
+impl<R: ToDname> Compress for Chain<UncertainDname, R> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        if let UncertainDname::Absolute(ref name) = self.left {
+            buf.compress_name(name)
+        }
+        else {
+            // XXX Test this!
+            buf.compress_name(self)
+        }
+    }
+}
+
+impl<R: ToDname> ToDname for Chain<UncertainDname, R> { }
+
 
 //------------ ChainIter -----------------------------------------------------
 
-/// A label iterator for chained domain names.
+/// The label iterator for chained domain names.
 #[derive(Clone, Debug)]
 pub struct ChainIter<'a, L: ToLabelIter<'a>, R: ToLabelIter<'a>>(
-    iter::Chain<L::LabelIter, R::LabelIter>);
+    iter::Chain<L::LabelIter, R::LabelIter>
+);
 
 impl<'a, L, R> Iterator for ChainIter<'a, L, R>
         where L: ToLabelIter<'a>, R: ToLabelIter<'a> {
@@ -128,4 +162,14 @@ impl<'a, L, R> DoubleEndedIterator for ChainIter<'a, L, R>
         self.0.next_back()
     }
 }
+
+
+//------------ LongChainError ------------------------------------------------
+
+/// Chaining domain names would exceed the size limit.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[fail(display="long domain name")]
+pub struct LongChainError;
+
+
 

@@ -1,8 +1,10 @@
 //! Building a domain name.
+//!
+//! This is a private module for tidiness. `DnameBuilder` and `PushError`
+//! are re-exported by the parent module.
 
 use bytes::{BufMut, BytesMut};
 use super::dname::Dname;
-use super::error::PushError;
 use super::relative::RelativeDname;
 
 
@@ -16,10 +18,11 @@ use super::relative::RelativeDname;
 ///
 /// Unlike a [`BytesMut`], the name builder will take care of growing the
 /// buffer if there isn’t enough space. It will, however, do so only once. If
-/// it runs out of space, it will grow the buffer to 255 bytes. Since that is
-/// the maximum length of a domain name, that will do.
+/// it runs out of space, it will grow the buffer to 255 bytes, since that is
+/// the maximum length of a domain name.
 ///
 /// [`BytesMut`]: ../../../bytes/struct.BytesMut.html
+#[derive(Clone)]
 pub struct DnameBuilder {
     /// The buffer to build the name in.
     bytes: BytesMut,
@@ -72,10 +75,20 @@ impl DnameBuilder {
         self.bytes.is_empty()
     }
 
+    /// Returns the capacity of the underlying bytes buffer.
+    ///
+    /// A domain name can be up to 255 bytes in size independently of what
+    /// this method returns.
+    pub fn capacity(&self) -> usize {
+        self.bytes.capacity()
+    }
+
     /// Returns whether there currently is a label under construction.
     ///
     /// This returns `false` if the name is still empty or if the last thing
-    /// that happend was a call to `end_label()`.
+    /// that happend was a call to [`end_label`].
+    ///
+    /// [`end_label`]: #method.end_label
     pub fn in_label(&self) -> bool {
         self.head.is_some()
     }
@@ -85,11 +98,11 @@ impl DnameBuilder {
     /// Starts a new label if necessary. Returns an error if pushing the byte
     /// would exceed the size limits for labels or domain names.
     pub fn push(&mut self, ch: u8) -> Result<(), PushError> {
-        if self.bytes.len() >= 254 {
+        if self.bytes.len() >= 255 {
             return Err(PushError::LongName);
         }
         if let Some(head) = self.head {
-            if head == 63 {
+            if self.bytes.len() - head > 63 {
                 return Err(PushError::LongLabel)
             }
             self.ensure_capacity(1);
@@ -103,7 +116,7 @@ impl DnameBuilder {
         Ok(())
     }
 
-    /// Pushes a byte slice to the end of the domain name.
+    /// Appends a byte slice to the end of the domain name.
     ///
     /// Starts a new label if necessary. Returns an error if pushing the byte
     /// would exceed the size limits for labels or domain names.
@@ -127,18 +140,21 @@ impl DnameBuilder {
             if self.bytes.len() + bytes.len() > 254 {
                 return Err(PushError::LongName)
             }
+            self.head = Some(self.bytes.len());
+            self.ensure_capacity(1);
+            self.bytes.put_u8(0)
         }
         self.ensure_capacity(bytes.len());
         self.bytes.put_slice(bytes);
         Ok(())
     }
 
-    /// Ensures that there is enough capacity for an `additional` bytes.
+    /// Ensures that there is enough capacity for `additional` bytes.
     ///
     /// The argument `additional` is only used to check whether adding that
     /// many bytes will exceed the current capacity. If it does, the buffer
-    /// will be grown to a total of 255 bytes. It will *not* by grown to
-    /// `additional` bytes.
+    /// will be grown to a total capacity of 255 bytes. It will *not* be
+    /// grown to `additional` bytes.
     fn ensure_capacity(&mut self, additional: usize) {
         if self.bytes.remaining_mut() < additional {
             let additional = 255 - self.bytes.len();
@@ -148,8 +164,7 @@ impl DnameBuilder {
 
     /// Ends the current label.
     ///
-    /// If there isn’t a current label, does nothing. Use `into_fqdn` to
-    /// append the root label and finish building.
+    /// If there isn’t a current label, does nothing.
     pub fn end_label(&mut self) {
         if let Some(head) = self.head {
             let len = self.bytes.len() - head - 1;
@@ -160,8 +175,12 @@ impl DnameBuilder {
 
     /// Appends a byte slice as a complete label.
     ///
-    /// If there currently is a lable under construction, it will be ended
+    /// If there currently is a label under construction, it will be ended
     /// before appending `label`.
+    ///
+    /// Returns an error if `label` exceeds the label size limit of 63 bytes
+    /// or appending the label would exceed the domain name size limit of
+    /// 255 bytes.
     pub fn append_label<T: AsRef<[u8]>>(&mut self, label: T)
                                         -> Result<(), PushError> {
         let head = self.head;
@@ -178,7 +197,7 @@ impl DnameBuilder {
     /// 
     /// If there currently is a label being built, ends the label first
     /// before returning the name. I.e., you don’t have to call [`end_label`]
-    /// first.
+    /// explicitely.
     ///
     /// [`end_label`]: #method.end_label
     pub fn finish(mut self) -> RelativeDname {
@@ -189,7 +208,7 @@ impl DnameBuilder {
     /// Appends the root label to the name and returns it as a `Dname`.
     ///
     /// If there currently is a label under construction, ends the label.
-    /// Then adds the empty root label and transforms the name into an
+    /// Then adds the empty root label and transforms the name into a
     /// `Dname`. As adding the root label may push the name over the size
     /// limit, this may return an error.
     ///
@@ -207,6 +226,146 @@ impl DnameBuilder {
             self.bytes.put_u8(0);
             Ok(unsafe { Dname::from_bytes_unchecked(self.bytes.freeze()) })
         }
+    }
+}
+
+
+//------------ PushError -----------------------------------------------------
+
+/// An error happened while trying to push data to a domain name builder.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum PushError {
+    /// The current label would exceed the limit of 63 bytes.
+    #[fail(display="long label")]
+    LongLabel,
+
+    /// The name would exceed the limit of 255 bytes.
+    #[fail(display="long domain name")]
+    LongName,
+}
+
+
+//============ Testing =======================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn build() {
+        let mut builder = DnameBuilder::with_capacity(255);
+        builder.push(b'w').unwrap();
+        builder.append(b"ww").unwrap();
+        builder.end_label();
+        builder.append(b"exa").unwrap();
+        builder.push(b'm').unwrap();
+        builder.push(b'p').unwrap();
+        builder.append(b"le").unwrap();
+        builder.end_label();
+        builder.append(b"com").unwrap();
+        assert_eq!(builder.finish().as_slice(),
+                   b"\x03www\x07example\x03com");
+    }
+
+    #[test]
+    fn build_by_label() {
+        let mut builder = DnameBuilder::with_capacity(255);
+        builder.append_label(b"www").unwrap();
+        builder.append_label(b"example").unwrap();
+        builder.append_label(b"com").unwrap();
+        assert_eq!(builder.finish().as_slice(),
+                   b"\x03www\x07example\x03com");
+    }
+
+    #[test]
+    fn build_mixed() {
+        let mut builder = DnameBuilder::with_capacity(255);
+        builder.push(b'w').unwrap();
+        builder.append(b"ww").unwrap();
+        builder.append_label(b"example").unwrap();
+        builder.append(b"com").unwrap();
+        assert_eq!(builder.finish().as_slice(),
+                   b"\x03www\x07example\x03com");
+    }
+
+    #[test]
+    fn buf_growth() {
+        let mut builder = DnameBuilder::new();
+        builder.append_label(b"1234567890").unwrap();
+        builder.append_label(b"1234567890").unwrap();
+        builder.append_label(b"1234567890").unwrap();
+        builder.append_label(b"1234567890").unwrap();
+        assert!(builder.capacity() >= 255 && builder.capacity() < 1024);
+        assert_eq!(
+            builder.finish().as_slice(),
+            &b"\x0a1234567890\x0a1234567890\x0a1234567890\x0a1234567890"[..]
+        );
+    }
+
+    #[test]
+    fn name_limit() {
+        let mut builder = DnameBuilder::new();
+        for _ in 0..25 {
+            // 9 bytes label is 10 bytes in total 
+            builder.append_label(b"123456789").unwrap();
+        }
+
+        assert_eq!(builder.append_label(b"12345"), Err(PushError::LongName));
+        let _ = builder.clone().append_label(b"1234").unwrap();
+
+        assert_eq!(builder.append(b"12345"), Err(PushError::LongName));
+        let _ = builder.clone().append(b"1234").unwrap();
+
+        builder.append(b"123").unwrap();
+        builder.push(b'4').unwrap();
+        assert_eq!(builder.push(b'5'), Err(PushError::LongName))
+    }
+
+    #[test]
+    fn label_limit() {
+        let mut builder = DnameBuilder::new();
+        builder.append_label(&[0u8; 63][..]).unwrap();
+        assert_eq!(builder.append_label(&[0u8; 64][..]),
+                   Err(PushError::LongLabel));
+        assert_eq!(builder.append_label(&[0u8; 164][..]),
+                   Err(PushError::LongLabel));
+
+        builder.append(&[0u8; 60][..]).unwrap();
+        let _ = builder.clone().append_label(b"123").unwrap();
+        assert_eq!(builder.append(b"1234"), Err(PushError::LongLabel));
+        builder.append(b"12").unwrap();
+        builder.push(b'3').unwrap();
+        assert_eq!(builder.push(b'4'), Err(PushError::LongLabel));
+    }
+
+    #[test]
+    fn finish() {
+        let mut builder = DnameBuilder::new();
+        builder.append_label(b"www").unwrap();
+        builder.append_label(b"example").unwrap();
+        builder.append(b"com").unwrap();
+        assert_eq!(builder.finish().as_slice(),
+                   b"\x03www\x07example\x03com");
+    }
+
+    #[test]
+    fn into_dname() {
+        let mut builder = DnameBuilder::new();
+        builder.append_label(b"www").unwrap();
+        builder.append_label(b"example").unwrap();
+        builder.append(b"com").unwrap();
+        assert_eq!(builder.into_dname().unwrap().as_slice(),
+                   b"\x03www\x07example\x03com\x00");
+    }
+
+    #[test]
+    fn into_dname_limit() {
+        let mut builder = DnameBuilder::new();
+        for _ in 0..51 {
+            builder.append_label(b"1234").unwrap();
+        }
+        assert_eq!(builder.len(), 255);
+        assert_eq!(builder.into_dname(), Err(PushError::LongName));
     }
 }
 

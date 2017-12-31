@@ -5,9 +5,9 @@ use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Compose;
 use super::builder::DnameBuilder;
-use super::chain::Chain;
+use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
-use super::error::{IndexError, LongNameError, RelativeDnameError,
+use super::error::{IndexError, RelativeDnameError,
                    StripSuffixError};
 use super::label::Label;
 use super::traits::{ToLabelIter, ToRelativeDname};
@@ -144,7 +144,7 @@ impl RelativeDname {
     /// loose both `self` and `other`, so it might be worthwhile to check
     /// first.
     pub fn chain<N: Compose>(self, other: N)
-                                -> Result<Chain<Self, N>, LongNameError> {
+                                -> Result<Chain<Self, N>, LongChainError> {
         Chain::new(self, other)
     }
 
