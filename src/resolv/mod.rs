@@ -1,4 +1,5 @@
 //! An asynchronous stub resolver.
+/*
 //!
 //! A resolver is the component in the DNS that answers queries. A stub
 //! resolver does so by simply relaying queries to a different resolver
@@ -208,6 +209,8 @@
 //! [`Resolver::query()`]: struct.Resolver.html#method.query
 //! [`lookup_addr()`]: lookup/fn.lookup_addr.html
 //! [`lookup_host()`]: lookup/fn.lookup_host.html
+//!
+*/
 
 
 //------------ Re-exports ----------------------------------------------------
