@@ -7,10 +7,11 @@ use ::bits::compose::Compose;
 use ::master::error::ScanError;
 use ::master::scan::{CharSource, Scan, Scanner, Symbol};
 use super::builder::DnameBuilder;
+use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::error::FromStrError;
 use super::relative::{DnameIter, RelativeDname};
-use super::traits::ToLabelIter;
+use super::traits::{ToDname, ToLabelIter};
 
 
 //------------ UncertainDname ------------------------------------------------
@@ -34,6 +35,14 @@ impl UncertainDname {
     /// Creates a new uncertain domain name from a relative domain name.
     pub fn relative(name: RelativeDname) -> Self {
         UncertainDname::Relative(name)
+    }
+
+    pub fn root() -> Self {
+        UncertainDname::Absolute(Dname::root())
+    }
+
+    pub fn empty() -> Self {
+        UncertainDname::Relative(RelativeDname::empty())
     }
 
     /// Creates a domain name from a sequence of characters.
@@ -151,6 +160,11 @@ impl UncertainDname {
             UncertainDname::Absolute(name) => name,
             UncertainDname::Relative(name) => name.into_absolute()
         }
+    }
+
+    pub fn chain<S: ToDname>(self, suffix: S)
+                             -> Result<Chain<Self, S>, LongChainError> {
+        Chain::new_uncertain(self, suffix)
     }
 }
 

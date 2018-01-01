@@ -88,6 +88,10 @@ impl RelativeDname {
         Ok(unsafe { RelativeDname::from_bytes_unchecked(bytes) })
     }
 
+    pub fn from_slice(slice: &[u8]) -> Result<Self, RelativeDnameError> {
+        Self::from_bytes(slice.into())
+    }
+
     /// Returns a reference to the underlying bytes value.
     pub fn as_bytes(&self) -> &Bytes {
         &self.bytes

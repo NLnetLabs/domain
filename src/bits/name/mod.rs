@@ -56,7 +56,7 @@
 //! [`UncertainDname`]: enum.UncertainDname.html
 
 pub use self::builder::{DnameBuilder, PushError};
-pub use self::chain::{Chain, ChainIter, LongChainError};
+pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
 pub use self::dname::{Dname, DnameError, DnameParseError, DnameBytesError};
 pub use self::error::{FromStrError, IndexError, LabelTypeError,
                       LongLabelError, 
