@@ -129,6 +129,14 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
             Dname::from_bytes_unchecked(bytes.freeze())
         }
     }
+
+    /// Returns a byte slice of the content if possible.
+    ///
+    /// This method can is used to optimize comparision operations between
+    /// two values that are indeed flat names.
+    fn as_flat_slice(&self) -> Option<&[u8]> {
+        None
+    }
 }
 
 impl<'a, N: ToDname + 'a> ToDname for &'a N { }

@@ -402,7 +402,7 @@ impl Compressor {
                 pos
             };
             self.add_name(&name, pos);
-            name.parent().unwrap();
+            name.parent();
         }
         self.compose(Label::root())
     }

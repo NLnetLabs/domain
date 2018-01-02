@@ -150,14 +150,6 @@ impl From<SplitLabelError> for RelativeDnameError {
 }
 
 
-//------------ RootNameError -------------------------------------------------
-
-/// An attempt was made to remove labels from a name that is only the root.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="operation not allowed on root name")]
-pub struct RootNameError;
-
-
 //------------ SplitLabelError -----------------------------------------------
 
 /// An error happened while splitting a label from a bytes slice.

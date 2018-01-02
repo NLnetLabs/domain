@@ -1,4 +1,6 @@
 /// Uncompressed, absolute domain names.
+///
+/// This is a private module. Its public types are re-exported by the parent.
 
 use std::{cmp, fmt, hash, ops, str};
 use std::ascii::AsciiExt;
@@ -6,10 +8,8 @@ use bytes::{BufMut, Bytes};
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::{Parse, ParseAll, Parser, ShortBuf};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
-use super::error::{FromStrError, IndexError, LabelTypeError,
-                   SplitLabelError, RootNameError};
+use super::error::{FromStrError, LabelTypeError, SplitLabelError};
 use super::label::Label;
-use super::parsed::ParsedDname;
 use super::relative::{RelativeDname, DnameIter};
 use super::traits::{ToLabelIter, ToDname, ToRelativeDname};
 use super::uncertain::UncertainDname;
@@ -77,7 +77,7 @@ impl Dname {
                     }
                 }
                 if tail.is_empty() {
-                    return Err(ShortBuf.into())
+                    return Err(DnameBytesError::RelativeName)
                 }
                 tmp = tail;
             }
@@ -85,6 +85,11 @@ impl Dname {
         Ok(unsafe { Dname::from_bytes_unchecked(bytes) })
     }
 
+    /// Creates a domain name from a byte slice.
+    ///
+    /// The function will create a new bytes value from the slice’s content.
+    /// If the slice does not contain a correctly encoded, absolute domain
+    /// name, the function will fail.
     pub fn from_slice(s: &[u8]) -> Result<Self, DnameBytesError> {
         Self::from_bytes(s.into())
     }
@@ -92,8 +97,8 @@ impl Dname {
     /// Creates a domain name from a sequence of characters.
     ///
     /// The sequence must result in a domain name in master format
-    /// representation. That is, its labels should be separated by dots,
-    /// actual dots, white space and backslashes should be escaped by a
+    /// representation. That is, its labels should be separated by dots.
+    /// Actual dots, white space and backslashes should be escaped by a
     /// preceeding backslash, and any byte value that is not a printable
     /// ASCII character should be encoded by a backslash followed by its
     /// three digit decimal value.
@@ -119,7 +124,7 @@ impl Dname {
         self.bytes.as_ref()
     }
 
-    /// Converts the domain name into its underlying bytes slice.
+    /// Converts the domain name into its underlying bytes value.
     pub fn into_bytes(self) -> Bytes {
         self.bytes
     }
@@ -187,115 +192,169 @@ impl Dname {
         <Self as ToLabelIter>::ends_with(self, base)
     }
 
+    /// Returns whether an index points to the first byte of a label.
+    pub fn is_label_start(&self, mut index: usize) -> bool {
+        let mut tmp = self.as_slice();
+        while !tmp.is_empty() {
+            let (label, tail) = Label::split_from(tmp).unwrap();
+            let len = label.len() + 1;
+            if index < len {
+                return false
+            }
+            else if index == len {
+                return true
+            }
+            index -= len;
+            tmp = tail;
+        }
+        false
+    }
+
+    /// Like `is_label_start` but panics if it isn’t.
+    ///
+    fn check_index(&self, index: usize) {
+        if !self.is_label_start(index) {
+            panic!("index not at start of label");
+        }
+    }
+
     /// Returns the part of the name indicated by start and end positions.
     ///
     /// The returned name will start at position `begin` and end right before
-    /// position `end`. Both positions must point to the begining of a label
-    /// or an error will be returned.
-    ///
-    /// Because the returned domain is a relative name, the method will also
-    /// return an error if the end equal to the length of the name. If you
-    /// want to slice the entire end of the name including the final root
-    /// label, you can use [`slice_from()`] instead.
+    /// position `end`. Both positions must point to the begining of a label.
     ///
     /// # Panics
     ///
-    /// The method panics if either position points beyond the end of the
-    /// name.
+    /// The method panics if either position is not the start of a label or
+    /// is out of bounds.
+    ///
+    /// Because the returned domain name is relative, the method will also
+    /// panic if the end is equal to the length of the name. If you
+    /// want to slice the entire end of the name including the final root
+    /// label, you can use [`slice_from()`] instead.
     ///
     /// [`slice_from()`]: #method.slice_from
-    pub fn slice(&self, begin: usize, end: usize)
-                 -> Result<RelativeDname, IndexError> {
-        IndexError::check(&self.bytes, begin)?;
-        IndexError::check(&self.bytes, end)?;
-        if end == self.len() {
-            return Err(IndexError)
-        }
-        Ok(unsafe {
+    pub fn slice(&self, begin: usize, end: usize) -> RelativeDname {
+        self.check_index(begin);
+        self.check_index(end);
+        unsafe {
             RelativeDname::from_bytes_unchecked(self.bytes.slice(begin, end))
-        })
+        }
     }
 
     /// Returns the part of the name starting at the given position.
     ///
-    /// This will fail if the position isn’t the start of a label.
-    ///
     /// # Panics
     ///
-    /// The method panics if either position points beyond the end of the
-    /// name.
-    pub fn slice_from(&self, begin: usize) -> Result<Self, IndexError> {
-        IndexError::check(&self.bytes, begin)?;
-        Ok(unsafe {
+    /// The method panics if `begin` isn’t the index of the beginning of a
+    /// label or is out of bounds.
+    pub fn slice_from(&self, begin: usize) -> Self {
+        self.check_index(begin);
+        unsafe {
             Self::from_bytes_unchecked(self.bytes.slice_from(begin))
-        })
+        }
     }
 
     /// Returns the part of the name ending at the given position.
     ///
-    /// This will fail if the position isn’t the start of a label.
+    /// # Panics
+    ///
+    /// The method panics if `end` is not the beginning of a label or is out
+    /// of bounds. Because the returned domain name is relative, the method
+    /// will also panic if the end is equal to the length of the name.
+    pub fn slice_to(&self, end: usize) -> RelativeDname {
+        self.check_index(end);
+        unsafe {
+            RelativeDname::from_bytes_unchecked(self.bytes.slice_to(end))
+        }
+    }
+
+    /// Splits the name into two at the given position.
+    ///
+    /// Unlike the version on [`Bytes`], the method consumes `self` since the
+    /// left side needs to be converted into a [`RelativeDname`].
+    /// Consequently, it returns a pair of the left and right parts.
     ///
     /// # Panics
     ///
-    /// The method panics if either position points beyond the end of the
-    /// name.
-    pub fn slice_to(&self, end: usize) -> Result<RelativeDname, IndexError> {
-        IndexError::check(&self.bytes, end)?;
-        if end == self.len() {
-            return Err(IndexError)
-        }
-        Ok(unsafe {
-            RelativeDname::from_bytes_unchecked(self.bytes.slice_to(end))
-        })
+    /// The method will panic if `mid` is not the index of the beginning of
+    /// a label or if it is out of bounds.
+    ///
+    /// [`Bytes`]: ../../../bytes/struct.Bytes.html#method.split_off
+    /// [`RelativeDname`]: struct.RelativeDname.html
+    pub fn split_off(mut self, mid: usize) -> (RelativeDname, Dname) {
+        let left = self.split_to(mid);
+        (left, self)
     }
-
-    // XXX No `split_off()` since that would require `self` to mysteriously
-    //     change into a `RelativeDname`. Would could make this move `self`,
-    //     but then you would loose it upon an error which is not nice,
-    //     either.
 
     /// Splits the name into two at the given position.
     ///
     /// Afterwards, `self` will contain the name starting at the position
-    /// while the name ending right before it will be returned. The method
-    /// will fail if `mid` is not the start of a new label.
+    /// while the name ending right before it will be returned.
     ///
     /// # Panics
     ///
-    /// The method will panic if `mid` is greater than the name’s length.
-    pub fn split_to(&mut self, mid: usize)
-                    -> Result<RelativeDname, IndexError> {
-        IndexError::check(&self.bytes, mid)?;
-        Ok(unsafe {
+    /// The method will panic if `mid` is not the start of a new label or is
+    /// out of bounds.
+    pub fn split_to(&mut self, mid: usize) -> RelativeDname {
+        self.check_index(mid);
+        unsafe {
             RelativeDname::from_bytes_unchecked(self.bytes.split_to(mid))
-        })
+        }
     }
 
-    // XXX No `truncate()` either.
+    /// Truncates the name before `len`.
+    ///
+    /// Because truncating converts the name into a relative name, the method
+    /// consumes self.
+    ///
+    /// # Panics
+    ///
+    /// The method will panic if `len` is not the index of a new label or if
+    /// it is out of bounds.
+    pub fn truncate(mut self, len: usize) -> RelativeDname {
+        self.check_index(len);
+        self.bytes.truncate(len);
+        unsafe { RelativeDname::from_bytes_unchecked(self.bytes) }
+    }
 
     /// Splits off the first label.
     ///
     /// If this name is longer than just the root label, returns the first
     /// label as a relative name and removes it from the name itself. If the
-    /// name is only the root label, returns an error and does nothing.
-    pub fn split_first(&mut self) -> Result<RelativeDname, RootNameError> {
+    /// name is only the root label, returns `None` and does nothing.
+    pub fn split_first(&mut self) -> Option<RelativeDname> {
         if self.len() == 1 {
-            return Err(RootNameError)
+            return None
         }
         let end = self.iter().next().unwrap().len() + 1;
-        Ok(unsafe {
+        Some(unsafe {
             RelativeDname::from_bytes_unchecked(self.bytes.split_to(end))
         })
     }
 
     /// Reduces the name to the parent of the current name.
     ///
-    /// This will fail if the name consists of the root label only.
-    pub fn parent(&mut self) -> Result<(), RootNameError> {
-        self.split_first().map(|_| ())
+    /// If the name consists of the root label only, returns `false` and does
+    /// nothing. Otherwise, drops the first label and returns `true`.
+    pub fn parent(&mut self) -> bool {
+        self.split_first().is_some()
     }
 
-    // XXX And no `strip_suffix()`.
+    /// Strips the suffix `base` from the domain name.
+    ///
+    /// If `base` is indeed a suffix, returns a relative domain name with the
+    /// remainder of the name. Otherwise, returns an error with an unmodified
+    /// `self`.
+    pub fn strip_suffix<N: ToDname>(self, base: &N)
+                                    -> Result<RelativeDname, Dname> {
+        if self.ends_with(base) {
+            Ok(self.truncate(base.compose_len()))
+        }
+        else {
+            Err(self)
+        }
+    }
 }
 
 
@@ -369,6 +428,13 @@ impl Compress for Dname {
 impl str::FromStr for Dname {
     type Err = FromStrError;
 
+    /// Parses a string into an absolute domain name.
+    ///
+    /// The implementation assumes that the string refers to an absolute name
+    /// whether it ends in a dot or not. If you need to be able to distinguish
+    /// between those two cases, you can use [`UncertainDname`] instead.
+    ///
+    /// [`UncertainDname`]: struct.UncertainDname.html
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         UncertainDname::from_str(s).map(|res| res.into_absolute())
     }
@@ -388,6 +454,10 @@ impl<'a> ToLabelIter<'a> for Dname {
 impl ToDname for Dname {
     fn to_name(&self) -> Dname {
         self.clone()
+    }
+
+    fn as_flat_slice(&self) -> Option<&[u8]> {
+        Some(self.as_slice())
     }
 }
 
@@ -428,20 +498,15 @@ impl<'a> IntoIterator for &'a Dname {
 
 
 //--- PartialEq and Eq
-//
-//    XXX TODO Once specialization lands in stable, we can add a blanket
-//             impl for `ToDname`. For now, I’d rather keep the optimized
-//             versions for Dname, instead.
 
-impl PartialEq for Dname {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_slice().eq_ignore_ascii_case(other.as_slice())
-    }
-}
-
-impl PartialEq<ParsedDname> for Dname {
-    fn eq(&self, other: &ParsedDname) -> bool {
-        self.iter().eq(other.iter())
+impl<N: ToDname> PartialEq<N> for Dname {
+    fn eq(&self, other: &N) -> bool {
+        if let Some(slice) = other.as_flat_slice() {
+            self.as_slice().eq_ignore_ascii_case(slice)
+        }
+        else {
+            self.iter().eq(other.iter_labels())
+        }
     }
 }
 
@@ -450,15 +515,9 @@ impl Eq for Dname { }
 
 //--- PartialOrd and Ord
 
-impl PartialOrd for Dname {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.iter().partial_cmp(other.iter())
-    }
-}
-
-impl PartialOrd<ParsedDname> for Dname {
-    fn partial_cmp(&self, other: &ParsedDname) -> Option<cmp::Ordering> {
-        self.iter().partial_cmp(other.iter())
+impl<N: ToDname> PartialOrd<N> for Dname {
+    fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
+        self.iter().partial_cmp(other.iter_labels())
     }
 }
 
@@ -494,7 +553,7 @@ impl Scan for Dname {
 impl fmt::Display for Dname {
     /// Formats the domain name.
     ///
-    /// This will produce the domain name in common display format without
+    /// This will produce the domain name in ‘common display format’ without
     /// the trailing dot.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut iter = self.iter();
@@ -520,12 +579,14 @@ impl fmt::Debug for Dname {
 
 //------------ SuffixIter ----------------------------------------------------
 
+/// An iterator over ever shorter suffixes of a domain name.
 #[derive(Clone, Debug)]
 pub struct SuffixIter {
     name: Option<Dname>,
 }
 
 impl SuffixIter {
+    /// Creates a new iterator cloning `name`.
     fn new(name: &Dname) -> Self {
         SuffixIter {
             name: Some(name.clone())
@@ -538,7 +599,7 @@ impl Iterator for SuffixIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         let (res, ok) = match self.name {
-            Some(ref mut name) => (name.clone(), name.parent().is_ok()),
+            Some(ref mut name) => (name.clone(), name.parent()),
             None => return None
         };
         if !ok {
@@ -616,6 +677,9 @@ pub enum DnameBytesError {
     #[fail(display="{}", _0)]
     ParseError(DnameParseError),
 
+    #[fail(display="relative name")]
+    RelativeName,
+
     #[fail(display="trailing data")]
     TrailingData,
 }
@@ -626,3 +690,85 @@ impl<T: Into<DnameParseError>> From<T> for DnameBytesError {
     }
 }
 
+
+//============ Testing =======================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn root() {
+        assert_eq!(Dname::root().as_slice(), b"\0");
+    }
+
+    #[test]
+    fn from_slice() {
+        // a simple good name
+        assert_eq!(Dname::from_slice(b"\x03www\x07example\x03com\0")
+                         .unwrap().as_slice(),
+                   b"\x03www\x07example\x03com\0");
+        
+        // relative name
+        assert_eq!(Dname::from_slice(b"\x03www\x07example\x03com"),
+                   Err(DnameBytesError::RelativeName));
+
+        // bytes shorter than what label length says.
+        assert_eq!(Dname::from_slice(b"\x03www\x07exa"),
+                   Err(ShortBuf.into()));
+
+        // label 63 long ok, 64 bad.
+        let mut slice = [0u8; 65];
+        slice[0] = 63;
+        assert!(Dname::from_slice(&slice[..]).is_ok());
+        let mut slice = [0u8; 66];
+        slice[0] = 64;
+        assert!(Dname::from_slice(&slice[..]).is_err());
+
+        // name 255 long ok, 256 bad.
+        let mut buf = Vec::new();
+        for _ in 0..25 {
+            buf.extend_from_slice(b"\x09123456789");
+        }
+        assert_eq!(buf.len(), 250);
+        let mut tmp = buf.clone();
+        tmp.extend_from_slice(b"\x03123\0");
+        assert_eq!(Dname::from_slice(&tmp).map(|_| ()), Ok(()));
+        buf.extend_from_slice(b"\x041234\0");
+        assert!(Dname::from_slice(&buf).is_err());
+
+        // trailing data
+        assert!(Dname::from_slice(b"\x03com\0\x03www\0").is_err());
+
+        // bad label heads: compressed, other types.
+        assert_eq!(Dname::from_slice(b"\xa2asdasds"),
+                   Err(LabelTypeError::Undefined.into()));
+        assert_eq!(Dname::from_slice(b"\x62asdasds"),
+                   Err(LabelTypeError::Extended(0x62).into()));
+        assert_eq!(Dname::from_slice(b"\xccasdasds"),
+                   Err(DnameError::CompressedName.into()));
+    }
+
+    // No test for `Dname::from_chars` necessary since it only defers to
+    // `UncertainDname`.
+    //
+    // No tests for the simple conversion methods because, well, simple.
+
+    #[test]
+    fn into_relative() {
+        assert_eq!(Dname::from_slice(b"\x03www\0").unwrap()
+                         .into_relative().as_slice(),
+                   b"\x03www");
+    }
+
+    #[test]
+    fn is_root() {
+        assert_eq!(Dname::from_slice(b"\0").unwrap().is_root(), true);
+        assert_eq!(Dname::from_slice(b"\x03www\0").unwrap().is_root(), false);
+        assert_eq!(Dname::root().is_root(), true);
+    }
+
+    #[test]
+    fn iter() {
+    }
+}
