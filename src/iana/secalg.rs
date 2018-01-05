@@ -174,7 +174,6 @@ impl str::FromStr for SecAlg {
     /// Recognized are the mnemonics equivalent to the algorithm number not
     /// regarding case as well as decimal integer numbers.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use std::ascii::AsciiExt;
         use self::SecAlg::*;
 
         if s.eq_ignore_ascii_case("RSAMD5") { Ok(RsaMd5) }

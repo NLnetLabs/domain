@@ -1,7 +1,6 @@
 //! Domain name labels.
 
 use std::{cmp, fmt, hash, mem, ops};
-use std::ascii::AsciiExt;
 use bytes::BufMut;
 use ::bits::compose::Compose;
 use super::error::{LabelTypeError, LongLabelError, SplitLabelError};
@@ -104,6 +103,14 @@ impl Label {
             &slice[end..]))
     }
 
+    pub fn as_slice(&self) -> &[u8] {
+        self.as_ref()
+    }
+}
+
+/// # Properties
+///
+impl Label {
     /// Returns whether the label is the root label.
     pub fn is_root(&self) -> bool {
         self.is_empty()

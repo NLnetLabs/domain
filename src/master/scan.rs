@@ -1,7 +1,6 @@
 //! Scanning master file tokens.
 
 use std::{fmt, io};
-use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes, BytesMut};
 
 // XXX Move these here for more compact imports.

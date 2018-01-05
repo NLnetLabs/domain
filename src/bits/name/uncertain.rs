@@ -1,7 +1,6 @@
 //! A domain name that can be both relative or absolute.
 
 use std::{fmt, str};
-use std::ascii::AsciiExt;
 use bytes::BufMut;
 use ::bits::compose::Compose;
 use ::master::error::ScanError;

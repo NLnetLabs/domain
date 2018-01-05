@@ -1,7 +1,6 @@
 /// Uncompressed, relative domain names.
 
 use std::{cmp, fmt, hash, ops};
-use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes};
 use ::bits::compose::Compose;
 use super::builder::DnameBuilder;
@@ -501,7 +500,7 @@ impl<'a> DoubleEndedIterator for DnameIter<'a> {
             let (label, tail) = Label::split_from(tmp).unwrap();
             if tail.is_empty() {
                 let end = self.slice.len() - (label.len() + 1);
-                self.slice = &self.slice[end..];
+                self.slice = &self.slice[..end];
                 return Some(label)
             }
             else {

@@ -3,7 +3,6 @@
 //! This is here so we can read from things that aren’t ASCII or UTF-8.
 
 use std::{error, fmt, io};
-use std::ascii::AsciiExt;
 use std::io::Read;
 use std::fs::File;
 use super::scan::CharSource;
