@@ -6,9 +6,7 @@ use ::bits::compose::Compose;
 use super::builder::DnameBuilder;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
-use super::error::{IndexError, RelativeDnameError,
-                   StripSuffixError};
-use super::label::Label;
+use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::traits::{ToLabelIter, ToRelativeDname};
 
 
@@ -201,6 +199,34 @@ impl RelativeDname {
         <Self as ToLabelIter>::ends_with(self, base)
     }
 
+    pub fn is_label_start(&self, mut index: usize) -> bool {
+        if index == 0 {
+            return true
+        }
+        let mut tmp = self.as_slice();
+        while !tmp.is_empty() {
+            let (label, tail) = Label::split_from(tmp).unwrap();
+            let len = label.len() + 1;
+            if index < len {
+                return false
+            }
+            else if index == len {
+                return true
+            }
+            index -= len;
+            tmp = tail;
+        }
+        false
+    }
+
+    /// Like `is_label_start` but panics if it isn’t.
+    ///
+    fn check_index(&self, index: usize) {
+        if !self.is_label_start(index) {
+            panic!("index not at start of a label");
+        }
+    }
+
     /// Returns a part of the name indicated by start and end positions.
     ///
     /// The returned name will start at position `begin` and end right before
@@ -211,13 +237,10 @@ impl RelativeDname {
     ///
     /// The method panics if either position points beyond the end of the
     /// name.
-    pub fn slice(&self, begin: usize, end: usize)
-                 -> Result<Self, IndexError> {
-        IndexError::check(&self.bytes, begin)?;
-        IndexError::check(&self.bytes, end)?;
-        Ok(unsafe {
-            Self::from_bytes_unchecked(self.bytes.slice(begin, end))
-        })
+    pub fn slice(&self, begin: usize, end: usize) -> Self {
+        self.check_index(begin);
+        self.check_index(end);
+        unsafe { Self::from_bytes_unchecked(self.bytes.slice(begin, end)) }
     }
 
     /// Returns the part of the name starting at the given position.
@@ -227,11 +250,9 @@ impl RelativeDname {
     /// # Panics
     ///
     /// The method panics if the position is beyond the end of the name.
-    pub fn slice_from(&self, begin: usize) -> Result<Self, IndexError> {
-        IndexError::check(&self.bytes, begin)?;
-        Ok(unsafe {
-            Self::from_bytes_unchecked(self.bytes.slice_from(begin))
-        })
+    pub fn slice_from(&self, begin: usize) -> Self {
+        self.check_index(begin);
+        unsafe { Self::from_bytes_unchecked(self.bytes.slice_from(begin)) }
     }
 
     /// Returns the part of the name ending before the given position.
@@ -241,11 +262,9 @@ impl RelativeDname {
     /// # Panics
     ///
     /// The method panics if the position is beyond the end of the name.
-    pub fn slice_to(&self, end: usize) -> Result<Self, IndexError> {
-        IndexError::check(&self.bytes, end)?;
-        Ok(unsafe {
-            Self::from_bytes_unchecked(self.bytes.slice_to(end))
-        })
+    pub fn slice_to(&self, end: usize) -> Self {
+        self.check_index(end);
+        unsafe { Self::from_bytes_unchecked(self.bytes.slice_to(end)) }
     }
 
     /// Splits the name into two at the given position.
@@ -257,11 +276,9 @@ impl RelativeDname {
     /// # Panics
     ///
     /// The method will panic if `mid` is greater than the name’s length.
-    pub fn split_off(&mut self, mid: usize) -> Result<Self, IndexError> {
-        IndexError::check(&self.bytes, mid)?;
-        Ok(unsafe {
-            Self::from_bytes_unchecked(self.bytes.split_off(mid))
-        })
+    pub fn split_off(&mut self, mid: usize) -> Self {
+        self.check_index(mid);
+        unsafe { Self::from_bytes_unchecked(self.bytes.split_off(mid)) }
     }
 
     /// Splits the name into two at the given position.
@@ -273,21 +290,18 @@ impl RelativeDname {
     /// # Panics
     ///
     /// The method will panic if `mid` is greater than the name’s length.
-    pub fn split_to(&mut self, mid: usize) -> Result<Self, IndexError> {
-        IndexError::check(&self.bytes, mid)?;
-        Ok(unsafe {
-            Self::from_bytes_unchecked(self.bytes.split_to(mid))
-        })
+    pub fn split_to(&mut self, mid: usize) -> Self {
+        self.check_index(mid);
+        unsafe { Self::from_bytes_unchecked(self.bytes.split_to(mid)) }
     }
 
     /// Truncates the name to the given length.
     ///
     /// This will only work if the result would be a valid name. If `len` is
     /// greater than the current length, nothing will happen.
-    pub fn truncate(&mut self, len: usize) -> Result<(), IndexError> {
-        IndexError::check(&self.bytes, len)?;
+    pub fn truncate(&mut self, len: usize) {
+        self.check_index(len);
         self.bytes.truncate(len);
-        Ok(())
     }
 
     /// Splits off the first label.
@@ -509,4 +523,49 @@ impl<'a> DoubleEndedIterator for DnameIter<'a> {
         }
     }
 }
+
+
+//------------ RelativeDnameError --------------------------------------------
+
+/// An error happened while creating a domain name from octets.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum RelativeDnameError {
+    /// A bad label was encountered.
+    #[fail(display="{}", _0)]
+    BadLabel(LabelTypeError),
+
+    /// A compressed name was encountered.
+    #[fail(display="compressed domain name")]
+    CompressedName,
+
+    /// The data ended before the end of a label.
+    #[fail(display="unexpected end of input")]
+    ShortData,
+
+    /// The domain name was longer than 255 octets.
+    #[fail(display="long domain name")]
+    LongName,
+
+    /// The root label was encountered.
+    #[fail(display="absolute domain name")]
+    AbsoluteName,
+}
+
+impl From<SplitLabelError> for RelativeDnameError {
+    fn from(err: SplitLabelError) -> Self {
+        match err {
+            SplitLabelError::Pointer(_) => RelativeDnameError::CompressedName,
+            SplitLabelError::BadType(t) => RelativeDnameError::BadLabel(t),
+            SplitLabelError::ShortSlice => RelativeDnameError::ShortData,
+        }
+    }
+}
+
+
+//------------ StripSuffixError ----------------------------------------------
+
+/// An attempt was made to strip a suffix that wasn’t actually a suffix.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[fail(display="suffix not found")]
+pub struct StripSuffixError;
 

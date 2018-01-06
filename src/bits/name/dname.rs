@@ -7,11 +7,10 @@ use bytes::{BufMut, Bytes};
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::{Parse, ParseAll, Parser, ShortBuf};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
-use super::error::{FromStrError, LabelTypeError, SplitLabelError};
-use super::label::Label;
+use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{RelativeDname, DnameIter};
 use super::traits::{ToLabelIter, ToDname};
-use super::uncertain::UncertainDname;
+use super::uncertain::{UncertainDname, FromStrError};
 
 
 //------------ Dname ---------------------------------------------------------

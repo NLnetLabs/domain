@@ -5,10 +5,9 @@ use bytes::BufMut;
 use ::bits::compose::Compose;
 use ::master::error::ScanError;
 use ::master::scan::{CharSource, Scan, Scanner, Symbol};
-use super::builder::DnameBuilder;
+use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
-use super::error::FromStrError;
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
 
@@ -335,4 +334,54 @@ fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
     else { Ok(ch as u8) }
 }
 
+
+//------------ FromStrError --------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum FromStrError {
+    /// The string ended when there should have been more characters.
+    ///
+    /// This most likely happens inside escape sequences and quoting.
+    #[fail(display="unexpected end of input")]
+    UnexpectedEnd,
+
+    /// An empty label was encountered.
+    #[fail(display="an empty label was encountered")]
+    EmptyLabel,
+
+    /// A binary label was encountered.
+    #[fail(display="a binary label was encountered")]
+    BinaryLabel,
+
+    /// A domain name label has more than 63 octets.
+    #[fail(display="label length limit exceeded")]
+    LongLabel,
+
+    /// An illegal escape sequence was encountered.
+    ///
+    /// Escape sequences are a backslash character followed by either a
+    /// three decimal digit sequence encoding a byte value or a single
+    /// other printable ASCII character.
+    #[fail(display="illegal escape sequence")]
+    IllegalEscape,
+
+    /// An illegal character was encountered.
+    ///
+    /// Only printable ASCII characters are allowed.
+    #[fail(display="illegal character '{}'", _0)]
+    IllegalCharacter(char),
+
+    /// The name has more than 255 characters.
+    #[fail(display="long domain name")]
+    LongName,
+}
+
+impl From<PushError> for FromStrError {
+    fn from(err: PushError) -> FromStrError {
+        match err {
+            PushError::LongLabel => FromStrError::LongLabel,
+            PushError::LongName => FromStrError::LongName,
+        }
+    }
+}
 

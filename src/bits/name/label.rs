@@ -3,7 +3,6 @@
 use std::{cmp, fmt, hash, mem, ops};
 use bytes::BufMut;
 use ::bits::compose::Compose;
-use super::error::{LabelTypeError, LongLabelError, SplitLabelError};
 
 
 //------------ Label ---------------------------------------------------------
@@ -239,5 +238,50 @@ impl fmt::Debug for Label {
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
     }
+}
+
+
+//------------ LabelTypeError ------------------------------------------------
+
+/// A bad label type was encountered.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum LabelTypeError {
+    /// The label was of the undefined type `0b10`.
+    #[fail(display="undefined label type")]
+    Undefined,
+
+    /// The label was of extended label type given.
+    /// 
+    /// The type value will be in the range `0x40` to `0x7F`, that is, it
+    /// includes the original label type bits `0b01`.
+    #[fail(display="unknown extended label 0x{:02x}", _0)]
+    Extended(u8),
+}
+
+
+//------------ LongLabelError ------------------------------------------------
+
+/// A label was longer than the allowed 63 bytes.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[fail(display="long label")]
+pub struct LongLabelError;
+
+
+//------------ SplitLabelError -----------------------------------------------
+
+/// An error happened while splitting a label from a bytes slice.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum SplitLabelError {
+    /// The label was a pointer to the given position.
+    #[fail(display="compressed domain name")]
+    Pointer(u16),
+
+    /// The label type was invalid.
+    #[fail(display="{}", _0)]
+    BadType(LabelTypeError),
+
+    /// The bytes slice was too short.
+    #[fail(display="unexpected end of input")]
+    ShortSlice,
 }
 

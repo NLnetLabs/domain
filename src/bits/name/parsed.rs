@@ -5,8 +5,7 @@ use bytes::BufMut;
 use ::bits::compose::{Compose, Compress, Compressor};
 use ::bits::parse::{Parse, ParseAll, Parser, ParseAllError, ParseOpenError,
                     ShortBuf};
-use super::error::{LabelTypeError};
-use super::label::Label;
+use super::label::{Label, LabelTypeError};
 use super::traits::{ToLabelIter, ToDname};
 
 

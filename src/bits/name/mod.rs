@@ -58,16 +58,14 @@
 pub use self::builder::{DnameBuilder, PushError};
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
 pub use self::dname::{Dname, DnameError, DnameParseError, DnameBytesError};
-pub use self::error::{FromStrError, IndexError, LabelTypeError,
-                      LongLabelError, 
-                      RelativeDnameError,
-                      SplitLabelError, StripSuffixError};
-pub use self::label::Label;
+pub use self::label::{Label, LabelTypeError, LongLabelError,
+                      SplitLabelError};
 pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedDnameError,
                        ParsedDnameAllError};
-pub use self::relative::{RelativeDname, DnameIter};
+pub use self::relative::{RelativeDname, DnameIter, RelativeDnameError,
+                         StripSuffixError};
 pub use self::traits::{ToLabelIter, ToRelativeDname, ToDname};
-pub use self::uncertain::UncertainDname;
+pub use self::uncertain::{UncertainDname, FromStrError};
 
 mod builder;
 mod chain;
