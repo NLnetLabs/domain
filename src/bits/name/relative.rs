@@ -556,7 +556,7 @@ impl From<SplitLabelError> for RelativeDnameError {
         match err {
             SplitLabelError::Pointer(_) => RelativeDnameError::CompressedName,
             SplitLabelError::BadType(t) => RelativeDnameError::BadLabel(t),
-            SplitLabelError::ShortSlice => RelativeDnameError::ShortData,
+            SplitLabelError::ShortBuf => RelativeDnameError::ShortData,
         }
     }
 }

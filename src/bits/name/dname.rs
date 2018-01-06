@@ -686,7 +686,7 @@ impl From<SplitLabelError> for DnameParseError {
                 => DnameParseError::BadName(DnameError::CompressedName),
             SplitLabelError::BadType(t)
                 => DnameParseError::BadName(DnameError::BadLabel(t)),
-            SplitLabelError::ShortSlice => DnameParseError::ShortBuf,
+            SplitLabelError::ShortBuf => DnameParseError::ShortBuf,
         }
     }
 }
@@ -1285,7 +1285,6 @@ mod test {
         ];
         for i in 0..names.len() {
             for j in 0..names.len() {
-                println!("{}. {}.", names[i], names[j]);
                 let ord = if i < j { Ordering::Less }
                           else if i == j { Ordering::Equal }
                           else { Ordering::Greater };
@@ -1293,6 +1292,11 @@ mod test {
                 assert_eq!(names[i].cmp(&names[j]), ord);
             }
         }
+
+        let n1 = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+        let n2 = Dname::from_slice(b"\x03wWw\x07eXAMple\x03Com\0").unwrap();
+        assert_eq!(n1.partial_cmp(&n2), Some(Ordering::Equal));
+        assert_eq!(n1.cmp(&n2), Ordering::Equal);
     }
 
     #[test]

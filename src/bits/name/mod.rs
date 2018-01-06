@@ -70,7 +70,6 @@ pub use self::uncertain::{UncertainDname, FromStrError};
 mod builder;
 mod chain;
 mod dname;
-mod error;
 mod label;
 mod parsed;
 mod relative;

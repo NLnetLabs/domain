@@ -1,8 +1,12 @@
 //! Domain name labels.
+//!
+//! This is a private module. Its public types are re-exported by the parent
+//! module.
 
 use std::{cmp, fmt, hash, mem, ops};
 use bytes::BufMut;
 use ::bits::compose::Compose;
+use ::bits::parse::ShortBuf;
 
 
 //------------ Label ---------------------------------------------------------
@@ -23,9 +27,10 @@ use ::bits::compose::Compose;
 /// be any.
 ///
 /// Consequently, `Label` will only ever contain a byte slice of up to 63
-/// bytes. The type derefs to `[u8]`, providing access to all of a byte
-/// slice’s methods. As an usized type, it needs to be used behind some kind
-/// of pointer, most likely a reference.
+/// bytes. It only contains the label’s content, not the length octet it is
+/// preceded by in wire format. The type derefs to `[u8]`, providing access
+/// to all of a byte slice’s methods. As an usized type, it needs to be used
+/// behind some kind of pointer, most likely a reference.
 ///
 /// `Label` differs from a byte slice in how it compares: as labels are to be
 /// case-insensititve, all the comparision traits as well as `Hash` are
@@ -72,7 +77,7 @@ impl Label {
                       -> Result<(&Self, &[u8]), SplitLabelError> {
         let head = match slice.get(0) {
             Some(ch) => *ch,
-            None => return Err(SplitLabelError::ShortSlice)
+            None => return Err(SplitLabelError::ShortBuf)
         };
         let end = match head {
             0 ... 0x3F => (head as usize) + 1,
@@ -84,7 +89,7 @@ impl Label {
             0xC0 ... 0xFF => {
                 let res = match slice.get(1) {
                     Some(ch) => *ch as u16,
-                    None => return Err(SplitLabelError::ShortSlice)
+                    None => return Err(SplitLabelError::ShortBuf)
                 };
                 let res = res | (((head as u16) & 0x3F) << 8);
                 return Err(SplitLabelError::Pointer(res))
@@ -96,14 +101,20 @@ impl Label {
             }
         };
         if slice.len() < end {
-            return Err(SplitLabelError::ShortSlice)
+            return Err(SplitLabelError::ShortBuf)
         }
         Ok((unsafe { Self::from_slice_unchecked(&slice[1..end]) },
             &slice[end..]))
     }
 
+    /// Returns a reference to the underlying byte slice.
     pub fn as_slice(&self) -> &[u8] {
         self.as_ref()
+    }
+
+    /// Returns a mutable reference to the underlying byte slice.
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
+        self.as_mut()
     }
 }
 
@@ -131,7 +142,7 @@ impl Compose for Label {
 }
 
 
-//--- Deref and AsRef
+//--- Deref, DerefMut, AsRef, and AsMut
 
 impl ops::Deref for Label {
     type Target = [u8];
@@ -141,8 +152,20 @@ impl ops::Deref for Label {
     }
 }
 
+impl ops::DerefMut for Label {
+    fn deref_mut(&mut self) -> &mut [u8] {
+        self.as_mut()
+    }
+}
+
 impl AsRef<[u8]> for Label {
     fn as_ref(&self) -> &[u8] {
+        unsafe { mem::transmute(self) }
+    }
+}
+
+impl AsMut<[u8]> for Label {
+    fn as_mut(&mut self) -> &mut [u8] {
         unsafe { mem::transmute(self) }
     }
 }
@@ -282,6 +305,135 @@ pub enum SplitLabelError {
 
     /// The bytes slice was too short.
     #[fail(display="unexpected end of input")]
-    ShortSlice,
+    ShortBuf,
 }
 
+impl From<LabelTypeError> for SplitLabelError {
+    fn from(err: LabelTypeError) -> SplitLabelError {
+        SplitLabelError::BadType(err)
+    }
+}
+
+impl From<ShortBuf> for SplitLabelError {
+    fn from(_: ShortBuf) -> SplitLabelError {
+        SplitLabelError::ShortBuf
+    }
+}
+
+
+//============ Testing =======================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn from_slice() {
+        let x = [0u8; 10];
+        assert_eq!(Label::from_slice(&x[..]).unwrap().as_slice(),
+                   &x[..]);
+        let x = [0u8; 63];
+        assert_eq!(Label::from_slice(&x[..]).unwrap().as_slice(),
+                   &x[..]);
+        let x = [0u8; 64];
+        assert!(Label::from_slice(&x[..]).is_err());
+    }
+
+    #[test]
+    fn split_from() {
+        // regular label
+        assert_eq!(Label::split_from(b"\x03www\x07example\x03com\0").unwrap(),
+                   (Label::from_slice(b"www").unwrap(),
+                    &b"\x07example\x03com\0"[..]));
+
+        // final regular label
+        assert_eq!(Label::split_from(b"\x03www").unwrap(),
+                   (Label::from_slice(b"www").unwrap(),
+                    &b""[..]));
+
+        // root label
+        assert_eq!(Label::split_from(b"\0some").unwrap(),
+                   (Label::from_slice(b"").unwrap(),
+                    &b"some"[..]));
+
+        // short slice
+        assert_eq!(Label::split_from(b"\x03ww"),
+                   Err(SplitLabelError::ShortBuf));
+
+        // empty slice
+        assert_eq!(Label::split_from(b""),
+                   Err(SplitLabelError::ShortBuf));
+
+        // compressed label
+        assert_eq!(Label::split_from(b"\xc0\x05foo"),
+                   Err(SplitLabelError::Pointer(5)));
+
+        // undefined label type
+        assert_eq!(Label::split_from(b"\xb3foo"),
+                   Err(LabelTypeError::Undefined.into()));
+
+        // extended label type
+        assert_eq!(Label::split_from(b"\x66foo"),
+                   Err(LabelTypeError::Extended(0x66).into()));
+    }
+
+    #[test]
+    fn compose() {
+        use bytes::BytesMut;
+
+        let mut buf = BytesMut::with_capacity(64);
+        assert_eq!(Label::root().compose_len(), 1);
+        Label::root().compose(&mut buf);
+        assert_eq!(buf.freeze(), &b"\0"[..]);
+
+        let mut buf = BytesMut::with_capacity(64);
+        let label = Label::from_slice(b"123").unwrap();
+        assert_eq!(label.compose_len(), 4);
+        label.compose(&mut buf);
+        assert_eq!(buf.freeze(), &b"\x03123"[..]);
+    }
+
+    #[test]
+    fn eq() {
+        assert_eq!(Label::from_slice(b"example").unwrap(),
+                   Label::from_slice(b"eXAMple").unwrap());
+        assert_ne!(Label::from_slice(b"example").unwrap(),
+                   Label::from_slice(b"e4ample").unwrap());
+    }
+
+    #[test]
+    fn cmp() {
+        use std::cmp::Ordering;
+
+        let labels = [Label::root(),
+                      Label::from_slice(b"\x01").unwrap(),
+                      Label::from_slice(b"*").unwrap(),
+                      Label::from_slice(b"\xc8").unwrap()];
+        for i in 0..labels.len() {
+            for j in 0..labels.len() {
+                let ord = if i < j { Ordering::Less }
+                          else if i == j { Ordering::Equal }
+                          else { Ordering::Greater };
+                assert_eq!(labels[i].partial_cmp(&labels[j]), Some(ord));
+                assert_eq!(labels[i].cmp(&labels[j]), ord);
+            }
+        }
+
+        let l1 = Label::from_slice(b"example").unwrap();
+        let l2 = Label::from_slice(b"eXAMple").unwrap();
+        assert_eq!(l1.partial_cmp(&l2), Some(Ordering::Equal));
+        assert_eq!(l1.cmp(&l2), Ordering::Equal);
+    }
+
+    #[test]
+    fn hash() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut s1 = DefaultHasher::new();
+        let mut s2 = DefaultHasher::new();
+        Label::from_slice(b"example").unwrap().hash(&mut s1);
+        Label::from_slice(b"eXAMple").unwrap().hash(&mut s2);
+        assert_eq!(s1.finish(), s2.finish());
+    }
+}
