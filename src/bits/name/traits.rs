@@ -1,7 +1,8 @@
 //! Domain name-related traits.
 
-use ::bits::compose::{Compose, Compress};
+use std::cmp;
 use bytes::BytesMut;
+use ::bits::compose::{Compose, Compress};
 use super::dname::Dname;
 use super::label::Label;
 use super::relative::RelativeDname;
@@ -137,6 +138,45 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
     fn as_flat_slice(&self) -> Option<&[u8]> {
         None
     }
+
+    fn name_eq<N: ToDname>(&self, other: &N) -> bool {
+        if let (Some(left), Some(right)) = (self.as_flat_slice(),
+                                            other.as_flat_slice()) {
+            left.eq_ignore_ascii_case(right)
+        }
+        else {
+            self.iter_labels().eq(other.iter_labels())
+        }
+    }
+
+    /// Returns the ordering between `self` and `other`.
+    ///
+    /// This method can be used to implement both `PartialOrd` and `Ord` on
+    /// types implementing `ToDname` since a blanket implementation for all
+    /// pairs of `ToDname`s is currently not possible.
+    ///
+    /// Domain name order is determined according to the ‘canonical DNS
+    /// name order’ as defined in [section 6.1 of RFC 4034][RFC4034-6.1].
+    ///
+    /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
+    fn name_cmp<N: ToDname>(&self, other: &N) -> cmp::Ordering {
+        let mut self_iter = self.iter_labels();
+        let mut other_iter = other.iter_labels();
+        loop {
+            match (self_iter.next_back(), other_iter.next_back()) {
+                (Some(left), Some(right)) => {
+                    match left.cmp(right) {
+                        cmp::Ordering::Equal => {}
+                        res => return res
+                    }
+                }
+                (None, Some(_)) => return cmp::Ordering::Less,
+                (Some(_), None) => return cmp::Ordering::Greater,
+                (None, None) => return cmp::Ordering::Equal
+            }
+        }
+    }
 }
 
 impl<'a, N: ToDname + 'a> ToDname for &'a N { }
+

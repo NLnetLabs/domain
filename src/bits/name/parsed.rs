@@ -1,4 +1,7 @@
 //! Parsed domain names.
+//!
+//! This is a private module. Its public types are re-exported by the parent
+//! module.
 
 use std::{cmp, fmt, hash};
 use bytes::BufMut;
@@ -13,33 +16,36 @@ use super::traits::{ToLabelIter, ToDname};
 
 /// A domain name parsed from a DNS message.
 ///
-/// In an attempt to keep messages small, DNS uses a procedure called name
-/// compression. It tries to minimize the space used for repeated domain names
-/// by simply refering to the first occurence of the name. This works not only
-/// for complete names but also for suffixes. In this case, the first unique
-/// labels of the name are included and then a pointer is included for the
-/// rest of the name.
+/// In an attempt to keep messages small, DNS uses a procedure called ‘name
+/// compression.’ It tries to minimize the space used for repeatedly
+/// appearing domain names by simply refering to the first occurence of the
+/// name. This works not only for complete names but also for suffixes. In
+/// this case, the first unique labels of the name are included and then a
+/// pointer is included for the rest of the name.
 ///
 /// A consequence of this is that when parsing a domain name, its labels can
 /// be scattered all over the message and we would need to allocate some
 /// space to re-assemble the original name. However, in many cases we don’t
-/// need the complete message. Many operations can be completed by just
+/// need the complete name. Many operations can be performed by just
 /// iterating over the labels which we can do in place.
 ///
 /// `ParsedDname` deals with such names. It takes a copy of [`Parser`]
-/// representing the underlying DNS message and, if nedded, can traverse over
+/// representing the underlying DNS message and, if nedded, traverses over
 /// the name starting at the current position of the parser. When being
 /// created, the type quickly walks over the name to check that it is, indeed,
 /// a valid name. While this does take a bit of time, it spares you having to
 /// deal with possible parse errors later.
 ///
 /// `ParsedDname` implementes the [`ToDname`] trait, so you can use it
-/// everywhere where an absolute domain name is accepted. In particular,
-/// you can compare it to other names or chain it to the end of a relative
-/// name.
+/// everywhere where a generic absolute domain name is accepted. In
+/// particular, you can compare it to other names or chain it to the end of a
+/// relative name. If necessary, [`ToDname::to_name`] can be used to produce
+/// a flat, self-contained [`Dname`].
 ///
+/// [`Dname`]: struct.Dname.html
 /// [`Parser`]: ../parse/struct.Parser.html
 /// [`ToDname`]: trait.ToDname.html
+/// [`ToDname::to_name`]: trait.ToDname.html#method.to_name
 #[derive(Clone)]
 pub struct ParsedDname {
     /// A parser positioned at the beginning of the name.
@@ -56,15 +62,60 @@ pub struct ParsedDname {
     compressed: bool,
 }
 
+/// # Properties
+///
 impl ParsedDname {
+    /// Returns the length of the name in bytes.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
     /// Returns whether the name is compressed.
     pub fn is_compressed(&self) -> bool {
         self.compressed
     }
 
+    /// Returns whether the name is the root label only.
+    pub fn is_root(&self) -> bool {
+        self.len == 1
+    }
+}
+
+/// # Working with Labels
+///
+impl ParsedDname {
     /// Returns an iterator over the labels of the name.
     pub fn iter(&self) -> ParsedDnameIter {
         ParsedDnameIter::new(&self.parser, self.len)
+    }
+
+    /// Returns the number of labels in the domain name.
+    pub fn label_count(&self) -> usize {
+        self.iter().count()
+    }
+
+    /// Returns a reference to the first label.
+    pub fn first(&self) -> &Label {
+        self.iter().next().unwrap()
+    }
+
+    /// Returns a reference to the last label.
+    ///
+    /// Because the last label in an absolute name is always the root label,
+    /// this method can return a static reference. It is also a wee bit silly,
+    /// but here for completeness.
+    pub fn last(&self) -> &'static Label {
+        Label::root()
+    }
+
+    /// Determines whether `base` is a prefix of `self`.
+    pub fn starts_with<'a, N: ToLabelIter<'a>>(&'a self, base: &'a N) -> bool {
+        <Self as ToLabelIter>::starts_with(self, base)
+    }
+
+    /// Determines whether `base` is a suffix of `self`.
+    pub fn ends_with<'a, N: ToLabelIter<'a>>(&'a self, base: &'a N) -> bool {
+        <Self as ToLabelIter>::ends_with(self, base)
     }
 }
 
@@ -86,7 +137,7 @@ impl Parse for ParsedDname {
                 Ok(LabelType::Normal(0)) => {
                     len += 1;
                     if len > 255 {
-                        return Err(BadParsedDname::LongName.into())
+                        return Err(ParsedDnameError::LongName)
                     }
                     let mut res = parser.clone();
                     res.seek(start).unwrap();
@@ -99,7 +150,7 @@ impl Parse for ParsedDname {
                     }
                     len += label_len + 1;
                     if len > 255 {
-                        return Err(BadParsedDname::LongName.into())
+                        return Err(ParsedDnameError::LongName)
                     }
                 }
                 Ok(LabelType::Compressed(pos)) => {
@@ -121,7 +172,7 @@ impl Parse for ParsedDname {
                 LabelType::Normal(0) => {
                     len += 1;
                     if len > 255 {
-                        return Err(BadParsedDname::LongName.into())
+                        return Err(ParsedDnameError::LongName)
                     }
                     break;
                 }
@@ -131,7 +182,7 @@ impl Parse for ParsedDname {
                     }
                     len += label_len + 1;
                     if len > 255 {
-                        return Err(BadParsedDname::LongName.into())
+                        return Err(ParsedDnameError::LongName)
                     }
                 }
                 LabelType::Compressed(pos) => {
@@ -154,7 +205,7 @@ impl Parse for ParsedDname {
                 Ok(LabelType::Normal(0)) => {
                     len += 1;
                     if len > 255 {
-                        return Err(BadParsedDname::LongName.into())
+                        return Err(ParsedDnameError::LongName)
                     }
                     return Ok(())
                 }
@@ -164,7 +215,7 @@ impl Parse for ParsedDname {
                     }
                     len += label_len + 1;
                     if len > 255 {
-                        return Err(BadParsedDname::LongName.into())
+                        return Err(ParsedDnameError::LongName)
                     }
                 }
                 Ok(LabelType::Compressed(_)) => {
@@ -203,8 +254,13 @@ impl Compose for ParsedDname {
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        for label in self.iter() {
-            label.compose(buf)
+        if self.compressed {
+            for label in self.iter() {
+                label.compose(buf)
+            }
+        }
+        else {
+            buf.put_slice(self.parser.peek(self.len).unwrap())
         }
     }
 }
@@ -226,7 +282,16 @@ impl<'a> ToLabelIter<'a> for ParsedDname {
     }
 }
 
-impl ToDname for ParsedDname { }
+impl ToDname for ParsedDname {
+    fn as_flat_slice(&self) -> Option<&[u8]> {
+        if self.compressed {
+            None
+        }
+        else {
+            Some(self.parser.peek(self.len).unwrap())
+        }
+    }
+}
 
 
 //--- IntoIterator
@@ -242,14 +307,10 @@ impl<'a> IntoIterator for &'a ParsedDname {
 
 
 //--- PartialEq and Eq
-//
-//    XXX TODO PartialEq can be optimized for all cases where the name isn’t
-//             compressed. So, move this to separate impls for Dname and
-//             Self and have different code paths in them.
 
 impl<N: ToDname> PartialEq<N> for ParsedDname {
     fn eq(&self, other: &N) -> bool {
-        self.iter().eq(other.iter_labels())
+        self.name_eq(other)
     }
 }
 
@@ -260,13 +321,13 @@ impl Eq for ParsedDname { }
 
 impl<N: ToDname> PartialOrd<N> for ParsedDname {
     fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
-        self.iter().partial_cmp(other.iter_labels())
+        Some(self.name_cmp(other))
     }
 }
 
 impl Ord for ParsedDname {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.iter().cmp(other.iter())
+        self.name_cmp(other)
     }
 }
 
@@ -411,11 +472,11 @@ impl LabelType {
 }
 
 
-//------------ BadParsedDname ------------------------------------------------
+//------------ ParsedDnameError ----------------------------------------------
 
-/// A parsed domain name wasn’t encoded correctly.
+/// Parsing a domain name failed.
 #[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum BadParsedDname {
+pub enum ParsedDnameError {
     /// A bad label was encountered.
     #[fail(display="{}", _0)]
     BadLabel(LabelTypeError),
@@ -423,30 +484,14 @@ pub enum BadParsedDname {
     /// The name is longer than the 255 bytes limit.
     #[fail(display="long domain name")]
     LongName,
-}
-
-impl From<LabelTypeError> for BadParsedDname {
-    fn from(err: LabelTypeError) -> BadParsedDname {
-        BadParsedDname::BadLabel(err)
-    }
-}
-
-
-//------------ ParsedDnameError ----------------------------------------------
-
-/// Parsing a domain name failed.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum ParsedDnameError {
-    #[fail(display="{}", _0)]
-    BadName(BadParsedDname),
 
     #[fail(display="unexpected end of buffer")]
     ShortBuf,
 }
 
-impl<T: Into<BadParsedDname>> From<T> for ParsedDnameError {
-    fn from(err: T) -> Self {
-        ParsedDnameError::BadName(err.into())
+impl From<LabelTypeError> for ParsedDnameError {
+    fn from(err: LabelTypeError) -> Self {
+        ParsedDnameError::BadLabel(err)
     }
 }
 
@@ -463,7 +508,7 @@ impl From<ShortBuf> for ParsedDnameError {
 #[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
 pub enum ParsedDnameAllError {
     #[fail(display="{}", _0)]
-    BadName(BadParsedDname),
+    Parse(ParsedDnameError),
 
     #[fail(display="trailing data")]
     TrailingData,
@@ -475,19 +520,9 @@ pub enum ParsedDnameAllError {
     ShortBuf,
 }
 
-impl<T: Into<BadParsedDname>> From<T> for ParsedDnameAllError {
-    fn from(err: T) -> Self {
-        ParsedDnameAllError::BadName(err.into())
-    }
-}
-
 impl From<ParsedDnameError> for ParsedDnameAllError {
     fn from(err: ParsedDnameError) -> Self {
-        match err {
-            ParsedDnameError::BadName(err)
-                => ParsedDnameAllError::BadName(err),
-            ParsedDnameError::ShortBuf => ParsedDnameAllError::ShortBuf,
-        }
+        ParsedDnameAllError::Parse(err)
     }
 }
 

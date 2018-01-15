@@ -498,12 +498,7 @@ impl<'a> IntoIterator for &'a Dname {
 
 impl<N: ToDname> PartialEq<N> for Dname {
     fn eq(&self, other: &N) -> bool {
-        if let Some(slice) = other.as_flat_slice() {
-            self.as_slice().eq_ignore_ascii_case(slice)
-        }
-        else {
-            self.iter().eq(other.iter_labels())
-        }
+        self.name_eq(other)
     }
 }
 
@@ -511,26 +506,6 @@ impl Eq for Dname { }
 
 
 //--- PartialOrd and Ord
-
-impl Dname {
-    fn _cmp<N: ToDname>(&self, other: &N) -> cmp::Ordering {
-        let mut self_iter = self.iter();
-        let mut other_iter = other.iter_labels();
-        loop {
-            match (self_iter.next_back(), other_iter.next_back()) {
-                (Some(left), Some(right)) => {
-                    match left.cmp(right) {
-                        cmp::Ordering::Equal => {}
-                        res => return res
-                    }
-                }
-                (None, Some(_)) => return cmp::Ordering::Less,
-                (Some(_), None) => return cmp::Ordering::Greater,
-                (None, None) => return cmp::Ordering::Equal
-            }
-        }
-    }
-}
 
 impl<N: ToDname> PartialOrd<N> for Dname {
     /// Returns the ordering between `self` and `other`.
@@ -540,7 +515,7 @@ impl<N: ToDname> PartialOrd<N> for Dname {
     ///
     /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
     fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
-        Some(self._cmp(other))
+        Some(self.name_cmp(other))
     }
 }
 
@@ -552,7 +527,7 @@ impl Ord for Dname {
     ///
     /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self._cmp(other)
+        self.name_cmp(other)
     }
 }
 
