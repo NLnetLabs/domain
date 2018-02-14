@@ -20,7 +20,7 @@ rand           = "0.3"
 failure        = "0.1"
 failure_derive = "0.1"
 futures        = "0.1.14"
-tokio          = { git = "https://github.com/tokio-rs/tokio.git", branch="new-crate" }
+tokio          = "0.1"
 
 [dev-dependencies]
 chrono       = "0.4"
