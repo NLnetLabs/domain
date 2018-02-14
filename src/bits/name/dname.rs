@@ -217,10 +217,9 @@ impl Dname {
     }
 
     /// Like `is_label_start` but panics if it isn’t.
-    ///
     fn check_index(&self, index: usize) {
         if !self.is_label_start(index) {
-            panic!("index not at start of label");
+            panic!("index not at start of a label");
         }
     }
 

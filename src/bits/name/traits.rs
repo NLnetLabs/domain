@@ -95,6 +95,14 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
             RelativeDname::from_bytes_unchecked(bytes.freeze())
         }
     }
+
+    /// Returns a byte slice of the content if possible.
+    ///
+    /// This method can is used to optimize comparision operations between
+    /// two values that are indeed flat names.
+    fn as_flat_slice(&self) -> Option<&[u8]> {
+        None
+    }
 }
 
 impl<'a, N: ToRelativeDname + 'a> ToRelativeDname for &'a N { }

@@ -1,20 +1,22 @@
 //! Record data for OPT records.
 //!
-//! OPT records are meta records used by EDNS to convey additional data about
-//! clients, servers, and the query being performed. Because these records are
-//! fundamental for modern DNS operations, they are here instead of in the
-//! `rdata` module and the types defined for operating on them differ from
-//! how other record types are handled.
+//! Since DNS message headers are relatively short, the amount of information
+//! that can be conveyed through them is very limited. In order to provide an
+//! extensible means to transmit additional information, [RFC 6891] introduces
+//! a resource record called OPT that can be added to the additional section
+//! of a message. The record data in turn consists of a sequence of options.
+//!
+//! This module contains the types for working with both the OPT record and
+//! its record data. It defines types for each of the currently defined
+//! options. As with record data types in the [rdata] module, these are
+//! arranged in sub-modules according to the RFC that defined them and then
+//! re-exported here.
+//! 
+//! [RFC 6891]: https://tools.ietf.org/html/rfc6891
+//! [rdata]: ../rdata/index.html
 
-use std::mem;
-use std::marker::PhantomData;
-use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
-use ::iana::{OptionCode, OptRcode, Rtype};
-use super::compose::{Compose, Compress, Compressor};
-use super::header::Header;
-use super::parse::{ParseAll, Parser, ShortBuf};
-use super::rdata::RtypeRecordData;
 
+//============ Sub-modules and Re-exports ====================================
 
 pub mod rfc5001;
 pub mod rfc6975;
@@ -37,14 +39,32 @@ pub use self::rfc7901::Chain;
 pub use self::rfc8145::KeyTag;
 
 
+//============ Module Content ================================================
+
+use std::mem;
+use std::marker::PhantomData;
+use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
+use ::iana::{OptionCode, OptRcode, Rtype};
+use super::compose::{Compose, Compress, Compressor};
+use super::header::Header;
+use super::parse::{Parse, ParseAll, Parser, ShortBuf};
+use super::rdata::RtypeRecordData;
+
 //------------ Opt -----------------------------------------------------------
 
+/// OPT record data.
+///
+/// This type wraps a bytes value containing the record data of an OPT record.
 #[derive(Clone, Debug)]
 pub struct Opt {
     bytes: Bytes,
 }
 
 impl Opt {
+    /// Creates OPT record data from the underlying bytes value.
+    ///
+    /// The function checks whether the bytes value contains a sequence of
+    /// options. It does not check whether the options itself are valid.
     pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortBuf> {
         let mut parser = Parser::from_bytes(bytes);
         while parser.remaining() > 0 {
@@ -55,6 +75,10 @@ impl Opt {
         Ok(Opt { bytes: parser.unwrap() })
     }
 
+    /// Returns an iterator over options of a given type.
+    ///
+    /// The returned iterator will return only options represented by type
+    /// `D` and quietly skip over all the others.
     pub fn iter<D: OptData>(&self) -> OptIter<D> {
         OptIter::new(self.bytes.clone())
     }
@@ -176,6 +200,48 @@ impl Compose for OptHeader {
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
         buf.put_slice(&self.inner)
+    }
+}
+
+
+//------------ OptionHeader --------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct OptionHeader {
+    code: u16,
+    len: u16,
+}
+
+impl OptionHeader {
+    pub fn new(code: u16, len: u16) -> Self {
+        OptionHeader { code, len }
+    }
+
+    pub fn code(&self) -> u16 {
+        self.code
+    }
+
+    pub fn len(&self) -> u16 {
+        self.len
+    }
+}
+
+impl Parse for OptionHeader {
+    type Err = ShortBuf;
+
+    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+        Ok(OptionHeader::new(parser.parse_u16()?, parser.parse_u16()?))
+    }
+}
+
+impl Compose for OptionHeader {
+    fn compose_len(&self) -> usize {
+        4
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        self.code.compose(buf);
+        self.len.compose(buf);
     }
 }
 

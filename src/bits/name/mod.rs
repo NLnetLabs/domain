@@ -61,7 +61,7 @@ pub use self::dname::{Dname, DnameError, DnameParseError, DnameBytesError};
 pub use self::label::{Label, LabelTypeError, LongLabelError,
                       SplitLabelError};
 pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedDnameError,
-                       ParsedDnameAllError};
+                       ParsedDnameAllError, ParsedSuffixIter};
 pub use self::relative::{RelativeDname, DnameIter, RelativeDnameError,
                          StripSuffixError};
 pub use self::traits::{ToLabelIter, ToRelativeDname, ToDname};

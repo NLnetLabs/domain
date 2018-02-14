@@ -87,7 +87,7 @@ impl Parser {
     /// Returns a reference to a slice of the bytes left to parse.
     pub fn peek(&self, len: usize) -> Result<&[u8], ShortBuf> {
         self.check_len(len)?;
-        Ok(self.peek_all())
+        Ok(&self.peek_all()[..len])
     }
 
     pub fn peek_all(&self) -> &[u8] {

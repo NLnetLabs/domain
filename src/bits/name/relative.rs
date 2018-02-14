@@ -1,4 +1,6 @@
 /// Uncompressed, relative domain names.
+///
+/// This is a private module. Its public types are re-exported by the parent.
 
 use std::{cmp, fmt, hash, ops};
 use bytes::{BufMut, Bytes};
@@ -16,9 +18,9 @@ use super::traits::{ToLabelIter, ToRelativeDname};
 ///
 /// A relative domain name is one that doesn’t end with the root label. As the
 /// name suggests, it is relative to some other domain name. This type wraps
-/// such a relative name similarly to as [`Dname`] wraps an absolute one. It
-/// behaves very similarly to [`Dname`] taking into account differences when
-/// slicing and dicing names.
+/// such a relative name similarly to the way [`Dname`] wraps an absolute one.
+/// It behaves very similarly to [`Dname`] taking into account differences
+/// when slicing and dicing names.
 ///
 /// `RelativeDname` guarantees that the name is at most 254 bytes long. As the
 /// length limit for a domain name is actually 255 bytes, this means that you
@@ -85,6 +87,11 @@ impl RelativeDname {
         Ok(unsafe { RelativeDname::from_bytes_unchecked(bytes) })
     }
 
+    /// Creates a relative domain name from a byte slice.
+    ///
+    /// The function will create a new bytes value from the slice’s content.
+    /// If the slice does not contain a correctly encoded, relative domain
+    /// name, the function will fail.
     pub fn from_slice(slice: &[u8]) -> Result<Self, RelativeDnameError> {
         Self::from_bytes(slice.into())
     }
@@ -127,7 +134,7 @@ impl RelativeDname {
     /// absolute name, you can perhaps use [`chain_root`] instead.
     ///
     /// The method uses [`into_builder`] to be able to manipulate the name
-    /// and thus may have to allocate and copy.
+    /// and thus may have to create a new underlying bytes value.
     ///
     /// [`chain_root`]: #method.chain_root
     /// [`into_builder`]: #method.into_builder
@@ -135,9 +142,9 @@ impl RelativeDname {
         self.into_builder().into_dname().unwrap()
     }
 
-    /// Creates a domain name by combining `self` with `other`.
+    /// Creates a domain name by concatenating `self` with `other`.
     ///
-    /// Depending on whether other is an absolute or relative domain name,
+    /// Depending on whether `other` is an absolute or relative domain name,
     /// the resulting name will behave like an absolute or relative name.
     /// 
     /// The method will fail if the combined length of the two names is
@@ -220,7 +227,6 @@ impl RelativeDname {
     }
 
     /// Like `is_label_start` but panics if it isn’t.
-    ///
     fn check_index(&self, index: usize) {
         if !self.is_label_start(index) {
             panic!("index not at start of a label");
@@ -230,13 +236,12 @@ impl RelativeDname {
     /// Returns a part of the name indicated by start and end positions.
     ///
     /// The returned name will start at position `begin` and end right before
-    /// position `end`. This will failed of either of these positions is not
-    /// the start of a label.
+    /// position `end`. Both positions need to be the beginning of a label.
     ///
     /// # Panics
     ///
-    /// The method panics if either position points beyond the end of the
-    /// name.
+    /// The method panics if either position is not the beginning of a label
+    /// or is out of bounds.
     pub fn slice(&self, begin: usize, end: usize) -> Self {
         self.check_index(begin);
         self.check_index(end);
@@ -245,11 +250,10 @@ impl RelativeDname {
 
     /// Returns the part of the name starting at the given position.
     ///
-    /// This will fail if the position isn’t the start of a label.
-    ///
     /// # Panics
     ///
-    /// The method panics if the position is beyond the end of the name.
+    /// The method panics if the position is not the beginning of a label
+    /// or is beyond the end of the name.
     pub fn slice_from(&self, begin: usize) -> Self {
         self.check_index(begin);
         unsafe { Self::from_bytes_unchecked(self.bytes.slice_from(begin)) }
@@ -257,11 +261,10 @@ impl RelativeDname {
 
     /// Returns the part of the name ending before the given position.
     ///
-    /// This will fail if the position isn’t the start of a label.
-    ///
     /// # Panics
     ///
-    /// The method panics if the position is beyond the end of the name.
+    /// The method panics if the position is not the beginning of a label
+    /// or is beyond the end of the name.
     pub fn slice_to(&self, end: usize) -> Self {
         self.check_index(end);
         unsafe { Self::from_bytes_unchecked(self.bytes.slice_to(end)) }
@@ -269,13 +272,13 @@ impl RelativeDname {
 
     /// Splits the name into two at the given position.
     ///
-    /// Afterwards, `self` will contain the name ending at the position
-    /// while the name starting at the position will be returned. The method
-    /// will fail if `mid` is not the start of a new label.
+    /// Afterwards, `self` will contain the name ending before the position
+    /// while the name starting at the position will be returned.
     ///
     /// # Panics
     ///
-    /// The method will panic if `mid` is greater than the name’s length.
+    /// The method panics if the position is not the beginning of a label
+    /// or is beyond the end of the name.
     pub fn split_off(&mut self, mid: usize) -> Self {
         self.check_index(mid);
         unsafe { Self::from_bytes_unchecked(self.bytes.split_off(mid)) }
@@ -284,12 +287,12 @@ impl RelativeDname {
     /// Splits the name into two at the given position.
     ///
     /// Afterwards, `self` will contain the name starting at the position
-    /// while the name ending right before it will be returned. The method
-    /// will fail if `mid` is not the start of a new label.
+    /// while the name ending right before it will be returned. 
     ///
     /// # Panics
     ///
-    /// The method will panic if `mid` is greater than the name’s length.
+    /// The method panics if the position is not the beginning of a label
+    /// or is beyond the end of the name.
     pub fn split_to(&mut self, mid: usize) -> Self {
         self.check_index(mid);
         unsafe { Self::from_bytes_unchecked(self.bytes.split_to(mid)) }
@@ -297,8 +300,10 @@ impl RelativeDname {
 
     /// Truncates the name to the given length.
     ///
-    /// This will only work if the result would be a valid name. If `len` is
-    /// greater than the current length, nothing will happen.
+    /// # Panics
+    ///
+    /// The method panics if the position is not the beginning of a label
+    /// or is beyond the end of the name.
     pub fn truncate(&mut self, len: usize) {
         self.check_index(len);
         self.bytes.truncate(len);
@@ -307,8 +312,9 @@ impl RelativeDname {
     /// Splits off the first label.
     ///
     /// If there is at least one label in the name, returns the first label
-    /// as a relative domain name with exactly one label and make `self`
-    /// contain the domain name starting after that first label.
+    /// as a relative domain name with exactly one label and makes `self`
+    /// contain the domain name starting after that first label. If the name
+    /// is empty, returns `None`.
     pub fn split_first(&mut self) -> Option<Self> {
         if self.is_empty() {
             return None
@@ -375,6 +381,10 @@ impl ToRelativeDname for RelativeDname {
     fn to_name(&self) -> RelativeDname {
         self.clone()
     }
+    
+    fn as_flat_slice(&self) -> Option<&[u8]> {
+        Some(self.as_slice())
+    }
 }
 
 
@@ -415,12 +425,14 @@ impl<'a> IntoIterator for &'a RelativeDname {
 
 //--- PartialEq and Eq
 
-impl PartialEq for RelativeDname {
-    fn eq(&self, other: &Self) -> bool {
-        // Comparing the whole slice while ignoring ASCII case is fine since
-        // the length octets of the labels are in range 0...63 which aren’t
-        // ASCII letters and compare uniquely.
-        self.as_slice().eq_ignore_ascii_case(other.as_slice())
+impl<N: ToRelativeDname> PartialEq<N> for RelativeDname {
+    fn eq(&self, other: &N) -> bool {
+        if let Some(slice) = other.as_flat_slice() {
+            self.as_slice().eq_ignore_ascii_case(slice)
+        }
+        else {
+            self.iter().eq(other.iter_labels())
+        }
     }
 }
 
