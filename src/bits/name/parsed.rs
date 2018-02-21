@@ -743,24 +743,10 @@ mod test {
         assert_eq!(name!(twice).is_root(), false);
     }
 
-    fn cmp_iter<I>(mut iter: I, labels: &[&[u8]])
-    where
-        I: Iterator,
-        I::Item: AsRef<[u8]>
-    {
-        let mut labels = labels.iter();
-        loop {
-            match (iter.next(), labels.next()) {
-                (Some(left), Some(right)) => assert_eq!(left.as_ref(), *right),
-                (None, None) => break,
-                (_, None) => panic!("extra items in iterator"),
-                (None, _) => panic!("missing items in iterator"),
-            }
-        }
-    }
-
     #[test]
     fn iter() {
+        use ::bits::name::dname::test::cmp_iter;
+
         let labels: &[&[u8]] = &[b"www", b"example", b"com", b""];
         cmp_iter(name!(root).iter(), &[b""]);
         cmp_iter(name!(flat).iter(), labels);
@@ -768,24 +754,10 @@ mod test {
         cmp_iter(name!(twice).iter(), labels);
     }
 
-    fn cmp_iter_back<I>(mut iter: I, labels: &[&[u8]])
-    where
-        I: DoubleEndedIterator,
-        I::Item: AsRef<[u8]> + fmt::Debug
-    {
-        let mut labels = labels.iter();
-        loop {
-            match (iter.next_back(), labels.next()) {
-                (Some(left), Some(right)) => assert_eq!(left.as_ref(), *right),
-                (None, None) => break,
-                (_, None) => panic!("extra items in iterator"),
-                (None, _) => panic!("missing items in iterator"),
-            }
-        }
-    }
-
     #[test]
     fn iter_back() {
+        use ::bits::name::dname::test::cmp_iter_back;
+
         let labels: &[&[u8]] = &[b"", b"com", b"example", b"www"];
         cmp_iter_back(name!(root).iter(), &[b""]);
         cmp_iter_back(name!(flat).iter(), labels);

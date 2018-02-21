@@ -103,6 +103,34 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     fn as_flat_slice(&self) -> Option<&[u8]> {
         None
     }
+
+    fn name_eq<N: ToRelativeDname>(&self, other: &N) -> bool {
+        if let (Some(left), Some(right)) = (self.as_flat_slice(),
+                                            other.as_flat_slice()) {
+            left.eq_ignore_ascii_case(right)
+        }
+        else {
+            self.iter_labels().eq(other.iter_labels())
+        }
+    }
+
+    fn name_cmp<N: ToRelativeDname>(&self, other: &N) -> cmp::Ordering {
+        let mut self_iter = self.iter_labels();
+        let mut other_iter = other.iter_labels();
+        loop {
+            match (self_iter.next_back(), other_iter.next_back()) {
+                (Some(left), Some(right)) => {
+                    match left.cmp(right) {
+                        cmp::Ordering::Equal => {}
+                        res => return res
+                    }
+                }
+                (None, Some(_)) => return cmp::Ordering::Less,
+                (Some(_), None) => return cmp::Ordering::Greater,
+                (None, None) => return cmp::Ordering::Equal
+            }
+        }
+    }
 }
 
 impl<'a, N: ToRelativeDname + 'a> ToRelativeDname for &'a N { }

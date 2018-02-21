@@ -695,9 +695,12 @@ impl<T: Into<DnameParseError>> From<T> for DnameBytesError {
 
 
 //============ Testing =======================================================
+//
+// Some of the helper functions herein are resused by the tests of other
+// sub-modules of ::bits::name. Hence the `pub(crate)` designation.
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use std::cmp::Ordering;
     use super::*;
 
@@ -784,7 +787,7 @@ mod test {
         assert_eq!(Dname::root().is_root(), true);
     }
 
-    fn cmp_iter<I>(mut iter: I, labels: &[&[u8]])
+    pub fn cmp_iter<I>(mut iter: I, labels: &[&[u8]])
     where
         I: Iterator,
         I::Item: AsRef<[u8]>
@@ -808,7 +811,7 @@ mod test {
                  &[b"www", b"example", b"com", b""]);
     }
 
-    fn cmp_iter_back<I>(mut iter: I, labels: &[&[u8]])
+    pub fn cmp_iter_back<I>(mut iter: I, labels: &[&[u8]])
     where
         I: DoubleEndedIterator,
         I::Item: AsRef<[u8]>
@@ -945,6 +948,8 @@ mod test {
         assert!(!wecr.is_label_start(14)); // o
         assert!(!wecr.is_label_start(15)); // m
         assert!( wecr.is_label_start(16)); // \0
+        assert!(!wecr.is_label_start(17)); //
+        assert!(!wecr.is_label_start(18)); //
     }
 
     #[test]
