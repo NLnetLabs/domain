@@ -1105,9 +1105,35 @@ mod test {
         assert_eq!(name!(twice).as_flat_slice(), None);
     }
 
-    /*
-    // The comparison traits defer to the implementations from ToDname, so
-    // we defer to the tests there, too.
-    */
+    #[test]
+    fn eq() {
+        fn step<N: ToDname + fmt::Debug>(name: N) {
+            assert_eq!(name!(flat), &name);
+            assert_eq!(name!(once), &name);
+            assert_eq!(name!(twice), &name);
+        }
+
+        fn ne_step<N: ToDname + fmt::Debug>(name: N) {
+            assert_ne!(name!(flat), &name);
+            assert_ne!(name!(once), &name);
+            assert_ne!(name!(twice), &name);
+        }
+
+        step(name!(flat));
+        step(name!(once));
+        step(name!(twice));
+
+        step(Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap());
+        step(Dname::from_slice(b"\x03wWw\x07EXAMPLE\x03com\0").unwrap());
+        step(RelativeDname::from_slice(b"\x03www\x07example\x03com").unwrap()
+                           .chain_root());
+        step(RelativeDname::from_slice(b"\x03www\x07example").unwrap()
+                           .chain(Dname::from_slice(b"\x03com\0").unwrap())
+                           .unwrap());
+
+        ne_step(Dname::from_slice(b"\x03ww4\x07EXAMPLE\x03com\0").unwrap());
+    }
+
+    // XXX TODO Test for cmp and hash.
 }
 
