@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 byteorder     = "1.0"
-rand          = "0.3"
+rand          = "0.4"
 futures       = "0.1.14"
 tokio-core    = "0.1.9"
 
