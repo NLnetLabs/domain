@@ -15,14 +15,14 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-byteorder     = "1.0"
+byteorder     = "1.2"
 rand          = "0.4"
-futures       = "0.1.14"
-tokio-core    = "0.1.9"
+futures       = "0.1.18"
+tokio-core    = "0.1.12"
 
 [dev-dependencies]
 argparse     = "0.2"
-native-tls   = "0.1.2"
-tokio-io     = "0.1.2"
-tokio-tls    = "0.1.2"
+native-tls   = "0.1.5"
+tokio-io     = "0.1.5"
+tokio-tls    = "0.1.4"
 
