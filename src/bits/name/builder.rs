@@ -98,7 +98,7 @@ impl DnameBuilder {
     /// Starts a new label if necessary. Returns an error if pushing the byte
     /// would exceed the size limits for labels or domain names.
     pub fn push(&mut self, ch: u8) -> Result<(), PushError> {
-        if self.bytes.len() >= 255 {
+        if self.bytes.len() >= 254 {
             return Err(PushError::LongName);
         }
         if let Some(head) = self.head {

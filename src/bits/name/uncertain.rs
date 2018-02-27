@@ -1,4 +1,6 @@
 //! A domain name that can be both relative or absolute.
+///
+/// This is a private module. Its public types are re-exported by the parent.
 
 use std::{fmt, str};
 use bytes::BufMut;
@@ -18,7 +20,7 @@ use super::traits::{ToDname, ToLabelIter};
 ///
 /// This type is helpful when reading a domain name from some source where it
 /// may end up being absolute or not.
-#[derive(Clone)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub enum UncertainDname {
     Absolute(Dname),
     Relative(RelativeDname),
@@ -35,10 +37,12 @@ impl UncertainDname {
         UncertainDname::Relative(name)
     }
 
+    /// Creates a new uncertain domain name containing the root label only.
     pub fn root() -> Self {
         UncertainDname::Absolute(Dname::root())
     }
 
+    /// Creates a new uncertain yet empty domain name.
     pub fn empty() -> Self {
         UncertainDname::Relative(RelativeDname::empty())
     }
@@ -107,7 +111,7 @@ impl UncertainDname {
     }
 
     /// Returns a reference to an absolute name, if this name is absolute.
-    pub fn try_as_absolute(&self) -> Option<&Dname> {
+    pub fn as_absolute(&self) -> Option<&Dname> {
         match *self {
             UncertainDname::Absolute(ref name) => Some(name),
             _ => None
@@ -115,7 +119,7 @@ impl UncertainDname {
     }
 
     /// Returns a reference to a relative name, if the name is relative.
-    pub fn try_as_relative(&self) -> Option<&RelativeDname> {
+    pub fn as_relative(&self) -> Option<&RelativeDname> {
         match *self {
             UncertainDname::Relative(ref name) => Some(name),
             _ => None,
@@ -160,9 +164,23 @@ impl UncertainDname {
         }
     }
 
+    /// Makes an uncertain name absolute by chaining on a suffix if needed.
+    ///
+    /// The method converts the uncertain name into a chain that will
+    /// be absolute. If the name is already absolute, the chain will be the
+    /// name itself. If it is relative, if will be the concatenation of the
+    /// name and `suffix`.
     pub fn chain<S: ToDname>(self, suffix: S)
                              -> Result<Chain<Self, S>, LongChainError> {
         Chain::new_uncertain(self, suffix)
+    }
+
+    /// Returns a byte slice with the raw content of the name.
+    pub fn as_slice(&self) -> &[u8] {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.as_slice(),
+            UncertainDname::Relative(ref name) => name.as_slice(),
+        }
     }
 }
 
@@ -310,7 +328,7 @@ impl fmt::Debug for UncertainDname {
 fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
                 where C: Iterator<Item=char> {
     let ch = try!(chars.next().ok_or(FromStrError::UnexpectedEnd));
-    if ch == '0' || ch == '1' || ch == '2' {
+    if ch >= '0' &&  ch <= '9' {
         let v = ch.to_digit(10).unwrap() * 100
               + try!(chars.next().ok_or(FromStrError::UnexpectedEnd)
                      .and_then(|c| c.to_digit(10)
@@ -319,6 +337,9 @@ fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
               + try!(chars.next().ok_or(FromStrError::UnexpectedEnd)
                      .and_then(|c| c.to_digit(10)
                                     .ok_or(FromStrError::IllegalEscape)));
+        if v > 255 {
+            return Err(FromStrError::IllegalEscape)
+        }
         Ok(v as u8)
     }
     else if ch == '[' {
@@ -385,3 +406,88 @@ impl From<PushError> for FromStrError {
     }
 }
 
+//============ Testing =======================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn from_str() {
+        use std::str::FromStr;
+
+        fn name(s: &str) -> UncertainDname {
+            UncertainDname::from_str(s).unwrap()
+        }
+
+        assert_eq!(name("www.example.com").as_relative().unwrap().as_slice(),
+                   b"\x03www\x07example\x03com");
+        assert_eq!(name("www.example.com.").as_absolute().unwrap().as_slice(),
+                   b"\x03www\x07example\x03com\0");
+
+        assert_eq!(name(r"www\.example.com").as_slice(),
+                   b"\x0bwww.example\x03com");
+        assert_eq!(name(r"w\119w.example.com").as_slice(),
+                   b"\x03www\x07example\x03com");
+        assert_eq!(name(r"w\000w.example.com").as_slice(),
+                   b"\x03w\0w\x07example\x03com");
+
+        assert_eq!(UncertainDname::from_str(r"w\01"),
+                   Err(FromStrError::UnexpectedEnd));
+        assert_eq!(UncertainDname::from_str(r"w\"),
+                   Err(FromStrError::UnexpectedEnd));
+        assert_eq!(UncertainDname::from_str(r"www..example.com"),
+                   Err(FromStrError::EmptyLabel));
+        assert_eq!(UncertainDname::from_str(r"www.example.com.."),
+                   Err(FromStrError::EmptyLabel));
+        assert_eq!(UncertainDname::from_str(r".www.example.com"),
+                   Err(FromStrError::EmptyLabel));
+        assert_eq!(UncertainDname::from_str(r"www.\[322].example.com"),
+                   Err(FromStrError::BinaryLabel));
+        assert_eq!(UncertainDname::from_str(r"www.\2example.com"),
+                   Err(FromStrError::IllegalEscape));
+        assert_eq!(UncertainDname::from_str(r"www.\29example.com"),
+                   Err(FromStrError::IllegalEscape));
+        assert_eq!(UncertainDname::from_str(r"www.\299example.com"),
+                   Err(FromStrError::IllegalEscape));
+        assert_eq!(UncertainDname::from_str(r"www.\892example.com"),
+                   Err(FromStrError::IllegalEscape));
+        assert_eq!(UncertainDname::from_str("www.e\0ample.com"),
+                   Err(FromStrError::IllegalCharacter('\0')));
+        assert_eq!(UncertainDname::from_str("www.eüample.com"),
+                   Err(FromStrError::IllegalCharacter('ü')));
+
+        // LongLabel
+        let mut s = String::from("www.");
+        for _ in 0..63 {
+            s.push('x');
+        }
+        s.push_str(".com");
+        assert!(UncertainDname::from_str(&s).is_ok());
+        let mut s = String::from("www.");
+        for _ in 0..64 {
+            s.push('x');
+        }
+        s.push_str(".com");
+        assert_eq!(UncertainDname::from_str(&s),
+                   Err(FromStrError::LongLabel));
+
+        // Long Name
+        let mut s = String::new();
+        for _ in 0..50 {
+            s.push_str("four.");
+        }
+        let mut s1 = s.clone();
+        s1.push_str("com.");
+        assert_eq!(name(&s1).as_slice().len(), 255);
+        let mut s1 = s.clone();
+        s1.push_str("com");
+        assert_eq!(name(&s1).as_slice().len(), 254);
+        let mut s1 = s.clone();
+        s1.push_str("coma.");
+        assert_eq!(UncertainDname::from_str(&s1), Err(FromStrError::LongName));
+        let mut s1 = s.clone();
+        s1.push_str("coma");
+        assert_eq!(UncertainDname::from_str(&s1), Err(FromStrError::LongName));
+    }
+}
