@@ -1,10 +1,10 @@
 ## 0.2.3
 
-New
-
-Bug fixes
-
 Dependencies
+
+* updated byteorder to 1.2
+* updated rand to 0.4
+* updated futures and tokio to latest 0.1.
 
 
 ## 0.2.2
