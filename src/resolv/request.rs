@@ -409,6 +409,7 @@ impl TransportHandle {
     /// Sends a transport request to the transport.
     ///
     /// This only fails if the receiver was dropped.
+    #[allow(deprecated)]
     pub fn send(&self, sreq: TransportRequest)
                 -> Result<(), mpsc::SendError<TransportRequest>> {
         self.tx.send(sreq)

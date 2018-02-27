@@ -2,7 +2,6 @@
 
 use std::{borrow, cmp, fmt, hash, mem, ops, str};
 use std::borrow::Cow;
-use std::ascii::AsciiExt;
 use std::ops::Deref;
 use super::plain::{DNameBuf, DNameSlice, PushError};
 

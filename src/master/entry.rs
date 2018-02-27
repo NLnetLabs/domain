@@ -1,6 +1,5 @@
 /// A master file entry.
 
-use std::ascii::AsciiExt;
 use std::rc::Rc;
 use ::bits::DNameBuf;
 use ::iana::Class;

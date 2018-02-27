@@ -39,8 +39,6 @@ macro_rules! int_enum {
 
             /// Returns a value from a well-defined mnemonic.
             pub fn from_mnemonic(m: &[u8]) -> Option<Self> {
-                use std::ascii::AsciiExt;
-
                 $(
                     if m.eq_ignore_ascii_case($mnemonic) {
                         return Some($ianatype::$variant)
@@ -261,8 +259,6 @@ macro_rules! int_enum_str_with_prefix {
      $error:expr) => {
         impl $ianatype {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-                use std::ascii::AsciiExt;
-
                 $ianatype::from_mnemonic(bytes).or_else(|| {
                     if bytes.len() <= $u8_prefix.len() {
                         return None
@@ -284,8 +280,6 @@ macro_rules! int_enum_str_with_prefix {
             type Err = FromStrError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                use std::ascii::AsciiExt;
-
                 // We assume all mnemonics are always ASCII, so using
                 // the bytes representation of `s` is safe.
                 match $ianatype::from_mnemonic(s.as_bytes()) {
