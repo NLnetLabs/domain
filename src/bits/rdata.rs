@@ -1,28 +1,34 @@
-//! Resource data handling.
+//! Resource record data handling.
 //!
 //! DNS resource records consist of some common data defining the domain
 //! name they pertain to, their type and class, and finally record data
 //! the format of which depends on the specific record type. As there are
 //! currently more than eighty record types, having a giant enum for record
 //! data seemed like a bad idea. Instead, resource records are generic over
-//! two traits defined by this module. All concrete types implement
-//! [`RecordData`]. Types that can be parsed out of messages also implement
-//! [`ParsedRecordData`]. This distinction is only relevant for types that
-//! contain and are generic over domain names: for these, parsing is only
-//! available if the names use [`ParsedDName`].
+//! two traits defined by this module. All types representimg resource record
+//! data implement [`RecordData`]. Types that can be parsed out of messages
+//! also implement [`ParseRecordData`]. This distinction is only relevant for
+//! types that contain and are generic over domain names: for these, parsing
+//! is only available if the names use [`ParsedDname`].
 //!
-//! All concrete types shipped with this crate are implemented in the
-//! [`domain::rdata`] module.
+//! While [`RecordData`] allows types to provide different record types for
+//! different values, most types actually implement one specific record type.
+//! For these types, implementing [`RtypeRecordData`] provides a shortcut to
+//! implementin both [`RecordData`] and [`ParseRecordDate`] with a constant
+//! record type.
 //!
-//! In order to walk over all resource records in a message or work with
-//! unknown record types, this module also defines the [`GenericRecordData`]
-//! type that can deal with all record types but provides only a limited
-//! functionality.
+//! All such implementations for a specific record type shipped with the
+//! domain crate are collected in the [`domain::rdata`] module.
+//!
+//! A type implementing the traits for any record type is available in here
+//! too: [`UnknownRecordData`]. It stores the actual record data in its
+//! encoded form in a bytes value.
 //!
 //! [`RecordData`]: trait.RecordData.html
-//! [`ParsedRecordData`]: trait.ParsedRecordData.html
+//! [`ParseRecordData`]: trait.ParseRecordData.html
+//! [`RtypeRecordData`]: trait.RtypeRecordData.html
 //! [`domain::rdata`]: ../../rdata/index.html
-//! [`GenericRecordData`]: struct.GenericRecordData.html
+//! [`UnknownRecordData`]: struct.UnknownRecordData.html
 
 use std::fmt;
 use bytes::{BufMut, Bytes, BytesMut};
@@ -34,9 +40,18 @@ use super::parse::{ParseAll, Parser, ShortBuf};
 
 //----------- RecordData -----------------------------------------------------
 
-/// A trait for types representing record data.
+/// A type that represents record data.
+///
+/// The type needs to be able to encode the record data into a DNS message
+/// via the [`Compose`] and [`Compress`] traits. In addition, it needs to be
+/// able to provide the record type of a record with a value’s data via the
+/// [`rtype`] method.
+///
+/// [`Compose`]: ../compose/trait.Compose.html
+/// [`Compress`]: ../compose/trait.Compress.html
+/// [`rtype`]: #method.rtype
 pub trait RecordData: Compose + Compress + Sized {
-    /// Returns the record type for this record data instance.
+    /// Returns the record type associated with this record data instance.
     ///
     /// This is a method rather than an associated function to allow one
     /// type to be used for several real record types.
@@ -46,6 +61,13 @@ pub trait RecordData: Compose + Compress + Sized {
 
 //------------ ParseRecordData -----------------------------------------------
 
+/// A record data type that can be parsed from a message.
+///
+/// When record data types are generic – typically over a domain name type –,
+/// they may not in all cases be parseable. They may still represent record
+/// data to be used when constructing the message.
+///
+/// To reflect this asymmetry, parsing of record data has its own trait.
 pub trait ParseRecordData: RecordData {
     /// The type of an error returned when parsing fails.
     type Err;
@@ -53,9 +75,9 @@ pub trait ParseRecordData: RecordData {
     /// Parses the record data.
     ///
     /// The record data is for a record of type `rtype`. The function may
-    /// decide whether it wants to parse data for that type and return
+    /// decide whether it wants to parse data for that type. It should return
     /// `Ok(None)` if it doesn’t. The data is `rdlen` bytes long and starts
-    /// at the current position of `parser`. Their is no guarantee that the
+    /// at the current position of `parser`. There is no guarantee that the
     /// parser will have `rdlen` bytes left. If it doesn’t, the function
     /// should produce an error.
     ///
@@ -68,7 +90,23 @@ pub trait ParseRecordData: RecordData {
 
 //------------ RtypeRecordData -----------------------------------------------
 
+/// A type for record data for a single specific record type.
+///
+/// If a record data type only ever processes one single record type, things
+/// can be a lot simpler. The type can be given as an associated constant
+/// which can be used to implement [`RecordData`]. In addition, parsing can
+/// be done atop an implementation of the [`ParseAll`] trait.
+///
+/// This trait provides such a simplification by providing [`RecordData`]
+/// for all types implementing it and the other requirements for
+/// [`RecordData`]. If the type additionally implements [`ParseAll`], it will
+/// also receive a [`ParseRecordData`] implementation.
+///
+/// [`RecordData`]: trait.RecordData.html
+/// [`ParseRecordData`]: trait.ParseRecordData.html
+/// [`ParseAll`]: ../parse/trait.ParseAll.html
 pub trait RtypeRecordData {
+    /// The record type of a value of this type.
     const RTYPE: Rtype;
 }
 
@@ -97,23 +135,22 @@ impl<T: RtypeRecordData + ParseAll + Compose + Compress + Sized>
 /// A type for parsing any type of record data.
 ///
 /// This type accepts any record type and stores a reference to the plain
-/// binary record data in the message. This way, it can later be converted
-/// into concrete record data if necessary via the [`reparse()`] method.
+/// binary record data in the message.
 ///
-/// Because the data referenced by a value may contain compressed domain
-/// names, transitively building a new message from this data may lead to
-/// corrupt messages. To avoid this sort of thing, 
-/// [RFC 3597], ‘Handling of Unknown DNS Resource Record (RR) Types,’
-/// restricted compressed domain names to record types defined in [RFC 1035].
-/// Accordingly, this types [`RecordData::compose()`] implementation treats
-/// these types specially and ensures that their names are handles correctly.
-/// This may still lead to corrupt messages, however, if the generic record
-/// data is obtained from a source not complying with RFC 3597. In general,
-/// be wary when re-composing parsed messages unseen.
+/// Because some record types allow compressed domain names in their record
+/// data yet values only contain the data’s own bytes, this type cannot be
+/// used safely with these record types.
 ///
-/// [`RecordData::compose()`]: trait.RecordData.html#tymethod.compose
+/// [RFC 3597] limits the types for which compressed names are allowed in the
+/// record data to those efined in [RFC 1035] itself. Specific types for all
+/// these record types exist in [`domain::rdata::rfc1035`].
+///
+/// Ultimately, you should only use this type for record types for which there
+/// is no implementation available in this crate.
+///
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 3597]: https://tools.ietf.org/html/rfc3597
+/// [`domain::rdata::rfc1035]: ../../rdata/rfc1035/index.html
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UnknownRecordData {
     /// The record type of this data.
