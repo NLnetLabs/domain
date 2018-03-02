@@ -311,14 +311,14 @@ mod test {
         }
 
         assert_eq!(builder.append_label(b"12345"), Err(PushError::LongName));
-        let _ = builder.clone().append_label(b"1234").unwrap();
+        assert_eq!(builder.clone().append_label(b"1234"), Ok(()));
 
         assert_eq!(builder.append(b"12345"), Err(PushError::LongName));
-        let _ = builder.clone().append(b"1234").unwrap();
+        assert_eq!(builder.clone().append(b"1234"), Ok(()));
 
-        builder.append(b"123").unwrap();
-        builder.push(b'4').unwrap();
-        assert_eq!(builder.push(b'5'), Err(PushError::LongName))
+        assert_eq!(builder.append(b"12"), Ok(()));
+        assert_eq!(builder.push(b'3'), Ok(()));
+        assert_eq!(builder.push(b'4'), Err(PushError::LongName))
     }
 
     #[test]

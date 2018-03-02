@@ -1,11 +1,15 @@
+// XXX TODO Remove default impl for Parse::skip.
+//
 //! Parsing DNS wire-format data.
 //!
 //! This module provides a [`Parser`] that helps extracting data from DNS
-//! messages and a trait [`Parse`] for types that know how to parse
-//! themselves.
+//! messages and two traits for types that know how to parse themselves:
+//! [`Parse`] for types that have an encoding of determinable length and
+//! [`ParseAll`] for types that fill the entire available space.
 //!
 //! [`Parser`]: struct.Parser.html
 //! [`Parse`]: trait.Parse.html
+//! [`ParseAll`]: trait.ParseAll.html
 use std::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{BigEndian, ByteOrder, Bytes};
 
@@ -18,26 +22,35 @@ use bytes::{BigEndian, ByteOrder, Bytes};
 /// parsing of DNS data. This type is a small layer atop a [`Bytes`] value.
 /// You can wrap one using the [`from_bytes()`] function.
 ///
-/// The parser allows you to successively parse one item after the another
+/// The parser allows you to successively parse one item after another
 /// out of the message via a few methods prefixed with `parse_`. Additional
 /// methods are available for repositioning the parser’s position or access
 /// the raw, underlying bytes.
 ///
 /// The methods of a parser never panic if you try to go beyond the end of
 /// the parser’s data. Instead, they will return a [`ShortBuf`] error,
-/// making it more straightforward to implement a complex parser.
+/// making it more straightforward to implement a complex parser. Since an
+/// error normally leads to processing being aborted, functions that return
+/// an error can leave the parser at whatever position they like. In the
+/// rare case that you actually need to backtrack on the parser in case of
+/// an error, you will have to remember and reposition yourself. 
 ///
 /// Parsers are `Clone`, so you can keep around a copy of a parser for later
-/// use. This is, for instance, done by [`ParsedFqdn`] in order to be able
-/// to rummage around the message bytes to find all its labels.
+/// use. This is, for instance, done by [`ParsedDname`] in order to be able
+/// to rummage around the message bytes to find all its labels. Because
+/// copying a [`Bytes`] value is relatively cheap, cloning a parser is cheap,
+/// too.
 ///
 /// [`from_bytes()`]: #method.from_bytes
 /// [`Bytes`]: ../../../bytes/struct.Bytes.html
-/// [`ParsedFqdn`]: ../name/struct.ParsedFqdn.html
+/// [`ParsedDname`]: ../name/struct.ParsedDname.html
 /// [`ShortBuf`]: ../struct.ShortBuf.html
 #[derive(Clone, Debug)]
 pub struct Parser {
+    /// The underlying data.
     bytes: Bytes,
+
+    /// The index in `bytes` where parsing should continue.
     pos: usize
 }
 
@@ -84,17 +97,20 @@ impl Parser {
         self.bytes.len() - self.pos
     }
 
-    /// Returns a reference to a slice of the bytes left to parse.
+    /// Returns a slice containing the next `len` bytes.
+    ///
+    /// If less than `len` bytes are left, returns an error.
     pub fn peek(&self, len: usize) -> Result<&[u8], ShortBuf> {
         self.check_len(len)?;
         Ok(&self.peek_all()[..len])
     }
 
+    /// Returns a byte slice of the data left to parse.
     pub fn peek_all(&self) -> &[u8] {
         &self.bytes.as_ref()[self.pos..]
     }
 
-    /// Repositions the parser to the given position.
+    /// Repositions the parser to the given index.
     ///
     /// If `pos` is larger than the length of the parser, an error is
     /// returned.
@@ -155,7 +171,7 @@ impl Parser {
         Ok(())
     }
 
-    /// Takes a `i8` from the beginning of the parser.
+    /// Takes an `i8` from the beginning of the parser.
     ///
     /// Advances the parser by one byte. If there aren’t enough bytes left,
     /// leaves the parser untouched and returns an error, instead.
@@ -175,7 +191,7 @@ impl Parser {
         Ok(res)
     }
 
-    /// Takes a `i16` from the beginning of the parser.
+    /// Takes an `i16` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
     /// byte order if necessary. The parser is advanced by two bytes. If there
@@ -199,7 +215,7 @@ impl Parser {
         Ok(res)
     }
 
-    /// Takes a `i32` from the beginning of the parser.
+    /// Takes an `i32` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
     /// byte order if necessary. The parser is advanced by four bytes. If
@@ -227,7 +243,12 @@ impl Parser {
 
 //------------ Parse ------------------------------------------------------
 
-/// A type that knows how to extrac a value of itself from a parser.
+/// A type that can extract a value from the beginning of a parser.
+///
+/// Types that encode this trait must use an encoding where the end of a
+/// value in the parser can be determined from data read so far. These are
+/// either fixed length types like `u32` or types that either contain length
+/// bytes or boundary markers.
 pub trait Parse: Sized {
     /// The type of an error returned when parsing fails.
     type Err: From<ShortBuf>;
@@ -243,7 +264,8 @@ pub trait Parse: Sized {
     /// Skips over a value of this type at the beginning of `parser`.
     ///
     /// This function is the same as `parse` but doesn’t return the result.
-    /// It can be used to check if the content of `parser` is correct.
+    /// It can be used to check if the content of `parser` is correct or to
+    /// skip over unneeded parts of a message.
     fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
         Self::parse(parser).map(|_| ())
     }
@@ -317,9 +339,21 @@ impl Parse for Ipv6Addr {
 
 //------------ ParseAll ------------------------------------------------------
 
+/// A type that can extract a value from a given part of a parser.
+///
+/// This trait is used when the length of a value is known before and the
+/// value is expected to stretch over this entire length. There are types
+/// that can implement `ParseAll` but not [`Parse`] because they simply take
+/// all remaining bytes.
 pub trait ParseAll: Sized {
+    /// The type returned when parsing fails.
     type Err: From<ShortBuf>;
 
+    /// Parses a value `len` bytes long from the beginning of the parser.
+    ///
+    /// An implementation must read exactly `len` bytes from the parser or
+    /// fail. If it fails, the position of the parser is considered
+    /// undefined.
     fn parse_all(parser: &mut Parser, len: usize)
                  -> Result<Self, Self::Err>;
 }
@@ -470,3 +504,145 @@ impl From<ShortBuf> for ParseAllError {
     }
 }
 
+
+//============ Testing =======================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn pos_seek_remaining() {
+        let mut parser = Parser::from_static(b"0123456789");
+        assert_eq!(parser.peek(1).unwrap(), b"0");
+        assert_eq!(parser.pos(), 0);
+        assert_eq!(parser.remaining(), 10);
+        assert_eq!(parser.seek(2), Ok(()));
+        assert_eq!(parser.pos(), 2);
+        assert_eq!(parser.remaining(), 8);
+        assert_eq!(parser.peek(1).unwrap(), b"2");
+        assert_eq!(parser.seek(10), Ok(()));
+        assert_eq!(parser.pos(), 10);
+        assert_eq!(parser.remaining(), 0);
+        assert_eq!(parser.peek_all(), b"");
+        assert_eq!(parser.seek(11), Err(ShortBuf));
+        assert_eq!(parser.pos(), 10);
+        assert_eq!(parser.remaining(), 0);
+    }
+
+    #[test]
+    fn peek_check_len() {
+        let mut parser = Parser::from_static(b"0123456789");
+        assert_eq!(parser.peek(2), Ok(b"01".as_ref()));
+        assert_eq!(parser.check_len(2), Ok(()));
+        assert_eq!(parser.peek(10), Ok(b"0123456789".as_ref()));
+        assert_eq!(parser.check_len(10), Ok(()));
+        assert_eq!(parser.peek(11), Err(ShortBuf));
+        assert_eq!(parser.check_len(11), Err(ShortBuf));
+        parser.advance(2).unwrap();
+        assert_eq!(parser.peek(2), Ok(b"23".as_ref()));
+        assert_eq!(parser.check_len(2), Ok(()));
+        assert_eq!(parser.peek(8), Ok(b"23456789".as_ref()));
+        assert_eq!(parser.check_len(8), Ok(()));
+        assert_eq!(parser.peek(9), Err(ShortBuf));
+        assert_eq!(parser.check_len(9), Err(ShortBuf));
+    }
+
+    #[test]
+    fn peek_all() {
+        let mut parser = Parser::from_static(b"0123456789");
+        assert_eq!(parser.peek_all(), b"0123456789");
+        parser.advance(2).unwrap();
+        assert_eq!(parser.peek_all(), b"23456789");
+    }
+
+    #[test]
+    fn advance() {
+        let mut parser = Parser::from_static(b"0123456789");
+        assert_eq!(parser.pos(), 0);
+        assert_eq!(parser.peek(1).unwrap(), b"0");
+        assert_eq!(parser.advance(2), Ok(()));
+        assert_eq!(parser.pos(), 2);
+        assert_eq!(parser.peek(1).unwrap(), b"2");
+        assert_eq!(parser.advance(9), Err(ShortBuf));
+        assert_eq!(parser.advance(8), Ok(()));
+        assert_eq!(parser.pos(), 10);
+        assert_eq!(parser.peek_all(), b"");
+    }
+
+    #[test]
+    fn parse_bytes() {
+        let mut parser = Parser::from_static(b"0123456789");
+        assert_eq!(parser.parse_bytes(2).unwrap().as_ref(), b"01");
+        assert_eq!(parser.parse_bytes(2).unwrap().as_ref(), b"23");
+        assert_eq!(parser.parse_bytes(7), Err(ShortBuf));
+        assert_eq!(parser.parse_bytes(6).unwrap().as_ref(), b"456789");
+    }
+
+    #[test]
+    fn parse_buf() {
+        let mut parser = Parser::from_static(b"0123456789");
+        let mut buf = [0u8; 2];
+        assert_eq!(parser.parse_buf(&mut buf), Ok(()));
+        assert_eq!(&buf, b"01");
+        assert_eq!(parser.parse_buf(&mut buf), Ok(()));
+        assert_eq!(&buf, b"23");
+        let mut buf = [0u8; 7];
+        assert_eq!(parser.parse_buf(&mut buf), Err(ShortBuf));
+        let mut buf = [0u8; 6];
+        assert_eq!(parser.parse_buf(&mut buf), Ok(()));
+        assert_eq!(&buf, b"456789");
+    }
+
+    #[test]
+    fn parse_i8() {
+        let mut parser = Parser::from_static(b"\x12\xd6");
+        assert_eq!(parser.parse_i8(), Ok(0x12));
+        assert_eq!(parser.parse_i8(), Ok(-42));
+        assert_eq!(parser.parse_i8(), Err(ShortBuf));
+    }
+
+    #[test]
+    fn parse_u8() {
+        let mut parser = Parser::from_static(b"\x12\xd6");
+        assert_eq!(parser.parse_u8(), Ok(0x12));
+        assert_eq!(parser.parse_u8(), Ok(0xd6));
+        assert_eq!(parser.parse_u8(), Err(ShortBuf));
+    }
+
+    #[test]
+    fn parse_i16() {
+        let mut parser = Parser::from_static(b"\x12\x34\xef\x6e\0");
+        assert_eq!(parser.parse_i16(), Ok(0x1234));
+        assert_eq!(parser.parse_i16(), Ok(-4242));
+        assert_eq!(parser.parse_i16(), Err(ShortBuf));
+    }
+
+    #[test]
+    fn parse_u16() {
+        let mut parser = Parser::from_static(b"\x12\x34\xef\x6e\0");
+        assert_eq!(parser.parse_u16(), Ok(0x1234));
+        assert_eq!(parser.parse_u16(), Ok(0xef6e));
+        assert_eq!(parser.parse_u16(), Err(ShortBuf));
+    }
+
+    #[test]
+    fn parse_i32() {
+        let mut parser = Parser::from_static(
+            b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
+        assert_eq!(parser.parse_i32(), Ok(0x12345678));
+        assert_eq!(parser.parse_i32(), Ok(-42424242));
+        assert_eq!(parser.parse_i32(), Err(ShortBuf));
+    }
+
+    #[test]
+    fn parse_u32() {
+        let mut parser = Parser::from_static(
+            b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
+        assert_eq!(parser.parse_u32(), Ok(0x12345678));
+        assert_eq!(parser.parse_u32(), Ok(0xfd78a84e));
+        assert_eq!(parser.parse_u32(), Err(ShortBuf));
+    }
+
+
+}

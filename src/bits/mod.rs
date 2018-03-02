@@ -91,9 +91,7 @@ pub use self::header::{Header, HeaderCounts, HeaderSection};
 pub use self::message::{Message, RecordSection};
 pub use self::message_builder::MessageBuilder;
 pub use self::name::{Dname, ParsedDname, RelativeDname};
-/*
-pub use self::parse::{Parser, ParseError, ParseResult};
-*/
+pub use self::parse::{Parser, Parse, ParseAll, ShortBuf};
 pub use self::question::Question;
 /*
 pub use self::rdata::{GenericRecordData, ParsedRecordData, RecordData};
@@ -108,9 +106,9 @@ pub mod compose;
 pub mod header;
 pub mod message;
 pub mod message_builder;
-    pub mod name;
-    pub mod opt;
-    pub mod parse;
+pub mod name;
+pub mod opt;
+pub mod parse;
     pub mod question;
     pub mod serial;
     pub mod rdata;

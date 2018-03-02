@@ -1,3 +1,6 @@
+// XXX TODO: Easier access to indivdual options.
+// XXX TODO: Documentation and tests.
+//
 //! Record data for OPT records.
 //!
 //! Since DNS message headers are relatively short, the amount of information
@@ -49,6 +52,7 @@ use super::compose::{Compose, Compress, Compressor};
 use super::header::Header;
 use super::parse::{Parse, ParseAll, Parser, ShortBuf};
 use super::rdata::RtypeRecordData;
+
 
 //------------ Opt -----------------------------------------------------------
 
