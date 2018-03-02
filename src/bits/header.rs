@@ -597,10 +597,13 @@ impl Parse for HeaderSection {
     type Err = ShortBuf;
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
-        let slice = parser.peek(12)?;
         let mut res = Self::default();
-        res.inner.copy_from_slice(slice);
+        parser.parse_buf(&mut res.inner)?;
         Ok(res)
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        parser.advance(12)
     }
 }
 

@@ -179,6 +179,11 @@ impl<D: ParseRecordData> Parse for Option<Record<ParsedDname, D>> {
             }
         }
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        ParsedRecord::skip(parser)
+                     .map_err(RecordParseError::Name)
+    }
 }
 
 impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
@@ -281,6 +286,15 @@ impl RecordHeader<ParsedDname> {
             }
         }
     }
+
+    /// Parses only the record length and skips over all the other fields.
+    fn parse_rdlen(parser: &mut Parser) -> Result<u16, ParsedDnameError> {
+        ParsedDname::skip(parser)?;
+        Rtype::skip(parser)?;
+        Class::skip(parser)?;
+        u32::skip(parser)?;
+        Ok(u16::parse(parser)?)
+    }
 }
 
 impl<N: ToDname> RecordHeader<N> {
@@ -329,6 +343,15 @@ impl Parse for RecordHeader<ParsedDname> {
                 u32::parse(parser)?,
                 parser.parse_u16()?
         ))
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        ParsedDname::skip(parser)?;
+        Rtype::skip(parser)?;
+        Class::skip(parser)?;
+        u32::skip(parser)?;
+        u16::skip(parser)?;
+        Ok(())
     }
 }
 
@@ -442,6 +465,11 @@ impl Parse for ParsedRecord {
         let data = parser.clone();
         parser.advance(header.rdlen() as usize)?;
         Ok(Self::new(header, data))
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        let rdlen = RecordHeader::parse_rdlen(parser)?;
+        Ok(parser.advance(rdlen as usize)?)
     }
 }
 

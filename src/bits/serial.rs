@@ -75,6 +75,10 @@ impl Parse for Serial {
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         u32::parse(parser).map(Into::into)
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        u32::skip(parser)
+    }
 }
 
 impl ParseAll for Serial {

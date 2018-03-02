@@ -72,6 +72,13 @@ impl<N: ToDname + Parse> Parse for Question<N> {
             Class::parse(parser)?
         ))
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        N::skip(parser)?;
+        Rtype::skip(parser)?;
+        Class::skip(parser)?;
+        Ok(())
+    }
 }
 
 impl<N: ToDname> Compose for Question<N> {

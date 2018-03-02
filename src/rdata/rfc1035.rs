@@ -67,6 +67,10 @@ macro_rules! dname_type {
             fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
                 ParsedDname::parse(parser).map(Self::new)
             }
+
+            fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+                ParsedDname::skip(parser).map_err(Into::into)
+            }
         }
 
         impl ParseAll for $target<ParsedDname> {
@@ -191,6 +195,11 @@ impl Parse for A {
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         Ipv4Addr::parse(parser).map(Self::new)
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        Ipv4Addr::skip(parser)?;
+        Ok(())
     }
 }
 
@@ -323,6 +332,12 @@ impl Parse for Hinfo {
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         Ok(Self::new(CharStr::parse(parser)?, CharStr::parse(parser)?))
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        CharStr::skip(parser)?;
+        CharStr::skip(parser)?;
+        Ok(())
     }
 }
 
@@ -485,6 +500,12 @@ impl<N: Parse> Parse for Minfo<N> {
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         Ok(Self::new(N::parse(parser)?, N::parse(parser)?))
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        N::skip(parser)?;
+        N::skip(parser)?;
+        Ok(())
+    }
 }
 
 impl<N: Parse + ParseAll> ParseAll for Minfo<N>
@@ -607,6 +628,11 @@ impl<N: Parse> Parse for Mx<N>
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         Ok(Self::new(u16::parse(parser)?, N::parse(parser)?))
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        u16::skip(parser)?;
+        N::skip(parser)
     }
 }
 
@@ -868,6 +894,17 @@ impl<N: Parse> Parse for Soa<N> where N::Err: From<ShortBuf> {
                      Serial::parse(parser)?, u32::parse(parser)?,
                      u32::parse(parser)?, u32::parse(parser)?,
                      u32::parse(parser)?))
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        N::skip(parser)?;
+        N::skip(parser)?;
+        Serial::skip(parser)?;
+        u32::skip(parser)?;
+        u32::skip(parser)?;
+        u32::skip(parser)?;
+        u32::skip(parser)?;
+        Ok(())
     }
 }
 

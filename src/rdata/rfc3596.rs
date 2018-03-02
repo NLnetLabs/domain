@@ -63,6 +63,10 @@ impl Parse for Aaaa {
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         Ipv6Addr::parse(parser).map(Self::new)
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        Ipv6Addr::skip(parser)
+    }
 }
 
 impl ParseAll for Aaaa {

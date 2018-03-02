@@ -1,5 +1,3 @@
-// XXX TODO Remove default impl for Parse::skip.
-//
 //! Parsing DNS wire-format data.
 //!
 //! This module provides a [`Parser`] that helps extracting data from DNS
@@ -266,15 +264,17 @@ pub trait Parse: Sized {
     /// This function is the same as `parse` but doesn’t return the result.
     /// It can be used to check if the content of `parser` is correct or to
     /// skip over unneeded parts of a message.
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
-        Self::parse(parser).map(|_| ())
-    }
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err>;
 }
 
 impl Parse for i8 {
     type Err = ShortBuf;
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_i8()
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+        parser.advance(1)
     }
 }
 
@@ -283,12 +283,20 @@ impl Parse for u8 {
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_u8()
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+        parser.advance(1)
+    }
 }
 
 impl Parse for i16 {
     type Err = ShortBuf;
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_i16()
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+        parser.advance(2)
     }
 }
 
@@ -297,6 +305,10 @@ impl Parse for u16 {
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_u16()
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+        parser.advance(2)
+    }
 }
 
 impl Parse for i32 {
@@ -304,12 +316,20 @@ impl Parse for i32 {
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_i32()
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+        parser.advance(4)
+    }
 }
 
 impl Parse for u32 {
     type Err = ShortBuf;
     fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
         parser.parse_u32()
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+        parser.advance(4)
     }
 }
 
@@ -324,6 +344,10 @@ impl Parse for Ipv4Addr {
             u8::parse(parser)?
         ))
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+        parser.advance(4)
+    }
 }
 
 impl Parse for Ipv6Addr {
@@ -333,6 +357,10 @@ impl Parse for Ipv6Addr {
         let mut buf = [0u8; 16];
         parser.parse_buf(&mut buf)?;
         Ok(buf.into())
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+        parser.advance(16)
     }
 }
 

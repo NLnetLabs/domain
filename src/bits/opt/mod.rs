@@ -236,6 +236,10 @@ impl Parse for OptionHeader {
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         Ok(OptionHeader::new(parser.parse_u16()?, parser.parse_u16()?))
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        parser.advance(4)
+    }
 }
 
 impl Compose for OptionHeader {

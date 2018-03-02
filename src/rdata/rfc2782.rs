@@ -46,6 +46,13 @@ impl<N: Parse> Parse for Srv<N> {
         Ok(Self::new(u16::parse(parser)?, u16::parse(parser)?,
                      u16::parse(parser)?, N::parse(parser)?))
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        u16::skip(parser)?;
+        u16::skip(parser)?;
+        u16::skip(parser)?;
+        N::skip(parser)
+    }
 }
 
 impl<N: ParseAll> ParseAll for Srv<N> where N::Err: From<ParseOpenError> {

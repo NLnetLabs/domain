@@ -370,26 +370,39 @@ impl Parse for Dname {
     type Err = DnameParseError;
 
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
-        let len = {
-            let mut tmp = parser.peek_all();
-            loop {
-                if tmp.is_empty() {
-                    return Err(ShortBuf.into())
-                }
-                let (label, tail) = Label::split_from(tmp)?;
-                tmp = tail;
-                if label.is_root() {
-                    break;
-                }
-            }
-            parser.remaining() - tmp.len()
-        };
-        if len > 255 {
-            return Err(DnameError::LongName.into());
-        }
+        let len = name_len(parser)?;
         Ok(unsafe {
             Self::from_bytes_unchecked(parser.parse_bytes(len).unwrap())
         })
+    }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        let len = name_len(parser)?;
+        parser.advance(len)?;
+        Ok(())
+    }
+}
+
+fn name_len(parser: &mut Parser) -> Result<usize, DnameParseError> {
+    let len = {
+        let mut tmp = parser.peek_all();
+        loop {
+            if tmp.is_empty() {
+                return Err(ShortBuf.into())
+            }
+            let (label, tail) = Label::split_from(tmp)?;
+            tmp = tail;
+            if label.is_root() {
+                break;
+            }
+        }
+        parser.remaining() - tmp.len()
+    };
+    if len > 255 {
+        Err(DnameError::LongName.into())
+    }
+    else {
+        Ok(len)
     }
 }
 

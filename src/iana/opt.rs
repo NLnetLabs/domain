@@ -92,6 +92,10 @@ impl Parse for OptionCode {
     fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
         u16::parse(parser).map(OptionCode::from_int)
     }
+
+    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+        u16::skip(parser)
+    }
 }
 
 impl Compose for OptionCode {

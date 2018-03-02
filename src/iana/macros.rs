@@ -96,6 +96,11 @@ macro_rules! int_enum {
                 <$inttype as $crate::bits::parse::Parse>::parse(parser)
                     .map(Self::from_int)
             }
+
+            fn skip(parser: &mut $crate::bits::parse::Parser)
+                    -> Result<(), Self::Err> {
+                <$inttype as $crate::bits::parse::Parse>::skip(parser)
+            }
         }
 
         impl $crate::bits::compose::Compose for $ianatype {
