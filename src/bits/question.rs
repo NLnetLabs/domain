@@ -1,3 +1,8 @@
+//! A single question in a DNS message.
+//!
+//! This module defines the type `Question` which represents an entry in
+//! the question section of a DNS message.
+
 use std::fmt;
 use bytes::BufMut;
 use ::iana::{Class, Rtype};
@@ -8,20 +13,45 @@ use super::parse::{Parse, Parser, ShortBuf};
 
 //------------ Question ------------------------------------------------------
 
+/// A question in a DNS message.
+///
+/// In DNS, a question describes what is requested in a query. It consists
+/// of three elements: a domain name, a record type, and a class. This type
+/// such a question.
+///
+/// Questions are generic over the domain name type. When read from an
+/// actual message, a [`ParsedDname`] has to be used because the name part
+/// may be compressed.
+///
+/// In order to allow questions on the fly, in particular when creating 
+/// messages via [`MessageBuilder`], the `From` trait is implemented for
+/// tuples of all three elements of a question as well as for only name
+/// and record type assuming `Class::In` which is likely what you want,
+/// anyway.
+///
+/// [`ParsedDname`]: ../name/struct.ParsedDname.html
+/// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Question<N: ToDname> {
+    /// The domain name of the question.
     qname: N,
+
+    /// The record type of the question.
     qtype: Rtype,
+
+    /// The class of the quesiton.
     qclass: Class,
 }
 
 /// # Creation and Conversion
 ///
 impl<N: ToDname> Question<N> {
+    /// Creates a new question from its three componets.
     pub fn new(qname: N, qtype: Rtype, qclass: Class) -> Self {
         Question { qname, qtype, qclass }
     }
 
+    /// Creates a new question from a name and record type, assuming class IN.
     pub fn new_in(qname: N, qtype: Rtype) -> Self {
         Question { qname, qtype, qclass: Class::In }
     }
@@ -31,14 +61,17 @@ impl<N: ToDname> Question<N> {
 /// # Field Access
 ///
 impl<N: ToDname> Question<N> {
+    /// Returns a reference to the domain nmae in the question,
     pub fn qname(&self) -> &N {
         &self.qname
     }
 
+    /// Returns the record type of the question.
     pub fn qtype(&self) -> Rtype {
         self.qtype
     }
 
+    /// Returns the class of the question.
     pub fn qclass(&self) -> Class {
         self.qclass
     }

@@ -109,7 +109,7 @@ pub mod message_builder;
 pub mod name;
 pub mod opt;
 pub mod parse;
-    pub mod question;
+pub mod question;
     pub mod serial;
     pub mod rdata;
     pub mod record;
