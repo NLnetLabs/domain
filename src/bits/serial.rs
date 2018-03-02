@@ -1,4 +1,9 @@
 //! Serial numbers.
+//!
+//! This module define a type [`Serial`] that wraps a `u32` to provide
+//! serial number arithmetics.
+//!
+//! [`Serial`]: struct.Serial.html
 
 use std::{cmp, fmt, str};
 use bytes::BufMut;
@@ -11,11 +16,17 @@ use super::parse::{Parse, ParseAll, Parser};
 
 /// A serial number.
 ///
-/// This type wraps a `u32` providing the semantics for serial number
-/// arithmetics defined in [RFC 1982]. Only addition and comparison are
-/// defined. However, addition is only defined for values up to `2^31 - 1`,
-/// so we decided to not implement the `Add` trait but rather have a dedicated
-/// method `add` so as to not cause surprise panics.
+/// Serial numbers are used in DNS to track changes to resources. For
+/// instance, the [`Soa`] record type provides a serial number that expresses
+/// the version of the zone. Since these numbers are only 32 bits long, they
+/// can wrap. [RFC 1982] defined the semantics for doing arithmetics in the
+/// face of these wrap-arounds. This type implements these semantics atop a
+/// native `u32`.
+///
+/// The RFC defines addition and comparison. Addition, however, is only
+/// defined for values up to `2^31 - 1`, so we decided to not implement the
+/// `Add` trait but rather have a dedicated method `add` so as to not cause
+/// surprise panics.
 /// 
 /// Serial numbers only implement a partial ordering. That is, there are
 /// pairs of values that are not equal but there still isn’t one value larger
@@ -24,7 +35,7 @@ use super::parse::{Parse, ParseAll, Parser};
 ///
 /// [RFC 1982]: https://tools.ietf.org/html/rfc1982
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct Serial(u32);
+pub struct Serial(pub u32);
 
 impl Serial {
     /// Add `other` to `self`.
@@ -38,7 +49,7 @@ impl Serial {
     ///
     /// This method panics if `other` is greater than `2^31 - 1`.
     pub fn add(self, other: u32) -> Self {
-        assert!(other <= 2^31 - 1);
+        assert!(other <= 0x7FFF_FFFF);
         Serial(self.0.wrapping_add(other))
     }
 }
@@ -125,10 +136,10 @@ impl cmp::PartialOrd for Serial {
         }
         else if self.0 < other.0 {
             let sub = other.0 - self.0;
-            if sub < 2^31 {
+            if sub < 0x8000_0000 {
                 Some(cmp::Ordering::Less)
             }
-            else if sub > 2^31 {
+            else if sub > 0x8000_0000 {
                 Some(cmp::Ordering::Greater)
             }
             else {
@@ -137,10 +148,10 @@ impl cmp::PartialOrd for Serial {
         }
         else {
             let sub = self.0 - other.0;
-            if sub < 2^31 {
+            if sub < 0x8000_0000 {
                 Some(cmp::Ordering::Greater)
             }
-            else if sub > 2^31 {
+            else if sub > 0x8000_0000 {
                 Some(cmp::Ordering::Less)
             }
             else {
@@ -150,3 +161,58 @@ impl cmp::PartialOrd for Serial {
     }
 }
 
+
+//============ Testing =======================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn good_addition() {
+        assert_eq!(Serial(0).add(4), Serial(4));
+        assert_eq!(Serial(0xFF00_0000).add(0x0F00_0000),
+                   Serial(((0xFF00_0000u64 + 0x0F00_0000u64)
+                           % 0x1_0000_0000) as u32));
+    }
+
+    #[test]
+    #[should_panic]
+    fn bad_addition() {
+        let _ = Serial(0).add(0x8000_0000);
+    }
+
+    #[test]
+    fn comparison() {
+        use std::cmp::Ordering::*;
+
+        assert_eq!(Serial(12), Serial(12));
+        assert_ne!(Serial(12), Serial(112));
+
+        assert_eq!(Serial(12).partial_cmp(&Serial(12)), Some(Equal));
+
+        // s1 is said to be less than s2 if [...]
+        // (i1 < i2 and i2 - i1 < 2^(SERIAL_BITS - 1))
+        assert_eq!(Serial(12).partial_cmp(&Serial(13)), Some(Less));
+        assert_ne!(Serial(12).partial_cmp(&Serial(3_000_000_012)), Some(Less));
+
+        // or (i1 > i2 and i1 - i2 > 2^(SERIAL_BITS - 1))
+        assert_eq!(Serial(3_000_000_012).partial_cmp(&Serial(12)), Some(Less));
+        assert_ne!(Serial(13).partial_cmp(&Serial(12)), Some(Less));
+
+        // s1 is said to be greater than s2 if [...]
+        // (i1 < i2 and i2 - i1 > 2^(SERIAL_BITS - 1))
+        assert_eq!(Serial(12).partial_cmp(&Serial(3_000_000_012)),
+                   Some(Greater));
+        assert_ne!(Serial(12).partial_cmp(&Serial(13)), Some(Greater));
+
+        // (i1 > i2 and i1 - i2 < 2^(SERIAL_BITS - 1))
+        assert_eq!(Serial(13).partial_cmp(&Serial(12)), Some(Greater));
+        assert_ne!(Serial(3_000_000_012).partial_cmp(&Serial(12)),
+                   Some(Greater));
+        
+        // Er, I think that’s what’s left.
+        assert_eq!(Serial(1).partial_cmp(&Serial(0x8000_0001)), None);
+        assert_eq!(Serial(0x8000_0001).partial_cmp(&Serial(1)), None);
+    }
+}
