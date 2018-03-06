@@ -328,7 +328,7 @@ impl Message {
                     Ok(record) => record,
                     Err(_) => continue,
                 };
-                if *record.name() == name {
+                if *record.owner() == name {
                     name = record.data().cname().clone();
                     found = true;
                     break;

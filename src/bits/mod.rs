@@ -93,10 +93,8 @@ pub use self::message_builder::MessageBuilder;
 pub use self::name::{Dname, ParsedDname, RelativeDname};
 pub use self::parse::{Parser, Parse, ParseAll, ShortBuf};
 pub use self::question::Question;
-/*
-pub use self::rdata::{GenericRecordData, ParsedRecordData, RecordData};
-*/
-pub use self::record::{Record};
+pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
+pub use self::record::{Record, RecordHeader, ParsedRecord};
 
 
 //--- Modules
@@ -111,6 +109,6 @@ pub mod opt;
 pub mod parse;
 pub mod question;
 pub mod serial;
-    pub mod rdata;
-    pub mod record;
+pub mod rdata;
+pub mod record;
 

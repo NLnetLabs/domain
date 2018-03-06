@@ -220,7 +220,7 @@ impl Options {
                                .unwrap().unwrap();
             // XXX We don’t have proper Display impls yet, so we need to
             //     convert to strings first to get the formatting.
-            self.print_cell(format!("{}", record.name()), 24);
+            self.print_cell(format!("{}", record.owner()), 24);
             self.print_cell(format!("{}", record.ttl()), 8);
             self.print_cell(format!("{}", record.class()), 8);
             self.print_cell(format!("{}", record.rtype()), 8);

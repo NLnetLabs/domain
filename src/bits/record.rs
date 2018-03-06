@@ -1,17 +1,18 @@
 //! Resource Records
 //!
-//! This module defines the [`Record`] type that represents DNS resource
-//! records. It also provides a type alias for parsed records with generic
-//! data through [`GenericRecord`].
+//! This module defines types related to DNS resource records. The most
+//! complete one is [`Record`] which contains a complete record for a certain
+//! record type. [`RecordHeader`] contains the data from the first couple of
+//! octets common to all records. Finally, [`ParsedRecord`] is similar to
+//! [`Record`] but contains the record data in its raw, encoded form.
 //!
 //! [`Record`]: struct.Record.html
-//! [`GenericRecord`]: type.GenericRecord.html
+//! [`RecordHeader`]: struct RecordHeader.html
+//! [`ParsedRecord`]: type.ParsedRecord.html
 
 use std::fmt;
 use bytes::{BigEndian, BufMut, ByteOrder};
 use ::iana::{Class, Rtype};
-//use ::master::error::ScanError;
-//use ::master::scan::{CharSource, Scannable, Scanner};
 use super::compose::{Compose, Compress, Compressor};
 use super::name::{ParsedDname, ParsedDnameError, ToDname};
 use super::parse::{Parse, Parser, ShortBuf};
@@ -28,7 +29,8 @@ use super::rdata::{ParseRecordData, RecordData};
 /// name. Each node in the tree carries a label, starting with the root
 /// label as the top-most node. The tree is traversed by stepping through the
 /// name from right to left, finding a child node carring the label of each
-/// step.
+/// step. The domain name resulting from this traversal is part of the
+/// record itself. It is called the *owner* of the record.
 ///
 /// The record type describes the kind of data the record holds, such as IP
 /// addresses. The class, finally, describes which sort of network the
@@ -37,9 +39,10 @@ use super::rdata::{ParseRecordData, RecordData};
 /// class is IN, the Internet. Note that each class has its own tree of nodes.
 ///
 /// The payload of a resource record is its data. Its purpose, meaning, and
-/// format is determined by the record type. For each unique three-part key
-/// there can be multiple resource records. All these records for the same
-/// key are called *resource record sets,* most often shortened to ‘RRset.’
+/// format is determined by the record type (technically, also its class).
+/// For each unique three-part key there can be multiple resource records.
+/// All these records for the same key are called *resource record sets,*
+/// most often shortened to ‘RRset.’
 ///
 /// There is one more piece of data: the TTL or time to live. This value
 /// says how long a record remains valid before it should be refreshed from
@@ -52,22 +55,22 @@ use super::rdata::{ParseRecordData, RecordData};
 /// trait holds both the record type value and the record data as they are
 /// inseparably entwined.
 ///
-/// Since records contain domain names, the `Record` type is additionally
-/// generic over a domain name type. 
+/// Because a record’s owner is a domain name, the `Record` type is
+/// additionally generic over the domain name type is for it. 
 ///
 /// There is three ways to create a record value. First, you can make one
-/// yourself using the [`new()`] function. In will neatly take care of all
+/// yourself using the [`new()`] function. It will neatly take care of all
 /// the generics through type inference. Secondly, you can parse a record
 /// from an existing message. [`Message`] and its friends provide a way to
 /// do that; see there for all the details. Finally, you can scan a record
 /// from master data (aka zonefiles). See the [`domain::master`] module for
 /// that.
 ///
-/// Records can be place into DNS messages through the value chain starting 
-/// with [`MessageBuilder`]. In order to make adding records easier, `Record`
-/// implements the `From` trait for two kinds of tuples: A four-tuple of
-/// name, class, time-to-live value, and record data and a triple leaving
-/// out the class and assuming it to `Class::In`.
+/// Records can be place into DNS messages by using a [`MessageBuilder`]. In
+/// order to make adding records easier, `Record` implements the `From` trait
+/// for two kinds of tuples: A four-tuple of owner, class, time-to-live value,
+/// and record data and a triple leaving out the class and assuming it to be
+/// `Class::In`.
 ///
 /// [`new()´]: #method.new
 /// [`Message`]: ../message/struct.Message.html
@@ -76,9 +79,16 @@ use super::rdata::{ParseRecordData, RecordData};
 /// [`domain::master`]: ../../master/index.html
 #[derive(Clone, Debug)]
 pub struct Record<N: ToDname, D: RecordData> {
-    name: N,
+    /// The owner of the record.
+    owner: N,
+
+    /// The class of the record.
     class: Class,
+
+    /// The time-to-live value of the record.
     ttl: u32,
+
+    /// The record data. The value also specifies the record’s type.
     data: D
 }
 
@@ -87,16 +97,16 @@ pub struct Record<N: ToDname, D: RecordData> {
 ///
 impl<N: ToDname, D: RecordData> Record<N, D> {
     /// Creates a new record from its parts.
-    pub fn new(name: N, class: Class, ttl: u32, data: D) -> Self {
-        Record { name, class, ttl, data }
+    pub fn new(owner: N, class: Class, ttl: u32, data: D) -> Self {
+        Record { owner, class, ttl, data }
     }
 
-    /// Returns a reference to the domain name.
+    /// Returns a reference to owner domain name.
     ///
-    /// The domain name, sometimes called the *owner* of the record,
-    /// specifies the node in the DNS tree this record belongs to.
-    pub fn name(&self) -> &N {
-        &self.name
+    /// The owner of a record is the domain name that specifies the node in
+    /// the DNS tree this record belongs to.
+    pub fn owner(&self) -> &N {
+        &self.owner
     }
 
     /// Returns the record type.
@@ -144,14 +154,14 @@ impl<N: ToDname, D: RecordData> Record<N, D> {
 //--- From
 
 impl<N: ToDname, D: RecordData> From<(N, Class, u32, D)> for Record<N, D> {
-    fn from((name, class, ttl, data): (N, Class, u32, D)) -> Self {
-        Self::new(name, class, ttl, data)
+    fn from((owner, class, ttl, data): (N, Class, u32, D)) -> Self {
+        Self::new(owner, class, ttl, data)
     }
 }
 
 impl<N: ToDname, D: RecordData> From<(N, u32, D)> for Record<N, D> {
-    fn from((name, ttl, data): (N, u32, D)) -> Self {
-        Self::new(name, Class::In, ttl, data)
+    fn from((owner, ttl, data): (N, u32, D)) -> Self {
+        Self::new(owner, Class::In, ttl, data)
     }
 }
 
@@ -188,11 +198,11 @@ impl<D: ParseRecordData> Parse for Option<Record<ParsedDname, D>> {
 
 impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
     fn compose_len(&self) -> usize {
-        self.name.compose_len() + self.data.compose_len() + 10
+        self.owner.compose_len() + self.data.compose_len() + 10
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        RecordHeader::new(&self.name, self.data.rtype(), self.class, self.ttl,
+        RecordHeader::new(&self.owner, self.data.rtype(), self.class, self.ttl,
                           (self.data.compose_len() as u16))
                      .compose(buf);
         self.data.compose(buf);
@@ -202,7 +212,7 @@ impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
 impl<N: ToDname, D: RecordData + Compress> Compress
             for Record<N, D> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        self.name.compress(buf)?;
+        self.owner.compress(buf)?;
         buf.compose(&self.rtype())?;
         buf.compose(&self.class)?;
         buf.compose(&self.ttl)?;
@@ -217,21 +227,13 @@ impl<N: ToDname, D: RecordData + Compress> Compress
 }
 
 
-//--- Scan and Display
-
-/*
-impl<N: Scannable> Scannable for Record<N, MasterRecordData> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError<C::Err>> {
-    }
-}
-*/
+//--- Display
 
 impl<N, D> fmt::Display for Record<N, D>
      where N: ToDname + fmt::Display, D: RecordData + fmt::Display {
    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}. {} {} {} {}",
-               self.name, self.ttl, self.class, self.data.rtype(),
+               self.owner, self.ttl, self.class, self.data.rtype(),
                self.data)
     }
 }
@@ -240,9 +242,16 @@ impl<N, D> fmt::Display for Record<N, D>
 //------------ RecordHeader --------------------------------------------------
 
 /// The header of a resource record.
+///
+/// This type encapsulates the common header of a resource record. It consists
+/// of the owner, record type, class, TTL, and the length of the record data.
+/// It is effectively a helper type for dealing with resource records encoded
+/// in a DNS message.
+///
+/// See [`Record`] for more details about resource records.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecordHeader<N> {
-    name: N,
+    owner: N,
     rtype: Rtype,
     class: Class,
     ttl: u32,
@@ -251,14 +260,17 @@ pub struct RecordHeader<N> {
 
 impl<N> RecordHeader<N> {
     /// Creates a new record header from its components.
-    pub fn new(name: N, rtype: Rtype, class: Class, ttl: u32, rdlen: u16)
+    pub fn new(owner: N, rtype: Rtype, class: Class, ttl: u32, rdlen: u16)
                -> Self {
-        RecordHeader { name, rtype, class, ttl, rdlen }
+        RecordHeader { owner, rtype, class, ttl, rdlen }
     }
 }
 
 impl RecordHeader<ParsedDname> {
     /// Parses a record header and then skips over the data.
+    ///
+    /// If the function succeeds, the parser will be positioned right behind
+    /// the end of the record.
     pub fn parse_and_skip(parser: &mut Parser)
                           -> Result<Self, ParsedDnameError> {
         let header = Self::parse(parser)?;
@@ -270,8 +282,11 @@ impl RecordHeader<ParsedDname> {
 
     /// Parses the remainder of the record and returns it.
     ///
-    /// If parsing fails, the parser will be positioned at the end of the
-    /// record data.
+    /// The method assumes that the parsers is currently positioned right
+    /// after the end of the record header. If the record data type `D`
+    /// feels capable of parsing a record with a header of `self`, the
+    /// method will parse the data and return a full `Record<D>`. Otherwise,
+    /// it skips over the record data.
     pub fn parse_into_record<D: ParseRecordData>(self, parser: &mut Parser)
                              -> Result<Option<Record<ParsedDname, D>>,
                                        RecordParseError<ParsedDnameError,
@@ -299,8 +314,8 @@ impl RecordHeader<ParsedDname> {
 
 impl<N: ToDname> RecordHeader<N> {
     /// Returns a reference to the owner of the record.
-    pub fn name(&self) -> &N {
-        &self.name
+    pub fn owner(&self) -> &N {
+        &self.owner
     }
 
     /// Returns the record type of the record.
@@ -325,7 +340,7 @@ impl<N: ToDname> RecordHeader<N> {
 
     /// Converts the header into an actual record.
     pub fn into_record<D: RecordData>(self, data: D) -> Record<N, D> {
-        Record::new(self.name, self.class, self.ttl, data)
+        Record::new(self.owner, self.class, self.ttl, data)
     }
 }
 
@@ -357,11 +372,11 @@ impl Parse for RecordHeader<ParsedDname> {
 
 impl<N: Compose> Compose for RecordHeader<N> {
     fn compose_len(&self) -> usize {
-        self.name.compose_len() + 10
+        self.owner.compose_len() + 10
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.name.compose(buf);
+        self.owner.compose(buf);
         self.rtype.compose(buf);
         self.class.compose(buf);
         self.ttl.compose(buf);
@@ -371,7 +386,7 @@ impl<N: Compose> Compose for RecordHeader<N> {
 
 impl<N: Compress> Compress for RecordHeader<N> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        self.name.compress(buf)?;
+        self.owner.compress(buf)?;
         buf.compose(&self.rtype)?;
         buf.compose(&self.class)?;
         buf.compose(&self.ttl)?;
@@ -398,8 +413,8 @@ impl ParsedRecord {
     }
 
     /// Returns a reference to the owner of the record.
-    pub fn name(&self) -> &ParsedDname {
-        self.header.name()
+    pub fn owner(&self) -> &ParsedDname {
+        self.header.owner()
     }
 
     /// Returns the record type of the record.
