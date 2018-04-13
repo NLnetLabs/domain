@@ -9,6 +9,27 @@ Status](https://ci.appveyor.com/api/projects/status/github/partim/domain?svg=tru
 [Documentation](https://docs.rs/domain/)
 
 
+## What’s Going on Here?
+
+This crate is currently undergoing major renovations. As part of that,
+significant parts of the source are disabled and awaiting their turn.
+
+Since [async/await] is progressing so fast, I’ve decided to delay the
+renovation of the networking parts until after it has appeared in nightly
+Rust and Tokio has caught up with the changes.
+
+[async/await]: https://boats.gitlab.io/blog/post/2018-04-06-async-await-final/
+
+Once that has happened, there will be some big improvements to the stub
+resolver before releasing version 0.3.0.
+
+As a consequence of all this, the master branch isn’t really all that
+useful right now. You can find the last state of the 0.2 series of the
+domain crate in the [series-0.2] branch.
+
+[series-0.2]: https://github.com/partim/domain/tree/series-0.2
+
+
 ## Usage
 
 First, add this to your `Cargo.toml`:
@@ -82,14 +103,6 @@ The idea for both the recursive resolver and the authoritative name server
 currently is to supply libraries that allow including this functionality
 in programs instead of building general purpose products. We may split
 the four top-level points into separate crates along the way.
-
-
-## Help!
-
-The stub resolver currently is of limited use under Windows since I have
-no idea what the correct way to determine the system’s resolver
-configuration is. I would be very grateful for a hint as to that, so the
-crate becomes properly cross platform.
 
 
 ## Contributing
