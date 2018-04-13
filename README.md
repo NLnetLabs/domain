@@ -9,21 +9,25 @@ Status](https://ci.appveyor.com/api/projects/status/github/partim/domain?svg=tru
 [Documentation](https://docs.rs/domain/)
 
 
-## Is It Alive?
+## What’s Going on Here?
 
-Yes! After pondering for a while how best to deal with all the types
-containing `[u8]`s in a zero-cost way and trying out a few options, I am
-currently moving the `bits` module to be entirely based on
-[`bytes::Bytes`](https://github.com/carllerche/bytes). This happens in the
-[bytes-for-slices](https://github.com/partim/domain/tree/bytes-for-slices)
-branch.
+This crate is currently undergoing major renovations. As part of that,
+significant parts of the source are disabled and awaiting their turn.
 
-Once that is done, I am planning to simplify the resolver quite a bit. In
-order to avoid having to redo that again after the upcoming Tokio
-restructuring, this will wait until after the dust there has settled a
-bit.
+Since [async/await] is progressing so fast, I’ve decided to delay the
+renovation of the networking parts until after it has appeared in nightly
+Rust and Tokio has caught up with the changes.
 
-As these are all very breaking changes, this will result in version 0.3.0.
+[async/await]: https://boats.gitlab.io/blog/post/2018-04-06-async-await-final/
+
+Once that has happened, there will be some big improvements to the stub
+resolver before releasing version 0.3.0.
+
+As a consequence of all this, the master branch isn’t really all that
+useful right now. You can find the last state of the 0.2 series of the
+domain crate in the [series-0.2] branch.
+
+[series-0.2]: https://github.com/partim/domain/tree/series-0.2
 
 
 ## Usage
