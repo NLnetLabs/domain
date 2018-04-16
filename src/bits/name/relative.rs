@@ -114,7 +114,7 @@ impl RelativeDname {
 
     /// Converts the name into a domain name builder for appending data.
     ///
-    /// If the underlying bytes value can be converted into a [`BytesMut`]
+    /// If the underlying bytes value can be converted into a [`BytesMut`][]
     /// (via its [`try_mut`] method), the builder will use that directly.
     /// Otherwise, it will create an all new [`BytesMut`] from the name’s
     /// content.

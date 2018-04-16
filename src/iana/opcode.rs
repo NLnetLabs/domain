@@ -11,8 +11,9 @@ use std::hash;
 /// The opcode specifies the kind of query to be performed.
 ///
 /// The opcode is initially defined in RFC 1035. All currently assigned
-/// values can be found at
-/// http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
+/// values can be found in the [IANA registry].
+///
+/// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
 #[derive(Clone, Copy, Debug)]
 pub enum Opcode {
     /// A standard query.

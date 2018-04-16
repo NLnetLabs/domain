@@ -10,13 +10,14 @@ use ::bits::parse::{Parse, Parser, ShortBuf};
 
 //------------ OptionCode ---------------------------------------------------
 
-/// DNS EDNS0 Option Codes (OPT)
+/// DNS EDNS0 Option Codes (OPT).
 ///
 /// The record data of OPT records is a sequence of options. The type of each
 /// of these options is given through an option code, a 16 bit value.
 ///
-/// The currently assigned option codes can be found in
-/// http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-11
+/// The currently assigned option codes can be found in the [IANA registry].
+///
+/// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-11
 #[derive(Clone, Copy, Debug)]
 pub enum OptionCode {
     Llq,

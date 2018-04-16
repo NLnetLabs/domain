@@ -4,18 +4,19 @@ int_enum!{
     /// Resource Record Types.
     ///
     /// Each resource records has a 16 bit type value indicating what kind of
-    /// information is represented by the record. Normal query includes the type
-    /// of record information is requested for. A few aditional types, called
-    /// query types, are defined as well and can only be used in questions. This
-    /// type represents both these types.
+    /// information is represented by the record. Normal query includes the
+    /// type of record information is requested for. A few aditional types,
+    /// called query types, are defined as well and can only be used in
+    /// questions. This type represents both these types.
     ///
-    /// Record types are defined in RFC 1035. The registry of currently assigned
-    /// values can be found at
-    /// http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
+    /// The currently assigned values are maintained in an [IANA registry].
+    ///
+    /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
     /// 
     /// In order to avoid confusion over capitalization, the mnemonics are
     /// treated as single acronyms and therefore all variant names are spelled
-    /// with an initial capital letter in accordance with Rust naming guidelines.
+    /// with an initial capital letter in accordance with the Rust naming
+    /// guidelines.
     =>
     Rtype, u16;
 

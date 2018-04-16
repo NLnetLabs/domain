@@ -1,4 +1,4 @@
-//! Building a new message.
+//! Building a new DNS message.
 //!
 //! DNS messages consist of five sections. The first, the *header section*
 //! contain, among other things, the number of entries in the following four
@@ -12,9 +12,10 @@
 //! does, however, consider the size limit that all DNS messages have. Thus,
 //! when you start building by creating a [`MessageBuilder`], you can pass
 //! an initial buffer size, a size limit, and a strategy for growing to its
-//! [`with_params`] function. Alternatively, you can create the message atop
-//! an existing buffer via [`from_buf`]. In this case you can adjust the
-//! limits via methods such as [`set_limit`].
+//! [`with_params`][`MessageBuilder::with_params`] function. Alternatively,
+//! you can create the message atop an existing buffer via
+//! [`from_buf`][`MessageBuilder::from_buf`]. In this case you can adjust the
+//! limits via methods such as [`set_limit`][`MessageBuilder::set_limit`].
 //! 
 //! All types allow to change the limit later. This is useful if you know
 //! already that your message will have to end with an OPT or TSIG record.
@@ -23,63 +24,48 @@
 //! records.
 //!
 //! Because domain name compression is somewhat expensive, it needs to be
-//! enable explicitely through the [`enable_compression`] method.
+//! enable explicitely through the 
+//! [`enable_compression`][`MessageBuilder::enable_compression`] method.
 //!
 //! The inital [`MessageBuilder`] allows access to the two first sections of
-//! the new message. The
-//! header section can be accessed via [`header`] and [`header_mut`]. In
-//! addition, it is used for building the *question section* of the message.
-//! This section contains [`Question`]s to be asked of a name server,
-//! normally exactly one. You can add questions using the
-//! [`push`] method.
-//!
-//! [`BytesMut`]: ../../../bytes/struct.BytesMut.html
-//! [`with_params`]: struct.MessageBuilder.html#method.with_params
-//! [`from_buf`]: struct.MessageBuilder.html#method.from_buf
-//! [`enable_compression`]: struct.MessageBuilder.html#method.enable_compression
-//! [`header`]: struct.MessageBuilder.html#method.header
-//! [`header_mut`]: struct.MessageBuilder.html#method.header_mut
-//! [`push`]: struct.MessageBuilder.html#method.push
-//! [`set_limit`]: struct.MessageBuilder.html#method.set_limit
+//! the new message. The header section can be accessed via
+//! [`header`][`MessageBuilder::header`] and
+//! [`header_mut`][`MessageBuilder::header_mut`]. In addition, it is used for
+//! building the *question section* of the message. This section contains
+//! [`Question`]s to be asked of a name server, normally exactly one. You
+//! can add questions using the [`push`][`MessageBuilder::push`] method.
 //!
 //! Once you are happy with the question section, you can proceed to the
 //! next section, the *answer section,* by calling the
-//! [`answer`] method.
+//! [`answer`][`MessageBuilder::answer`] method.
 //! In a response, this section contains those resource records that answer
 //! the question. The section is represented by the [`AnswerBuilder`] type.
-//! It, too, has a [`push`] method, but for adding [`Record`]s.
+//! It, too, has a [`push`][`AnswerBuilder::push`] method, but for adding
+//! [`Record`]s.
 //!
-//! [`answer`]: struct.MessageBuilder.html#method.answer
-//! [`push`]: struct.AnswerBuilder.html#method.push
-//!
-//! A call to [`authority`] moves on to the *authority section*. It contains
+//! A call to [`authority`][`AnswerBuilder::authority`] moves on to the
+//! *authority section,* represented by an [`AuthorityBuilder`]. It contains
 //! resource records that allow to identify the name servers that are
 //! authoritative for the records requested in the question. As with the
-//! answer section, [`push`] adds records to this section.
-//!
-//! [`authority`]: struct.AnswerBuilder.html#method.authority
-//! [`push`]: struct.AuthorityBuilder.html#method.push
+//! answer section, [`push`][`AdditionalBuilder`] adds records to this
+//! section.
 //!
 //! The final section is the *additional section.* Here a name server can add
 //! information it believes will help the client to get to the answer it
 //! really wants. Which these are depends on the question and is generally
 //! given in RFCs that define the record types. Unsurprisingly, you will
-//! arrive at an [`AdditionalBuilder`] by calling the [`additional`] method
-//! once you are done with the authority section. Adding records, once again,
-//! happens via the [`push`] method.
-//!
-//! [`additional`]: struct.AuthorityBuilder.html#method.additional
-//! [`push`]: struct.AdditionalBuilder.html#method.push
+//! arrive at an [`AdditionalBuilder`] by calling the
+//! [`additional`][`AuthorityBuilder::additional`] method once you are done
+//! with the authority section. Adding records, once again, happens via the
+//! [`push`][`AdditionalBuilder::push`] method.
 //! 
 //! Once you are done with the additional section, too, you call
-//! [`finish`] to retrieve the bytes buffer with the message data or
-//! [`freeze`] to get the [`Message`] instead.
+//! [`finish`][`AdditionalBuilder::finish`] to retrieve the bytes buffer with
+//! the message data or [`freeze`][`AdditionalBuilder::freeze`] to get the
+//! [`Message`] instead.
 //!
-//! [`finish`]: struct.AuthorityBuilder.html#method.finish
-//! [`freeze`]: struct.AuthorityBuilder.html#method.freeze
-//!
-//! Since at least some of the sections are empty in many messages, for
-//! instance, a simple request only contains a single question, there are
+//! Since some of the sections are empty in many messages – for instance, a
+//! simple request only contains a single question – there are
 //! shortcuts in place to skip over sections. Each type can go to any later
 //! section through the methods named above. Each type also has the `finish`
 //! and `freeze` methods to arrive at the final data quickly.
@@ -89,17 +75,13 @@
 //! record in turn is a sequence of options that need to be assembled one
 //! by one.
 //!
-//! An [`OptBuilder`] can be retrieved from an [`AdditionalBuilder`] via its
-//! [`opt`] method. Options can then be added as usually via [`push`]. Once
-//! done, you can return to the additional section with [`additional`] or,
+//! Since OPT records are part of the additional section, an [`OptBuilder`]
+//! can be retrieved from an [`AdditionalBuilder`] via its
+//! [`opt`][`AdditionalBuilder::opt`] method. Options can then be added as
+//! usually via [`push`][`OptBuilder::push`]. Once done, you can return to
+//! the additional section with [`additional`][`OptBuilder::additional`] or,
 //! if your OPT record is the final record, conclude message construction
-//! via [`finish`] or [`freeze`].
-//!
-//! [`opt`]: struct.AdditionalBuilder.html#method.opt
-//! [`push`]: struct.OptBuilder.html#method.push
-//! [`additional`]: struct.OptBuilder.html#method.additional
-//! [`finish`]: struct.OptBuilder.html#method.finish
-//! [`freeze`]: struct.OptBuilder.html#method.freeze
+//! via [`finish`][`OptBuilder::finish`] or [`freeze`][`OptBuilder::freeze`].
 //!
 //! # Example
 //!
@@ -125,17 +107,36 @@
 //! let _ = msg.freeze(); // get the message
 //! ```
 //!
+//! [`BytesMut`]: ../../../bytes/struct.BytesMut.html
 //! [`AdditionalBuilder`]: struct.AdditionalBuilder.html
+//! [`AdditionalBuilder::opt`]: struct.AdditionalBuilder.html#method.opt
+//! [`AdditionalBuilder::push`]: struct.AdditionalBuilder.html#method.push
+//! [`AdditionalBuilder::finish`]: struct.AdditionalBuilder.html#method.finish
+//! [`AdditionalBuilder::freeze`]: struct.AdditionalBuilder.html#method.freeze
 //! [`AnswerBuilder`]: struct.AnswerBuilder.html
+//! [`AnswerBuilder::authority`]: struct.AnswerBuilder.html#method.authority
+//! [`AnswerBuilder::push`]: struct.AnswerBuilder.html#method.push
 //! [`AuthorityBuilder`]: struct.AuthorityBuilder.html
+//! [`AuthorityBuilder::additional`]: struct.AuthorityBuilder.html#method.additional
+//! [`AuthorityBuilder::push`]: struct.AuthorityBuilder.html#method.push
 //! [`Composer`]: ../compose/Composer.html
 //! [`Message`]: ../message/struct.Messsage.html
 //! [`MessageBuilder`]: struct.MessageBuilder.html
+//! [`MessageBuilder::answer`]: struct.MessageBuilder.html#method.answer
+//! [`MessageBuilder::enable_compression`]: struct.MessageBuilder.html#method.enable_compression
+//! [`MessageBuilder::from_buf`]: struct.MessageBuilder.html#method.from_buf
+//! [`MessageBuilder::header`]: struct.MessageBuilder.html#method.header
+//! [`MessageBuilder::header_mut`]: struct.MessageBuilder.html#method.header_mut
+//! [`MessageBuilder::push`]: struct.MessageBuilder.html#method.push
+//! [`MessageBuilder::with_params`]: struct.MessageBuilder.html#method.with_params
+//! [`MessageBuilder::set_limit`]: struct.MessageBuilder.html#method.set_limit
 //! [`OptBuilder`]: struct.OptBuilder.html
+//! [`OptBuilder::additional`]: struct.OptBuilder.html#method.additional
+//! [`OptBuilder::finish`]: struct.OptBuilder.html#method.finish
+//! [`OptBuilder::freeze`]: struct.OptBuilder.html#method.freeze
+//! [`OptBuilder::push`]: struct.OptBuilder.html#method.push
 //! [`Question`]: ../question/struct.Question.html
 //! [`Record`]: ../record/struct.Record.html
-//! [`new()`]: struct.MessageBuilder.html#method.new
-//! [`from_vec()`]: struct.MessageBuilder.html#method.from_vec
 
 use std::{mem, ops};
 use std::marker::PhantomData;

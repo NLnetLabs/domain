@@ -1,14 +1,15 @@
-//! Resource Records
+//! Resource Records.
 //!
 //! This module defines types related to DNS resource records. The most
 //! complete one is [`Record`] which contains a complete record for a certain
-//! record type. [`RecordHeader`] contains the data from the first couple of
-//! octets common to all records. Finally, [`ParsedRecord`] is similar to
-//! [`Record`] but contains the record data in its raw, encoded form.
+//! record type. [`RecordHeader`] contains the data from a record’s header,
+//! the first couple of octets common to all records. Finally,
+//! [`ParsedRecord`] is similar to [`Record`] but contains the record data
+//! in its raw, encoded form.
 //!
 //! [`Record`]: struct.Record.html
-//! [`RecordHeader`]: struct RecordHeader.html
-//! [`ParsedRecord`]: type.ParsedRecord.html
+//! [`RecordHeader`]: struct.RecordHeader.html
+//! [`ParsedRecord`]: struct.ParsedRecord.html
 
 use std::fmt;
 use bytes::{BigEndian, BufMut, ByteOrder};
@@ -59,7 +60,7 @@ use super::rdata::{ParseRecordData, RecordData};
 /// additionally generic over the domain name type is for it. 
 ///
 /// There is three ways to create a record value. First, you can make one
-/// yourself using the [`new()`] function. It will neatly take care of all
+/// yourself using the [`new`] function. It will neatly take care of all
 /// the generics through type inference. Secondly, you can parse a record
 /// from an existing message. [`Message`] and its friends provide a way to
 /// do that; see there for all the details. Finally, you can scan a record
@@ -72,7 +73,7 @@ use super::rdata::{ParseRecordData, RecordData};
 /// and record data and a triple leaving out the class and assuming it to be
 /// `Class::In`.
 ///
-/// [`new()´]: #method.new
+/// [`new`]: #method.new
 /// [`Message`]: ../message/struct.Message.html
 /// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
 /// [`Rtype`]: ../../iana/enum.Rtype.html

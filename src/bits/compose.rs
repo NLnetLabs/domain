@@ -214,7 +214,8 @@ impl<'a, C: Compress + 'a> Compress for &'a C {
 /// growing it as necessary. It provides an implementation for [`BufMut`]
 /// allowing it to be used like any other buffer. In addition, it provides
 /// special handling for types that implement [`Compose`] via the
-/// [`compose`] method, appending them if there’s enough space.
+/// [`compose`][`Compressor::compose`] method, appending them if there’s
+/// enough space.
 ///
 /// The whole point of this type is, of course, name compression. This is
 /// being provided via the [`compress_name`] method which appends any domain
@@ -245,7 +246,7 @@ impl<'a, C: Compress + 'a> Compress for &'a C {
 /// [`Bytes`]: ../../../bytes/struct.Bytes.html
 /// [`BytesMut`]: ../../../bytes/struct.BytesMut.html
 /// [`Compose`]: trait.Compose.html
-/// [`compose`]: #method.compose
+/// [`Compressor::compose`]: #method.compose
 /// [`compress_name`]: #method.compress_name
 /// [`enable_compression`]: #method.enable_compression
 /// [`freeze`]: #method.freeze
