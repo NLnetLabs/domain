@@ -1,21 +1,31 @@
 //! Scanning master file tokens.
 
 use std::{fmt, io};
+use std::net::AddrParseError;
 use bytes::{BufMut, Bytes, BytesMut};
-
-// XXX Move these here for more compact imports.
-pub use super::error::{BadSymbol, ScanError, SymbolError, SyntaxError, Pos};
+use ::bits::name;
 
 
 //------------ CharSource ----------------------------------------------------
 
+/// A source of master file characters.
+///
+/// This is very similar to an iterator except that `next`’s return value has
+/// the result outside for easier error handling.
 pub trait CharSource {
+    /// Provides the next character in the source.
+    ///
+    /// If the source runs out of characters, returns `Ok(None)`.
     fn next(&mut self) -> Result<Option<char>, io::Error>;
 }
 
 
 //------------ Scanner -------------------------------------------------------
 
+/// Reader of master file tokens.
+///
+/// A scanner reads characters from a source and converts them into tokens or
+/// errors.
 #[derive(Clone, Debug)]
 pub struct Scanner<C: CharSource> {
     /// The underlying character source.
@@ -33,10 +43,10 @@ pub struct Scanner<C: CharSource> {
     /// Index in `buf` of the next character to be read.
     cur: usize,
 
-    /// Human-friendly position in `reader` of `start`.
+    /// Human-friendly position in `chars` of `start`.
     start_pos: Pos,
 
-    /// Human-friendly position in `reader` of `cur`.
+    /// Human-friendly position in `chars` of `cur`.
     cur_pos: Pos,
 
     /// Was the start of token in a parenthesized group?
@@ -90,6 +100,11 @@ impl<C: CharSource> Scanner<C> {
         self.cur_pos
     }
 
+    /// Attempts to scan and process a token.
+    ///
+    /// The method can be used to first scan a token from the scanner via
+    /// the closure `scanop` and only if that succeeds convert the returned
+    /// token into some output value via the second closure `finalop`.
     pub fn try_scan<T, U, F, G>(&mut self, scanop: F, finalop: G)
                                 -> Result<U, ScanError>
                     where F: FnOnce(&mut Self) -> Result<T, ScanError>,
@@ -97,7 +112,6 @@ impl<C: CharSource> Scanner<C> {
         let res = scanop(self)?;
         finalop(res).or_else(|err| self.err(err))
     }
-
 
     /// Scans a word token.
     ///
@@ -216,7 +230,7 @@ impl<C: CharSource> Scanner<C> {
     /// Scans a phrase with byte content into a `Bytes` value.
     ///
     /// The method scans a phrase that consists of byte only and puts these
-    /// bytes into a `Bytes` value. Once the word ends, the caller is given
+    /// bytes into a `Bytes` value. Once the phrase ends, the caller is given
     /// a chance to convert the value into something else via the closure
     /// `finalop`. This closure can fail, resulting in an error and
     /// back-tracking to the beginning of the phrase.
@@ -231,6 +245,12 @@ impl<C: CharSource> Scanner<C> {
     }
 
     /// Scans a phrase with Unicode text into a `String`.
+    ///
+    /// The method scans a phrase that consists of characters and puts these
+    /// into a `String`. Once the phrase ends, the caller is given
+    /// a chance to convert the value into something else via the closure
+    /// `finalop`. This closure can fail, resulting in an error and
+    /// back-tracking to the beginning of the phrase.
     pub fn scan_string_phrase<U, G>(&mut self, finalop: G)
                                     -> Result<U, ScanError>
                               where G: FnOnce(String)
@@ -414,7 +434,8 @@ impl<C: CharSource> Scanner<C> {
 impl<C: CharSource> Scanner<C> {
     /// Reads a char from the source.
     ///
-    /// This function is here to for error conversion only.
+    /// This function is here to for error conversion only and updating the
+    /// human-friendly position.
     fn chars_next(&mut self) -> Result<Option<char>, ScanError> {
         self.chars.next().map_err(|err| {
             let mut pos = self.cur_pos.clone();
@@ -486,7 +507,6 @@ impl<C: CharSource> Scanner<C> {
     }
 
     /// Tries to source a normal character.
-    ///
     fn source_normal(&mut self, ch: char) -> Result<bool, ScanError> {
         match self.newline {
             NewlineMode::Single(sep) => {
@@ -741,7 +761,9 @@ impl<C: CharSource> Scanner<C> {
 
 //------------ Scan ----------------------------------------------------------
 
+/// A type that can by scanned from a master file.
 pub trait Scan: Sized {
+    /// Scans a value from a master file.
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError>;
 }
@@ -846,6 +868,7 @@ impl Scan for u8 {
 
 //------------ Symbol --------------------------------------------------------
 
+/// The master file representation of a single character.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Symbol {
     /// An unescaped Unicode character.
@@ -859,6 +882,10 @@ pub enum Symbol {
 }
 
 impl Symbol {
+    /// Reads a symbol from a character source.
+    ///
+    /// Returns the next symbol in the source, `Ok(None)` if the source has
+    /// been exhausted, or an error if there wasn’t a valid symbol.
     pub fn from_chars<C>(chars: C) -> Result<Option<Self>, SymbolError>
                       where C: IntoIterator<Item=char> {
         let mut chars = chars.into_iter();
@@ -897,6 +924,11 @@ impl Symbol {
         }
     }
 
+    /// Provides the best symbol for a byte.
+    ///
+    /// The function will use simple escape sequences for spaces, quotes,
+    /// backslashs, and semicolons. It will leasve all other printable ASCII
+    /// characters unescaped and decimal escape all remaining byte value.
     pub fn from_byte(ch: u8) -> Self {
         if ch == b' ' || ch == b'"' || ch == b'\\' || ch == b';' {
             Symbol::SimpleEscape(ch as char)
@@ -933,6 +965,7 @@ impl Symbol {
         }
     }
 
+    /// Converts the symbol representing a digit into its integer value.
     pub fn into_digit(self, base: u32) -> Result<u32, SyntaxError> {
         if let Symbol::Char(ch) = self {
             match ch.to_digit(base) {
@@ -959,6 +992,7 @@ impl Symbol {
         })
     }
 
+    /// Returns whether the symbol can occur as part of a word.
     pub fn is_word_char(self) -> bool {
         match self {
             Symbol::Char(ch) => {
@@ -970,11 +1004,17 @@ impl Symbol {
     }
 }
 
+
+//--- From
+
 impl From<char> for Symbol {
     fn from(ch: char) -> Symbol {
         Symbol::Char(ch)
     }
 }
+
+
+//--- Display
 
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -992,6 +1032,7 @@ impl fmt::Display for Symbol {
 /// A single symbol parsed from a master file.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Token {
+    /// A regular symbol.
     Symbol(Symbol),
 
     /// A new line.
@@ -1030,6 +1071,7 @@ impl Token {
         }
     }
 
+    /// Returns whether the token is a newline.
     fn is_newline(self) -> bool {
         match self {
             Token::Newline => true,
@@ -1037,6 +1079,10 @@ impl Token {
         }
     }
 
+    /// Returns whether the token starts a newline sequence.
+    ///
+    /// This happens if the token is either a newline itself or an unescaped
+    /// semicolon which starts a comment until line’s end.
     fn is_newline_ahead(self) -> bool {
         match self {
             Token::Symbol(Symbol::Char(';')) => true,
@@ -1047,8 +1093,13 @@ impl Token {
 }
 
 
-//------------ NewLineMode ---------------------------------------------------
+//------------ NewlineMode ---------------------------------------------------
 
+/// The newline mode used by a file.
+///
+/// Files can use different characters or character combinations to signal a
+/// line break. Since line breaks are significant in master files, we need to
+/// use the right mode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum NewlineMode {
     /// Each occurence of the content is a newline.
@@ -1059,5 +1110,167 @@ enum NewlineMode {
 
     /// We don’t know yet.
     Unknown,
+}
+
+
+//------------ SymbolError ---------------------------------------------------
+
+/// An error happened when reading a symbol.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum SymbolError {
+    #[fail(display="illegal escape sequence")]
+    BadEscape,
+
+    #[fail(display="unexpected end of input")]
+    ShortInput
+}
+
+
+//------------ BadSymbol -----------------------------------------------------
+
+/// A symbol of unexepected value was encountered. 
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[fail(display="bad symbol '{}'", _0)]
+pub struct BadSymbol(pub Symbol);
+
+
+//------------ SyntaxError ---------------------------------------------------
+
+/// A syntax error happened while scanning master data.
+#[derive(Clone, Debug, Fail, PartialEq)]
+pub enum SyntaxError {
+    #[fail(display="expected '{}'", _0)]
+    Expected(String),
+
+    #[fail(display="expected a new line")]
+    ExpectedNewline,
+
+    #[fail(display="expected white space")]
+    ExpectedSpace,
+
+    #[fail(display="invalid escape sequence")]
+    IllegalEscape,
+
+    #[fail(display="invalid integer value")]
+    IllegalInteger, // TODO Add kind
+
+    #[fail(display="invalid address: {}", _0)]
+    IllegalAddr(AddrParseError),
+
+    #[fail(display="illegal domain name: {}", _0)]
+    IllegalName(name::FromStrError),
+
+    #[fail(display="character string too long")]
+    LongCharStr,
+
+    #[fail(display="hex string with an odd number of characters")]
+    UnevenHexString,
+
+    #[fail(display="more data given than in the length byte")]
+    LongGenericData,
+
+    #[fail(display="nested parentheses")]
+    NestedParentheses,
+
+    #[fail(display="omitted TTL but no default TTL given")]
+    NoDefaultTtl,
+
+    #[fail(display="omitted class but no previous class given")]
+    NoLastClass,
+
+    #[fail(display="omitted owner but no previous owner given")]
+    NoLastOwner,
+
+    #[fail(display="owner @ without preceding $ORIGIN")]
+    NoOrigin,
+
+    #[fail(display="relative domain name")]
+    RelativeName,
+
+    #[fail(display="unexpected '{}'", _0)]
+    Unexpected(Symbol),
+
+    #[fail(display="unexpected newline")]
+    UnexpectedNewline,
+
+    #[fail(display="unexpected end of file")]
+    UnexpectedEof,
+
+    #[fail(display="unknown class '{}'", _0)]
+    UnknownClass(String),
+}
+
+impl From<BadSymbol> for SyntaxError {
+    fn from(err: BadSymbol) -> SyntaxError {
+        SyntaxError::Unexpected(err.0)
+    }
+}
+
+impl From<AddrParseError> for SyntaxError {
+    fn from(err: AddrParseError) -> SyntaxError {
+        SyntaxError::IllegalAddr(err)
+    }
+}
+
+impl From<name::FromStrError> for SyntaxError {
+    fn from(err: name::FromStrError) -> SyntaxError {
+        SyntaxError::IllegalName(err)
+    }
+}
+
+
+//------------ ScanError -----------------------------------------------------
+
+/// An error happened while scanning master data.
+#[derive(Debug)]
+pub enum ScanError {
+    Source(io::Error, Pos),
+    Syntax(SyntaxError, Pos),
+}
+
+
+//------------ Pos -----------------------------------------------------------
+
+/// The human-friendly position in a reader.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Pos {
+    line: usize,
+    col: usize
+}
+
+impl Pos {
+    pub fn new() -> Pos {
+        Pos { line: 1, col: 1 }
+    }
+
+    pub fn line(&self) -> usize { self.line }
+    pub fn col(&self) -> usize { self.col }
+
+    pub fn update(&mut self, ch: Token) {
+        match ch {
+            Token::Symbol(Symbol::Char(_)) => self.col += 1,
+            Token::Symbol(Symbol::SimpleEscape(_)) => self.col += 2,
+            Token::Symbol(Symbol::DecimalEscape(_)) => self.col += 4,
+            Token::Newline => { self.line += 1; self.col = 1 }
+        }
+    }
+
+    pub fn prev(&self) -> Pos {
+        Pos { line: self.line,
+              col: if self.col <= 1 { 1 } else { self.col - 1 }
+        }
+    }
+}
+
+impl From<(usize, usize)> for Pos {
+    fn from(src: (usize, usize)) -> Pos {
+        Pos { line: src.0, col: src.1 }
+    }
+}
+
+impl PartialEq<(usize, usize)> for Pos {
+    fn eq(&self, other: &(usize, usize)) -> bool {
+        self.line == other.0 && self.col == other.1
+    }
 }
 

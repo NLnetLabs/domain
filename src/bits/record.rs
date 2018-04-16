@@ -203,7 +203,7 @@ impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
         RecordHeader::new(&self.owner, self.data.rtype(), self.class, self.ttl,
-                          (self.data.compose_len() as u16))
+                          self.data.compose_len() as u16)
                      .compose(buf);
         self.data.compose(buf);
     }

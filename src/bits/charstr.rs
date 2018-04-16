@@ -27,9 +27,8 @@
 use std::{cmp, fmt, hash, ops, str};
 use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes, BytesMut};
-use ::master::error::{ScanError, SyntaxError};
-use ::master::scan::{BadSymbol, CharSource, Scan, Scanner, Symbol,
-                     SymbolError};
+use ::master::scan::{BadSymbol, CharSource, Scan, Scanner, ScanError, Symbol,
+                     SymbolError, SyntaxError};
 use super::compose::Compose;
 use super::parse::{ParseAll, ParseAllError, Parse, Parser, ShortBuf};
 

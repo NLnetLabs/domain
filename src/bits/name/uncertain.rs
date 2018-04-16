@@ -5,8 +5,7 @@
 use std::{fmt, str};
 use bytes::BufMut;
 use ::bits::compose::Compose;
-use ::master::error::ScanError;
-use ::master::scan::{CharSource, Scan, Scanner, Symbol};
+use ::master::scan::{CharSource, Scan, Scanner, ScanError, Symbol};
 use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;

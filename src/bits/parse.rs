@@ -243,7 +243,7 @@ impl Parser {
 
 /// A type that can extract a value from the beginning of a parser.
 ///
-/// Types that encode this trait must use an encoding where the end of a
+/// Types that implement this trait must use an encoding where the end of a
 /// value in the parser can be determined from data read so far. These are
 /// either fixed length types like `u32` or types that either contain length
 /// bytes or boundary markers.
