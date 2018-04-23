@@ -1,92 +1,52 @@
 
 use std::fmt;
-use std::fs::File;
 use std::io;
-use std::path::Path;
-use std::rc::Rc;
-use ::bits::name::DNameBuf;
+use std::path::{Path, PathBuf};
+use ::bits::name::Dname;
 use ::iana::Class;
-use ::master::bufscanner::BufScanner;
-use ::master::entry::Entry;
-use ::master::error::ScanResult;
-use ::master::record::MasterRecord;
-use ::master::scanner::Scanner;
+use super::entry::{Entry, MasterRecord};
+use super::scan::{CharSource, Pos, ScanError, Scanner};
+use super::source::AsciiFile;
 
 
-pub struct Reader<S: Scanner> {
-    scanner: Option<S>,
-    origin: Option<Rc<DNameBuf>>,
+pub struct Reader<C: CharSource> {
+    scanner: Option<Scanner<C>>,
     ttl: Option<u32>,
-    last: Option<(Rc<DNameBuf>, Class)>,
+    last: Option<(Dname, Class)>,
 }
 
-impl<S: Scanner> Reader<S> {
-    pub fn new(scanner: S) -> Self {
+impl<C: CharSource> Reader<C> {
+    pub fn new(source: C) -> Self {
         Reader {
-            scanner: Some(scanner),
-            origin: None,
+            scanner: Some(Scanner::new(source)),
             ttl: None,
             last: None
         }
     }
 }
 
-impl Reader<BufScanner<File>> {
-    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        Ok(Reader::new(try!(BufScanner::open(path))))
+impl Reader<AsciiFile> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
+        AsciiFile::open(path).map(Self::new)
     }
 }
 
-impl<T: AsRef<[u8]>> Reader<BufScanner<io::Cursor<T>>> {
-    pub fn create(t: T) -> Self {
-        Reader::new(BufScanner::create(t))
-    }
-}
-
-impl<S: Scanner> Reader<S> {
-    fn last_owner(&self) -> Option<Rc<DNameBuf>> {
-        if let Some((ref name, _)) = self.last {
-            Some(name.clone())
-        }
-        else {
-            None
-        }
-    }
-
-    fn last_class(&self) -> Option<Class> {
-        if let Some((_, class)) = self.last {
-            Some(class)
-        }
-        else {
-            None
-        }
-    }
-
-    fn next_entry(&mut self) -> ScanResult<Option<Entry>> {
-        let last_owner = self.last_owner();
-        let last_class = self.last_class();
-        if let Some(ref mut scanner) = self.scanner {
-            Entry::scan(scanner, last_owner, last_class, &self.origin,
-                        self.ttl)
-        }
-        else {
-            Ok(None)
-        }
-    }
-
+impl<C: CharSource> Reader<C> {
     #[allow(match_same_arms)]
-    pub fn next_record(&mut self) -> ScanResult<Option<ReaderItem>> {
+    pub fn next_record(&mut self) -> Result<Option<ReaderItem>, ScanError> {
         loop {
             match self.next_entry() {
-                Ok(Some(Entry::Origin(origin))) => self.origin = Some(origin),
-                Ok(Some(Entry::Include{path, origin})) => {
-                    return Ok(Some(ReaderItem::Include { path: path,
-                                                         origin: origin }))
+                Ok(Some(Entry::Origin(origin))) => self.set_origin(origin),
+                Ok(Some(Entry::Include{ path, origin })) => {
+                    return Ok(Some(ReaderItem::Include { path, origin }))
                 }
                 Ok(Some(Entry::Ttl(ttl))) => self.ttl = Some(ttl),
-                Ok(Some(Entry::Control{..})) => { },
+                Ok(Some(Entry::Control{ name, start })) => {
+                    return Ok(Some(ReaderItem::Control { name, start }))
+                }
                 Ok(Some(Entry::Record(record))) => {
-                    self.last = Some((record.owner.clone(), record.class));
+                    self.last = Some((record.owner().clone(),
+                                      record.class()));
                     return Ok(Some(ReaderItem::Record(record)))
                 }
                 Ok(Some(Entry::Blank)) => { }
@@ -97,13 +57,37 @@ impl<S: Scanner> Reader<S> {
                 }
             }
         }
-     }
+    }
+
+    fn next_entry(&mut self) -> Result<Option<Entry>, ScanError> {
+        // The borrow checker doesn’t like a ref mut of self.scanner and a
+        // ref of self.last at the same time, unless created at the same
+        // time. Some shenenigans are necessary to get that done.
+        let (scanner, owner, class) = match (&mut self.scanner, &self.last) {
+            (&mut Some(ref mut scanner), &Some((ref owner, class))) => {
+                (scanner, Some(owner), Some(class))
+            }
+            (&mut Some(ref mut scanner), _) => {
+                (scanner, None, None)
+            }
+            (&mut None, _) => {
+                return Ok(None)
+            }
+        };
+        Entry::scan(scanner, owner, class, self.ttl)
+    }
+
+    fn set_origin(&mut self, origin: Dname) {
+        if let Some(ref mut scanner) = self.scanner {
+            scanner.set_origin(Some(origin))
+        }
+    }
 }
 
-impl<S: Scanner> Iterator for Reader<S> {
-    type Item = ScanResult<ReaderItem>;
+impl<C: CharSource> Iterator for Reader<C> {
+    type Item = Result<ReaderItem, ScanError>;
 
-    fn next(&mut self) -> Option<ScanResult<ReaderItem>> {
+    fn next(&mut self) -> Option<Self::Item> {
         match self.next_record() {
             Ok(Some(res)) => Some(Ok(res)),
             Ok(None) => None,
@@ -116,19 +100,23 @@ impl<S: Scanner> Iterator for Reader<S> {
 #[derive(Clone, Debug)]
 pub enum ReaderItem {
     Record(MasterRecord),
-    Include { path: Vec<u8>, origin: Option<Rc<DNameBuf>> }
+    Include { path: PathBuf, origin: Option<Dname> },
+    Control { name: String, start: Pos },
 }
 
 impl fmt::Display for ReaderItem {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             ReaderItem::Record(ref record) => write!(f, "{}", record),
-            ReaderItem::Include{ref path, ref origin} => {
-                try!(write!(f, "$INCLUDE {}", String::from_utf8_lossy(path)));
+            ReaderItem::Include { ref path, ref origin } => {
+                try!(write!(f, "$INCLUDE {}", path.display()));
                 if let Some(ref origin) = *origin {
                     try!(write!(f, " {}", origin));
                 }
                 Ok(())
+            }
+            ReaderItem::Control { ref name, .. } => {
+                write!(f, "{}", name)
             }
         }
     }
@@ -140,11 +128,11 @@ impl fmt::Display for ReaderItem {
 #[cfg(test)]
 mod test {
     use super::*;
-    use ::master::error::ScanError;
+    use ::master::scan::ScanError;
 
     #[test]
     fn print() {
-        let reader = Reader::create(&b"$ORIGIN ISI.EDU.
+        let reader = Reader::new(&"$ORIGIN ISI.EDU.
 $TTL 86400
 @   IN  SOA     VENERA      Action\\.domains (
                                  20     ; SERIAL
@@ -174,9 +162,9 @@ $INCLUDE <SUBSYS>ISI-MAILBOXES.TXT"[..]);
             match item {
                 Ok(item) => println!("{}", item),
                 Err(ScanError::Syntax(err, pos)) => {
-                    println!("{}:{}:  {:?}", pos.line(), pos.col(), err);
+                    panic!("{}:{}:  {:?}", pos.line(), pos.col(), err);
                 }
-                Err(err) => println!("{:?}", err)
+                Err(err) => panic!("{:?}", err)
             }
         }
     }

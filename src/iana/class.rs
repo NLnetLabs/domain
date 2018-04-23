@@ -1,6 +1,10 @@
 //! DNS CLASSes.
 
-//use ::bits::{Composer, ComposeResult, Parser, ParseResult};
+use std::str::FromStr;
+use ::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+
+
+//------------ Class ---------------------------------------------------------
 
 int_enum!{
     /// DNS CLASSes.
@@ -56,4 +60,17 @@ int_enum!{
 }
 
 int_enum_str_with_prefix!(Class, "CLASS", b"CLASS", u16, "unknown class");
+
+
+//--- Scan
+
+impl Scan for Class {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+                           -> Result<Self, ScanError> {
+        scanner.scan_string_word(|word| {
+            Self::from_str(&word)
+                 .map_err(|_| SyntaxError::UnknownClass(word))
+        })
+    }
+}
 

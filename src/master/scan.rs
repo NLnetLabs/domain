@@ -4,6 +4,7 @@ use std::{fmt, io};
 use std::net::AddrParseError;
 use bytes::{BufMut, Bytes, BytesMut};
 use ::bits::name;
+use ::bits::name::Dname;
 
 
 //------------ CharSource ----------------------------------------------------
@@ -54,6 +55,9 @@ pub struct Scanner<C: CharSource> {
 
     /// Our newline mode
     newline: NewlineMode,
+
+    /// The current origin for domain names, if any.
+    origin: Option<Dname>,
 }
 
 
@@ -79,7 +83,29 @@ impl<C: CharSource> Scanner<C> {
             cur_pos: pos,
             paren: false,
             newline: NewlineMode::Unknown,
+            origin: None,
         }
+    }
+}
+
+/// # Access to Origin
+///
+/// Domain names in a master file that do not end in a dot are relative to
+/// some origin. This origin is simply appened to them to form an absolute
+/// name.
+///
+/// Since domain names can appear all over the place and we don’t want to
+/// have to pass around the origin all the time, it is part of the scanner
+/// and can be set and retrieved any time.
+impl<C: CharSource> Scanner<C> {
+    /// Returns the current origin if any.
+    pub fn origin(&self) -> &Option<Dname> {
+        &self.origin
+    }
+
+    /// Sets the origin to the given value.
+    pub fn set_origin(&mut self, origin: Option<Dname>) {
+        self.origin = origin
     }
 }
 
@@ -117,7 +143,7 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// A word is a sequence of non-special characters and escape sequences
     /// followed by a non-empty sequence of space unless it is followed
-    /// directly by a [newline](#tymethod.scan_newline). If successful, the
+    /// directly by a [newline](#method.scan_newline). If successful, the
     /// method will position at the end of the space sequence if it is
     /// required. That is, you can scan for two subsequent word tokens
     /// without worrying about the space between them.
@@ -157,13 +183,37 @@ impl<C: CharSource> Scanner<C> {
         Ok(res)
     }
 
+    /// Scans a word with Unicode text into a `String`.
+    ///
+    /// The method scans a word that consists of characters and puts these
+    /// into a `String`. Once the word ends, the caller is given a chance
+    /// to convert the value into something else via the closure `finalop`.
+    /// This closure can fail, resulting in an error and back-tracking to
+    /// the beginning of the phrase.
+    pub fn scan_string_word<U, G>(&mut self, finalop: G)
+           -> Result<U, ScanError>
+    where G: FnOnce(String) -> Result<U, SyntaxError> {
+        self.scan_word(
+            String::new(),
+            |res, ch| {
+                let ch = match ch {
+                    Symbol::Char(ch) | Symbol::SimpleEscape(ch) => ch,
+                    Symbol::DecimalEscape(ch) => ch as char,
+                };
+                res.push(ch);
+                Ok(())
+            },
+            |res| finalop(res)
+        )
+    }
+
     /// Scans a quoted word.
     ///
     /// A quoted word starts with a double quote `"`, followed by all sorts
     /// of characters or escape sequences until the next (unescaped) double
     /// quote. It may contain line feeds. Like a regular word, a quoted word
     /// is followed by a non-empty space sequence unless it is directly
-    /// followed by a [newline](#tymethod.scan_newline). This space is not
+    /// followed by a [newline](#method.scan_newline). This space is not
     /// part of the content but quietly skipped over.
     ///
     /// The method starts out with a `target` value and two closures. The
@@ -211,9 +261,9 @@ impl<C: CharSource> Scanner<C> {
 
     /// Scans a phrase: a normal word or a quoted word.
     ///
-    /// This method behaves like [scan_quoted()](#tymethod.scan_quoted) if
+    /// This method behaves like [scan_quoted()](#method.scan_quoted) if
     /// the next character is a double quote or like
-    /// [scan_word()](#tymethod.scan_word) otherwise.
+    /// [scan_word()](#method.scan_word) otherwise.
     pub fn scan_phrase<T, U, F, G>(&mut self, target: T, symbolop: F,
                                    finalop: G) -> Result<U, ScanError>
                        where F: FnMut(&mut T, Symbol)
@@ -294,7 +344,7 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// There are two flavors of space. The simple form is any sequence
     /// of a space character `' '` or a horizontal tab '`\t'`. However,
-    /// a parenthesis can be used to turn [newlines](#tymethod.scan_newline)
+    /// a parenthesis can be used to turn [newlines](#method.scan_newline)
     /// into normal space. This method recognises parentheses and acts
     /// accordingly.
     pub fn scan_space(&mut self) -> Result<(), ScanError> {
@@ -996,7 +1046,7 @@ impl Symbol {
     pub fn is_word_char(self) -> bool {
         match self {
             Symbol::Char(ch) => {
-                ch != ' ' && ch != '\t' && ch != '(' && ch != ')' ||
+                ch != ' ' && ch != '\t' && ch != '(' && ch != ')' &&
                 ch != ';' && ch != '"'
             }
             _ => true
@@ -1198,6 +1248,9 @@ pub enum SyntaxError {
 
     #[fail(display="unknown class '{}'", _0)]
     UnknownClass(String),
+
+    #[fail(display="unknown record type '{}'", _0)]
+    UnknownRtype(String),
 }
 
 impl From<BadSymbol> for SyntaxError {
@@ -1218,6 +1271,12 @@ impl From<name::FromStrError> for SyntaxError {
     }
 }
 
+impl From<name::PushNameError> for SyntaxError {
+    fn from(err: name::PushNameError) -> SyntaxError {
+        SyntaxError::from(name::FromStrError::from(err))
+    }
+}
+
 
 //------------ ScanError -----------------------------------------------------
 
@@ -1226,6 +1285,18 @@ impl From<name::FromStrError> for SyntaxError {
 pub enum ScanError {
     Source(io::Error, Pos),
     Syntax(SyntaxError, Pos),
+}
+
+impl From<(io::Error, Pos)> for ScanError {
+    fn from(err: (io::Error, Pos)) -> ScanError {
+        ScanError::Source(err.0, err.1)
+    }
+}
+
+impl From<(SyntaxError, Pos)> for ScanError {
+    fn from(err: (SyntaxError, Pos)) -> ScanError {
+        ScanError::Syntax(err.0, err.1)
+    }
 }
 
 
@@ -1274,3 +1345,16 @@ impl PartialEq<(usize, usize)> for Pos {
     }
 }
 
+
+//============ Test ==========================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn scan_word() {
+        let mut scanner = Scanner::new("one two three\nfour");
+        assert_eq!(scanner.scan_string_word(Ok).unwrap(), "one");
+    }
+}

@@ -2,9 +2,11 @@
 //!
 //! This is here so we can read from things that aren’t ASCII or UTF-8.
 
-use std::{error, fmt, io};
+use std::io;
 use std::io::Read;
 use std::fs::File;
+use std::path::Path;
+use failure::Fail;
 use super::scan::CharSource;
 
 
@@ -24,9 +26,25 @@ impl<'a> CharSource for &'a str {
 
 //------------ AsciiFile -----------------------------------------------------
 
+/// A file that is assumed to only contain ASCII characters.
 pub struct AsciiFile {
     file: Option<File>,
 }
+
+impl AsciiFile {
+    /// Creates a new value from the given file.
+    pub fn new(file: File) -> Self {
+        AsciiFile {
+            file: Some(file)
+        }
+    }
+
+    /// Opens a file at the given path as an ASCII-only file.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
+        File::open(path).map(Self::new)
+    }
+}
+
 
 impl CharSource for AsciiFile {
     fn next(&mut self) -> Result<Option<char>, io::Error> {
@@ -39,7 +57,7 @@ impl CharSource for AsciiFile {
                             return Ok(Some(buf[0] as char));
                         }
                         Err(io::Error::new(io::ErrorKind::InvalidData,
-                                           AsciiError(buf[0])))
+                                           AsciiError(buf[0]).compat()))
                     }
                     0 => {
                         Ok(None)
@@ -57,18 +75,8 @@ impl CharSource for AsciiFile {
 
 //------------ AsciiError ----------------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// An error happened while reading an ASCII-only file.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[fail(display="invalid ASCII character '{}'", _0)]
 pub struct AsciiError(u8);
-
-impl error::Error for AsciiError {
-    fn description(&self) -> &str {
-        "invalid ASCII character"
-    }
-}
-
-impl fmt::Display for AsciiError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "invalid ASCII character '{}'", self.0)
-    }
-}
 

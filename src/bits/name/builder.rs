@@ -6,6 +6,7 @@
 use bytes::{BufMut, BytesMut};
 use super::dname::Dname;
 use super::relative::RelativeDname;
+use super::traits::{ToDname, ToRelativeDname};
 
 
 //------------ DnameBuilder --------------------------------------------------
@@ -118,7 +119,7 @@ impl DnameBuilder {
 
     /// Appends a byte slice to the end of the domain name.
     ///
-    /// Starts a new label if necessary. Returns an error if pushing the byte
+    /// Starts a new label if necessary. Returns an error if pushing
     /// would exceed the size limits for labels or domain names.
     ///
     /// If bytes is empty, does absolutely nothing.
@@ -193,6 +194,28 @@ impl DnameBuilder {
         Ok(())
     }
 
+    /// Appends a relative domain name.
+    ///
+    /// If there currently is a lable under construction, it will be ended
+    /// before appending `name`.
+    ///
+    /// Returns an error if appending would result in a name longer than 254
+    /// bytes.
+    //
+    //  XXX NEEDS TESTS
+    pub fn append_name<N: ToRelativeDname>(&mut self, name: &N)
+                                           -> Result<(), PushNameError> {
+        let head = self.head.take();
+        self.end_label();
+        if self.bytes.len() + name.compose_len() > 254 {
+            self.head = head;
+            return Err(PushNameError)
+        }
+        self.ensure_capacity(name.compose_len());
+        name.compose(&mut self.bytes);
+        Ok(())
+    }
+
     /// Finishes building the name and returns the resulting domain name.
     /// 
     /// If there currently is a label being built, ends the label first
@@ -211,21 +234,37 @@ impl DnameBuilder {
     /// Then adds the empty root label and transforms the name into a
     /// `Dname`. As adding the root label may push the name over the size
     /// limit, this may return an error.
-    ///
-    /// Note: Technically, this can only ever exceed the name size limit,
-    /// never the label size limit, so returning a `PushError` isn’t quite
-    /// correct. However, I didn’t want to define a separate error type just
-    /// for this case.
-    pub fn into_dname(mut self) -> Result<Dname, PushError> {
+    //
+    // XXX I don’t think adding the root label will actually ever push the
+    //     builder over the limit. Double check and if true, change the return
+    //     type.
+    pub fn into_dname(mut self) -> Result<Dname, PushNameError> {
         self.end_label();
         if self.bytes.len() >= 255 {
-            Err(PushError::LongName)
+            Err(PushNameError)
         }
         else {
             self.ensure_capacity(1);
             self.bytes.put_u8(0);
             Ok(unsafe { Dname::from_bytes_unchecked(self.bytes.freeze()) })
         }
+    }
+
+    /// Appends an origin and returns the resulting `Dname`.
+    /// If there currently is a label under construction, ends the label.
+    /// Then adds the `origin` and transforms the name into a
+    /// `Dname`. 
+    //
+    //  XXX NEEDS TESTS
+    pub fn append_origin<N: ToDname>(mut self, origin: &N)
+                                     -> Result<Dname, PushNameError> {
+        self.end_label();
+        if self.bytes.len() + origin.compose_len() > 255 {
+            return Err(PushNameError)
+        }
+        self.ensure_capacity(origin.compose_len());
+        origin.compose(&mut self.bytes);
+        Ok(unsafe { Dname::from_bytes_unchecked(self.bytes.freeze()) })
     }
 }
 
@@ -243,6 +282,14 @@ pub enum PushError {
     #[fail(display="long domain name")]
     LongName,
 }
+
+
+//------------ PushNameError -------------------------------------------------
+
+/// An error happened while trying to push a name to a domain name builder.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[fail(display="long domain name")]
+pub struct PushNameError;
 
 
 //============ Testing =======================================================
@@ -365,7 +412,7 @@ mod test {
             builder.append_label(b"1234").unwrap();
         }
         assert_eq!(builder.len(), 255);
-        assert_eq!(builder.into_dname(), Err(PushError::LongName));
+        assert_eq!(builder.into_dname(), Err(PushNameError));
     }
 }
 

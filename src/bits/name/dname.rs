@@ -560,9 +560,17 @@ impl hash::Hash for Dname {
 impl Scan for Dname {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
-        scanner.try_scan(UncertainDname::scan, |res| {
-            res.try_into_absolute().map_err(|_| SyntaxError::RelativeName)
-        })
+        let pos = scanner.pos();
+        let name = match UncertainDname::scan(scanner)? {
+            UncertainDname::Relative(name) => name,
+            UncertainDname::Absolute(name) => return Ok(name)
+        };
+        let origin = match *scanner.origin() {
+            Some(ref origin) => origin,
+            None => return Err((SyntaxError::NoOrigin, pos).into())
+        };
+        name.into_builder().append_origin(origin)
+                           .map_err(|err| (SyntaxError::from(err), pos).into())
     }
 }
 

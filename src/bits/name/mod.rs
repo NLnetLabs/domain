@@ -55,7 +55,7 @@
 //! [`ToRelativeDname`]: trait.ToRelativeDname.html
 //! [`UncertainDname`]: enum.UncertainDname.html
 
-pub use self::builder::{DnameBuilder, PushError};
+pub use self::builder::{DnameBuilder, PushError, PushNameError};
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
 pub use self::dname::{Dname, DnameError, DnameParseError, DnameBytesError};
 pub use self::label::{Label, LabelTypeError, LongLabelError,

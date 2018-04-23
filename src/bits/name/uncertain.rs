@@ -1,12 +1,12 @@
 //! A domain name that can be both relative or absolute.
-///
-/// This is a private module. Its public types are re-exported by the parent.
+//!
+//! This is a private module. Its public types are re-exported by the parent.
 
 use std::{fmt, str};
 use bytes::BufMut;
 use ::bits::compose::Compose;
 use ::master::scan::{CharSource, Scan, Scanner, ScanError, Symbol};
-use super::builder::{DnameBuilder, PushError};
+use super::builder::{DnameBuilder, PushError, PushNameError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::relative::{DnameIter, RelativeDname};
@@ -404,6 +404,13 @@ impl From<PushError> for FromStrError {
         }
     }
 }
+
+impl From<PushNameError> for FromStrError {
+    fn from(_: PushNameError) -> FromStrError {
+        FromStrError::LongName
+    }
+}
+
 
 //============ Testing =======================================================
 
