@@ -15,7 +15,9 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
+base64         = "0.9"
 bytes          = "0.4"
+chrono         = "0.4"
 rand           = "0.3"
 failure        = "0.1"
 failure_derive = "0.1"
@@ -23,7 +25,6 @@ futures        = "0.1.14"
 tokio          = "0.1"
 
 [dev-dependencies]
-chrono       = "0.4"
 native-tls   = "0.1.2"
 tokio-io     = "0.1.2"
 tokio-tls    = "0.1.2"

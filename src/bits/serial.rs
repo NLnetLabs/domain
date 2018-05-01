@@ -7,7 +7,8 @@
 
 use std::{cmp, fmt, str};
 use bytes::BufMut;
-use ::master::scan::{CharSource, Scan, ScanError, Scanner};
+use chrono::{Utc, TimeZone};
+use ::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
 use super::compose::Compose;
 use super::parse::{Parse, ParseAll, Parser};
 
@@ -51,6 +52,88 @@ impl Serial {
     pub fn add(self, other: u32) -> Self {
         assert!(other <= 0x7FFF_FFFF);
         Serial(self.0.wrapping_add(other))
+    }
+
+    /// Scan a serial represention signature time values.
+    /// 
+    /// In RRSIG records, the expiration and inception time is given as
+    /// serial values. Their master file format can either be the signature
+    /// value or a specific date in `YYYYMMDDHHmmSS` format.
+    pub fn scan_rrsig<C: CharSource>(
+        scanner: &mut Scanner<C>
+    ) -> Result<Self, ScanError> {
+        scanner.scan_phrase(
+            (0, [0u8; 14]),
+            |&mut (ref mut pos, ref mut buf), symbol| {
+                let ch = symbol.into_digit(10)? as u8;
+                if *pos == 14 {
+                    return Err(SyntaxError::IllegalInteger) // XXX Not quite
+                }
+                buf[*pos] = ch;
+                *pos += 1;
+                Ok(())
+            },
+            |(pos, buf)| {
+                if pos <= 10 {
+                    // We have an integer. We generate it into a u64 to deal
+                    // with possible overflows.
+                    let mut res = 0u64;
+                    for ch in &buf[..pos] {
+                        res = res *10 + (*ch as u64);
+                    }
+                    if res > (::std::u32::MAX) as u64 {
+                        Err(SyntaxError::IllegalInteger)
+                    }
+                    else {
+                        Ok(Serial(res as u32))
+                    }
+                }
+                else if pos == 14 {
+                    let year = u32_from_buf(&buf[0..4]) as i32;
+                    let month = u32_from_buf(&buf[4..6]);
+                    let day = u32_from_buf(&buf[6..8]);
+                    let hour = u32_from_buf(&buf[8..10]);
+                    let minute = u32_from_buf(&buf[10..12]);
+                    let second = u32_from_buf(&buf[12..14]);
+                    match month {
+                        1 | 3 | 5 | 7 | 8 | 10 | 12 => {
+                            if month > 31 {
+                                return Err(SyntaxError::IllegalInteger)
+                            }
+                        }
+                        4 | 6 | 9 | 11 => {
+                            if month > 30 {
+                                return Err(SyntaxError::IllegalInteger)
+                            }
+                        }
+                        2 => {
+                            if year % 4 == 0 && year % 100 != 0 {
+                                if month > 29 {
+                                    return Err(SyntaxError::IllegalInteger)
+                                }
+                                else if month > 28 {
+                                    return Err(SyntaxError::IllegalInteger)
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(SyntaxError::IllegalInteger)
+                        }
+                    }
+                    if month < 1 || hour > 23 || minute > 59 || second > 59 {
+                        return Err(SyntaxError::IllegalInteger)
+                    }
+                    Ok(Serial(
+                        Utc.ymd(year, month, day)
+                            .and_hms(hour, minute, second)
+                            .timestamp() as u32
+                    ))
+                }
+                else {
+                    Err(SyntaxError::IllegalInteger) // XXX Still not quite.
+                }
+            }
+        )
     }
 }
 
@@ -159,6 +242,17 @@ impl cmp::PartialOrd for Serial {
             }
         }
     }
+}
+
+
+//------------ Helper Functions ----------------------------------------------
+
+fn u32_from_buf(buf: &[u8]) -> u32 {
+    let mut res = 0;
+    for ch in buf {
+        res = res * 10 + (*ch as u32);
+    }
+    res
 }
 
 

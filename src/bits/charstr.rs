@@ -54,6 +54,11 @@ pub struct CharStr {
 /// # Creation and Conversion
 ///
 impl CharStr {
+    /// Creates a new empty character string.
+    pub fn empty() -> Self {
+        CharStr { inner: Bytes::from_static(b"") }
+    }
+
     /// Creates a character string from a bytes value without length check.
     ///
     /// As this can break the guarantees made by the type, it is unsafe.
@@ -118,6 +123,23 @@ impl CharStr {
     /// a new buffer and copy `self`’s content into it.
     pub fn into_mut(self) -> CharStrMut {
         unsafe { CharStrMut::from_bytes_unchecked(self.inner.into()) }
+    }
+
+    /// Scans a character string given as a word of hexadecimal digits.
+    pub fn scan_hex<C: CharSource>(
+        scanner: &mut Scanner<C>
+    ) -> Result<Self, ScanError> {
+        scanner.scan_hex_word(|b| unsafe {
+            Ok(CharStr::from_bytes_unchecked(b))
+        })
+    }
+
+    /// Displays a character string as a word in hexadecimal digits.
+    pub fn display_hex(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for ch in self {
+            write!(f, "{:02X}", ch)?;
+        }
+        Ok(())
     }
 }
 

@@ -3,7 +3,7 @@
 //! This is here so we can read from things that aren’t ASCII or UTF-8.
 
 use std::io;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::fs::File;
 use std::path::Path;
 use failure::Fail;
@@ -28,14 +28,14 @@ impl<'a> CharSource for &'a str {
 
 /// A file that is assumed to only contain ASCII characters.
 pub struct AsciiFile {
-    file: Option<File>,
+    file: Option<BufReader<File>>,
 }
 
 impl AsciiFile {
     /// Creates a new value from the given file.
     pub fn new(file: File) -> Self {
         AsciiFile {
-            file: Some(file)
+            file: Some(BufReader::new(file))
         }
     }
 

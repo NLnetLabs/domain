@@ -142,6 +142,16 @@ impl Compose for [u8] {
     }
 }
 
+impl Compose for Bytes {
+    fn compose_len(&self) -> usize {
+        self.len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self.as_ref())
+    }
+}
+
 impl Compose for Ipv4Addr {
     fn compose_len(&self) -> usize {
         4

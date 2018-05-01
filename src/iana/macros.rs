@@ -220,6 +220,55 @@ macro_rules! int_enum_str_mnemonics_only {
         from_str_error!($error);
     }
 }
+*/
+
+/// Adds impls for `FromStr` and `Display` to the type given as first argument.
+///
+/// For `FromStr`, recognizes only the decimal values. For `Display`, it will
+/// only print the decimal values.
+macro_rules! int_enum_str_decimal {
+    ($ianatype:ident, $inttype:ident) => {
+        
+        impl $ianatype {
+            pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+                ::std::str::from_utf8(bytes).ok().and_then(|r| {
+                    $inttype::from_str_radix(r, 10).ok()
+                        .map($ianatype::from_int)
+                })
+            }
+        }
+
+        impl ::std::str::FromStr for $ianatype {
+            type Err = ::std::num::ParseIntError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                $inttype::from_str_radix(s, 10).map($ianatype::from_int)
+            }
+        }
+
+        impl ::master::scan::Scan for $ianatype {
+            fn scan<C: ::master::scan::CharSource>(
+                scanner: &mut ::master::scan::Scanner<C>
+            ) -> Result<Self, ::master::scan::ScanError> {
+                scanner.scan_string_word(|word| {
+                    use ::std::str::FromStr;
+
+                    Self::from_str(&word)
+                         .map_err(::master::scan::SyntaxError::content)
+                })
+            }
+        }
+
+        impl ::std::fmt::Display for $ianatype {
+            fn fmt(
+                &self,
+                f: &mut ::std::fmt::Formatter
+            ) -> ::std::fmt::Result {
+                write!(f, "{}", self.to_int())
+            }
+        }
+    }
+}
 
 
 /// Adds impls for `FromStr` and `Display` to the type given as first argument.
@@ -231,6 +280,17 @@ macro_rules! int_enum_str_mnemonics_only {
 /// mnemonic.
 macro_rules! int_enum_str_with_decimal {
     ($ianatype:ident, $inttype:ident, $error:expr) => {
+        impl $ianatype {
+            pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+                $ianatype::from_mnemonic(bytes).or_else(|| {
+                    ::std::str::from_utf8(bytes).ok().and_then(|r| {
+                        $inttype::from_str_radix(r, 10).ok()
+                            .map($ianatype::from_int)
+                    })
+                })
+            }
+        }
+                                        
         impl ::std::str::FromStr for $ianatype {
             type Err = FromStrError;
 
@@ -270,10 +330,24 @@ macro_rules! int_enum_str_with_decimal {
             }
         }
 
+        impl ::master::scan::Scan for $ianatype {
+            fn scan<C: ::master::scan::CharSource>(
+                scanner: &mut ::master::scan::Scanner<C>
+            ) -> Result<Self, ::master::scan::ScanError> {
+                scanner.scan_string_word(|word| {
+                    use ::std::str::FromStr;
+
+                    Self::from_str(&word)
+                         .map_err(|_| {
+                             ::master::scan::SyntaxError::UnknownMnemonic(word)
+                         })
+                })
+            }
+        }
+
         from_str_error!($error);
     }
 }
-*/
 
 /// Adds impls for `FromStr` and `Display` to the type given as first argument.
 ///
@@ -352,6 +426,21 @@ macro_rules! int_enum_str_with_prefix {
                         write!(f, "{}{}", $str_prefix, self.to_int())
                     }
                 }
+            }
+        }
+
+        impl ::master::scan::Scan for $ianatype {
+            fn scan<C: ::master::scan::CharSource>(
+                scanner: &mut ::master::scan::Scanner<C>
+            ) -> Result<Self, ::master::scan::ScanError> {
+                scanner.scan_string_word(|word| {
+                    use ::std::str::FromStr;
+
+                    Self::from_str(&word)
+                         .map_err(|_| {
+                             ::master::scan::SyntaxError::UnknownMnemonic(word)
+                         })
+                })
             }
         }
 

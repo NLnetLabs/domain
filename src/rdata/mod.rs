@@ -19,6 +19,8 @@
 pub mod rfc1035;
 pub mod rfc2782;
 pub mod rfc3596;
+pub mod rfc4034;
+pub mod rfc5155;
 
 #[macro_use] mod macros;
 
@@ -69,6 +71,20 @@ rdata_types!{
             Aaaa,
         }
     }
+    rfc4034::{
+        master {
+            Dnskey,
+            Rrsig,
+            Nsec,
+            Ds,
+        }
+    }
+    rfc5155::{
+        master {
+            Nsec3,
+            Nsec3param,
+        }
+    }
 }
 
 
@@ -76,4 +92,6 @@ pub mod parsed {
     pub use super::rfc1035::parsed::*;
     pub use super::rfc2782::parsed::*;
     pub use super::rfc3596::parsed::*;
+    pub use super::rfc4034::parsed::*;
+    pub use super::rfc5155::parsed::*;
 }

@@ -1,8 +1,5 @@
 //! Resource Record (RR) TYPEs
 
-use std::str::FromStr;
-use ::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
-
 
 //------------ Rtype ---------------------------------------------------------
 
@@ -409,17 +406,4 @@ int_enum!{
 
 int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16,
                           "unknown record type");
-
-
-//--- Scan
-
-impl Scan for Rtype {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
-        scanner.scan_string_word(|word| {
-            Self::from_str(&word)
-                 .map_err(|_| SyntaxError::UnknownRtype(word))
-        })
-    }
-}
 

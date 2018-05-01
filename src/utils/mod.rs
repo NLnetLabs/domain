@@ -2,4 +2,6 @@
 //!
 //! This should probably be separate crates …
 
-pub mod netdb;
+pub mod base32;
+pub mod base64;
+//pub mod netdb;

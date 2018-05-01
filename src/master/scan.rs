@@ -3,8 +3,10 @@
 use std::{fmt, io};
 use std::net::AddrParseError;
 use bytes::{BufMut, Bytes, BytesMut};
+use failure::Fail;
 use ::bits::name;
 use ::bits::name::Dname;
+use ::utils::{base32, base64};
 
 
 //------------ CharSource ----------------------------------------------------
@@ -444,25 +446,7 @@ impl<C: CharSource> Scanner<C> {
         self.scan_word(
             (BytesMut::new(), None), // result and optional first char.
             |&mut (ref mut res, ref mut first), symbol | {
-                let ch = match symbol {
-                    Symbol::Char(ch) => {
-                        match ch.to_digit(16) {
-                            Some(ch) => ch,
-                            _ => return Err(SyntaxError::Unexpected(symbol)),
-                        }
-                    }
-                    _ => return Err(SyntaxError::Unexpected(symbol))
-                };
-                if let Some(ch1) = *first {
-                    if res.remaining_mut() == 0 {
-                        res.reserve(1)
-                    }
-                    res.put_u8((ch1 as u8) << 4 | (ch as u8));
-                }
-                else {
-                    *first = Some(ch)
-                }
-                Ok(())
+                hex_symbolop(res, first, symbol)
             },
             |(res, first)| {
                 if let Some(ch) = first {
@@ -476,6 +460,128 @@ impl<C: CharSource> Scanner<C> {
             }
         )
     }
+
+    pub fn scan_hex_words<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
+        let start_pos = self.pos();
+        let mut buf = BytesMut::new();
+        let mut first = true;
+        loop {
+            let res = self.scan_word(
+                (&mut buf, None),
+                |&mut (ref mut buf, ref mut first), symbol| {
+                    hex_symbolop(buf, first, symbol)
+                },
+                |(_, first)| {
+                    if let Some(ch) = first {
+                        Err(SyntaxError::Unexpected(
+                            Symbol::Char(
+                                ::std::char::from_digit(ch, 16).unwrap()
+                            )
+                        ))
+                    }
+                    else {
+                        Ok(())
+                    }
+                }
+            );
+            if first {
+                if let Err(err) = res {
+                    return Err(err)
+                }
+                first = false;
+            }
+            else {
+                if let Err(_) = res {
+                    break
+                }
+            }
+        }
+        finalop(buf.freeze()).map_err(|err| (err, start_pos).into())
+    }
+
+    /// Scans a phrase containing base32hex encoded data.
+    ///
+    /// In particular, this decodes the “base32hex” decoding definied in
+    /// RFC 4648 without padding.
+    pub fn scan_base32hex_phrase<U, G>(
+        &mut self,
+        finalop: G
+    ) -> Result<U, ScanError>
+    where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
+        self.scan_phrase(
+            base32::Decoder::new_hex(),
+            |decoder, symbol| {
+                decoder.push(symbol.into_char()?)
+                       .map_err(SyntaxError::content)
+            },
+            |decoder| {
+                finalop(decoder.finalize().map_err(SyntaxError::content)?)
+            }
+        )
+    }
+
+    /// Scans a sequence of phrases containing base64 encoded data.
+    pub fn scan_base64_phrases<U, G>(
+        &mut self,
+        finalop: G
+    ) -> Result<U, ScanError>
+    where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
+        let start_pos = self.pos();
+        let mut decoder = base64::Decoder::new();
+        let mut first = true;
+        loop {
+            let res = self.scan_phrase(
+                &mut decoder, 
+                |decoder, symbol| {
+                    decoder.push(symbol.into_char()?)
+                           .map_err(SyntaxError::content)
+                },
+                Ok
+            );
+            if first {
+                if let Err(err) = res {
+                    return Err(err)
+                }
+                first = false;
+            }
+            else {
+                if let Err(_) = res {
+                    break
+                }
+            }
+        }
+        let bytes = decoder.finalize().map_err(|err| {
+            (SyntaxError::content(err), self.pos())
+        })?;
+        finalop(bytes).map_err(|err| (err, start_pos).into())
+    }
+}
+
+fn hex_symbolop(
+    buf: &mut BytesMut,
+    first: &mut Option<u32>,
+    symbol: Symbol
+) -> Result<(), SyntaxError> {
+    let ch = match symbol {
+        Symbol::Char(ch) => {
+            match ch.to_digit(16) {
+                Some(ch) => ch,
+                _ => return Err(SyntaxError::Unexpected(symbol))
+            }
+        }
+        _ => return Err(SyntaxError::Unexpected(symbol))
+    };
+    if let Some(ch1) = first.take() {
+        if buf.remaining_mut() == 0 {
+            buf.reserve(1)
+        }
+        buf.put_u8((ch1 as u8) << 4 | (ch as u8));
+    }
+    else {
+        *first = Some(ch)
+    }
+    Ok(())
 }
 
 
@@ -662,6 +768,18 @@ impl<C: CharSource> Scanner<C> {
         })
     }
 
+    /// Skip the first token.
+    ///
+    /// Only ever call this if you called `peek` before and it did return
+    /// `Some(ch)`.
+    ///
+    /// This is an optimization.
+    fn skip(&mut self, ch: Token) {
+        self.cur += 1;
+        self.cur_pos.update(ch)
+    }
+
+
     /// Progresses the scanner to the current position and returns `t`.
     fn ok<T>(&mut self, t: T) -> Result<T, ScanError> {
         if self.buf.len() == self.cur {
@@ -726,7 +844,7 @@ impl<C: CharSource> Scanner<C> {
                         where F: FnOnce(Symbol) -> bool {
         match self.peek()? {
             Some(Token::Symbol(ch)) if f(ch) => {
-                let _ = self.read();
+                self.skip(Token::Symbol(ch));
                 Ok(Some(ch))
             }
             _ => Ok(None)
@@ -1015,6 +1133,14 @@ impl Symbol {
         }
     }
 
+    /// Converts the symbol into a `char`.
+    pub fn into_char(self) -> Result<char, BadSymbol> {
+        match self {
+            Symbol::Char(ch) | Symbol::SimpleEscape(ch) => Ok(ch),
+            Symbol::DecimalEscape(_) => Err(BadSymbol(self))
+        }
+    }
+
     /// Converts the symbol representing a digit into its integer value.
     pub fn into_digit(self, base: u32) -> Result<u32, SyntaxError> {
         if let Symbol::Char(ch) = self {
@@ -1187,7 +1313,7 @@ pub struct BadSymbol(pub Symbol);
 //------------ SyntaxError ---------------------------------------------------
 
 /// A syntax error happened while scanning master data.
-#[derive(Clone, Debug, Fail, PartialEq)]
+#[derive(Debug, Fail)]
 pub enum SyntaxError {
     #[fail(display="expected '{}'", _0)]
     Expected(String),
@@ -1246,12 +1372,20 @@ pub enum SyntaxError {
     #[fail(display="unexpected end of file")]
     UnexpectedEof,
 
-    #[fail(display="unknown class '{}'", _0)]
-    UnknownClass(String),
+    #[fail(display="unknown mnemonic '{}'", _0)]
+    UnknownMnemonic(String),
 
-    #[fail(display="unknown record type '{}'", _0)]
-    UnknownRtype(String),
+    /// Used when converting some other content fails.
+    #[fail(display="{}", _0)]
+    Content(Box<Fail>),
 }
+
+impl SyntaxError {
+    pub fn content<E: Fail>(err: E) -> Self {
+        SyntaxError::Content(Box::new(err))
+    }
+}
+
 
 impl From<BadSymbol> for SyntaxError {
     fn from(err: BadSymbol) -> SyntaxError {

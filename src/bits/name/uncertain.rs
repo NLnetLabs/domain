@@ -234,6 +234,9 @@ impl str::FromStr for UncertainDname {
 impl Scan for UncertainDname {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
+        if let Ok(()) = scanner.skip_literal(".") {
+            return Ok(UncertainDname::root())
+        }
         scanner.scan_word(
             DnameBuilder::new(),
             |name, symbol| {

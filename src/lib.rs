@@ -18,7 +18,9 @@
 //! [resolv]: resolv/index.html
 #![allow(unknown_lints)] // hide clippy-related #allows on stable. 
 
+extern crate base64;
 extern crate bytes;
+extern crate chrono;
 extern crate failure;
 #[macro_use] extern crate failure_derive;
 /*#[macro_use]*/ extern crate futures;
@@ -30,6 +32,4 @@ pub mod iana;
 pub mod master;
 pub mod rdata;
 pub mod resolv;
-/*
 pub mod utils;
-*/

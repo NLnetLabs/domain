@@ -434,6 +434,14 @@ impl ParseAll for u32 {
     }
 }
 
+impl ParseAll for Bytes {
+    type Err = ShortBuf;
+
+    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+        parser.parse_bytes(len)
+    }
+}
+
 impl ParseAll for Ipv4Addr {
     type Err = ParseAllError;
 
