@@ -128,19 +128,6 @@ impl<C: CharSource> Scanner<C> {
         self.cur_pos
     }
 
-    /// Attempts to scan and process a token.
-    ///
-    /// The method can be used to first scan a token from the scanner via
-    /// the closure `scanop` and only if that succeeds convert the returned
-    /// token into some output value via the second closure `finalop`.
-    pub fn try_scan<T, U, F, G>(&mut self, scanop: F, finalop: G)
-                                -> Result<U, ScanError>
-                    where F: FnOnce(&mut Self) -> Result<T, ScanError>,
-                          G: FnOnce(T) -> Result<U, SyntaxError> {
-        let res = scanop(self)?;
-        finalop(res).or_else(|err| self.err(err))
-    }
-
     /// Scans a word token.
     ///
     /// A word is a sequence of non-special characters and escape sequences
@@ -1095,7 +1082,7 @@ impl Symbol {
     /// Provides the best symbol for a byte.
     ///
     /// The function will use simple escape sequences for spaces, quotes,
-    /// backslashs, and semicolons. It will leasve all other printable ASCII
+    /// backslashs, and semicolons. It will leave all other printable ASCII
     /// characters unescaped and decimal escape all remaining byte value.
     pub fn from_byte(ch: u8) -> Self {
         if ch == b' ' || ch == b'"' || ch == b'\\' || ch == b';' {
@@ -1372,8 +1359,8 @@ pub enum SyntaxError {
     #[fail(display="unexpected end of file")]
     UnexpectedEof,
 
-    #[fail(display="unknown mnemonic '{}'", _0)]
-    UnknownMnemonic(String),
+    #[fail(display="unknown mnemonic")]
+    UnknownMnemonic,
 
     /// Used when converting some other content fails.
     #[fail(display="{}", _0)]

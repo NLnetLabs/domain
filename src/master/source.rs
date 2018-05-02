@@ -3,7 +3,7 @@
 //! This is here so we can read from things that aren’t ASCII or UTF-8.
 
 use std::io;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::fs::File;
 use std::path::Path;
 use failure::Fail;
@@ -26,16 +26,26 @@ impl<'a> CharSource for &'a str {
 
 //------------ AsciiFile -----------------------------------------------------
 
-/// A file that is assumed to only contain ASCII characters.
+/// A file that contains only ASCII characters.
+///
+//  This isn’t built atop a BufReader because we can optimize for our
+//  strategy of reading from the buffer byte by byte.
 pub struct AsciiFile {
-    file: Option<BufReader<File>>,
+    file: File,
+    buf: Option<(Box<[u8]>, usize, usize)>,
 }
 
+const CAP: usize = 8 * 1024;
+
 impl AsciiFile {
-    /// Creates a new value from the given file.
     pub fn new(file: File) -> Self {
         AsciiFile {
-            file: Some(BufReader::new(file))
+            file,
+            buf: unsafe {
+                let mut buffer = Vec::with_capacity(CAP);
+                buffer.set_len(CAP);
+                Some((buffer.into_boxed_slice(), 0, 0))
+            }
         }
     }
 
@@ -45,30 +55,44 @@ impl AsciiFile {
     }
 }
 
-
 impl CharSource for AsciiFile {
     fn next(&mut self) -> Result<Option<char>, io::Error> {
-        let res = match self.file {
-            Some(ref mut file) => {
-                let mut buf = [0u8];
-                match file.read(&mut buf)? {
-                    1 => {
-                        if buf[0].is_ascii() {
-                            return Ok(Some(buf[0] as char));
+        let err = if let Some((ref mut buf, ref mut len, ref mut pos))
+                                = self.buf {
+            if *pos < *len {
+                let res = buf[*pos];
+                if res.is_ascii() {
+                    *pos += 1;
+                    return Ok(Some(res as char))
+                }
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidData, AsciiError(res).compat()
+                ))
+            }
+            else {
+                match self.file.read(buf) {
+                    Ok(0) => Ok(None),
+                    Ok(read_len) => {
+                        *len = read_len;
+                        let res = buf[0];
+                        if res.is_ascii() {
+                            *pos = 1;
+                            return Ok(Some(res as char))
                         }
-                        Err(io::Error::new(io::ErrorKind::InvalidData,
-                                           AsciiError(buf[0]).compat()))
+                        Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            AsciiError(res).compat()
+                        ))
                     }
-                    0 => {
-                        Ok(None)
-                    }
-                    _ => unreachable!(),
+                    Err(err) => Err(err)
                 }
             }
-            None => return Ok(None),
+        }
+        else {
+            return Ok(None);
         };
-        self.file = None;
-        res
+        self.buf = None;
+        err
     }
 }
 

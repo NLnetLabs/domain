@@ -339,7 +339,7 @@ macro_rules! int_enum_str_with_decimal {
 
                     Self::from_str(&word)
                          .map_err(|_| {
-                             ::master::scan::SyntaxError::UnknownMnemonic(word)
+                             ::master::scan::SyntaxError::UnknownMnemonic
                          })
                 })
             }
@@ -438,7 +438,7 @@ macro_rules! int_enum_str_with_prefix {
 
                     Self::from_str(&word)
                          .map_err(|_| {
-                             ::master::scan::SyntaxError::UnknownMnemonic(word)
+                             ::master::scan::SyntaxError::UnknownMnemonic
                          })
                 })
             }

@@ -214,7 +214,6 @@ impl Entry {
             }
         };
         Ok((ttl, class))
-
     }
 }
 
