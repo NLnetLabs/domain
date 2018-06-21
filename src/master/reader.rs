@@ -6,7 +6,7 @@ use ::bits::name::Dname;
 use ::iana::Class;
 use super::entry::{Entry, MasterRecord};
 use super::scan::{CharSource, Pos, ScanError, Scanner};
-use super::source::AsciiFile;
+use super::source::Utf8File;
 
 
 pub struct Reader<C: CharSource> {
@@ -25,9 +25,9 @@ impl<C: CharSource> Reader<C> {
     }
 }
 
-impl Reader<AsciiFile> {
+impl Reader<Utf8File> {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
-        AsciiFile::open(path).map(Self::new)
+        Utf8File::open(path).map(Self::new)
     }
 }
 
