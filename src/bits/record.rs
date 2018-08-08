@@ -13,6 +13,7 @@
 
 use std::fmt;
 use bytes::{BigEndian, BufMut, ByteOrder};
+use failure::Fail;
 use ::iana::{Class, Rtype};
 use super::compose::{Compose, Compress, Compressor};
 use super::name::{ParsedDname, ParsedDnameError, ToDname};
@@ -493,7 +494,7 @@ impl Parse for ParsedRecord {
 //------------ RecordParseError ----------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum RecordParseError<N, D> {
+pub enum RecordParseError<N: Fail, D: Fail> {
     #[fail(display="{}", _0)]
     Name(N),
 
@@ -504,7 +505,7 @@ pub enum RecordParseError<N, D> {
     ShortBuf,
 }
 
-impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
+impl<N: Fail, D: Fail> From<ShortBuf> for RecordParseError<N, D> {
     fn from(_: ShortBuf) -> Self {
         RecordParseError::ShortBuf
     }

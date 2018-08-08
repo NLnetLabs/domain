@@ -32,6 +32,7 @@
 
 use std::fmt;
 use bytes::{BufMut, Bytes, BytesMut};
+use failure::Fail;
 use ::iana::Rtype;
 use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use super::compose::{Compose, Compress, Compressor};
@@ -70,7 +71,7 @@ pub trait RecordData: Compose + Compress + Sized {
 /// To reflect this asymmetry, parsing of record data has its own trait.
 pub trait ParseRecordData: RecordData {
     /// The type of an error returned when parsing fails.
-    type Err;
+    type Err: Fail;
 
     /// Parses the record data.
     ///

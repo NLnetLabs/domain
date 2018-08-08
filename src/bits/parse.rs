@@ -8,8 +8,10 @@
 //! [`Parser`]: struct.Parser.html
 //! [`Parse`]: trait.Parse.html
 //! [`ParseAll`]: trait.ParseAll.html
+
 use std::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{BigEndian, ByteOrder, Bytes};
+use failure::Fail;
 
 
 //------------ Parser --------------------------------------------------------
@@ -375,7 +377,7 @@ impl Parse for Ipv6Addr {
 /// all remaining bytes.
 pub trait ParseAll: Sized {
     /// The type returned when parsing fails.
-    type Err: From<ShortBuf>;
+    type Err: From<ShortBuf> + Fail;
 
     /// Parses a value `len` bytes long from the beginning of the parser.
     ///
