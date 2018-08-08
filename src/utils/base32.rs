@@ -46,7 +46,7 @@ where B: AsRef<[u8]> + ?Sized, W: fmt::Write {
             break;
         }
         f.write_char(ch((chunk[3] & 0x03) << 3 | chunk[4] >> 5))?; // 6
-        f.write_char(ch((chunk[4] & 0x1F)))?; // 7
+        f.write_char(ch(chunk[4] & 0x1F))?; // 7
     }
     Ok(())
 }

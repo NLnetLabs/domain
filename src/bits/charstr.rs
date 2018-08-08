@@ -25,7 +25,6 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use std::{cmp, fmt, hash, ops, str};
-use std::ascii::AsciiExt;
 use bytes::{BufMut, Bytes, BytesMut};
 use ::master::scan::{BadSymbol, CharSource, Scan, Scanner, ScanError, Symbol,
                      SymbolError, SyntaxError};
@@ -289,16 +288,16 @@ impl Eq for CharStr { }
 
 impl<T: AsRef<[u8]>> PartialOrd<T> for CharStr {
     fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
-        self.iter().map(AsciiExt::to_ascii_lowercase)
+        self.iter().map(u8::to_ascii_lowercase)
             .partial_cmp(other.as_ref().iter()
-                              .map(AsciiExt::to_ascii_lowercase))
+                              .map(u8::to_ascii_lowercase))
     }
 }
 
 impl Ord for CharStr {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.iter().map(AsciiExt::to_ascii_lowercase)
-            .cmp(other.iter().map(AsciiExt::to_ascii_lowercase))
+        self.iter().map(u8::to_ascii_lowercase)
+            .cmp(other.iter().map(u8::to_ascii_lowercase))
     }
 }
 
@@ -307,7 +306,7 @@ impl Ord for CharStr {
 
 impl hash::Hash for CharStr {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.iter().map(AsciiExt::to_ascii_lowercase)
+        self.iter().map(u8::to_ascii_lowercase)
             .for_each(|ch| ch.hash(state))
     }
 }
