@@ -33,7 +33,7 @@
 use std::ops;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use bytes::{BigEndian, BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use super::name::{Dname, Label, ToDname};
 use super::parse::ShortBuf;
 
@@ -98,7 +98,7 @@ impl Compose for i16 {
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_i16::<BigEndian>(*self)
+        buf.put_i16_be(*self)
     }
 }
 
@@ -108,7 +108,7 @@ impl Compose for u16 {
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_u16::<BigEndian>(*self)
+        buf.put_u16_be(*self)
     }
 }
 
@@ -118,7 +118,7 @@ impl Compose for i32 {
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_i32::<BigEndian>(*self)
+        buf.put_i32_be(*self)
     }
 }
 
@@ -128,7 +128,7 @@ impl Compose for u32 {
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_u32::<BigEndian>(*self)
+        buf.put_u32_be(*self)
     }
 }
 

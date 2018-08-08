@@ -204,7 +204,7 @@ impl MessageBuilder {
     /// are in network byte order.
     pub fn new_tcp(capacity: usize) -> Self {
         let mut buf = BytesMut::with_capacity(capacity + 2);
-        buf.put_u16::<BigEndian>(0);
+        buf.put_u16_be(0);
         let mut res = Self::from_buf(buf);
         res.set_limit(::std::u16::MAX as usize);
         res.set_page_size(capacity);
