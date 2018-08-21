@@ -106,8 +106,8 @@ use super::record::{ParsedRecord, Record, RecordParseError};
 /// would do something like this:
 ///
 /// ```
-/// # use domain::bits::message::Message;
-/// use domain::rdata::parsed::Mx;
+/// # use domain_core::bits::message::Message;
+/// use domain_core::rdata::parsed::Mx;
 ///
 /// # let bytes = vec![0; 12].into();
 /// let msg = Message::from_bytes(bytes).unwrap();

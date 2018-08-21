@@ -1,9 +1,9 @@
 //! Reads a zone file.
 
-extern crate domain;
+extern crate domain_core;
 
 use std::env;
-use domain::master::reader::Reader;
+use domain_core::master::reader::Reader;
 
 
 fn main() {

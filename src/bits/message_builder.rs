@@ -91,9 +91,9 @@
 //!
 //! ```
 //! use std::str::FromStr;
-//! use domain::bits::{Dname, MessageBuilder};
-//! use domain::iana::Rtype;
-//! use domain::rdata::A;
+//! use domain_core::bits::{Dname, MessageBuilder};
+//! use domain_core::iana::Rtype;
+//! use domain_core::rdata::A;
 //!
 //! let name = Dname::from_str("example.com.").unwrap();
 //! let mut msg = MessageBuilder::new_udp();
