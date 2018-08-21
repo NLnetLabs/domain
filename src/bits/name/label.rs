@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
-use std::{cmp, fmt, hash, mem, ops};
+use std::{cmp, fmt, hash, ops};
 use bytes::BufMut;
 use ::bits::compose::Compose;
 use ::bits::parse::ShortBuf;
@@ -42,7 +42,7 @@ pub struct Label([u8]);
 impl Label {
     /// Creates a label from the underlying byte slice without any checking.
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        mem::transmute(slice)
+        &*(slice as *const [u8] as *const Self)
     }
 
     /// Returns a static reference to the root label.
@@ -88,10 +88,10 @@ impl Label {
             }
             0xC0 ... 0xFF => {
                 let res = match slice.get(1) {
-                    Some(ch) => *ch as u16,
+                    Some(ch) => u16::from(*ch),
                     None => return Err(SplitLabelError::ShortBuf)
                 };
-                let res = res | (((head as u16) & 0x3F) << 8);
+                let res = res | ((u16::from(head) & 0x3F) << 8);
                 return Err(SplitLabelError::Pointer(res))
             }
             _ => {
@@ -160,13 +160,13 @@ impl ops::DerefMut for Label {
 
 impl AsRef<[u8]> for Label {
     fn as_ref(&self) -> &[u8] {
-        unsafe { mem::transmute(self) }
+        unsafe { &*(self as *const Self as *const [u8]) }
     }
 }
 
 impl AsMut<[u8]> for Label {
     fn as_mut(&mut self) -> &mut [u8] {
-        unsafe { mem::transmute(self) }
+        unsafe { &mut *(self as *mut Label as *mut [u8]) }
     }
 }
 

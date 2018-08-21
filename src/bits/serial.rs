@@ -49,6 +49,7 @@ impl Serial {
     /// # Panics
     ///
     /// This method panics if `other` is greater than `2^31 - 1`.
+    #[allow(should_implement_trait)]
     pub fn add(self, other: u32) -> Self {
         assert!(other <= 0x7FFF_FFFF);
         Serial(self.0.wrapping_add(other))
@@ -79,9 +80,9 @@ impl Serial {
                     // with possible overflows.
                     let mut res = 0u64;
                     for ch in &buf[..pos] {
-                        res = res *10 + (*ch as u64);
+                        res = res *10 + (u64::from(*ch));
                     }
-                    if res > (::std::u32::MAX) as u64 {
+                    if res > u64::from(::std::u32::MAX) {
                         Err(SyntaxError::IllegalInteger)
                     }
                     else {
@@ -111,9 +112,9 @@ impl Serial {
                                 if month > 29 {
                                     return Err(SyntaxError::IllegalInteger)
                                 }
-                                else if month > 28 {
-                                    return Err(SyntaxError::IllegalInteger)
-                                }
+                            }
+                            else if month > 28 {
+                                return Err(SyntaxError::IllegalInteger)
                             }
                         }
                         _ => {
@@ -250,7 +251,7 @@ impl cmp::PartialOrd for Serial {
 fn u32_from_buf(buf: &[u8]) -> u32 {
     let mut res = 0;
     for ch in buf {
-        res = res * 10 + (*ch as u32);
+        res = res * 10 + (u32::from(*ch));
     }
     res
 }

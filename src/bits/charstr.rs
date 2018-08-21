@@ -331,6 +331,7 @@ impl fmt::Debug for CharStr {
 /// string from individual bytes or byte slices. It derefs directly to
 /// `[u8]` to allow you to manipulate the acutal content but not to extend
 /// it other than through the methods provided by itself.
+#[derive(Default)]
 pub struct CharStrMut {
     bytes: BytesMut,
 }
@@ -369,9 +370,7 @@ impl CharStrMut {
 
     /// Creates a new mutable character string with a default capacity.
     pub fn new() -> Self {
-        unsafe {
-            CharStrMut::from_bytes_unchecked(BytesMut::new())
-        }
+        Self::default()
     }
 
     /// Returns the length of the character string assembled so far.

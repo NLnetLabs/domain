@@ -79,6 +79,7 @@ impl ParsedDname {
 
 /// # Properties
 ///
+#[allow(len_without_is_empty)] // Clippy: It is never empty.
 impl ParsedDname {
     /// Returns the length of the name in bytes.
     pub fn len(&self) -> usize {

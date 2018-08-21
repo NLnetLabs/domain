@@ -144,7 +144,7 @@ macro_rules! dname_type {
 /// usual dotted notation.
 ///
 /// The A record type is defined in RFC 1035, section 3.4.1.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct A {
     addr: Ipv4Addr,
 }
@@ -152,7 +152,7 @@ pub struct A {
 impl A {
     /// Creates a new A record data from an IPv4 address.
     pub fn new(addr: Ipv4Addr) -> A {
-        A { addr: addr }
+        A { addr }
     }
 
     /// Creates a new A record from the IPv4 address components.
@@ -311,7 +311,7 @@ pub struct Hinfo {
 impl Hinfo {
     /// Creates a new Hinfo record data from the components.
     pub fn new(cpu: CharStr, os: CharStr) -> Self {
-        Hinfo{cpu: cpu, os: os}
+        Hinfo { cpu, os }
     }
 
     /// The CPU type of the host.
@@ -468,7 +468,7 @@ pub struct Minfo<N=ParsedDname> {
 impl<N> Minfo<N> {
     /// Creates a new Minfo record data from the components.
     pub fn new(rmailbx: N, emailbx: N) -> Self {
-        Minfo { rmailbx: rmailbx, emailbx: emailbx }
+        Minfo { rmailbx, emailbx }
     }
 
     /// The responsible mail box.
@@ -602,7 +602,7 @@ pub struct Mx<N=ParsedDname> {
 impl<N> Mx<N> {
     /// Creates a new Mx record data from the components.
     pub fn new(preference: u16, exchange: N) -> Self {
-        Mx { preference: preference, exchange: exchange }
+        Mx { preference, exchange }
     }
 
     /// The preference for this record.
@@ -842,9 +842,7 @@ impl<N> Soa<N> {
     /// Creates new Soa record data from content.
     pub fn new(mname: N, rname: N, serial: Serial,
                refresh: u32, retry: u32, expire: u32, minimum: u32) -> Self {
-        Soa { mname: mname, rname: rname, serial: serial,
-              refresh: refresh, retry: retry, expire: expire,
-              minimum: minimum }
+        Soa { mname, rname, serial, refresh, retry, expire, minimum }
     }
 
     /// The primary name server for the zone.

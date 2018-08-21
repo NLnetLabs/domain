@@ -289,6 +289,7 @@ impl RecordHeader<ParsedDname> {
     /// feels capable of parsing a record with a header of `self`, the
     /// method will parse the data and return a full `Record<D>`. Otherwise,
     /// it skips over the record data.
+    #[allow(type_complexity)] // I know ...
     pub fn parse_into_record<D: ParseRecordData>(self, parser: &mut Parser)
                              -> Result<Option<Record<ParsedDname, D>>,
                                        RecordParseError<ParsedDnameError,
@@ -441,6 +442,7 @@ impl ParsedRecord {
 }
 
 impl ParsedRecord {
+    #[allow(type_complexity)] // I know ...
     pub fn to_record<D>(&self) -> Result<Option<Record<ParsedDname, D>>,
                                            RecordParseError<ParsedDnameError,
                                                             D::Err>>
@@ -454,6 +456,7 @@ impl ParsedRecord {
         }
     }
 
+    #[allow(type_complexity)] // I know ...
     pub fn into_record<D>(mut self)
         -> Result<Option<Record<ParsedDname, D>>,
                   RecordParseError<ParsedDnameError, D::Err>>
@@ -486,7 +489,8 @@ impl Parse for ParsedRecord {
 
     fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
         let rdlen = RecordHeader::parse_rdlen(parser)?;
-        Ok(parser.advance(rdlen as usize)?)
+        parser.advance(rdlen as usize)?;
+        Ok(())
     }
 }
 

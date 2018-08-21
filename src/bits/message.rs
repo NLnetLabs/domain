@@ -408,8 +408,9 @@ impl QuestionSection {
         parser.advance(mem::size_of::<HeaderSection>()).unwrap();
         QuestionSection {
             count: Ok(HeaderCounts::for_message_slice(
-                                                parser.as_slice()).qdcount()),
-            parser: parser,
+                parser.as_slice()).qdcount()
+            ),
+            parser,
         }
     }
 
@@ -455,7 +456,7 @@ impl Iterator for QuestionSection {
                         Some(Ok(question))
                     }
                     Err(err) => {
-                        self.count = Err(err.clone());
+                        self.count = Err(err);
                         Some(Err(err))
                     }
                 }
@@ -482,8 +483,8 @@ impl Section {
     fn first() -> Self { Section::Answer }
 
     /// Returns the correct record count for this section.
-    fn count(&self, counts: &HeaderCounts) -> u16 {
-        match *self {
+    fn count(self, counts: HeaderCounts) -> u16 {
+        match self {
             Section::Answer => counts.ancount(),
             Section::Authority => counts.nscount(),
             Section::Additional => counts.arcount()
@@ -547,9 +548,10 @@ impl RecordSection {
     fn new(parser: Parser, section: Section) ->  Self {
         RecordSection {
             count: Ok(section.count(
-                        HeaderCounts::for_message_slice(parser.as_slice()))),
-            section: section,
-            parser: parser
+                *HeaderCounts::for_message_slice(parser.as_slice())
+            )),
+            section,
+            parser,
         }
     }
 
@@ -608,7 +610,7 @@ impl Iterator for RecordSection {
                         Some(Ok(record))
                     }
                     Err(err) => {
-                        self.count = Err(err.clone());
+                        self.count = Err(err);
                         Some(Err(err))
                     }
                 }

@@ -459,7 +459,7 @@ impl Compressor {
     /// Returns the index of a name if it is known.
     fn get_pos(&self, name: &Dname) -> Option<u16> {
         match self.map {
-            Some(ref map) => map.get(name).map(|v| *v),
+            Some(ref map) => map.get(name).cloned(),
             None => None
         }
     }
@@ -492,6 +492,15 @@ impl Compressor {
         else {
             self.buf.reserve(self.page_size)
         }
+    }
+}
+
+
+//--- Default
+
+impl Default for Compressor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

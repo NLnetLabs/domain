@@ -109,7 +109,7 @@ impl Header {
     /// The ID field is an identifier chosen by whoever created a query
     /// and is copied into a response by a server. It allows matching
     /// incoming responses to their queries.
-    pub fn id(&self) -> u16 {
+    pub fn id(self) -> u16 {
         BigEndian::read_u16(&self.inner)
     }
 
@@ -129,7 +129,7 @@ impl Header {
     /// a response (`true`). In other words, this bit is actually stating
     /// whether the message is *not* a query. So, perhaps it might be good
     /// to read ‘QR’ as ‘query response.’
-    pub fn qr(&self) -> bool { self.get_bit(2, 7) }
+    pub fn qr(self) -> bool { self.get_bit(2, 7) }
 
     /// Sets the value of the QR bit.
     ///
@@ -144,7 +144,7 @@ impl Header {
     ///
     /// [`Opcode`]: ../../iana/opcode/enum.Opcode.html
     /// [`Opcode::Query`]: ../../iana/opcode/enum.Opcode.html#variant.Query
-    pub fn opcode(&self) -> Opcode {
+    pub fn opcode(self) -> Opcode {
         Opcode::from_int((self.inner[2] >> 3) & 0x0F)
     }
 
@@ -159,7 +159,7 @@ impl Header {
     /// it is authoritative for the requested domain name, ie., whether this
     /// response is an *authoritative answer.* The field has no meaning in 
     /// a query.
-    pub fn aa(&self) -> bool { self.get_bit(2, 2) }
+    pub fn aa(self) -> bool { self.get_bit(2, 2) }
 
     /// Sets the value of the AA bit.
     pub fn set_aa(&mut self, set: bool) { self.set_bit(2, 2, set) }
@@ -170,7 +170,7 @@ impl Header {
     /// fit into the message. This is typically used when employing
     /// datagram transports such as UDP to signal to try again using a
     /// stream transport such as TCP.
-    pub fn tc(&self) -> bool { self.get_bit(2, 1) }
+    pub fn tc(self) -> bool { self.get_bit(2, 1) }
 
     /// Sets the value of the TC bit.
     pub fn set_tc(&mut self, set: bool) { self.set_bit(2, 1, set) }
@@ -181,7 +181,7 @@ impl Header {
     /// server to try and recursively gather a response if it doesn’t have
     /// the data available locally. The bit’s value is copied into the
     /// response.
-    pub fn rd(&self) -> bool { self.get_bit(2, 0) }
+    pub fn rd(self) -> bool { self.get_bit(2, 0) }
 
     /// Sets the value of the RD bit.
     pub fn set_rd(&mut self, set: bool) { self.set_bit(2, 0, set) }
@@ -191,7 +191,7 @@ impl Header {
     /// In a response, the *recursion available* bit denotes whether the
     /// responding name server supports recursion. It has no meaning in
     /// a query.
-    pub fn ra(&self) -> bool { self.get_bit(3, 7) }
+    pub fn ra(self) -> bool { self.get_bit(3, 7) }
 
     /// Sets the value of the RA bit.
     pub fn set_ra(&mut self, set: bool) { self.set_bit(3, 7, set) }
@@ -199,7 +199,7 @@ impl Header {
     /// Returns whether the reserved bit is set.
     ///
     /// This bit must be `false` in all queries and responses.
-    pub fn z(&self) -> bool { self.get_bit(3, 6) }
+    pub fn z(self) -> bool { self.get_bit(3, 6) }
 
     /// Sets the value of the reserved bit.
     pub fn set_z(&mut self, set: bool) { self.set_bit(3, 6, set) }
@@ -209,7 +209,7 @@ impl Header {
     /// The *authentic data* bit is used by security-aware recursive name
     /// servers to indicate that it considers all RRsets in its response to
     /// be authentic.
-    pub fn ad(&self) -> bool { self.get_bit(3, 5) }
+    pub fn ad(self) -> bool { self.get_bit(3, 5) }
 
     /// Sets the value of the AD bit.
     pub fn set_ad(&mut self, set: bool) { self.set_bit(3, 5, set) }
@@ -219,7 +219,7 @@ impl Header {
     /// The *checking disabled* bit is used by a security-aware resolver
     /// to indicate that it does not want upstream name servers to perform
     /// verification but rather would like to verify everything itself.
-    pub fn cd(&self) -> bool { self.get_bit(3, 4) }
+    pub fn cd(self) -> bool { self.get_bit(3, 4) }
 
     /// Sets the value of the CD bit.
     pub fn set_cd(&mut self, set: bool) { self.set_bit(3, 4, set) }
@@ -231,7 +231,7 @@ impl Header {
     /// possible values and their meaning.
     ///
     /// [`Rcode`]: ../../iana/rcode/enum.Rcode.html
-    pub fn rcode(&self) -> Rcode {
+    pub fn rcode(self) -> Rcode {
         Rcode::from_int(self.inner[3] & 0x0F)
     }
 
@@ -248,7 +248,7 @@ impl Header {
     /// The argument `offset` gives the byte offset of the underlying bytes
     /// slice and `bit` gives the number of the bit with the most significant
     /// bit being 7.
-    fn get_bit(&self, offset: usize, bit: usize) -> bool {
+    fn get_bit(self, offset: usize, bit: usize) -> bool {
         self.inner[offset] & (1 << bit) != 0
     }
 
@@ -342,7 +342,7 @@ impl HeaderCounts {
     }
 
     /// Sets the counts to those from `counts`.
-    pub fn set(&mut self, counts: &HeaderCounts) {
+    pub fn set(&mut self, counts: HeaderCounts) {
         self.as_slice_mut().copy_from_slice(counts.as_slice())
     }
 }
@@ -357,7 +357,7 @@ impl HeaderCounts {
     ///
     /// This field contains the number of questions in the first
     /// section of the message, normally the question section.
-    pub fn qdcount(&self) -> u16 {
+    pub fn qdcount(self) -> u16 {
         self.get_u16(0)
     }
 
@@ -381,7 +381,7 @@ impl HeaderCounts {
     ///
     /// This field contains the number of resource records in the second
     /// section of the message, normally the answer section.
-    pub fn ancount(&self) -> u16 {
+    pub fn ancount(self) -> u16 {
         self.get_u16(2)
     }
 
@@ -405,7 +405,7 @@ impl HeaderCounts {
     ///
     /// This field contains the number of resource records in the third
     /// section of the message, normally the authority section.
-    pub fn nscount(&self) -> u16 {
+    pub fn nscount(self) -> u16 {
         self.get_u16(4)
     }
 
@@ -429,7 +429,7 @@ impl HeaderCounts {
     ///
     /// This field contains the number of resource records in the fourth
     /// section of the message, normally the additional section.
-    pub fn arcount(&self) -> u16 {
+    pub fn arcount(self) -> u16 {
         self.get_u16(6)
     }
 
@@ -456,7 +456,7 @@ impl HeaderCounts {
     ///
     /// This is the same as the `qdcount()`. It is used in UPDATE queries
     /// where the first section is the zone section.
-    pub fn zocount(&self) -> u16 {
+    pub fn zocount(self) -> u16 {
         self.qdcount()
     }
 
@@ -469,7 +469,7 @@ impl HeaderCounts {
     ///
     /// This is the same as the `ancount()`. It is used in UPDATE queries
     /// where the first section is the prerequisite section.
-    pub fn prcount(&self) -> u16 {
+    pub fn prcount(self) -> u16 {
         self.ancount()
     }
 
@@ -482,7 +482,7 @@ impl HeaderCounts {
     ///
     /// This is the same as the `nscount()`. It is used in UPDATE queries
     /// where the first section is the update section.
-    pub fn upcount(&self) -> u16 {
+    pub fn upcount(self) -> u16 {
         self.nscount()
     }
 
@@ -495,7 +495,7 @@ impl HeaderCounts {
     ///
     /// This is the same as the `arcount()`. It is used in UPDATE queries
     /// where the first section is the additional section.
-    pub fn adcount(&self) -> u16 {
+    pub fn adcount(self) -> u16 {
         self.arcount()
     }
 
@@ -508,7 +508,7 @@ impl HeaderCounts {
     //--- Internal helpers
 
     /// Returns the value of the 16 bit integer starting at a given offset.
-    fn get_u16(&self, offset: usize) -> u16 {
+    fn get_u16(self, offset: usize) -> u16 {
         BigEndian::read_u16(&self.inner[offset..])
     }
 

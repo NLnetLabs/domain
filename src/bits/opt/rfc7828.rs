@@ -23,7 +23,7 @@ impl TcpKeepalive {
         builder.push(&Self::new(timeout))
     }
 
-    pub fn timeout(&self) -> u16 {
+    pub fn timeout(self) -> u16 {
         self.0
     }
 }

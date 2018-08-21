@@ -140,6 +140,14 @@ impl Decoder {
 }
 
 
+//--- Default
+
+impl Default for Decoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 //------------ DecodeError ---------------------------------------------------
 
 /// An error happened while decoding a Base64 string.

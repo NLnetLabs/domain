@@ -165,7 +165,7 @@ impl OptHeader {
         BigEndian::write_u16(&mut self.inner[3..], value)
     }
 
-    pub fn rcode(&self, header: &Header) -> OptRcode {
+    pub fn rcode(&self, header: Header) -> OptRcode {
         OptRcode::from_parts(header.rcode(), self.inner[5])
     }
 
@@ -216,6 +216,7 @@ pub struct OptionHeader {
     len: u16,
 }
 
+#[allow(len_without_is_empty)]
 impl OptionHeader {
     pub fn new(code: u16, len: u16) -> Self {
         OptionHeader { code, len }

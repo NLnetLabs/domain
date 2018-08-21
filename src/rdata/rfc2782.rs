@@ -27,7 +27,7 @@ impl<N> Srv<N> {
     pub const RTYPE: Rtype = Rtype::Srv;
 
     pub fn new(priority: u16, weight: u16, port: u16, target: N) -> Self {
-        Srv { priority: priority, weight: weight, port: port, target: target }
+        Srv { priority, weight, port, target }
     }
 
     pub fn priority(&self) -> u16 { self.priority }

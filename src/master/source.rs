@@ -19,7 +19,7 @@ impl<'a> CharSource for &'a str {
             None => return Ok(None),
         };
         *self = &self[res.len_utf8()..];
-        return Ok(Some(res))
+        Ok(Some(res))
     }
 }
 
@@ -142,8 +142,8 @@ impl CharSource for Utf8File {
         if first < 0xE0 {
             return Ok(Some(unsafe {
                 char::from_u32_unchecked(
-                    ((first & 0x1F) as u32) << 6 |
-                    (second & 0x3F) as u32
+                    (u32::from(first & 0x1F)) << 6 |
+                    u32::from(second & 0x3F)
                 )
             }))
         }
@@ -161,9 +161,9 @@ impl CharSource for Utf8File {
         if first < 0xF0 {
             return Ok(Some(unsafe {
                 char::from_u32_unchecked(
-                    ((first & 0x0F) as u32) << 12 |
-                    ((second & 0x3F) as u32) << 6 |
-                    (third & 0x3F) as u32
+                    (u32::from(first & 0x0F)) << 12 |
+                    (u32::from(second & 0x3F)) << 6 |
+                    u32::from(third & 0x3F)
                 )
             }))
         }
@@ -180,10 +180,10 @@ impl CharSource for Utf8File {
         }
         Ok(Some(unsafe {
             char::from_u32_unchecked(
-                ((first & 0x07) as u32) << 18 |
-                ((second & 0x3F) as u32) << 12 |
-                ((third & 0x3F) as u32) << 6 |
-                (fourth & 0x3F) as u32
+                (u32::from(first & 0x07)) << 18 |
+                (u32::from(second & 0x3F)) << 12 |
+                (u32::from(third & 0x3F)) << 6 |
+                u32::from(fourth & 0x3F)
             )
         }))
     }

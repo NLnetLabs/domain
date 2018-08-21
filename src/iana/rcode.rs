@@ -539,7 +539,9 @@ impl OptRcode {
             rcode.into()
         }
         else {
-            OptRcode::from_int((ext as u16) << 4 | (rcode.to_int() as u16))
+            OptRcode::from_int(
+                u16::from(ext) << 4 | u16::from(rcode.to_int())
+            )
         }
     }
 
@@ -550,12 +552,12 @@ impl OptRcode {
     }
 
     /// Returns the rcode part of the extended rcode.
-    pub fn rcode(&self) -> Rcode {
+    pub fn rcode(self) -> Rcode {
         self.to_parts().0
     }
 
     /// Returns the extended octet of the extended rcode.
-    pub fn ext(&self) -> u8 {
+    pub fn ext(self) -> u8 {
         self.to_parts().1
     }
 }
@@ -899,7 +901,7 @@ impl From<TsigRcode> for u16 {
 
 impl From<Rcode> for TsigRcode {
     fn from(value: Rcode) -> TsigRcode {
-        TsigRcode::from_int(value.to_int() as u16)
+        TsigRcode::from_int(u16::from(value.to_int()))
     }
 }
 

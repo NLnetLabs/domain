@@ -270,6 +270,15 @@ impl DnameBuilder {
 }
 
 
+//--- Default
+
+impl Default for DnameBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+
 //------------ PushError -----------------------------------------------------
 
 /// An error happened while trying to push data to a domain name builder.

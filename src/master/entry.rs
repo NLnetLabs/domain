@@ -127,7 +127,7 @@ impl Entry {
                 let path = scanner.scan_string_phrase(|x| Ok(x.into()))?;
                 let origin = Dname::scan(scanner).ok();
                 scanner.scan_newline()?;
-                Ok(Entry::Include { path: path, origin: origin })
+                Ok(Entry::Include { path, origin })
             }
             ControlType::Ttl => {
                 let ttl = u32::scan(scanner)?;
@@ -136,7 +136,7 @@ impl Entry {
             }
             ControlType::Other(name, pos) => {
                 scanner.skip_entry()?;
-                Ok(Entry::Control { name: name, start: pos })
+                Ok(Entry::Control { name, start: pos })
             }
         }
     }

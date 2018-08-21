@@ -27,6 +27,7 @@ pub struct Padding {
 }
 
 
+#[allow(len_without_is_empty)] // It’s not that kind of len.
 impl Padding {
     pub fn new(len: u16, mode: PaddingMode) -> Self {
         Padding { len, mode }
@@ -37,11 +38,11 @@ impl Padding {
         builder.push(&Self::new(len, mode))
     }
 
-    pub fn len(&self) -> u16 {
+    pub fn len(self) -> u16 {
         self.len
     }
 
-    pub fn mode(&self) -> PaddingMode {
+    pub fn mode(self) -> PaddingMode {
         self.mode
     }
 }

@@ -305,7 +305,7 @@ impl MessageBuilder {
         self.target.snapshot()
     }
 
-    pub fn rewind(&mut self, snapshot: Snapshot<Self>) {
+    pub fn rewind(&mut self, snapshot: &Snapshot<Self>) {
         self.target.rewind(snapshot)
     }
 
@@ -451,7 +451,7 @@ impl AnswerBuilder {
     /// since.
     ///
     /// [`snapshot`]: #method.snapshot
-    pub fn rewind(&mut self, snapshot: Snapshot<Self>) {
+    pub fn rewind(&mut self, snapshot: &Snapshot<Self>) {
         self.target.rewind(snapshot)
     }
 
@@ -593,7 +593,7 @@ impl AuthorityBuilder {
     /// since.
     ///
     /// [`snapshot`]: #method.snapshot
-    pub fn rewind(&mut self, snapshot: Snapshot<Self>) {
+    pub fn rewind(&mut self, snapshot: &Snapshot<Self>) {
         self.target.rewind(snapshot)
     }
 
@@ -733,7 +733,7 @@ impl AdditionalBuilder {
     /// since.
     ///
     /// [`snapshot`]: #method.snapshot
-    pub fn rewind(&mut self, snapshot: Snapshot<Self>) {
+    pub fn rewind(&mut self, snapshot: &Snapshot<Self>) {
         self.target.rewind(snapshot)
     }
 
@@ -971,14 +971,14 @@ impl MessageTarget {
     fn snapshot<T>(&self) -> Snapshot<T> {
         Snapshot {
             pos: self.buf.len(),
-            counts: self.counts().clone(),
+            counts: *self.counts(),
             marker: PhantomData,
         }
     }
 
-    fn rewind<T>(&mut self, snapshot: Snapshot<T>) {
+    fn rewind<T>(&mut self, snapshot: &Snapshot<T>) {
         self.buf.truncate(snapshot.pos);
-        self.counts_mut().set(&snapshot.counts);
+        self.counts_mut().set(snapshot.counts);
     }
 
     fn preview(&mut self) -> &[u8] {
@@ -1021,7 +1021,7 @@ impl ops::DerefMut for MessageTarget {
 ///
 /// This type is returned by the `snapshot` method of the various builders and
 /// allows to later return to that state through the `rewind` method.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Snapshot<T> {
     pos: usize,
     counts: HeaderCounts,

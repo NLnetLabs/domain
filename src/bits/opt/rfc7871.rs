@@ -1,6 +1,5 @@
 //! EDNS Options from RFC 7871
 
-use std::mem;
 use std::net::IpAddr;
 use bytes::BufMut;
 use ::bits::compose::Compose;
@@ -53,7 +52,7 @@ impl ParseAll for ClientSubnet {
                     return Err(OptionParseError::InvalidV4Length(len))
                 }
                 let bytes: &[u8; 4] = unsafe {
-                    mem::transmute(parser.peek(4)?.as_ptr())
+                    &*(parser.peek(4)?.as_ptr() as *const [u8; 4])
                 };
                 parser.advance(4)?;
                 IpAddr::from(*bytes)
@@ -63,7 +62,7 @@ impl ParseAll for ClientSubnet {
                     return Err(OptionParseError::InvalidV6Length(len))
                 }
                 let bytes: &[u8; 16] = unsafe {
-                    mem::transmute(parser.peek(16)?.as_ptr())
+                    &*(parser.peek(16)?.as_ptr() as *const [u8; 16])
                 };
                 parser.advance(16)?;
                 IpAddr::from(*bytes)

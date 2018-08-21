@@ -116,6 +116,7 @@ impl<C: CharSource> Scanner<C> {
 ///
 impl<C: CharSource> Scanner<C> {
     /// Returns whether the scanner has reached the end of data.
+    #[allow(wrong_self_convention)] // XXX Continue changing.
     pub fn is_eof(&mut self) -> bool {
         match self.peek() {
             Ok(Some(_)) => false,
@@ -192,7 +193,7 @@ impl<C: CharSource> Scanner<C> {
                 res.push(ch);
                 Ok(())
             },
-            |res| finalop(res)
+            finalop
         )
     }
 
@@ -304,7 +305,7 @@ impl<C: CharSource> Scanner<C> {
                 res.push(ch);
                 Ok(())
             },
-            |res| finalop(res)
+            finalop
         )
     }
 
@@ -478,10 +479,8 @@ impl<C: CharSource> Scanner<C> {
                 }
                 first = false;
             }
-            else {
-                if let Err(_) = res {
-                    break
-                }
+            else if res.is_err() {
+                break
             }
         }
         finalop(buf.freeze()).map_err(|err| (err, start_pos).into())
@@ -532,10 +531,8 @@ impl<C: CharSource> Scanner<C> {
                 }
                 first = false;
             }
-            else {
-                if let Err(_) = res {
-                    break
-                }
+            else if res.is_err() {
+                break
             }
         }
         let bytes = decoder.finalize().map_err(|err| {
@@ -581,7 +578,7 @@ impl<C: CharSource> Scanner<C> {
     /// human-friendly position.
     fn chars_next(&mut self) -> Result<Option<char>, ScanError> {
         self.chars.next().map_err(|err| {
-            let mut pos = self.cur_pos.clone();
+            let mut pos = self.cur_pos;
             for ch in &self.buf {
                 pos.update(*ch)
             }
@@ -731,10 +728,8 @@ impl<C: CharSource> Scanner<C> {
     /// underlying source is reached, returns `Ok(None)`. If reading on the
     /// underlying source results in an error, returns that.
     fn peek(&mut self) -> Result<Option<Token>, ScanError> {
-        if self.buf.len() == self.cur {
-            if !self.source_token()? {
-                return Ok(None)
-            }
+        if self.buf.len() == self.cur && !self.source_token()? {
+            return Ok(None)
         }
         Ok(Some(self.buf[self.cur]))
     }
@@ -950,7 +945,7 @@ impl Scan for u32 {
                 };
                 Ok(())
             },
-            |res| Ok(res)
+            Ok
         )
     }
 }
@@ -982,7 +977,7 @@ impl Scan for u16 {
                 };
                 Ok(())
             },
-            |res| Ok(res)
+            Ok
         )
     }
 }
@@ -1015,7 +1010,7 @@ impl Scan for u8 {
                 };
                 Ok(())
             },
-            |res| Ok(res)
+            Ok
         )
     }
 }

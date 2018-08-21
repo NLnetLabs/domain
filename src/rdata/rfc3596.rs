@@ -24,7 +24,7 @@ pub struct Aaaa {
 
 impl Aaaa {
     pub fn new(addr: Ipv6Addr) -> Aaaa {
-        Aaaa { addr: addr }
+        Aaaa { addr }
     }
 
     pub fn addr(&self) -> Ipv6Addr { self.addr }

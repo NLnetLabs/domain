@@ -24,7 +24,7 @@ impl Expire {
         builder.push(&Self::new(expire))
     }
 
-    pub fn expire(&self) -> Option<u32> {
+    pub fn expire(self) -> Option<u32> {
         self.0
     }
 }

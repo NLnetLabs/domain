@@ -185,7 +185,7 @@ impl UnknownRecordData {
                     let ch = symbol.into_digit(16)? as u8;
                     if let Some(ch1) = *first {
                         res.put_u8(ch1 << 4 | ch);
-                        *len = *len - 1;
+                        *len -= 1;
                     }
                     else {
                         *first = Some(ch)
@@ -193,7 +193,7 @@ impl UnknownRecordData {
                     Ok(())
                 },
                 |(_, len, first)| {
-                    if let Some(_) = first {
+                    if first.is_some() {
                         Err(SyntaxError::UnevenHexString)
                     }
                     else {

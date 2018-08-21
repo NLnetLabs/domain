@@ -69,7 +69,7 @@ impl ParseAll for Dnskey {
         len: usize,
     ) -> Result<Self, Self::Err> {
         if len < 4 {
-            return Err(ParseAllError::ShortField.into());
+            return Err(ParseAllError::ShortField);
         }
         Ok(Self::new(
             u16::parse(parser)?,
@@ -146,6 +146,7 @@ pub struct Rrsig {
 }
 
 impl Rrsig {
+    #[allow(too_many_arguments)] // XXX Consider changing.
     pub fn new(
         type_covered: Rtype,
         algorithm: SecAlg,
@@ -693,7 +694,7 @@ impl RtypeBitmapBuilder {
 
         self.buf.extend_from_slice(&[0; 34]);
         self.buf[pos] = block;
-        return &mut self.buf[pos..pos + 34]
+        &mut self.buf[pos..pos + 34]
     }
 
     pub fn finalize(mut self) -> RtypeBitmap {
@@ -719,6 +720,15 @@ impl RtypeBitmapBuilder {
 }
 
 
+//--- Default
+
+impl Default for RtypeBitmapBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+
 //------------ RtypeBitmapIter -----------------------------------------------
 
 pub struct RtypeBitmapIter<'a> {
@@ -734,15 +744,15 @@ impl<'a> RtypeBitmapIter<'a> {
     fn new(data: &'a [u8]) -> Self {
         if data.is_empty() {
             RtypeBitmapIter {
-                data: data,
+                data,
                 block: 0, len: 0, octet: 0, bit: 0
             }
         }
         else {
             let mut res = RtypeBitmapIter {
                 data: &data[2..],
-                block: (data[0] as u16) << 8,
-                len: data[1] as usize,
+                block: u16::from(data[0]) << 8,
+                len: usize::from(data[1]),
                 octet: 0,
                 bit: 0
             };
@@ -764,7 +774,7 @@ impl<'a> RtypeBitmapIter<'a> {
                     if self.data.is_empty() {
                         return;
                     }
-                    self.block = (self.data[0] as u16) << 8;
+                    self.block = u16::from(self.data[0]) << 8;
                     self.len = self.data[1] as usize;
                     self.octet = 0;
                 }
@@ -784,7 +794,7 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
             return None
         }
         let res = Rtype::from_int(
-            (self.data[0] as u16) << 8 | (self.octet as u16) << 3 | self.bit
+            u16::from(self.data[0]) << 8 | (self.octet as u16) << 3 | self.bit
         );
         self.advance();
         Some(res)

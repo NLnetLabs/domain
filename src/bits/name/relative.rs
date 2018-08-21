@@ -470,7 +470,7 @@ impl fmt::Display for RelativeDname {
             Some(label) => label.fmt(f)?,
             None => return Ok(())
         }
-        while let Some(label) = iter.next() {
+        for label in iter {
             f.write_str(".")?;
             label.fmt(f)?;
         }
