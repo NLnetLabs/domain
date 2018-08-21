@@ -3,7 +3,7 @@ A DNS library for Rust – Core.
 
 [![Travis Build Status](https://travis-ci.org/NLnetLabs/domain-core.svg?branch=master)](https://travis-ci.org/NLnetLabs/domain-core)
 [![AppVeyor Build
-Status](https://ci.appveyor.com/api/projects/status/github/NLnetLabs/domain-core?svg=true)](https://ci.appveyor.com/project/NLnetLabs/domain-core)
+Status](https://ci.appveyor.com/api/projects/status/github/NLnetLabs/domain-core?svg=true)](https://ci.appveyor.com/project/partim/domain-core)
 [![Current](https://img.shields.io/crates/v/domain-core.svg)](https://crates.io/crates/domain-core)
 
 [Documentation](https://docs.rs/domain-core/)
