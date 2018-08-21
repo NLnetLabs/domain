@@ -108,7 +108,7 @@ pub mod name;
 pub mod opt;
 pub mod parse;
 pub mod question;
-pub mod serial;
 pub mod rdata;
 pub mod record;
+pub mod serial;
 

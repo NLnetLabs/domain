@@ -1,10 +1,9 @@
-## 0.2.3
+## 0.3.0
 
-New
+Breaking Changes
 
-Bug fixes
-
-Dependencies
+* re-organized part of the old `domain` crate into `domain-core`
+* re-write of nearly everything
 
 
 ## 0.2.2

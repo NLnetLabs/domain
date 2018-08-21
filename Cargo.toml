@@ -1,31 +1,23 @@
 [package]
-name = "domain"
+name = "domain-core"
 version = "0.3.0"
 authors = ["Martin Hoffmann <hn@nvnc.de>"]
-description = "A DNS library for Rust."
-documentation = "https://docs.rs/domain/"
-homepage = "https://github.com/partim/domain"
-repository = "https://github.com/partim/domain"
+description = "A DNS library for Rust – Core."
+documentation = "https://docs.rs/domain-core/"
+homepage = "https://github.com/nlnetlabs/domain-core"
+repository = "https://github.com/nlnetlabs/domain-core"
 readme = "README.md"
-keywords = ["DNS", "domain", "resolver", "futures"]
+keywords = ["DNS", "domain"]
 license = "MIT"
 
 [lib]
-name = "domain"
+name = "domain_core"
 path = "src/lib.rs"
 
 [dependencies]
-base64         = "0.9"
 bytes          = "0.4"
 chrono         = "0.4"
 rand           = "0.3"
 failure        = "0.1"
 failure_derive = "0.1"
-futures        = "0.1.14"
-tokio          = "0.1"
-
-[dev-dependencies]
-native-tls   = "0.1.2"
-tokio-io     = "0.1.2"
-tokio-tls    = "0.1.2"
 
