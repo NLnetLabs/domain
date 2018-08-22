@@ -355,14 +355,23 @@ impl MessageBuilder {
 
     /// Returns a reference to the message assembled so far.
     ///
-    /// This method requires a `&mut self` since it may need to update some
-    /// length values to return a valid message.
-    ///
     /// In case the builder was created from a buffer with pre-existing
     /// content, the returned reference is for the complete content of this
     /// buffer.
-    pub fn preview(&mut self) -> &[u8] {
+    pub fn preview(&self) -> &[u8] {
         self.target.preview()
+    }
+
+    /// Returns a reference to the slice preceeding the message.
+    ///
+    /// The slice is may be empty.
+    pub fn prelude(&self) -> &[u8] {
+        self.target.prelude()
+    }
+
+    /// Returns a mutable reference to the slice preceeding the message.
+    pub fn prelude_mut(&mut self) -> &mut [u8] {
+        self.target.prelude_mut()
     }
 
     /// Finishes the message and returns the underlying bytes buffer.
@@ -496,13 +505,23 @@ impl AnswerBuilder {
 
     /// Returns a reference to the message assembled so far.
     ///
-    /// This method requires a `&mut self` since it may need to update some
-    /// length values to return a valid message.
-    ///
-    /// In case the builder was created from a vector with previous content,
-    /// the returned reference is for the full content of this vector.
-    pub fn preview(&mut self) -> &[u8] {
+    /// In case the builder was created from a buffer with pre-existing
+    /// content, the returned reference is for the complete content of this
+    /// buffer.
+    pub fn preview(&self) -> &[u8] {
         self.target.preview()
+    }
+
+    /// Returns a reference to the slice preceeding the message.
+    ///
+    /// The slice is may be empty.
+    pub fn prelude(&self) -> &[u8] {
+        self.target.prelude()
+    }
+
+    /// Returns a mutable reference to the slice preceeding the message.
+    pub fn prelude_mut(&mut self) -> &mut [u8] {
+        self.target.prelude_mut()
     }
 
     /// Finishes the message and returns the underlying bytes buffer.
@@ -633,13 +652,23 @@ impl AuthorityBuilder {
 
     /// Returns a reference to the message assembled so far.
     ///
-    /// This method requires a `&mut self` since it may need to update some
-    /// length values to return a valid message.
-    ///
-    /// In case the builder was created from a vector with previous content,
-    /// the returned reference is for the full content of this vector.
-    pub fn preview(&mut self) -> &[u8] {
+    /// In case the builder was created from a buffer with pre-existing
+    /// content, the returned reference is for the complete content of this
+    /// buffer.
+    pub fn preview(&self) -> &[u8] {
         self.target.preview()
+    }
+
+    /// Returns a reference to the slice preceeding the message.
+    ///
+    /// The slice is may be empty.
+    pub fn prelude(&self) -> &[u8] {
+        self.target.prelude()
+    }
+
+    /// Returns a mutable reference to the slice preceeding the message.
+    pub fn prelude_mut(&mut self) -> &mut [u8] {
+        self.target.prelude_mut()
     }
 
     /// Finishes the message and returns the underlying bytes buffer.
@@ -768,13 +797,23 @@ impl AdditionalBuilder {
 
     /// Returns a reference to the message assembled so far.
     ///
-    /// This method requires a `&mut self` since it may need to update some
-    /// length values to return a valid message.
-    ///
-    /// In case the builder was created from a vector with previous content,
-    /// the returned reference is for the full content of this vector.
-    pub fn preview(&mut self) -> &[u8] {
+    /// In case the builder was created from a buffer with pre-existing
+    /// content, the returned reference is for the complete content of this
+    /// buffer.
+    pub fn preview(&self) -> &[u8] {
         self.target.preview()
+    }
+
+    /// Returns a reference to the slice preceeding the message.
+    ///
+    /// The slice is may be empty.
+    pub fn prelude(&self) -> &[u8] {
+        self.target.prelude()
+    }
+
+    /// Returns a mutable reference to the slice preceeding the message.
+    pub fn prelude_mut(&mut self) -> &mut [u8] {
+        self.target.prelude_mut()
     }
 
     /// Finishes the message and returns the underlying bytes buffer.
@@ -836,6 +875,7 @@ impl OptBuilder {
         let pos = target.len();
         target.compose(&OptHeader::default())?;
         target.compose(&0u16)?;
+        target.counts_mut().inc_arcount();
         Ok(OptBuilder { pos, target })
     }
 
@@ -850,7 +890,9 @@ impl OptBuilder {
         let len = option.compose_len();
         assert!(len <= ::std::u16::MAX as usize);
         self.target.compose(&(len as u16))?;
-        self.target.compose(option)
+        self.target.compose(option)?;
+        self.complete();
+        Ok(())
     }
 
     /// Builds an option into the record.
@@ -863,37 +905,57 @@ impl OptBuilder {
                                         -> Result<(), ShortBuf> {
         self.target.compose(&code)?;
         self.target.compose(&len)?;
-        op(&mut self.target.buf)
+        op(&mut self.target.buf)?;
+        self.complete();
+        Ok(())
     }
 
     /// Completes the OPT record and returns to the additional section builder.
     pub fn additional(self) -> AdditionalBuilder {
-        AdditionalBuilder::new(self.complete())
+        AdditionalBuilder::new(self.target)
+    }
+
+    /// Returns a reference to the message assembled so far.
+    ///
+    /// In case the builder was created from a buffer with pre-existing
+    /// content, the returned reference is for the complete content of this
+    /// buffer.
+    pub fn preview(&self) -> &[u8] {
+        self.target.preview()
+    }
+
+    /// Returns a reference to the slice preceeding the message.
+    ///
+    /// The slice is may be empty.
+    pub fn prelude(&self) -> &[u8] {
+        self.target.prelude()
+    }
+
+    /// Returns a mutable reference to the slice preceeding the message.
+    pub fn prelude_mut(&mut self) -> &mut [u8] {
+        self.target.prelude_mut()
     }
 
     /// Finishes the message and returns the underlying bytes buffer.
     pub fn finish(self) -> BytesMut {
-        self.complete().unwrap()
+        self.target.unwrap()
     }
 
     /// Finishes the message and returns it.
     pub fn freeze(self) -> Message {
-        self.complete().freeze()
+        self.target.freeze()
     }
 
     /// Completes building the OPT record.
     ///
-    /// This will update the RDLEN field of the record header and increase the
-    /// ARCOUNT of the message.
-    fn complete(mut self) -> MessageTarget {
+    /// This will update the RDLEN field of the record header.
+    fn complete(&mut self) {
         let len = self.target.len()
                 - (self.pos + mem::size_of::<OptHeader>() + 2);
         assert!(len <= ::std::u16::MAX as usize);
         let count_pos = self.pos + mem::size_of::<OptHeader>();
         BigEndian::write_u16(&mut self.target.as_slice_mut()[count_pos..],
                              len as u16);
-        self.target.counts_mut().inc_arcount();
-        self.target
     }
 }
 
@@ -911,6 +973,7 @@ impl ops::DerefMut for OptBuilder {
                                                                  [self.pos..])
     }
 }
+
 
 //------------ MessageTarget -------------------------------------------------
 
@@ -981,8 +1044,21 @@ impl MessageTarget {
         self.counts_mut().set(snapshot.counts);
     }
 
-    fn preview(&mut self) -> &[u8] {
+    /// Returns a reference to the message assembled so far.
+    ///
+    /// In case the builder was created from a buffer with pre-existing
+    /// content, the returned reference is for the complete content of this
+    /// buffer.
+    fn preview(&self) -> &[u8] {
         self.buf.as_slice()
+    }
+
+    fn prelude(&self) -> &[u8] {
+        &self.buf.as_slice()[..self.start]
+    }
+
+    fn prelude_mut(&mut self) -> &mut [u8] {
+        &mut self.buf.as_slice_mut()[..self.start]
     }
 
     fn unwrap(self) -> BytesMut {
