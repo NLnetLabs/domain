@@ -1,11 +1,11 @@
 [package]
 name = "domain-core"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Martin Hoffmann <hn@nvnc.de>"]
 description = "A DNS library for Rust – Core."
 documentation = "https://docs.rs/domain-core/"
-homepage = "https://github.com/nlnetlabs/domain-core"
-repository = "https://github.com/nlnetlabs/domain-core"
+homepage = "https://github.com/nlnetlabs/domain/"
+repository = "https://github.com/nlnetlabs/domain/"
 readme = "README.md"
 keywords = ["DNS", "domain"]
 license = "MIT"

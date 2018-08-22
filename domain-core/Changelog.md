@@ -1,3 +1,14 @@
+# Change Log
+
+## 0.3.1
+
+New
+
+Bug fixes
+
+Dependencies
+
+
 ## 0.3.0
 
 Breaking Changes
@@ -5,6 +16,8 @@ Breaking Changes
 * re-organized part of the old `domain` crate into `domain-core`
 * re-write of nearly everything
 
+
+# Change Log of Old domain Crate
 
 ## 0.2.2
 
