@@ -8,7 +8,7 @@ homepage = "https://github.com/nlnetlabs/domain/"
 repository = "https://github.com/nlnetlabs/domain/"
 readme = "README.md"
 keywords = ["DNS", "domain"]
-license = "MIT"
+license = "BSD-3-clause"
 
 [lib]
 name = "domain_core"

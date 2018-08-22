@@ -1,7 +1,20 @@
 [package]
-name = "domain-resolv"
+name = "domain-resolv-preview"
 version = "0.3.1"
 authors = ["Martin Hoffmann <hn@nvnc.de>"]
+description = "An asynchronous DNS stub resolver."
+documentation = "https://docs.rs/domain-core/"
+homepage = "https://github.com/nlnetlabs/domain/"
+repository = "https://github.com/nlnetlabs/domain/"
+readme = "README.md"
+keywords = ["DNS", "domain", "resolver", "futures"]
+license = "BSD-3-clause"
+
+[lib]
+name = "domain_resolv"
+path = "src/lib.rs"
+
+[dependencies]
 
 [dependencies.domain-core]
 path = "../domain-core"
