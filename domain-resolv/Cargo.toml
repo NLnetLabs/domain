@@ -1,0 +1,9 @@
+[package]
+name = "domain-resolv"
+version = "0.3.1"
+authors = ["Martin Hoffmann <hn@nvnc.de>"]
+
+[dependencies.domain-core]
+path = "../domain-core"
+version = "0.3.1"
+

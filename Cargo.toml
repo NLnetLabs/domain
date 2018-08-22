@@ -1,2 +1,2 @@
 [workspace]
-members = ["domain-core"]
+members = ["domain-core", "domain-resolv"]
