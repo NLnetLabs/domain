@@ -869,14 +869,30 @@ pub struct OptBuilder {
 impl OptBuilder {
     /// Creates a new OPT builder atop the given target.
     ///
-    /// This appends the OPT header to the message but doesn’t increase the
-    /// ARCOUNT of the message just yet.
+    /// This appends the OPT header to the message and increases the
+    /// ARCOUNT of the message.
     fn new(mut target: MessageTarget) -> Result<Self, ShortBuf> {
         let pos = target.len();
         target.compose(&OptHeader::default())?;
         target.compose(&0u16)?;
         target.counts_mut().inc_arcount();
         Ok(OptBuilder { pos, target })
+    }
+
+    /// Returns a reference to the messages header.
+    ///
+    /// Note that, like with the other builers, this returns the message
+    /// header, not the OPT reuord’s header.
+    pub fn header(&self) -> &Header {
+        self.target.header()
+    }
+
+    /// Returns a mutable reference to the messages header.
+    ///
+    /// Note that, like with the other builers, this returns the message
+    /// header, not the OPT reuord’s header.
+    pub fn header_mut(&mut self) -> &mut Header {
+        self.target.header_mut()
     }
 
     /// Pushes an option to the OPT record.
