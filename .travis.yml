@@ -1,5 +1,5 @@
 language: rust
 rust:
-  - stable
-  - beta
-
+#  - stable
+#  - beta
+    - nightly # For the time being ...
