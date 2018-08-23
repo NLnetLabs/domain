@@ -680,6 +680,6 @@ mod test {
                     options use-vc ndots:122\n".to_string();
         assert!(conf.parse(&mut io::Cursor::new(data)).is_ok());
         assert!(conf.options.use_vc);
-        assert_eq!(conf.ndots, 122);
+        assert_eq!(conf.options.ndots, 122);
     }
 }
