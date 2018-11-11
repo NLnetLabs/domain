@@ -4,7 +4,22 @@
 
 New
 
+* `bits::message_builder` module
+
+   *  all builders now allow access to the bytes before the message,
+      referred to as the ‘prelude.’
+
+   * `bits::message_builder::OptBuilder` now behaves more like all other
+     builders with access to the preview, header, and prelude.
+
+* new methods:
+
+   * `bits::name::ToRelativeDname::chain` and `chain_root`
+   * `rdata::rfc1035::Ptr::into_ptrdname`
+
 Bug fixes
+
+* `bits::message::Message::is_answer` also compares the message ID.
 
 Dependencies
 
