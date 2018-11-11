@@ -818,6 +818,12 @@ impl fmt::Display for Null {
 /// The PTR record type is defined in RFC 1035, section 3.3.12.
 dname_type!(Ptr, Ptr, ptrdname);
 
+impl<N> Ptr<N> {
+    pub fn into_ptrdname(self) -> N {
+        self.ptrdname
+    }
+}
+
 
 //------------ Soa ----------------------------------------------------------
 
