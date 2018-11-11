@@ -273,6 +273,7 @@ impl Message {
     /// are the same.
     pub fn is_answer(&self, query: &Message) -> bool {
         if !self.header().qr()
+                || self.header().id() != query.header().id()
                 || self.header_counts().qdcount()
                         != query.header_counts().qdcount() {
             false
