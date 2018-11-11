@@ -5,6 +5,7 @@
 use std::cmp;
 use bytes::BytesMut;
 use ::bits::compose::{Compose, Compress};
+use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::Label;
 use super::relative::RelativeDname;
@@ -201,6 +202,22 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// two values that are indeed flat names.
     fn as_flat_slice(&self) -> Option<&[u8]> {
         None
+    }
+
+    /// Returns a chain of this name and the provided absolute name.
+    fn chain<N: Compose>(
+        self,
+        suffix: N
+    ) -> Result<Chain<Self, N>, LongChainError>
+    where Self: Sized {
+        Chain::new(self, suffix)
+    }
+
+    /// Returns the absolute name by chaining it with the root label.
+    fn chain_root(self) -> Chain<Self, Dname>
+    where Self: Sized {
+        // Appending the root label will always work.
+        Chain::new(self, Dname::root()).unwrap()
     }
 
     /// Tests whether `self` and `other` are equal.
