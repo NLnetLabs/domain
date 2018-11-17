@@ -107,6 +107,7 @@ pub mod message_builder;
 pub mod name;
 pub mod opt;
 pub mod parse;
+pub mod query;
 pub mod question;
 pub mod rdata;
 pub mod record;
