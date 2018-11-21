@@ -19,6 +19,7 @@ use std::path::Path;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::time::Duration;
 use domain_core::bits::name::{self, Dname};
+use super::search::SearchList;
 
 
 //------------ ResolvOptions ------------------------------------------------
@@ -32,7 +33,7 @@ use domain_core::bits::name::{self, Dname};
 #[derive(Clone, Debug)]
 pub struct ResolvOptions {
     /// Search list for host-name lookup.
-    pub search: Vec<Dname>,
+    pub search: SearchList,
 
     /// TODO Sortlist
     /// sortlist: ??
@@ -131,8 +132,8 @@ pub struct ResolvOptions {
 
     /// Use bit-label format for IPv6 reverse lookups.
     ///
-    /// This option is only relevant for `lookup_addr()` and is implemented
-    /// there already.
+    /// Bit labels have been deprecated and consequently, this option is not
+    /// implemented.
     pub use_bstring: bool,
 
     /// Use ip6.int instead of the recommended ip6.arpa.
@@ -171,7 +172,7 @@ impl Default for ResolvOptions {
     fn default() -> Self {
         ResolvOptions {
             // non-flags:
-            search: Vec::new(),
+            search: SearchList::new(),
             //sortlist,
             ndots: 1,
             timeout: Duration::new(5,0),
@@ -251,7 +252,7 @@ pub struct ServerConf {
     /// Size of the message receive buffer in bytes.
     ///
     /// This is used for datagram transports only.
-    pub recv_size: u16,
+    pub recv_size: usize,
 }
 
 impl ServerConf {
@@ -362,7 +363,7 @@ impl ResolvConf {
     pub fn parse_file<P: AsRef<Path>>(
         &mut self, path: P
     ) -> Result<(), Error> {
-        let mut file = try!(fs::File::open(path));
+        let mut file = fs::File::open(path)?;
         self.parse(&mut file)
     }
 
@@ -373,7 +374,7 @@ impl ResolvConf {
         use std::io::BufRead;
 
         for line in io::BufReader::new(reader).lines() {
-            let line = try!(line);
+            let line = line?;
             let line = line.trim_right();
 
             if line.is_empty() || line.starts_with(';') ||
@@ -384,11 +385,11 @@ impl ResolvConf {
             let mut words = line.split_whitespace();
             let keyword = words.next();
             match keyword {
-                Some("nameserver") => try!(self.parse_nameserver(words)),
-                Some("domain") => try!(self.parse_domain(words)),
-                Some("search") => try!(self.parse_search(words)),
-                Some("sortlist") => try!(self.parse_sortlist(words)),
-                Some("options") => try!(self.parse_options(words)),
+                Some("nameserver") => self.parse_nameserver(words)?,
+                Some("domain") => self.parse_domain(words)?,
+                Some("search") => self.parse_search(words)?,
+                Some("sortlist") => self.parse_sortlist(words)?,
+                Some("options") => self.parse_options(words)?,
                 _ => return Err(Error::ParseError)
             }
         }
@@ -401,7 +402,7 @@ impl ResolvConf {
     ) -> Result<(), Error> {
         use std::net::ToSocketAddrs;
         
-        for addr in try!((try!(next_word(&mut words)), 53).to_socket_addrs())
+        for addr in (next_word(&mut words)?, 53).to_socket_addrs()?
         {
             self.servers.push(ServerConf::new(addr, Transport::Udp));
             self.servers.push(ServerConf::new(addr, Transport::Tcp));
@@ -413,15 +414,15 @@ impl ResolvConf {
         &mut self,
         mut words: SplitWhitespace
     ) -> Result<(), Error> {
-        let domain = try!(Dname::from_str(try!(next_word(&mut words))));
-        self.options.search = vec![domain];
+        let domain = Dname::from_str(next_word(&mut words)?)?;
+        self.options.search = domain.into();
         no_more_words(words)
     }
 
     fn parse_search(&mut self, words: SplitWhitespace) -> Result<(), Error> {
-        let mut search = Vec::new();
+        let mut search = SearchList::new();
         for word in words {
-            let name = try!(Dname::from_str(word));
+            let name = Dname::from_str(word)?;
             search.push(name)
         }
         self.options.search = search;
@@ -440,7 +441,7 @@ impl ResolvConf {
     #[allow(match_same_arms)]
     fn parse_options(&mut self, words: SplitWhitespace) -> Result<(), Error> {
         for word in words {
-            match try!(split_arg(word)) {
+            match split_arg(word)? {
                 ("debug", None) => { }
                 ("ndots", Some(n)) => {
                     self.options.ndots = n
@@ -509,20 +510,20 @@ impl fmt::Display for ResolvConf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for server in &self.servers {
             let server = server.addr;
-            try!("nameserver ".fmt(f));
-            if server.port() == 53 { try!(server.ip().fmt(f)); }
-            else { try!(server.fmt(f)); }
-            try!("\n".fmt(f));
+            f.write_str("nameserver ")?;
+            if server.port() == 53 { server.ip().fmt(f)?; }
+            else { server.fmt(f)?; }
+            "\n".fmt(f)?;
         }
         if self.options.search.len() == 1 {
-            try!(write!(f, "domain {}\n", self.options.search[0]));
+            write!(f, "domain {}\n", self.options.search[0])?;
         }
         else if self.options.search.len() > 1 {
-            try!("search".fmt(f));
-            for name in &self.options.search {
-                try!(write!(f, " {}", name));
+            "search".fmt(f)?;
+            for name in self.options.search.as_slice() {
+                write!(f, " {}", name)?;
             }
-            try!("\n".fmt(f));
+            "\n".fmt(f)?;
         }
 
         // Collect options so we only print them if there are any non-default
@@ -568,11 +569,11 @@ impl fmt::Display for ResolvConf {
         if self.options.no_tld_query { options.push("no-tld-query".into()) }
 
         if !options.is_empty() {
-            try!("options".fmt(f));
+            "options".fmt(f)?;
             for option in options {
-                try!(write!(f, " {}", option));
+                write!(f, " {}", option)?;
             }
-            try!("\n".fmt(f));
+            "\n".fmt(f)?;
         }
 
         Ok(())
@@ -610,7 +611,7 @@ fn split_arg(s: &str) -> Result<(&str, Option<usize>), Error> {
     match s.find(':') {
         Some(idx) => {
             let (left, right) = s.split_at(idx);
-            Ok((left, Some(try!(usize::from_str_radix(&right[1..], 10)))))
+            Ok((left, Some(usize::from_str_radix(&right[1..], 10)?)))
         }
         None => Ok((s, None))
     }

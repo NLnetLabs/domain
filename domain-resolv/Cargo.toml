@@ -1,5 +1,5 @@
 [package]
-name = "domain-resolv-preview"
+name = "domain-resolv"
 version = "0.3.1"
 authors = ["Martin Hoffmann <hn@nvnc.de>"]
 description = "An asynchronous DNS stub resolver."
@@ -15,11 +15,12 @@ name = "domain_resolv"
 path = "src/lib.rs"
 
 [dependencies]
-futures-preview = "0.3.0-alpha.3"
-futures-util-preview = { version="0.3.0-alpha.3", features=["compat", "tokio-compat"] }
+futures = "^0.1"
+rand = "^0.5"
 tokio = "^0.1"
 
 [dependencies.domain-core]
 path = "../domain-core"
 version = "0.3.1"
+
 
