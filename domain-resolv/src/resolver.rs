@@ -169,7 +169,9 @@ pub struct Query {
 impl Query {
     fn new<N, Q>(resolver: Resolver, question: Q) -> Self
     where N: ToDname, Q: Into<Question<N>> {
-        let message = QueryBuilder::new(question).freeze();
+        let mut message = QueryBuilder::new(question);
+        message.set_rd(true);
+        let message = message.freeze();
         let (preferred, counter) = if resolver.options().use_vc {
             (false, resolver.0.stream.counter(resolver.options().rotate))
         }

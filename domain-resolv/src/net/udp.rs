@@ -138,7 +138,10 @@ impl Future for UdpQuery {
             UdpQuery::Done => panic!("polling a resolved future"),
         };
         *self = next;
-        res
+        match res {
+            Ok(Async::NotReady) => self.poll(),
+            _ => res
+        }
     }
 }
 

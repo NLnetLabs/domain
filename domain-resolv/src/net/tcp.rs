@@ -86,7 +86,10 @@ impl Future for TcpQuery {
             TcpQuery::Done => panic!("polled resolved future"),
         };
         *self = next;
-        res
+        match res {
+            Ok(Async::NotReady) => self.poll(),
+            _ => res
+        }
     }
 }
 
