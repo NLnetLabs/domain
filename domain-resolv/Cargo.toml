@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 futures = "^0.1"
-rand = "^0.5"
+rand = "^0.6"
 tokio = "^0.1"
 
 [dependencies.domain-core]

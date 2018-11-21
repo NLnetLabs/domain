@@ -6,7 +6,7 @@ use domain_core::bits::name::{
 use domain_core::iana::Rtype;
 use domain_core::rdata::parsed::{A, Aaaa, Srv};
 use rand;
-use rand::distributions::{Distribution, Range};
+use rand::distributions::{Distribution, Uniform};
 use tokio::prelude::{Async, Future, Poll, Stream};
 use ::resolver::{Answer, Query, QueryError, Resolver};
 use super::host::{FoundHosts, FoundHostsSocketIter, LookupHost, lookup_host};
@@ -370,7 +370,7 @@ impl<S> FoundSrvs<S> {
         let mut rng = rand::thread_rng();
         let mut weight_sum = weight_sum;
         for i in 0 .. items.len() {
-            let range = Range::new(0, weight_sum + 1);
+            let range = Uniform::new(0, weight_sum + 1);
             let mut sum : u32 = 0;
             let pick = range.sample(&mut rng);
             for j in 0 .. items.len() {

@@ -27,6 +27,8 @@ Bug fixes
 
 Dependencies
 
+* updated rand to 0.6.
+
 
 ## 0.3.0
 
