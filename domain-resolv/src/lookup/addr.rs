@@ -1,5 +1,6 @@
 //! Looking up host names for addresses.
 
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use futures::{Async, Future, Poll};
@@ -8,7 +9,7 @@ use domain_core::bits::name::{Dname, DnameBuilder, ParsedDname};
 use domain_core::iana::Rtype;
 use domain_core::rdata::parsed::Ptr;
 use ::conf::ResolvOptions;
-use ::resolver::{Answer, Query, QueryError, Resolver};
+use ::resolver::{Answer, Query, Resolver};
 
 
 //------------ lookup_addr ---------------------------------------------------
@@ -36,7 +37,7 @@ pub struct LookupAddr(Query);
 
 impl Future for LookupAddr {
     type Item = FoundAddrs;
-    type Error = QueryError;
+    type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         Ok(Async::Ready(FoundAddrs(try_ready!(self.0.poll()))))

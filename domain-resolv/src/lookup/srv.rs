@@ -1,5 +1,6 @@
 //! Looking up SRV records.
 
+use std::io;
 use domain_core::bits::name::{
     Dname, ParsedDname, ParsedDnameError, ToRelativeDname, ToDname
 };
@@ -8,7 +9,7 @@ use domain_core::rdata::parsed::{A, Aaaa, Srv};
 use rand;
 use rand::distributions::{Distribution, Uniform};
 use tokio::prelude::{Async, Future, Poll, Stream};
-use ::resolver::{Answer, Query, QueryError, Resolver};
+use ::resolver::{Answer, Query, Resolver};
 use super::host::{FoundHosts, FoundHostsSocketIter, LookupHost, lookup_host};
 
 
@@ -474,18 +475,19 @@ impl<S> ResolvedSrvItem<S> {
 #[derive(Debug)]
 pub enum SrvError {
     LongName,
-    Query(QueryError),
+    MalformedAnswer,
+    Query(io::Error),
 }
 
-impl From<QueryError> for SrvError {
-    fn from(err: QueryError) -> SrvError {
+impl From<io::Error> for SrvError {
+    fn from(err: io::Error) -> SrvError {
         SrvError::Query(err)
     }
 }
 
 impl From<ParsedDnameError> for SrvError {
     fn from(_: ParsedDnameError) -> SrvError {
-        SrvError::Query(QueryError::MalformedAnswer)
+        SrvError::MalformedAnswer
     }
 }
 

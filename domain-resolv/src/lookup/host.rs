@@ -8,7 +8,7 @@ use domain_core::bits::name::{
 use domain_core::iana::Rtype;
 use domain_core::rdata::parsed::{A, Aaaa};
 use tokio::prelude::{Async, Future, Poll};
-use ::resolver::{Answer, Query, QueryError, Resolver};
+use ::resolver::{Answer, Query, Resolver};
 use ::search::search;
 
 
@@ -35,7 +35,7 @@ pub fn lookup_host<N: ToDname>(resolver: &Resolver, name: &N) -> LookupHost {
 pub fn search_host<N: ToRelativeDname + Clone>(
     resolver: &Resolver,
     name: N
-) -> impl Future<Item=FoundHosts, Error=QueryError> {
+) -> impl Future<Item=FoundHosts, Error=io::Error> {
     search(resolver, name, |resolver, name| lookup_host(resolver, &name))
 }
 
@@ -59,7 +59,7 @@ pub struct LookupHost {
 
 impl Future for LookupHost {
     type Item = FoundHosts;
-    type Error = QueryError;
+    type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         if (self.a.poll(), self.aaaa.poll()) != (true, true) {
@@ -169,12 +169,12 @@ impl FoundHosts {
     ///
     /// Either of the queries can have resulted in an error but not both.
     fn from_answers(
-        a: Result<Answer, QueryError>, b: Result<Answer, QueryError>
-    ) -> Result<Self, QueryError> {
+        a: Result<Answer, io::Error>, b: Result<Answer, io::Error>
+    ) -> Result<Self, io::Error> {
         let (a, b) = match (a, b) {
             (Ok(a), b) => (a, b),
             (a, Ok(b)) => (b, a),
-            (Err(a), Err(b)) => return Err(a.merge(b))
+            (Err(a), Err(_)) => return Err(a)
         };
         let name = a.canonical_name().unwrap();
         let mut addrs = Vec::new();

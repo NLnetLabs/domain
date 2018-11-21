@@ -14,6 +14,9 @@ extern crate domain_core;
 extern crate rand;
 extern crate tokio;
 
+pub use self::resolver::Resolver;
+pub use self::lookup::{lookup_addr, lookup_host, lookup_srv};
+
 pub mod conf;
 pub mod lookup;
 pub mod resolver;

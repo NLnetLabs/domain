@@ -158,7 +158,7 @@ pub struct Query {
     /// The server query we are currently performing.
     ///
     /// If this is an error, we had to bail out before ever starting a query.
-    query: Result<ServerQuery, Option<QueryError>>,
+    query: Result<ServerQuery, Option<io::Error>>,
 
     /// The query message we currently work on.
     ///
@@ -186,7 +186,7 @@ impl Query {
         };
         res.query = match res.start_query() {
             Some(query) => Ok(query),
-            None => Err(Some(QueryError::NoServers))
+            None => Err(Some(no_servers_error()))
         };
         res
     }
@@ -245,7 +245,7 @@ impl Query {
         }
         self.attempt += 1;
         if self.attempt >= self.resolver.options().attempts {
-            self.query = Err(Some(QueryError::GivingUp));
+            self.query = Err(Some(giving_up_error()));
             return;
         }
         self.counter = if self.preferred {
@@ -256,14 +256,14 @@ impl Query {
         };
         self.query = match self.start_query() {
             Some(query) => Ok(query),
-            None => Err(Some(QueryError::GivingUp))
+            None => Err(Some(giving_up_error()))
         }
     }
 }
 
 impl Future for Query {
     type Item = Answer;
-    type Error = QueryError;
+    type Error = io::Error;
 
     fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
         let answer = {
@@ -369,23 +369,16 @@ impl AsRef<Message> for Answer {
 }
 
 
-//------------ QueryError ----------------------------------------------------
+//------------ Making Errors -------------------------------------------------
+//
+// Because we want to use io::Error and creating them is tedious, we have some
+// friendly helpers for that.
 
-#[derive(Debug)]
-pub enum QueryError {
-    NoServers,
-    GivingUp,
-    MalformedAnswer, // XXX Return this for when parsing fails.
-    Io(io::Error)
+fn no_servers_error() -> io::Error {
+    io::Error::new(io::ErrorKind::NotFound, "no servers available")
 }
 
-impl QueryError {
-    pub fn merge(self, other: Self) -> Self {
-        if let QueryError::GivingUp = self {
-            other
-        }
-        else {
-            self
-        }
-    }
+fn giving_up_error() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "timed out")
 }
+
