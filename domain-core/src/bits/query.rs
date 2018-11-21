@@ -314,3 +314,106 @@ impl AsRef<Message> for QueryMessage {
     }
 }
 
+
+//------------ DgramQueryMessage ---------------------------------------------
+
+/// A raw query message for use with datagram transports.
+///
+/// This type wraps a [`QueryMessage`] and provides an `AsRef<[u8]>`
+/// implementation so that it can be passed to Tokio’s
+/// `UdpSocket::send_dgram`.
+#[derive(Clone, Debug)]
+pub struct DgramQueryMessage(QueryMessage);
+
+impl DgramQueryMessage {
+    /// Creates a new datagram query message from a query message.
+    pub fn new(query: QueryMessage) -> DgramQueryMessage {
+        DgramQueryMessage(query)
+    }
+
+    /// Converts the datagram query message back into a query message.
+    pub fn unwrap(self) -> QueryMessage {
+        self.0
+    }
+
+    /// Unfreezes the datagram query message into a query builder.
+    ///
+    /// This is a shortcut for `self.unwrap().unfreeze()`. See
+    /// [`QueryMessage::unfreeze`] for additional information.
+    ///
+    /// [`QueryMessage::unfreeze`]: struct.QueryMessage.html#method.unfreeze
+    pub fn unfreeze(self) -> QueryBuilder {
+        self.unwrap().unfreeze()
+    }
+}
+
+
+//--- From
+
+impl From<QueryMessage> for DgramQueryMessage {
+    fn from(query: QueryMessage) -> DgramQueryMessage {
+        Self::new(query)
+    }
+}
+
+
+//--- AsRef
+
+impl AsRef<[u8]> for DgramQueryMessage {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_dgram_slice()
+    }
+}
+
+
+
+//------------ StreamQueryMessgae --------------------------------------------
+
+/// A raw query message for use with stream transports.
+///
+/// This type wraps a [`QueryMessage`] and provides an `AsRef<[u8]>`
+/// implementation so that it can be passed to Tokio’s
+/// `write_all`.
+#[derive(Clone, Debug)]
+pub struct StreamQueryMessage(QueryMessage);
+
+impl StreamQueryMessage {
+    /// Creates a new stream query message from a query message.
+    pub fn new(query: QueryMessage) -> StreamQueryMessage {
+        StreamQueryMessage(query)
+    }
+
+    /// Converts the stream query message back into a query message.
+    pub fn unwrap(self) -> QueryMessage {
+        self.0
+    }
+
+    /// Unfreezes the stream query message into a query builder.
+    ///
+    /// This is a shortcut for `self.unwrap().unfreeze()`. See
+    /// [`QueryMessage::unfreeze`] for additional information.
+    ///
+    /// [`QueryMessage::unfreeze`]: struct.QueryMessage.html#method.unfreeze
+    pub fn unfreeze(self) -> QueryBuilder {
+        self.unwrap().unfreeze()
+    }
+}
+
+
+//--- From
+
+impl From<QueryMessage> for StreamQueryMessage {
+    fn from(query: QueryMessage) -> StreamQueryMessage {
+        Self::new(query)
+    }
+}
+
+
+//--- AsRef
+
+impl AsRef<[u8]> for StreamQueryMessage {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_stream_slice()
+    }
+}
+
