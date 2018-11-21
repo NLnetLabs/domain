@@ -12,6 +12,10 @@ New
    * `bits::message_builder::OptBuilder` now behaves more like all other
      builders with access to the preview, header, and prelude.
 
+* `bits::query` contains a simplified builder and a dedicated message wrapper
+  for queries; together they allow re-use of a query for trying with
+  several servers.
+
 * new methods:
 
    * `bits::name::ToRelativeDname::chain` and `chain_root`
