@@ -15,7 +15,6 @@ pub enum TcpQuery {
     Send(WriteAll<TcpStream, StreamQueryMessage>),
     RecvPrelude(DecoratedFuture<ReadExact<TcpStream, [u8; 2]>, QueryMessage>),
     RecvMessage(DecoratedFuture<ReadExact<TcpStream, Vec<u8>>, QueryMessage>),
-    Error(Option<io::Error>),
     Done
 }
 
@@ -82,14 +81,6 @@ impl Future for TcpQuery {
                         TcpQuery::Done,
                         Err(io::Error::new(io::ErrorKind::Other, "short buf"))
                     )
-                }
-            }
-            TcpQuery::Error(ref mut err) => {
-                if let Some(err) = err.take() {
-                    (TcpQuery::Done, Err(err))
-                }
-                else {
-                    panic!("polled resolved future")
                 }
             }
             TcpQuery::Done => panic!("polled resolved future"),

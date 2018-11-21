@@ -19,5 +19,5 @@ pub mod lookup;
 pub mod resolver;
 pub mod search;
 
-pub mod net;
+mod net;
 
