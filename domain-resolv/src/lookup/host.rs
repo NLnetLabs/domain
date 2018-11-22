@@ -153,6 +153,9 @@ impl<A: Future> MaybeDone<A> {
 /// which the addresses were found.
 #[derive(Clone, Debug)]
 pub struct FoundHosts {
+    /// The domain name that was resolved.
+    qname: Dname,
+
     /// The canonical domain name for the host.
     canonical: Dname,
 
@@ -162,7 +165,11 @@ pub struct FoundHosts {
 
 impl FoundHosts {
     pub fn new(canonical: Dname, addrs: Vec<IpAddr>) -> Self {
-        FoundHosts { canonical: canonical, addrs: addrs }
+        FoundHosts {
+            qname: canonical.clone(),
+            canonical,
+            addrs,
+        }
     }
 
     /// Creates a new value from the results of the A and AAAA queries.
@@ -176,6 +183,7 @@ impl FoundHosts {
             (a, Ok(b)) => (b, a),
             (Err(a), Err(_)) => return Err(a)
         };
+        let qname = a.first_question().unwrap().qname().to_name();
         let name = a.canonical_name().unwrap();
         let mut addrs = Vec::new();
         Self::process_records(&mut addrs, &a, &name).ok();
@@ -183,6 +191,7 @@ impl FoundHosts {
             Self::process_records(&mut addrs, &b, &name).ok();
         }
         Ok(FoundHosts {
+            qname,
             canonical: name.to_name(),
             addrs: addrs
         })
@@ -212,6 +221,11 @@ impl FoundHosts {
             }
         }
         Ok(())
+    }
+
+    /// Returns a reference to the domain name that was queried.
+    pub fn qname(&self) -> &Dname {
+        &self.qname
     }
 
     /// Returns a reference to the canonical name for the host.

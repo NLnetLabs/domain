@@ -27,4 +27,3 @@ tokio-tls = "^0.2"
 path = "../domain-core"
 version = "0.3.1"
 
-

@@ -4,7 +4,7 @@
 //! implement applications of the DNS.
 
 pub use self::addr::lookup_addr;
-pub use self::host::lookup_host;
+pub use self::host::{lookup_host, search_host};
 pub use self::srv::lookup_srv;
 
 pub mod addr;
