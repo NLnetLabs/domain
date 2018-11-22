@@ -181,7 +181,7 @@ impl<'a> OptBuilder<'a> {
     fn new(query: &'a mut QueryBuilder) -> Self {
         let pos = query.target.len();
         let header = OptHeader::default();
-        query.target.reserve(header.compose_len());
+        query.target.reserve(header.compose_len() + 2);
         header.compose(&mut query.target);
         0u16.compose(&mut query.target);
         query.counts_mut().inc_arcount();
