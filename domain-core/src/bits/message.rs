@@ -260,6 +260,14 @@ impl Message {
         let additional = authority.clone().next_section()?.unwrap();
         Ok((question, answer, authority, additional))
     }
+
+    /// Returns record iterator for all sections
+    pub fn iter(&self) -> MessageIterator {
+        match self.answer() {
+            Ok(section) => MessageIterator { inner: Some(section) },
+            Err(_) => MessageIterator { inner: None },
+        }
+    }
 }
 
 
@@ -373,6 +381,36 @@ impl AsRef<[u8]> for Message {
     }
 }
 
+//--- Iterator
+
+pub struct MessageIterator {
+    inner: Option<RecordSection>,
+}
+
+impl Iterator for MessageIterator {
+    type Item = (Result<ParsedRecord, ParsedDnameError>, Section);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Try to get next record from current section
+        match self.inner {
+            Some(ref mut inner) => {
+                let item = inner.next();
+                if let Some(item) = item {
+                    return Some((item, inner.section));
+                }
+            },
+            None => return None,
+        }
+
+        // Advance to next section if possible, and retry
+        self.inner = match self.inner.clone().unwrap().next_section() {
+            Ok(section) => section,
+            Err(_) => None,
+        };
+
+        self.next()
+    }
+}
 
 //------------ QuestionSection ----------------------------------------------
 
@@ -472,7 +510,7 @@ impl Iterator for QuestionSection {
 
 /// A helper type enumerating which section a `RecordSection` is currently in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Section {
+pub enum Section {
     Answer,
     Authority,
     Additional
@@ -707,14 +745,31 @@ impl<D: ParseRecordData> Iterator for RecordIter<D> {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
     use super::*;
+    use bits::name::*;
+    use bits::message_builder::MessageBuilder;
+
+    // Helper for test cases
+    fn get_test_message() -> Message {
+        let msg = MessageBuilder::with_capacity(512);
+        let mut msg = msg.answer();
+        msg.push((Dname::from_str("foo.example.com.").unwrap(), 86000,
+                     Cname::new(Dname::from_str("baz.example.com.")
+                                         .unwrap()))).unwrap();
+        let mut msg = msg.authority();
+        msg.push((Dname::from_str("bar.example.com.").unwrap(), 86000,
+                     Cname::new(Dname::from_str("baz.example.com.")
+                                         .unwrap()))).unwrap();
+
+        Message::from_bytes(msg.finish().into()).unwrap()
+    }
 
     #[test]
     fn short_message() {
         assert!(Message::from_bytes(Bytes::from_static(&[0u8; 11])).is_err());
         assert!(Message::from_bytes(Bytes::from_static(&[0u8; 12])).is_ok());
     }
-
 
         /*
     use std::str::FromStr;
@@ -757,4 +812,24 @@ mod test {
                    msg.canonical_name().unwrap());
     }
         */
+
+    #[test]
+    fn message_iterator() {
+        let msg = get_test_message();
+
+        // Check that it returns a record from first section
+        let mut iter = msg.iter();
+        let mut value = iter.next();
+        assert_eq!(true, value.is_some());
+        let (rr, section) = value.unwrap();
+        assert_eq!(Section::Answer, section);
+        assert!(rr.is_ok());
+
+        // Check that it advances to next section
+        value = iter.next();
+        assert_eq!(true, value.is_some());
+        let (rr, section) = value.unwrap();
+        assert_eq!(Section::Authority, section);
+        assert!(rr.is_ok());
+    }
 }
