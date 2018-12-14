@@ -509,7 +509,7 @@ impl Iterator for QuestionSection {
 //------------ Section -------------------------------------------------------
 
 /// A helper type enumerating which section a `RecordSection` is currently in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd)]
 pub enum Section {
     Answer,
     Authority,
@@ -519,7 +519,7 @@ pub enum Section {
 
 impl Section {
     /// Returns the first section.
-    fn first() -> Self { Section::Answer }
+    pub fn first() -> Self { Section::Answer }
 
     /// Returns the correct record count for this section.
     fn count(self, counts: HeaderCounts) -> u16 {
@@ -748,7 +748,7 @@ mod test {
     use std::str::FromStr;
     use super::*;
     use bits::name::*;
-    use bits::message_builder::MessageBuilder;
+    use bits::message_builder::*;
 
     // Helper for test cases
     fn get_test_message() -> Message {
