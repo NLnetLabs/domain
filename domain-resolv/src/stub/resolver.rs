@@ -8,14 +8,13 @@
 
 use std::{io, ops};
 use std::sync::Arc;
-use domain_core::bits::{Message, Question};
+use domain_core::bits::{Dname, Message, Question, ToDname};
 use domain_core::bits::query::{QueryBuilder, QueryMessage};
-use domain_core::bits::name::ToDname;
 use domain_core::iana::Rcode;
 use tokio::prelude::{Async, Future};
 use tokio::prelude::future::lazy;
 use tokio::runtime::Runtime;
-use crate::resolver::Resolver;
+use crate::resolver::{Resolver, SearchNames};
 use super::conf::{ResolvConf, ResolvOptions};
 use super::net::{ServerInfo, ServerList, ServerListCounter, ServerQuery};
 
@@ -140,6 +139,17 @@ impl Resolver for StubResolver {
     fn query<N, Q>(&self, question: Q) -> Query
     where N: ToDname, Q: Into<Question<N>> {
         Query::new(self.clone(), question)
+    }
+}
+
+impl SearchNames for StubResolver {
+    type Iter = SearchIter;
+
+    fn search_iter(&self) -> Self::Iter {
+        SearchIter {
+            resolver: self.clone(),
+            pos: 0
+        }
     }
 }
 
@@ -372,6 +382,29 @@ impl ops::Deref for Answer {
 impl AsRef<Message> for Answer {
     fn as_ref(&self) -> &Message {
         &self.message
+    }
+}
+
+
+//------------ SearchIter ----------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct SearchIter {
+    resolver: StubResolver,
+    pos: usize,
+}
+
+impl Iterator for SearchIter {
+    type Item = Dname;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(res) = self.resolver.options().search.get(self.pos) {
+            self.pos += 1;
+            Some(res.clone())
+        }
+        else {
+            None
+        }
     }
 }
 

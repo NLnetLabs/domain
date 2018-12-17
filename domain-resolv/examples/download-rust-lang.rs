@@ -13,16 +13,14 @@ use native_tls::TlsConnector;
 use tokio::net::TcpStream;
 use tokio::runtime::Runtime;
 use domain_core::bits::Dname;
-use domain_resolv::{Resolver, lookup_host};
+use domain_resolv::{Resolver, StubResolver};
 
 fn main() -> Result<(), Box<std::error::Error>> {
     let mut runtime = Runtime::new()?;
-    let addr = lookup_host(
-        &Resolver::new(),
+    let addr = StubResolver::new().lookup_host(
         &Dname::from_str("www.rust-lang.org").unwrap()
     );
     let addr = addr.and_then(|addr| {
-        println!("DNS done.");
         addr.port_iter(443).next()
             .ok_or(
                 io::Error::new(

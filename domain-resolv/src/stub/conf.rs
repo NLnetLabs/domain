@@ -597,6 +597,10 @@ impl SearchList {
         self.search.push(Dname::root())
     }
 
+    pub fn get(&self, pos: usize) -> Option<&Dname> {
+        self.search.get(pos)
+    }
+
     pub fn as_slice(&self) -> &[Dname] {
         self.as_ref()
     }
@@ -628,7 +632,7 @@ impl ops::Deref for SearchList {
 }
 
 
-//------------ Private Helpers ----------------------------------------------
+//------------ Private Helpers -----------------------------------------------
 //
 // These are here to wrap stuff into Results.
 

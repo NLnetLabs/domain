@@ -7,8 +7,7 @@ use std::env;
 use std::net::IpAddr;
 use std::str::FromStr;
 use domain_core::bits::name::UncertainDname;
-use domain_resolv::Resolver;
-use domain_resolv::lookup::{lookup_addr, lookup_host, search_host};
+use domain_resolv::{Resolver, StubResolver};
 use futures::{future, stream};
 use futures::future::{Either, Future};
 use futures::stream::Stream;
@@ -16,15 +15,15 @@ use tokio::runtime::Runtime;
 
 
 fn forward(
-    resolver: &Resolver,
+    resolver: &StubResolver,
     name: UncertainDname
 ) -> impl Future<Item=(), Error=()> {
     match name {
         UncertainDname::Absolute(name) => {
-            Either::A(lookup_host(resolver, &name))
+            Either::A(resolver.lookup_host(&name))
         }
         UncertainDname::Relative(name) => {
-            Either::B(search_host(resolver, name))
+            Either::B(resolver.clone().search_host(name))
         }
     }
     .then(move |answer| {
@@ -56,10 +55,10 @@ fn forward(
 
 
 fn reverse(
-    resolver: &Resolver,
+    resolver: &StubResolver,
     addr: IpAddr
 ) -> impl Future<Item=(), Error=()> {
-    lookup_addr(&resolver, addr)
+    resolver.lookup_addr(addr)
     .map_err(|err| {
         println!("Query failed: {}", err);
         ()
@@ -79,7 +78,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
         Err("Usage: lookup <hostname_or_addr> [...]")?;
     }
 
-    let resolver = Resolver::new();
+    let resolver = StubResolver::new();
     let mut runtime = Runtime::new()?;
 
     let _ = runtime.block_on(
