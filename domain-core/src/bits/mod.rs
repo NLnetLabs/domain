@@ -90,7 +90,9 @@ pub use self::compose::{Compose, Compress, Compressor};
 pub use self::header::{Header, HeaderCounts, HeaderSection};
 pub use self::message::{Message, RecordSection};
 pub use self::message_builder::MessageBuilder;
-pub use self::name::{Dname, ParsedDname, RelativeDname};
+pub use self::name::{
+    Dname, ParsedDname, RelativeDname, ToDname, ToRelativeDname
+};
 pub use self::parse::{Parser, Parse, ParseAll, ShortBuf};
 pub use self::question::Question;
 pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};

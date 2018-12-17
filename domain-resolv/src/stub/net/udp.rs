@@ -5,7 +5,7 @@ use domain_core::bits::query::{DgramQueryMessage, QueryMessage};
 use domain_core::bits::message::Message;
 use tokio::net::udp::{RecvDgram, SendDgram, UdpSocket};
 use tokio::prelude::{Async, Future};
-use ::resolver::Answer;
+use super::super::resolver::Answer;
 use super::util::DecoratedFuture;
 
 

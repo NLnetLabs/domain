@@ -8,18 +8,14 @@
 //!
 //! Both parts are modeled along the lines of glibc’s resolver.
 
-use std::convert;
+use std::{convert, error, fmt, fs, io, ops};
 use std::default::Default;
-use std::error;
-use std::fmt;
-use std::fs; 
-use std::io::{self, Read};
+use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::time::Duration;
 use domain_core::bits::name::{self, Dname};
-use super::search::SearchList;
 
 
 //------------ ResolvOptions ------------------------------------------------
@@ -577,6 +573,57 @@ impl fmt::Display for ResolvConf {
         }
 
         Ok(())
+    }
+}
+
+
+//------------ SearchList ----------------------------------------------------
+
+#[derive(Clone, Debug, Default)]
+pub struct SearchList {
+    search: Vec<Dname>,
+}
+
+impl SearchList {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn push(&mut self, name: Dname) {
+        self.search.push(name)
+    }
+
+    pub fn push_root(&mut self) {
+        self.search.push(Dname::root())
+    }
+
+    pub fn as_slice(&self) -> &[Dname] {
+        self.as_ref()
+    }
+}
+
+impl From<Dname> for SearchList {
+    fn from(name: Dname) -> Self {
+        let mut res = Self::new();
+        res.push(name);
+        res
+    }
+}
+
+
+//--- AsRef and Deref
+
+impl AsRef<[Dname]> for SearchList {
+    fn as_ref(&self) -> &[Dname] {
+        self.search.as_ref()
+    }
+}
+
+impl ops::Deref for SearchList {
+    type Target = [Dname];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
     }
 }
 

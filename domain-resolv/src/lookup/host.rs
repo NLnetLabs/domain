@@ -2,14 +2,14 @@
 
 use std::{io, mem, slice};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use domain_core::bits::Message;
 use domain_core::bits::name::{
     Dname, ParsedDname, ParsedDnameError, ToDname, ToRelativeDname
 };
 use domain_core::iana::Rtype;
 use domain_core::rdata::parsed::{A, Aaaa};
 use tokio::prelude::{Async, Future, Poll};
-use ::resolver::{Answer, Query, Resolver};
-use ::search::search;
+use crate::resolver::{Resolver, SearchNames};
 
 
 //------------ lookup_host ---------------------------------------------------
@@ -25,18 +25,84 @@ use ::search::search;
 /// IP addresses or even socket addresses. Since the lookup may determine that
 /// the host name is in fact an alias for another name, the value will also
 /// return the canonical name.
-pub fn lookup_host<N: ToDname>(resolver: &Resolver, name: &N) -> LookupHost {
+pub fn lookup_host<R: Resolver, N: ToDname>(
+    resolver: &R,
+    name: &N
+) -> LookupHost<R> {
     LookupHost {
         a: MaybeDone::NotYet(resolver.query((name, Rtype::A))),
         aaaa: MaybeDone::NotYet(resolver.query((name, Rtype::Aaaa))),
     }
 }
 
-pub fn search_host<N: ToRelativeDname + Clone>(
-    resolver: &Resolver,
+pub fn search_host<R: Resolver + SearchNames, N: ToRelativeDname> (
+    resolver: R,
     name: N
-) -> impl Future<Item=FoundHosts, Error=io::Error> {
-    search(resolver, name, |resolver, name| lookup_host(resolver, &name))
+) -> SearchHost<R, N> {
+    SearchHost::new(resolver, name)
+}
+
+
+//------------ SearchHost ----------------------------------------------------
+
+pub struct SearchHost<R: Resolver + SearchNames, N: ToRelativeDname> {
+    resolver: R,
+    name: N,
+    iter: <R as SearchNames>::Iter,
+    pending: Option<LookupHost<R>>
+}
+
+impl<R: Resolver + SearchNames, N: ToRelativeDname> SearchHost<R, N> {
+    fn new(resolver: R, name: N) -> Self {
+        let mut iter = resolver.search_iter();
+        while let Some(suffix) = iter.next() {
+            let lookup = match (&name).chain(suffix) {
+                Ok(query_name) => lookup_host(&resolver, &query_name),
+                Err(_) => continue,
+            };
+            return SearchHost {
+                pending: Some(lookup),
+                resolver, name, iter
+            }
+        }
+        SearchHost {
+            resolver, name, iter,
+            pending: None
+        }
+    }
+}
+
+impl<R, N> Future for SearchHost<R, N>
+where R: Resolver + SearchNames, N: ToRelativeDname {
+    type Item = FoundHosts;
+    type Error = io::Error;
+
+    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+        let err = match self.pending {
+            Some(ref mut pending) => match pending.poll() {
+                Ok(Async::NotReady) => return Ok(Async::NotReady),
+                Ok(Async::Ready(res)) => return Ok(Async::Ready(res)),
+                Err(err) => err
+            }
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "no usable search list item"
+                ))
+            }
+        };
+
+        while let Some(suffix) = self.iter.next() {
+            let lookup = match (&self.name).chain(suffix) {
+                Ok(query_name) => lookup_host(&self.resolver, &query_name),
+                Err(_) => continue,
+            };
+            self.pending = Some(lookup);
+            return self.poll()
+        }
+        self.pending = None;
+        Err(err)
+    }
 }
 
 
@@ -45,19 +111,18 @@ pub fn search_host<N: ToRelativeDname + Clone>(
 /// The future for [`lookup_host()`].
 ///
 /// [`lookup_host()`]: fn.lookup_host.html
-#[derive(Debug)]
-pub struct LookupHost {
+pub struct LookupHost<R: Resolver> {
     /// The A query for the currently processed name.
-    a: MaybeDone<Query>,
+    a: MaybeDone<R::Query>,
 
     /// The AAAA query for the currently processed name.
-    aaaa: MaybeDone<Query>,
+    aaaa: MaybeDone<R::Query>,
 }
 
 
 //--- Future
 
-impl Future for LookupHost {
+impl<R: Resolver> Future for LookupHost<R> {
     type Item = FoundHosts;
     type Error = io::Error;
 
@@ -175,16 +240,16 @@ impl FoundHosts {
     /// Creates a new value from the results of the A and AAAA queries.
     ///
     /// Either of the queries can have resulted in an error but not both.
-    fn from_answers(
-        a: Result<Answer, io::Error>, b: Result<Answer, io::Error>
+    fn from_answers<M: AsRef<Message>>(
+        a: Result<M, io::Error>, b: Result<M, io::Error>
     ) -> Result<Self, io::Error> {
         let (a, b) = match (a, b) {
             (Ok(a), b) => (a, b),
             (a, Ok(b)) => (b, a),
             (Err(a), Err(_)) => return Err(a)
         };
-        let qname = a.first_question().unwrap().qname().to_name();
-        let name = a.canonical_name().unwrap();
+        let qname = a.as_ref().first_question().unwrap().qname().to_name();
+        let name = a.as_ref().canonical_name().unwrap();
         let mut addrs = Vec::new();
         Self::process_records(&mut addrs, &a, &name).ok();
         if let Ok(b) = b {
@@ -201,19 +266,19 @@ impl FoundHosts {
     ///
     /// Adds all A and AAA records contained in `msg`’s answer to `addrs`,
     /// assuming they domain name in the record matches `name`.
-    fn process_records(
+    fn process_records<M: AsRef<Message>>(
         addrs: &mut Vec<IpAddr>,
-        msg: &Answer,
+        msg: &M,
         name: &ParsedDname
     ) -> Result<(), ParsedDnameError> {
-        for record in msg.answer()?.limit_to::<A>() {
+        for record in msg.as_ref().answer()?.limit_to::<A>() {
             if let Ok(record) = record {
                 if record.owner() == name {
                     addrs.push(IpAddr::V4(record.data().addr()))
                 }
             }
         }
-        for record in msg.answer()?.limit_to::<Aaaa>() {
+        for record in msg.as_ref().answer()?.limit_to::<Aaaa>() {
             if let Ok(record) = record {
                 if record.owner() == name {
                     addrs.push(IpAddr::V6(record.data().addr()))

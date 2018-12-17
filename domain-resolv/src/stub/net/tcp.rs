@@ -6,7 +6,7 @@ use domain_core::bits::query::{QueryMessage, StreamQueryMessage};
 use tokio::io::{read_exact, write_all, ReadExact, WriteAll};
 use tokio::net::tcp::{ConnectFuture, TcpStream};
 use tokio::prelude::{Async, Future};
-use ::resolver::Answer;
+use super::super::resolver::Answer;
 use super::util::DecoratedFuture;
 
 #[derive(Debug)]

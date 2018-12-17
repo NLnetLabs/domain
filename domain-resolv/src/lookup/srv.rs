@@ -9,11 +9,11 @@ use domain_core::rdata::parsed::{A, Aaaa, Srv};
 use rand;
 use rand::distributions::{Distribution, Uniform};
 use tokio::prelude::{Async, Future, Poll, Stream};
-use ::resolver::{Answer, Query, Resolver};
+use crate::resolver::Resolver;
 use super::host::{FoundHosts, FoundHostsSocketIter, LookupHost, lookup_host};
 
 
-//------------ lookup_records ------------------------------------------------
+//------------ lookup_srv ----------------------------------------------------
 
 /// Creates a future that looks up SRV records.
 ///
@@ -34,13 +34,14 @@ use super::host::{FoundHosts, FoundHostsSocketIter, LookupHost, lookup_host};
 /// The future resolves to `None` whenever the request service is
 /// “decidedly not available” at the requested domain, that is there is a
 /// single SRV record with the root label as its target.
-pub fn lookup_srv<S, N>(
-    resolver: &Resolver,
+pub fn lookup_srv<R, S, N>(
+    resolver: R,
     service: S,
     name: N,
     fallback_port: u16
-) -> LookupSrv<S, N>
+) -> LookupSrv<R, S, N>
 where
+    R: Resolver,
     S: ToRelativeDname + Clone + Send + 'static,
     N: ToDname + Send + 'static
 {
@@ -58,7 +59,7 @@ where
     };
     LookupSrv {
         data: Some(LookupData {
-            resolver: resolver.clone(),
+            resolver,
             host: name,
             service,
             fallback_port
@@ -71,9 +72,9 @@ where
 //------------ LookupData ----------------------------------------------------
 
 #[derive(Debug)]
-struct LookupData<S, N> {
+struct LookupData<R, S, N> {
     /// The resolver to run queries on.
-    resolver: Resolver,
+    resolver: R,
 
     /// Bare host to be queried.
     ///
@@ -93,18 +94,19 @@ struct LookupData<S, N> {
 /// The future returned by [`lookup_srv()`].
 ///
 /// [`lookup_srv()`]: fn.lookup_srv.html
-pub struct LookupSrv<S, N> {
-    data: Option<LookupData<S, N>>,
-    query: Result<Query, Option<SrvError>>,
+pub struct LookupSrv<R: Resolver, S, N> {
+    data: Option<LookupData<R, S, N>>,
+    query: Result<R::Query, Option<SrvError>>,
 }
 
 
-impl<S, N> Future for LookupSrv<S, N>
+impl<R, S, N> Future for LookupSrv<R, S, N>
 where
+    R: Resolver,
     S: ToRelativeDname + Clone + Send + 'static,
     N: ToDname + Send + 'static
 {
-    type Item = Option<FoundSrvs<S>>;
+    type Item = Option<FoundSrvs<R, S>>;
     type Error = SrvError;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -141,10 +143,9 @@ where
 /// SrvItem elements are resolved as needed, skipping them in case of failure.
 /// It is therefore guaranteed to yield only SrvItem structs that have
 /// a `SrvItemState::Resolved` state.
-#[derive(Debug)]
-pub struct LookupSrvStream<S> {
+pub struct LookupSrvStream<R: Resolver, S> {
     /// The resolver to use for A/AAAA requests.
-    resolver: Resolver,
+    resolver: R,
 
     /// A vector of (potentially unresolved) SrvItem elements.
     ///
@@ -153,11 +154,11 @@ pub struct LookupSrvStream<S> {
     items: Vec<SrvItem<S>>,
 
     /// A/AAAA lookup for the last `SrvItem`  in `items`.
-    lookup: Option<LookupHost>
+    lookup: Option<LookupHost<R>>
 }
 
-impl<S> LookupSrvStream<S> {
-    fn new(found: FoundSrvs<S>) -> Self {
+impl<R: Resolver, S> LookupSrvStream<R, S> {
+    fn new(found: FoundSrvs<R, S>) -> Self {
         LookupSrvStream {
             resolver: found.resolver,
             items: found.items.into_iter().rev().collect(),
@@ -169,8 +170,8 @@ impl<S> LookupSrvStream<S> {
 
 //--- Stream
 
-impl<S> Stream for LookupSrvStream<S>
-where S: ToRelativeDname + Clone + Send + 'static {
+impl<R, S> Stream for LookupSrvStream<R, S>
+where R: Resolver, S: ToRelativeDname + Clone + Send + 'static {
     type Item = ResolvedSrvItem<S>;
     type Error = SrvError;
 
@@ -225,13 +226,14 @@ where S: ToRelativeDname + Clone + Send + 'static {
 //------------ FoundSrvs -----------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct FoundSrvs<S> {
-    resolver: Resolver,
+pub struct FoundSrvs<R, S> {
+    resolver: R,
     items: Vec<SrvItem<S>>,
 }
 
-impl<S> FoundSrvs<S> {
-    pub fn into_stream(self) -> LookupSrvStream<S> {
+impl<R, S> FoundSrvs<R, S> {
+    pub fn into_stream(self) -> LookupSrvStream<R, S>
+    where R: Resolver {
         LookupSrvStream::new(self)
     }
 
@@ -244,12 +246,12 @@ impl<S> FoundSrvs<S> {
     }
 }
 
-impl<S: Clone> FoundSrvs<S> {
+impl<R: Resolver, S: Clone> FoundSrvs<R, S> {
     fn new<N: ToDname>(
-        answer: Answer,
-        data: LookupData<S, N>
+        answer: R::Answer,
+        data: LookupData<R, S, N>
     ) -> Result<Option<Self>, SrvError> {
-        let name = answer.canonical_name().unwrap();
+        let name = answer.as_ref().canonical_name().unwrap();
         let mut rrs = Vec::new();
         Self::process_records(&mut rrs, &answer, &name)?;
 
@@ -272,7 +274,7 @@ impl<S: Clone> FoundSrvs<S> {
         }))
     }
 
-    fn new_dummy<N: ToDname>(data: LookupData<S, N>) -> Self {
+    fn new_dummy<N: ToDname>(data: LookupData<R, S, N>) -> Self {
         FoundSrvs {
             resolver: data.resolver,
             items: vec![
@@ -289,10 +291,10 @@ impl<S: Clone> FoundSrvs<S> {
 
     fn process_records(
         rrs: &mut Vec<Srv>,
-        answer: &Answer,
+        answer: &R::Answer,
         name: &ParsedDname
     ) -> Result<(), SrvError> {
-        for record in answer.answer()?.limit_to::<Srv>() {
+        for record in answer.as_ref().answer()?.limit_to::<Srv>() {
             if let Ok(record) = record {
                 if record.owner() == name {
                     rrs.push(record.data().clone())
@@ -304,21 +306,21 @@ impl<S: Clone> FoundSrvs<S> {
 
     fn items_from_rrs<N>(
         rrs: &[Srv],
-        answer: &Answer,
+        answer: &R::Answer,
         result: &mut Vec<SrvItem<S>>,
-        data: &LookupData<S, N>,
+        data: &LookupData<R, S, N>,
     ) -> Result<(), SrvError> {
         for rr in rrs {
             let mut addrs = Vec::new();
             let name = rr.target().to_name();
-            for record in answer.additional()?.limit_to::<A>() {
+            for record in answer.as_ref().additional()?.limit_to::<A>() {
                 if let Ok(record) = record {
                     if record.owner() == &name {
                         addrs.push(record.data().addr().into())
                     }
                 }
             }
-            for record in answer.additional()?.limit_to::<Aaaa>() {
+            for record in answer.as_ref().additional()?.limit_to::<Aaaa>() {
                 if let Ok(record) = record {
                     if record.owner() == &name {
                         addrs.push(record.data().addr().into())
@@ -343,7 +345,7 @@ impl<S: Clone> FoundSrvs<S> {
     }
 }
 
-impl<S> FoundSrvs<S> {
+impl<R, S> FoundSrvs<R, S> {
     fn reorder_items(items: &mut [SrvItem<S>]) {
         // First, reorder by priority and weight, effectively
         // grouping by priority, with weight 0 records at the beginning of

@@ -15,12 +15,14 @@ extern crate rand;
 extern crate tokio;
 
 pub use self::resolver::Resolver;
+
+pub mod lookup;
+//pub mod search;
+pub mod stub;
+
+pub mod resolver;
+
+/*
 pub use self::lookup::{lookup_addr, lookup_host, lookup_srv};
 
-pub mod conf;
-pub mod lookup;
-pub mod resolver;
-pub mod search;
-
-mod net;
-
+*/

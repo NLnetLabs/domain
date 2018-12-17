@@ -21,6 +21,10 @@ New
    * `bits::name::ToRelativeDname::chain` and `chain_root`
    * `rdata::rfc1035::Ptr::into_ptrdname`
 
+* new re-exports:
+
+   * `bits::ToDname` and `bits::ToRelativeDname`.
+
 Bug fixes
 
 * `bits::message::Message::is_answer` also compares the message ID.

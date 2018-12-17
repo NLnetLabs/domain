@@ -1,386 +1,79 @@
-//! The resolver.
-//!
-//! This module contains the type [`Resolver`] that represents a resolver.
-//! The type is also re-exported at crate level. You are encouraged to use
-//! that definition.
-//!
-//! [`Resolver`]: struct:Resolver.html
+//! The trait defining an abstract resolver.
 
-use std::{io, ops};
-use std::sync::Arc;
-use domain_core::bits::{Message, Question};
-use domain_core::bits::query::{QueryBuilder, QueryMessage};
-use domain_core::bits::name::ToDname;
-use domain_core::iana::Rcode;
-use tokio::prelude::{Async, Future};
-use tokio::prelude::future::lazy;
-use tokio::runtime::Runtime;
-use super::conf::{ResolvConf, ResolvOptions};
-use super::net::{ServerInfo, ServerList, ServerListCounter, ServerQuery};
+use std::io;
+use std::net::IpAddr;
+use domain_core::bits::{Dname, Message, Question, ToDname, ToRelativeDname};
+use futures::future::Future;
+use crate::lookup::{addr, host, srv};
 
 
-//------------ Resolver ------------------------------------------------------
+//----------- Resolver -------------------------------------------------------
 
-/// Access to a DNS stub resolver.
+/// A type that acts as a DNS resolver.
 ///
-/// This type collects all information making it possible to start DNS
-/// queries. You can create a new resoler using the system’s configuration
-/// using the [`new()`] associate function or using your own configuration
-/// with [`from_conf()`].
-///
-/// Resolver values can be cloned relatively cheaply as they keep all
-/// information behind an arc.
-///
-/// If you want to run a single query or lookup on a resolver synchronously,
-/// you can do so simply by using the [`run()`] or [`run_with_conf()`]
-/// associated functions.
-///
-/// [`new()`]: #method.new
-/// [`from_conf()`]: #method.from_conf
-/// [`query()`]: #method.query
-/// [`run()`]: #method.run
-/// [`run_with_conf()`]: #method.run_with_conf
-#[derive(Clone, Debug)]
-pub struct Resolver(Arc<ResolverInner>);
-
-
-#[derive(Debug)]
-struct ResolverInner {
-    /// Preferred servers.
-    preferred: ServerList,
-
-    /// Streaming servers.
-    stream: ServerList,
-
-    /// Resolver options.
-    options: ResolvOptions,
-}
-
-
-impl Resolver {
-    /// Creates a new resolver using the system’s default configuration.
-    pub fn new() -> Self {
-        Self::from_conf(ResolvConf::default())
-    }
-
-    /// Creates a new resolver using the given configuraiton.
-    pub fn from_conf(conf: ResolvConf) -> Self {
-        Resolver(Arc::new(ResolverInner::from_conf(conf)))
-    }
-
-    pub fn options(&self) -> &ResolvOptions {
-        &self.0.options
-    }
-}
-
-impl ResolverInner {
-    fn from_conf(conf: ResolvConf) -> Self {
-        ResolverInner {
-            preferred: ServerList::from_conf(&conf, |s| {
-                s.transport.is_preferred()
-            }),
-            stream: ServerList::from_conf(&conf, |s| {
-                s.transport.is_stream()
-            }),
-            options: conf.options
-        }
-    }
-}
-
-impl Resolver {
-    /// Queries the resolver for an answer to a question.
-    pub fn query<N, Q>(&self, question: Q) -> Query
-    where N: ToDname, Q: Into<Question<N>> {
-        Query::new(self.clone(), question)
-    }
-
-    /// Synchronously perform a DNS operation atop a standard resolver.
+/// A resolver is anything that tries to answer questions using the DNS. The
+/// `query` method takes a single question and returns a future that will
+/// eventually resolve into either an answer or an IO error.
+pub trait Resolver {
+    /// The answer returned by a query.
     ///
-    /// This associated functions removes almost all boiler plate for the
-    /// case that you want to perform some DNS operation, either a query or
-    /// lookup, on a resolver using the system’s configuration and wait for
-    /// the result.
+    /// This isn’t `Message` directly as it may be useful for the resolver
+    /// to provide additional information. For instance, a validating
+    /// resolver (a resolver that checks whether DNSSEC signatures are
+    /// correct) can supply more information as to why validation failed.
+    type Answer: AsRef<Message>;
+
+    /// The future resolving into an answer.
+    type Query: Future<Item=Self::Answer, Error=io::Error>;
+
+    /// Returns a future answering a question.
     ///
-    /// The only argument is a closure taking a reference to a `Resolver`
-    /// and returning a future. Whatever that future resolves to will be
-    /// returned.
-    pub fn run<R, F>(op: F) -> Result<R::Item, R::Error>
+    /// The method takes anything that can be converted into a question and
+    /// produces a future trying to answer the question.
+    fn query<N, Q>(&self, question: Q) -> Self::Query
+    where N: ToDname, Q: Into<Question<N>>;
+
+    fn lookup_addr(&self, addr: IpAddr) -> addr::LookupAddr<Self>
+    where Self: Sized {
+        addr::lookup_addr(self, addr)
+    }
+
+    fn lookup_host<N: ToDname>(&self, name: &N) -> host::LookupHost<Self>
+    where Self: Sized {
+        host::lookup_host(self, name)
+    }
+
+    fn search_host<N>(self, name: N) -> host::SearchHost<Self, N>
+    where Self: Sized + SearchNames, N: ToRelativeDname {
+        host::search_host(self, name)
+    }
+
+    fn lookup_srv<S, N>(
+        self, service: S, name: N, fallback_port: u16
+    ) -> srv::LookupSrv<Self, S, N>
     where
-        R: Future + Send + 'static,
-        R::Item: Send + 'static,
-        R::Error: Send + 'static,
-        F: FnOnce(Resolver) -> R + Send + 'static,
+        Self: Sized,
+        S: ToRelativeDname + Clone + Send + 'static,
+        N: ToDname + Send + 'static
     {
-        Self::run_with_conf(ResolvConf::default(), op)
-    }
-
-    /// Synchronously perform a DNS operation atop a configured resolver.
-    ///
-    /// This is like [`run()`] but also takes a resolver configuration for
-    /// tailor-making your own resolver.
-    ///
-    /// [`run()`]: #method.run
-    pub fn run_with_conf<R, F>(
-        conf: ResolvConf,
-        op: F
-    ) -> Result<R::Item, R::Error>
-    where
-        R: Future + Send + 'static,
-        R::Item: Send + 'static,
-        R::Error: Send + 'static,
-        F: FnOnce(Resolver) -> R + Send + 'static,
-    {
-        let resolver = Self::from_conf(conf);
-        let mut runtime = Runtime::new().unwrap(); // XXX unwrap
-        let res = runtime.block_on(lazy(|| op(resolver)));
-        runtime.shutdown_on_idle().wait().unwrap();
-        res
+        srv::lookup_srv(self, service, name, fallback_port)
     }
 }
 
 
-//------------ Query ---------------------------------------------------------
+//------------ SearchNames ---------------------------------------------------
 
-#[derive(Debug)]
-pub struct Query {
-    /// The resolver whose configuration we are using.
-    resolver: Resolver,
-
-    /// Are we still in the preferred server list or have gone streaming?
-    preferred: bool,
-
-    /// The number of attempts, starting with zero.
-    attempt: usize,
-
-    /// The index in the server list we currently trying.
-    counter: ServerListCounter,
-
-    /// The server query we are currently performing.
-    ///
-    /// If this is an error, we had to bail out before ever starting a query.
-    query: Result<ServerQuery, Option<io::Error>>,
-
-    /// The query message we currently work on.
-    ///
-    /// This is an option so we can take it out temporarily to manipulate it.
-    message: Option<QueryMessage>,
-}
-
-impl Query {
-    fn new<N, Q>(resolver: Resolver, question: Q) -> Self
-    where N: ToDname, Q: Into<Question<N>> {
-        let mut message = QueryBuilder::new(question);
-        message.set_rd(true);
-        let message = message.freeze();
-        let (preferred, counter) = if resolver.options().use_vc {
-            (false, resolver.0.stream.counter(resolver.options().rotate))
-        }
-        else {
-            (true, resolver.0.preferred.counter(resolver.options().rotate))
-        };
-        let mut res = Query {
-            resolver,
-            preferred,
-            attempt: 0,
-            counter,
-            query: Err(None),
-            message: Some(message)
-        };
-        res.query = match res.start_query() {
-            Some(query) => Ok(query),
-            None => Err(Some(no_servers_error()))
-        };
-        res
-    }
-
-    /// Starts a new query for the current server.
-    ///
-    /// Prepares the query message and then starts the server query. Returns
-    /// `None` if a query cannot be started because 
-    fn start_query(&mut self) -> Option<ServerQuery> {
-        let mut message = self.message.take().unwrap().unfreeze();
-        let (message, res) = {
-            let info = match self.current_server() {
-                Some(info) => info,
-                None => return None
-            };
-            info.prepare_message(&mut message);
-            let message = message.freeze();
-            let res = ServerQuery::new(message.clone(), info);
-            (message, res)
-        };
-        self.message = Some(message);
-        Some(res)
-    }
-
-    /// Returns the info for the current server.
-    fn current_server(&self) -> Option<&ServerInfo> {
-        let list = if self.preferred { &self.resolver.0.preferred }
-                   else { &self.resolver.0.stream };
-        self.counter.info(list)
-    }
-
-
-    fn switch_to_stream(&mut self) -> bool {
-        self.preferred = false;
-        self.attempt = 0;
-        self.counter = self.resolver.0.stream.counter(
-            self.resolver.options().rotate
-        );
-        match self.start_query() {
-            Some(query) => {
-                self.query = Ok(query);
-                true
-            }
-            None => {
-                self.query = Err(None);
-                false
-            }
-        }
-    }
-
-    fn next_server(&mut self) {
-        self.counter.next();
-        if let Some(query) = self.start_query() {
-            self.query = Ok(query);
-            return;
-        }
-        self.attempt += 1;
-        if self.attempt >= self.resolver.options().attempts {
-            self.query = Err(Some(giving_up_error()));
-            return;
-        }
-        self.counter = if self.preferred {
-            self.resolver.0.preferred.counter(self.resolver.options().rotate)
-        }
-        else {
-            self.resolver.0.stream.counter(self.resolver.options().rotate)
-        };
-        self.query = match self.start_query() {
-            Some(query) => Ok(query),
-            None => Err(Some(giving_up_error()))
-        }
-    }
-}
-
-impl Future for Query {
-    type Item = Answer;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-        let answer = {
-            let query = match self.query {
-                Ok(ref mut query) => query,
-                Err(ref mut err) => {
-                    let err = err.take();
-                    match err {
-                        Some(err) => return Err(err),
-                        None => panic!("polled a resolved future")
-                    }
-                }
-            };
-            match query.poll() {
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(answer)) => Some(answer),
-                Err(_) => None,
-            }
-        };
-        match answer {
-            Some(answer) => {
-                if answer.header().rcode() == Rcode::FormErr
-                    && self.current_server().unwrap().does_edns()
-                {
-                    // FORMERR with EDNS: turn off EDNS and try again.
-                    self.current_server().unwrap().disable_edns();
-                    self.query = Ok(self.start_query().unwrap());
-                }
-                else if answer.header().rcode() == Rcode::ServFail {
-                    // SERVFAIL: go to next server.
-                    self.next_server();
-                }
-                else if answer.header().tc() && self.preferred
-                    && !self.resolver.options().ign_tc
-                {
-                    // Truncated. If we can, switch to stream transports.
-                    if !self.switch_to_stream() {
-                        return Ok(Async::Ready(answer))
-                    }
-                }
-                else {
-                    // I guess we have an answer ...
-                    self.query = Err(None); // Make it panic if polled again.
-                    return Ok(Async::Ready(answer));
-                }
-            }
-            None => {
-                self.next_server();
-            }
-        }
-        self.poll()
-    }
-}
-
-
-//------------ Answer --------------------------------------------------------
-
-/// The answer to a question.
+/// A type that can produce a list of name suffixes.
 ///
-/// This type is a wrapper around the DNS [`Message`] containing the answer
-/// that provides some additional information.
-#[derive(Clone, Debug)]
-pub struct Answer {
-    message: Message,
+/// Legacy systems have the ability to interpret relative domain names as
+/// within the local system. They provide a list of suffixes that can be
+/// attached to the name to make it absolute.
+///
+/// A search resolver is a resolver that provides such a list. This is
+/// implemented via an iterator over domain names.
+pub trait SearchNames {
+    type Iter: Iterator<Item=Dname>;
+
+    /// Returns an iterator over the search suffixes.
+    fn search_iter(&self) -> Self::Iter;
 }
-
-impl Answer {
-    /// Returns whether the answer is a final answer to be returned.
-    pub fn is_final(&self) -> bool {
-        (self.message.header().rcode() == Rcode::NoError
-            || self.message.header().rcode() == Rcode::NXDomain)
-        && !self.message.header().tc()
-    }
-
-    /// Returns whether the answer is truncated.
-    pub fn is_truncated(&self) -> bool {
-        self.message.header().tc()
-    }
-
-    pub fn into_message(self) -> Message {
-        self.message
-    }
-}
-
-impl From<Message> for Answer {
-    fn from(message: Message) -> Self {
-        Answer { message }
-    }
-}
-
-impl ops::Deref for Answer {
-    type Target = Message;
-
-    fn deref(&self) -> &Self::Target {
-        &self.message
-    }
-}
-
-impl AsRef<Message> for Answer {
-    fn as_ref(&self) -> &Message {
-        &self.message
-    }
-}
-
-
-//------------ Making Errors -------------------------------------------------
-//
-// Because we want to use io::Error and creating them is tedious, we have some
-// friendly helpers for that.
-
-fn no_servers_error() -> io::Error {
-    io::Error::new(io::ErrorKind::NotFound, "no servers available")
-}
-
-fn giving_up_error() -> io::Error {
-    io::Error::new(io::ErrorKind::TimedOut, "timed out")
-}
-
