@@ -86,6 +86,16 @@ int_enum!{
     /// signing only.
     (EcdsaP384Sha384 => 14, b"ECDSAP384SHA384")
 
+    /// ED25519
+    ///
+    /// This algorithm is described in RFC 8080.
+    (Ed25519 => 15, b"ED25519")
+
+    /// ED448
+    ///
+    /// This algorithm is described in RFC 8080.
+    (Ed448 => 16, b"ED448")
+
     /// Reserved for Indirect Keys
     ///
     /// This value is reserved by RFC 4034.
