@@ -20,4 +20,5 @@ chrono         = "^0.4"
 rand           = "^0.6"
 failure        = "^0.1"
 failure_derive = "^0.1"
+void           = "^1.0"
 

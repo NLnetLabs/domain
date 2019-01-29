@@ -1,4 +1,4 @@
-// XXX TODO: Easier access to indivdual options.
+// XXX TODO: Easier access to individual options.
 // XXX TODO: Documentation and tests.
 //
 //! Record data for OPT records.
@@ -44,7 +44,7 @@ pub use self::rfc8145::KeyTag;
 
 //============ Module Content ================================================
 
-use std::mem;
+use std::{fmt, mem};
 use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
 use ::iana::{OptionCode, OptRcode, Rtype};
@@ -59,7 +59,10 @@ use super::rdata::RtypeRecordData;
 /// OPT record data.
 ///
 /// This type wraps a bytes value containing the record data of an OPT record.
-#[derive(Clone, Debug)]
+//
+//  XXX Deriving PartialEq etc. might be wrong for some options. Have a look
+//      at this again once we have proper option handling.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Opt {
     bytes: Bytes,
 }
@@ -117,6 +120,16 @@ impl Compress for Opt {
 
 impl RtypeRecordData for Opt {
     const RTYPE: Rtype = Rtype::Opt;
+}
+
+
+//--- Display
+
+impl fmt::Display for Opt {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // XXX TODO Print this properly.
+        f.write_str("OPT ...")
+    }
 }
 
 

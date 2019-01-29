@@ -23,6 +23,7 @@ pub mod rfc4034;
 pub mod rfc5155;
 
 #[macro_use] mod macros;
+use crate::bits::opt::Opt;
 
 // The rdata_types! macro (defined in self::macros) reexports the record data
 // types here and creates the MasterRecordData and AllRecordData enums

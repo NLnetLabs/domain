@@ -167,6 +167,16 @@ impl UnknownRecordData {
         UnknownRecordData { rtype, data }
     }
 
+    /// Returns the record type this data is for.
+    pub fn rtype(&self) -> Rtype {
+        self.rtype
+    }
+
+    /// Returns a reference to the record data.
+    pub fn data(&self) -> &Bytes {
+        &self.data
+    }
+
     /// Scans the record data.
     ///
     /// This isn’t implemented via `Scan`, because we need the record type.

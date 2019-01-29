@@ -1,6 +1,15 @@
 # Change Log
 
-## 0.3.1
+## 0.4.0
+
+Breaking Changes
+
+* `rdata::AllRecordData` now has a variant for `OPT` records.
+* `rdata::MasterRecordData` and `rdata::AllRecordData` are now
+  non-exhaustive in order to avoid future breaking changes when adding
+  additional types.
+* `rdata::MasterRecordData` and `rdata::AllRecordData` lost their
+  `PartialOrd` impl since that doesn’t really make sense.
 
 New
 
@@ -18,7 +27,8 @@ New
 
 * new methods:
 
-   * `bits::name::ToRelativeDname::chain` and `chain_root`
+   * `bits::name::ToRelativeDname::chain` and `chain_root`,
+   * `bits::rdata::UnknownRecordData::rtype` and `data`,
    * `rdata::rfc1035::Ptr::into_ptrdname`
 
 * new re-exports:
@@ -37,7 +47,6 @@ Updates
    * new Opcode `DSO`,
    * new OPT code `DeviceID`,
    * new security algorithm entry `DELETE`.
-
 
 Dependencies
 
