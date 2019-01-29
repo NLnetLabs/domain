@@ -144,7 +144,7 @@ use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
 use iana::opt::OptionCode;
 use super::compose::{Compose, Compress, Compressor};
 use super::header::{Header, HeaderCounts, HeaderSection};
-use super::message::{Message, Section};
+use super::message::Message;
 use super::name::ToDname;
 use super::opt::{OptData, OptHeader};
 use super::parse::ShortBuf;
