@@ -10,6 +10,8 @@ Breaking Changes
   additional types.
 * `rdata::MasterRecordData` and `rdata::AllRecordData` lost their
   `PartialOrd` impl since that doesn’t really make sense.
+* Some variants of `OptionCode` have been renamed, loosing their `Edns`
+  prefix.
 
 New
 
@@ -24,6 +26,13 @@ New
 * `bits::query` contains a simplified builder and a dedicated message wrapper
   for queries; together they allow re-use of a query for trying with
   several servers.
+
+* OPT handling:
+
+   * `OptRecord`: a more convenient alternative to `Record<_, Opt>` that
+     provides access to the re-used record header.
+
+   * `AllOptData`: an enum of all implemented EDNS options.
 
 * new methods:
 

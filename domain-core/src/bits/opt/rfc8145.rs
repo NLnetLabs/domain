@@ -24,7 +24,7 @@ impl KeyTag {
                 -> Result<(), ShortBuf> {
         let len = tags.len() * 2;
         assert!(len <= ::std::u16::MAX as usize);
-        builder.build(OptionCode::EdnsKeyTag, len as u16, |buf| {
+        builder.build(OptionCode::KeyTag, len as u16, |buf| {
             for tag in tags {
                 buf.compose(&tag)?
             }
@@ -67,7 +67,7 @@ impl Compose for KeyTag {
 //--- CodeOptData
 
 impl CodeOptData for KeyTag {
-    const CODE: OptionCode = OptionCode::EdnsKeyTag;
+    const CODE: OptionCode = OptionCode::KeyTag;
 }
 
 

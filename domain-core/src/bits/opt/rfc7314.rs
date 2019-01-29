@@ -64,6 +64,6 @@ impl Compose for Expire {
 //--- OptData
 
 impl CodeOptData for Expire {
-    const CODE: OptionCode = OptionCode::EdnsExpire;
+    const CODE: OptionCode = OptionCode::Expire;
 }
 

@@ -20,38 +20,35 @@
 
 
 //============ Sub-modules and Re-exports ====================================
+//
+// All of these are in a macro. The macro also defines `AllOptData`.
 
-pub mod rfc5001;
-pub mod rfc6975;
-pub mod rfc7314;
-pub mod rfc7828;
-pub mod rfc7830;
-pub mod rfc7871;
-pub mod rfc7873;
-pub mod rfc7901;
-pub mod rfc8145;
-
-pub use self::rfc5001::Nsid;
-pub use self::rfc6975::{Dau, Dhu, N3u};
-pub use self::rfc7314::Expire;
-pub use self::rfc7828::TcpKeepalive;
-pub use self::rfc7830::Padding;
-pub use self::rfc7871::ClientSubnet;
-pub use self::rfc7873::Cookie;
-pub use self::rfc7901::Chain;
-pub use self::rfc8145::KeyTag;
+#[macro_use] mod macros;
+opt_types!{
+    rfc5001::{Nsid};
+    rfc6975::{Dau, Dhu, N3u};
+    rfc7314::{Expire};
+    rfc7828::{TcpKeepalive};
+    rfc7830::{Padding};
+    rfc7871::{ClientSubnet};
+    rfc7873::{Cookie};
+    rfc7901::{Chain};
+    rfc8145::{KeyTag};
+}
 
 
 //============ Module Content ================================================
 
-use std::{fmt, mem};
+use std::{fmt, mem, ops};
 use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
 use ::iana::{OptionCode, OptRcode, Rtype};
 use super::compose::{Compose, Compress, Compressor};
 use super::header::Header;
+use super::name::ToDname;
 use super::parse::{Parse, ParseAll, Parser, ShortBuf};
 use super::rdata::RtypeRecordData;
+use super::record::Record;
 
 
 //------------ Opt -----------------------------------------------------------
@@ -190,6 +187,10 @@ impl OptHeader {
         self.inner[6]
     }
 
+    pub fn set_version(&mut self, version: u8) {
+        self.inner[6] = version
+    }
+
     pub fn dnssec_ok(&self) -> bool {
         self.inner[7] & 0x80 != 0
     }
@@ -217,6 +218,77 @@ impl Compose for OptHeader {
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
         buf.put_slice(&self.inner)
+    }
+}
+
+
+//------------ OptRecord -----------------------------------------------------
+
+/// An entire OPT record.
+#[derive(Clone, Debug)]
+pub struct OptRecord {
+    udp_payload_size: u16,
+    ext_rcode: u8,
+    version: u8,
+    flags: u16,
+    data: Opt,
+}
+
+impl OptRecord {
+    pub fn from_record<N: ToDname>(record: Record<N, Opt>) -> Self {
+        OptRecord {
+            udp_payload_size: record.class().to_int(),
+            ext_rcode: (record.ttl() >> 24) as u8,
+            version: (record.ttl() >> 16) as u8,
+            flags: record.ttl() as u16,
+            data: record.into_data()
+        }
+    }
+
+    pub fn udp_payload_size(&self) -> u16 {
+        self.udp_payload_size
+    }
+
+    pub fn rcode(&self, header: Header) -> OptRcode {
+        OptRcode::from_parts(header.rcode(), self.ext_rcode)
+    }
+
+    pub fn version(&self) -> u8 {
+        self.version
+    }
+
+    pub fn dnssec_ok(&self) -> bool {
+        self.flags & 0x8000 != 0
+    }
+
+    pub fn as_opt(&self) -> &Opt {
+        &self.data
+    }
+}
+
+
+//--- From
+
+impl<N: ToDname> From<Record<N, Opt>> for OptRecord {
+    fn from(record: Record<N, Opt>) -> Self {
+        Self::from_record(record)
+    }
+}
+
+
+//--- Deref and AsRef
+
+impl ops::Deref for OptRecord {
+    type Target = Opt;
+
+    fn deref(&self) -> &Opt {
+        &self.data
+    }
+}
+
+impl AsRef<Opt> for OptRecord {
+    fn as_ref(&self) -> &Opt {
+        &self.data
     }
 }
 
@@ -339,3 +411,89 @@ impl<T: CodeOptData + ParseAll + Compose + Sized> OptData for T {
         }
     }
 }
+
+
+//------------ UnknownOptData ------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct UnknownOptData {
+    code: OptionCode,
+    data: Bytes,
+}
+
+impl UnknownOptData {
+    pub fn from_bytes(code: OptionCode, data: Bytes) -> Self {
+        UnknownOptData { code, data }
+    }
+
+    pub fn code(&self) -> OptionCode {
+        self.code
+    }
+
+    pub fn data(&self) -> &Bytes {
+        &self.data
+    }
+}
+
+
+//--- Compose
+
+impl Compose for UnknownOptData {
+    fn compose_len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn compose<B: BufMut>(&self, buf: &mut B) {
+        buf.put_slice(self.data.as_ref())
+    }
+}
+
+
+//--- OptData
+
+impl OptData for UnknownOptData {
+    type ParseErr = ShortBuf;
+
+    fn code(&self) -> OptionCode {
+        self.code
+    }
+
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser,
+        len: usize
+    ) -> Result<Option<Self>, Self::ParseErr> {
+        parser.parse_bytes(len)
+            .map(|data| Some(Self::from_bytes(code, data)))
+    }
+}
+
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use super::super::record::ParsedRecord;
+
+    #[test]
+    fn opt_record_header() {
+        let mut header = OptHeader::default();
+        header.set_udp_payload_size(0x1234);
+        header.set_rcode(OptRcode::BadVers);
+        header.set_version(0xbd);
+        header.set_dnssec_ok(true);
+        let mut buf = Vec::with_capacity(11);
+        header.compose(&mut buf);
+        0u16.compose(&mut buf);
+        let mut buf = Parser::from_bytes(buf.into());
+        let record = ParsedRecord::parse(&mut buf).unwrap()
+            .into_record::<Opt>().unwrap().unwrap();
+        let record = OptRecord::from_record(record);
+        assert_eq!(record.udp_payload_size(), 0x1234);
+        assert_eq!(record.ext_rcode, OptRcode::BadVers.ext());
+        assert_eq!(record.version(), 0xbd);
+        assert!(record.dnssec_ok());
+    }
+}
+

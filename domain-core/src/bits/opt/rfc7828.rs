@@ -53,6 +53,6 @@ impl Compose for TcpKeepalive {
 //--- CodeOptData
 
 impl CodeOptData for TcpKeepalive {
-    const CODE: OptionCode = OptionCode::EdnsTcpKeepalive;
+    const CODE: OptionCode = OptionCode::TcpKeepalive;
 }
 

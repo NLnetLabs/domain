@@ -735,3 +735,4 @@ mod test {
         assert_eq!(conf.options.ndots, 122);
     }
 }
+

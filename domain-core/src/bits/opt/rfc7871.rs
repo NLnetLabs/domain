@@ -103,7 +103,7 @@ impl Compose for ClientSubnet {
 //--- CodeOptData
 
 impl CodeOptData for ClientSubnet {
-    const CODE: OptionCode = OptionCode::EdnsClientSubnet;
+    const CODE: OptionCode = OptionCode::ClientSubnet;
 }
 
 
