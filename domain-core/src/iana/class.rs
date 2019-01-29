@@ -18,7 +18,8 @@ int_enum!{
     ///
     /// See [RFC 1034] for the introduction of classes, section 3.2 of
     /// [RFC 6895] for a discussion of the current state of afairs, and
-    /// the [DNS CLASSes IANA registry] for an overview of assigned values. 
+    /// the [DNS CLASSes IANA registry] for an overview of assigned values.
+    /// This type is complete as of the registry update of 2019-01-28.
     ///
     /// [RFC 1034]: https://tools.ietf.org/html/rfc1034
     /// [RFC 6895]: https://tools.ietf.org/html/rfc6895

@@ -29,6 +29,16 @@ Bug fixes
 
 * `bits::message::Message::is_answer` also compares the message ID.
 
+Updates
+
+* IANA DNS data (`iana` module) updated to 2019-01-28
+
+   * new record types `ZONEMD` and `DOA`,
+   * new Opcode `DSO`,
+   * new OPT code `DeviceID`,
+   * new security algorithm entry `DELETE`.
+
+
 Dependencies
 
 * updated rand to 0.6.

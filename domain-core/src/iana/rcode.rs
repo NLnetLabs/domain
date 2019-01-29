@@ -39,7 +39,7 @@ use std::hash;
 /// represented by [TsigRcode].
 ///
 /// All three codes share the same name space. Their values are defined in
-/// one registry, [IANA DNS RCODEs].
+/// one registry, [IANA DNS RCODEs]. This type is complete as of 2019-01-28.
 ///
 /// [OptRcode]: enum.OptRcode.html
 /// [TsigRcode]: enum.TsigRcode.html
@@ -330,7 +330,7 @@ impl hash::Hash for Rcode {
 /// Because of this, we decided to have separate types.
 ///
 /// The values for all three response code types are defined in
-/// the [IANA DNS RCODEs] registry.
+/// the [IANA DNS RCODEs] registry. This type is complete as of 2019-01-28.
 ///
 /// [Rcode]: enum.Rcode.html
 /// [`TsigRcode`]: enum.TsigRcode.html
@@ -622,7 +622,7 @@ impl fmt::Display for OptRcode {
 /// types.
 ///
 /// The values for all three response code types are defined in
-/// the [IANA DNS RCODEs] registry.
+/// the [IANA DNS RCODEs] registry. This type is complete as of 2019-01-28.
 ///
 /// [`Rcode`]: enum.Rcode.html
 /// [`OptRcode`]: enum.OptRcode.html

@@ -13,6 +13,7 @@ int_enum!{
     /// questions. This type represents both these types.
     ///
     /// The currently assigned values are maintained in an [IANA registry].
+    /// This type is complete as of 2019-01-28.
     ///
     /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
     /// 
@@ -294,6 +295,11 @@ int_enum!{
     /// See RFC 7477.
     (Csync => 62, b"CSYNC")
 
+    /// Message digest for DNS zone.
+    ///
+    /// See draft-wessels-dns-zone-digest.
+    (Zonemd => 63, b"ZONEMD")
+
     /// SPF.
     ///
     /// RFC 7208.
@@ -394,6 +400,11 @@ int_enum!{
 
     /// Application visibility and control.
     (Avc => 258, b"AVC")
+
+    /// Digital Object Architecture
+    ///
+    /// See draft-durand-doa-over-dns.
+    (Doa => 259, b"DOA")
 
     /// DNSSEC trust authorities.
     (Ta => 32768, b"TA")

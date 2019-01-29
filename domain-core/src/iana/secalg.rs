@@ -16,6 +16,13 @@ int_enum!{
     =>
     SecAlg, u8;
 
+    /// Delete DS
+    ///
+    /// This algorithm is used in RFC 8087 to signal to the parent that a
+    /// certain DS record should be deleted. It is _not_ an actual algorithm
+    /// and can neither be used in zone nor transaction signing.
+    (DeleteDs => 0, b"DELETE")
+
     /// RSA/MD5
     ///
     /// This algorithm was described in RFC 2537 and since has been

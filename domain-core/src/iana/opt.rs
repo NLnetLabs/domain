@@ -16,6 +16,7 @@ use ::bits::parse::{Parse, Parser, ShortBuf};
 /// of these options is given through an option code, a 16 bit value.
 ///
 /// The currently assigned option codes can be found in the [IANA registry].
+/// The type is complete as of 2019-01-28.
 ///
 /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-11
 #[derive(Clone, Copy, Debug)]
@@ -33,6 +34,7 @@ pub enum OptionCode {
     Padding,
     Chain,
     EdnsKeyTag,
+    DeviceId,
 
     /// A raw class value given through its integer. 
     Int(u16),
@@ -57,6 +59,7 @@ impl OptionCode {
             12 => Padding,
             13 => Chain,
             14 => EdnsKeyTag,
+            26946 => DeviceId,
             _ => Int(value)
         }
     }
@@ -79,6 +82,7 @@ impl OptionCode {
             Padding => 12,
             Chain => 13,
             EdnsKeyTag => 14,
+            DeviceId => 26946,
             Int(v) => v
         }
     }
@@ -145,6 +149,7 @@ impl fmt::Display for OptionCode {
             Padding => "Padding".fmt(f),
             Chain => "CHAIN".fmt(f),
             EdnsKeyTag => "edns-key-tag".fmt(f),
+            DeviceId => "DeviceID".fmt(f),
             Int(value) => {
                 match OptionCode::from_int(value) {
                     Int(value) => value.fmt(f),

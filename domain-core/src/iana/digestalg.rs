@@ -10,6 +10,7 @@ int_enum!{
     /// key digest in the record has been generated.
     ///
     /// For the currently registered values see the [IANA registration].
+    /// This type is complete as of the registry update of 2012-04-13.
     ///
     /// [IANA registration]: https://www.iana.org/assignments/ds-rr-types/ds-rr-types.xhtml#ds-rr-types-1
     =>

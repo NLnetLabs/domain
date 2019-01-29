@@ -11,7 +11,8 @@ use std::hash;
 /// The opcode specifies the kind of query to be performed.
 ///
 /// The opcode is initially defined in RFC 1035. All currently assigned
-/// values can be found in the [IANA registry].
+/// values can be found in the [IANA registry]. This type is complete as of
+/// 2019-01-28.
 ///
 /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
 #[derive(Clone, Copy, Debug)]
@@ -57,6 +58,11 @@ pub enum Opcode {
     /// This value and the UPDATE query are defined in RFC 2136.
     Update,
 
+    /// DNS Stateful operations (DSO).
+    ///
+    /// This value is defined in draft-ietf-dnsop-session-signal.
+    Dso,
+
     /// A raw integer opcode value.
     ///
     /// When converting to an `u8`, only the lower four bits are used.
@@ -76,6 +82,7 @@ impl Opcode {
             2 => Status,
             4 => Notify,
             5 => Update,
+            6 => Dso,
             value => Int(value)
         }
     }
@@ -90,6 +97,7 @@ impl Opcode {
             Status => 2,
             Notify => 4,
             Update => 5,
+            Dso => 6,
             Int(value) => value & 0x0F
         }
     }
@@ -119,6 +127,7 @@ impl fmt::Display for Opcode {
             Status => "STATUS".fmt(f),
             Notify => "NOTIFY".fmt(f),
             Update => "UPDATE".fmt(f),
+            Dso => "DSO".fmt(f),
             Int(value) => {
                 match Opcode::from_int(value) {
                     Int(value) => value.fmt(f),
