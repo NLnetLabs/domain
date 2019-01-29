@@ -508,22 +508,29 @@ impl Section {
 /// An iterator over one of the three record sections of a DNS message.
 /// 
 /// The iterator’s item is the result of parsing a raw record represented by
-/// [`ParseRecord`]. This type will only allow access to a record’s header
-/// only. It also can be converted into a concrete [`Record`] via its
+/// [`ParsedRecord`]. This type will allow access to a record’s header
+/// only. It can, however, be converted into a concrete [`Record`] via its
 /// [`into_record`] method. If parsing the raw record fails, the iterator
 /// will return an error once and `None` after that.
 ///
-/// You can also trait this value for an iterator skipping over unwanted
-/// records through the [`limit_to`] method.
+/// Alternatively, you can trade in a value of this type into a
+/// [`RecordIter`] that iterates over [`Record`]s of a specific type by
+/// calling the [`limit_to`] method. In particular, you can use this together
+/// with [`AllRecordData`] to acquire an iterator that parses all known
+/// record types. If you are only interested in a subset of records, it may
+/// be more efficient to create a similar enum with only the types you need.
 ///
 /// `RecordSection` values cannot be created directly. You can get one either
 /// by calling the method for the section in question of a [`Message`] value
 /// or by proceeding from another section via its `next_section` method.
 ///
 /// [`limit_to`]: #method.limit_to
+/// [`AllRecordData`]: ../../rdata/enum.AllRecordData.html
 /// [`Message`]: struct.Message.html
-/// [`ParseRecord`]: ../record/struct.ParseRecord.html
-/// [`into_record`]: ../record/struct.ParseRecord.html#method.into_record
+/// [`ParseRecord`]: ../record/struct.ParsedRecord.html
+/// [`Record`]: ../record/struct.Record.html
+/// [`RecordIter`]: struct.RecordIter.html
+/// [`into_record`]: ../record/struct.ParsedRecord.html#method.into_record
 #[derive(Clone, Debug)]
 pub struct RecordSection {
     /// The parser for generating the records.

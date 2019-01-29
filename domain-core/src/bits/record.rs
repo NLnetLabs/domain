@@ -400,7 +400,21 @@ impl<N: Compress> Compress for RecordHeader<N> {
 
 //------------ ParsedRecord --------------------------------------------------
 
-/// A raw record parsed from a message,
+/// A raw record parsed from a message.
+///
+/// A value of this type contains the record header and the raw record data.
+/// It is mainly used as an intermediary type when turning raw message data
+/// into [`Record`]s.
+///
+/// It allows access to the header only but can be traded for a real record
+/// of a specific type of [`ParseRecordData`] (i.e., some type that knowns
+/// how to parse record data) via the [`to_record`] and [`into_record`]
+/// methods.
+///
+/// [`Record`]: struct.Record.html
+/// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
+/// [`to_record`]: #method.to_record
+/// [`into_record`]: #method.into_record
 #[derive(Clone, Debug)]
 pub struct ParsedRecord {
     /// The record’s header.
@@ -411,6 +425,10 @@ pub struct ParsedRecord {
 }
 
 impl ParsedRecord {
+    /// Creates a new parsed record from a header and the record data.
+    ///
+    /// The record data is provided via a parser that is positioned at the
+    /// first byte of the record data.
     pub fn new(header: RecordHeader<ParsedDname>, data: Parser) -> Self {
         ParsedRecord { header, data }
     }
@@ -442,10 +460,22 @@ impl ParsedRecord {
 }
 
 impl ParsedRecord {
+    /// Creates a real resource record from the parsed record.
+    ///
+    /// The method is generic over a type that knows how to parse record
+    /// data via the [`ParseRecordData`] trait. The record data is given to
+    /// this trait for parsing. If the trait feels capable of parsing this
+    /// type of record (as indicated by the record type) and parsing succeeds,
+    /// the method returns `Ok(Some(_))`. It returns `Ok(None)` if the trait
+    /// doesn’t know how to parse this particular record type. It returns
+    /// an error if parsing fails.
+    ///
+    /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
     #[allow(type_complexity)] // I know ...
-    pub fn to_record<D>(&self) -> Result<Option<Record<ParsedDname, D>>,
-                                           RecordParseError<ParsedDnameError,
-                                                            D::Err>>
+    pub fn to_record<D>(
+        &self
+    ) -> Result<Option<Record<ParsedDname, D>>,
+                RecordParseError<ParsedDnameError, D::Err>>
     where D: ParseRecordData
     {
         match D::parse_data(self.header.rtype(), &mut self.data.clone(),
@@ -456,10 +486,22 @@ impl ParsedRecord {
         }
     }
 
+    /// Trades the parsed record for a real resource record.
+    ///
+    /// The method is generic over a type that knows how to parse record
+    /// data via the [`ParseRecordData`] trait. The record data is given to
+    /// this trait for parsing. If the trait feels capable of parsing this
+    /// type of record (as indicated by the record type) and parsing succeeds,
+    /// the method returns `Ok(Some(_))`. It returns `Ok(None)` if the trait
+    /// doesn’t know how to parse this particular record type. It returns
+    /// an error if parsing fails.
+    ///
+    /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
     #[allow(type_complexity)] // I know ...
-    pub fn into_record<D>(mut self)
-        -> Result<Option<Record<ParsedDname, D>>,
-                  RecordParseError<ParsedDnameError, D::Err>>
+    pub fn into_record<D>(
+        mut self
+    ) -> Result<Option<Record<ParsedDname, D>>,
+                RecordParseError<ParsedDnameError, D::Err>>
     where D: ParseRecordData
     {
         match D::parse_data(self.header.rtype(), &mut self.data,
