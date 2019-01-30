@@ -17,3 +17,4 @@ version = "0.4.0"
 [dependencies.domain-resolv]
 path = "../domain-resolv"
 version = "0.4.0"
+
