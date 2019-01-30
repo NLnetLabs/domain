@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Martin Hoffmann <hn@nvnc.de>"]
 description = "A DNS library for Rust – Meta Crate."
 documentation = "https://docs.rs/domain"
@@ -12,9 +12,9 @@ license = "BSD-3-Clause"
 
 [dependencies.domain-core]
 path = "../domain-core"
-version = "0.4.0"
+version = "0.4.1"
 
 [dependencies.domain-resolv]
 path = "../domain-resolv"
-version = "0.4.0"
+version = "0.4.1"
 
