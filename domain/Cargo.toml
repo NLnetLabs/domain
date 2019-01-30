@@ -8,7 +8,7 @@ homepage = "https://github.com/nlnetlabs/domain/"
 repository = "https://github.com/nlnetlabs/domain/"
 readme = "README.md"
 keywords = ["DNS", "domain", "resolver", "futures"]
-license = "BSD-3-clause"
+license = "BSD-3-Clause"
 
 [dependencies.domain-core]
 path = "../domain-core"
