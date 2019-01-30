@@ -17,11 +17,12 @@ use std::marker::PhantomData;
 use bytes::Bytes;
 use ::iana::{Rcode, Rtype};
 use ::rdata::Cname;
+use super::message_builder::{MessageBuilder, AdditionalBuilder, RecordSectionBuilder};
 use super::header::{Header, HeaderCounts, HeaderSection};
-use super::name::{ParsedDname, ParsedDnameError};
+use super::name::{ParsedDname, ParsedDnameError, ToDname};
 use super::parse::{Parse, Parser, ShortBuf};
 use super::question::Question;
-use super::rdata::ParseRecordData;
+use super::rdata::{ParseRecordData, RecordData};
 use super::record::{ParsedRecord, Record, RecordParseError};
 
 
@@ -260,6 +261,34 @@ impl Message {
         let additional = authority.clone().next_section()?.unwrap();
         Ok((question, answer, authority, additional))
     }
+
+    /// Returns record iterator for all sections
+    pub fn iter(&self) -> MessageIterator {
+        match self.answer() {
+            Ok(section) => MessageIterator { inner: Some(section) },
+            Err(_) => MessageIterator { inner: None },
+        }
+    }
+
+    /// Copy records from message into the target message builder.
+    ///
+    /// The method uses `op` to process records from all packet sections before inserting,
+    /// caller can use this closure to filter or manipulate records before inserting.
+    pub fn copy_records<N, D, R, F>(&self, target: MessageBuilder, op: F) -> Result<AdditionalBuilder, ParsedDnameError>
+    where N: ToDname, D: RecordData, R: Into<Record<N, D>>, F: FnMut(Result<ParsedRecord, ParsedDnameError>) -> Option<R> + Copy
+    {
+        // Copy answer, authority, and additional records.
+        let mut target = target.answer();
+        self.answer()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+
+        let mut target = target.authority();
+        self.authority()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+
+        let mut target = target.additional();
+        self.additional()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+
+        Ok(target)
+    }
 }
 
 
@@ -373,6 +402,36 @@ impl AsRef<[u8]> for Message {
     }
 }
 
+//--- Iterator
+
+pub struct MessageIterator {
+    inner: Option<RecordSection>,
+}
+
+impl Iterator for MessageIterator {
+    type Item = (Result<ParsedRecord, ParsedDnameError>, Section);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Try to get next record from current section
+        match self.inner {
+            Some(ref mut inner) => {
+                let item = inner.next();
+                if let Some(item) = item {
+                    return Some((item, inner.section));
+                }
+            },
+            None => return None,
+        }
+
+        // Advance to next section if possible, and retry
+        self.inner = match self.inner.clone().unwrap().next_section() {
+            Ok(section) => section,
+            Err(_) => None,
+        };
+
+        self.next()
+    }
+}
 
 //------------ QuestionSection ----------------------------------------------
 
@@ -471,8 +530,8 @@ impl Iterator for QuestionSection {
 //------------ Section -------------------------------------------------------
 
 /// A helper type enumerating which section a `RecordSection` is currently in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Section {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd)]
+pub enum Section {
     Answer,
     Authority,
     Additional
@@ -481,7 +540,7 @@ enum Section {
 
 impl Section {
     /// Returns the first section.
-    fn first() -> Self { Section::Answer }
+    pub fn first() -> Self { Section::Answer }
 
     /// Returns the correct record count for this section.
     fn count(self, counts: HeaderCounts) -> u16 {
@@ -707,14 +766,33 @@ impl<D: ParseRecordData> Iterator for RecordIter<D> {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
     use super::*;
+    use bits::name::*;
+    use bits::message_builder::*;
+    use rdata::Ns;
+    use bits::rdata::UnknownRecordData;
+
+    // Helper for test cases
+    fn get_test_message() -> Message {
+        let msg = MessageBuilder::with_capacity(512);
+        let mut msg = msg.answer();
+        msg.push((Dname::from_str("foo.example.com.").unwrap(), 86000,
+                     Cname::new(Dname::from_str("baz.example.com.")
+                                         .unwrap()))).unwrap();
+        let mut msg = msg.authority();
+        msg.push((Dname::from_str("bar.example.com.").unwrap(), 86000,
+                     Ns::new(Dname::from_str("baz.example.com.")
+                                         .unwrap()))).unwrap();
+
+        Message::from_bytes(msg.finish().into()).unwrap()
+    }
 
     #[test]
     fn short_message() {
         assert!(Message::from_bytes(Bytes::from_static(&[0u8; 11])).is_err());
         assert!(Message::from_bytes(Bytes::from_static(&[0u8; 12])).is_ok());
     }
-
 
         /*
     use std::str::FromStr;
@@ -757,4 +835,47 @@ mod test {
                    msg.canonical_name().unwrap());
     }
         */
+
+    #[test]
+    fn message_iterator() {
+        let msg = get_test_message();
+
+        // Check that it returns a record from first section
+        let mut iter = msg.iter();
+        let mut value = iter.next();
+        assert_eq!(true, value.is_some());
+        let (rr, section) = value.unwrap();
+        assert_eq!(Section::Answer, section);
+        assert!(rr.is_ok());
+
+        // Check that it advances to next section
+        value = iter.next();
+        assert_eq!(true, value.is_some());
+        let (rr, section) = value.unwrap();
+        assert_eq!(Section::Authority, section);
+        assert!(rr.is_ok());
+    }
+
+    #[test]
+    fn copy_records() {
+        let msg = get_test_message();
+        let target = MessageBuilder::with_capacity(512);
+        let res = msg.copy_records(target, |rec| {
+            if let Ok(rr) = rec {
+                if let Ok(Some(rr)) = rr.into_record::<UnknownRecordData>() {
+                    if rr.rtype() == Rtype::Cname {
+                        return Some(rr);
+                    }
+                }
+            }
+            return None;
+        });
+
+        assert!(res.is_ok());
+        if let Ok(target) = res {
+            let msg = target.freeze();
+            assert_eq!(1, msg.header_counts().ancount());
+            assert_eq!(0, msg.header_counts().arcount());
+        }
+    }
 }

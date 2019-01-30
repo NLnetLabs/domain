@@ -88,8 +88,8 @@
 pub use self::charstr::{CharStr, CharStrMut};
 pub use self::compose::{Compose, Compress, Compressor};
 pub use self::header::{Header, HeaderCounts, HeaderSection};
-pub use self::message::{Message, RecordSection};
-pub use self::message_builder::MessageBuilder;
+pub use self::message::{Message, RecordSection, Section};
+pub use self::message_builder::{MessageBuilder, SectionBuilder, RecordSectionBuilder};
 pub use self::name::{
     Dname, ParsedDname, RelativeDname, ToDname, ToRelativeDname
 };

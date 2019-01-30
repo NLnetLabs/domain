@@ -91,7 +91,7 @@
 //!
 //! ```
 //! use std::str::FromStr;
-//! use domain_core::bits::{Dname, MessageBuilder};
+//! use domain_core::bits::{Dname, MessageBuilder, SectionBuilder, RecordSectionBuilder};
 //! use domain_core::iana::Rtype;
 //! use domain_core::rdata::A;
 //!
@@ -291,24 +291,6 @@ impl MessageBuilder {
 /// # Building
 ///
 impl MessageBuilder {
-    /// Returns a reference to the message’s header.
-    pub fn header(&self) -> &Header {
-        self.target.header()
-    }
-
-    /// Returns a mutable reference to the message’s header.
-    pub fn header_mut(&mut self) -> &mut Header {
-        self.target.header_mut()
-    }
-
-    pub fn snapshot(&self) -> Snapshot<Self> {
-        self.target.snapshot()
-    }
-
-    pub fn rewind(&mut self, snapshot: &Snapshot<Self>) {
-        self.target.rewind(snapshot)
-    }
-
     /// Appends a new question to the message.
     ///
     /// This function is generic over anything that can be converted into a
@@ -337,58 +319,19 @@ impl MessageBuilder {
         self.answer().authority()
     }
 
-    /// Proceeds to building the additonal section.
+    /// Proceeds to building the additional section.
     ///
     /// Leaves the answer and additional sections empty.
     pub fn additional(self) -> AdditionalBuilder {
         self.answer().authority().additional()
     }
-
-    /// Proceeds to building the OPT record.
-    ///
-    /// Leaves the answer and additional sections empty. Since the method
-    /// adds the header of the OPT record already, it can fail if there
-    /// isn’t enough space left in the message.
-    pub fn opt(self) -> Result<OptBuilder, ShortBuf> {
-        self.additional().opt()
-    }
-
-    /// Returns a reference to the message assembled so far.
-    ///
-    /// In case the builder was created from a buffer with pre-existing
-    /// content, the returned reference is for the complete content of this
-    /// buffer.
-    pub fn preview(&self) -> &[u8] {
-        self.target.preview()
-    }
-
-    /// Returns a reference to the slice preceeding the message.
-    ///
-    /// The slice is may be empty.
-    pub fn prelude(&self) -> &[u8] {
-        self.target.prelude()
-    }
-
-    /// Returns a mutable reference to the slice preceeding the message.
-    pub fn prelude_mut(&mut self) -> &mut [u8] {
-        self.target.prelude_mut()
-    }
-
-    /// Finishes the message and returns the underlying bytes buffer.
-    ///
-    /// This will result in a message with all three record sections empty.
-    pub fn finish(self) -> BytesMut {
-        self.target.unwrap()
-    }
-
-    /// Finishes the messages and returns the bytes value of the message.
-    ///
-    /// This will result in a message with all three record sections empty.
-    pub fn freeze(self) -> Message {
-        self.target.freeze()
-    }
 }
 
+impl SectionBuilder for MessageBuilder {
+    fn into_target(self) -> MessageTarget { self.target }
+    fn get_target(&self) -> &MessageTarget { &self.target }
+    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
+}
 
 //------------ AnswerBuilder -------------------------------------------------
 
@@ -417,70 +360,6 @@ impl AnswerBuilder {
         AnswerBuilder { target }
     }
 
-    /// Updates the message’s size limit.
-    ///
-    /// After this method was called, additional data will not be added to the
-    /// message if that would result in the message exceeding a size of
-    /// `limit` bytes. If the message is already larger than `limit` when the
-    /// method is called, it will _not_ be truncated. That is, you can never
-    /// actually set a limit smaller than the current message size.
-    ///
-    /// Note also that the limit only regards the message constructed by the
-    /// builder itself. If a builder was created atop a buffer that already
-    /// contained some data, this pre-existing data is not considered.
-    pub fn set_limit(&mut self, limit: usize) {
-        self.target.buf.set_limit(limit)
-    }
-
-    /// Returns a reference to the messages header.
-    pub fn header(&self) -> &Header {
-        self.target.header()
-    }
-
-    /// Returns a mutable reference to the messages header.
-    pub fn header_mut(&mut self) -> &mut Header {
-        self.target.header_mut()
-    }
-
-    /// Returns a snapshot indicating the current state of the message.
-    ///
-    /// The returned value can be used to later return the message to the
-    /// state at the time the method was called through the [`rewind`]
-    /// method.
-    ///
-    /// [`rewind`]: #method.rewind
-    pub fn snapshot(&self) -> Snapshot<Self> {
-        self.target.snapshot()
-    }
-
-    /// Rewinds the message to the state it had at `snapshot`.
-    ///
-    /// This will truncate the message to the size it had at the time the
-    /// [`snapshot`] method was called, making it forget all records added
-    /// since.
-    ///
-    /// [`snapshot`]: #method.snapshot
-    pub fn rewind(&mut self, snapshot: &Snapshot<Self>) {
-        self.target.rewind(snapshot)
-    }
-
-    /// Appends a new resource record to the answer section.
-    ///
-    /// This method is generic over anything that can be converted into a
-    /// [`Record`]. In particular, you can use four-tuples consisting of
-    /// a domain name, class, TTL, and record data or triples leaving out
-    /// the class which will then be assumed to be `Class::In`.
-    ///
-    /// If appending the record would result in the message exceeding its
-    /// size limit, the method will fail.
-    ///
-    /// [`Record`]: ../record/struct.Record.html
-    pub fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.target.push(|target| record.into().compress(target),
-                         |counts| counts.inc_ancount())
-    }
-
     /// Proceeds to building the authority section.
     pub fn authority(self) -> AuthorityBuilder {
         AuthorityBuilder::new(self.target)
@@ -499,45 +378,22 @@ impl AnswerBuilder {
     /// remember to increase the limit again before calling `opt`.
     ///
     /// [`set_limit`]: #method.set_limit
-    pub fn opt(self) -> Result<OptBuilder, ShortBuf> {
-        self.additional().opt()
+    pub fn opt(self) -> Result<OptBuilder, ShortBuf> where Self: Sized {
+        OptBuilder::new(self.into_target())
     }
+}
 
-    /// Returns a reference to the message assembled so far.
-    ///
-    /// In case the builder was created from a buffer with pre-existing
-    /// content, the returned reference is for the complete content of this
-    /// buffer.
-    pub fn preview(&self) -> &[u8] {
-        self.target.preview()
-    }
+impl SectionBuilder for AnswerBuilder {
+    fn into_target(self) -> MessageTarget { self.target }
+    fn get_target(&self) -> &MessageTarget { &self.target }
+    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
+}
 
-    /// Returns a reference to the slice preceeding the message.
-    ///
-    /// The slice is may be empty.
-    pub fn prelude(&self) -> &[u8] {
-        self.target.prelude()
-    }
-
-    /// Returns a mutable reference to the slice preceeding the message.
-    pub fn prelude_mut(&mut self) -> &mut [u8] {
-        self.target.prelude_mut()
-    }
-
-    /// Finishes the message and returns the underlying bytes buffer.
-    ///
-    /// This will result in a message with empty authority and additional
-    /// sections.
-    pub fn finish(self) -> BytesMut {
-        self.target.unwrap()
-    }
-
-    /// Finishes the message and returns the resulting bytes value.
-    ///
-    /// This will result in a message with empty authority and additional
-    /// sections.
-    pub fn freeze(self) -> Message {
-        self.target.freeze()
+impl RecordSectionBuilder for AnswerBuilder {
+    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
+                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        self.target.push(|target| record.into().compress(target),
+                         |counts| counts.inc_ancount())
     }
 }
 
@@ -569,70 +425,6 @@ impl AuthorityBuilder {
         AuthorityBuilder { target }
     }
 
-    /// Updates the message’s size limit.
-    ///
-    /// After this method was called, additional data will not be added to the
-    /// message if that would result in the message exceeding a size of
-    /// `limit` bytes. If the message is already larger than `limit` when the
-    /// method is called, it will _not_ be truncated. That is, you can never
-    /// actually set a limit smaller than the current message size.
-    ///
-    /// Note also that the limit only regards the message constructed by the
-    /// builder itself. If a builder was created atop a buffer that already
-    /// contained some data, this pre-existing data is not considered.
-    pub fn set_limit(&mut self, limit: usize) {
-        self.target.buf.set_limit(limit)
-    }
-
-    /// Returns a reference to the messages header.
-    pub fn header(&self) -> &Header {
-        self.target.header()
-    }
-
-    /// Returns a mutable reference to the messages header.
-    pub fn header_mut(&mut self) -> &mut Header {
-        self.target.header_mut()
-    }
-
-    /// Returns a snapshot indicating the current state of the message.
-    ///
-    /// The returned value can be used to later return the message to the
-    /// state at the time the method was called through the [`rewind`]
-    /// method.
-    ///
-    /// [`rewind`]: #method.rewind
-    pub fn snapshot(&self) -> Snapshot<Self> {
-        self.target.snapshot()
-    }
-
-    /// Rewinds the message to the state it had at `snapshot`.
-    ///
-    /// This will truncate the message to the size it had at the time the
-    /// [`snapshot`] method was called, making it forget all records added
-    /// since.
-    ///
-    /// [`snapshot`]: #method.snapshot
-    pub fn rewind(&mut self, snapshot: &Snapshot<Self>) {
-        self.target.rewind(snapshot)
-    }
-
-    /// Appends a new resource record to the authority section.
-    ///
-    /// This method is generic over anything that can be converted into a
-    /// [`Record`]. In particular, you can use four-tuples consisting of
-    /// a domain name, class, TTL, and record data or triples leaving out
-    /// the class which will then be assumed to be `Class::In`.
-    ///
-    /// If appending the record would result in the message exceeding its
-    /// size limit, the method will fail.
-    ///
-    /// [`Record`]: ../record/struct.Record.html
-    pub fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.target.push(|target| record.into().compress(target),
-                         |counts| counts.inc_nscount())
-    }
-
     /// Proceeds to building the additional section.
     pub fn additional(self) -> AdditionalBuilder {
         AdditionalBuilder::new(self.target)
@@ -646,43 +438,22 @@ impl AuthorityBuilder {
     /// remember to increase the limit again before calling `opt`.
     ///
     /// [`set_limit`]: #method.set_limit
-    pub fn opt(self) -> Result<OptBuilder, ShortBuf> {
-        self.additional().opt()
+    pub fn opt(self) -> Result<OptBuilder, ShortBuf> where Self: Sized {
+        OptBuilder::new(self.into_target())
     }
+}
 
-    /// Returns a reference to the message assembled so far.
-    ///
-    /// In case the builder was created from a buffer with pre-existing
-    /// content, the returned reference is for the complete content of this
-    /// buffer.
-    pub fn preview(&self) -> &[u8] {
-        self.target.preview()
-    }
+impl SectionBuilder for AuthorityBuilder {
+    fn into_target(self) -> MessageTarget { self.target }
+    fn get_target(&self) -> &MessageTarget { &self.target }
+    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
+}
 
-    /// Returns a reference to the slice preceeding the message.
-    ///
-    /// The slice is may be empty.
-    pub fn prelude(&self) -> &[u8] {
-        self.target.prelude()
-    }
-
-    /// Returns a mutable reference to the slice preceeding the message.
-    pub fn prelude_mut(&mut self) -> &mut [u8] {
-        self.target.prelude_mut()
-    }
-
-    /// Finishes the message and returns the underlying bytes buffer.
-    ///
-    /// This will result in a message with an empty additional section.
-    pub fn finish(self) -> BytesMut {
-        self.target.unwrap()
-    }
-
-    /// Finishes the message and returns the resulting bytes value.
-    ///
-    /// This will result in a message with an empty additional section.
-    pub fn freeze(self) -> Message {
-        self.target.freeze()
+impl RecordSectionBuilder for AuthorityBuilder {
+    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
+                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        self.target.push(|target| record.into().compress(target),
+                         |counts| counts.inc_nscount())
     }
 }
 
@@ -719,70 +490,6 @@ impl AdditionalBuilder {
         AdditionalBuilder { target }
     }
 
-    /// Returns a reference to the messages header.
-    pub fn header(&self) -> &Header {
-        self.target.header()
-    }
-
-    /// Updates the message’s size limit.
-    ///
-    /// After this method was called, additional data will not be added to the
-    /// message if that would result in the message exceeding a size of
-    /// `limit` bytes. If the message is already larger than `limit` when the
-    /// method is called, it will _not_ be truncated. That is, you can never
-    /// actually set a limit smaller than the current message size.
-    ///
-    /// Note also that the limit only regards the message constructed by the
-    /// builder itself. If a builder was created atop a buffer that already
-    /// contained some data, this pre-existing data is not considered.
-    pub fn set_limit(&mut self, limit: usize) {
-        self.target.buf.set_limit(limit)
-    }
-
-    /// Returns a mutable reference to the messages header.
-    pub fn header_mut(&mut self) -> &mut Header {
-        self.target.header_mut()
-    }
-
-    /// Returns a snapshot indicating the current state of the message.
-    ///
-    /// The returned value can be used to later return the message to the
-    /// state at the time the method was called through the [`rewind`]
-    /// method.
-    ///
-    /// [`rewind`]: #method.rewind
-    pub fn snapshot(&self) -> Snapshot<Self> {
-        self.target.snapshot()
-    }
-
-    /// Rewinds the message to the state it had at `snapshot`.
-    ///
-    /// This will truncate the message to the size it had at the time the
-    /// [`snapshot`] method was called, making it forget all records added
-    /// since.
-    ///
-    /// [`snapshot`]: #method.snapshot
-    pub fn rewind(&mut self, snapshot: &Snapshot<Self>) {
-        self.target.rewind(snapshot)
-    }
-
-    /// Appends a new resource record to the additional section.
-    ///
-    /// This method is generic over anything that can be converted into a
-    /// [`Record`]. In particular, you can use four-tuples consisting of
-    /// a domain name, class, TTL, and record data or triples leaving out
-    /// the class which will then be assumed to be `Class::In`.
-    ///
-    /// If appending the record would result in the message exceeding its
-    /// size limit, the method will fail.
-    ///
-    /// [`Record`]: ../record/struct.Record.html
-    pub fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.target.push(|target| record.into().compress(target),
-                         |counts| counts.inc_nscount())
-    }
-
     /// Proceeds to building the OPT record.
     ///
     /// The method will start by adding the record header. Since this may
@@ -791,42 +498,24 @@ impl AdditionalBuilder {
     /// remember to increase the limit again before calling `opt`.
     ///
     /// [`set_limit`]: #method.set_limit
-    pub fn opt(self) -> Result<OptBuilder, ShortBuf> {
-        OptBuilder::new(self.target)
-    }
-
-    /// Returns a reference to the message assembled so far.
-    ///
-    /// In case the builder was created from a buffer with pre-existing
-    /// content, the returned reference is for the complete content of this
-    /// buffer.
-    pub fn preview(&self) -> &[u8] {
-        self.target.preview()
-    }
-
-    /// Returns a reference to the slice preceeding the message.
-    ///
-    /// The slice is may be empty.
-    pub fn prelude(&self) -> &[u8] {
-        self.target.prelude()
-    }
-
-    /// Returns a mutable reference to the slice preceeding the message.
-    pub fn prelude_mut(&mut self) -> &mut [u8] {
-        self.target.prelude_mut()
-    }
-
-    /// Finishes the message and returns the underlying bytes buffer.
-    pub fn finish(self) -> BytesMut {
-        self.target.unwrap()
-    }
-
-    /// Finishes the message and returns the resulting bytes value.
-    pub fn freeze(self) -> Message {
-        self.target.freeze()
+    pub fn opt(self) -> Result<OptBuilder, ShortBuf> where Self: Sized {
+        OptBuilder::new(self.into_target())
     }
 }
 
+impl SectionBuilder for AdditionalBuilder {
+    fn into_target(self) -> MessageTarget { self.target }
+    fn get_target(&self) -> &MessageTarget { &self.target }
+    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
+}
+
+impl RecordSectionBuilder for AdditionalBuilder {
+    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
+                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        self.target.push(|target| record.into().compress(target),
+                         |counts| counts.inc_nscount())
+    }
+}
 
 //------------ OptBuilder ----------------------------------------------------
 
@@ -879,22 +568,6 @@ impl OptBuilder {
         Ok(OptBuilder { pos, target })
     }
 
-    /// Returns a reference to the messages header.
-    ///
-    /// Note that, like with the other builers, this returns the message
-    /// header, not the OPT reuord’s header.
-    pub fn header(&self) -> &Header {
-        self.target.header()
-    }
-
-    /// Returns a mutable reference to the messages header.
-    ///
-    /// Note that, like with the other builers, this returns the message
-    /// header, not the OPT reuord’s header.
-    pub fn header_mut(&mut self) -> &mut Header {
-        self.target.header_mut()
-    }
-
     /// Pushes an option to the OPT record.
     ///
     /// The method is generic over anything that implements the `OptData`
@@ -931,37 +604,6 @@ impl OptBuilder {
         AdditionalBuilder::new(self.target)
     }
 
-    /// Returns a reference to the message assembled so far.
-    ///
-    /// In case the builder was created from a buffer with pre-existing
-    /// content, the returned reference is for the complete content of this
-    /// buffer.
-    pub fn preview(&self) -> &[u8] {
-        self.target.preview()
-    }
-
-    /// Returns a reference to the slice preceeding the message.
-    ///
-    /// The slice is may be empty.
-    pub fn prelude(&self) -> &[u8] {
-        self.target.prelude()
-    }
-
-    /// Returns a mutable reference to the slice preceeding the message.
-    pub fn prelude_mut(&mut self) -> &mut [u8] {
-        self.target.prelude_mut()
-    }
-
-    /// Finishes the message and returns the underlying bytes buffer.
-    pub fn finish(self) -> BytesMut {
-        self.target.unwrap()
-    }
-
-    /// Finishes the message and returns it.
-    pub fn freeze(self) -> Message {
-        self.target.freeze()
-    }
-
     /// Completes building the OPT record.
     ///
     /// This will update the RDLEN field of the record header.
@@ -973,6 +615,12 @@ impl OptBuilder {
         BigEndian::write_u16(&mut self.target.as_slice_mut()[count_pos..],
                              len as u16);
     }
+}
+
+impl SectionBuilder for OptBuilder {
+    fn into_target(self) -> MessageTarget { self.target }
+    fn get_target(&self) -> &MessageTarget { &self.target }
+    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
 }
 
 impl ops::Deref for OptBuilder {
@@ -997,7 +645,7 @@ impl ops::DerefMut for OptBuilder {
 ///
 /// This private type does all the heavy lifting for constructing messages.
 #[derive(Clone, Debug)]
-struct MessageTarget {
+pub struct MessageTarget {
     buf: Compressor,
     start: usize,
 }
@@ -1120,3 +768,149 @@ pub struct Snapshot<T> {
     marker: PhantomData<T>,
 }
 
+//------------ SectionBuilder ------------------------------------------------
+
+/// Trait that implements common interface for building message sections
+pub trait SectionBuilder : Sized {
+    /// Updates the message’s size limit.
+    ///
+    /// After this method was called, additional data will not be added to the
+    /// message if that would result in the message exceeding a size of
+    /// `limit` bytes. If the message is already larger than `limit` when the
+    /// method is called, it will _not_ be truncated. That is, you can never
+    /// actually set a limit smaller than the current message size.
+    ///
+    /// Note also that the limit only regards the message constructed by the
+    /// builder itself. If a builder was created atop a buffer that already
+    /// contained some data, this pre-existing data is not considered.
+    fn set_limit(&mut self, limit: usize) {
+        self.get_target_mut().buf.set_limit(limit)
+    }
+
+    /// Returns a reference to the messages header.
+    fn header(&self) -> &Header {
+        self.get_target().header()
+    }
+
+    /// Returns a mutable reference to the messages header.
+    fn header_mut(&mut self) -> &mut Header {
+        self.get_target_mut().header_mut()
+    }
+
+    /// Returns a reference to the message assembled so far.
+    ///
+    /// In case the builder was created from a buffer with pre-existing
+    /// content, the returned reference is for the complete content of this
+    /// buffer.
+    fn preview(&self) -> &[u8] {
+        self.get_target().preview()
+    }
+
+    /// Returns a reference to the slice preceeding the message.
+    ///
+    /// The slice is may be empty.
+    fn prelude(&self) -> &[u8] {
+        self.get_target().prelude()
+    }
+
+    /// Returns a mutable reference to the slice preceeding the message.
+    fn prelude_mut(&mut self) -> &mut [u8] {
+        self.get_target_mut().prelude_mut()
+    }
+
+    /// Finishes the message and returns the underlying bytes buffer.
+    ///
+    /// This will result in a message with empty authority and additional
+    /// sections.
+    fn finish(self) -> BytesMut {
+        self.into_target().unwrap()
+    }
+
+    /// Finishes the message and returns the resulting bytes value.
+    ///
+    /// This will result in a message with empty authority and additional
+    /// sections.
+    fn freeze(self) -> Message {
+        self.into_target().freeze()
+    }
+
+    /// Returns a snapshot indicating the current state of the message.
+    ///
+    /// The returned value can be used to later return the message to the
+    /// state at the time the method was called through the [`rewind`]
+    /// method.
+    ///
+    /// [`rewind`]: #method.rewind
+    fn snapshot(&self) -> Snapshot<Self> {
+        self.get_target().snapshot()
+    }
+
+    /// Rewinds the message to the state it had at `snapshot`.
+    ///
+    /// This will truncate the message to the size it had at the time the
+    /// [`snapshot`] method was called, making it forget all records added
+    /// since.
+    ///
+    /// [`snapshot`]: #method.snapshot
+    fn rewind(&mut self, snapshot: &Snapshot<Self>) {
+        self.get_target_mut().rewind(snapshot)
+    }
+
+    /// Converts into target
+    fn into_target(self) -> MessageTarget;
+
+    /// Returns message target
+    fn get_target(&self) -> &MessageTarget;
+
+    /// Returns message target
+    fn get_target_mut(&mut self) -> &mut MessageTarget;
+}
+
+/// Trait for pushing resource records into a section
+pub trait RecordSectionBuilder : SectionBuilder {
+    /// Appends a new resource record to the section.
+    ///
+    /// This method is generic over anything that can be converted into a
+    /// [`Record`]. In particular, you can use four-tuples consisting of
+    /// a domain name, class, TTL, and record data or triples leaving out
+    /// the class which will then be assumed to be `Class::In`.
+    ///
+    /// If appending the record would result in the message exceeding its
+    /// size limit, the method will fail.
+    ///
+    /// [`Record`]: ../record/struct.Record.html
+    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
+                where N: ToDname, D: RecordData, R: Into<Record<N, D>>;
+}
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+    use super::*;
+    use rdata::*;
+    use bits::name::*;
+    use bits::rdata::*;
+    use bits::message::*;
+
+    fn get_built_message() -> Message {
+        let msg = MessageBuilder::with_capacity(512);
+        let mut msg = msg.answer();
+        msg.push((Dname::from_str("foo.example.com.").unwrap(), 86000,
+                     Cname::new(Dname::from_str("baz.example.com.")
+                                         .unwrap()))).unwrap();
+        let mut msg = msg.authority();
+        msg.push((Dname::from_str("bar.example.com.").unwrap(), 86000,
+                     Cname::new(Dname::from_str("baz.example.com.")
+                                         .unwrap()))).unwrap();
+        msg.freeze()
+    }
+
+    #[test]
+    fn build_message() {
+        let msg = get_built_message();
+        assert_eq!(1, msg.header_counts().ancount());
+        assert_eq!(1, msg.header_counts().nscount());
+    }
+}
