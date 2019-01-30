@@ -4,16 +4,28 @@
 
 Breaking Changes
 
-* `rdata::AllRecordData` now has a variant for `OPT` records.
-* `rdata::MasterRecordData` and `rdata::AllRecordData` are now
-  non-exhaustive in order to avoid future breaking changes when adding
-  additional types.
-* `rdata::MasterRecordData` and `rdata::AllRecordData` lost their
-  `PartialOrd` impl since that doesn’t really make sense.
-* Some variants of `OptionCode` have been renamed, loosing their `Edns`
-  prefix.
+* `bits::message_builder` module:
+  * most of the record section builder functionality was moved to the
+    trait `SectionBuilder` which they now implement. (Thanks to
+    Marek Vavruša!)
+
+* `iana::opt` module:
+  * Some variants of `OptionCode` have been renamed, loosing their `Edns`
+    prefix.
+
+* `rdata` module:
+  * `AllRecordData` now has a variant for `OPT` records,
+  * `MasterRecordData` and `AllRecordData` are now non-exhaustive in order to
+    avoid future breaking changes when adding additional types.
+  * `MasterRecordData` and `AllRecordData` lost their `PartialOrd` impl since
+    that doesn’t really make sense.
 
 New
+
+* `bits::message` module
+
+   * new `Message::copy_records` method allows copying select records to
+     a message builder.  (Thanks to Marek Vavruša!)
 
 * `bits::message_builder` module
 
@@ -27,7 +39,7 @@ New
   for queries; together they allow re-use of a query for trying with
   several servers.
 
-* OPT handling:
+* `bits::opt` module:
 
    * `OptRecord`: a more convenient alternative to `Record<_, Opt>` that
      provides access to the re-used record header.
