@@ -24,7 +24,7 @@ use super::parse::{Parse, Parser, ShortBuf};
 use super::question::Question;
 use super::rdata::{ParseRecordData, RecordData};
 use super::record::{ParsedRecord, Record, RecordParseError};
-
+use super::opt::{Opt, OptRecord};
 
 //------------ Message -------------------------------------------------------
 
@@ -376,6 +376,17 @@ impl Message {
         }
         
         Some(name)
+    }
+
+    /// Get OPT record from message, if there is any.
+    pub fn opt(&self) -> Option<OptRecord> {
+        match self.additional() {
+            Ok(section) => match section.limit_to::<Opt>().next() {
+                Some(Ok(rr)) => Some(OptRecord::from(rr)),
+                _ => None,
+            }
+            Err(_) => None,
+        }
     }
 }
 
