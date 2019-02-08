@@ -279,13 +279,19 @@ impl Message {
     {
         // Copy answer, authority, and additional records.
         let mut target = target.answer();
-        self.answer()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+        for rr in self.answer()?.filter_map(op) {
+            target.push(rr)?;
+        }
 
         let mut target = target.authority();
-        self.authority()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+        for rr in self.authority()?.filter_map(op) {
+            target.push(rr)?;
+        }
 
         let mut target = target.additional();
-        self.additional()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+        for rr in self.additional()?.filter_map(op) {
+            target.push(rr)?;
+        }
 
         Ok(target)
     }
