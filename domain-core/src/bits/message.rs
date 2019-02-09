@@ -787,8 +787,7 @@ mod test {
     use super::*;
     use bits::name::*;
     use bits::message_builder::*;
-    use rdata::Ns;
-    use bits::rdata::UnknownRecordData;
+    use rdata::{Ns, AllRecordData};
 
     // Helper for test cases
     fn get_test_message() -> Message {
@@ -879,7 +878,7 @@ mod test {
         let target = MessageBuilder::with_capacity(512);
         let res = msg.copy_records(target, |rec| {
             if let Ok(rr) = rec {
-                if let Ok(Some(rr)) = rr.into_record::<UnknownRecordData>() {
+                if let Ok(Some(rr)) = rr.into_record::<AllRecordData<ParsedDname>>() {
                     if rr.rtype() == Rtype::Cname {
                         return Some(rr);
                     }
