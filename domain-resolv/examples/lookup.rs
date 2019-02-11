@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
                 println!("Not a domain name: {}", name);
                 Either::B(Either::B(future::ok(())))
             }
-        }).into_future()
+        }).for_each(|_| Ok(()))
     );
     Ok(())
 }
