@@ -24,7 +24,7 @@ use super::parse::{Parse, Parser, ShortBuf};
 use super::question::Question;
 use super::rdata::{ParseRecordData, RecordData};
 use super::record::{ParsedRecord, Record, RecordParseError};
-
+use super::opt::{Opt, OptRecord};
 
 //------------ Message -------------------------------------------------------
 
@@ -279,13 +279,19 @@ impl Message {
     {
         // Copy answer, authority, and additional records.
         let mut target = target.answer();
-        self.answer()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+        for rr in self.answer()?.filter_map(op) {
+            target.push(rr)?;
+        }
 
         let mut target = target.authority();
-        self.authority()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+        for rr in self.authority()?.filter_map(op) {
+            target.push(rr)?;
+        }
 
         let mut target = target.additional();
-        self.additional()?.filter_map(op).for_each(|rr| target.push(rr).unwrap());
+        for rr in self.additional()?.filter_map(op) {
+            target.push(rr)?;
+        }
 
         Ok(target)
     }
@@ -370,6 +376,17 @@ impl Message {
         }
         
         Some(name)
+    }
+
+    /// Get OPT record from message, if there is any.
+    pub fn opt(&self) -> Option<OptRecord> {
+        match self.additional() {
+            Ok(section) => match section.limit_to::<Opt>().next() {
+                Some(Ok(rr)) => Some(OptRecord::from(rr)),
+                _ => None,
+            }
+            Err(_) => None,
+        }
     }
 }
 
@@ -770,8 +787,7 @@ mod test {
     use super::*;
     use bits::name::*;
     use bits::message_builder::*;
-    use rdata::Ns;
-    use bits::rdata::UnknownRecordData;
+    use rdata::{Ns, AllRecordData};
 
     // Helper for test cases
     fn get_test_message() -> Message {
@@ -862,7 +878,7 @@ mod test {
         let target = MessageBuilder::with_capacity(512);
         let res = msg.copy_records(target, |rec| {
             if let Ok(rr) = rec {
-                if let Ok(Some(rr)) = rr.into_record::<UnknownRecordData>() {
+                if let Ok(Some(rr)) = rr.into_record::<AllRecordData<ParsedDname>>() {
                     if rr.rtype() == Rtype::Cname {
                         return Some(rr);
                     }
