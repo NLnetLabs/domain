@@ -7,10 +7,15 @@ Breaking Changes
 
 New
 
+* `bits::message::Message::opt` returns a messages OPT record if present.
+  ([#6], thanks to Marek Vavruša!)
+
 Bug fixes
 
 Dependencies
 
+
+[#6]: https://github.com/NLnetLabs/domain/pull/6
 
 ## 0.4.0
 
