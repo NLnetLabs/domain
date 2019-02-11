@@ -8,10 +8,21 @@ A family of crates (eventually) providing a comprehensive DNS library for
 Rust. Currently, it consists of the following individual crates:
 
 * [domain-core], containing the core data structures and functionality for
-  handling DNS data,
+  handling DNS data.
+
+  [![Current](https://img.shields.io/crates/v/domain-core.svg)](https://crates.io/crates/domain-core)
+  [![Documentation](https://docs.rs/domain-core/badge.svg)](https://docs.rs/domain-core)
+
 * [domain-resolv], an asynchronous stub resolver.
 
-All of these crates can be imported at once via the [domain] meta crate.
+  [![Current](https://img.shields.io/crates/v/domain-resolv.svg)](https://crates.io/crates/domain-resolv)
+  [![Documentation](https://docs.rs/domain-resolv/badge.svg)](https://docs.rs/domain-resolv)
+
+* [domain], a meta-crate providing access to all of the above.
+
+  [![Current](https://img.shields.io/crates/v/domain.svg)](https://crates.io/crates/domain)
+  [![Documentation](https://docs.rs/domain/badge.svg)](https://docs.rs/domain)
+
 
 Additional crates will eventually provide functionality for authoritative
 name servers, recursive resolvers, and more.
@@ -19,4 +30,30 @@ name servers, recursive resolvers, and more.
 [domain]: https://github.com/NLnetLabs/domain-core/tree/master/domain
 [domain-core]: https://github.com/NLnetLabs/domain-core/tree/master/domain-core
 [domain-resolv]: https://github.com/NLnetLabs/domain-core/tree/master/domain-resolv
+
+
+## What’s Next?
+
+We have collected our plans for the next steps in development of these
+crates in the [Development Roadmap].
+
+For ideas that would benefit from some user feedback, we are creating
+issues with the [discuss] label.
+
+If you have ideas, requests, or proposals, don’t hesitate to open issues.
+
+[Development Roadmap]: https://github.com/NLnetLabs/domain/projects/1
+[discuss]: https://github.com/NLnetLabs/domain/labels/discuss
+
+
+## Contributing
+
+If you have comments, proposed changes, or would like to contribute,
+please open an issue.
+
+
+## Licensing
+
+All domain crates are distributed under the terms of the BSD-3-clause
+license. See the LICENSE files in the individual crates for details.
 
