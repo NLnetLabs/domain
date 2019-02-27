@@ -186,6 +186,10 @@ impl Query {
     where N: ToDname, Q: Into<Question<N>> {
         let mut message = QueryBuilder::new(question);
         message.set_rd(true);
+        if resolver.options().use_dnssec {
+            message.header_mut().set_ad(true);
+            message.set_use_dnssec(true);
+        }
         let message = message.freeze();
         let (preferred, counter) = if resolver.options().use_vc {
             (false, resolver.0.stream.counter(resolver.options().rotate))

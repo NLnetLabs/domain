@@ -162,6 +162,11 @@ pub struct ResolvOptions {
     /// `search` and `ndots` fields govern resolution of relative names of
     /// all kinds.
     pub no_tld_query: bool,
+
+    /// If true Enable DNSSEC query
+    /// This will set 'Authenticated Data' (AD) bit
+    /// And set 'DNSSECOK' (DO) bit if EDNS is enabled
+    pub use_dnssec: bool,
 }
 
 impl Default for ResolvOptions {
@@ -183,7 +188,8 @@ impl Default for ResolvOptions {
             no_check_name: false, keep_tsig: false, blast: false,
             use_bstring: false, use_ip6dotint: false, use_edns0: false,
             single_request: false, single_request_reopen: false,
-            no_tld_query: false
+            no_tld_query: false,
+            use_dnssec: false
         }
     }
 }

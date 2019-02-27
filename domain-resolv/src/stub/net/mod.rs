@@ -42,15 +42,17 @@ impl ServerInfo {
     pub fn prepare_message(&self, query: &mut QueryBuilder) {
         query.revert_additional();
         if self.does_edns() {
+            let use_dnssec = query.use_dnssec();
             query.add_opt(|opt| {
                 // These are the values that Unbound uses.
                 // XXX Perhaps this should be configurable.
-                opt.header_mut().set_udp_payload_size(
-                    match self.conf.addr {
-                        SocketAddr::V4(_) => 1472,
-                        SocketAddr::V6(_) => 1232
-                    }
-                )
+                opt.header_mut().set_udp_payload_size(match self.conf.addr {
+                    SocketAddr::V4(_) => 1472,
+                    SocketAddr::V6(_) => 1232,
+                });
+                if use_dnssec {
+                    opt.header_mut().set_dnssec_ok(true);
+                }
             })
         }
     }

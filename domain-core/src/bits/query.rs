@@ -54,6 +54,9 @@ pub struct QueryBuilder {
 
     /// The index in `target` where the additional section starts.
     additional: usize,
+
+    /// If true enable DNSSEC
+    use_dnssec: bool,
 }
 
 impl QueryBuilder {
@@ -76,7 +79,8 @@ impl QueryBuilder {
         question.compose(&mut target);
         QueryBuilder {
             additional: target.len(),
-            target
+            use_dnssec: false,
+            target,
         }
     }
 
@@ -102,6 +106,17 @@ impl QueryBuilder {
     /// By default, this bit is _not_ set.
     pub fn set_rd(&mut self, value: bool) {
         self.header_mut().set_rd(value)
+    }
+
+    /// Sets use_dnssec to given value
+    /// default value is false
+    pub fn set_use_dnssec(&mut self, value: bool) {
+        self.use_dnssec = value;
+    }
+
+    /// Returns the current value set for use_dnssec
+    pub fn use_dnssec(&self) -> bool {
+        self.use_dnssec
     }
 
     /// Updates the length shim of the message.
@@ -141,11 +156,11 @@ impl QueryBuilder {
         QueryMessage {
             message: Message::from_bytes(bytes.slice_from(2)).unwrap(),
             bytes,
-            additional: self.additional
+            additional: self.additional,
+            use_dnssec: self.use_dnssec,
         }
     }
 }
-
 
 //------------ OptBuilder ----------------------------------------------------
 
@@ -260,7 +275,10 @@ pub struct QueryMessage {
     message: Message,
 
     /// The index in `bytes` where the message’s additional section starts.
-    additional: usize
+    additional: usize,
+
+    /// If true enables DNSSEC
+    use_dnssec: bool,
 }
 
 impl QueryMessage {
@@ -276,7 +294,8 @@ impl QueryMessage {
         drop(self.message);
         let mut res = QueryBuilder {
             target: self.bytes.into(),
-            additional: self.additional
+            additional: self.additional,
+            use_dnssec: self.use_dnssec,
         };
         res.header_mut().set_random_id();
         res
