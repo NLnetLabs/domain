@@ -612,23 +612,25 @@ impl fmt::Display for OptRcode {
 
 //------------ TsigRcode ----------------------------------------------------
 
-/// Response codes for transaction authentication (TSIG).
-///
-/// TSIG and TKEY resource records contain a 16 bit wide error field whose
-/// values are an extension of the standard DNS [`Rcode`]. While it was
-/// intended to also share the same space with the extended response codes
-/// used by EDNS (see [`OptRcode`]), both used the value 16. To allow
-/// distinguish between the two uses of this value, we have two separate
-/// types.
-///
-/// The values for all three response code types are defined in
-/// the [IANA DNS RCODEs] registry. This type is complete as of 2019-01-28.
-///
-/// [`Rcode`]: enum.Rcode.html
-/// [`OptRcode`]: enum.OptRcode.html
-/// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
-#[derive(Clone, Copy, Debug)]
-pub enum TsigRcode {
+int_enum!{
+    /// Response codes for transaction authentication (TSIG).
+    ///
+    /// TSIG and TKEY resource records contain a 16 bit wide error field whose
+    /// values are an extension of the standard DNS [`Rcode`]. While it was
+    /// intended to also share the same space with the extended response codes
+    /// used by EDNS (see [`OptRcode`]), both used the value 16. To allow
+    /// distinguish between the two uses of this value, we have two separate
+    /// types.
+    ///
+    /// The values for all three response code types are defined in
+    /// the [IANA DNS RCODEs] registry. This type is complete as of 2019-01-28.
+    ///
+    /// [`Rcode`]: enum.Rcode.html
+    /// [`OptRcode`]: enum.OptRcode.html
+    /// [IANA DNS RCODEs]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
+    =>
+    TsigRcode, u16;
+
     /// No error condition.
     ///
     /// (Otherwise known as success.)
@@ -636,7 +638,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    NoError,
+    (NoError => 0, b"NOERROR")
 
     /// Format error.
     ///
@@ -645,7 +647,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    FormErr,
+    (FormErr => 1, b"FORMERR")
 
     /// Server failure.
     ///
@@ -655,7 +657,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    ServFail,
+    (ServFail => 2, b"SERVFAIL")
 
     /// Name error.
     ///
@@ -664,7 +666,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    NXDomain,
+    (NXDomain => 3, b"NXDOMAIN")
 
     /// Not implemented.
     ///
@@ -673,7 +675,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    NotImp,
+    (NotImp => 4, b"NOTIMPL")
 
     /// Query refused.
     ///
@@ -683,7 +685,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 1035].
     ///
     /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-    Refused,
+    (Refused => 5, b"REFUSED")
 
     /// Name exists when it should not.
     ///
@@ -698,7 +700,7 @@ pub enum TsigRcode {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 6672]: https://tools.ietf.org/html/rfc6672
-    YXDomain,
+    (YXDomain => 6, b"YXDOMAIN")
 
     /// RR set exists when it should not.
     ///
@@ -708,7 +710,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    YXRRSet,
+    (YXRRSet => 7, b"YXRRSET")
 
     /// RR set that should exist does not.
     ///
@@ -718,7 +720,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    NXRRSet,
+    (NXRRSet => 8, b"NXRRSET")
 
     /// Server not authoritative for zone or client not authorized.
     ///
@@ -731,7 +733,7 @@ pub enum TsigRcode {
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    NotAuth,
+    (NotAuth => 9, b"NOTAUTH")
 
     /// Name not contained in zone.
     ///
@@ -741,7 +743,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 2136].
     ///
     /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
-    NotZone,
+    (NotZone => 10, b"NOTZONE")
 
     /// TSIG signature failure.
     ///
@@ -750,7 +752,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 2845].
     ///
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    BadSig,
+    (BadSig => 16, b"BADSIG")
 
     /// Key not recognized.
     ///
@@ -760,7 +762,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 2845].
     ///
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    BadKey,
+    (BadKey => 17, b"BADKEY")
 
     /// Signature out of time window.
     ///
@@ -770,7 +772,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 2845].
     ///
     /// [RFC 2845]: https://tools.ietf.org/html/rfc2845
-    BadTime,
+    (BadTime => 18, b"BADTIME")
 
     /// Bad TKEY mode.
     ///
@@ -780,7 +782,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 2930].
     ///
     /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
-    BadMode,
+    (BadMode => 19, b"BADMODE")
 
     /// Duplicate key name.
     ///
@@ -791,7 +793,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 2930].
     ///
     /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
-    BadName,
+    (BadName => 20, b"BADNAME")
 
     /// Algorithm not supported.
     ///
@@ -800,7 +802,7 @@ pub enum TsigRcode {
     /// record contains a value not supported by the server.
     ///
     /// [RFC 2930]: https://tools.ietf.org/html/rfc2930
-    BadAlg,
+    (BadAlg => 21, b"BADALG")
 
     /// Bad truncation.
     ///
@@ -810,7 +812,7 @@ pub enum TsigRcode {
     /// Defined in [RFC 4635].
     ///
     /// [RFC 4635]: https://tools.ietf.org/html/rfc4635
-    BadTrunc,
+    (BadTrunc => 22, b"BADTRUNC")
 
     /// Bad or missing server cookie.
     ///
@@ -820,84 +822,11 @@ pub enum TsigRcode {
     /// Defined in [RFC 7873].
     ///
     /// [RFC 7873]: https://tools.ietf.org/html/rfc7873
-    BadCookie,
-
-    /// A raw, integer rcode value.
-    ///
-    /// When converting to a 12 bit code, the upper four bits are simply
-    /// ignored.
-    Int(u16)
-}
-
-
-impl TsigRcode {
-    /// Creates an rcode from an integer.
-    pub fn from_int(value: u16) -> TsigRcode {
-        use self::TsigRcode::*;
-
-        match value {
-            0 => NoError,
-            1 => FormErr,
-            2 => ServFail,
-            3 => NXDomain,
-            4 => NotImp,
-            5 => Refused,
-            6 => YXDomain,
-            7 => YXRRSet,
-            8 => NXRRSet,
-            9 => NotAuth,
-            10 => NotZone,
-            16 => BadSig,
-            17 => BadKey,
-            18 => BadTime,
-            19 => BadMode,
-            20 => BadName,
-            21 => BadAlg,
-            22 => BadTrunc,
-            23 => BadCookie,
-            value => Int(value)
-        }
-    }
-
-    /// Returns the integer value for this rcode.
-    pub fn to_int(self) -> u16 {
-        use self::TsigRcode::*;
-
-        match self {
-            NoError => 0,
-            FormErr => 1,
-            ServFail => 2,
-            NXDomain => 3,
-            NotImp => 4,
-            Refused => 5,
-            YXDomain => 6,
-            YXRRSet => 7,
-            NXRRSet => 8,
-            NotAuth => 9,
-            NotZone => 10,
-            BadSig => 16,
-            BadKey => 17,
-            BadTime => 18,
-            BadMode => 19,
-            BadName => 20,
-            BadAlg => 21,
-            BadTrunc => 22,
-            BadCookie => 23,
-            Int(value) => value & 0x0F
-        }
-    }
+    (BadCookie => 23, b"BADCOOKIE")
 }
 
 
 //--- From
-
-impl From<u16> for TsigRcode {
-    fn from(value: u16) -> TsigRcode { TsigRcode::from_int(value) }
-}
-
-impl From<TsigRcode> for u16 {
-    fn from(value: TsigRcode) -> u16 { value.to_int() }
-}
 
 impl From<Rcode> for TsigRcode {
     fn from(value: Rcode) -> TsigRcode {
@@ -911,40 +840,4 @@ impl From<OptRcode> for TsigRcode {
     }
 }
 
-
-//--- Display
-
-impl fmt::Display for TsigRcode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::TsigRcode::*;
-
-        match *self {
-            NoError => "NOERROR".fmt(f),
-            FormErr => "FORMERR".fmt(f),
-            ServFail => "SERVFAIL".fmt(f),
-            NXDomain => "NXDOMAIN".fmt(f),
-            NotImp => "NOTIMP".fmt(f),
-            Refused => "REFUSED".fmt(f),
-            YXDomain => "YXDOMAIN".fmt(f),
-            YXRRSet => "YXRRSET".fmt(f),
-            NXRRSet => "NXRRSET".fmt(f),
-            NotAuth => "NOAUTH".fmt(f),
-            NotZone => "NOTZONE".fmt(f),
-            BadSig => "BADSIG".fmt(f),
-            BadKey => "BADKEY".fmt(f),
-            BadTime => "BADTIME".fmt(f),
-            BadMode => "BADMODE".fmt(f),
-            BadName => "BADNAME".fmt(f),
-            BadAlg => "BADALG".fmt(f),
-            BadTrunc => "BADTRUNC".fmt(f),
-            BadCookie => "BADCOOKIE".fmt(f),
-            Int(i) => {
-                match TsigRcode::from_int(i) {
-                    Int(i) => i.fmt(f),
-                    value => value.fmt(f)
-                }
-            }
-        }
-    }
-}
-
+int_enum_str_with_decimal!(TsigRcode, u16, "unknown TSIG error");

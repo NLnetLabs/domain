@@ -1,7 +1,6 @@
 # A DNS library for Rust – Core
 
-[![Current](https://img.shields.io/crates/v/domain-core.svg)](https://crates.io/crates/domain-core)
-[![Documentation](https://docs.rs/domain-core/badge.svg)](https://docs.rs/domain-core)
+
 
 
 This crate contains the core types and functionality for processing DNS

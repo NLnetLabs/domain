@@ -142,7 +142,7 @@ macro_rules! rdata_types {
         }
 
         impl<N> ::bits::compose::Compress for MasterRecordData<N>
-        where N: ::bits::compose::Compress {
+        where N: ::bits::compose::Compress + ::bits::compose::Compose {
             fn compress(&self, buf: &mut ::bits::compose::Compressor)
                         -> Result<(), ::bits::parse::ShortBuf> {
                 match *self {
@@ -424,7 +424,7 @@ macro_rules! rdata_types {
         }
 
         impl<N> ::bits::compose::Compress for AllRecordData<N>
-        where N: ::bits::compose::Compress {
+        where N: ::bits::compose::Compress + ::bits::compose::Compose {
             fn compress(&self, buf: &mut ::bits::compose::Compressor)
                         -> Result<(), ::bits::parse::ShortBuf> {
                 match *self {
