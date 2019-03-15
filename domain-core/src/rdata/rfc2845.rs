@@ -115,6 +115,11 @@ impl<N> Tsig<N> {
         self.original_id
     }
 
+    /// Returns the TSIG error.
+    pub fn error(&self) -> TsigRcode {
+        self.error
+    }
+
     /// Returns a reference to the other bytes.
     ///
     /// This field is only used for BADTIME errors to return the server time.
@@ -297,7 +302,7 @@ impl Time48 {
     /// Converts a value into its wire format.
     ///
     /// Returns the octets of the encoded value in network byte order.
-    fn into_octets(self) -> [u8; 6] {
+    pub fn into_octets(self) -> [u8; 6] {
         let mut res = [0u8; 6];
         res[0] = (self.0 >> 40) as u8;
         res[0] = (self.0 >> 32) as u8;
@@ -306,6 +311,11 @@ impl Time48 {
         res[0] = (self.0 >> 8) as u8;
         res[0] = self.0 as u8;
         res
+    }
+
+    /// Converts a value into a bytes value.
+    pub fn into_bytes(self) -> Bytes {
+        Bytes::from(self.into_octets().as_ref())
     }
 
     /// Returns whether the time is within a given period.

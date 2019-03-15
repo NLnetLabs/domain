@@ -45,6 +45,13 @@ impl Label {
         &*(slice as *const [u8] as *const Self)
     }
 
+    /// Creates a label from the underlying byte slice without any checking.
+    pub(super) unsafe fn from_slice_mut_unchecked(
+        slice: &mut [u8]
+    ) -> &mut Self {
+        &mut *(slice as *mut [u8] as *mut Self)
+    }
+
     /// Returns a static reference to the root label.
     ///
     /// The root label is an empty label.
@@ -115,6 +122,15 @@ impl Label {
     /// Returns a mutable reference to the underlying byte slice.
     pub fn as_slice_mut(&mut self) -> &mut [u8] {
         self.as_mut()
+    }
+
+    /// Returns the label in canonical form.
+    /// 
+    /// In this form, all ASCII letters are lowercase.
+    pub fn to_canonical(&self) -> OwnedLabel {
+        let mut res = OwnedLabel::from_label(self);
+        res.make_canonical();
+        res
     }
 }
 
@@ -260,6 +276,95 @@ impl fmt::Debug for Label {
         f.write_str("Label(")?;
         fmt::Display::fmt(self, f)?;
         f.write_str(")")
+    }
+}
+
+
+//------------ OwnedLabel ----------------------------------------------------
+
+/// An owned label.
+///
+/// Since labels are relatively short, this type doesn’t actually allocate any
+/// memory but is a 64 byte array.
+//
+//  This keeps the label in wire format, so the first octet is the length
+//  octet, the remainder is the content.
+pub struct OwnedLabel([u8; 64]);
+
+impl OwnedLabel {
+    /// Creates a new owned label from an existing label.
+    pub fn from_label(label: &Label) -> Self {
+        let mut res = [8; 64];
+        res[0] = label.len() as u8;
+        res[1..label.len() + 1].copy_from_slice(label.as_slice());
+        OwnedLabel(res)
+    }
+
+    pub fn make_canonical(&mut self) {
+        self.0[1..].make_ascii_lowercase()
+    }
+
+    /// Returns a reference to the label.
+    pub fn as_label(&self) -> &Label {
+        unsafe {
+            Label::from_slice_unchecked(&self.0[1..(self.0[0] as usize + 1)])
+        }
+    }
+
+    /// Returns a mutable reference to the label.
+    pub fn as_label_mut(&mut self) -> &mut Label {
+        let len = self.0[0] as usize;
+        unsafe {
+            Label::from_slice_mut_unchecked(
+                &mut self.0[1..len + 1]
+            )
+        }
+    }
+
+    /// Returns a slice that is the wire-represenation of the label.
+    pub fn as_wire_slice(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+
+//--- Deref, DerefMut, AsRef, and AsMut
+
+impl ops::Deref for OwnedLabel {
+    type Target = Label;
+
+    fn deref(&self) -> &Label {
+        self.as_label()
+    }
+}
+
+impl ops::DerefMut for OwnedLabel {
+    fn deref_mut(&mut self) -> &mut Label {
+        self.as_label_mut()
+    }
+}
+
+impl AsRef<Label> for OwnedLabel {
+    fn as_ref(&self) -> &Label {
+        self.as_label()
+    }
+}
+
+impl AsRef<[u8]> for OwnedLabel {
+    fn as_ref(&self) -> &[u8] {
+        self.as_label().as_slice()
+    }
+}
+
+impl AsMut<Label> for OwnedLabel {
+    fn as_mut(&mut self) -> &mut Label {
+        self.as_label_mut()
+    }
+}
+
+impl AsMut<[u8]> for OwnedLabel {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_label_mut().as_slice_mut()
     }
 }
 

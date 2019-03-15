@@ -43,7 +43,7 @@ impl Dname {
     ///
     /// Since this will allow to actually construct an incorrectly encoded
     /// domain name value, the function is unsafe.
-    pub(super) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
+    pub(crate) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
         Dname { bytes }
     }
 
