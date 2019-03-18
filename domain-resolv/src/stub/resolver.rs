@@ -211,21 +211,24 @@ impl Query {
     /// Starts a new query for the current server.
     ///
     /// Prepares the query message and then starts the server query. Returns
-    /// `None` if a query cannot be started because 
+    /// `None` if a query cannot be started because there are no more servers
+    /// left.
     fn start_query(&mut self) -> Option<ServerQuery> {
-        let mut message = self.message.take().unwrap().unfreeze();
+        let message = self.message.take().unwrap();
         let (message, res) = {
-            let info = match self.current_server() {
-                Some(info) => info,
-                None => return None
-            };
-            info.prepare_message(&mut message);
-            let message = message.freeze();
-            let res = ServerQuery::new(message.clone(), info);
-            (message, res)
+            match self.current_server() {
+                Some(info) => {
+                    let mut message = message.unfreeze();
+                    info.prepare_message(&mut message);
+                    let message = message.freeze();
+                    let res = ServerQuery::new(message.clone(), info);
+                    (message, Some(res))
+                }
+                None => (message, None)
+            }
         };
         self.message = Some(message);
-        Some(res)
+        res
     }
 
     /// Returns the info for the current server.
