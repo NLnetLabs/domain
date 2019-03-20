@@ -107,6 +107,11 @@ impl<N> Tsig<N> {
         self.mac.as_ref()
     }
 
+    /// Converts the record data into the MAC.
+    pub fn into_mac(self) -> Bytes {
+        self.mac
+    }
+
     /// Returns the original message ID.
     ///
     /// Since the message ID is part of the signature generation but may be
@@ -139,6 +144,17 @@ impl<N> Tsig<N> {
         else {
             None
         }
+    }
+
+    /// Returns whether the record is valid right now.
+    ///
+    /// The method checks whether the current system time is within [`fudge`]
+    /// seconds of the [`time_signed`].
+    ///
+    /// [`fudge`]: #method.fudge
+    /// [`time_signed`]: #method.time_signed
+    pub fn is_valid_now(&self) -> bool {
+        Time48::now().eq_fudged(self.time_signed, self.fudge.into())
     }
 }
 
@@ -322,7 +338,7 @@ impl Time48 {
     ///
     /// Returns `true` iff `other` is at most `fudge` seconds before or after
     /// this value’s time.
-    pub fn eq_fudged(&self, other: &Self, fudge: u64) -> bool {
+    pub fn eq_fudged(self, other: Self, fudge: u64) -> bool {
         self.0.saturating_sub(fudge) <= other.0 &&
         self.0.saturating_add(fudge) >= other.0
     }

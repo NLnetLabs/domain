@@ -377,6 +377,18 @@ impl HeaderCounts {
         self.set_qdcount(count + 1);
     }
 
+    /// Decreases the value of the QDCOUNT field by one.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the count is already zero.
+    pub fn dec_qdcount(&mut self) {
+        let count = self.qdcount();
+        assert!(count > 0);
+        self.set_qdcount(count - 1);
+    }
+
+
     /// Returns the value of the ANCOUNT field.
     ///
     /// This field contains the number of resource records in the second
@@ -399,6 +411,17 @@ impl HeaderCounts {
         let count = self.ancount();
         assert!(count < ::std::u16::MAX);
         self.set_ancount(count + 1);
+    }
+
+    /// Decreases the value of the ANCOUNT field by one.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the count is already zero.
+    pub fn dec_ancount(&mut self) {
+        let count = self.ancount();
+        assert!(count > 0);
+        self.set_ancount(count - 1);
     }
 
     /// Returns the value of the NSCOUNT field.
@@ -425,6 +448,17 @@ impl HeaderCounts {
         self.set_nscount(count + 1);
     }
 
+    /// Decreases the value of the NSCOUNT field by one.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the count is already zero.
+    pub fn dec_nscount(&mut self) {
+        let count = self.nscount();
+        assert!(count > 0);
+        self.set_nscount(count - 1);
+    }
+
     /// Returns the value of the ARCOUNT field.
     ///
     /// This field contains the number of resource records in the fourth
@@ -447,6 +481,17 @@ impl HeaderCounts {
         let count = self.arcount();
         assert!(count < ::std::u16::MAX);
         self.set_arcount(count + 1);
+    }
+
+    /// Decreases the value of the ARCOUNT field by one.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the count is already zero.
+    pub fn dec_arcount(&mut self) {
+        let count = self.arcount();
+        assert!(count > 0);
+        self.set_arcount(count - 1);
     }
 
 

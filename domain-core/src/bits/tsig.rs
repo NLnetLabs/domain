@@ -1,66 +1,152 @@
 //! Support for TSIG.
 
-use std::cmp;
-use bytes::{BigEndian, ByteOrder, Bytes};
-use ring::{constant_time, digest, hmac};
-use crate::bits::name::{Dname, Label, ToDname, ToLabelIter};
+use std::{cmp, fmt, str};
+use std::collections::HashMap;
+use std::sync::Arc;
+use bytes::{BigEndian, ByteOrder, Bytes, BytesMut};
+use ring::{constant_time, digest, hmac, rand};
+use crate::bits::message::Message;
+use crate::bits::message_builder::{
+    AdditionalBuilder, MessageBuilder, SectionBuilder, RecordSectionBuilder
+};
+use crate::bits::name::{
+    Dname, Label, ParsedDname, ParsedDnameError, ToDname, ToLabelIter
+};
+use crate::bits::parse::ShortBuf;
 use crate::bits::record::Record;
-use crate::iana::{Class, TsigRcode};
+use crate::iana::{Class, Rcode, TsigRcode};
 use crate::rdata::rfc2845::{Time48, Tsig};
 
 
 //------------ Key -----------------------------------------------------------
 
-/// A key for use with TSIG.
-///
-/// A value of this type contains both the actual key, the signing algorithm,
-/// and the name of the key.
+/// A key for creating TSIG signatures.
+#[derive(Debug)]
 pub struct Key {
-    /// The key itself.
-    ///
-    /// The key also contains the algorithm.
+    /// The key’s bits and algorithm.
     key: hmac::SigningKey,
 
     /// The name of the key as a domain name.
     name: Dname,
 
-    /// Minimum length of a signature.
+    /// Minimum length of received signatures.
     ///
-    /// This will be at least half the algorithm’s native signature length,
-    /// at least 10, and at most the algorithm’s native signature length.
-    /// Any function creating a value needs to make sure of that.
-    min_sig_len: usize
+    /// This is guaranteed to be within the bounds specified by the standard:
+    /// at least 10 and at least half the algorithm’s native signature length.
+    /// It will also be no larger than the native signature length.
+    min_mac_len: usize,
+
+    /// The length of a signature created with this key.
+    ///
+    /// This has the same bounds as `min_mac_len`.
+    signing_len: usize,
 }
 
-
+/// # Creating Keys
+///
 impl Key {
-    /// Creates a new key.
+    /// Creates a new key from its components.
+    ///
+    /// This function can be used to import a key from some kind of serialized
+    /// form. The algorithm, key bits, and name are necessary. By default the
+    /// key will not allow any truncation.
+    ///
+    /// If `min_mac_len` is not `None`, the key will accept received
+    /// signatures trucated to the given length. This length must not be less
+    /// than 10, it must not be less than half the algorithm’s native
+    /// signature length as returned by [`Algorithm::native_len`], and it must
+    /// not be larger than the full native length. The function will return an
+    /// error if that happens.
+    ///
+    /// If `signing_len` is not `None`, the signatures produces with this key
+    /// will be truncated to the given length. The limits for `min_mac_len`
+    /// apply here as well.
+    ///
+    /// [`Algorithm::native_len`]: struct.Algorithm.html#method.native_len
     pub fn new(
         algorithm: Algorithm,
         key: &[u8],
         name: Dname,
-        truncate: Option<usize>,
-    ) -> Self {
-        let algorithm = algorithm.into_digest_algorithm();
-        let min_sig_len = match truncate {
-            Some(value) => {
-                cmp::min(
-                    cmp::max(
-                        cmp::max(10, algorithm.output_len / 2),
-                        value
-                    ),
-                    algorithm.output_len
-                )
-            },
-            None => algorithm.output_len
-        };
-        Key {
-            key: hmac::SigningKey::new(algorithm, key),
+        min_mac_len: Option<usize>,
+        signing_len: Option<usize>
+    ) -> Result<Self, NewKeyError> {
+        let (min_mac_len, signing_len) = Self::calculate_bounds(
+            algorithm, min_mac_len, signing_len
+        )?;
+        Ok(Key {
+            key: hmac::SigningKey::new(algorithm.into_digest_algorithm(), key),
             name,
-            min_sig_len,
-        }
+            min_mac_len,
+            signing_len
+        })
     }
 
+    /// Generates a new signing key.
+    ///
+    /// This is similar to [`new`] but generates the bits for the key from the
+    /// given `rng`. It returns both the key and bits for storage.
+    ///
+    /// [`new`]: #method.new
+    pub fn generate(
+        algorithm: Algorithm,
+        rng: &dyn rand::SecureRandom,
+        name: Dname,
+        min_mac_len: Option<usize>,
+        signing_len: Option<usize>
+    ) -> Result<(Self, Bytes), GenerateKeyError> {
+        let (min_mac_len, signing_len) = Self::calculate_bounds(
+            algorithm, min_mac_len, signing_len
+        )?;
+        let algorithm = algorithm.into_digest_algorithm();
+        let key_len = hmac::recommended_key_len(algorithm);
+        let mut bytes = BytesMut::with_capacity(key_len);
+        bytes.resize(key_len, 0);
+        let key = Key {
+            key: hmac::SigningKey::generate_serializable(
+                algorithm, rng, bytes.as_mut()
+            )?,
+            name,
+            min_mac_len,
+            signing_len
+        };
+        Ok((key, bytes.freeze()))
+    }
+
+    /// Calculates the bounds to use in the key.
+    ///
+    /// Returns the actual bounds for `min_mac_len` and `signing_len` or an
+    /// error if the input is out of bounds.
+    fn calculate_bounds(
+        algorithm: Algorithm,
+        min_mac_len: Option<usize>,
+        signing_len: Option<usize>
+    ) -> Result<(usize, usize), NewKeyError> {
+        let min_mac_len = match min_mac_len {
+            Some(len) => {
+                if !algorithm.within_len_bounds(len) {
+                    return Err(NewKeyError::BadMinMacLen)
+                }
+                len
+            }
+            None => algorithm.native_len()
+        };
+        let signing_len = match signing_len {
+            Some(len) => {
+                if !algorithm.within_len_bounds(len) {
+                    return Err(NewKeyError::BadSigningLen)
+                }
+                len
+            }
+            None => algorithm.native_len()
+        };
+        Ok((min_mac_len, signing_len))
+    }
+}
+
+
+/// # Access to Properties
+///
+impl Key {
     /// Returns the algorithm of this key.
     pub fn algorithm(&self) -> Algorithm {
         Algorithm::from_digest_algorithm(self.key.digest_algorithm())
@@ -71,65 +157,33 @@ impl Key {
         &self.name
     }
 
-    /// Returns the minimum acceptable length of a signature.
-    pub fn min_sig_len(&self) -> usize {
-        self.min_sig_len
-    }
-}
-
-/// # Low-level Signing and Verification
-///
-/// These methods generate and verify the various signatures required by the
-/// TSIG protocol.
-impl Key {
-    /// Sign a request.
-    ///
-    /// Generates the signature for a request generated by a client. This is
-    /// also used for signing answers if the time doesn’t check out.
-    pub fn sign_request(
-        &self,
-        msg: &[u8],
-        vars: &Variables
-    ) -> hmac::Signature {
-        let mut ctx = hmac::SigningContext::with_key(&self.key);
-        ctx.update(msg);
-        vars.sign(&mut ctx);
-        ctx.sign()
+    /// Returns the native length of the signature from this key.
+    pub fn native_len(&self) -> usize {
+        self.key.digest_algorithm().output_len
     }
 
-    /// Sign an answer.
-    pub fn sign_answer(
-        &self,
-        request_mac: &hmac::Signature,
-        msg: &[u8],
-        vars: &Variables
-    ) -> hmac::Signature {
-        let mut ctx = hmac::SigningContext::with_key(&self.key);
-        ctx.update(request_mac.as_ref());
-        ctx.update(msg);
-        vars.sign(&mut ctx);
-        ctx.sign()
+    /// Returns the minimum acceptable length of a received signature.
+    pub fn min_mac_len(&self) -> usize {
+        self.min_mac_len
     }
 
-    /// Checks the signature of a request.
-    pub fn check_request(
-        &self,
-        msg: &[u8],
-        vars: &Variables,
-        mac: &hmac::Signature
+    /// Returns the length of a signature generated by this key.
+    pub fn signing_len(&self) -> usize {
+        self.signing_len
+    }
+
+    /// Checks whether the key in the record is this key.
+    fn check_tsig(
+        &self, tsig: &Record<ParsedDname, Tsig<Dname>>
     ) -> Result<(), ValidationError> {
-        self.compare_signatures(&self.sign_request(msg, vars), mac)
-    }
-
-    /// Checks the singatures of an answer.
-    pub fn check_answer(
-        &self,
-        request_mac: &hmac::Signature,
-        msg: &[u8],
-        vars: &Variables,
-        mac: &hmac::Signature
-    ) -> Result<(), ValidationError> {
-        self.compare_signatures(&self.sign_answer(request_mac, msg, vars), mac)
+        if *tsig.owner() != self.name
+            || *tsig.data().algorithm() != self.algorithm().to_dname() 
+        {
+            Err(ValidationError::BadKey)
+        }
+        else {
+            Ok(())
+        }
     }
 
     /// Compares two signatures.
@@ -140,13 +194,13 @@ impl Key {
     fn compare_signatures(
         &self,
         expected: &hmac::Signature,
-        provided: &hmac::Signature
+        provided: &[u8],
     ) -> Result<(), ValidationError> {
-        if provided.as_ref().len() < self.min_sig_len {
-            return Err(ValidationError::ShortSig)
+        if provided.len() < self.min_mac_len {
+            return Err(ValidationError::BadTrunc)
         }
-        let expected = if provided.as_ref().len() < expected.as_ref().len() {
-            &expected.as_ref()[..provided.as_ref().len()]
+        let expected = if provided.len() < expected.as_ref().len() {
+            &expected.as_ref()[..provided.len()]
         }
         else {
             expected.as_ref()
@@ -157,40 +211,278 @@ impl Key {
 }
 
 
-//------------ Sequence ------------------------------------------------------
+//------------ KeyStore ------------------------------------------------------
 
-/// A sequence of messages to be signed.
-pub struct Sequence {
-    ctx: hmac::SigningContext,
+/// A type that stores TSIG secrets.
+pub trait KeyStore {
+    type Key: AsRef<Key>;
+
+    fn get_key<N: ToDname>(
+        &self, name: &N, algorithm: Algorithm
+    ) -> Option<Self::Key>;
 }
 
-impl Sequence {
-    pub fn new(key: &Key, prior: Option<&hmac::Signature>) -> Self {
-        let mut ctx = hmac::SigningContext::with_key(&key.key);
-        if let Some(mac) = prior {
-            ctx.update(mac.as_ref())
-        }
-        Sequence { ctx }
-    }
+impl KeyStore for HashMap<(Dname, Algorithm), Arc<Key>> {
+    type Key = Arc<Key>;
 
-    pub fn add_msg(&mut self, msg: &[u8]) {
-        self.ctx.update(msg)
-    }
-
-    pub fn sign(mut self, vars: &Variables) -> hmac::Signature {
-        vars.sign(&mut self.ctx);
-        self.ctx.sign()
+    fn get_key<N: ToDname>(
+        &self, name: &N, algorithm: Algorithm
+    ) -> Option<Self::Key> {
+        let name = name.to_name(); // XXX This seems a bit wasteful.
+        self.get(&(name, algorithm)).cloned()
     }
 }
 
 
-//------------ Client --------------------------------------------------------
+//------------ ClientTransaction ---------------------------------------------
 
-/// A client using TSIG.
-///
-//  signs a message, verifies its response.
+/// TSIG Client Transaction State.
 #[derive(Clone, Debug)]
-pub struct Client;
+pub struct ClientTransaction<K> {
+    /// The TSIG variables.
+    variables: Variables<K>,
+
+    /// The MAC of the original request.
+    request_mac: Signature,
+}
+
+impl<K: AsRef<Key>> ClientTransaction<K> {
+    /// Creates a transaction for a request.
+    ///
+    /// The method takes a complete message in the form of an additional
+    /// builder and a key. It signs the message with the key and adds the
+    /// signature as a TSIG record to the message’s additional section. It
+    /// also creates a transaction value that can later be used to validate
+    /// the response. It returns both the message and the transaction.
+    ///
+    /// The function can fail if the TSIG record doesn’t actually fit into
+    /// the message anymore. In this case, the function returns an error and
+    /// the untouched message.
+    ///
+    /// Unlike [`request_with_fudge`], this function uses the
+    /// recommended default value for _fudge:_ 300 seconds.
+    ///
+    /// [`request_with_fudge`]: #method.request_with_fudge
+    pub fn request(
+        key: K, message: AdditionalBuilder
+    ) -> Result<(Message, Self), AdditionalBuilder> {
+        Self::request_with_fudge(key, message, 300)
+    }
+
+    /// Creates a transaction for a request with provided fudge.
+    ///
+    /// The method takes a complete message in the form of an additional
+    /// builder and a key. It signs the message with the key and adds the
+    /// signature as a TSIG record to the message’s additional section. It
+    /// also creates a transaction value that can later be used to validate
+    /// the response. It returns both the message and the transaction.
+    ///
+    /// The `fudge` argument provides the number of seconds that the
+    /// receiver’s clock may be off from this system’s current time when it
+    /// receives the message. The specification recommends a value of 300
+    /// seconds. Unless there is good reason to not use this recommendation,
+    /// you can simply use [`request`] instead.
+    ///
+    /// The function can fail if the TSIG record doesn’t actually fit into
+    /// the message anymore. In this case, the function returns an error and
+    /// the untouched message.
+    ///
+    /// [`request`]: #method.request
+    pub fn request_with_fudge(
+        key: K, mut message: AdditionalBuilder, fudge: u16
+    ) -> Result<(Message, Self), AdditionalBuilder> {
+        let variables = Variables::new(
+            key, Time48::now(), fudge, TsigRcode::NoError, None
+        );
+        let id = message.header().id();
+        let request_mac = Signature::local(
+            variables.sign_request(message.so_far()),
+            variables.key().signing_len
+        );
+        if message.push(variables.to_tsig(&request_mac, id)).is_err() {
+            return Err(message)
+        }
+        Ok((message.freeze(), ClientTransaction { variables, request_mac }))
+    }
+
+    /// Validates an answer.
+    ///
+    /// Takes a message and checks whether it was correctly signed for the
+    /// original request. If that is indeed the case, takes the TSIG record
+    /// out of the message. Otherwise, returns a validation error.
+    pub fn answer(
+        &self, message: &mut Message
+    ) -> Result<(), ValidationError> {
+        // Extract TSIG. FormErr if that doesn’t succeed.
+        let tsig = match extract_tsig(message) {
+            Some(tsig) => tsig,
+            None => return Err(ValidationError::FormErr)
+        };
+
+        // Check for unsigned errors.
+        if message.header().rcode() == Rcode::NotAuth {
+            if tsig.data().error() == TsigRcode::BadKey {
+                return Err(ValidationError::ServerBadKey)
+            }
+            if tsig.data().error() == TsigRcode::BadSig {
+                return Err(ValidationError::ServerBadSig)
+            }
+        }
+
+        // Check that the server used the correct key and algorithm.
+        self.variables.key().check_tsig(&tsig)?;
+
+        // Fix up message and check the MAC.
+        update_id(message, &tsig);
+        self.variables.key().compare_signatures(
+            &self.variables.sign_answer(
+                &self.request_mac, message.as_slice()
+            ),
+            tsig.data().mac().as_ref()
+        )?;
+
+        // BadTime error message.
+        if message.header().rcode() == Rcode::NotAuth
+            && tsig.data().error() == TsigRcode::BadTime
+        {
+            let server = match tsig.data().other_time() {
+                Some(time) => time,
+                None => return Err(ValidationError::FormErr)
+            };
+            return Err(ValidationError::ServerBadTime {
+                client: tsig.data().time_signed(), server
+            })
+        }
+
+        // Check the time.
+        if !tsig.data().is_valid_now() {
+            return Err(ValidationError::BadTime)
+        }
+
+        // Looks good.
+        Ok(())
+    }
+}
+
+
+//------------ ServerTransaction ---------------------------------------------
+
+/// TSIG Server Transaction State.
+#[derive(Clone, Debug)]
+pub struct ServerTransaction<K> {
+    /// The TSIG variables.
+    variables: Variables<K>,
+
+    /// The MAC of the original request.
+    request_mac: Signature,
+}
+
+impl<K: AsRef<Key>> ServerTransaction<K> {
+    /// Creates a transaction for a request.
+    ///
+    pub fn request<S: KeyStore<Key=K>>(
+        keys: &S,
+        mut message: Message
+    ) -> Result<(Message, Option<Self>), Message> {
+        // 4.5 Server TSIG checks
+        //
+        // First, do we have a valid TSIG?
+        let tsig = match extract_tsig(&mut message) {
+            Some(tsig) => tsig,
+            None => return Ok((message, None))
+        };
+
+        // 4.5.1. KEY check and error handling
+        let variables = match Variables::from_tsig(keys, &tsig) {
+            Ok(variables) => variables,
+            Err(_) => {
+                return Err(
+                    Self::unsigned_answer(&message, &tsig, TsigRcode::BadKey)
+                )
+            }
+        };
+
+        // 4.5.3 MAC check
+        //
+        // Contrary to RFC 2845, this must be done before the time check.
+        update_id(&mut message, &tsig);
+        let res = variables.key().compare_signatures(
+            &variables.sign_request(message.as_slice()),
+            tsig.data().mac().as_ref()
+        );
+        if let Err(err) = res {
+            return Err(Self::unsigned_answer(&message, &tsig, match err {
+                ValidationError::BadTrunc => TsigRcode::BadTrunc,
+                ValidationError::BadKey => TsigRcode::BadKey,
+                _ => TsigRcode::FormErr,
+            }))
+        }
+
+        let time_valid = tsig.data().is_valid_now();
+
+        // From here on we need to sign answers, so we need the transaction.
+        let tran = ServerTransaction {
+            variables,
+            request_mac: Signature::remote(tsig.into_data().into_mac()),
+        };
+
+        // 4.5.2 Time check
+        //
+        // Note that we are not doing the caching of the most recent
+        // time_signed because, well, that’ll require mutexes and stuff.
+        if !time_valid {
+            let mut tran = tran;
+            tran.variables.other = Some(Time48::now());
+            tran.variables.error = TsigRcode::BadTime;
+            let mut response = MessageBuilder::new_udp();
+            response.start_answer(&message, Rcode::NotAuth);
+            return Err(
+                // unwrap: answer should always fit.
+                tran.signed_answer(response.additional()).unwrap()
+            )
+        }
+
+        Ok((message, Some(tran)))
+    }
+
+    /// Produces an unsigned error answer.
+    fn unsigned_answer(
+        msg: &Message,
+        tsig: &Record<ParsedDname, Tsig<Dname>>,
+        error: TsigRcode
+    ) -> Message {
+        let mut res = MessageBuilder::new_udp();
+        res.start_answer(msg, Rcode::NotAuth);
+        let mut res = res.additional();
+        res.push((
+            tsig.owner(), tsig.class(), tsig.ttl(),
+            Tsig::new(
+                tsig.data().algorithm(),
+                tsig.data().time_signed(),
+                tsig.data().fudge(),
+                Bytes::new(),
+                msg.header().id(),
+                error,
+                Bytes::new()
+            )
+        )).unwrap();
+        res.freeze()
+    }
+
+    /// Procudes a signed answer.
+    fn signed_answer(
+        &self,
+        mut message: AdditionalBuilder,
+    ) -> Result<Message, ShortBuf> {
+        let id = message.header().id();
+        let mac = self.variables.sign_answer(
+            &self.request_mac, message.so_far()
+        );
+        let mac = Signature::local(mac, self.variables.key().signing_len);
+        message.push(self.variables.to_tsig(&mac, id))?;
+        Ok(message.freeze())
+    }
+}
 
 
 //------------ Variables -----------------------------------------------------
@@ -201,54 +493,74 @@ pub struct Client;
 /// as input for MAC generation. This type keeps those that are indeed
 /// variable.
 #[derive(Clone, Debug)]
-pub struct Variables {
-    name: Dname,
-    algorithm: Algorithm,
+struct Variables<K> {
+    key: K,
     time_signed: Time48,
     fudge: u16,
     error: TsigRcode,
     other: Option<Time48>,
 }
 
-impl Variables {
-    pub fn new(
-        name: Dname, algorithm: Algorithm, time_signed: Time48, fudge: u16,
-        error: TsigRcode, other: Option<Time48>
+impl<K> Variables<K> {
+    fn new(
+        key: K,
+        time_signed: Time48,
+        fudge: u16,
+        error: TsigRcode,
+        other: Option<Time48>
     ) -> Self {
         Variables {
-            name, algorithm, time_signed, fudge, error, other
+            key, time_signed, fudge, error, other
         }
     }
+}
 
-    pub fn from_tsig<NR: ToDname, NT: ToDname>(
-        record: &Record<NR, Tsig<NT>>
+impl<K: AsRef<Key>> Variables<K> {
+    fn key(&self) -> &Key {
+        self.key.as_ref()
+    }
+
+    fn sign_request(&self, message: &[u8]) -> hmac::Signature {
+        let mut ctx = hmac::SigningContext::with_key(&self.key().key);
+        ctx.update(message);
+        self.sign(&mut ctx);
+        ctx.sign()
+    }
+
+    fn sign_answer(
+        &self, request_mac: &Signature, message: &[u8]
+    ) -> hmac::Signature {
+        let mut ctx = hmac::SigningContext::with_key(&self.key().key);
+        ctx.update(request_mac.as_slice());
+        ctx.update(message);
+        self.sign(&mut ctx);
+        ctx.sign()
+    }
+
+    fn from_tsig<S: KeyStore<Key=K>>(
+        store: &S,
+        record: &Record<ParsedDname, Tsig<Dname>>
     ) -> Result<Self, ValidationError> {
-        let other = if record.data().other().is_empty() {
-            None
-        } else if let Some(other) = record.data().other_time() {
-            Some(other)
-        }
-        else {
-            return Err(ValidationError::BadOther)
+        let algorithm = match Algorithm::from_dname(record.data().algorithm()) {
+            Some(algorithm) => algorithm,
+            None => return Err(ValidationError::BadAlg)
+        };
+        let key = match store.get_key(record.owner(), algorithm) {
+            Some(key) => key,
+            None => return Err(ValidationError::BadKey)
         };
         Ok(Variables::new(
-            record.owner().to_name(),
-            Algorithm::from_dname(record.data().algorithm())
-                .ok_or_else(|| {
-                    ValidationError::BadAlg(
-                        record.data().algorithm().to_name()
-                    )
-                })?,
+            key,
             record.data().time_signed(),
             record.data().fudge(),
             record.data().error(),
-            other
+            record.data().other_time(),
         ))
     }
 
-    pub fn to_tsig(
+    fn to_tsig(
         &self,
-        hmac: &hmac::Signature,
+        hmac: &Signature,
         original_id: u16
     ) -> Record<Dname, Tsig<Dname>> {
         let other = match self.other {
@@ -256,11 +568,11 @@ impl Variables {
             None => Bytes::new()
         };
         Record::new(
-            self.name.clone(),
+            self.key().name.clone(),
             Class::Any,
             0,
             Tsig::new(
-                self.algorithm.to_dname(),
+                self.key().algorithm().to_dname(),
                 self.time_signed,
                 self.fudge,
                 Bytes::from(hmac.as_ref()),
@@ -271,11 +583,11 @@ impl Variables {
         )
     }
 
-    pub fn sign(&self, context: &mut hmac::SigningContext) {
+    fn sign(&self, context: &mut hmac::SigningContext) {
         let mut buf = [0u8; 8];
 
         // Key name, in canonical wire format
-        for label in self.name.iter_labels().map(Label::to_canonical) {
+        for label in self.key().name.iter_labels().map(Label::to_canonical) {
             context.update(label.as_wire_slice());
         }
         // CLASS (Always ANY in the current specification)
@@ -285,7 +597,7 @@ impl Variables {
         BigEndian::write_u32(&mut buf, 0);
         context.update(&buf[..4]);
         // Algorithm Name (in canonical wire format)
-        context.update(self.algorithm.into_wire_slice());
+        context.update(self.key().algorithm().into_wire_slice());
         // Time Signed
         BigEndian::write_u64(&mut buf, self.time_signed.into());
         context.update(&buf[2..]);
@@ -311,10 +623,64 @@ impl Variables {
 }
 
 
+//------------ Signature -----------------------------------------------------
+
+/// A TSIG signature.
+///
+/// This type contains a signature generated by digesting a message with a
+/// certain key.
+#[derive(Clone, Debug)]
+enum Signature {
+    Local {
+        /// The actual signature.
+        signature: hmac::Signature,
+
+        /// How many octets off the signature’s beginning we should use.
+        len: usize
+    },
+    Remote(Bytes)
+}
+
+impl Signature {
+    fn local(signature: hmac::Signature, len: usize) -> Self {
+        assert!(
+            len >= 10 &&
+            len >= signature.as_ref().len() / 2 &&
+            len <= signature.as_ref().len()
+        );
+        Signature::Local { signature, len }
+    }
+
+    fn remote(bytes: Bytes) -> Self {
+        Signature::Remote(bytes)
+    }
+
+
+    /// Returns an octets slice of the signature.
+    fn as_slice(&self) -> &[u8] {
+        match *self {
+            Signature::Local { ref signature, len } => {
+                &signature.as_ref()[..len]
+            }
+            Signature::Remote(ref bytes) => bytes.as_ref(),
+        }
+    }
+}
+
+
+//--- AsRef
+
+impl AsRef<[u8]> for Signature {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+
 //------------ Algorithm -----------------------------------------------------
 
 /// The supported TSIG algorithms.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Algorithm {
     Sha1,
     Sha256,
@@ -367,7 +733,7 @@ impl Algorithm {
     }
 
     /// Returns the ring digest algorithm for this TSIG algorithm.
-    pub fn into_digest_algorithm(self) -> &'static digest::Algorithm {
+    fn into_digest_algorithm(self) -> &'static digest::Algorithm {
         match self {
             Algorithm::Sha1 => &digest::SHA1,
             Algorithm::Sha256 => &digest::SHA256,
@@ -377,7 +743,7 @@ impl Algorithm {
     }
 
     /// Returns a octet slice with the wire-format domain name for this value.
-    pub fn into_wire_slice(self) -> &'static [u8] {
+    fn into_wire_slice(self) -> &'static [u8] {
         match self {
             Algorithm::Sha1 => b"\x09hmac-sha1\0",
             Algorithm::Sha256 => b"\x0Bhmac-sha256\0",
@@ -394,15 +760,154 @@ impl Algorithm {
             )
         }
     }
+
+    /// Returns the native length of a signature created with this algorithm.
+    pub fn native_len(self) -> usize {
+        self.into_digest_algorithm().output_len
+    }
+
+    /// Returns the bounds for the allowed signature size.
+    pub fn within_len_bounds(self, len: usize) -> bool {
+        len >= cmp::max(10, self.native_len() / 2)
+        && len <= self.native_len()
+    }
 }
+
+
+//--- FromStr
+
+impl str::FromStr for Algorithm {
+    type Err = AlgorithmError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "hmac-sha1" => Ok(Algorithm::Sha1),
+            "hmac-sha256" => Ok(Algorithm::Sha256),
+            "hmac-sha384" => Ok(Algorithm::Sha384),
+            "hmac-sha512" => Ok(Algorithm::Sha512),
+            _ => Err(AlgorithmError),
+        }
+    }
+}
+
+
+//--- Display
+
+impl fmt::Display for Algorithm {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", match *self {
+            Algorithm::Sha1 => "hmac-sha1",
+            Algorithm::Sha256 => "hmac-sha256",
+            Algorithm::Sha384 => "hmac-sha384",
+            Algorithm::Sha512 => "hmac-sha512",
+        })
+    }
+}
+
+
+//------------ Helper Functions ----------------------------------------------
+
+/// Extracts the TSIG record from a message.
+///
+/// Checks that there is exactly one TSIG record in the additional
+/// section, that it is the last record in this section. If that is true,
+/// returns both the message without that TSIG record and the TSIG record
+/// itself.
+/// 
+/// Note that the function does _not_ update the message ID.
+fn extract_tsig(
+    msg: &mut Message
+) -> Option<Record<ParsedDname, Tsig<Dname>>> {
+    let additional = match msg.additional() {
+        Ok(additional) => additional,
+        Err(_) => return None,
+    };
+    let mut seen = false;
+    for record in additional.limit_to::<Tsig<Dname>>() {
+        if seen || record.is_err() {
+            return None
+        }
+        seen = true
+    }
+    let tsig = match msg.extract_last() {
+        Some(tsig) => tsig,
+        None => return None
+    };
+    Some(tsig)
+}
+
+
+/// Updates message’s ID to tsig’s original ID.
+fn update_id(
+    message: &mut Message,
+    tsig: &Record<ParsedDname, Tsig<Dname>>
+) {
+    if message.header().id() != tsig.data().original_id() {
+        message.update_header(|header| {
+            header.set_id(tsig.data().original_id())
+        })
+    }
+}
+
+
+//------------ NewKeyError ---------------------------------------------------
+
+/// A key couldn’t be created.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum NewKeyError {
+    #[fail(display="minimum signature length out of bounds")]
+    BadMinMacLen,
+
+    #[fail(display="created signature length out of bounds")]
+    BadSigningLen,
+}
+
+
+//------------ GenerateKeyError ----------------------------------------------
+
+/// A key couldn’t be created.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum GenerateKeyError {
+    #[fail(display="minimum signature length out of bounds")]
+    BadMinMacLen,
+
+    #[fail(display="created signature length out of bounds")]
+    BadSigningLen,
+
+    #[fail(display="generating key failed")]
+    GenerationFailed,
+}
+
+impl From<NewKeyError> for GenerateKeyError {
+    fn from(err: NewKeyError) -> Self {
+        match err {
+            NewKeyError::BadMinMacLen => GenerateKeyError::BadMinMacLen,
+            NewKeyError::BadSigningLen => GenerateKeyError::BadSigningLen
+        }
+    }
+}
+
+impl From<ring::error::Unspecified> for GenerateKeyError {
+    fn from(_: ring::error::Unspecified) -> Self {
+        GenerateKeyError::GenerationFailed
+    }
+}
+
+
+//------------ AlgorithmError ------------------------------------------------
+
+/// An invalid algorithm was provided.
+#[derive(Clone, Copy, Debug, Fail)]
+#[fail(display="invalid algorithm")]
+pub struct AlgorithmError;
 
 
 //------------ ValidationError -----------------------------------------------
 
 #[derive(Clone, Debug, Fail)]
 pub enum ValidationError {
-    #[fail(display="unknown algorithm '{}'", _0)]
-    BadAlg(Dname),
+    #[fail(display="unknown algorithm")]
+    BadAlg,
 
     #[fail(display="bad content of other")]
     BadOther,
@@ -411,6 +916,33 @@ pub enum ValidationError {
     BadSig,
 
     #[fail(display="short signature")]
-    ShortSig,
+    BadTrunc,
+
+    #[fail(display="unknown key")]
+    BadKey,
+
+    #[fail(display="bad time")]
+    BadTime,
+
+    #[fail(display="format error")]
+    FormErr,
+
+    #[fail(display="unknown key on server")]
+    ServerBadKey,
+
+    #[fail(display="server failed to verify MAC")]
+    ServerBadSig,
+
+    #[fail(display="server reported bad time")]
+    ServerBadTime {
+        client: Time48,
+        server: Time48
+    }
+}
+
+impl From<ParsedDnameError> for ValidationError {
+    fn from(_: ParsedDnameError) -> Self {
+        ValidationError::FormErr
+    }
 }
 
