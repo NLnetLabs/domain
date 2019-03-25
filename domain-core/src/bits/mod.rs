@@ -114,5 +114,4 @@ pub mod question;
 pub mod rdata;
 pub mod record;
 pub mod serial;
-pub mod tsig;
 

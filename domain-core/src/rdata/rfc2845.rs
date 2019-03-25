@@ -321,11 +321,11 @@ impl Time48 {
     pub fn into_octets(self) -> [u8; 6] {
         let mut res = [0u8; 6];
         res[0] = (self.0 >> 40) as u8;
-        res[0] = (self.0 >> 32) as u8;
-        res[0] = (self.0 >> 24) as u8;
-        res[0] = (self.0 >> 16) as u8;
-        res[0] = (self.0 >> 8) as u8;
-        res[0] = self.0 as u8;
+        res[1] = (self.0 >> 32) as u8;
+        res[2] = (self.0 >> 24) as u8;
+        res[3] = (self.0 >> 16) as u8;
+        res[4] = (self.0 >> 8) as u8;
+        res[5] = self.0 as u8;
         res
     }
 

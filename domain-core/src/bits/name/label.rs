@@ -323,7 +323,8 @@ impl OwnedLabel {
 
     /// Returns a slice that is the wire-represenation of the label.
     pub fn as_wire_slice(&self) -> &[u8] {
-        &self.0
+        let len = self.0[0] as usize;
+        &self.0[..len + 1]
     }
 }
 

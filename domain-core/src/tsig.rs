@@ -211,6 +211,15 @@ impl Key {
 }
 
 
+//--- AsRef
+
+impl AsRef<Key> for Key {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
+
 //------------ KeyStore ------------------------------------------------------
 
 /// A type that stores TSIG secrets.
@@ -239,14 +248,22 @@ impl KeyStore for HashMap<(Dname, Algorithm), Arc<Key>> {
 /// TSIG Client Transaction State.
 #[derive(Clone, Debug)]
 pub struct ClientTransaction<K> {
+    /// The key.
+    key: K,
+
     /// The TSIG variables.
-    variables: Variables<K>,
+    variables: Variables,
 
     /// The MAC of the original request.
     request_mac: Signature,
 }
 
 impl<K: AsRef<Key>> ClientTransaction<K> {
+    /// Returns a reference to the transaction’s key.
+    pub fn key(&self) -> &Key {
+        self.key.as_ref()
+    }
+
     /// Creates a transaction for a request.
     ///
     /// The method takes a complete message in the form of an additional
@@ -292,17 +309,22 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         key: K, mut message: AdditionalBuilder, fudge: u16
     ) -> Result<(Message, Self), AdditionalBuilder> {
         let variables = Variables::new(
-            key, Time48::now(), fudge, TsigRcode::NoError, None
+            Time48::now(), fudge, TsigRcode::NoError, None
         );
         let id = message.header().id();
         let request_mac = Signature::local(
-            variables.sign_request(message.so_far()),
-            variables.key().signing_len
+            variables.sign_request(key.as_ref(), message.so_far()),
+            key.as_ref().signing_len
         );
-        if message.push(variables.to_tsig(&request_mac, id)).is_err() {
+        if message.push(variables.to_tsig(key.as_ref(), &request_mac, id))
+                  .is_err()
+        {
             return Err(message)
         }
-        Ok((message.freeze(), ClientTransaction { variables, request_mac }))
+        Ok((
+            message.freeze(),
+            ClientTransaction { key, variables, request_mac }
+        ))
     }
 
     /// Validates an answer.
@@ -330,13 +352,14 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         }
 
         // Check that the server used the correct key and algorithm.
-        self.variables.key().check_tsig(&tsig)?;
+        self.key().check_tsig(&tsig)?;
 
-        // Fix up message and check the MAC.
+        // Fix up message and variables and check the MAC.
         update_id(message, &tsig);
-        self.variables.key().compare_signatures(
-            &self.variables.sign_answer(
-                &self.request_mac, message.as_slice()
+        let variables = Variables::from_tsig(&tsig);
+        self.key().compare_signatures(
+            &variables.sign_answer(
+                self.key(), &self.request_mac, message.as_slice()
             ),
             tsig.data().mac().as_ref()
         )?;
@@ -370,18 +393,26 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
 /// TSIG Server Transaction State.
 #[derive(Clone, Debug)]
 pub struct ServerTransaction<K> {
+    /// The key.
+    key: K,
+
     /// The TSIG variables.
-    variables: Variables<K>,
+    variables: Variables,
 
     /// The MAC of the original request.
     request_mac: Signature,
 }
 
 impl<K: AsRef<Key>> ServerTransaction<K> {
+    /// Returns a reference to the transaction’s key.
+    pub fn key(&self) -> &Key {
+        self.key.as_ref()
+    }
+
     /// Creates a transaction for a request.
     ///
     pub fn request<S: KeyStore<Key=K>>(
-        keys: &S,
+        store: &S,
         mut message: Message
     ) -> Result<(Message, Option<Self>), Message> {
         // 4.5 Server TSIG checks
@@ -393,21 +424,30 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
         };
 
         // 4.5.1. KEY check and error handling
-        let variables = match Variables::from_tsig(keys, &tsig) {
-            Ok(variables) => variables,
-            Err(_) => {
+        let algorithm = match Algorithm::from_dname(tsig.data().algorithm()) {
+            Some(algorithm) => algorithm,
+            None => {
                 return Err(
                     Self::unsigned_answer(&message, &tsig, TsigRcode::BadKey)
                 )
             }
         };
+        let key = match store.get_key(tsig.owner(), algorithm) {
+            Some(key) => key,
+            None => {
+                return Err(
+                    Self::unsigned_answer(&message, &tsig, TsigRcode::BadKey)
+                )
+            }
+        };
+        let variables = Variables::from_tsig(&tsig);
 
         // 4.5.3 MAC check
         //
         // Contrary to RFC 2845, this must be done before the time check.
         update_id(&mut message, &tsig);
-        let res = variables.key().compare_signatures(
-            &variables.sign_request(message.as_slice()),
+        let res = key.as_ref().compare_signatures(
+            &variables.sign_request(key.as_ref(), message.as_slice()),
             tsig.data().mac().as_ref()
         );
         if let Err(err) = res {
@@ -422,6 +462,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
 
         // From here on we need to sign answers, so we need the transaction.
         let tran = ServerTransaction {
+            key,
             variables,
             request_mac: Signature::remote(tsig.into_data().into_mac()),
         };
@@ -476,10 +517,10 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     ) -> Result<Message, ShortBuf> {
         let id = message.header().id();
         let mac = self.variables.sign_answer(
-            &self.request_mac, message.so_far()
+            self.key(), &self.request_mac, message.so_far()
         );
-        let mac = Signature::local(mac, self.variables.key().signing_len);
-        message.push(self.variables.to_tsig(&mac, id))?;
+        let mac = Signature::local(mac, self.key().signing_len);
+        message.push(self.variables.to_tsig(self.key(), &mac, id))?;
         Ok(message.freeze())
     }
 }
@@ -493,73 +534,54 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
 /// as input for MAC generation. This type keeps those that are indeed
 /// variable.
 #[derive(Clone, Debug)]
-struct Variables<K> {
-    key: K,
+struct Variables {
     time_signed: Time48,
     fudge: u16,
     error: TsigRcode,
     other: Option<Time48>,
 }
 
-impl<K> Variables<K> {
+impl Variables {
     fn new(
-        key: K,
         time_signed: Time48,
         fudge: u16,
         error: TsigRcode,
         other: Option<Time48>
     ) -> Self {
         Variables {
-            key, time_signed, fudge, error, other
+            time_signed, fudge, error, other
         }
     }
-}
 
-impl<K: AsRef<Key>> Variables<K> {
-    fn key(&self) -> &Key {
-        self.key.as_ref()
-    }
-
-    fn sign_request(&self, message: &[u8]) -> hmac::Signature {
-        let mut ctx = hmac::SigningContext::with_key(&self.key().key);
+    fn sign_request(&self, key: &Key, message: &[u8]) -> hmac::Signature {
+        let mut ctx = hmac::SigningContext::with_key(&key.key);
         ctx.update(message);
-        self.sign(&mut ctx);
+        self.sign(key, &mut ctx);
         ctx.sign()
     }
 
     fn sign_answer(
-        &self, request_mac: &Signature, message: &[u8]
+        &self, key: &Key, request_mac: &Signature, message: &[u8]
     ) -> hmac::Signature {
-        let mut ctx = hmac::SigningContext::with_key(&self.key().key);
-        ctx.update(request_mac.as_slice());
+        let mut ctx = hmac::SigningContext::with_key(&key.key);
+        request_mac.sign(&mut ctx);
         ctx.update(message);
-        self.sign(&mut ctx);
+        self.sign(key, &mut ctx);
         ctx.sign()
     }
 
-    fn from_tsig<S: KeyStore<Key=K>>(
-        store: &S,
-        record: &Record<ParsedDname, Tsig<Dname>>
-    ) -> Result<Self, ValidationError> {
-        let algorithm = match Algorithm::from_dname(record.data().algorithm()) {
-            Some(algorithm) => algorithm,
-            None => return Err(ValidationError::BadAlg)
-        };
-        let key = match store.get_key(record.owner(), algorithm) {
-            Some(key) => key,
-            None => return Err(ValidationError::BadKey)
-        };
-        Ok(Variables::new(
-            key,
+    fn from_tsig(record: &Record<ParsedDname, Tsig<Dname>>) -> Self {
+        Variables::new(
             record.data().time_signed(),
             record.data().fudge(),
             record.data().error(),
             record.data().other_time(),
-        ))
+        )
     }
 
     fn to_tsig(
         &self,
+        key: &Key,
         hmac: &Signature,
         original_id: u16
     ) -> Record<Dname, Tsig<Dname>> {
@@ -568,11 +590,11 @@ impl<K: AsRef<Key>> Variables<K> {
             None => Bytes::new()
         };
         Record::new(
-            self.key().name.clone(),
+            key.name.clone(),
             Class::Any,
             0,
             Tsig::new(
-                self.key().algorithm().to_dname(),
+                key.algorithm().to_dname(),
                 self.time_signed,
                 self.fudge,
                 Bytes::from(hmac.as_ref()),
@@ -583,11 +605,11 @@ impl<K: AsRef<Key>> Variables<K> {
         )
     }
 
-    fn sign(&self, context: &mut hmac::SigningContext) {
+    fn sign(&self, key: &Key, context: &mut hmac::SigningContext) {
         let mut buf = [0u8; 8];
 
         // Key name, in canonical wire format
-        for label in self.key().name.iter_labels().map(Label::to_canonical) {
+        for label in key.name.iter_labels().map(Label::to_canonical) {
             context.update(label.as_wire_slice());
         }
         // CLASS (Always ANY in the current specification)
@@ -597,10 +619,9 @@ impl<K: AsRef<Key>> Variables<K> {
         BigEndian::write_u32(&mut buf, 0);
         context.update(&buf[..4]);
         // Algorithm Name (in canonical wire format)
-        context.update(self.key().algorithm().into_wire_slice());
+        context.update(key.algorithm().into_wire_slice());
         // Time Signed
-        BigEndian::write_u64(&mut buf, self.time_signed.into());
-        context.update(&buf[2..]);
+        context.update(&self.time_signed.into_octets());
         // Fudge
         BigEndian::write_u16(&mut buf, self.fudge);
         context.update(&buf[..2]);
@@ -655,7 +676,6 @@ impl Signature {
         Signature::Remote(bytes)
     }
 
-
     /// Returns an octets slice of the signature.
     fn as_slice(&self) -> &[u8] {
         match *self {
@@ -664,6 +684,22 @@ impl Signature {
             }
             Signature::Remote(ref bytes) => bytes.as_ref(),
         }
+    }
+
+    /// Returns the length of the signature.
+    fn len(&self) -> usize {
+        match *self {
+            Signature::Local { len, .. } => len,
+            Signature::Remote(ref bytes) => bytes.len(),
+        }
+    }
+
+    /// Adds the signature to a signing context.
+    fn sign(&self, context: &mut hmac::SigningContext) {
+        let mut buf = [0u8; 2];
+        BigEndian::write_u16(&mut buf, self.len() as u16);
+        context.update(buf.as_ref());
+        context.update(self.as_slice());
     }
 }
 

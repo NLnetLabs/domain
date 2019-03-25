@@ -141,7 +141,7 @@
 use std::{mem, ops};
 use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
-use iana::{OptionCode, Rcode};
+use iana::{Class, OptionCode, Rcode, Rtype};
 use super::compose::{Compose, Compress, Compressor};
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::message::Message;
@@ -348,6 +348,19 @@ impl MessageBuilder {
     }
 }
 
+
+/// # Shortcuts
+///
+impl MessageBuilder {
+    /// Creates an AXFR request for the given domain.
+    pub fn request_axfr<N: ToDname>(apex: N) -> Self {
+        let mut res = Self::new_udp();
+        res.header_mut().set_random_id();
+        res.push((apex, Rtype::Axfr, Class::In)).unwrap();
+        res
+    }
+}
+
 impl SectionBuilder for MessageBuilder {
     fn into_target(self) -> MessageTarget { self.target }
     fn get_target(&self) -> &MessageTarget { &self.target }
@@ -534,7 +547,7 @@ impl RecordSectionBuilder for AdditionalBuilder {
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
                 where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
         self.target.push(|target| record.into().compress(target),
-                         |counts| counts.inc_nscount())
+                         |counts| counts.inc_arcount())
     }
 }
 
