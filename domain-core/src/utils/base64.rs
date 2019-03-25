@@ -48,6 +48,13 @@ where B: AsRef<[u8]> + ?Sized, W: fmt::Write {
 }
 
 
+pub fn encode_string<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> String {
+    let mut res = String::with_capacity((bytes.as_ref().len() / 3 + 1) * 4);
+    display(bytes, &mut res).unwrap();
+    res
+}
+
+
 //------------ Decoder -------------------------------------------------------
 
 /// A Base64 decoder.

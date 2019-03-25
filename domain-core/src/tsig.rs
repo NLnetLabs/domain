@@ -231,6 +231,21 @@ pub trait KeyStore {
     ) -> Option<Self::Key>;
 }
 
+impl<'a> KeyStore for &'a Key {
+    type Key = &'a Key;
+
+    fn get_key<N: ToDname>(
+        &self, name: &N, algorithm: Algorithm
+    ) -> Option<Self::Key> {
+        if self.name() == name && self.algorithm() == algorithm {
+            Some(*self)
+        }
+        else {
+            None
+        }
+    }
+}
+
 impl KeyStore for HashMap<(Dname, Algorithm), Arc<Key>> {
     type Key = Arc<Key>;
 
@@ -472,18 +487,47 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
         // Note that we are not doing the caching of the most recent
         // time_signed because, well, that’ll require mutexes and stuff.
         if !time_valid {
-            let mut tran = tran;
-            tran.variables.other = Some(Time48::now());
-            tran.variables.error = TsigRcode::BadTime;
             let mut response = MessageBuilder::new_udp();
             response.start_answer(&message, Rcode::NotAuth);
             return Err(
                 // unwrap: answer should always fit.
-                tran.signed_answer(response.additional()).unwrap()
+                tran.signed_answer(
+                    response.additional(),
+                    &Variables::new(
+                        tran.variables.time_signed,
+                        tran.variables.fudge,
+                        TsigRcode::BadTime,
+                        Some(Time48::now())
+                    )
+                ).unwrap()
             )
         }
 
         Ok((message, Some(tran)))
+    }
+
+    /// Produces a signed answer.
+    pub fn answer(
+        &self, message: AdditionalBuilder
+    ) -> Result<Message, ShortBuf> {
+        self.answer_with_fudge(message, 300)
+    }
+
+    /// Produces a signed answer with a given fudge.
+    pub fn answer_with_fudge(
+        &self,
+        message: AdditionalBuilder,
+        fudge: u16
+    ) -> Result<Message, ShortBuf> {
+        self.signed_answer(
+            message,
+            &Variables::new(
+                Time48::now(),
+                fudge,
+                TsigRcode::NoError,
+                None
+            )
+        )
     }
 
     /// Produces an unsigned error answer.
@@ -514,13 +558,14 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     fn signed_answer(
         &self,
         mut message: AdditionalBuilder,
+        variables: &Variables,
     ) -> Result<Message, ShortBuf> {
         let id = message.header().id();
-        let mac = self.variables.sign_answer(
+        let mac = variables.sign_answer(
             self.key(), &self.request_mac, message.so_far()
         );
         let mac = Signature::local(mac, self.key().signing_len);
-        message.push(self.variables.to_tsig(self.key(), &mac, id))?;
+        message.push(variables.to_tsig(self.key(), &mac, id))?;
         Ok(message.freeze())
     }
 }

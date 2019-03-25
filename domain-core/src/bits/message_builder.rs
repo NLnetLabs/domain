@@ -285,27 +285,6 @@ impl MessageBuilder {
     pub fn set_page_size(&mut self, page_size: usize) {
         self.target.buf.set_page_size(page_size)
     }
-
-    /// Starts creating an answer for the given message.
-    ///
-    /// Specifically, this sets the ID, QR, OPCODE, RD, and RCODE fields
-    /// in the header and attempts to push the message’s questions to the
-    /// builder. If iterating of the questions fails, it adds what it can.
-    pub fn start_answer(&mut self, msg: &Message, rcode: Rcode) {
-        {
-            let header = self.header_mut();
-            header.set_id(msg.header().id());
-            header.set_qr(true);
-            header.set_opcode(msg.header().opcode());
-            header.set_rd(msg.header().rd());
-            header.set_rcode(rcode);
-        }
-        for item in msg.question() {
-            if let Ok(item) = item {
-                self.push(item).unwrap();
-            }
-        }
-    }
 }
 
 
@@ -352,6 +331,28 @@ impl MessageBuilder {
 /// # Shortcuts
 ///
 impl MessageBuilder {
+
+    /// Starts creating an answer for the given message.
+    ///
+    /// Specifically, this sets the ID, QR, OPCODE, RD, and RCODE fields
+    /// in the header and attempts to push the message’s questions to the
+    /// builder. If iterating of the questions fails, it adds what it can.
+    pub fn start_answer(&mut self, msg: &Message, rcode: Rcode) {
+        {
+            let header = self.header_mut();
+            header.set_id(msg.header().id());
+            header.set_qr(true);
+            header.set_opcode(msg.header().opcode());
+            header.set_rd(msg.header().rd());
+            header.set_rcode(rcode);
+        }
+        for item in msg.question() {
+            if let Ok(item) = item {
+                self.push(item).unwrap();
+            }
+        }
+    }
+
     /// Creates an AXFR request for the given domain.
     pub fn request_axfr<N: ToDname>(apex: N) -> Self {
         let mut res = Self::new_udp();
