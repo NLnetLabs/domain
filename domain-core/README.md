@@ -22,6 +22,8 @@ Eventually, this crate will provide the following functions:
 
     * [X] Master format parsing and constructing.
 
+* [X] TSIG signing and validating.
+
 * [ ] DNSSEC signing
 
 * [ ] DNSSEC validation

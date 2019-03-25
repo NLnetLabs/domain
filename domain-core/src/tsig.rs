@@ -266,9 +266,6 @@ pub struct ClientTransaction<K> {
     /// The key.
     key: K,
 
-    /// The TSIG variables.
-    variables: Variables,
-
     /// The MAC of the original request.
     request_mac: Signature,
 }
@@ -338,7 +335,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         }
         Ok((
             message.freeze(),
-            ClientTransaction { key, variables, request_mac }
+            ClientTransaction { key, request_mac }
         ))
     }
 
@@ -411,9 +408,6 @@ pub struct ServerTransaction<K> {
     /// The key.
     key: K,
 
-    /// The TSIG variables.
-    variables: Variables,
-
     /// The MAC of the original request.
     request_mac: Signature,
 }
@@ -478,7 +472,6 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
         // From here on we need to sign answers, so we need the transaction.
         let tran = ServerTransaction {
             key,
-            variables,
             request_mac: Signature::remote(tsig.into_data().into_mac()),
         };
 
@@ -494,8 +487,8 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
                 tran.signed_answer(
                     response.additional(),
                     &Variables::new(
-                        tran.variables.time_signed,
-                        tran.variables.fudge,
+                        variables.time_signed,
+                        variables.fudge,
                         TsigRcode::BadTime,
                         Some(Time48::now())
                     )
