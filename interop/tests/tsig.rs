@@ -3,7 +3,8 @@ extern crate interop;
 extern crate ring;
 
 use std::{env, fs, thread};
-use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::process::Command;
 use std::str::FromStr;
 use std::time::Duration;
@@ -11,7 +12,7 @@ use ring::rand::SystemRandom;
 use interop::nsd;
 use interop::domain::core::bits::{Dname, Message, MessageBuilder};
 use interop::domain::core::bits::message_builder::SectionBuilder;
-use interop::domain::core::iana::Rcode;
+use interop::domain::core::iana::{Rcode, Rtype};
 use interop::domain::core::utils::base64;
 use interop::domain::core::tsig;
 
@@ -58,7 +59,7 @@ fn tsig_client_nsd() {
         panic!("NSD didn't start.");
     }
 
-    let _ = thread::spawn(move || {
+    let res = thread::spawn(move || {
         // Create an AXFR request and send it to NSD.
         let request = MessageBuilder::request_axfr(
             Dname::from_str("example.com.").unwrap()
@@ -85,6 +86,7 @@ fn tsig_client_nsd() {
 
     // Shut down NSD just to be sure.
     let _ = nsd.kill();
+    res.unwrap(); // Panic if the thread paniced.
 }
 
 /// Tests the TSIG server implementation against drill as a client.
@@ -138,5 +140,77 @@ fn tsig_server_drill() {
         .status().unwrap();
     drop(join);
     assert!(status.success());
+}
+
+/// Test the client sequence implementation against NSD.
+#[test]
+fn tsig_client_sequence_nsd() {
+    let rng = SystemRandom::new();
+
+    let cur_dir = env::current_dir().unwrap();
+    let base_dir = cur_dir.join("../target/test");
+    fs::create_dir_all(&base_dir).unwrap();
+    let base_dir = base_dir.canonicalize().unwrap();
+    let nsdconfpath = base_dir.join("nsd.conf");
+    let zonepath = cur_dir.join("zonefiles/big.example.com.txt");
+
+    let (key, secret) = tsig::Key::generate(
+        tsig::Algorithm::Sha1,
+        &rng,
+        Dname::from_str("test.key.").unwrap(),
+        None,
+        None
+    ).unwrap();
+
+    let mut conf = nsd::Config::all_in(&base_dir);
+    conf.ip_address.push(SocketAddr::from_str("127.0.0.1:54321").unwrap());
+    conf.verbosity = Some(3);
+    conf.keys.push(nsd::KeyConfig::new("test.key.", "hmac-sha1", secret));
+    conf.zones.push(nsd::ZoneConfig::new(
+        "example.com", zonepath, vec![nsd::Acl::new(
+            IpAddr::from_str("127.0.0.1").unwrap(), None, None,
+            Some("test.key.".into())
+        )]
+    ));
+    conf.save(&nsdconfpath).unwrap();
+    let mut nsd = Command::new("/usr/sbin/nsd")
+        .args(&["-c", &format!("{}", nsdconfpath.display()), "-d"])
+        .spawn().unwrap();
+    thread::sleep(Duration::from_secs(1));
+    if nsd.try_wait().unwrap().is_some() {
+        panic!("NSD didn't start.");
+    }
+
+    let res = thread::spawn(move || {
+        let mut sock = TcpStream::connect("127.0.0.1:54321").unwrap();
+        let request = MessageBuilder::request_axfr(
+            Dname::from_str("example.com.").unwrap()
+        ).additional();
+        let (msg, mut tran) = tsig::ClientSequence::request(&key, request)
+                                                   .unwrap();
+        sock.write_all(&(msg.len() as u16).to_be_bytes()).unwrap();
+        sock.write_all(msg.as_slice()).unwrap();
+        loop {
+            let mut len = [0u8; 2];
+            sock.read_exact(&mut len).unwrap();
+            let len = u16::from_be_bytes(len) as usize;
+            assert!(len != 0);
+            let mut buf = vec![0; len];
+            sock.read_exact(&mut buf).unwrap();
+            let mut answer = Message::from_bytes(buf.into()).unwrap();
+            tran.answer(&mut answer).unwrap();
+            // Last message has SOA as last record in answer section.
+            // We don’t care about details.
+            if answer.answer().unwrap().last().unwrap().unwrap().rtype()
+                        == Rtype::Soa {
+                break
+            }
+        }
+        tran.done().unwrap()
+    }).join();
+
+    // Shut down NSD just to be sure.
+    let _ = nsd.kill();
+    res.unwrap(); // Panic if the thread paniced.
 }
 

@@ -1,6 +1,6 @@
 //! Support for TSIG.
 
-use std::{cmp, fmt, str};
+use std::{cmp, fmt, mem, str};
 use std::collections::HashMap;
 use std::sync::Arc;
 use bytes::{BigEndian, ByteOrder, Bytes, BytesMut};
@@ -141,6 +141,16 @@ impl Key {
         };
         Ok((min_mac_len, signing_len))
     }
+
+    /// Creates a signing context for this key.
+    fn signing_context(&self) -> hmac::SigningContext {
+        hmac::SigningContext::with_key(&self.key)
+    }
+
+    /// Returns a the possibly truncated slice of the signature.
+    fn signature_slice<'a>(&self, signature: &'a hmac::Signature) -> &'a [u8] {
+        &signature.as_ref()[..self.signing_len]
+    }
 }
 
 
@@ -208,6 +218,20 @@ impl Key {
         constant_time::verify_slices_are_equal(expected, provided.as_ref())
             .map_err(|_| ValidationError::BadSig)
     }
+
+    fn complete_message(
+        &self,
+        mut message: AdditionalBuilder,
+        variables: &Variables,
+        mac: &[u8],
+    ) -> Result<Message, AdditionalBuilder> {
+        let id = message.header().id();
+        match message.push(variables.to_tsig(self, mac, id)) {
+            Ok(()) => Ok(message.freeze()),
+            Err(_) => Err(message)
+        }
+    }
+
 }
 
 
@@ -263,19 +287,10 @@ impl KeyStore for HashMap<(Dname, Algorithm), Arc<Key>> {
 /// TSIG Client Transaction State.
 #[derive(Clone, Debug)]
 pub struct ClientTransaction<K> {
-    /// The key.
-    key: K,
-
-    /// The MAC of the original request.
-    request_mac: Signature,
+    context: SigningContext<K>,
 }
 
 impl<K: AsRef<Key>> ClientTransaction<K> {
-    /// Returns a reference to the transaction’s key.
-    pub fn key(&self) -> &Key {
-        self.key.as_ref()
-    }
-
     /// Creates a transaction for a request.
     ///
     /// The method takes a complete message in the form of an additional
@@ -318,25 +333,19 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     ///
     /// [`request`]: #method.request
     pub fn request_with_fudge(
-        key: K, mut message: AdditionalBuilder, fudge: u16
+        key: K, message: AdditionalBuilder, fudge: u16
     ) -> Result<(Message, Self), AdditionalBuilder> {
         let variables = Variables::new(
             Time48::now(), fudge, TsigRcode::NoError, None
         );
-        let id = message.header().id();
-        let request_mac = Signature::local(
-            variables.sign_request(key.as_ref(), message.so_far()),
-            key.as_ref().signing_len
+        let (mut context, mac) = SigningContext::request(
+            key, message.so_far(), &variables
         );
-        if message.push(variables.to_tsig(key.as_ref(), &request_mac, id))
-                  .is_err()
-        {
-            return Err(message)
-        }
-        Ok((
-            message.freeze(),
-            ClientTransaction { key, request_mac }
-        ))
+        let mac = context.key().signature_slice(&mac);
+        context.apply_signature(mac);
+        context.key().complete_message(message, &variables, mac).map(|message| {
+            (message, ClientTransaction { context })
+        })
     }
 
     /// Validates an answer.
@@ -347,10 +356,379 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     pub fn answer(
         &self, message: &mut Message
     ) -> Result<(), ValidationError> {
-        // Extract TSIG. FormErr if that doesn’t succeed.
+        let (variables, tsig) = match self.context.extract_answer_tsig(
+                                                                   message)? {
+            Some(some) => some,
+            None => return Err(ValidationError::ServerUnsigned)
+        };
+
+        let signature = self.context.answer(
+            message.as_slice(), &variables
+        );
+        self.context.key().compare_signatures(
+            &signature, tsig.data().mac().as_ref()
+        )?;
+        self.context.check_answer_time(message, &tsig)?;
+        Ok(())
+    }
+
+    /// Returns a reference to the transaction’s key.
+    pub fn key(&self) -> &Key {
+        self.context.key()
+    }
+}
+
+
+//------------ ServerTransaction ---------------------------------------------
+
+/// TSIG Server Transaction State.
+#[derive(Clone, Debug)]
+pub struct ServerTransaction<K> {
+    context: SigningContext<K>,
+}
+
+impl<K: AsRef<Key>> ServerTransaction<K> {
+    /// Creates a transaction for a request.
+    ///
+    pub fn request<S: KeyStore<Key=K>>(
+        store: &S,
+        message: Message
+    ) -> Result<(Message, Option<Self>), Message> {
+        SigningContext::server_request(
+            store, message
+        ).map(|(message, context)| {
+            (message, context.map(|context| ServerTransaction { context }))
+        })
+    }
+
+    /// Produces a signed answer.
+    pub fn answer(
+        self, message: AdditionalBuilder
+    ) -> Result<Message, ShortBuf> {
+        self.answer_with_fudge(message, 300)
+    }
+
+    /// Produces a signed answer with a given fudge.
+    pub fn answer_with_fudge(
+        self,
+        message: AdditionalBuilder,
+        fudge: u16
+    ) -> Result<Message, ShortBuf> {
+        let variables = Variables::new(
+            Time48::now(), fudge, TsigRcode::NoError, None
+        );
+        let (mac, key) = self.context.final_answer(
+            message.so_far(), &variables
+        );
+        let mac = key.as_ref().signature_slice(&mac);
+        key.as_ref().complete_message(message, &variables, mac)
+            .map_err(|_| ShortBuf)
+    }
+
+    /// Returns a reference to the transaction’s key.
+    pub fn key(&self) -> &Key {
+        self.context.key()
+    }
+}
+
+
+//------------ ClientSequence ------------------------------------------------
+
+/// TSIG client sequence state.
+#[derive(Clone, Debug)]
+pub struct ClientSequence<K> {
+    /// A signing context to be used for the next signed answer.
+    context: SigningContext<K>,
+
+    /// Are we still waiting for the first answer?
+    first: bool,
+
+    /// How many unsigned answers have we seen yet?
+    unsigned: usize,
+}
+
+impl<K: AsRef<Key>> ClientSequence<K> {
+    /// Creates a sequence for a request.
+    pub fn request(
+        key: K, message: AdditionalBuilder
+    ) -> Result<(Message, Self), AdditionalBuilder> {
+        Self::request_with_fudge(key, message, 300)
+    }
+
+    /// Creates a sequence for a request with a specific fudge.
+    pub fn request_with_fudge(
+        key: K, message: AdditionalBuilder, fudge: u16
+    ) -> Result<(Message, Self), AdditionalBuilder> {
+        let variables = Variables::new(
+            Time48::now(), fudge, TsigRcode::NoError, None
+        );
+        let (mut context, mac) = SigningContext::request(
+            key, message.so_far(), &variables
+        );
+        let mac = context.key().signature_slice(&mac);
+        context.apply_signature(mac);
+        context.key().complete_message(message, &variables, mac).map(|message| {
+            (message, ClientSequence { context, first: true, unsigned: 0 })
+        })
+    }
+
+    /// Validates an answer.
+    pub fn answer(
+        &mut self,
+        message: &mut Message
+    ) -> Result<(), ValidationError> {
+        if self.first {
+            self.answer_first(message)
+        }
+        else {
+            self.answer_subsequent(message)
+        }
+    }
+
+    /// Validates the end of the sequence
+    pub fn done(self) -> Result<(), ValidationError> {
+        // The last message must be signed, so the counter must be 0 here.
+        if self.unsigned != 0 {
+            Err(ValidationError::TooManyUnsigned)
+        }
+        else {
+            Ok(())
+        }
+    }
+
+    fn answer_first(
+        &mut self,
+        message: &mut Message
+    ) -> Result<(), ValidationError> {
+        let (variables, tsig) = match self.context.extract_answer_tsig(
+                                                                   message)? {
+            Some(some) => some,
+            None => return Err(ValidationError::ServerUnsigned)
+        };
+
+        let signature = self.context.first_answer(
+            message.as_slice(), &variables
+        );
+        self.context.key().compare_signatures(
+            &signature, tsig.data().mac().as_ref()
+        )?;
+        self.context.apply_signature(tsig.data().mac().as_ref());
+        self.context.check_answer_time(message, &tsig)?;
+        self.first = false;
+        Ok(())
+    }
+
+    fn answer_subsequent(
+        &mut self,
+        message: &mut Message,
+    ) -> Result<(), ValidationError> {
+        match self.context.extract_answer_tsig(message)? {
+            Some((variables, tsig)) => {
+                // Check the MAC.
+                let signature = self.context.signed_subsequent(
+                    message.as_slice(), &variables
+                );
+                self.context.key().compare_signatures(
+                    &signature, tsig.data().mac().as_ref()
+                )?;
+                self.context.apply_signature(tsig.data().mac().as_ref());
+                self.context.check_answer_time(message, &tsig)?;
+                self.unsigned = 0;
+                Ok(())
+            }
+            None => {
+                if self.unsigned < 99 {
+                    self.context.unsigned_subsequent(message.as_slice());
+                    self.unsigned += 1;
+                    Ok(())
+                }
+                else {
+                    Err(ValidationError::TooManyUnsigned)
+                }
+            }
+        }
+    }
+
+    /// Returns a reference to the transaction’s key.
+    pub fn key(&self) -> &Key {
+        self.context.key()
+    }
+}
+
+
+//------------ ServerSequence ------------------------------------------------
+
+/// TSIG server sequence state.
+///
+/// As requested by the updated RFC, we sign each and every message.
+#[derive(Clone, Debug)]
+pub struct ServerSequence<K> {
+    /// A signing context to be used for the next signed answer.
+    ///
+    context: SigningContext<K>,
+
+    /// Are we still waiting for the first answer?
+    first: bool,
+}
+
+impl<K: AsRef<Key>> ServerSequence<K> {
+    /// Creates a sequence from the request.
+    pub fn request<S: KeyStore<Key=K>>(
+        store: &S,
+        message: Message
+    ) -> Result<(Message, Option<Self>), Message> {
+        SigningContext::server_request(
+            store, message
+        ).map(|(message, context)| {
+            (message, context.map(|context| {
+                ServerSequence { context, first: false }
+            }))
+        })
+    }
+
+    /// Produces a signed answer.
+    pub fn answer(
+        &mut self, message: AdditionalBuilder
+    ) -> Result<Message, ShortBuf> {
+        self.answer_with_fudge(message, 300)
+    }
+
+    /// Produces a signed answer with a given fudge.
+    pub fn answer_with_fudge(
+        &mut self,
+        message: AdditionalBuilder,
+        fudge: u16
+    ) -> Result<Message, ShortBuf> {
+        let variables = Variables::new(
+            Time48::now(), fudge, TsigRcode::NoError, None
+        );
+        let mac = if self.first {
+            self.first = false;
+            self.context.first_answer(message.so_far(), &variables)
+        }
+        else {
+            self.context.signed_subsequent(message.so_far(), &variables)
+        };
+        let mac = self.key().signature_slice(&mac);
+        self.key().complete_message(message, &variables, mac)
+            .map_err(|_| ShortBuf)
+    }
+
+    /// Returns a reference to the transaction’s key.
+    pub fn key(&self) -> &Key {
+        self.context.key()
+    }
+}
+
+
+//------------ SigningContext ------------------------------------------------
+
+/// A TSIG signing context.
+///
+/// This is a thin wrapper around a ring signing context and a key providing
+/// all the signing needs.
+#[derive(Clone, Debug)]
+struct SigningContext<K> {
+    /// The ring signing context.
+    context: hmac::SigningContext,
+
+    /// The key.
+    ///
+    /// It will be used as part of the complete TSIG variables as well as
+    /// for creating new signing contexts.
+    key: K,
+}
+
+impl<K: AsRef<Key>> SigningContext<K> {
+    fn server_request<S: KeyStore<Key=K>>(
+        store: &S,
+        mut message: Message
+    ) -> Result<(Message, Option<Self>), Message> {
+        // 4.5 Server TSIG checks
+        //
+        // First, do we have a valid TSIG?
+        let tsig = match extract_tsig(&mut message) {
+            Some(tsig) => tsig,
+            None => return Ok((message, None))
+        };
+
+        // 4.5.1. KEY check and error handling
+        let algorithm = match Algorithm::from_dname(tsig.data().algorithm()) {
+            Some(algorithm) => algorithm,
+            None => {
+                return Err(
+                    Self::unsigned_error(&message, &tsig, TsigRcode::BadKey)
+                )
+            }
+        };
+        let key = match store.get_key(tsig.owner(), algorithm) {
+            Some(key) => key,
+            None => {
+                return Err(
+                    Self::unsigned_error(&message, &tsig, TsigRcode::BadKey)
+                )
+            }
+        };
+        let variables = Variables::from_tsig(&tsig);
+
+        // 4.5.3 MAC check
+        //
+        // Contrary to RFC 2845, this must be done before the time check.
+        update_id(&mut message, &tsig);
+        let (mut context, signature) = Self::request(
+            key, message.as_slice(), &variables
+        );
+        let res = context.key.as_ref().compare_signatures(
+            &signature,
+            tsig.data().mac().as_ref()
+        );
+        if let Err(err) = res {
+            return Err(Self::unsigned_error(&message, &tsig, match err {
+                ValidationError::BadTrunc => TsigRcode::BadTrunc,
+                ValidationError::BadKey => TsigRcode::BadKey,
+                _ => TsigRcode::FormErr,
+            }))
+        }
+
+        // The signature is fine. Add it to the context for later.
+        context.apply_signature(tsig.data().mac().as_ref());
+
+        // 4.5.2 Time check
+        //
+        // Note that we are not doing the caching of the most recent
+        // time_signed because, well, that’ll require mutexes and stuff.
+        if !tsig.data().is_valid_now() {
+            let mut response = MessageBuilder::new_udp();
+            response.start_answer(&message, Rcode::NotAuth);
+            return Err(
+                // unwrap: answer should always fit.
+                context.signed_error(
+                    response.additional(),
+                    &Variables::new(
+                        variables.time_signed,
+                        variables.fudge,
+                        TsigRcode::BadTime,
+                        Some(Time48::now())
+                    )
+                )
+            )
+        }
+
+        Ok((message, Some(context)))
+    }
+
+    fn extract_answer_tsig(
+        &self,
+        message: &mut Message
+    ) -> Result<
+            Option<(Variables, Record<ParsedDname, Tsig<Dname>>)>,
+            ValidationError
+         >
+    {
+        // Extact TSIG or bail out.
         let tsig = match extract_tsig(message) {
             Some(tsig) => tsig,
-            None => return Err(ValidationError::FormErr)
+            None => return Ok(None)
         };
 
         // Check for unsigned errors.
@@ -366,17 +744,16 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         // Check that the server used the correct key and algorithm.
         self.key().check_tsig(&tsig)?;
 
-        // Fix up message and variables and check the MAC.
+        // Fix up message and return.
         update_id(message, &tsig);
-        let variables = Variables::from_tsig(&tsig);
-        self.key().compare_signatures(
-            &variables.sign_answer(
-                self.key(), &self.request_mac, message.as_slice()
-            ),
-            tsig.data().mac().as_ref()
-        )?;
+        Ok(Some((Variables::from_tsig(&tsig), tsig)))
+    }
 
-        // BadTime error message.
+    fn check_answer_time(
+        &self,
+        message: &Message,
+        tsig: &Record<ParsedDname, Tsig<Dname>>
+    ) -> Result<(), ValidationError> {
         if message.header().rcode() == Rcode::NotAuth
             && tsig.data().error() == TsigRcode::BadTime
         {
@@ -394,137 +771,108 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
             return Err(ValidationError::BadTime)
         }
 
-        // Looks good.
         Ok(())
     }
 }
 
+impl<K: AsRef<Key>> SigningContext<K> {
+    fn new(key: K) -> Self {
+        SigningContext {
+            context: key.as_ref().signing_context(),
+            key
+        }
+    }
 
-//------------ ServerTransaction ---------------------------------------------
-
-/// TSIG Server Transaction State.
-#[derive(Clone, Debug)]
-pub struct ServerTransaction<K> {
-    /// The key.
-    key: K,
-
-    /// The MAC of the original request.
-    request_mac: Signature,
-}
-
-impl<K: AsRef<Key>> ServerTransaction<K> {
-    /// Returns a reference to the transaction’s key.
-    pub fn key(&self) -> &Key {
+    fn key(&self) -> &Key {
         self.key.as_ref()
     }
 
-    /// Creates a transaction for a request.
-    ///
-    pub fn request<S: KeyStore<Key=K>>(
-        store: &S,
-        mut message: Message
-    ) -> Result<(Message, Option<Self>), Message> {
-        // 4.5 Server TSIG checks
-        //
-        // First, do we have a valid TSIG?
-        let tsig = match extract_tsig(&mut message) {
-            Some(tsig) => tsig,
-            None => return Ok((message, None))
-        };
-
-        // 4.5.1. KEY check and error handling
-        let algorithm = match Algorithm::from_dname(tsig.data().algorithm()) {
-            Some(algorithm) => algorithm,
-            None => {
-                return Err(
-                    Self::unsigned_answer(&message, &tsig, TsigRcode::BadKey)
-                )
-            }
-        };
-        let key = match store.get_key(tsig.owner(), algorithm) {
-            Some(key) => key,
-            None => {
-                return Err(
-                    Self::unsigned_answer(&message, &tsig, TsigRcode::BadKey)
-                )
-            }
-        };
-        let variables = Variables::from_tsig(&tsig);
-
-        // 4.5.3 MAC check
-        //
-        // Contrary to RFC 2845, this must be done before the time check.
-        update_id(&mut message, &tsig);
-        let res = key.as_ref().compare_signatures(
-            &variables.sign_request(key.as_ref(), message.as_slice()),
-            tsig.data().mac().as_ref()
-        );
-        if let Err(err) = res {
-            return Err(Self::unsigned_answer(&message, &tsig, match err {
-                ValidationError::BadTrunc => TsigRcode::BadTrunc,
-                ValidationError::BadKey => TsigRcode::BadKey,
-                _ => TsigRcode::FormErr,
-            }))
-        }
-
-        let time_valid = tsig.data().is_valid_now();
-
-        // From here on we need to sign answers, so we need the transaction.
-        let tran = ServerTransaction {
-            key,
-            request_mac: Signature::remote(tsig.into_data().into_mac()),
-        };
-
-        // 4.5.2 Time check
-        //
-        // Note that we are not doing the caching of the most recent
-        // time_signed because, well, that’ll require mutexes and stuff.
-        if !time_valid {
-            let mut response = MessageBuilder::new_udp();
-            response.start_answer(&message, Rcode::NotAuth);
-            return Err(
-                // unwrap: answer should always fit.
-                tran.signed_answer(
-                    response.additional(),
-                    &Variables::new(
-                        variables.time_signed,
-                        variables.fudge,
-                        TsigRcode::BadTime,
-                        Some(Time48::now())
-                    )
-                ).unwrap()
-            )
-        }
-
-        Ok((message, Some(tran)))
+    fn apply_signature(&mut self, data: &[u8]) {
+        let mut buf = [0u8; 2];
+        BigEndian::write_u16(&mut buf, data.len() as u16);
+        self.context.update(&buf);
+        self.context.update(data);
     }
 
-    /// Produces a signed answer.
-    pub fn answer(
-        &self, message: AdditionalBuilder
-    ) -> Result<Message, ShortBuf> {
-        self.answer_with_fudge(message, 300)
+    fn request(
+        key: K,
+        message: &[u8],
+        variables: &Variables
+    ) -> (Self, hmac::Signature) {
+        let mut context = key.as_ref().signing_context();
+        context.update(message);
+        variables.sign(key.as_ref(), &mut context);
+        let signature = context.sign();
+        (Self::new(key), signature)
     }
 
-    /// Produces a signed answer with a given fudge.
-    pub fn answer_with_fudge(
+    fn answer(
         &self,
-        message: AdditionalBuilder,
-        fudge: u16
-    ) -> Result<Message, ShortBuf> {
-        self.signed_answer(
-            message,
-            &Variables::new(
-                Time48::now(),
-                fudge,
-                TsigRcode::NoError,
-                None
-            )
-        )
+        message: &[u8],
+        variables: &Variables
+    ) -> hmac::Signature {
+        let mut context = self.context.clone();
+        context.update(message);
+        variables.sign(self.key.as_ref(), &mut context);
+        context.sign()
     }
 
-    /// Produces an unsigned error answer.
-    fn unsigned_answer(
+    fn final_answer(
+        mut self,
+        message: &[u8],
+        variables: &Variables
+    ) -> (hmac::Signature, K) {
+        self.context.update(message);
+        variables.sign(self.key.as_ref(), &mut self.context);
+        (self.context.sign(), self.key)
+    }
+
+    fn first_answer(
+        &mut self,
+        message: &[u8],
+        variables: &Variables
+    ) -> hmac::Signature {
+        // Replace current context with new context.
+        let mut context = self.key().signing_context();
+        mem::swap(&mut self.context, &mut context);
+
+        // Update the old context with message and variables, create signature
+        context.update(message);
+        variables.sign(self.key.as_ref(), &mut context);
+        let signature = context.sign();
+
+        // Update new context with the signature and then return it.
+        //self.context.update(signature.as_ref());
+        signature
+    }
+
+    fn unsigned_subsequent(
+        &mut self,
+        message: &[u8]
+    ) {
+        self.context.update(message)
+    }
+
+    fn signed_subsequent(
+        &mut self,
+        message: &[u8],
+        variables: &Variables
+    ) -> hmac::Signature {
+        // Replace current context with new context.
+        let mut context = self.key().signing_context();
+        mem::swap(&mut self.context, &mut context);
+
+        // Update the old context with message and timers, create signature
+        context.update(message);
+        variables.sign_timers(&mut context);
+        let signature = context.sign();
+
+        // Update new context with the signature and then return it.
+        //self.context.update(signature.as_ref());
+        signature
+    }
+
+    fn unsigned_error(
         msg: &Message,
         tsig: &Record<ParsedDname, Tsig<Dname>>,
         error: TsigRcode
@@ -547,19 +895,14 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
         res.freeze()
     }
 
-    /// Procudes a signed answer.
-    fn signed_answer(
-        &self,
-        mut message: AdditionalBuilder,
+    fn signed_error(
+        self,
+        message: AdditionalBuilder,
         variables: &Variables,
-    ) -> Result<Message, ShortBuf> {
-        let id = message.header().id();
-        let mac = variables.sign_answer(
-            self.key(), &self.request_mac, message.so_far()
-        );
-        let mac = Signature::local(mac, self.key().signing_len);
-        message.push(variables.to_tsig(self.key(), &mac, id))?;
-        Ok(message.freeze())
+    ) -> Message {
+        let (mac, key) = self.final_answer(message.so_far(), variables);
+        let mac = key.as_ref().signature_slice(&mac);
+        key.as_ref().complete_message(message, variables, mac).unwrap()
     }
 }
 
@@ -591,23 +934,6 @@ impl Variables {
         }
     }
 
-    fn sign_request(&self, key: &Key, message: &[u8]) -> hmac::Signature {
-        let mut ctx = hmac::SigningContext::with_key(&key.key);
-        ctx.update(message);
-        self.sign(key, &mut ctx);
-        ctx.sign()
-    }
-
-    fn sign_answer(
-        &self, key: &Key, request_mac: &Signature, message: &[u8]
-    ) -> hmac::Signature {
-        let mut ctx = hmac::SigningContext::with_key(&key.key);
-        request_mac.sign(&mut ctx);
-        ctx.update(message);
-        self.sign(key, &mut ctx);
-        ctx.sign()
-    }
-
     fn from_tsig(record: &Record<ParsedDname, Tsig<Dname>>) -> Self {
         Variables::new(
             record.data().time_signed(),
@@ -617,10 +943,10 @@ impl Variables {
         )
     }
 
-    fn to_tsig(
+    fn to_tsig<S: Into<Bytes>>(
         &self,
         key: &Key,
-        hmac: &Signature,
+        hmac: S,
         original_id: u16
     ) -> Record<Dname, Tsig<Dname>> {
         let other = match self.other {
@@ -635,7 +961,7 @@ impl Variables {
                 key.algorithm().to_dname(),
                 self.time_signed,
                 self.fudge,
-                Bytes::from(hmac.as_ref()),
+                hmac.into(),
                 original_id,
                 self.error,
                 other,
@@ -679,74 +1005,15 @@ impl Variables {
             context.update(&buf[2..]);
         }
     }
-}
 
+    fn sign_timers(&self, context: &mut hmac::SigningContext) {
+        // Time Signed
+        context.update(&self.time_signed.into_octets());
 
-//------------ Signature -----------------------------------------------------
-
-/// A TSIG signature.
-///
-/// This type contains a signature generated by digesting a message with a
-/// certain key.
-#[derive(Clone, Debug)]
-enum Signature {
-    Local {
-        /// The actual signature.
-        signature: hmac::Signature,
-
-        /// How many octets off the signature’s beginning we should use.
-        len: usize
-    },
-    Remote(Bytes)
-}
-
-impl Signature {
-    fn local(signature: hmac::Signature, len: usize) -> Self {
-        assert!(
-            len >= 10 &&
-            len >= signature.as_ref().len() / 2 &&
-            len <= signature.as_ref().len()
-        );
-        Signature::Local { signature, len }
-    }
-
-    fn remote(bytes: Bytes) -> Self {
-        Signature::Remote(bytes)
-    }
-
-    /// Returns an octets slice of the signature.
-    fn as_slice(&self) -> &[u8] {
-        match *self {
-            Signature::Local { ref signature, len } => {
-                &signature.as_ref()[..len]
-            }
-            Signature::Remote(ref bytes) => bytes.as_ref(),
-        }
-    }
-
-    /// Returns the length of the signature.
-    fn len(&self) -> usize {
-        match *self {
-            Signature::Local { len, .. } => len,
-            Signature::Remote(ref bytes) => bytes.len(),
-        }
-    }
-
-    /// Adds the signature to a signing context.
-    fn sign(&self, context: &mut hmac::SigningContext) {
+        // Fudge
         let mut buf = [0u8; 2];
-        BigEndian::write_u16(&mut buf, self.len() as u16);
-        context.update(buf.as_ref());
-        context.update(self.as_slice());
-    }
-}
-
-
-//--- AsRef
-
-impl AsRef<[u8]> for Signature {
-    fn as_ref(&self) -> &[u8] {
-        self.as_slice()
+        BigEndian::write_u16(&mut buf, self.fudge);
+        context.update(&buf[..2]);
     }
 }
 
@@ -1001,6 +1268,9 @@ pub enum ValidationError {
     #[fail(display="format error")]
     FormErr,
 
+    #[fail(display="unsigned answer")]
+    ServerUnsigned,
+
     #[fail(display="unknown key on server")]
     ServerBadKey,
 
@@ -1011,7 +1281,10 @@ pub enum ValidationError {
     ServerBadTime {
         client: Time48,
         server: Time48
-    }
+    },
+
+    #[fail(display="too many unsigned messages")]
+    TooManyUnsigned,
 }
 
 impl From<ParsedDnameError> for ValidationError {
