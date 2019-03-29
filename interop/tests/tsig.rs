@@ -26,7 +26,7 @@ fn tsig_client_nsd() {
     let rng = SystemRandom::new();
 
     let cur_dir = env::current_dir().unwrap();
-    let base_dir = cur_dir.join("../target/test");
+    let base_dir = cur_dir.join("../target/test/tsig_client_nsd");
     fs::create_dir_all(&base_dir).unwrap();
     let base_dir = base_dir.canonicalize().unwrap();
     let nsdconfpath = base_dir.join("nsd.conf");
@@ -148,7 +148,7 @@ fn tsig_client_sequence_nsd() {
     let rng = SystemRandom::new();
 
     let cur_dir = env::current_dir().unwrap();
-    let base_dir = cur_dir.join("../target/test");
+    let base_dir = cur_dir.join("../target/test/tsig_client_sequence_nsd");
     fs::create_dir_all(&base_dir).unwrap();
     let base_dir = base_dir.canonicalize().unwrap();
     let nsdconfpath = base_dir.join("nsd.conf");
@@ -163,7 +163,7 @@ fn tsig_client_sequence_nsd() {
     ).unwrap();
 
     let mut conf = nsd::Config::all_in(&base_dir);
-    conf.ip_address.push(SocketAddr::from_str("127.0.0.1:54321").unwrap());
+    conf.ip_address.push(SocketAddr::from_str("127.0.0.1:54323").unwrap());
     conf.verbosity = Some(3);
     conf.keys.push(nsd::KeyConfig::new("test.key.", "hmac-sha1", secret));
     conf.zones.push(nsd::ZoneConfig::new(
@@ -182,7 +182,7 @@ fn tsig_client_sequence_nsd() {
     }
 
     let res = thread::spawn(move || {
-        let mut sock = TcpStream::connect("127.0.0.1:54321").unwrap();
+        let mut sock = TcpStream::connect("127.0.0.1:54323").unwrap();
         let request = MessageBuilder::request_axfr(
             Dname::from_str("example.com.").unwrap()
         ).additional();
