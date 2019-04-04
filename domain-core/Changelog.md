@@ -9,6 +9,7 @@ New
 
 * `bits::message::Message::opt` returns a messages OPT record if present.
   ([#6], thanks to Marek Vavruša!)
+* Support for TSIG signing of transactions and sequences. [(#16)]
 
 Bug fixes
 
@@ -16,6 +17,7 @@ Dependencies
 
 
 [#6]: https://github.com/NLnetLabs/domain/pull/6
+[(#16)]: https://github.com/NLnetLabs/domain/pull/16
 
 ## 0.4.0
 
