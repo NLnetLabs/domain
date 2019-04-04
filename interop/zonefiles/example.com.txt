@@ -1,0 +1,16 @@
+$ORIGIN example.com.
+example.com.  3600  IN  SOA   ns.example.com. hostmaster.example.com. (
+                              2019032201
+			      28800 7200 604800 3600 )
+              3600  IN  NS    ns1
+              3600  IN  NS    ns2
+              3600  IN  MX    10 mail.example.com.
+              3600  IN  A     192.0.2.1
+              3600  IN  AAAA  2001:db8:10::1
+ns1           3600  IN  A     192.0.2.2
+              3600  IN  AAAA  2001:db8:10::2
+ns2           3600  IN  A     192.0.2.3
+              3600  IN  AAAA  2001:db8:10::3
+mail          3600  IN  A     192.0.2.4
+              3600  IN  AAAA  2001:db8:10::4
+

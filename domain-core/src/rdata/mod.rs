@@ -18,6 +18,7 @@
 
 pub mod rfc1035;
 pub mod rfc2782;
+pub mod rfc2845;
 pub mod rfc3596;
 pub mod rfc4034;
 pub mod rfc5155;
@@ -65,6 +66,11 @@ rdata_types!{
     rfc2782::{
         master {
             Srv<N>,
+        }
+    }
+    rfc2845::{
+        pseudo {
+            Tsig<N>,
         }
     }
     rfc3596::{

@@ -14,10 +14,12 @@
 
 use std::{mem, ops};
 use std::marker::PhantomData;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use ::iana::{Rcode, Rtype};
 use ::rdata::Cname;
-use super::message_builder::{MessageBuilder, AdditionalBuilder, RecordSectionBuilder};
+use super::message_builder::{
+    MessageBuilder, AdditionalBuilder, RecordSectionBuilder
+};
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::name::{ParsedDname, ParsedDnameError, ToDname};
 use super::parse::{Parse, Parser, ShortBuf};
@@ -146,7 +148,7 @@ use super::opt::{Opt, OptRecord};
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone, Debug)]
 pub struct Message {
-    bytes:Bytes,
+    bytes: Bytes,
 }
 
 /// # Creation and Conversion
@@ -195,6 +197,18 @@ impl Message {
     /// Returns a refernce the header counts of the message.
     pub fn header_counts(&self) -> &HeaderCounts {
         HeaderCounts::for_message_slice(self.as_slice())
+    }
+    
+    /// Alters the header of the message.
+    ///
+    /// Because messages are normally imutable, this method defers the
+    /// manipulation of the header to a closure.
+    pub fn update_header<F: FnOnce(&mut Header)>(&mut self, op: F) {
+        let mut bytes = BytesMut::from(
+            mem::replace(&mut self.bytes, Bytes::new())
+        );
+        op(&mut Header::for_message_slice_mut(bytes.as_mut()));
+        self.bytes = bytes.freeze();
     }
 
     /// Returns whether the rcode is NoError.
@@ -387,6 +401,50 @@ impl Message {
             }
             Err(_) => None,
         }
+    }
+
+    /// Removes and returns the last additional record from the message.
+    ///
+    /// The method tries to parse the last record of the additional section
+    /// as the provided record type. If that succeeds, it returns that
+    /// parsed record and removes it from the message.
+    ///
+    /// If the last record is of the wrong type or parsing fails, returns
+    /// `None` and leaves the message untouched.
+    pub fn extract_last<D: ParseRecordData>(
+        &mut self
+    ) -> Option<Record<ParsedDname, D>> {
+        let mut section = match self.additional() {
+            Ok(section) => section,
+            Err(_) => return None
+        };
+        loop {
+            match section.count {
+                Err(_) => return None,
+                Ok(0) => return None,
+                Ok(1) => break,
+                _ => { }
+            }
+            let _ = section.next();
+        }
+        let pos = section.parser.pos();
+        let record = match ParsedRecord::parse(&mut section.parser) {
+            Ok(record) => record,
+            Err(_) => return None,
+        };
+        let record = match record.into_record() {
+            Ok(Some(record)) => record,
+            _ => return None
+        };
+        // We need to get a BytesMut in order to decrease the ARCOUNT. To
+        // avoid copying, we temporarily replace self.bytes with an empty
+        // Bytes.
+        let mut bytes = BytesMut::from(
+            mem::replace(&mut self.bytes, Bytes::new()).slice_to(pos)
+        );
+        HeaderCounts::for_message_slice_mut(bytes.as_mut()).dec_arcount();
+        self.bytes = bytes.freeze();
+        Some(record)
     }
 }
 

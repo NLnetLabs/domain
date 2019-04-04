@@ -5,7 +5,7 @@
 use std::{cmp, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes};
 use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, Parser, ShortBuf};
+use ::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
 use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{RelativeDname, DnameIter};
@@ -43,7 +43,7 @@ impl Dname {
     ///
     /// Since this will allow to actually construct an incorrectly encoded
     /// domain name value, the function is unsafe.
-    pub(super) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
+    pub(crate) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
         Dname { bytes }
     }
 
@@ -407,10 +407,10 @@ fn name_len(parser: &mut Parser) -> Result<usize, DnameParseError> {
 }
 
 impl ParseAll for Dname {
-    type Err = DnameBytesError;
+    type Err = DnameParseAllError;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        Self::from_bytes(parser.parse_bytes(len)?)
+        Ok(Self::from_bytes(parser.parse_bytes(len)?)?)
     }
 }
 
@@ -689,6 +689,62 @@ impl From<SplitLabelError> for DnameParseError {
 impl From<ShortBuf> for DnameParseError {
     fn from(_: ShortBuf) -> DnameParseError {
         DnameParseError::ShortBuf
+    }
+}
+
+
+//------------ DnameParseAllError --------------------------------------------
+
+/// An error happened while parsing a domain name.
+#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+pub enum DnameParseAllError {
+    #[fail(display="{}", _0)]
+    BadName(DnameError),
+
+    #[fail(display="{}", _0)]
+    ParseError(ParseAllError)
+}
+
+impl<T: Into<DnameError>> From<T> for DnameParseAllError {
+    fn from(err: T) -> Self {
+        DnameParseAllError::BadName(err.into())
+    }
+}
+
+impl From<ShortBuf> for DnameParseAllError {
+    fn from(err: ShortBuf) -> Self {
+        DnameParseAllError::ParseError(err.into())
+    }
+}
+
+impl From<ParseAllError> for DnameParseAllError {
+    fn from(err: ParseAllError) -> Self {
+        DnameParseAllError::ParseError(err)
+    }
+}
+
+impl From<DnameParseError> for DnameParseAllError {
+    fn from(err: DnameParseError) -> Self {
+        match err {
+            DnameParseError::BadName(err) => DnameParseAllError::BadName(err),
+            DnameParseError::ShortBuf
+                => DnameParseAllError::ParseError(ParseAllError::ShortBuf),
+        }
+    }
+}
+
+impl From<DnameBytesError> for DnameParseAllError {
+    fn from(err: DnameBytesError) -> Self {
+        match err {
+            DnameBytesError::ParseError(DnameParseError::BadName(err))
+                => DnameParseAllError::BadName(err),
+            DnameBytesError::ParseError(DnameParseError::ShortBuf)
+                => DnameParseAllError::ParseError(ParseAllError::ShortBuf),
+            DnameBytesError::RelativeName
+                => DnameParseAllError::ParseError(ParseAllError::ShortField),
+            DnameBytesError::TrailingData
+                => DnameParseAllError::ParseError(ParseAllError::TrailingData),
+        }
     }
 }
 

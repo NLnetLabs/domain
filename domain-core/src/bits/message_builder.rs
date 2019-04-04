@@ -141,7 +141,7 @@
 use std::{mem, ops};
 use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
-use iana::opt::OptionCode;
+use iana::{Class, OptionCode, Rcode, Rtype};
 use super::compose::{Compose, Compress, Compressor};
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::message::Message;
@@ -324,6 +324,41 @@ impl MessageBuilder {
     /// Leaves the answer and additional sections empty.
     pub fn additional(self) -> AdditionalBuilder {
         self.answer().authority().additional()
+    }
+}
+
+
+/// # Shortcuts
+///
+impl MessageBuilder {
+
+    /// Starts creating an answer for the given message.
+    ///
+    /// Specifically, this sets the ID, QR, OPCODE, RD, and RCODE fields
+    /// in the header and attempts to push the message’s questions to the
+    /// builder. If iterating of the questions fails, it adds what it can.
+    pub fn start_answer(&mut self, msg: &Message, rcode: Rcode) {
+        {
+            let header = self.header_mut();
+            header.set_id(msg.header().id());
+            header.set_qr(true);
+            header.set_opcode(msg.header().opcode());
+            header.set_rd(msg.header().rd());
+            header.set_rcode(rcode);
+        }
+        for item in msg.question() {
+            if let Ok(item) = item {
+                self.push(item).unwrap();
+            }
+        }
+    }
+
+    /// Creates an AXFR request for the given domain.
+    pub fn request_axfr<N: ToDname>(apex: N) -> Self {
+        let mut res = Self::new_udp();
+        res.header_mut().set_random_id();
+        res.push((apex, Rtype::Axfr, Class::In)).unwrap();
+        res
     }
 }
 
@@ -513,7 +548,7 @@ impl RecordSectionBuilder for AdditionalBuilder {
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
                 where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
         self.target.push(|target| record.into().compress(target),
-                         |counts| counts.inc_nscount())
+                         |counts| counts.inc_arcount())
     }
 }
 
@@ -708,13 +743,21 @@ impl MessageTarget {
         self.counts_mut().set(snapshot.counts);
     }
 
-    /// Returns a reference to the message assembled so far.
+    /// Returns a reference to the data assembled so far.
     ///
     /// In case the builder was created from a buffer with pre-existing
     /// content, the returned reference is for the complete content of this
     /// buffer.
     fn preview(&self) -> &[u8] {
         self.buf.as_slice()
+    }
+
+    /// Returns a reference to the message assembled so far.
+    ///
+    /// The returned slice will only contain the message itself, not any
+    /// prelude.
+    fn so_far(&self) -> &[u8] {
+        self.buf.so_far()
     }
 
     fn prelude(&self) -> &[u8] {
@@ -768,6 +811,7 @@ pub struct Snapshot<T> {
     marker: PhantomData<T>,
 }
 
+
 //------------ SectionBuilder ------------------------------------------------
 
 /// Trait that implements common interface for building message sections
@@ -797,13 +841,21 @@ pub trait SectionBuilder : Sized {
         self.get_target_mut().header_mut()
     }
 
-    /// Returns a reference to the message assembled so far.
+    /// Returns a reference to the data assembled so far.
     ///
     /// In case the builder was created from a buffer with pre-existing
     /// content, the returned reference is for the complete content of this
     /// buffer.
     fn preview(&self) -> &[u8] {
         self.get_target().preview()
+    }
+
+    /// Returns a reference to the message assembled so far.
+    ///
+    /// The returned slice will only contain the message itself, not any
+    /// prelude.
+    fn so_far(&self) -> &[u8] {
+        self.get_target().so_far()
     }
 
     /// Returns a reference to the slice preceeding the message.

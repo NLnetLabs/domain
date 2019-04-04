@@ -1,7 +1,6 @@
 # A DNS library for Rust – Core
 
-[![Current](https://img.shields.io/crates/v/domain-core.svg)](https://crates.io/crates/domain-core)
-[![Documentation](https://docs.rs/domain-core/badge.svg)](https://docs.rs/domain-core)
+
 
 
 This crate contains the core types and functionality for processing DNS
@@ -22,6 +21,8 @@ Eventually, this crate will provide the following functions:
     * [X] Wire-format parsing and constructing.
 
     * [X] Master format parsing and constructing.
+
+* [X] TSIG signing and validating.
 
 * [ ] DNSSEC signing
 

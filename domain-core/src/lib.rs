@@ -20,10 +20,12 @@ extern crate chrono;
 extern crate failure;
 #[macro_use] extern crate failure_derive;
 extern crate rand;
+extern crate ring;
 extern crate void;
 
 pub mod bits;
 pub mod iana;
 pub mod master;
 pub mod rdata;
+pub mod tsig;
 pub mod utils;
