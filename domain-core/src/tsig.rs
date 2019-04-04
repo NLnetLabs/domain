@@ -1,8 +1,59 @@
 //! Support for TSIG.
+//!
+//! This module provides high-level support for signing message exchanges with
+//! TSIG as defined in [RFC 2845].
+//!
+//! TSIG is intended to provide authentication for message exchanges. Messages
+//! are signed using a secret key shared between the two participants. The
+//! party sending the request – the client – generates a signature over the 
+//! message it is about to send using that key and adds it in a special record
+//! of record type [TSIG] to the additional section of the message. The
+//! receiver of the request – the server – verifies the signature using the
+//! same key. When creating an answer, it too generates a signature. It
+//! includes the request’s signture in this process in order to bind request
+//! and answer together. This signature ends up in a TSIG record in the
+//! additional section as well and can be verified by the client.
+//!
+//! TSIG supports a number of algorithms for boths signature generation; it
+//! even allows for private algorithms. The specification requires to support
+//! at least HMAC-MD5 defined in [RFC 2104]. Since MD5 is widely regarded as
+//! unsafe now, we don’t follow that rule and only support the SHA-based
+//! algorithms from [RFC 4653]. You can choose the algorithm to use for your
+//! keys via the [`Algorithm`] enum.
+//!
+//! Keys are managed via the [`Key`] type. While technically the actual
+//! octets of the key can be used with any algorithm, we tie together a key
+//! and the algorithm to use it for. In additiona, each key also has a name,
+//! which is in fact a domain name. [`Key`] values also manage the signature
+//! truncation that is allowed in a future version of the specification.
+//!
+//! Finally, there are four types for dealing with message exchanges secured
+//! with TSIG. For regular transactions that consist of a request and a
+//! single message, the types [`ClientTransaction`] and [`ServerTransaction`]
+//! implement the client and server role, respectively. If the answer can
+//! consist of a sequence of messages, such as in AXFR, [`ClientSequence`]
+//! and [`ServerSequence`] can be used instead.
+//!
+//! For the server transaction and sequence, there is one more thing you need:
+//! a [`KeyStore`], which tries to find the key used by the client. As this
+//! is a trait, you may need to implement that your particular use case. There
+//! is implementations for a hash map as well as a single key (the latter
+//! mostly for testing).
+//!
+//! [RFC 2104]: https://tools.ietf.org/html/rfc2104
+//! [RFC 2845]: https://tools.ietf.org/html/rfc2845
+//! [RFC 4635]: https://tools.ietf.org/html/rfc4653
+//! [TSIG]: ../rdata/rfc2845/struct.Tsig.html
+//! [`Algorithm`]: enum.Algorithm.html
+//! [`Key`]: enum.Key.html
+//! [`KeyStore`]: trait.KeyStore.html
+//! [`ClientTransaction`]: struct.ClientTransaction.html
+//! [`ServerTransaction`]: struct.ServerTransaction.html
+//! [`ClientSequence`]: struct.ClientSequence.html
+//! [`ServerSequence`]: struct.ServerSequence.html
 
 use std::{cmp, fmt, mem, str};
 use std::collections::HashMap;
-use std::sync::Arc;
 use bytes::{BigEndian, ByteOrder, Bytes, BytesMut};
 use ring::{constant_time, digest, hmac, rand};
 use crate::bits::message::Message;
@@ -20,7 +71,30 @@ use crate::rdata::rfc2845::{Time48, Tsig};
 
 //------------ Key -----------------------------------------------------------
 
-/// A key for creating TSIG signatures.
+/// A key for creating and validating TSIG signatures.
+///
+/// For the algorithms included in this implementation, keys are octet strings
+/// of any size that are converted into the algorithm’s native key length
+/// through a well defined method. The type provides means both for creating
+/// new random keys via the [`create´] function and for loading them from
+/// the octets via [`new`].
+///
+/// Keys are identified in TSIG through a name that is encoded as a domain
+/// name. While the TSIG specification allows a key to be used with any
+/// algorithm, we tie them together, so each `Key` value also knows which
+/// algorithm it can be used for.
+///
+/// Finally, TSIG allows for the use of truncated signatures. There is hard
+/// rules of the minimum signature length which can be limited further by
+/// local policy. This policy is kept as part of the key. The [`min_mac_len`]
+/// field defines the minimum length a received signature has to have in order
+/// to be accepted. Conversely, [`signing_len`] is the length of a signature
+/// created with this key.
+///
+/// [`create`]: #method.create
+/// [`new`]: #method.new
+/// [`min_mac_len`]: #method.min_mac_len
+/// [`signing_len`]: #method.signing_len
 #[derive(Debug)]
 pub struct Key {
     /// The key’s bits and algorithm.
@@ -84,7 +158,8 @@ impl Key {
     /// Generates a new signing key.
     ///
     /// This is similar to [`new`] but generates the bits for the key from the
-    /// given `rng`. It returns both the key and bits for storage.
+    /// given `rng`. It returns both the key and bits for serialization and
+    /// exporting.
     ///
     /// [`new`]: #method.new
     pub fn generate(
@@ -219,6 +294,15 @@ impl Key {
             .map_err(|_| ValidationError::BadSig)
     }
 
+    /// Completes a message by adding a TSIG record.
+    ///
+    /// A TSIG record will be added to the additional section. It will be
+    /// constructed from the information obtained from this key, the
+    /// `variables` and `mac`. Note that the MAC already has to be truncated
+    /// if that is required.
+    ///
+    /// The method fails if the TSIG record doesn’t fit into the message
+    /// anymore, in which case the builder is returned unharmed.
     fn complete_message(
         &self,
         mut message: AdditionalBuilder,
@@ -231,7 +315,6 @@ impl Key {
             Err(_) => Err(message)
         }
     }
-
 }
 
 
@@ -246,23 +329,46 @@ impl AsRef<Key> for Key {
 
 //------------ KeyStore ------------------------------------------------------
 
-/// A type that stores TSIG secrets.
+/// A type that stores TSIG secret keys.
+///
+/// This trait is used by [`ServerTransaction`] and [`ServerSequence`] to
+/// determine whether a key of a TSIG signed message is known to this server.
+///
+/// In order to allow sharing of keys, the trait allows the implementing type
+/// to pick its representation via the `Key` associated type. The `get_key`
+/// method tries to return a key for a given pair of name and algorithm.
+///
+/// Implementations are provided for a `HashMap` mapping those pairs of name
+/// and algorithm to an as-ref of a key (such as an arc) as well as for
+/// as-refs of a single key. The latter is useful if you know the key to use
+/// already.
+///
+/// If you need to limit the keys available based on properties of the
+/// received message, you may need to implement your key store type that
+/// wraps a more general store and limits its available keys.
 pub trait KeyStore {
+    /// The representation of the key returned by the store.
     type Key: AsRef<Key>;
 
+    /// Tries to find a key in the store.
+    ///
+    /// The method looks up a key based on a pair of name and algorithm. If
+    /// the key can be found, it is returned. Otherwise, `None` is returned.
     fn get_key<N: ToDname>(
         &self, name: &N, algorithm: Algorithm
     ) -> Option<Self::Key>;
 }
 
-impl<'a> KeyStore for &'a Key {
-    type Key = &'a Key;
+impl<K: AsRef<Key> + Clone> KeyStore for K {
+    type Key = Self;
 
     fn get_key<N: ToDname>(
         &self, name: &N, algorithm: Algorithm
     ) -> Option<Self::Key> {
-        if self.name() == name && self.algorithm() == algorithm {
-            Some(*self)
+        if self.as_ref().name() == name 
+            && self.as_ref().algorithm() == algorithm
+        {
+            Some(self.clone())
         }
         else {
             None
@@ -270,8 +376,8 @@ impl<'a> KeyStore for &'a Key {
     }
 }
 
-impl KeyStore for HashMap<(Dname, Algorithm), Arc<Key>> {
-    type Key = Arc<Key>;
+impl<K: AsRef<Key> + Clone> KeyStore for HashMap<(Dname, Algorithm), K> {
+    type Key = K;
 
     fn get_key<N: ToDname>(
         &self, name: &N, algorithm: Algorithm
@@ -285,6 +391,20 @@ impl KeyStore for HashMap<(Dname, Algorithm), Arc<Key>> {
 //------------ ClientTransaction ---------------------------------------------
 
 /// TSIG Client Transaction State.
+///
+/// This types allows signing a DNS request with a given key and validate an
+/// answer received for it.
+///
+/// You create both a signed message and a client transaction by calling the
+/// [`request`] function. You can then send out the signed message and wait
+/// for answers. If an answer is received, you pass it into the [`answer`]
+/// method. This method will remove a TSIG record if it is present directly
+/// in the message and then verify that this record is correctly signing the
+/// transaction. If the message doesn’t, you can drop it and try with the next
+/// answer received. The transaction will remain valid.
+///
+/// [`request`]: #method.request
+/// [`answer`]: #method.answer
 #[derive(Clone, Debug)]
 pub struct ClientTransaction<K> {
     context: SigningContext<K>,
@@ -350,9 +470,14 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
 
     /// Validates an answer.
     ///
-    /// Takes a message and checks whether it was correctly signed for the
-    /// original request. If that is indeed the case, takes the TSIG record
-    /// out of the message. Otherwise, returns a validation error.
+    /// Takes a message and checks whether it is a correctly signed answer
+    /// for this transaction.
+    ///
+    /// First, if the last record in the message’s additional section is the
+    /// only TSIG record in the message, it takes it out. It then checks
+    /// whether this record is a correct record for this transaction and if
+    /// it correctly signs the answer for this transaction. If any of this
+    /// fails, returns an error.
     pub fn answer(
         &self, message: &mut Message
     ) -> Result<(), ValidationError> {
@@ -382,6 +507,17 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
 //------------ ServerTransaction ---------------------------------------------
 
 /// TSIG Server Transaction State.
+///
+/// This type allows checking a received request and sign an answer to it
+/// before sending it out.
+///
+/// A received request is given to [`request`] together with a set of
+/// acceptable keys via a key store which will produce a server transaction
+/// value if the message was signed. Once an answer is ready, it can be given
+/// to that transaction value to sign it, thereby producing a message that
+/// can be returned to the client.
+///
+/// [`request
 #[derive(Clone, Debug)]
 pub struct ServerTransaction<K> {
     context: SigningContext<K>,
@@ -390,30 +526,58 @@ pub struct ServerTransaction<K> {
 impl<K: AsRef<Key>> ServerTransaction<K> {
     /// Creates a transaction for a request.
     ///
+    /// The function checks whether the message carries exactly one TSIG
+    /// record as the last record of the additional section. If this is the
+    /// case, it removes the record form the message and checks whether it
+    /// is correctly signing the request with any of the keys provided by
+    /// the `store`. If that is the case, too, returns a server transaction.
+    ///
+    /// If the message did not have a TSIG record, returns `Ok(None)`
+    /// indicating the lack of signing.
+    ///
+    /// If anything is wrong with the message with regards to TSIG, the
+    /// function returns the error message that should be returned to the
+    /// client as the error case of the result.
     pub fn request<S: KeyStore<Key=K>>(
         store: &S,
-        message: Message
-    ) -> Result<(Message, Option<Self>), Message> {
+        message: &mut Message
+    ) -> Result<Option<Self>, Message> {
         SigningContext::server_request(
             store, message
-        ).map(|(message, context)| {
-            (message, context.map(|context| ServerTransaction { context }))
-        })
+        ).map(|context| context.map(|context| ServerTransaction { context }))
     }
 
     /// Produces a signed answer.
+    ///
+    /// The method takes a message builder that has been processed to the
+    /// additional stage already. It will then produce a signature for this
+    /// message using the key and additional information derived from the
+    /// original request. It tries to add this signature to the message as
+    /// a TSIG record. If this succeeds, it freezes the message since the
+    /// TSIG record must be the last record and returns it.
+    ///
+    /// If appending the TSIG record fails, which can only happen if there
+    /// isn’t enough space left, it returns the builder unchanged as the
+    /// error case.
     pub fn answer(
         self, message: AdditionalBuilder
-    ) -> Result<Message, ShortBuf> {
+    ) -> Result<Message, AdditionalBuilder> {
         self.answer_with_fudge(message, 300)
     }
 
     /// Produces a signed answer with a given fudge.
+    ///
+    /// This method is similar to [`answer`] but lets you explicitely state
+    /// the `fudge`, i.e., the number of seconds the recipient’s clock is
+    /// allowed to differ from your current time when checking the signature.
+    /// The default, suggested by the RFC, is 300.
+    ///
+    /// [`answer`]: #method.answer
     pub fn answer_with_fudge(
         self,
         message: AdditionalBuilder,
         fudge: u16
-    ) -> Result<Message, ShortBuf> {
+    ) -> Result<Message, AdditionalBuilder> {
         let variables = Variables::new(
             Time48::now(), fudge, TsigRcode::NoError, None
         );
@@ -422,7 +586,6 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
         );
         let mac = key.as_ref().signature_slice(&mac);
         key.as_ref().complete_message(message, &variables, mac)
-            .map_err(|_| ShortBuf)
     }
 
     /// Returns a reference to the transaction’s key.
@@ -435,6 +598,27 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
 //------------ ClientSequence ------------------------------------------------
 
 /// TSIG client sequence state.
+///
+/// This type allows a client to create a signed request and later check a
+/// series of answers for being signed accordingly. It is necessary because
+/// the signatures in the second and later answers in the sequence are
+/// generated in a different way than the first one.
+///
+/// Much like with [`ClientTransaction`], you can sign a request via the
+/// [`request`] method provding the signing key and receiving the signed
+/// version of the message and a client transaction value. You can then use
+/// this value to validate a sequence of answers as they are received by
+/// giving them to the [`answer`] method.
+///
+/// Once you have received the last answer, you call the [`done`] method to
+/// check whether the sequence was allowed to end. This is necessary because
+/// TSIG allows intermediary messages to be unsigned but demands the last
+/// message to be signed.
+///
+/// [`ClientTransaction`]: struct.ClientTransaction.html
+/// [`request`]: #method.request
+/// [`answer`]: #method.answer
+/// [`done`]: #method.done
 #[derive(Clone, Debug)]
 pub struct ClientSequence<K> {
     /// A signing context to be used for the next signed answer.
@@ -443,12 +627,19 @@ pub struct ClientSequence<K> {
     /// Are we still waiting for the first answer?
     first: bool,
 
-    /// How many unsigned answers have we seen yet?
+    /// How many unsigned answers have we seen since the last signed answer?
     unsigned: usize,
 }
 
 impl<K: AsRef<Key>> ClientSequence<K> {
     /// Creates a sequence for a request.
+    ///
+    /// The function will sign the message as it has been built so far using
+    /// the given key and add a corresponding TSIG record to it. If this
+    /// fails because there wasn’t enough space left in the message builder,
+    /// returns the builder untouched as the error case. Otherwise, it will
+    /// freeze the message and return both it and a new value of a client
+    /// sequence.
     pub fn request(
         key: K, message: AdditionalBuilder
     ) -> Result<(Message, Self), AdditionalBuilder> {
@@ -456,6 +647,14 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     }
 
     /// Creates a sequence for a request with a specific fudge.
+    ///
+    /// This is almost identical to [`request`] but allows you to explicitely
+    /// specify a value of fudge which describes the number of seconds the
+    /// recipients clock may differ from this system’s current time when
+    /// checking the request. The default value used by [`request`] is 300
+    /// seconds.
+    ///
+    /// [`request`]: #method.request
     pub fn request_with_fudge(
         key: K, message: AdditionalBuilder, fudge: u16
     ) -> Result<(Message, Self), AdditionalBuilder> {
@@ -473,6 +672,13 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     }
 
     /// Validates an answer.
+    ///
+    /// If the answer contains exactly one TSIG record as its last record,
+    /// removes this record and checks that it correctly signs this message
+    /// as part of the sequence.
+    ///
+    /// If it doesn’t or if there had been more than 99 unsigned messages in
+    /// the sequence since the last signed one, returns an error.
     pub fn answer(
         &mut self,
         message: &mut Message
@@ -485,7 +691,12 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         }
     }
 
-    /// Validates the end of the sequence
+    /// Validates the end of the sequence.
+    ///
+    /// Specifically, this checks that the last message given to [`answer`]
+    /// had been signed.
+    ///
+    /// [`answer`]: #method.answer
     pub fn done(self) -> Result<(), ValidationError> {
         // The last message must be signed, so the counter must be 0 here.
         if self.unsigned != 0 {
@@ -496,6 +707,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         }
     }
 
+    /// Checks the first answer in the sequence.
     fn answer_first(
         &mut self,
         message: &mut Message
@@ -518,6 +730,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         Ok(())
     }
 
+    /// Checks any subsequent answer in the sequence.
     fn answer_subsequent(
         &mut self,
         message: &mut Message,
@@ -560,7 +773,18 @@ impl<K: AsRef<Key>> ClientSequence<K> {
 
 /// TSIG server sequence state.
 ///
-/// As requested by the updated RFC, we sign each and every message.
+/// This type allows to verify that a request has been correctly signed with
+/// a known key and produce a sequence of answers to this request.
+///
+/// A sequence is created by giving a received message and a set of
+/// acceptable keys to the [`request`] function. It will produce a server
+/// sequence value if the message was correctly signed with any of keys.
+/// Each answer message is then given to [`answer`] to finalize it into a
+/// signed message.
+///
+/// Note that while the original [RFC 2845] allows a sequence of up to 99
+/// intermediary messages not to be signed, this is in the process of being
+/// deprecated. This implementation therefore signs each and every answer.
 #[derive(Clone, Debug)]
 pub struct ServerSequence<K> {
     /// A signing context to be used for the next signed answer.
@@ -573,20 +797,37 @@ pub struct ServerSequence<K> {
 
 impl<K: AsRef<Key>> ServerSequence<K> {
     /// Creates a sequence from the request.
+    ///
+    /// The function checks whether the message carries exactly one TSIG
+    /// record as the last record of the additional section. If this is the
+    /// case, it removes the record form the message and checks whether it
+    /// is correctly signing the request with any of the keys provided by
+    /// the `store`. If that is the case, too, returns a server transaction.
+    ///
+    /// If the message did not have a TSIG record, returns `Ok(None)`
+    /// indicating the lack of signing.
+    ///
+    /// If anything is wrong with the message with regards to TSIG, the
+    /// function returns the error message that should be returned to the
+    /// client as the error case of the result.
     pub fn request<S: KeyStore<Key=K>>(
         store: &S,
-        message: Message
-    ) -> Result<(Message, Option<Self>), Message> {
+        message: &mut Message
+    ) -> Result<Option<Self>, Message> {
         SigningContext::server_request(
             store, message
-        ).map(|(message, context)| {
-            (message, context.map(|context| {
-                ServerSequence { context, first: false }
-            }))
-        })
+        ).map(|context| context.map(|context| {
+            ServerSequence { context, first: false }
+        }))
     }
 
     /// Produces a signed answer.
+    ///
+    /// The method takes a message builder progressed into the additional
+    /// section and signs it as the next answer in the sequence. To do so,
+    /// it attempts to add a TSIG record to the additional section, if that
+    /// fails because there wasn’t enough space in the builder, returns the
+    /// unchanged builder as an error.
     pub fn answer(
         &mut self, message: AdditionalBuilder
     ) -> Result<Message, ShortBuf> {
@@ -594,6 +835,10 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     }
 
     /// Produces a signed answer with a given fudge.
+    ///
+    /// This is nearly identical to [`answer`] except that it allows to
+    /// specify the ‘fudge’ which declares the number of seconds the
+    /// receiver’s clock may be off from this systems current time.
     pub fn answer_with_fudge(
         &mut self,
         message: AdditionalBuilder,
@@ -627,6 +872,14 @@ impl<K: AsRef<Key>> ServerSequence<K> {
 ///
 /// This is a thin wrapper around a ring signing context and a key providing
 /// all the signing needs.
+///
+/// When signing answers, the signature of previous messages is being digested
+/// as the first element. This type allows to do that right after having
+/// generated or received the signature so that it doesn’t need to be kept
+/// around.
+///
+/// The type is generic over a representation of a key so that you can use
+/// arcs and whatnots here.
 #[derive(Clone, Debug)]
 struct SigningContext<K> {
     /// The ring signing context.
@@ -640,16 +893,27 @@ struct SigningContext<K> {
 }
 
 impl<K: AsRef<Key>> SigningContext<K> {
+    /// Checks the a request received by a server.
+    ///
+    /// This is the code that is shared by `ServerTransaction` and
+    /// `ServerSequence`. It checks for a TSIG record and, if it is present,
+    /// checks that the record signs the message with a key known to the
+    /// store.
+    ///
+    /// Returns a signing context if there was a TSIG record and it was
+    /// correctly signed with a known key. Returns `Ok(None)` if there was
+    /// no TSIG record at all. Returns an error with a message to be returned
+    /// to the client otherwise.
     fn server_request<S: KeyStore<Key=K>>(
         store: &S,
-        mut message: Message
-    ) -> Result<(Message, Option<Self>), Message> {
+        message: &mut Message
+    ) -> Result<Option<Self>, Message> {
         // 4.5 Server TSIG checks
         //
         // First, do we have a valid TSIG?
-        let tsig = match extract_tsig(&mut message) {
+        let tsig = match extract_tsig(message) {
             Some(tsig) => tsig,
-            None => return Ok((message, None))
+            None => return Ok(None)
         };
 
         // 4.5.1. KEY check and error handling
@@ -657,7 +921,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
             Some(algorithm) => algorithm,
             None => {
                 return Err(
-                    Self::unsigned_error(&message, &tsig, TsigRcode::BadKey)
+                    Self::unsigned_error(message, &tsig, TsigRcode::BadKey)
                 )
             }
         };
@@ -665,7 +929,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
             Some(key) => key,
             None => {
                 return Err(
-                    Self::unsigned_error(&message, &tsig, TsigRcode::BadKey)
+                    Self::unsigned_error(message, &tsig, TsigRcode::BadKey)
                 )
             }
         };
@@ -674,7 +938,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         // 4.5.3 MAC check
         //
         // Contrary to RFC 2845, this must be done before the time check.
-        update_id(&mut message, &tsig);
+        update_id(message, &tsig);
         let (mut context, signature) = Self::request(
             key, message.as_slice(), &variables
         );
@@ -683,7 +947,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
             tsig.data().mac().as_ref()
         );
         if let Err(err) = res {
-            return Err(Self::unsigned_error(&message, &tsig, match err {
+            return Err(Self::unsigned_error(message, &tsig, match err {
                 ValidationError::BadTrunc => TsigRcode::BadTrunc,
                 ValidationError::BadKey => TsigRcode::BadKey,
                 _ => TsigRcode::FormErr,
@@ -699,7 +963,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         // time_signed because, well, that’ll require mutexes and stuff.
         if !tsig.data().is_valid_now() {
             let mut response = MessageBuilder::new_udp();
-            response.start_answer(&message, Rcode::NotAuth);
+            response.start_answer(message, Rcode::NotAuth);
             return Err(
                 // unwrap: answer should always fit.
                 context.signed_error(
@@ -714,9 +978,22 @@ impl<K: AsRef<Key>> SigningContext<K> {
             )
         }
 
-        Ok((message, Some(context)))
+        Ok(Some(context))
     }
 
+    /// Extracts the TSIG record from an anwer.
+    ///
+    /// This is the first part of the code shared by the various answer
+    /// functions of `ClientTransaction` and `ClientSequence`. It does
+    /// everything that needs to be done before actually verifying the
+    /// signature: Extract the TSIG record, handle unsigned errors, check
+    /// that the key and algorithm correspond to our key and algorithm, and
+    /// update the message ID if necessary.
+    ///
+    /// Since there may be unsigned messages in client sequences, returns
+    /// `Ok(None)` if there is no TSIG at all. Otherwise, if all steps
+    /// succeed, returns the TSIG variables and the TSIG record. If there
+    /// is an error, returns that.
     fn extract_answer_tsig(
         &self,
         message: &mut Message
@@ -749,6 +1026,12 @@ impl<K: AsRef<Key>> SigningContext<K> {
         Ok(Some((Variables::from_tsig(&tsig), tsig)))
     }
 
+    /// Checks the timing values of an answer TSIG.
+    ///
+    /// This is the second part of the code shared between the various 
+    /// answer methods of `ClientTransaction` and `ClientSequence`. It
+    /// checks for timing errors reported by the server as well as the
+    /// time signed in the signature.
     fn check_answer_time(
         &self,
         message: &Message,
@@ -776,6 +1059,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
 }
 
 impl<K: AsRef<Key>> SigningContext<K> {
+    /// Creates a new signing context for the given key.
     fn new(key: K) -> Self {
         SigningContext {
             context: key.as_ref().signing_context(),
@@ -783,10 +1067,18 @@ impl<K: AsRef<Key>> SigningContext<K> {
         }
     }
 
+    /// Returns a references to the key that was used to create the context.
     fn key(&self) -> &Key {
         self.key.as_ref()
     }
 
+    /// Applies a signature to the signing context.
+    ///
+    /// The `data` argument must be the actual signature that has already been
+    /// truncated if that is required.
+    ///
+    /// Applies the length as a 16 bit big-endian unsigned followed by the
+    /// actual octets.
     fn apply_signature(&mut self, data: &[u8]) {
         let mut buf = [0u8; 2];
         BigEndian::write_u16(&mut buf, data.len() as u16);
@@ -794,6 +1086,14 @@ impl<K: AsRef<Key>> SigningContext<K> {
         self.context.update(data);
     }
 
+    /// Creates a signing context for a request.
+    ///
+    /// Takes a key, the octets of the message with the TSIG record already
+    /// removed and the ID reset if necessary, and the TSIG variables from the
+    /// TSIG record.
+    ///
+    /// Returns both a signing context and the full signature for this
+    /// message.
     fn request(
         key: K,
         message: &[u8],
@@ -806,6 +1106,13 @@ impl<K: AsRef<Key>> SigningContext<K> {
         (Self::new(key), signature)
     }
 
+    /// Signs an answer.
+    ///
+    /// Applies the message and variables only. The request signature has to
+    /// have been applied already. Returns the signature for the answer.
+    ///
+    /// This happens on a clone of the original signing context. The context
+    /// itself will _not_ change.
     fn answer(
         &self,
         message: &[u8],
@@ -817,6 +1124,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
         context.sign()
     }
 
+    /// Signs an answer and drops the context.
+    ///
+    /// This is like `answer` above but it doesn’t need to clone the context.
     fn final_answer(
         mut self,
         message: &[u8],
@@ -827,6 +1137,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
         (self.context.sign(), self.key)
     }
 
+    /// Signs the first answer in a sequence.
+    ///
+    /// This is like `answer` but it resets the context.
     fn first_answer(
         &mut self,
         message: &[u8],
@@ -836,16 +1149,13 @@ impl<K: AsRef<Key>> SigningContext<K> {
         let mut context = self.key().signing_context();
         mem::swap(&mut self.context, &mut context);
 
-        // Update the old context with message and variables, create signature
+        // Update the old context with message and variables, return signature
         context.update(message);
         variables.sign(self.key.as_ref(), &mut context);
-        let signature = context.sign();
-
-        // Update new context with the signature and then return it.
-        //self.context.update(signature.as_ref());
-        signature
+        context.sign()
     }
 
+    /// Applies the content of an unsigned message to the context.
     fn unsigned_subsequent(
         &mut self,
         message: &[u8]
@@ -853,6 +1163,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
         self.context.update(message)
     }
 
+    /// Signs a subsequent message.
+    ///
+    /// Resets the context.
     fn signed_subsequent(
         &mut self,
         message: &[u8],
@@ -862,16 +1175,13 @@ impl<K: AsRef<Key>> SigningContext<K> {
         let mut context = self.key().signing_context();
         mem::swap(&mut self.context, &mut context);
 
-        // Update the old context with message and timers, create signature
+        // Update the old context with message and timers, return signature
         context.update(message);
         variables.sign_timers(&mut context);
-        let signature = context.sign();
-
-        // Update new context with the signature and then return it.
-        //self.context.update(signature.as_ref());
-        signature
+        context.sign()
     }
 
+    /// Creates an unsigned error response for the given message.
     fn unsigned_error(
         msg: &Message,
         tsig: &Record<ParsedDname, Tsig<Dname>>,
@@ -895,6 +1205,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         res.freeze()
     }
 
+    /// Trades the context for a signed error response.
     fn signed_error(
         self,
         message: AdditionalBuilder,
@@ -911,18 +1222,29 @@ impl<K: AsRef<Key>> SigningContext<K> {
 
 /// The TSIG Variables.
 ///
-/// All parts of the future TSIG record that are not the actual MAC are used
-/// as input for MAC generation. This type keeps those that are indeed
-/// variable.
+/// This type keeps some of the variables that are added when calculating the
+/// signature. This isn’t all the variables used, though. The remaining ones
+/// are related to the key and are kept with the signing context.
 #[derive(Clone, Debug)]
 struct Variables {
+    /// The time the signature in question was created.
     time_signed: Time48,
+
+    /// The infamous fudge.
     fudge: u16,
+
+    /// The TSIG error code.
     error: TsigRcode,
+
+    /// The content of the ‘other’ field.
+    ///
+    /// According to the RFC, the only allowed value for this field is a
+    /// time stamp. So we keep this as an optional time value.
     other: Option<Time48>,
 }
 
 impl Variables {
+    /// Creates a new value from the parts.
     fn new(
         time_signed: Time48,
         fudge: u16,
@@ -934,6 +1256,7 @@ impl Variables {
         }
     }
 
+    /// Creates a new value from a given TSIG record.
     fn from_tsig(record: &Record<ParsedDname, Tsig<Dname>>) -> Self {
         Variables::new(
             record.data().time_signed(),
@@ -943,6 +1266,7 @@ impl Variables {
         )
     }
 
+    /// Produces a TSIG record from this value and some more data.
     fn to_tsig<S: Into<Bytes>>(
         &self,
         key: &Key,
@@ -969,6 +1293,9 @@ impl Variables {
         )
     }
 
+    /// Applies the variables to a signing context.
+    ///
+    /// This applies the full variables including key information.
     fn sign(&self, key: &Key, context: &mut hmac::SigningContext) {
         let mut buf = [0u8; 8];
 
@@ -1006,6 +1333,7 @@ impl Variables {
         }
     }
 
+    /// Applies only the timing values to the signing context.
     fn sign_timers(&self, context: &mut hmac::SigningContext) {
         // Time Signed
         context.update(&self.time_signed.into_octets());
@@ -1245,6 +1573,7 @@ pub struct AlgorithmError;
 
 //------------ ValidationError -----------------------------------------------
 
+/// An error happened while validating a TSIG-signed message.
 #[derive(Clone, Debug, Fail)]
 pub enum ValidationError {
     #[fail(display="unknown algorithm")]

@@ -4,7 +4,7 @@ extern crate ring;
 
 use std::{env, fs, thread};
 use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::process::Command;
 use std::str::FromStr;
 use std::time::Duration;
@@ -108,16 +108,16 @@ fn tsig_server_drill() {
         loop {
             let mut buf = vec![0; 512];
             let (len, addr) = sock.recv_from(buf.as_mut()).unwrap();
-            let request = match Message::from_bytes(buf[..len].into()) {
+            let mut request = match Message::from_bytes(buf[..len].into()) {
                 Ok(request) => request,
                 Err(_) => continue,
             };
             let mut answer = MessageBuilder::new_udp();
             answer.start_answer(&request, Rcode::NoError);
-            let (_msg, tran) = match tsig::ServerTransaction::request(&&key,
-                                                                    request) {
-                Ok((msg, Some(tran))) => (msg, tran),
-                Ok((_, None)) => {
+            let tran = match tsig::ServerTransaction::request(&&key,
+                                                              &mut request) {
+                Ok(Some(tran)) => tran,
+                Ok(None) => {
                     sock.send_to(answer.freeze().as_slice(), addr).unwrap();
                     continue;
                 }
@@ -213,4 +213,47 @@ fn tsig_client_sequence_nsd() {
     let _ = nsd.kill();
     res.unwrap(); // Panic if the thread paniced.
 }
+
+/*
+/// Tests the TSIG server sequence implementation against drill.
+#[test]
+fn tsig_server_sequence_drill() {
+    let rng = SystemRandom::new();
+    let (key, secret) = tsig::Key::generate(
+        tsig::Algorithm::Sha1,
+        &rng,
+        Dname::from_str("test.key.").unwrap(),
+        None,
+        None
+    ).unwrap();
+    let secret = base64::encode_string(&secret);
+    let secret = format!("test.key:{}:hmac-sha1", secret);
+
+    let join = thread::spawn(move || {
+        let sock = TcpListener::bind("127.0.0.1:54324").unwrap();
+        for stream in listener.incoming() {
+            let mut buf = [0u8, 2];
+            sock.read_exact(&mut len).unwrap();
+            let mut buf = vec![0; len];
+            sock.read_exact(&mut buf).unwrap();
+            let mut request = Message::from_bytes(buf.into()).unwrap();
+            let (request, tran) =
+                tsig::ServerSequence::request(&&key, request).unwrap();
+            
+            
+        }
+    });
+
+    let status = Command::new("/usr/bin/drill")
+        .args(&[
+            "-p", "54324",
+            "-y", &secret,
+            "-t",
+            "example.com", "AXFR", "@127.0.0.1"
+        ])
+        .status().unwrap();
+    drop(join);
+    assert!(status.success());
+}
+*/
 
