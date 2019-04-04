@@ -51,7 +51,7 @@ fn tsig_client_nsd() {
     conf.keys.push(nsd::KeyConfig::new("test.key.", "hmac-sha1", secret));
     conf.zones.push(nsd::ZoneConfig::new(
         "example.com", zonepath, vec![nsd::Acl::new(
-            IpAddr::from_str("127.0.0.1").unwrap(), None, Some(54322),
+            IpAddr::from_str("127.0.0.1").unwrap(), None, None,
             Some("test.key.".into())
         )]
     ));
@@ -71,7 +71,7 @@ fn tsig_client_nsd() {
         ).additional();
         let (msg, tran) = tsig::ClientTransaction::request(&key, request)
                                                   .unwrap();
-        let sock = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let sock = UdpSocket::bind("127.0.0.1:54320").unwrap();
         sock.send_to(msg.as_ref(), "127.0.0.1:54321").unwrap();
         let mut answer = loop {
             let mut buf = vec![0; 512];
@@ -232,9 +232,10 @@ fn tsig_server_sequence_drill() {
     ).unwrap();
     let secret = base64::encode_string(&secret);
     let secret = format!("test.key:{}:hmac-sha1", secret);
+    let listener = TcpListener::bind("127.0.0.1:54324").unwrap();
+    let port = listener.local_addr().unwrap().port();
 
     let join = thread::spawn(move || {
-        let listener = TcpListener::bind("127.0.0.1:54324").unwrap();
         for sock in listener.incoming() {
             let mut sock = sock.unwrap();
             let mut buf = [0u8, 2];
@@ -249,8 +250,8 @@ fn tsig_server_sequence_drill() {
                 &mut sock,
                 tran.answer(make_first_axfr(&request)).unwrap().as_ref()
             ).unwrap();
-            for two in 0..255u8 {
-                for one in 0..255u8 {
+            for two in 0..10u8 {
+                for one in 0..10u8 {
                     send_tcp(
                         &mut sock,
                         tran.answer(make_middle_axfr(&request, one, two))
@@ -267,7 +268,7 @@ fn tsig_server_sequence_drill() {
 
     let status = Command::new("/usr/bin/drill")
         .args(&[
-            "-p", "54324",
+            "-p", &format!("{}", port),
             "-y", &secret,
             "-t",
             "example.com", "AXFR", "@127.0.0.1"
