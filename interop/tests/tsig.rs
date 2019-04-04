@@ -2,7 +2,7 @@
 extern crate interop;
 extern crate ring;
 
-use std::{env, fs, thread};
+use std::{env, fs, io, thread};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::process::Command;
@@ -10,12 +10,17 @@ use std::str::FromStr;
 use std::time::Duration;
 use ring::rand::SystemRandom;
 use interop::nsd;
-use interop::domain::core::bits::{Dname, Message, MessageBuilder};
-use interop::domain::core::bits::message_builder::SectionBuilder;
+use interop::domain::core::bits::{Dname, Message, MessageBuilder, Record};
+use interop::domain::core::bits::message_builder::{
+    AdditionalBuilder, RecordSectionBuilder, SectionBuilder
+};
 use interop::domain::core::iana::{Rcode, Rtype};
+use interop::domain::core::rdata::{A, Soa};
 use interop::domain::core::utils::base64;
 use interop::domain::core::tsig;
 
+
+//------------ Tests --------------------------------------------------------
 
 /// Tests the TSIG client implementation against NSD as a server.
 ///
@@ -214,7 +219,6 @@ fn tsig_client_sequence_nsd() {
     res.unwrap(); // Panic if the thread paniced.
 }
 
-/*
 /// Tests the TSIG server sequence implementation against drill.
 #[test]
 fn tsig_server_sequence_drill() {
@@ -230,17 +234,34 @@ fn tsig_server_sequence_drill() {
     let secret = format!("test.key:{}:hmac-sha1", secret);
 
     let join = thread::spawn(move || {
-        let sock = TcpListener::bind("127.0.0.1:54324").unwrap();
-        for stream in listener.incoming() {
+        let listener = TcpListener::bind("127.0.0.1:54324").unwrap();
+        for sock in listener.incoming() {
+            let mut sock = sock.unwrap();
             let mut buf = [0u8, 2];
-            sock.read_exact(&mut len).unwrap();
+            sock.read_exact(&mut buf).unwrap();
+            let len = u16::from_be_bytes(buf) as usize;
             let mut buf = vec![0; len];
             sock.read_exact(&mut buf).unwrap();
             let mut request = Message::from_bytes(buf.into()).unwrap();
-            let (request, tran) =
-                tsig::ServerSequence::request(&&key, request).unwrap();
-            
-            
+            let mut tran = tsig::ServerSequence::request(&&key, &mut request)
+                                                .unwrap().unwrap();
+            send_tcp(
+                &mut sock,
+                tran.answer(make_first_axfr(&request)).unwrap().as_ref()
+            ).unwrap();
+            for two in 0..255u8 {
+                for one in 0..255u8 {
+                    send_tcp(
+                        &mut sock,
+                        tran.answer(make_middle_axfr(&request, one, two))
+                            .unwrap().as_ref()
+                    ).unwrap();
+                }
+            }
+            send_tcp(
+                &mut sock,
+                tran.answer(make_last_axfr(&request)).unwrap().as_ref()
+            ).unwrap();
         }
     });
 
@@ -255,5 +276,59 @@ fn tsig_server_sequence_drill() {
     drop(join);
     assert!(status.success());
 }
-*/
+
+
+//------------ Helpers ------------------------------------------------------
+
+fn send_tcp(sock: &mut TcpStream, msg: &[u8]) -> Result<(), io::Error> {
+    sock.write_all(&(msg.len() as u16).to_be_bytes())?;
+    sock.write_all(msg)
+}
+
+fn make_first_axfr(request: &Message) -> AdditionalBuilder {
+    let mut msg = MessageBuilder::new_tcp(1024);
+    msg.start_answer(request, Rcode::NoError);
+    let mut msg = msg.answer();
+    msg.push(make_soa()).unwrap();
+    msg.push(make_a(0, 0, 0)).unwrap();
+    msg.additional()
+}
+
+fn make_middle_axfr(request: &Message, one: u8, two: u8) -> AdditionalBuilder {
+    let mut msg = MessageBuilder::new_tcp(1024);
+    msg.start_answer(request, Rcode::NoError);
+    let mut msg = msg.answer();
+    msg.push(make_a(1, one, two)).unwrap();
+    msg.additional()
+}
+
+fn make_last_axfr(request: &Message) -> AdditionalBuilder {
+    let mut msg = MessageBuilder::new_tcp(1024);
+    msg.start_answer(request, Rcode::NoError);
+    let mut msg = msg.answer();
+    msg.push(make_a(2, 0, 0)).unwrap();
+    msg.push(make_soa()).unwrap();
+    msg.additional()
+}
+
+fn make_soa() -> Record<Dname, Soa<Dname>> {
+    (
+        Dname::from_str("example.com.").unwrap(),
+        3600,
+        Soa::new(
+            Dname::from_str("mname.example.com.").unwrap(),
+            Dname::from_str("rname.example.com.").unwrap(),
+            12.into(),
+            3600, 3600, 3600, 3600
+        )
+    ).into()
+}
+
+fn make_a(zero: u8, one: u8, two: u8) -> Record<Dname, A> {
+    (
+        Dname::from_str("example.com.").unwrap(),
+        3600,
+        A::from_octets(10, zero, one, two)
+    ).into()
+}
 
