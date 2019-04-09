@@ -425,9 +425,9 @@ impl SectionBuilder for AnswerBuilder {
 }
 
 impl RecordSectionBuilder for AnswerBuilder {
-    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.target.push(|target| record.into().compress(target),
+    fn push_ref<N, D, R>(&mut self, record: &R) -> Result<(), ShortBuf>
+                where N: ToDname, D: RecordData + Compress, R: Into<Record<N, D>> + Compress {
+        self.target.push(|target| record.compress(target),
                          |counts| counts.inc_ancount())
     }
 }
@@ -485,9 +485,9 @@ impl SectionBuilder for AuthorityBuilder {
 }
 
 impl RecordSectionBuilder for AuthorityBuilder {
-    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.target.push(|target| record.into().compress(target),
+    fn push_ref<N, D, R>(&mut self, record: &R) -> Result<(), ShortBuf>
+                where N: ToDname, D: RecordData + Compress, R: Into<Record<N, D>> + Compress {
+        self.target.push(|target| record.compress(target),
                          |counts| counts.inc_nscount())
     }
 }
@@ -545,9 +545,9 @@ impl SectionBuilder for AdditionalBuilder {
 }
 
 impl RecordSectionBuilder for AdditionalBuilder {
-    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.target.push(|target| record.into().compress(target),
+    fn push_ref<N, D, R>(&mut self, record: &R) -> Result<(), ShortBuf>
+                where N: ToDname, D: RecordData + Compress, R: Into<Record<N, D>> + Compress {
+        self.target.push(|target| record.compress(target),
                          |counts| counts.inc_arcount())
     }
 }
@@ -932,7 +932,15 @@ pub trait RecordSectionBuilder : SectionBuilder {
     ///
     /// [`Record`]: ../record/struct.Record.html
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData, R: Into<Record<N, D>>;
+                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        self.push_ref(&record.into())
+    }
+
+    /// Appends a new resource record reference to the section.
+    ///
+    /// This method doesn't require record to be moved for compose.
+    fn push_ref<N, D, R>(&mut self, record: &R) -> Result<(), ShortBuf>
+                where N: ToDname, D: RecordData + Compress, R: Into<Record<N, D>> + Compress;
 }
 
 //============ Testing ======================================================

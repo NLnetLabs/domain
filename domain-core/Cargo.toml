@@ -14,12 +14,18 @@ license = "BSD-3-Clause"
 name = "domain_core"
 path = "src/lib.rs"
 
+[features]
+tsig = ["ring"]
+default = ["tsig"]
+
 [dependencies]
 bytes          = "^0.4"
 chrono         = "^0.4"
 failure        = "^0.1"
 failure_derive = "^0.1"
 rand           = "^0.6"
-ring           = "^0.14"
 void           = "^1.0"
 
+[dependencies.ring]
+version = "^0.14"
+optional = true
