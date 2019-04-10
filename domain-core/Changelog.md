@@ -13,11 +13,14 @@ New
 
 Bug fixes
 
+* Do not compress the target of an SRV record’s data. [(#18)]
+
 Dependencies
 
 
 [#6]: https://github.com/NLnetLabs/domain/pull/6
 [(#16)]: https://github.com/NLnetLabs/domain/pull/16
+[(#18)]: https://github.com/NLnetLabs/domain/pull/18
 
 ## 0.4.0
 

@@ -80,12 +80,12 @@ impl<N: Compose> Compose for Srv<N> {
     }
 }
 
-impl<N: Compress> Compress for Srv<N> {
+impl<N: Compose> Compress for Srv<N> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose(&self.priority)?;
         buf.compose(&self.weight)?;
         buf.compose(&self.port)?;
-        self.target.compress(buf)
+        buf.compose(&self.target)
     }
 }
 
