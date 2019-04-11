@@ -7,7 +7,7 @@ Breaking Changes
 
 * `rdata::rfc4035::Nsec` is now generic over the type of the next name.
   This is necessary because [RFC 6762] allows compression for its next name.
-  ([#19], reported by Tom Pusateri)
+  ([#20], reported by Tom Pusateri)
 
 New
 
@@ -25,7 +25,7 @@ Dependencies
 [#6]: https://github.com/NLnetLabs/domain/pull/6
 [(#16)]: https://github.com/NLnetLabs/domain/pull/16
 [(#18)]: https://github.com/NLnetLabs/domain/pull/18
-[#19]: https://github.com/NLnetLabs/domain/pull/19
+[#20]: https://github.com/NLnetLabs/domain/pull/19
 
 
 ## 0.4.0
