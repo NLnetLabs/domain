@@ -82,7 +82,7 @@ rdata_types!{
         master {
             Dnskey,
             Rrsig,
-            Nsec,
+            Nsec<N>,
             Ds,
         }
     }

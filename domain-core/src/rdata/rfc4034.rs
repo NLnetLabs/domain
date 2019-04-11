@@ -6,8 +6,9 @@
 
 use std::{fmt, ptr};
 use bytes::{BufMut, Bytes, BytesMut};
+use failure::Fail;
 use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::name::{Dname, DnameError, DnameBytesError, DnameParseError};
+use ::bits::name::{Dname, DnameBytesError};
 use ::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
 use ::bits::rdata::RtypeRecordData;
 use ::bits::serial::Serial;
@@ -304,17 +305,17 @@ impl RtypeRecordData for Rrsig {
 //------------ Nsec ----------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Nsec {
-    next_name: Dname,
+pub struct Nsec<N> {
+    next_name: N,
     types: RtypeBitmap,
 }
 
-impl Nsec {
-    pub fn new(next_name: Dname, types: RtypeBitmap) -> Self {
+impl<N> Nsec<N> {
+    pub fn new(next_name: N, types: RtypeBitmap) -> Self {
         Nsec { next_name, types }
     }
 
-    pub fn next_name(&self) -> &Dname {
+    pub fn next_name(&self) -> &N {
         &self.next_name
     }
 
@@ -326,12 +327,13 @@ impl Nsec {
 
 //--- ParseAll, Compose, and Compress
 
-impl ParseAll for Nsec {
-    type Err = ParseNsecError;
+impl<N: Parse> ParseAll for Nsec<N>
+where <N as Parse>::Err: Fail {
+    type Err = ParseNsecError<<N as Parse>::Err>;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
         let start = parser.pos();
-        let next_name = Dname::parse(parser)?;
+        let next_name = N::parse(parser).map_err(ParseNsecError::BadNextName)?;
         let len = if parser.pos() > start + len {
             return Err(ShortBuf.into())
         }
@@ -343,7 +345,7 @@ impl ParseAll for Nsec {
     }
 }
 
-impl Compose for Nsec {
+impl<N: Compose> Compose for Nsec<N> {
     fn compose_len(&self) -> usize {
         self.next_name.compose_len() + self.types.compose_len()
     }
@@ -354,7 +356,7 @@ impl Compose for Nsec {
     }
 }
 
-impl Compress for Nsec {
+impl<N: Compose> Compress for Nsec<N> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         buf.compose(self)
     }
@@ -363,18 +365,18 @@ impl Compress for Nsec {
 
 //--- Scan and Display
 
-impl Scan for Nsec {
+impl<N: Scan> Scan for Nsec<N> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
     ) -> Result<Self, ScanError> {
         Ok(Self::new(
-            Dname::scan(scanner)?,
+            N::scan(scanner)?,
             RtypeBitmap::scan(scanner)?,
         ))
     }
 }
 
-impl fmt::Display for Nsec {
+impl<N: fmt::Display> fmt::Display for Nsec<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.next_name, self.types)
     }
@@ -383,7 +385,7 @@ impl fmt::Display for Nsec {
 
 //--- RtypeRecordData
 
-impl RtypeRecordData for Nsec {
+impl<N> RtypeRecordData for Nsec<N> {
     const RTYPE: Rtype = Rtype::Nsec;
 }
 
@@ -805,38 +807,28 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
 //------------ ParseNsecError ------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum ParseNsecError {
+pub enum ParseNsecError<E: Fail> {
     #[fail(display="short field")]
     ShortField,
 
     #[fail(display="{}", _0)]
-    BadNextName(DnameError),
+    BadNextName(E),
 
     #[fail(display="invalid record type bitmap")]
     BadRtypeBitmap,
 }
 
-impl From<ShortBuf> for ParseNsecError {
+impl<E: Fail> From<ShortBuf> for ParseNsecError<E> {
     fn from(_: ShortBuf) -> Self {
         ParseNsecError::ShortField
     }
 }
 
-impl From<RtypeBitmapError> for ParseNsecError {
+impl<E: Fail> From<RtypeBitmapError> for ParseNsecError<E> {
     fn from(err: RtypeBitmapError) -> Self {
         match err {
             RtypeBitmapError::ShortBuf => ParseNsecError::ShortField,
             RtypeBitmapError::BadRtypeBitmap => ParseNsecError::BadRtypeBitmap
-        }
-    }
-}
-
-impl From<DnameParseError> for ParseNsecError {
-    fn from(err: DnameParseError) -> Self {
-        match err {
-            DnameParseError::BadName(err)
-                => ParseNsecError::BadNextName(err),
-            DnameParseError::ShortBuf => ParseNsecError::ShortField,
         }
     }
 }
