@@ -136,9 +136,9 @@ impl Resolver for StubResolver {
     type Answer = Answer;
     type Query = Query;
 
-    fn query<N, Q>(&self, question: Q) -> Query
+    fn query_recursive_option<N, Q>(&self, question: Q, recursive: bool) -> Query
     where N: ToDname, Q: Into<Question<N>> {
-        Query::new(self.clone(), question)
+        Query::new(self.clone(), question, recursive)
     }
 }
 
@@ -182,10 +182,10 @@ pub struct Query {
 }
 
 impl Query {
-    fn new<N, Q>(resolver: StubResolver, question: Q) -> Self
+    fn new<N, Q>(resolver: StubResolver, question: Q, recursive: bool) -> Self
     where N: ToDname, Q: Into<Question<N>> {
         let mut message = QueryBuilder::new(question);
-        message.set_rd(true);
+        message.set_rd(recursive);
         let message = message.freeze();
         let (preferred, counter) = if resolver.options().use_vc {
             (false, resolver.0.stream.counter(resolver.options().rotate))

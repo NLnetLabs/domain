@@ -30,17 +30,22 @@ pub trait Resolver {
     ///
     /// The method takes anything that can be converted into a question and
     /// produces a future trying to answer the question.
-    fn query<N, Q>(&self, question: Q) -> Self::Query
+    fn query_recursive_option<N, Q>(&self, question: Q, recursive: bool) -> Self::Query
     where N: ToDname, Q: Into<Question<N>>;
+
+    fn query<N, Q>(&self, question: Q) -> Self::Query
+    where N: ToDname, Q: Into<Question<N>> {
+        Resolver::query_recursive_option(self, question, true)
+		}
 
     fn lookup_addr(&self, addr: IpAddr) -> addr::LookupAddr<Self>
     where Self: Sized {
         addr::lookup_addr(self, addr)
     }
 
-    fn lookup_host<N: ToDname>(&self, name: &N) -> host::LookupHost<Self>
+    fn lookup_host<N: ToDname>(&self, name: &N, recursive: bool) -> host::LookupHost<Self>
     where Self: Sized {
-        host::lookup_host(self, name)
+        host::lookup_host(self, name, recursive)
     }
 
     fn search_host<N>(self, name: N) -> host::SearchHost<Self, N>

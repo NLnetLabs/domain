@@ -27,11 +27,12 @@ use crate::resolver::{Resolver, SearchNames};
 /// return the canonical name.
 pub fn lookup_host<R: Resolver, N: ToDname>(
     resolver: &R,
-    name: &N
+    name: &N,
+		recursive: bool
 ) -> LookupHost<R> {
     LookupHost {
-        a: MaybeDone::NotYet(resolver.query((name, Rtype::A))),
-        aaaa: MaybeDone::NotYet(resolver.query((name, Rtype::Aaaa))),
+        a: MaybeDone::NotYet(resolver.query_recursive_option((name, Rtype::A), recursive)),
+        aaaa: MaybeDone::NotYet(resolver.query_recursive_option((name, Rtype::Aaaa), recursive)),
     }
 }
 
@@ -57,7 +58,7 @@ impl<R: Resolver + SearchNames, N: ToRelativeDname> SearchHost<R, N> {
         let mut iter = resolver.search_iter();
         while let Some(suffix) = iter.next() {
             let lookup = match (&name).chain(suffix) {
-                Ok(query_name) => lookup_host(&resolver, &query_name),
+                Ok(query_name) => lookup_host(&resolver, &query_name, true),
                 Err(_) => continue,
             };
             return SearchHost {
@@ -94,7 +95,7 @@ where R: Resolver + SearchNames, N: ToRelativeDname {
 
         while let Some(suffix) = self.iter.next() {
             let lookup = match (&self.name).chain(suffix) {
-                Ok(query_name) => lookup_host(&self.resolver, &query_name),
+                Ok(query_name) => lookup_host(&self.resolver, &query_name, true),
                 Err(_) => continue,
             };
             self.pending = Some(lookup);

@@ -204,7 +204,7 @@ where R: Resolver, S: ToRelativeDname + Clone + Send + 'static {
         match self.items.last() {
             Some(item) => match item.state {
                 SrvItemState::Unresolved(ref host) => {
-                    self.lookup = Some(lookup_host(&self.resolver, host));
+                    self.lookup = Some(lookup_host(&self.resolver, host, true));
                 }
                 _ => { }
             }
