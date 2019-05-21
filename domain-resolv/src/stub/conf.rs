@@ -371,7 +371,7 @@ impl ResolvConf {
 
         for line in io::BufReader::new(reader).lines() {
             let line = line?;
-            let line = line.trim_right();
+            let line = line.trim_end();
 
             if line.is_empty() || line.starts_with(';') ||
                                   line.starts_with('#') {

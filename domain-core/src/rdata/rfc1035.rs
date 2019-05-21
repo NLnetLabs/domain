@@ -26,7 +26,8 @@ use ::master::scan::{CharSource, ScanError, Scan, Scanner};
 /// Implements some basic methods plus the `RecordData`, `FlatRecordData`,
 /// and `Display` traits.
 macro_rules! dname_type {
-    ($target:ident, $rtype:ident, $field:ident) => {
+    ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
+        $(#[$attr])*
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct $target<N> {
             $field: N
@@ -285,13 +286,15 @@ impl AsMut<Ipv4Addr> for A {
 
 //------------ Cname --------------------------------------------------------
 
-/// CNAME record data.
-///
-/// The CNAME record specifies the canonical or primary name for domain
-/// name alias.
-///
-/// The CNAME type is defined in RFC 1035, section 3.3.1.
-dname_type!(Cname, Cname, cname);
+dname_type! {
+    /// CNAME record data.
+    ///
+    /// The CNAME record specifies the canonical or primary name for domain
+    /// name alias.
+    ///
+    /// The CNAME type is defined in RFC 1035, section 3.3.1.
+    (Cname, Cname, cname)
+}
 
 
 //------------ Hinfo --------------------------------------------------------
@@ -399,53 +402,61 @@ impl RtypeRecordData for Hinfo {
 
 //------------ Mb -----------------------------------------------------------
 
-/// MB record data.
-///
-/// The experimental MB record specifies a host that serves a mailbox.
-///
-/// The MB record type is defined in RFC 1035, section 3.3.3.
-dname_type!(Mb, Mb, madname);
+dname_type! {
+    /// MB record data.
+    ///
+    /// The experimental MB record specifies a host that serves a mailbox.
+    ///
+    /// The MB record type is defined in RFC 1035, section 3.3.3.
+    (Mb, Mb, madname)
+}
 
 
 //------------ Md -----------------------------------------------------------
 
-/// MD record data.
-///
-/// The MD record specifices a host which has a mail agent for
-/// the domain which should be able to deliver mail for the domain.
-/// 
-/// The MD record is obsolete. It is recommended to either reject the record
-/// or convert them into an Mx record at preference 0.
-///
-/// The MD record type is defined in RFC 1035, section 3.3.4.
-dname_type!(Md, Md, madname);
+dname_type! {
+    /// MD record data.
+    ///
+    /// The MD record specifices a host which has a mail agent for
+    /// the domain which should be able to deliver mail for the domain.
+    /// 
+    /// The MD record is obsolete. It is recommended to either reject the record
+    /// or convert them into an Mx record at preference 0.
+    ///
+    /// The MD record type is defined in RFC 1035, section 3.3.4.
+    (Md, Md, madname)
+}
 
 
 //------------ Mf -----------------------------------------------------------
 
-/// MF record data.
-///
-/// The MF record specifices a host which has a mail agent for
-/// the domain which will be accept mail for forwarding to the domain.
-/// 
-/// The MF record is obsolete. It is recommended to either reject the record
-/// or convert them into an Mx record at preference 10.
-///
-/// The MF record type is defined in RFC 1035, section 3.3.5.
-dname_type!(Mf, Mf, madname);
+dname_type! {
+    /// MF record data.
+    ///
+    /// The MF record specifices a host which has a mail agent for
+    /// the domain which will be accept mail for forwarding to the domain.
+    /// 
+    /// The MF record is obsolete. It is recommended to either reject the record
+    /// or convert them into an Mx record at preference 10.
+    ///
+    /// The MF record type is defined in RFC 1035, section 3.3.5.
+    (Mf, Mf, madname)
+}
 
 
 //------------ Mg -----------------------------------------------------------
 
-/// MG record data.
-///
-/// The MG record specifices a mailbox which is a member of the mail group
-/// specified by the domain name.
-/// 
-/// The MG record is experimental.
-///
-/// The MG record type is defined in RFC 1035, section 3.3.6.
-dname_type!(Mg, Mg, madname);
+dname_type! {
+    /// MG record data.
+    ///
+    /// The MG record specifices a mailbox which is a member of the mail group
+    /// specified by the domain name.
+    /// 
+    /// The MG record is experimental.
+    ///
+    /// The MG record type is defined in RFC 1035, section 3.3.6.
+    (Mg, Mg, madname)
+}
 
 
 //------------ Minfo --------------------------------------------------------
@@ -574,15 +585,17 @@ impl<N> RtypeRecordData for Minfo<N> {
 
 //------------ Mr -----------------------------------------------------------
 
-/// MR record data.
-///
-/// The MR record specifices a mailbox which is the proper rename of the
-/// specified mailbox.
-/// 
-/// The MR record is experimental.
-///
-/// The MR record type is defined in RFC 1035, section 3.3.8.
-dname_type!(Mr, Mr, newname);
+dname_type! {
+    /// MR record data.
+    ///
+    /// The MR record specifices a mailbox which is the proper rename of the
+    /// specified mailbox.
+    /// 
+    /// The MR record is experimental.
+    ///
+    /// The MR record type is defined in RFC 1035, section 3.3.8.
+    (Mr, Mr, newname)
+}
 
 
 //------------ Mx -----------------------------------------------------------
@@ -692,12 +705,14 @@ impl<N> RtypeRecordData for Mx<N> {
 
 //------------ Ns -----------------------------------------------------------
 
-/// NS record data.
-///
-/// NS records specify hosts that are authoritative for a class and domain.
-///
-/// The NS record type is defined in RFC 1035, section 3.3.11.
-dname_type!(Ns, Ns, nsdname);
+dname_type! {
+    /// NS record data.
+    ///
+    /// NS records specify hosts that are authoritative for a class and domain.
+    ///
+    /// The NS record type is defined in RFC 1035, section 3.3.11.
+    (Ns, Ns, nsdname)
+}
 
 
 //------------ Null ---------------------------------------------------------
@@ -810,13 +825,15 @@ impl fmt::Display for Null {
 
 //------------ Ptr ----------------------------------------------------------
 
-/// PTR record data.
-///
-/// PRT records are used in special domains to point to some other location
-/// in the domain space.
-///
-/// The PTR record type is defined in RFC 1035, section 3.3.12.
-dname_type!(Ptr, Ptr, ptrdname);
+dname_type! {
+    /// PTR record data.
+    ///
+    /// PRT records are used in special domains to point to some other location
+    /// in the domain space.
+    ///
+    /// The PTR record type is defined in RFC 1035, section 3.3.12.
+    (Ptr, Ptr, ptrdname)
+}
 
 impl<N> Ptr<N> {
     pub fn into_ptrdname(self) -> N {
