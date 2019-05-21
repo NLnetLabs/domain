@@ -91,7 +91,6 @@
 //! [master]: master/index.html
 //! [rdata]: rdata/index.html
 
-
 //--- Re-exports
 
 pub use self::charstr::{CharStr, CharStrMut};

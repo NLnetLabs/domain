@@ -21,7 +21,6 @@ use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
 use crate::serial::Serial;
 use super::RtypeRecordData;
 
-
 //------------ Dnskey --------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -61,6 +60,34 @@ impl Dnskey {
 
     pub fn public_key(&self) -> &Bytes {
         &self.public_key
+    }
+
+    /// Returns true if the key has been revoked.
+    /// See [RFC 5011, Section 3](https://tools.ietf.org/html/rfc5011#section-3).
+    pub fn is_revoked(&self) -> bool {
+        self.flags() & 0b0000_0000_1000_0000 != 0
+    }
+
+    /// Returns true if the key has SEP (Secure Entry Point) bit set.
+    /// See [RFC 4034, Section 2.1.1](https://tools.ietf.org/html/rfc4034#section-2.1.1)
+    ///
+    /// ```text
+    /// 2.1.1.  The Flags Field
+    ///
+    ///    This flag is only intended to be a hint to zone signing or debugging software as to the
+    ///    intended use of this DNSKEY record; validators MUST NOT alter their
+    ///    behavior during the signature validation process in any way based on
+    ///    the setting of this bit.
+    /// ```
+    pub fn is_secure_entry_point(&self) -> bool {
+        self.flags() & 0b0000_0000_0000_0001 != 0
+    }
+
+    /// Returns true if the key is ZSK (Zone Signing Key) bit set. If the ZSK is not set, the
+    /// key MUST NOT be used to verify RRSIGs that cover RRSETs.
+    /// See [RFC 4034, Section 2.1.1](https://tools.ietf.org/html/rfc4034#section-2.1.1)
+    pub fn is_zsk(&self) -> bool {
+        self.flags() & 0b0000_0001_0000_0000 != 0
     }
 
     /// Returns the key tag for this DNSKEY data.
@@ -1120,8 +1147,23 @@ fn split_rtype(rtype: Rtype) -> (u8, usize, u8) {
 #[cfg(test)]
 mod test {
     use crate::iana::Rtype;
-    use crate::utils::base64;
     use super::*;
+
+    #[test]
+    fn rtype_bitmap_builder() {
+        let mut builder = RtypeBitmapBuilder::new();
+        builder.add(Rtype::Int(1234)); // 0x04D2
+        builder.add(Rtype::A);         // 0x0001
+        builder.add(Rtype::Mx);        // 0x000F
+        builder.add(Rtype::Rrsig);     // 0x002E
+        builder.add(Rtype::Nsec);      // 0x002F
+        assert_eq!(builder.finalize().as_slice(),
+                   &b"\x00\x06\x40\x01\x00\x00\x00\x03\
+                     \x04\x1b\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x00\x00\x00\x00\
+                     \x00\x00\x00\x00\x20"[..]);
+    }
 
     #[test]
     fn dnskey_key_tag() {
@@ -1161,9 +1203,9 @@ mod test {
                 257, 3, SecAlg::RsaMd5,
                 unwrap!(base64::decode(
                     "AwEAAcVaA4jSBIGRrSzpecoJELvKE9+OMuFnL8mmUBsY\
-				    lB6epN1CqX7NzwjDpi6VySiEXr0C4uTYkU/L1uMv2mHE\
-				    AljThFDJ1GuozJ6gA7jf3lnaGppRg2IoVQ9IVmLORmjw\
-				    C+7Eoi12SqybMTicD3Ezwa9XbG1iPjmjhbMrLh7MSQpX"
+                    lB6epN1CqX7NzwjDpi6VySiEXr0C4uTYkU/L1uMv2mHE\
+                    AljThFDJ1GuozJ6gA7jf3lnaGppRg2IoVQ9IVmLORmjw\
+                    C+7Eoi12SqybMTicD3Ezwa9XbG1iPjmjhbMrLh7MSQpX"
                 ))
             ).key_tag(),
             18698
@@ -1171,18 +1213,10 @@ mod test {
     }
 
     #[test]
-    fn rtype_bitmap_builder() {
-        let mut builder = RtypeBitmapBuilder::new();
-        builder.add(Rtype::Int(1234)); // 0x04D2
-        builder.add(Rtype::A);         // 0x0001
-        builder.add(Rtype::Mx);        // 0x000F
-        builder.add(Rtype::Rrsig);     // 0x002E
-        builder.add(Rtype::Nsec);      // 0x002F
-        assert_eq!(builder.finalize().as_slice(),
-                   &b"\x00\x06\x40\x01\x00\x00\x00\x03\
-                     \x04\x1b\x00\x00\x00\x00\x00\x00\
-                     \x00\x00\x00\x00\x00\x00\x00\x00\
-                     \x00\x00\x00\x00\x00\x00\x00\x00\
-                     \x00\x00\x00\x00\x20"[..]);
+    fn dnskey_flags() {
+        let dnskey = Dnskey::new(257, 3, SecAlg::RsaSha256, Bytes::new());
+        assert_eq!(dnskey.is_zsk(), true);
+        assert_eq!(dnskey.is_secure_entry_point(), true);
+        assert_eq!(dnskey.is_revoked(), false);
     }
 }
