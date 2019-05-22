@@ -195,6 +195,10 @@ pub struct ServerListCounter {
 
 impl ServerListCounter {
     fn new(list: &ServerList) -> Self {
+        if list.servers.is_empty() {
+            return ServerListCounter { cur: 0, end: 0 };
+        }
+
         // We modulo the start value here to prevent hick-ups towards the
         // end of usize’s range.
         let start = list.start.load(Ordering::Relaxed) % list.servers.len();
