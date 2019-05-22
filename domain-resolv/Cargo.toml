@@ -17,7 +17,12 @@ path = "src/lib.rs"
 [dependencies]
 futures        = "^0.1"
 rand           = "^0.6"
-tokio          = "^0.1"
+
+[dependencies.tokio]
+version = "0.1.19"
+default-features = false
+features = ["io", "rt-full", "tcp", "udp"]
+
 
 [dev-dependencies]
 native-tls = "^0.2"

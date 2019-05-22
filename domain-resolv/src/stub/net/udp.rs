@@ -83,7 +83,7 @@ impl Future for UdpQuery {
     type Item = Answer;
     type Error = io::Error;
 
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
+    fn poll(&mut self) -> Result<Async<Self::Item>, io::Error> {
         let (next, res) = match *self {
             UdpQuery::Send { ref mut send, addr, recv_size } => {
                 let (sock, query) = try_ready!(send.poll());
