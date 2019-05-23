@@ -110,7 +110,6 @@ pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
 pub use self::record::{Record, RecordHeader, ParsedRecord};
 pub use self::serial::Serial;
 
-
 //--- Modules
 
 pub mod charstr;
@@ -130,4 +129,3 @@ pub mod rdata;
 pub mod record;
 pub mod serial;
 pub mod utils;
-

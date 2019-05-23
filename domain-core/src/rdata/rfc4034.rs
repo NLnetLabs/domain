@@ -21,6 +21,7 @@ use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
 use crate::serial::Serial;
 use super::RtypeRecordData;
 
+
 //------------ Dnskey --------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1153,16 +1154,18 @@ mod test {
     fn rtype_bitmap_builder() {
         let mut builder = RtypeBitmapBuilder::new();
         builder.add(Rtype::Int(1234)); // 0x04D2
-        builder.add(Rtype::A);         // 0x0001
-        builder.add(Rtype::Mx);        // 0x000F
-        builder.add(Rtype::Rrsig);     // 0x002E
-        builder.add(Rtype::Nsec);      // 0x002F
-        assert_eq!(builder.finalize().as_slice(),
-                   &b"\x00\x06\x40\x01\x00\x00\x00\x03\
+        builder.add(Rtype::A); // 0x0001
+        builder.add(Rtype::Mx); // 0x000F
+        builder.add(Rtype::Rrsig); // 0x002E
+        builder.add(Rtype::Nsec); // 0x002F
+        assert_eq!(
+            builder.finalize().as_slice(),
+            &b"\x00\x06\x40\x01\x00\x00\x00\x03\
                      \x04\x1b\x00\x00\x00\x00\x00\x00\
                      \x00\x00\x00\x00\x00\x00\x00\x00\
                      \x00\x00\x00\x00\x00\x00\x00\x00\
-                     \x00\x00\x00\x00\x20"[..]);
+                     \x00\x00\x00\x00\x20"[..]
+        );
     }
 
     #[test]
