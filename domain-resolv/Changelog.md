@@ -23,7 +23,7 @@ Dependencies
 [#24]: https://github.com/NLnetLabs/domain/pull/24
 [#26]: https://github.com/NLnetLabs/domain/pull/26
 [@dvc94ch]: https://github.com/dvc94ch
-[@vendemiat]: https://github.com/dvc94ch
+[@vendemiat]: https://github.com/vendemiat
 
 
 ## 0.4.0
