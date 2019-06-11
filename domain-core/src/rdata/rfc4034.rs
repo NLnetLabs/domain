@@ -767,6 +767,11 @@ impl RtypeBitmap {
             let mut data = bytes.as_ref();
             while !data.is_empty() {
                 let len = (data[1] as usize) + 2;
+                // https://tools.ietf.org/html/rfc4034#section-4.1.2:
+                //  Blocks with no types present MUST NOT be included.
+                if len == 2 {
+                    return Err(RtypeBitmapError::BadRtypeBitmap);
+                }
                 if len > 34 {
                     return Err(RtypeBitmapError::BadRtypeBitmap)
                 }
@@ -797,13 +802,13 @@ impl RtypeBitmap {
 
     pub fn contains(&self, rtype: Rtype) -> bool {
         let (block, octet, mask) = split_rtype(rtype);
-        let octet = octet + 2;
         let mut data = self.0.as_ref();
         while !data.is_empty() {
-            if data[0] == block {
-                return !((data[1] as usize) < octet || data[octet] & mask == 0)
+            let ((window_num, window), next_data) = read_window(data).unwrap();
+            if window_num == block {
+                return !(window.len() < octet || window[octet] & mask == 0);
             }
-            data = &data[data[1] as usize..]
+            data = next_data;
         }
         false
     }
@@ -1139,8 +1144,22 @@ fn split_rtype(rtype: Rtype) -> (u8, usize, u8) {
     (
         (rtype >> 8) as u8,
         ((rtype & 0xFF) >> 3) as usize,
-        0x80u8 >> (rtype & 0x07)
+        0b10000000 >> (rtype & 0x07)
     )
+}
+
+/// Splits the next bitmap window from the bitmap and returns None when there's no next window.
+fn read_window<'a>(data: &'a [u8]) -> Option<((u8, &'a [u8]), &'a [u8])> {
+    data.split_first()
+        .and_then(|(n, data)| {
+            data.split_first()
+                .and_then(|(l, data)| if data.len() >= usize::from(*l) {
+                    let (window, data) = data.split_at(usize::from(*l));
+                    Some(((*n, window), data))
+                } else {
+                    None
+                })
+        })
 }
 
 //============ Test ==========================================================
@@ -1151,6 +1170,28 @@ mod test {
     use super::*;
 
     #[test]
+    fn rtype_split() {
+        assert_eq!(split_rtype(Rtype::A),   (0, 0, 0b01000000));
+        assert_eq!(split_rtype(Rtype::Ns),  (0, 0, 0b00100000));
+        assert_eq!(split_rtype(Rtype::Caa), (1, 0, 0b01000000));
+    }
+
+    #[test]
+    fn rtype_bitmap_read_window() {
+        let mut builder = RtypeBitmapBuilder::new();
+        builder.add(Rtype::A);
+        builder.add(Rtype::Caa);
+        let bitmap = builder.finalize();
+
+        let ((n, window), data) = read_window(bitmap.as_slice()).unwrap();
+        assert_eq!((n, window), (0u8, b"\x40".as_ref()));
+        let ((n, window), data) = read_window(data).unwrap();
+        assert_eq!((n, window), (1u8, b"\x40".as_ref()));
+        assert!(data.is_empty());
+        assert!(read_window(data).is_none());
+    }
+
+    #[test]
     fn rtype_bitmap_builder() {
         let mut builder = RtypeBitmapBuilder::new();
         builder.add(Rtype::Int(1234)); // 0x04D2
@@ -1158,14 +1199,23 @@ mod test {
         builder.add(Rtype::Mx); // 0x000F
         builder.add(Rtype::Rrsig); // 0x002E
         builder.add(Rtype::Nsec); // 0x002F
+        let bitmap = builder.finalize();
         assert_eq!(
-            builder.finalize().as_slice(),
+            bitmap.as_slice(),
             &b"\x00\x06\x40\x01\x00\x00\x00\x03\
                      \x04\x1b\x00\x00\x00\x00\x00\x00\
                      \x00\x00\x00\x00\x00\x00\x00\x00\
                      \x00\x00\x00\x00\x00\x00\x00\x00\
                      \x00\x00\x00\x00\x20"[..]
         );
+
+        assert!(bitmap.contains(Rtype::A));
+        assert!(bitmap.contains(Rtype::Mx));
+        assert!(bitmap.contains(Rtype::Rrsig));
+        assert!(bitmap.contains(Rtype::Nsec));
+        assert!(bitmap.contains(Rtype::Int(1234)));
+        assert!(!bitmap.contains(Rtype::Int(1235)));
+        assert!(!bitmap.contains(Rtype::Ns));
     }
 
     #[test]
