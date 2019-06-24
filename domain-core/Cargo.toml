@@ -26,6 +26,3 @@ failure_derive = "^0.1"
 rand           = "^0.6"
 void           = "^1.0"
 
-[dependencies.ring]
-version = "^0.14"
-optional = true
