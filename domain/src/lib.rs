@@ -14,5 +14,7 @@
 
 pub extern crate domain_core as core;
 #[cfg(feature = "resolv")] pub extern crate domain_resolv as resolv;
+#[cfg(feature = "sign")] pub extern crate domain_tsig as sign;
 #[cfg(feature = "tsig")] pub extern crate domain_tsig as tsig;
+#[cfg(feature = "validate")] pub extern crate domain_validate as validate;
 

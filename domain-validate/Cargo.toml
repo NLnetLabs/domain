@@ -1,0 +1,23 @@
+[package]
+name = "domain-validate"
+version = "0.4.1"
+edition = "2018"
+authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
+description = "A DNS library for Rust – DNSSEC validation."
+documentation = "https://docs.rs/domain-validate/"
+homepage = "https://github.com/nlnetlabs/domain/"
+repository = "https://github.com/nlnetlabs/domain/"
+readme = "README.md"
+keywords = ["DNS", "DNSSEC", "domain"]
+license = "BSD-3-Clause"
+
+[lib]
+name = "domain_validate"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dependencies.domain-core]
+path = "../domain-core"
+version = "0.4.1"
+

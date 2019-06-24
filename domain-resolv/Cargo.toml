@@ -23,7 +23,6 @@ version = "0.1.19"
 default-features = false
 features = ["io", "rt-full", "tcp", "udp"]
 
-
 [dev-dependencies]
 native-tls = "^0.2"
 tokio-tls = "^0.2"
