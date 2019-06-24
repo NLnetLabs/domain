@@ -1,9 +1,10 @@
 [package]
-name = "domain-core"
+name = "domain-tsig"
 version = "0.4.1"
+edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
-description = "A DNS library for Rust – Core."
-documentation = "https://docs.rs/domain-core/"
+description = "A DNS library for Rust – TSIG Support."
+documentation = "https://docs.rs/domain-tsig/"
 homepage = "https://github.com/nlnetlabs/domain/"
 repository = "https://github.com/nlnetlabs/domain/"
 readme = "README.md"
@@ -11,14 +12,15 @@ keywords = ["DNS", "domain"]
 license = "BSD-3-Clause"
 
 [lib]
-name = "domain_core"
+name = "domain_tsig"
 path = "src/lib.rs"
 
 [dependencies]
 bytes          = "^0.4"
-chrono         = "^0.4"
-failure        = "^0.1"
-failure_derive = "^0.1"
-rand           = "^0.6"
-void           = "^1.0"
+derive_more    = "^0.14"
+ring           = "^0.14"
+
+[dependencies.domain-core]
+path = "../domain-core"
+version = "0.4.1"
 

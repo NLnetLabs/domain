@@ -17,7 +17,7 @@ use interop::domain::core::bits::message_builder::{
 use interop::domain::core::iana::{Rcode, Rtype};
 use interop::domain::core::rdata::{A, Soa};
 use interop::domain::core::utils::base64;
-use interop::domain::core::tsig;
+use interop::domain::tsig;
 
 
 //------------ Tests --------------------------------------------------------

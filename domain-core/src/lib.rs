@@ -20,14 +20,10 @@ extern crate chrono;
 extern crate failure;
 #[macro_use] extern crate failure_derive;
 extern crate rand;
-#[cfg(feature = "tsig")]
-extern crate ring;
 extern crate void;
 
 pub mod bits;
 pub mod iana;
 pub mod master;
 pub mod rdata;
-#[cfg(feature = "tsig")]
-pub mod tsig;
 pub mod utils;

@@ -8,6 +8,7 @@ license = "BSD-3-Clause"
 [dependencies]
 domain-core   = { path = "../domain-core" }
 domain-resolv = { path = "../domain-resolv" }
+domain-tsig   = { path = "../domain-tsig" }
 bytes         = "0.4"
 ring          = "0.14"
 

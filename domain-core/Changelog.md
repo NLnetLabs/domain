@@ -13,7 +13,8 @@ New
 
 * `bits::message::Message::opt` returns a messages OPT record if present.
   ([#6], thanks to Marek Vavruša!)
-* Support for TSIG signing of transactions and sequences. [(#16)]
+* unsafe `bits::name::Dname::from_bytes_unchecked` in order to create
+  names from well-known sequences. [(#31)]
 
 Bug fixes
 
@@ -23,9 +24,8 @@ Dependencies
 
 
 [#6]: https://github.com/NLnetLabs/domain/pull/6
-[(#16)]: https://github.com/NLnetLabs/domain/pull/16
-[(#18)]: https://github.com/NLnetLabs/domain/pull/18
 [#20]: https://github.com/NLnetLabs/domain/pull/19
+[(#31)]: https://github.com/NLnetLabs/domain/pull/31
 
 
 ## 0.4.0
