@@ -1,7 +1,7 @@
 [package]
 name = "domain-core"
 version = "0.4.1"
-authors = ["Martin Hoffmann <hn@nvnc.de>"]
+authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust – Core."
 documentation = "https://docs.rs/domain-core/"
 homepage = "https://github.com/nlnetlabs/domain/"

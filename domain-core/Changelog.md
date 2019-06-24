@@ -13,7 +13,8 @@ New
 
 * `bits::message::Message::opt` returns a messages OPT record if present.
   ([#6], thanks to Marek Vavruša!)
-* Support for TSIG signing of transactions and sequences. [(#16)]
+* unsafe `bits::name::Dname::from_bytes_unchecked` in order to create
+  names from well-known sequences.
 
 Bug fixes
 

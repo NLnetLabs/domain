@@ -55,18 +55,19 @@
 use std::{cmp, fmt, mem, str};
 use std::collections::HashMap;
 use bytes::{BigEndian, ByteOrder, Bytes, BytesMut};
+use derive_more::Display;
 use ring::{constant_time, digest, hmac, rand};
-use crate::bits::message::Message;
-use crate::bits::message_builder::{
+use domain_core::bits::message::Message;
+use domain_core::bits::message_builder::{
     AdditionalBuilder, MessageBuilder, SectionBuilder, RecordSectionBuilder
 };
-use crate::bits::name::{
+use domain_core::bits::name::{
     Dname, Label, ParsedDname, ParsedDnameError, ToDname, ToLabelIter
 };
-use crate::bits::parse::ShortBuf;
-use crate::bits::record::Record;
-use crate::iana::{Class, Rcode, TsigRcode};
-use crate::rdata::rfc2845::{Time48, Tsig};
+use domain_core::bits::parse::ShortBuf;
+use domain_core::bits::record::Record;
+use domain_core::iana::{Class, Rcode, TsigRcode};
+use domain_core::rdata::rfc2845::{Time48, Tsig};
 
 
 //------------ Key -----------------------------------------------------------
@@ -1522,12 +1523,12 @@ fn update_id(
 //------------ NewKeyError ---------------------------------------------------
 
 /// A key couldn’t be created.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum NewKeyError {
-    #[fail(display="minimum signature length out of bounds")]
+    #[display(fmt="minimum signature length out of bounds")]
     BadMinMacLen,
 
-    #[fail(display="created signature length out of bounds")]
+    #[display(fmt="created signature length out of bounds")]
     BadSigningLen,
 }
 
@@ -1535,15 +1536,15 @@ pub enum NewKeyError {
 //------------ GenerateKeyError ----------------------------------------------
 
 /// A key couldn’t be created.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum GenerateKeyError {
-    #[fail(display="minimum signature length out of bounds")]
+    #[display(fmt="minimum signature length out of bounds")]
     BadMinMacLen,
 
-    #[fail(display="created signature length out of bounds")]
+    #[display(fmt="created signature length out of bounds")]
     BadSigningLen,
 
-    #[fail(display="generating key failed")]
+    #[display(fmt="generating key failed")]
     GenerationFailed,
 }
 
@@ -1566,53 +1567,53 @@ impl From<ring::error::Unspecified> for GenerateKeyError {
 //------------ AlgorithmError ------------------------------------------------
 
 /// An invalid algorithm was provided.
-#[derive(Clone, Copy, Debug, Fail)]
-#[fail(display="invalid algorithm")]
+#[derive(Clone, Copy, Debug, Display)]
+#[display(fmt="invalid algorithm")]
 pub struct AlgorithmError;
 
 
 //------------ ValidationError -----------------------------------------------
 
 /// An error happened while validating a TSIG-signed message.
-#[derive(Clone, Debug, Fail)]
+#[derive(Clone, Debug, Display)]
 pub enum ValidationError {
-    #[fail(display="unknown algorithm")]
+    #[display(fmt="unknown algorithm")]
     BadAlg,
 
-    #[fail(display="bad content of other")]
+    #[display(fmt="bad content of other")]
     BadOther,
 
-    #[fail(display="bad signatures")]
+    #[display(fmt="bad signatures")]
     BadSig,
 
-    #[fail(display="short signature")]
+    #[display(fmt="short signature")]
     BadTrunc,
 
-    #[fail(display="unknown key")]
+    #[display(fmt="unknown key")]
     BadKey,
 
-    #[fail(display="bad time")]
+    #[display(fmt="bad time")]
     BadTime,
 
-    #[fail(display="format error")]
+    #[display(fmt="format error")]
     FormErr,
 
-    #[fail(display="unsigned answer")]
+    #[display(fmt="unsigned answer")]
     ServerUnsigned,
 
-    #[fail(display="unknown key on server")]
+    #[display(fmt="unknown key on server")]
     ServerBadKey,
 
-    #[fail(display="server failed to verify MAC")]
+    #[display(fmt="server failed to verify MAC")]
     ServerBadSig,
 
-    #[fail(display="server reported bad time")]
+    #[display(fmt="server reported bad time")]
     ServerBadTime {
         client: Time48,
         server: Time48
     },
 
-    #[fail(display="too many unsigned messages")]
+    #[display(fmt="too many unsigned messages")]
     TooManyUnsigned,
 }
 
@@ -1621,4 +1622,5 @@ impl From<ParsedDnameError> for ValidationError {
         ValidationError::FormErr
     }
 }
+
 
