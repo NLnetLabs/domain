@@ -8,11 +8,11 @@ use std::{fmt, ops};
 use std::net::Ipv6Addr;
 use std::str::FromStr;
 use bytes::BufMut;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, Parser, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::iana::Rtype;
-use ::master::scan::{CharSource, Scan, Scanner, ScanError};
+use crate::compose::{Compose, Compress, Compressor};
+use crate::iana::Rtype;
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
+use crate::parse::{Parse, ParseAll, Parser, ShortBuf};
+use crate::record::RtypeRecordData;
 
 
 //------------ Aaaa ---------------------------------------------------------

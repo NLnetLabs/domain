@@ -19,12 +19,12 @@
 
 use std::{mem, ops};
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes, BytesMut};
-use super::compose::Compose;
-use super::header::{Header, HeaderCounts, HeaderSection};
-use super::message::Message;
-use super::name::ToDname;
-use super::opt::{OptData, OptHeader};
-use super::question::Question;
+use crate::compose::Compose;
+use crate::header::{Header, HeaderCounts, HeaderSection};
+use crate::message::Message;
+use crate::name::ToDname;
+use crate::opt::{OptData, OptHeader};
+use crate::question::Question;
 
 
 //------------ QueryBuilder --------------------------------------------------

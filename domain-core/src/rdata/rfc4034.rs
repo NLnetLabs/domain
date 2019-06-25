@@ -7,14 +7,14 @@
 use std::{fmt, ptr};
 use bytes::{BufMut, Bytes, BytesMut};
 use failure::Fail;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::name::{Dname, DnameBytesError};
-use ::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::bits::serial::Serial;
-use ::iana::{DigestAlg, Rtype, SecAlg};
-use ::master::scan::{CharSource, ScanError, Scan, Scanner};
-use ::utils::base64;
+use crate::compose::{Compose, Compress, Compressor};
+use crate::iana::{DigestAlg, Rtype, SecAlg};
+use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
+use crate::utils::base64;
+use crate::name::{Dname, DnameBytesError};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::record::RtypeRecordData;
+use crate::serial::Serial;
 
 
 //------------ Dnskey --------------------------------------------------------

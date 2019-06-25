@@ -34,7 +34,7 @@ macro_rules! rdata_types {
             $( $( $(
                 $mtype($mtype $( <$mn> )*),
             )* )* )*
-            Other(::bits::rdata::UnknownRecordData),
+            Other($crate::record::UnknownRecordData),
 
             #[doc(hidden)]
             __Nonexhaustive(::void::Void),
@@ -51,8 +51,9 @@ macro_rules! rdata_types {
             }
         )* )* )*
 
-        impl<N> From<::bits::rdata::UnknownRecordData> for MasterRecordData<N> {
-            fn from(value: ::bits::rdata::UnknownRecordData) -> Self {
+        impl<N> From<$crate::record::UnknownRecordData>
+                    for MasterRecordData<N> {
+            fn from(value: $crate::record::UnknownRecordData) -> Self {
                 MasterRecordData::Other(value)
             }
         }
@@ -113,8 +114,8 @@ macro_rules! rdata_types {
         //    No Parse or ParseAll because Other variant needs to know the
         //    record type.
 
-        impl<N> ::bits::compose::Compose for MasterRecordData<N>
-        where N: ::bits::compose::Compose
+        impl<N> $crate::compose::Compose for MasterRecordData<N>
+        where N: $crate::compose::Compose
         {
             fn compose_len(&self) -> usize {
                 match *self {
@@ -141,10 +142,10 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<N> ::bits::compose::Compress for MasterRecordData<N>
-        where N: ::bits::compose::Compress + ::bits::compose::Compose {
-            fn compress(&self, buf: &mut ::bits::compose::Compressor)
-                        -> Result<(), ::bits::parse::ShortBuf> {
+        impl<N> $crate::compose::Compress for MasterRecordData<N>
+        where N: $crate::compose::Compress + $crate::compose::Compose {
+            fn compress(&self, buf: &mut $crate::compose::Compressor)
+                        -> Result<(), $crate::parse::ShortBuf> {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
@@ -160,8 +161,8 @@ macro_rules! rdata_types {
 
         //--- RecordData and ParseRecordData
 
-        impl<N> ::bits::rdata::RecordData for MasterRecordData<N>
-        where N: ::bits::compose::Compose + ::bits::compose::Compress
+        impl<N> $crate::record::RecordData for MasterRecordData<N>
+        where N: $crate::compose::Compose + $crate::compose::Compress
         {
             fn rtype(&self) -> ::iana::Rtype {
                 match *self {
@@ -176,15 +177,15 @@ macro_rules! rdata_types {
             }
         }
 
-        impl ::bits::rdata::ParseRecordData
-            for MasterRecordData<::bits::name::ParsedDname>
+        impl $crate::record::ParseRecordData
+            for MasterRecordData<$crate::name::ParsedDname>
         {
             type Err = MasterDataParseError;
 
             fn parse_data(rtype: ::iana::Rtype,
-                          parser: &mut ::bits::parse::Parser, rdlen: usize)
+                          parser: &mut $crate::parse::Parser, rdlen: usize)
                           -> Result<Option<Self>, Self::Err> {
-                use bits::parse::ParseAll;
+                use $crate::parse::ParseAll;
 
                 match rtype {
                     $( $( $(
@@ -196,7 +197,7 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     _ => {
-                        Ok(::bits::rdata::UnknownRecordData::parse_data(
+                        Ok($crate::record::UnknownRecordData::parse_data(
                             rtype, parser, rdlen
                         )?.map(MasterRecordData::Other))
                     }
@@ -222,7 +223,7 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     _ => {
-                        ::bits::rdata::UnknownRecordData::scan(rtype, scanner)
+                        $crate::record::UnknownRecordData::scan(rtype, scanner)
                             .map(MasterRecordData::Other)
                     }
                 }
@@ -256,8 +257,8 @@ macro_rules! rdata_types {
             $( $( $(
                 $ptype($ptype $( <$pn> )*),
             )* )* )*
-            Opt(::bits::opt::Opt),
-            Other(::bits::rdata::UnknownRecordData),
+            Opt($crate::opt::Opt),
+            Other($crate::record::UnknownRecordData),
 
             #[doc(hidden)]
             __Nonexhaustive(::void::Void),
@@ -281,14 +282,14 @@ macro_rules! rdata_types {
             }
         )* )* )*
 
-        impl<N> From<::bits::opt::Opt> for AllRecordData<N> {
-            fn from(value: ::bits::opt::Opt) -> Self {
+        impl<N> From<$crate::opt::Opt> for AllRecordData<N> {
+            fn from(value: $crate::opt::Opt) -> Self {
                 AllRecordData::Opt(value)
             }
         }
 
-        impl<N> From<::bits::rdata::UnknownRecordData> for AllRecordData<N> {
-            fn from(value: ::bits::rdata::UnknownRecordData) -> Self {
+        impl<N> From<$crate::record::UnknownRecordData> for AllRecordData<N> {
+            fn from(value: $crate::record::UnknownRecordData) -> Self {
                 AllRecordData::Other(value)
             }
         }
@@ -351,7 +352,7 @@ macro_rules! rdata_types {
         impl<N> ::std::hash::Hash for AllRecordData<N>
         where N: ::std::hash::Hash {
             fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
-                use ::bits::rdata::RecordData;
+                use $crate::record::RecordData;
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
@@ -383,8 +384,8 @@ macro_rules! rdata_types {
         //
         //    No Parse or ParseAll because Other variant needs to know the
         //    record type.
-        impl<N> ::bits::compose::Compose for AllRecordData<N>
-        where N: ::bits::compose::Compose
+        impl<N> $crate::compose::Compose for AllRecordData<N>
+        where N: $crate::compose::Compose
         {
             fn compose_len(&self) -> usize {
                 match *self {
@@ -423,10 +424,10 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<N> ::bits::compose::Compress for AllRecordData<N>
-        where N: ::bits::compose::Compress + ::bits::compose::Compose {
-            fn compress(&self, buf: &mut ::bits::compose::Compressor)
-                        -> Result<(), ::bits::parse::ShortBuf> {
+        impl<N> $crate::compose::Compress for AllRecordData<N>
+        where N: $crate::compose::Compress + $crate::compose::Compose {
+            fn compress(&self, buf: &mut $crate::compose::Compressor)
+                        -> Result<(), $crate::parse::ShortBuf> {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
@@ -448,8 +449,8 @@ macro_rules! rdata_types {
 
         //--- RecordData and ParseRecordData
 
-        impl<N> ::bits::rdata::RecordData for AllRecordData<N>
-        where N: ::bits::compose::Compose + ::bits::compose::Compress
+        impl<N> $crate::record::RecordData for AllRecordData<N>
+        where N: $crate::compose::Compose + $crate::compose::Compress
         {
             fn rtype(&self) -> ::iana::Rtype {
                 match *self {
@@ -470,15 +471,15 @@ macro_rules! rdata_types {
             }
         }
 
-        impl ::bits::rdata::ParseRecordData
-            for AllRecordData<::bits::name::ParsedDname>
+        impl $crate::record::ParseRecordData
+            for AllRecordData<$crate::name::ParsedDname>
         {
             type Err = AllDataParseError;
 
             fn parse_data(rtype: ::iana::Rtype,
-                          parser: &mut ::bits::parse::Parser, rdlen: usize)
+                          parser: &mut $crate::parse::Parser, rdlen: usize)
                           -> Result<Option<Self>, Self::Err> {
-                use bits::parse::ParseAll;
+                use $crate::parse::ParseAll;
 
                 match rtype {
                     $( $( $(
@@ -499,12 +500,12 @@ macro_rules! rdata_types {
                     )* )* )*
                     ::iana::Rtype::Opt => {
                         Ok(Some(AllRecordData::Opt(
-                            ::bits::opt::Opt::parse_all(parser, rdlen)
+                            $crate::opt::Opt::parse_all(parser, rdlen)
                                 .map_err(AllDataParseError::Opt)?
                         )))
                     }
                     _ => {
-                        Ok(::bits::rdata::UnknownRecordData::parse_data(
+                        Ok($crate::record::UnknownRecordData::parse_data(
                             rtype, parser, rdlen
                         )?.map(AllRecordData::Other))
                     }
@@ -542,7 +543,7 @@ macro_rules! rdata_types {
 
         parse_err!(MasterDataParseError,
             $( $( $(
-                { $mtype $( $mn ::bits::name::ParsedDname )* }
+                { $mtype $( $mn $crate::name::ParsedDname )* }
             )* )* )*
         );
 
@@ -551,10 +552,10 @@ macro_rules! rdata_types {
 
         parse_err!(AllDataParseError,
             $( $( $(
-                { $mtype $( $mn ::bits::name::ParsedDname )* }
+                { $mtype $( $mn $crate::name::ParsedDname )* }
             )* )* )*
             $( $( $(
-                { $ptype $( $pn ::bits::name::ParsedDname )* }
+                { $ptype $( $pn $crate::name::ParsedDname )* }
             )* )* )*
             { Opt  }
         );
@@ -568,14 +569,14 @@ macro_rules! parse_err {
         pub enum $err {
             $(
                 #[fail(display="{}", _0)]
-                $t(<$t $( <$gen> )* as ::bits::rdata::ParseRecordData>::Err),
+                $t(<$t $( <$gen> )* as $crate::record::ParseRecordData>::Err),
             )*
             #[fail(display="short buffer")]
             ShortBuf,
         }
 
-        impl From<::bits::parse::ShortBuf> for $err {
-            fn from(_: ::bits::parse::ShortBuf) -> Self {
+        impl From<$crate::parse::ShortBuf> for $err {
+            fn from(_: $crate::parse::ShortBuf) -> Self {
                 $err::ShortBuf
             }
         }

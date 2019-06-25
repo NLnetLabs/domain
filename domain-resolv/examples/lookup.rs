@@ -6,7 +6,7 @@ extern crate tokio;
 use std::env;
 use std::net::IpAddr;
 use std::str::FromStr;
-use domain_core::bits::name::UncertainDname;
+use domain_core::name::UncertainDname;
 use domain_resolv::{Resolver, StubResolver};
 use futures::{future, stream};
 use futures::future::{Either, Future};

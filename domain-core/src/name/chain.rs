@@ -5,8 +5,8 @@
 
 use std::{fmt, iter};
 use bytes::BufMut;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::ShortBuf;
+use crate::compose::{Compose, Compress, Compressor};
+use crate::parse::ShortBuf;
 use super::label::Label;
 use super::relative::DnameIter;
 use super::traits::{ToLabelIter, ToRelativeDname, ToDname};
@@ -260,9 +260,11 @@ pub struct LongChainError;
 #[cfg(test)]
 mod test {
     use bytes::BytesMut;
-    use ::bits::compose::{Compose, Compress, Compressor};
-    use ::bits::name::{Dname, DnameBuilder, Label, RelativeDname, ToDname,
-                       ToLabelIter, ToRelativeDname, UncertainDname};
+    use crate::compose::{Compose, Compress, Compressor};
+    use crate::name::{
+        Dname, DnameBuilder, Label, RelativeDname, ToDname,
+        ToLabelIter, ToRelativeDname, UncertainDname
+    };
 
     fn assert_to_dname<T: ToDname>(_: &T) { }
     fn assert_to_relative_dname<T: ToRelativeDname>(_: &T) { }

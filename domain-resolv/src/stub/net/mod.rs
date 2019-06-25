@@ -2,7 +2,7 @@ use std::{io, ops};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use domain_core::bits::query::{QueryBuilder, QueryMessage};
+use domain_core::query::{QueryBuilder, QueryMessage};
 use tokio::prelude::{Async, Future};
 use tokio::timer::Timeout;
 use super::conf::{ResolvConf, ServerConf, Transport};

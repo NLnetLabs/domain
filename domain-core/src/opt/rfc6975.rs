@@ -2,10 +2,10 @@
 
 use std::slice;
 use bytes::{BufMut, Bytes};
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, Parser, ShortBuf};
-use ::iana::{OptionCode, SecAlg};
+use crate::compose::Compose;
+use crate::iana::{OptionCode, SecAlg};
+use crate::message_builder::OptBuilder;
+use crate::parse::{ParseAll, Parser, ShortBuf};
 use super::CodeOptData;
 
 

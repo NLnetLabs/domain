@@ -8,9 +8,9 @@
 use std::{cmp, fmt, str};
 use bytes::BufMut;
 use chrono::{Utc, TimeZone};
-use ::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
-use super::compose::Compose;
-use super::parse::{Parse, ParseAll, Parser};
+use crate::compose::Compose;
+use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+use crate::parse::{Parse, ParseAll, Parser};
 
 
 //------------ Serial --------------------------------------------------------

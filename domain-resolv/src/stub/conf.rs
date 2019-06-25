@@ -15,7 +15,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::time::Duration;
-use domain_core::bits::name::{self, Dname};
+use domain_core::name::{self, Dname};
 
 
 //------------ ResolvOptions ------------------------------------------------

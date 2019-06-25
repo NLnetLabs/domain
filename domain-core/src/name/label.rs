@@ -5,8 +5,8 @@
 
 use std::{cmp, fmt, hash, ops};
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::parse::ShortBuf;
+use crate::compose::Compose;
+use crate::parse::ShortBuf;
 
 
 //------------ Label ---------------------------------------------------------

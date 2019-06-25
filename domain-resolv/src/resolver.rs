@@ -2,7 +2,9 @@
 
 use std::io;
 use std::net::IpAddr;
-use domain_core::bits::{Dname, Message, Question, ToDname, ToRelativeDname};
+use domain_core::name::{Dname, ToDname, ToRelativeDname};
+use domain_core::message::Message;
+use domain_core::question::Question;
 use futures::future::Future;
 use crate::lookup::{addr, host, srv};
 

@@ -2,8 +2,8 @@
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
-use ::bits::name::Dname;
-use ::iana::Class;
+use crate::iana::Class;
+use crate::name::Dname;
 use super::entry::{Entry, MasterRecord};
 use super::scan::{CharSource, Pos, ScanError, Scanner};
 use super::source::Utf8File;

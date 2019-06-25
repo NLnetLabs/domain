@@ -8,15 +8,16 @@ use std::{fmt, ops};
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use bytes::{BufMut, Bytes, BytesMut};
-use ::iana::Rtype;
-use ::bits::charstr::CharStr;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::name::ParsedDname;
-use ::bits::parse::{ParseAll, ParseAllError, ParseOpenError, Parse,
-                    Parser, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::bits::serial::Serial;
-use ::master::scan::{CharSource, ScanError, Scan, Scanner};
+use crate::compose::{Compose, Compress, Compressor};
+use crate::iana::Rtype;
+use crate::charstr::CharStr;
+use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
+use crate::name::ParsedDname;
+use crate::parse::{
+    ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ShortBuf
+};
+use crate::record::RtypeRecordData;
+use crate::serial::Serial;
 
 
 //------------ dname_type! --------------------------------------------------
@@ -1377,7 +1378,7 @@ impl WksBuilder {
 //------------ parsed sub-module ---------------------------------------------
 
 pub mod parsed {
-    use ::bits::name::ParsedDname;
+    use crate::name::ParsedDname;
 
     pub use super::A;
     pub type Cname = super::Cname<ParsedDname>;

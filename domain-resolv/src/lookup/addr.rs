@@ -4,9 +4,9 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use futures::{Async, Future, Poll};
-use domain_core::bits::message::RecordIter;
-use domain_core::bits::name::{Dname, DnameBuilder, ParsedDname};
 use domain_core::iana::Rtype;
+use domain_core::message::RecordIter;
+use domain_core::name::{Dname, DnameBuilder, ParsedDname};
 use domain_core::rdata::parsed::Ptr;
 use crate::resolver::Resolver;
 

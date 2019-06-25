@@ -4,9 +4,9 @@ use std::{fmt, io};
 use std::net::AddrParseError;
 use bytes::{BufMut, Bytes, BytesMut};
 use failure::Fail;
-use ::bits::name;
-use ::bits::name::Dname;
-use ::utils::{base32, base64};
+use crate::name;
+use crate::name::Dname;
+use crate::utils::{base32, base64};
 
 
 //------------ CharSource ----------------------------------------------------

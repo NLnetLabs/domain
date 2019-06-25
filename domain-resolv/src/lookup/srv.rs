@@ -1,7 +1,7 @@
 //! Looking up SRV records.
 
 use std::io;
-use domain_core::bits::name::{
+use domain_core::name::{
     Dname, ParsedDname, ParsedDnameError, ToRelativeDname, ToDname
 };
 use domain_core::iana::Rtype;

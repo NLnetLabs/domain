@@ -2,10 +2,10 @@
 
 use std::fmt;
 use bytes::{BufMut, Bytes};
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, Parser, ShortBuf};
-use ::iana::OptionCode;
+use crate::compose::Compose;
+use crate::iana::OptionCode;
+use crate::message_builder::OptBuilder;
+use crate::parse::{ParseAll, Parser, ShortBuf};
 use super::CodeOptData;
 
 

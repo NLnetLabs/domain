@@ -8,9 +8,11 @@
 
 use std::{io, ops};
 use std::sync::Arc;
-use domain_core::bits::{Dname, Message, Question, ToDname};
-use domain_core::bits::query::{QueryBuilder, QueryMessage};
 use domain_core::iana::Rcode;
+use domain_core::message::Message;
+use domain_core::name::{Dname, ToDname};
+use domain_core::query::{QueryBuilder, QueryMessage};
+use domain_core::question::Question;
 use tokio::prelude::{Async, Future};
 use tokio::prelude::future::lazy;
 use tokio::runtime::Runtime;

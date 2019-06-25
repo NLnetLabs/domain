@@ -12,7 +12,7 @@ use futures::Future;
 use native_tls::TlsConnector;
 use tokio::net::TcpStream;
 use tokio::runtime::Runtime;
-use domain_core::bits::Dname;
+use domain_core::name::Dname;
 use domain_resolv::{Resolver, StubResolver};
 
 fn main() -> Result<(), Box<std::error::Error>> {
