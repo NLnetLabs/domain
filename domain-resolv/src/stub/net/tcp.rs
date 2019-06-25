@@ -1,8 +1,8 @@
 
 use std::io;
 use std::net::SocketAddr;
-use domain_core::bits::message::Message;
-use domain_core::bits::query::{QueryMessage, StreamQueryMessage};
+use domain_core::message::Message;
+use domain_core::query::{QueryMessage, StreamQueryMessage};
 use tokio::io::{read_exact, write_all, ReadExact, WriteAll};
 use tokio::net::tcp::{ConnectFuture, TcpStream};
 use tokio::prelude::{Async, Future};

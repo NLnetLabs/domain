@@ -122,8 +122,6 @@ pub use self::record::{
 
 //--- Modules
 
-pub mod bits;
-
 pub mod charstr;
 pub mod compose;
 pub mod header;

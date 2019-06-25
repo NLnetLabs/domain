@@ -1,8 +1,8 @@
 
 use std::io;
 use std::net::SocketAddr;
-use domain_core::bits::query::{DgramQueryMessage, QueryMessage};
-use domain_core::bits::message::Message;
+use domain_core::query::{DgramQueryMessage, QueryMessage};
+use domain_core::message::Message;
 use tokio::net::udp::{RecvDgram, SendDgram, UdpSocket};
 use tokio::prelude::{Async, Future};
 use super::super::resolver::Answer;

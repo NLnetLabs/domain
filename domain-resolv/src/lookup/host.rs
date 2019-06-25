@@ -2,11 +2,11 @@
 
 use std::{io, mem, slice};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
-use domain_core::bits::Message;
-use domain_core::bits::name::{
+use domain_core::iana::Rtype;
+use domain_core::message::Message;
+use domain_core::name::{
     Dname, ParsedDname, ParsedDnameError, ToDname, ToRelativeDname
 };
-use domain_core::iana::Rtype;
 use domain_core::rdata::parsed::{A, Aaaa};
 use tokio::prelude::{Async, Future, Poll};
 use crate::resolver::{Resolver, SearchNames};
