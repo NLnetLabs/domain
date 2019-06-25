@@ -57,16 +57,16 @@ use std::collections::HashMap;
 use bytes::{BigEndian, ByteOrder, Bytes, BytesMut};
 use derive_more::Display;
 use ring::{constant_time, digest, hmac, rand};
-use domain_core::bits::message::Message;
-use domain_core::bits::message_builder::{
+use domain_core::iana::{Class, Rcode, TsigRcode};
+use domain_core::message::Message;
+use domain_core::message_builder::{
     AdditionalBuilder, MessageBuilder, SectionBuilder, RecordSectionBuilder
 };
-use domain_core::bits::name::{
+use domain_core::name::{
     Dname, Label, ParsedDname, ParsedDnameError, ToDname, ToLabelIter
 };
-use domain_core::bits::parse::ShortBuf;
-use domain_core::bits::record::Record;
-use domain_core::iana::{Class, Rcode, TsigRcode};
+use domain_core::parse::ShortBuf;
+use domain_core::record::Record;
 use domain_core::rdata::rfc2845::{Time48, Tsig};
 
 
