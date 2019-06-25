@@ -3,6 +3,7 @@
 use std::error;
 use std::net::IpAddr;
 use bytes::BufMut;
+use derive_more::Display;
 use crate::compose::Compose;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;

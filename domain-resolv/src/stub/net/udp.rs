@@ -3,6 +3,7 @@ use std::io;
 use std::net::SocketAddr;
 use domain_core::query::{DgramQueryMessage, QueryMessage};
 use domain_core::message::Message;
+use futures::try_ready;
 use tokio::net::udp::{RecvDgram, SendDgram, UdpSocket};
 use tokio::prelude::{Async, Future};
 use super::super::resolver::Answer;
@@ -18,6 +19,7 @@ const RETRY_RANDOM_PORT: usize = 10;
 //------------ UdpQuery ------------------------------------------------------
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum UdpQuery {
     Send {
         send: SendDgram<DgramQueryMessage>,

@@ -90,13 +90,6 @@
 //! [iana]: iana/index.html
 //! [master]: master/index.html
 //! [rdata]: rdata/index.html
-#![allow(unknown_lints)] // hide clippy-related #allows on stable. 
-
-extern crate bytes;
-extern crate chrono;
-#[macro_use] extern crate derive_more;
-extern crate rand;
-extern crate void;
 
 
 //--- Re-exports

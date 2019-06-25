@@ -667,8 +667,8 @@ impl Compose for HeaderSection {
 
 #[cfg(test)]
 mod test {
+    use crate::iana::{Opcode, Rcode};
     use super::*;
-    use iana::{Opcode, Rcode};
 
     #[test]
     fn for_slice() {

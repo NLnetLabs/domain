@@ -42,22 +42,22 @@ macro_rules! opt_types {
 
         impl Compose for AllOptData {
             fn compose_len(&self) -> usize {
-                match self {
+                match *self {
                     $( $(
-                        &AllOptData::$opt(ref inner) => inner.compose_len(),
+                        AllOptData::$opt(ref inner) => inner.compose_len(),
                     )* )*
-                    &AllOptData::Other(ref inner) => inner.compose_len(),
-                    &AllOptData::__Nonexhaustive(_) => unreachable!(),
+                    AllOptData::Other(ref inner) => inner.compose_len(),
+                    AllOptData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
 
             fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
-                match self {
+                match *self {
                     $( $(
-                        &AllOptData::$opt(ref inner) => inner.compose(buf),
+                        AllOptData::$opt(ref inner) => inner.compose(buf),
                     )* )*
-                    &AllOptData::Other(ref inner) => inner.compose(buf),
-                    &AllOptData::__Nonexhaustive(_) => unreachable!()
+                    AllOptData::Other(ref inner) => inner.compose(buf),
+                    AllOptData::__Nonexhaustive(_) => unreachable!()
                 }
             }
         }
@@ -69,12 +69,12 @@ macro_rules! opt_types {
             type ParseErr = AllOptParseError;
 
             fn code(&self) -> OptionCode {
-                match self {
+                match *self {
                     $( $(
-                        &AllOptData::$opt(_) => $opt::CODE,
+                        AllOptData::$opt(_) => $opt::CODE,
                     )* )*
-                    &AllOptData::Other(ref inner) => inner.code(),
-                    &AllOptData::__Nonexhaustive(_) => unreachable!()
+                    AllOptData::Other(ref inner) => inner.code(),
+                    AllOptData::__Nonexhaustive(_) => unreachable!()
                 }
             }
 

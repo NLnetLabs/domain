@@ -1,6 +1,7 @@
 [package]
 name = "interop"
 version = "0.1.0"
+edition = "2018"
 authors = ["Martin Hoffmann <hn@nvnc.de>"]
 description = "Interop testing for the domain crate."
 license = "BSD-3-Clause"

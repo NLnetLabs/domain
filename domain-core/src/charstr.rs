@@ -26,6 +26,7 @@
 
 use std::{cmp, error, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes, BytesMut};
+use derive_more::Display;
 use crate::compose::Compose;
 use crate::master::scan::{
     BadSymbol, CharSource, Scan, Scanner, ScanError, Symbol, SymbolError,
@@ -318,9 +319,7 @@ impl hash::Hash for CharStr {
 
 impl fmt::Debug for CharStr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!("CharStr(\"".fmt(f));
-        try!(fmt::Display::fmt(self, f));
-        "\")".fmt(f)
+        write!(f, "CharStr(\"{}\")", self)
     }
 }
 
@@ -552,8 +551,8 @@ impl error::Error for PushError { }
 
 #[cfg(test)]
 mod test {
+    use crate::master::scan::Symbol;
     use super::*;
-    use ::master::scan::Symbol;
 
     #[test]
     fn from_slice() {

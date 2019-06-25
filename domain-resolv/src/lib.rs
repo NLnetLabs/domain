@@ -30,12 +30,6 @@
 //! [stub]: stub/index.html
 //! [`Resolver`]: resolver/trait.Resolver.html
 //! [`StubResolver`]: stub/struct.StubResolver.html
-#![allow(unknown_lints)] // hide clippy-related #allows on stable. 
-
-extern crate domain_core;
-#[macro_use] extern crate futures;
-extern crate rand;
-extern crate tokio;
 
 pub use self::resolver::Resolver;
 pub use self::stub::StubResolver;

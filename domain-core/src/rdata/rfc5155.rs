@@ -6,6 +6,7 @@
 
 use std::{error, fmt};
 use bytes::BufMut;
+use derive_more::Display;
 use crate::charstr::CharStr;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};

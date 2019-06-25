@@ -6,6 +6,7 @@
 
 use std::{error, fmt, ptr};
 use bytes::{BufMut, Bytes, BytesMut};
+use derive_more::Display;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{DigestAlg, Rtype, SecAlg};
 use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
@@ -146,7 +147,7 @@ pub struct Rrsig {
 }
 
 impl Rrsig {
-    #[allow(too_many_arguments)] // XXX Consider changing.
+    #[allow(clippy::too_many_arguments)] // XXX Consider changing.
     pub fn new(
         type_covered: Rtype,
         algorithm: SecAlg,
@@ -675,12 +676,12 @@ impl RtypeBitmapBuilder {
                 self.buf.extend_from_slice(&[0; 34]);
                 unsafe {
                     ptr::copy(
-                        self.buf.as_ptr().offset(pos as isize),
-                        self.buf.as_mut_ptr().offset(pos as isize + 34),
+                        self.buf.as_ptr().add(pos),
+                        self.buf.as_mut_ptr().add(pos + 34),
                         len
                     );
                     ptr::write_bytes(
-                        self.buf.as_mut_ptr().offset(pos as isize),
+                        self.buf.as_mut_ptr().add(pos),
                         0,
                         34
                     );
@@ -706,8 +707,8 @@ impl RtypeBitmapBuilder {
             if src_pos != dst_pos {
                 unsafe {
                     ptr::copy(
-                        self.buf.as_ptr().offset(src_pos as isize),
-                        self.buf.as_mut_ptr().offset(dst_pos as isize),
+                        self.buf.as_ptr().add(src_pos),
+                        self.buf.as_mut_ptr().add(dst_pos),
                         len
                     )
                 }
@@ -877,8 +878,8 @@ fn split_rtype(rtype: Rtype) -> (u8, usize, u8) {
 
 #[cfg(test)]
 mod test {
+    use crate::iana::Rtype;
     use super::*;
-    use ::iana::Rtype;
 
     #[test]
     fn rtype_bitmap_builder() {

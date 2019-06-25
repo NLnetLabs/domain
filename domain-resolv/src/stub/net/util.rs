@@ -1,5 +1,6 @@
 //! Utility types for networking.
 
+use futures::try_ready;
 use tokio::prelude::{Async, Future};
 
 

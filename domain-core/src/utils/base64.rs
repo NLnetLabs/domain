@@ -2,6 +2,7 @@
 
 use std::{error, fmt};
 use bytes::{BufMut, Bytes, BytesMut};
+use derive_more::Display;
 
 
 //------------ Convenience Functions -----------------------------------------

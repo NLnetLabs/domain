@@ -3,6 +3,7 @@
 use std::{error, fmt, io};
 use std::net::AddrParseError;
 use bytes::{BufMut, Bytes, BytesMut};
+use derive_more::Display;
 use crate::name;
 use crate::name::Dname;
 use crate::utils::{base32, base64};
@@ -115,8 +116,7 @@ impl<C: CharSource> Scanner<C> {
 ///
 impl<C: CharSource> Scanner<C> {
     /// Returns whether the scanner has reached the end of data.
-    #[allow(wrong_self_convention)] // XXX Continue changing.
-    pub fn is_eof(&mut self) -> bool {
+    pub fn eof_reached(&mut self) -> bool {
         match self.peek() {
             Ok(Some(_)) => false,
             _ => true

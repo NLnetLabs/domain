@@ -729,7 +729,7 @@ impl RecordSection {
         };
         // XXX Use Parser::skip here.
         for record in &mut self {
-            let _ = try!(record);
+            let _ = record?;
         }
         match self.count {
             Ok(..) => Ok(Some(RecordSection::new(self.parser, section))),

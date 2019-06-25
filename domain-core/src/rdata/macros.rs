@@ -95,7 +95,7 @@ macro_rules! rdata_types {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
-                            ::iana::Rtype::$mtype.hash(state);
+                            $crate::iana::Rtype::$mtype.hash(state);
                             inner.hash(state)
                         }
                     )* )* )*
@@ -164,7 +164,7 @@ macro_rules! rdata_types {
         impl<N> $crate::record::RecordData for MasterRecordData<N>
         where N: $crate::compose::Compose + $crate::compose::Compress
         {
-            fn rtype(&self) -> ::iana::Rtype {
+            fn rtype(&self) -> $crate::iana::Rtype {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
@@ -182,14 +182,14 @@ macro_rules! rdata_types {
         {
             type Err = MasterDataParseError;
 
-            fn parse_data(rtype: ::iana::Rtype,
+            fn parse_data(rtype: $crate::iana::Rtype,
                           parser: &mut $crate::parse::Parser, rdlen: usize)
                           -> Result<Option<Self>, Self::Err> {
                 use $crate::parse::ParseAll;
 
                 match rtype {
                     $( $( $(
-                        ::iana::Rtype::$mtype => {
+                        $crate::iana::Rtype::$mtype => {
                             Ok(Some(MasterRecordData::$mtype(
                                 $mtype::parse_all(parser, rdlen)
                                     .map_err(MasterDataParseError::$mtype)?
@@ -208,16 +208,16 @@ macro_rules! rdata_types {
 
         //--- (Scan) and Display
 
-        impl<N: ::master::scan::Scan> MasterRecordData<N> {
-            pub fn scan<C>(rtype: ::iana::Rtype,
-                           scanner: &mut ::master::scan::Scanner<C>)
-                           -> Result<Self, ::master::scan::ScanError>
-                        where C: ::master::scan::CharSource {
-                use ::master::scan::Scan;
+        impl<N: $crate::master::scan::Scan> MasterRecordData<N> {
+            pub fn scan<C>(rtype: $crate::iana::Rtype,
+                           scanner: &mut $crate::master::scan::Scanner<C>)
+                           -> Result<Self, $crate::master::scan::ScanError>
+                        where C: $crate::master::scan::CharSource {
+                use $crate::master::scan::Scan;
 
                 match rtype {
                     $( $( $(
-                        ::iana::Rtype::$mtype => {
+                        $crate::iana::Rtype::$mtype => {
                             $mtype::scan(scanner)
                                    .map(MasterRecordData::$mtype)
                         }
@@ -356,13 +356,13 @@ macro_rules! rdata_types {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
-                            ::iana::Rtype::$mtype.hash(state);
+                            $crate::iana::Rtype::$mtype.hash(state);
                             inner.hash(state)
                         }
                     )* )* )*
                     $( $( $(
                         AllRecordData::$ptype(ref inner) => {
-                            ::iana::Rtype::$ptype.hash(state);
+                            $crate::iana::Rtype::$ptype.hash(state);
                             inner.hash(state)
                         }
                     )* )* )*
@@ -452,7 +452,7 @@ macro_rules! rdata_types {
         impl<N> $crate::record::RecordData for AllRecordData<N>
         where N: $crate::compose::Compose + $crate::compose::Compress
         {
-            fn rtype(&self) -> ::iana::Rtype {
+            fn rtype(&self) -> $crate::iana::Rtype {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
@@ -476,14 +476,14 @@ macro_rules! rdata_types {
         {
             type Err = AllDataParseError;
 
-            fn parse_data(rtype: ::iana::Rtype,
+            fn parse_data(rtype: $crate::iana::Rtype,
                           parser: &mut $crate::parse::Parser, rdlen: usize)
                           -> Result<Option<Self>, Self::Err> {
                 use $crate::parse::ParseAll;
 
                 match rtype {
                     $( $( $(
-                        ::iana::Rtype::$mtype => {
+                        $crate::iana::Rtype::$mtype => {
                             Ok(Some(AllRecordData::$mtype(
                                 $mtype::parse_all(parser, rdlen)
                                     .map_err(AllDataParseError::$mtype)?
@@ -491,14 +491,14 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     $( $( $(
-                        ::iana::Rtype::$ptype => {
+                        $crate::iana::Rtype::$ptype => {
                             Ok(Some(AllRecordData::$ptype(
                                 $ptype::parse_all(parser, rdlen)
                                     .map_err(AllDataParseError::$ptype)?
                             )))
                         }
                     )* )* )*
-                    ::iana::Rtype::Opt => {
+                    $crate::iana::Rtype::Opt => {
                         Ok(Some(AllRecordData::Opt(
                             $crate::opt::Opt::parse_all(parser, rdlen)
                                 .map_err(AllDataParseError::Opt)?

@@ -5,6 +5,7 @@
 
 use std::{cmp, error, fmt, hash, ops};
 use bytes::BufMut;
+use derive_more::Display;
 use crate::compose::Compose;
 use crate::parse::ShortBuf;
 
@@ -296,7 +297,7 @@ impl OwnedLabel {
     pub fn from_label(label: &Label) -> Self {
         let mut res = [8; 64];
         res[0] = label.len() as u8;
-        res[1..label.len() + 1].copy_from_slice(label.as_slice());
+        res[1..=label.len()].copy_from_slice(label.as_slice());
         OwnedLabel(res)
     }
 
@@ -307,7 +308,7 @@ impl OwnedLabel {
     /// Returns a reference to the label.
     pub fn as_label(&self) -> &Label {
         unsafe {
-            Label::from_slice_unchecked(&self.0[1..(self.0[0] as usize + 1)])
+            Label::from_slice_unchecked(&self.0[1..=(self.0[0] as usize)])
         }
     }
 
@@ -316,7 +317,7 @@ impl OwnedLabel {
         let len = self.0[0] as usize;
         unsafe {
             Label::from_slice_mut_unchecked(
-                &mut self.0[1..len + 1]
+                &mut self.0[1..=len]
             )
         }
     }
@@ -324,7 +325,7 @@ impl OwnedLabel {
     /// Returns a slice that is the wire-represenation of the label.
     pub fn as_wire_slice(&self) -> &[u8] {
         let len = self.0[0] as usize;
-        &self.0[..len + 1]
+        &self.0[..=len]
     }
 }
 
