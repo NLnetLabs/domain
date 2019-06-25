@@ -94,8 +94,7 @@
 
 extern crate bytes;
 extern crate chrono;
-extern crate failure;
-#[macro_use] extern crate failure_derive;
+#[macro_use] extern crate derive_more;
 extern crate rand;
 extern crate void;
 

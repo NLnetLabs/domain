@@ -1,9 +1,8 @@
 //! Scanning master file tokens.
 
-use std::{fmt, io};
+use std::{error, fmt, io};
 use std::net::AddrParseError;
 use bytes::{BufMut, Bytes, BytesMut};
-use failure::Fail;
 use crate::name;
 use crate::name::Dname;
 use crate::utils::{base32, base64};
@@ -1274,100 +1273,105 @@ enum NewlineMode {
 //------------ SymbolError ---------------------------------------------------
 
 /// An error happened when reading a symbol.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum SymbolError {
-    #[fail(display="illegal escape sequence")]
+    #[display(fmt="illegal escape sequence")]
     BadEscape,
 
-    #[fail(display="unexpected end of input")]
+    #[display(fmt="unexpected end of input")]
     ShortInput
 }
+
+impl error::Error for SymbolError { }
 
 
 //------------ BadSymbol -----------------------------------------------------
 
 /// A symbol of unexepected value was encountered. 
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="bad symbol '{}'", _0)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[display(fmt="bad symbol '{}'", _0)]
 pub struct BadSymbol(pub Symbol);
+
+impl error::Error for BadSymbol { }
 
 
 //------------ SyntaxError ---------------------------------------------------
 
 /// A syntax error happened while scanning master data.
-#[derive(Debug, Fail)]
+#[derive(Debug, Display)]
 pub enum SyntaxError {
-    #[fail(display="expected '{}'", _0)]
+    #[display(fmt="expected '{}'", _0)]
     Expected(String),
 
-    #[fail(display="expected a new line")]
+    #[display(fmt="expected a new line")]
     ExpectedNewline,
 
-    #[fail(display="expected white space")]
+    #[display(fmt="expected white space")]
     ExpectedSpace,
 
-    #[fail(display="invalid escape sequence")]
+    #[display(fmt="invalid escape sequence")]
     IllegalEscape,
 
-    #[fail(display="invalid integer value")]
+    #[display(fmt="invalid integer value")]
     IllegalInteger, // TODO Add kind
 
-    #[fail(display="invalid address: {}", _0)]
+    #[display(fmt="invalid address: {}", _0)]
     IllegalAddr(AddrParseError),
 
-    #[fail(display="illegal domain name: {}", _0)]
+    #[display(fmt="illegal domain name: {}", _0)]
     IllegalName(name::FromStrError),
 
-    #[fail(display="character string too long")]
+    #[display(fmt="character string too long")]
     LongCharStr,
 
-    #[fail(display="hex string with an odd number of characters")]
+    #[display(fmt="hex string with an odd number of characters")]
     UnevenHexString,
 
-    #[fail(display="more data given than in the length byte")]
+    #[display(fmt="more data given than in the length byte")]
     LongGenericData,
 
-    #[fail(display="nested parentheses")]
+    #[display(fmt="nested parentheses")]
     NestedParentheses,
 
-    #[fail(display="omitted TTL but no default TTL given")]
+    #[display(fmt="omitted TTL but no default TTL given")]
     NoDefaultTtl,
 
-    #[fail(display="omitted class but no previous class given")]
+    #[display(fmt="omitted class but no previous class given")]
     NoLastClass,
 
-    #[fail(display="omitted owner but no previous owner given")]
+    #[display(fmt="omitted owner but no previous owner given")]
     NoLastOwner,
 
-    #[fail(display="owner @ without preceding $ORIGIN")]
+    #[display(fmt="owner @ without preceding $ORIGIN")]
     NoOrigin,
 
-    #[fail(display="relative domain name")]
+    #[display(fmt="relative domain name")]
     RelativeName,
 
-    #[fail(display="unexpected '{}'", _0)]
+    #[display(fmt="unexpected '{}'", _0)]
     Unexpected(Symbol),
 
-    #[fail(display="unexpected newline")]
+    #[display(fmt="unexpected newline")]
     UnexpectedNewline,
 
-    #[fail(display="unexpected end of file")]
+    #[display(fmt="unexpected end of file")]
     UnexpectedEof,
 
-    #[fail(display="unknown mnemonic")]
+    #[display(fmt="unknown mnemonic")]
     UnknownMnemonic,
 
     /// Used when converting some other content fails.
-    #[fail(display="{}", _0)]
-    Content(Box<Fail>),
+    #[display(fmt="{}", _0)]
+    Content(Box<error::Error>),
 }
 
 impl SyntaxError {
-    pub fn content<E: Fail>(err: E) -> Self {
+    pub fn content<E: error::Error + 'static>(err: E) -> Self {
         SyntaxError::Content(Box::new(err))
     }
 }
 
+impl error::Error for SyntaxError { }
 
 impl From<BadSymbol> for SyntaxError {
     fn from(err: BadSymbol) -> SyntaxError {

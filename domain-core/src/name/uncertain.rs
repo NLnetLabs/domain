@@ -2,7 +2,7 @@
 //!
 //! This is a private module. Its public types are re-exported by the parent.
 
-use std::{fmt, str};
+use std::{error, fmt, str};
 use bytes::BufMut;
 use crate::compose::Compose;
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError, Symbol};
@@ -360,24 +360,24 @@ fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
 
 //------------ FromStrError --------------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum FromStrError {
     /// The string ended when there should have been more characters.
     ///
     /// This most likely happens inside escape sequences and quoting.
-    #[fail(display="unexpected end of input")]
+    #[display(fmt="unexpected end of input")]
     UnexpectedEnd,
 
     /// An empty label was encountered.
-    #[fail(display="an empty label was encountered")]
+    #[display(fmt="an empty label was encountered")]
     EmptyLabel,
 
     /// A binary label was encountered.
-    #[fail(display="a binary label was encountered")]
+    #[display(fmt="a binary label was encountered")]
     BinaryLabel,
 
     /// A domain name label has more than 63 octets.
-    #[fail(display="label length limit exceeded")]
+    #[display(fmt="label length limit exceeded")]
     LongLabel,
 
     /// An illegal escape sequence was encountered.
@@ -385,19 +385,21 @@ pub enum FromStrError {
     /// Escape sequences are a backslash character followed by either a
     /// three decimal digit sequence encoding a byte value or a single
     /// other printable ASCII character.
-    #[fail(display="illegal escape sequence")]
+    #[display(fmt="illegal escape sequence")]
     IllegalEscape,
 
     /// An illegal character was encountered.
     ///
     /// Only printable ASCII characters are allowed.
-    #[fail(display="illegal character '{}'", _0)]
+    #[display(fmt="illegal character '{}'", _0)]
     IllegalCharacter(char),
 
     /// The name has more than 255 characters.
-    #[fail(display="long domain name")]
+    #[display(fmt="long domain name")]
     LongName,
 }
+
+impl error::Error for FromStrError { }
 
 impl From<PushError> for FromStrError {
     fn from(err: PushError) -> FromStrError {

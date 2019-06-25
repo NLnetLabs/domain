@@ -3,6 +3,7 @@
 //! This is a private module for tidiness. `DnameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
+use std::error;
 use bytes::{BufMut, BytesMut};
 use super::dname::Dname;
 use super::relative::RelativeDname;
@@ -282,24 +283,28 @@ impl Default for DnameBuilder {
 //------------ PushError -----------------------------------------------------
 
 /// An error happened while trying to push data to a domain name builder.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum PushError {
     /// The current label would exceed the limit of 63 bytes.
-    #[fail(display="long label")]
+    #[display(fmt="long label")]
     LongLabel,
 
     /// The name would exceed the limit of 255 bytes.
-    #[fail(display="long domain name")]
+    #[display(fmt="long domain name")]
     LongName,
 }
+
+impl error::Error for PushError { }
 
 
 //------------ PushNameError -------------------------------------------------
 
 /// An error happened while trying to push a name to a domain name builder.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="long domain name")]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[display(fmt="long domain name")]
 pub struct PushNameError;
+
+impl error::Error for PushNameError { }
 
 
 //============ Testing =======================================================

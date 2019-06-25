@@ -24,7 +24,7 @@
 //! [`CharStrMut`]: struct.CharStrMut.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{cmp, fmt, hash, ops, str};
+use std::{cmp, error, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes, BytesMut};
 use crate::compose::Compose;
 use crate::master::scan::{
@@ -469,24 +469,26 @@ impl AsMut<[u8]> for CharStrMut {
 /// A byte sequence does not represent a valid character string.
 ///
 /// This can only mean that the sequence is longer than 255 bytes.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="illegal character string")]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[display(fmt="illegal character string")]
 pub struct CharStrError;
+
+impl error::Error for CharStrError { }
 
 
 //------------ FromStrError --------------------------------------------
 
 /// An error happened when converting a Rust string to a DNS character string.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum FromStrError {
     /// The string ended when there should have been more characters.
     ///
     /// This most likely happens inside escape sequences and quoting.
-    #[fail(display="unexpected end of input")]
+    #[display(fmt="unexpected end of input")]
     ShortInput,
 
     /// A character string has more than 255 octets.
-    #[fail(display="character string with more than 255 octets")]
+    #[display(fmt="character string with more than 255 octets")]
     LongString,
 
     /// An illegal escape sequence was encountered.
@@ -494,15 +496,17 @@ pub enum FromStrError {
     /// Escape sequences are a backslash character followed by either a
     /// three decimal digit sequence encoding a byte value or a single
     /// other printable ASCII character.
-    #[fail(display="illegal escape sequence")]
+    #[display(fmt="illegal escape sequence")]
     BadEscape,
 
     /// An illegal character was encountered.
     ///
     /// Only printable ASCII characters are allowed.
-    #[fail(display="illegal character '{}'", _0)]
+    #[display(fmt="illegal character '{}'", _0)]
     BadSymbol(Symbol),
 }
+
+impl error::Error for FromStrError { }
 
 
 //--- From
@@ -537,9 +541,11 @@ impl From<PushError> for FromStrError {
 /// exceeded the length limit of 255 octets.
 ///
 /// [`CharStrMut`]: ../struct.CharStrMut.html
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="adding bytes would exceed the size limit")]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[display(fmt="adding bytes would exceed the size limit")]
 pub struct PushError;
+
+impl error::Error for PushError { }
 
 
 //============ Testing ======================================================

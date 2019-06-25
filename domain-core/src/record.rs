@@ -40,9 +40,8 @@
 //! [`RecordHeader`]: struct.RecordHeader.html
 //! [`ParsedRecord`]: struct.ParsedRecord.html
 
-use std::fmt;
+use std::{error, fmt};
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes, BytesMut};
-use failure::Fail;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{Class, Rtype};
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
@@ -441,7 +440,7 @@ impl<N: Compress> Compress for RecordHeader<N> {
 /// methods.
 ///
 /// [`Record`]: struct.Record.html
-/// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
+/// [`ParseRecordData`]: trait.ParseRecordData.html
 /// [`to_record`]: #method.to_record
 /// [`into_record`]: #method.into_record
 #[derive(Clone, Debug)]
@@ -598,7 +597,7 @@ pub trait RecordData: Compose + Compress + Sized {
 /// To reflect this asymmetry, parsing of record data has its own trait.
 pub trait ParseRecordData: RecordData {
     /// The type of an error returned when parsing fails.
-    type Err: Fail;
+    type Err: error::Error;
 
     /// Parses the record data.
     ///
@@ -797,19 +796,23 @@ impl fmt::Display for UnknownRecordData {
 
 //------------ RecordParseError ----------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum RecordParseError<N: Fail, D: Fail> {
-    #[fail(display="{}", _0)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+pub enum RecordParseError<N: error::Error, D: error::Error> {
+    #[display(fmt="{}", _0)]
     Name(N),
 
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     Data(D),
 
-    #[fail(display="unexpected end of buffer")]
+    #[display(fmt="unexpected end of buffer")]
     ShortBuf,
 }
 
-impl<N: Fail, D: Fail> From<ShortBuf> for RecordParseError<N, D> {
+impl<N, D> error::Error for RecordParseError<N, D>
+where N: error::Error, D: error::Error { }
+
+impl<N, D> From<ShortBuf> for RecordParseError<N, D>
+where N: error::Error, D: error::Error {
     fn from(_: ShortBuf) -> Self {
         RecordParseError::ShortBuf
     }

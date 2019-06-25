@@ -104,14 +104,27 @@ macro_rules! opt_types {
 
         //------------ AllOptParseError --------------------------------------
 
-        #[derive(Clone, Debug, Eq, Fail, PartialEq)]
+        #[derive(Clone, Debug, Eq, PartialEq)]
         pub enum AllOptParseError {
             $( $(
-                #[fail(display="{}", _0)]
                 $opt(<$opt as OptData>::ParseErr),
             )* )*
-            #[fail(display="short buffer")]
             ShortBuf,
+        }
+
+        impl std::error::Error for AllOptParseError { }
+
+        impl std::fmt::Display for AllOptParseError {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                match *self {
+                    $( $(
+                        AllOptParseError::$opt(ref inner) => inner.fmt(f),
+                    )* )*
+                    AllOptParseError::ShortBuf => {
+                        "short buffer".fmt(f)
+                    }
+                }
+            }
         }
 
         impl From<$crate::parse::ShortBuf> for AllOptParseError {

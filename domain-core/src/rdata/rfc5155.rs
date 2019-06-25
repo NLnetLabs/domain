@@ -4,7 +4,7 @@
 //!
 //! [RFC 5155]: https://tools.ietf.org/html/rfc5155
 
-use std::fmt;
+use std::{error, fmt};
 use bytes::BufMut;
 use crate::charstr::CharStr;
 use crate::compose::{Compose, Compress, Compressor};
@@ -303,14 +303,16 @@ impl RtypeRecordData for Nsec3param {
 
 //------------ ParseNsec3Error -----------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum ParseNsec3Error {
-    #[fail(display="short field")]
+    #[display(fmt="short field")]
     ShortField,
 
-    #[fail(display="invalid record type bitmap")]
+    #[display(fmt="invalid record type bitmap")]
     BadRtypeBitmap,
 }
+
+impl error::Error for ParseNsec3Error { }
 
 impl From<ShortBuf> for ParseNsec3Error {
     fn from(_: ShortBuf) -> Self {

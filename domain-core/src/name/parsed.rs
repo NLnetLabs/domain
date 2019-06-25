@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
-use std::{cmp, fmt, hash};
+use std::{cmp, error, fmt, hash};
 use bytes::{BufMut, Bytes};
 use crate::compose::{Compose, Compress, Compressor};
 use crate::parse::{
@@ -595,23 +595,25 @@ impl LabelType {
 //------------ ParsedDnameError ----------------------------------------------
 
 /// Parsing a domain name failed.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum ParsedDnameError {
     /// A bad label was encountered.
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     BadLabel(LabelTypeError),
 
     /// The name is longer than the 255 bytes limit.
-    #[fail(display="long domain name")]
+    #[display(fmt="long domain name")]
     LongName,
 
     /// Too many compression pointers.
-    #[fail(display="too many compression pointers")]
+    #[display(fmt="too many compression pointers")]
     ExcessiveCompression,
 
-    #[fail(display="unexpected end of buffer")]
+    #[display(fmt="unexpected end of buffer")]
     ShortBuf,
 }
+
+impl error::Error for ParsedDnameError { }
 
 impl From<LabelTypeError> for ParsedDnameError {
     fn from(err: LabelTypeError) -> Self {
@@ -629,20 +631,22 @@ impl From<ShortBuf> for ParsedDnameError {
 //------------ ParsedDnameAllError -------------------------------------------
 
 /// An error happened while parsing a compressed domain name.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum ParsedDnameAllError {
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     Parse(ParsedDnameError),
 
-    #[fail(display="trailing data")]
+    #[display(fmt="trailing data")]
     TrailingData,
 
-    #[fail(display="short field")]
+    #[display(fmt="short field")]
     ShortField,
 
-    #[fail(display="unexpected end of buffer")]
+    #[display(fmt="unexpected end of buffer")]
     ShortBuf,
 }
+
+impl error::Error for ParsedDnameAllError { }
 
 impl From<ParsedDnameError> for ParsedDnameAllError {
     fn from(err: ParsedDnameError) -> Self {

@@ -17,8 +17,7 @@ path = "src/lib.rs"
 [dependencies]
 bytes          = "^0.4"
 chrono         = "^0.4"
-failure        = "^0.1"
-failure_derive = "^0.1"
+derive_more    = "^0.14"
 rand           = "^0.6"
 void           = "^1.0"
 
