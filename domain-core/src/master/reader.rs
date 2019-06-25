@@ -126,8 +126,8 @@ impl fmt::Display for ReaderItem {
 
 #[cfg(test)]
 mod test {
+    use crate::master::scan::ScanError;
     use super::*;
-    use ::master::scan::ScanError;
 
     #[test]
     fn print() {

@@ -878,8 +878,8 @@ fn split_rtype(rtype: Rtype) -> (u8, usize, u8) {
 
 #[cfg(test)]
 mod test {
+    use crate::iana::Rtype;
     use super::*;
-    use ::iana::Rtype;
 
     #[test]
     fn rtype_bitmap_builder() {

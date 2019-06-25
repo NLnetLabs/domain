@@ -551,8 +551,8 @@ impl error::Error for PushError { }
 
 #[cfg(test)]
 mod test {
+    use crate::master::scan::Symbol;
     use super::*;
-    use ::master::scan::Symbol;
 
     #[test]
     fn from_slice() {
