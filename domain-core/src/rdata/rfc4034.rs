@@ -4,9 +4,8 @@
 //!
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
-use std::{fmt, ptr};
+use std::{error, fmt, ptr};
 use bytes::{BufMut, Bytes, BytesMut};
-use failure::Fail;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{DigestAlg, Rtype, SecAlg};
 use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
@@ -328,7 +327,7 @@ impl<N> Nsec<N> {
 //--- ParseAll, Compose, and Compress
 
 impl<N: Parse> ParseAll for Nsec<N>
-where <N as Parse>::Err: Fail {
+where <N as Parse>::Err: error::Error {
     type Err = ParseNsecError<<N as Parse>::Err>;
 
     fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
@@ -806,25 +805,27 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
 
 //------------ ParseNsecError ------------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-pub enum ParseNsecError<E: Fail> {
-    #[fail(display="short field")]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+pub enum ParseNsecError<E: error::Error> {
+    #[display(fmt="short field")]
     ShortField,
 
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     BadNextName(E),
 
-    #[fail(display="invalid record type bitmap")]
+    #[display(fmt="invalid record type bitmap")]
     BadRtypeBitmap,
 }
 
-impl<E: Fail> From<ShortBuf> for ParseNsecError<E> {
+impl<E: error::Error> error::Error for ParseNsecError<E> { }
+
+impl<E: error::Error> From<ShortBuf> for ParseNsecError<E> {
     fn from(_: ShortBuf) -> Self {
         ParseNsecError::ShortField
     }
 }
 
-impl<E: Fail> From<RtypeBitmapError> for ParseNsecError<E> {
+impl<E: error::Error> From<RtypeBitmapError> for ParseNsecError<E> {
     fn from(err: RtypeBitmapError) -> Self {
         match err {
             RtypeBitmapError::ShortBuf => ParseNsecError::ShortField,
@@ -836,14 +837,16 @@ impl<E: Fail> From<RtypeBitmapError> for ParseNsecError<E> {
 
 //------------ RtypeBitmapError ----------------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum RtypeBitmapError {
-    #[fail(display="short field")]
+    #[display(fmt="short field")]
     ShortBuf,
 
-    #[fail(display="invalid record type bitmap")]
+    #[display(fmt="invalid record type bitmap")]
     BadRtypeBitmap,
 }
+
+impl error::Error for RtypeBitmapError { }
 
 impl From<ShortBuf> for RtypeBitmapError {
     fn from(_: ShortBuf) -> Self {

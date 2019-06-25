@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! crate.
 
-use std::{fmt, iter};
+use std::{error, fmt, iter};
 use bytes::BufMut;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::parse::ShortBuf;
@@ -250,9 +250,11 @@ where R: ToLabelIter<'a>
 //------------ LongChainError ------------------------------------------------
 
 /// Chaining domain names would exceed the size limit.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="long domain name")]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[display(fmt="long domain name")]
 pub struct LongChainError;
+
+impl error::Error for LongChainError { }
 
 
 //============ Testing =======================================================

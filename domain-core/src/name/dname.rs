@@ -2,7 +2,7 @@
 ///
 /// This is a private module. Its public types are re-exported by the parent.
 
-use std::{cmp, fmt, hash, ops, str};
+use std::{cmp, error, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes};
 use crate::compose::{Compose, Compress, Compressor};
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
@@ -637,17 +637,19 @@ impl Iterator for SuffixIter {
 //------------ DnameError ----------------------------------------------------
 
 /// A domain name wasn’t encoded correctly.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum DnameError {
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     BadLabel(LabelTypeError),
 
-    #[fail(display="compressed domain name")]
+    #[display(fmt="compressed domain name")]
     CompressedName,
 
-    #[fail(display="long domain name")]
+    #[display(fmt="long domain name")]
     LongName,
 }
+
+impl error::Error for DnameError { }
 
 impl From<LabelTypeError> for DnameError {
     fn from(err: LabelTypeError) -> DnameError {
@@ -659,14 +661,16 @@ impl From<LabelTypeError> for DnameError {
 //------------ DnameParseError -----------------------------------------------
 
 /// An error happened while parsing a domain name.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum DnameParseError {
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     BadName(DnameError),
 
-    #[fail(display="unexpected end of buffer")]
+    #[display(fmt="unexpected end of buffer")]
     ShortBuf,
 }
+
+impl error::Error for DnameParseError { }
 
 impl<T: Into<DnameError>> From<T> for DnameParseError {
     fn from(err: T) -> DnameParseError {
@@ -696,14 +700,16 @@ impl From<ShortBuf> for DnameParseError {
 //------------ DnameParseAllError --------------------------------------------
 
 /// An error happened while parsing a domain name.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum DnameParseAllError {
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     BadName(DnameError),
 
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     ParseError(ParseAllError)
 }
+
+impl error::Error for DnameParseAllError { }
 
 impl<T: Into<DnameError>> From<T> for DnameParseAllError {
     fn from(err: T) -> Self {
@@ -752,17 +758,19 @@ impl From<DnameBytesError> for DnameParseAllError {
 //------------ DnameBytesError -----------------------------------------------
 
 /// An error happened while converting a bytes value into a domain name.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum DnameBytesError {
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     ParseError(DnameParseError),
 
-    #[fail(display="relative name")]
+    #[display(fmt="relative name")]
     RelativeName,
 
-    #[fail(display="trailing data")]
+    #[display(fmt="trailing data")]
     TrailingData,
 }
+
+impl error::Error for DnameBytesError { }
 
 impl<T: Into<DnameParseError>> From<T> for DnameBytesError {
     fn from(err: T) -> DnameBytesError {

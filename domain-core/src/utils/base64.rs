@@ -1,6 +1,6 @@
 //! Decoding and encoding of Base64.
 
-use std::fmt;
+use std::{error, fmt};
 use bytes::{BufMut, Bytes, BytesMut};
 
 
@@ -158,17 +158,19 @@ impl Default for Decoder {
 //------------ DecodeError ---------------------------------------------------
 
 /// An error happened while decoding a Base64 string.
-#[derive(Debug, Fail, Eq, PartialEq)]
+#[derive(Debug, Display, Eq, PartialEq)]
 pub enum DecodeError {
-    #[fail(display="incomplete input")]
+    #[display(fmt="incomplete input")]
     IncompleteInput,
 
-    #[fail(display="trailing input")]
+    #[display(fmt="trailing input")]
     TrailingInput,
 
-    #[fail(display="illegal character '{}'", _0)]
+    #[display(fmt="illegal character '{}'", _0)]
     IllegalChar(char),
 }
+
+impl error::Error for DecodeError { }
 
 
 //------------ Constants -----------------------------------------------------

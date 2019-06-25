@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
-use std::{cmp, fmt, hash, ops};
+use std::{cmp, error, fmt, hash, ops};
 use bytes::BufMut;
 use crate::compose::Compose;
 use crate::parse::ShortBuf;
@@ -373,46 +373,52 @@ impl AsMut<[u8]> for OwnedLabel {
 //------------ LabelTypeError ------------------------------------------------
 
 /// A bad label type was encountered.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum LabelTypeError {
     /// The label was of the undefined type `0b10`.
-    #[fail(display="undefined label type")]
+    #[display(fmt="undefined label type")]
     Undefined,
 
     /// The label was of extended label type given.
     /// 
     /// The type value will be in the range `0x40` to `0x7F`, that is, it
     /// includes the original label type bits `0b01`.
-    #[fail(display="unknown extended label 0x{:02x}", _0)]
+    #[display(fmt="unknown extended label 0x{:02x}", _0)]
     Extended(u8),
 }
+
+impl error::Error for LabelTypeError { }
 
 
 //------------ LongLabelError ------------------------------------------------
 
 /// A label was longer than the allowed 63 bytes.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="long label")]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[display(fmt="long label")]
 pub struct LongLabelError;
+
+impl error::Error for LongLabelError { }
 
 
 //------------ SplitLabelError -----------------------------------------------
 
 /// An error happened while splitting a label from a bytes slice.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq,  PartialEq)]
 pub enum SplitLabelError {
     /// The label was a pointer to the given position.
-    #[fail(display="compressed domain name")]
+    #[display(fmt="compressed domain name")]
     Pointer(u16),
 
     /// The label type was invalid.
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     BadType(LabelTypeError),
 
     /// The bytes slice was too short.
-    #[fail(display="unexpected end of input")]
+    #[display(fmt="unexpected end of input")]
     ShortBuf,
 }
+
+impl error::Error for SplitLabelError { }
 
 impl From<LabelTypeError> for SplitLabelError {
     fn from(err: LabelTypeError) -> SplitLabelError {

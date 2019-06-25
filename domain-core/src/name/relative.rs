@@ -2,7 +2,7 @@
 ///
 /// This is a private module. Its public types are re-exported by the parent.
 
-use std::{cmp, fmt, hash, ops};
+use std::{cmp, error, fmt, hash, ops};
 use bytes::{BufMut, Bytes};
 use crate::compose::Compose;
 use super::builder::DnameBuilder;
@@ -536,28 +536,30 @@ impl<'a> DoubleEndedIterator for DnameIter<'a> {
 //------------ RelativeDnameError --------------------------------------------
 
 /// An error happened while creating a domain name from octets.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum RelativeDnameError {
     /// A bad label was encountered.
-    #[fail(display="{}", _0)]
+    #[display(fmt="{}", _0)]
     BadLabel(LabelTypeError),
 
     /// A compressed name was encountered.
-    #[fail(display="compressed domain name")]
+    #[display(fmt="compressed domain name")]
     CompressedName,
 
     /// The data ended before the end of a label.
-    #[fail(display="unexpected end of input")]
+    #[display(fmt="unexpected end of input")]
     ShortData,
 
     /// The domain name was longer than 255 octets.
-    #[fail(display="long domain name")]
+    #[display(fmt="long domain name")]
     LongName,
 
     /// The root label was encountered.
-    #[fail(display="absolute domain name")]
+    #[display(fmt="absolute domain name")]
     AbsoluteName,
 }
+
+impl error::Error for RelativeDnameError { }
 
 impl From<LabelTypeError> for RelativeDnameError {
     fn from(err: LabelTypeError) -> Self {
@@ -579,9 +581,11 @@ impl From<SplitLabelError> for RelativeDnameError {
 //------------ StripSuffixError ----------------------------------------------
 
 /// An attempt was made to strip a suffix that wasn’t actually a suffix.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="suffix not found")]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[display(fmt="suffix not found")]
 pub struct StripSuffixError;
+
+impl error::Error for StripSuffixError { }
 
 
 //============ Testing =======================================================

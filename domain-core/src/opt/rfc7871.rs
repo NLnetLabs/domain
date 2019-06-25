@@ -1,5 +1,6 @@
 //! EDNS Options from RFC 7871
 
+use std::error;
 use std::net::IpAddr;
 use bytes::BufMut;
 use crate::compose::Compose;
@@ -109,20 +110,22 @@ impl CodeOptData for ClientSubnet {
 
 //------------ ClientSubnetParseError ----------------------------------------
 
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum OptionParseError {
-    #[fail(display="invalid family {}", _0)]
+    #[display(fmt="invalid family {}", _0)]
     InvalidFamily(u16),
 
-    #[fail(display="invalid length {} for IPv4 address", _0)]
+    #[display(fmt="invalid length {} for IPv4 address", _0)]
     InvalidV4Length(usize),
 
-    #[fail(display="invalid length {} for IPv6 address", _0)]
+    #[display(fmt="invalid length {} for IPv6 address", _0)]
     InvalidV6Length(usize),
 
-    #[fail(display="unexpected end of buffer")]
+    #[display(fmt="unexpected end of buffer")]
     ShortBuf,
 }
+
+impl error::Error for OptionParseError { }
 
 impl From<ShortBuf> for OptionParseError {
     fn from(_: ShortBuf) -> Self {

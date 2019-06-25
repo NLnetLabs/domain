@@ -2,11 +2,10 @@
 //!
 //! This is here so we can read from things that aren’t ASCII or UTF-8.
 
-use std::{char, io};
+use std::{char, error, io};
 use std::io::Read;
 use std::fs::File;
 use std::path::Path;
-use failure::Fail;
 use super::scan::CharSource;
 
 
@@ -64,7 +63,7 @@ impl CharSource for AsciiFile {
                     return Ok(Some(res as char))
                 }
                 Err(io::Error::new(
-                    io::ErrorKind::InvalidData, AsciiError(res).compat()
+                    io::ErrorKind::InvalidData, AsciiError(res)
                 ))
             }
             else {
@@ -78,8 +77,7 @@ impl CharSource for AsciiFile {
                             return Ok(Some(res as char))
                         }
                         Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            AsciiError(res).compat()
+                            io::ErrorKind::InvalidData, AsciiError(res)
                         ))
                     }
                     Err(err) => Err(err)
@@ -98,9 +96,11 @@ impl CharSource for AsciiFile {
 //------------ AsciiError ----------------------------------------------------
 
 /// An error happened while reading an ASCII-only file.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="invalid ASCII character '{}'", _0)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[display(fmt="invalid ASCII character '{}'", _0)]
 pub struct AsciiError(u8);
+
+impl error::Error for AsciiError { }
 
 
 //------------ Utf8File ------------------------------------------------------
@@ -193,13 +193,15 @@ impl CharSource for Utf8File {
 //------------ Utf8Error -----------------------------------------------------
 
 /// An error happened while reading an ASCII-only file.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
-#[fail(display="invalid UTF-8 sequence")]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[display(fmt="invalid UTF-8 sequence")]
 pub struct Utf8Error;
+
+impl error::Error for Utf8Error { }
 
 impl From<Utf8Error> for io::Error {
     fn from(err: Utf8Error) -> Self {
-        io::Error::new(io::ErrorKind::Other, err.compat())
+        io::Error::new(io::ErrorKind::Other, err)
     }
 }
 
@@ -252,8 +254,7 @@ impl OctetFile {
                             return Ok(Some(res))
                         }
                         Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            AsciiError(res).compat()
+                            io::ErrorKind::InvalidData, AsciiError(res)
                         ))
                     }
                     Err(err) => Err(err)

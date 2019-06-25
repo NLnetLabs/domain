@@ -9,9 +9,9 @@
 //! [`Parse`]: trait.Parse.html
 //! [`ParseAll`]: trait.ParseAll.html
 
+use std::error;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{BigEndian, ByteOrder, Bytes};
-use failure::Fail;
 
 
 //------------ Parser --------------------------------------------------------
@@ -251,7 +251,7 @@ impl Parser {
 /// bytes or boundary markers.
 pub trait Parse: Sized {
     /// The type of an error returned when parsing fails.
-    type Err: From<ShortBuf>;
+    type Err: From<ShortBuf> + error::Error;
 
     /// Extracts a value from the beginning of `parser`.
     ///
@@ -377,7 +377,7 @@ impl Parse for Ipv6Addr {
 /// all remaining bytes.
 pub trait ParseAll: Sized {
     /// The type returned when parsing fails.
-    type Err: From<ShortBuf> + Fail;
+    type Err: From<ShortBuf> + error::Error;
 
     /// Parses a value `len` bytes long from the beginning of the parser.
     ///
@@ -480,14 +480,16 @@ impl ParseAll for Ipv6Addr {
 //------------ ParseOpenError ------------------------------------------------
 
 /// An error happened when parsing all of a minimum length, open size type.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum ParseOpenError {
-    #[fail(display="short field")]
+    #[display(fmt="short field")]
     ShortField,
 
-    #[fail(display="unexpected end of buffer")]
+    #[display(fmt="unexpected end of buffer")]
     ShortBuf
 }
+
+impl error::Error for ParseOpenError { }
 
 impl From<ShortBuf> for ParseOpenError {
     fn from(_: ShortBuf) -> Self {
@@ -499,9 +501,11 @@ impl From<ShortBuf> for ParseOpenError {
 //------------ ShortBuf ------------------------------------------------------
 
 /// An attempt was made to go beyond the end of a buffer.
-#[derive(Clone, Debug, Eq, Fail, PartialEq)]
-#[fail(display="unexpected end of buffer")]
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
+#[display(fmt="unexpected end of buffer")]
 pub struct ShortBuf;
+
+impl error::Error for ShortBuf { }
 
 
 //--------- ParseAllError ----------------------------------------------------
@@ -510,15 +514,15 @@ pub struct ShortBuf;
 ///
 /// This error type is used for type that have their own length indicators
 /// and where any possible byte combination is valid.
-#[derive(Clone, Copy, Debug, Eq, Fail, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum ParseAllError {
-    #[fail(display="trailing data")]
+    #[display(fmt="trailing data")]
     TrailingData,
 
-    #[fail(display="short field")]
+    #[display(fmt="short field")]
     ShortField,
 
-    #[fail(display="unexpected end of buffer")]
+    #[display(fmt="unexpected end of buffer")]
     ShortBuf
 }
 
@@ -535,6 +539,8 @@ impl ParseAllError {
         }
     }
 }
+
+impl error::Error for ParseAllError { }
 
 impl From<ShortBuf> for ParseAllError {
     fn from(_: ShortBuf) -> Self {

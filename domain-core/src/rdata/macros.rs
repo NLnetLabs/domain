@@ -565,14 +565,27 @@ macro_rules! rdata_types {
 
 macro_rules! parse_err {
     ( $err:ident, $( { $t:ident $( $x:ident $gen:ty )* } )* ) => {
-        #[derive(Clone, Debug, Eq, Fail, PartialEq)]
+        #[derive(Clone, Debug, Eq, PartialEq)]
         pub enum $err {
             $(
-                #[fail(display="{}", _0)]
                 $t(<$t $( <$gen> )* as $crate::record::ParseRecordData>::Err),
             )*
-            #[fail(display="short buffer")]
             ShortBuf,
+        }
+
+        impl std::error::Error for $err { }
+
+        impl std::fmt::Display for $err {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                match *self {
+                    $(
+                        $err::$t(ref inner) => inner.fmt(f),
+                    )*
+                    $err::ShortBuf => {
+                        "short buffer".fmt(f)
+                    }
+                }
+            }
         }
 
         impl From<$crate::parse::ShortBuf> for $err {
