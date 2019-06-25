@@ -6,10 +6,12 @@
 Breaking Changes
 
 * The modules in `bits` have all been moved to the root module of the
-  crate. ([#32])
+  crate. [(#32)]
 * `rdata::rfc4035::Nsec` is now generic over the type of the next name.
   This is necessary because [RFC 6762] allows compression for its next name.
   ([#20], reported by Tom Pusateri)
+* Removed the failure crate. All error types now impl `std::error::Error`.
+  [(#33)]
 
 New
 
@@ -28,7 +30,8 @@ Dependencies
 [#6]: https://github.com/NLnetLabs/domain/pull/6
 [#20]: https://github.com/NLnetLabs/domain/pull/19
 [(#31)]: https://github.com/NLnetLabs/domain/pull/31
-[(#31)]: https://github.com/NLnetLabs/domain/pull/32
+[(#32)]: https://github.com/NLnetLabs/domain/pull/32
+[(#33)]: https://github.com/NLnetLabs/domain/pull/33
 
 
 ## 0.4.0
