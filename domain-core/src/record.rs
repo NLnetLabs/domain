@@ -42,6 +42,7 @@
 
 use std::{error, fmt};
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes, BytesMut};
+use derive_more::Display;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{Class, Rtype};
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
@@ -317,7 +318,7 @@ impl RecordHeader<ParsedDname> {
     /// feels capable of parsing a record with a header of `self`, the
     /// method will parse the data and return a full `Record<D>`. Otherwise,
     /// it skips over the record data.
-    #[allow(type_complexity)] // I know ...
+    #[allow(clippy::type_complexity)] // I know ...
     pub fn parse_into_record<D: ParseRecordData>(self, parser: &mut Parser)
                              -> Result<Option<Record<ParsedDname, D>>,
                                        RecordParseError<ParsedDnameError,
@@ -499,7 +500,7 @@ impl ParsedRecord {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    #[allow(type_complexity)] // I know ...
+    #[allow(clippy::type_complexity)] // I know ...
     pub fn to_record<D>(
         &self
     ) -> Result<Option<Record<ParsedDname, D>>,
@@ -525,7 +526,7 @@ impl ParsedRecord {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    #[allow(type_complexity)] // I know ...
+    #[allow(clippy::type_complexity)] // I know ...
     pub fn into_record<D>(
         mut self
     ) -> Result<Option<Record<ParsedDname, D>>,

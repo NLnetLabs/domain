@@ -5,6 +5,7 @@
 
 use std::{cmp, error, fmt, hash};
 use bytes::{BufMut, Bytes};
+use derive_more::Display;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::parse::{
     Parse, ParseAll, Parser, ParseAllError, ParseOpenError, ShortBuf
@@ -80,7 +81,7 @@ impl ParsedDname {
 
 /// # Properties
 ///
-#[allow(len_without_is_empty)] // Clippy: It is never empty.
+#[allow(clippy::len_without_is_empty)]
 impl ParsedDname {
     /// Returns the length of the name in bytes.
     pub fn len(&self) -> usize {

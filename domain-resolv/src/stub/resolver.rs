@@ -134,6 +134,12 @@ impl StubResolver {
     }
 }
 
+impl Default for StubResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Resolver for StubResolver {
     type Answer = Answer;
     type Query = Query;

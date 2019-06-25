@@ -4,6 +4,7 @@
 
 use std::{cmp, error, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes};
+use derive_more::Display;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};

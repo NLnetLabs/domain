@@ -3,7 +3,7 @@
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-use futures::{Async, Future, Poll};
+use futures::{Async, Future, Poll, try_ready};
 use domain_core::iana::Rtype;
 use domain_core::message::RecordIter;
 use domain_core::name::{Dname, DnameBuilder, ParsedDname};
@@ -94,7 +94,7 @@ pub struct FoundAddrsIter {
 impl Iterator for FoundAddrsIter {
     type Item = ParsedDname;
 
-    #[allow(while_let_on_iterator)]
+    #[allow(clippy::while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {
         let name = if let Some(ref name) = self.name { name }
                    else { return None };
@@ -149,8 +149,21 @@ fn dname_from_v6(addr: Ipv6Addr) -> Dname {
 
 fn hexdigit(nibble: u8) -> u8 {
     match nibble % 0x0F {
-        0...10 => nibble + b'0',
-        10...16 => nibble - 10 + b'a',
+        0 => b'0',
+        1 => b'1',
+        2 => b'2',
+        3 => b'3',
+        4 => b'4',
+        5 => b'5',
+        6 => b'6',
+        7 => b'7',
+        8 => b'8',
+        10 => b'A',
+        11 => b'B',
+        12 => b'C',
+        13 => b'D',
+        14 => b'E',
+        15 => b'F',
         _ => unreachable!()
     }
 }

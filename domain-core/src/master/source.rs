@@ -6,6 +6,7 @@ use std::{char, error, io};
 use std::io::Read;
 use std::fs::File;
 use std::path::Path;
+use derive_more::Display;
 use super::scan::CharSource;
 
 

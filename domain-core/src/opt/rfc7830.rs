@@ -27,7 +27,7 @@ pub struct Padding {
 }
 
 
-#[allow(len_without_is_empty)] // It’s not that kind of len.
+#[allow(clippy::len_without_is_empty)] // It’s not that kind of len.
 impl Padding {
     pub fn new(len: u16, mode: PaddingMode) -> Self {
         Padding { len, mode }

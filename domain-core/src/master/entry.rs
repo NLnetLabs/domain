@@ -92,7 +92,7 @@ impl Entry {
                                last_class: Option<Class>,
                                default_ttl: Option<u32>)
                                -> Result<Option<Self>, ScanError> {
-        if scanner.is_eof() {
+        if scanner.eof_reached() {
             Ok(None)
         }
         else if let Ok(entry) = Self::scan_control(scanner) {

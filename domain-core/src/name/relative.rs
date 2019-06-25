@@ -4,6 +4,7 @@
 
 use std::{cmp, error, fmt, hash, ops};
 use bytes::{BufMut, Bytes};
+use derive_more::Display;
 use crate::compose::Compose;
 use super::builder::DnameBuilder;
 use super::chain::{Chain, LongChainError};

@@ -12,6 +12,7 @@
 use std::error;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{BigEndian, ByteOrder, Bytes};
+use derive_more::Display;
 
 
 //------------ Parser --------------------------------------------------------

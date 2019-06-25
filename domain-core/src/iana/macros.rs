@@ -206,7 +206,7 @@ macro_rules! int_enum_str_mnemonics_only {
                 match self.to_mnemonic() {
                     Some(m) => {
                         for ch in m {
-                            try!(f.write_char(*ch as char))
+                            f.write_char(*ch as char)?
                         }
                         Ok(())
                     }
@@ -246,15 +246,15 @@ macro_rules! int_enum_str_decimal {
             }
         }
 
-        impl ::master::scan::Scan for $ianatype {
-            fn scan<C: ::master::scan::CharSource>(
-                scanner: &mut ::master::scan::Scanner<C>
-            ) -> Result<Self, ::master::scan::ScanError> {
+        impl $crate::master::scan::Scan for $ianatype {
+            fn scan<C: $crate::master::scan::CharSource>(
+                scanner: &mut $crate::master::scan::Scanner<C>
+            ) -> Result<Self, $crate::master::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
 
                     Self::from_str(&word)
-                         .map_err(::master::scan::SyntaxError::content)
+                         .map_err($crate::master::scan::SyntaxError::content)
                 })
             }
         }
@@ -319,7 +319,7 @@ macro_rules! int_enum_str_with_decimal {
                 match self.to_mnemonic() {
                     Some(m) => {
                         for ch in m {
-                            try!(f.write_char(*ch as char))
+                            f.write_char(*ch as char)?
                         }
                         Ok(())
                     }
@@ -330,16 +330,16 @@ macro_rules! int_enum_str_with_decimal {
             }
         }
 
-        impl ::master::scan::Scan for $ianatype {
-            fn scan<C: ::master::scan::CharSource>(
-                scanner: &mut ::master::scan::Scanner<C>
-            ) -> Result<Self, ::master::scan::ScanError> {
+        impl $crate::master::scan::Scan for $ianatype {
+            fn scan<C: $crate::master::scan::CharSource>(
+                scanner: &mut $crate::master::scan::Scanner<C>
+            ) -> Result<Self, $crate::master::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
 
                     Self::from_str(&word)
                          .map_err(|_| {
-                             ::master::scan::SyntaxError::UnknownMnemonic
+                             $crate::master::scan::SyntaxError::UnknownMnemonic
                          })
                 })
             }
@@ -418,7 +418,7 @@ macro_rules! int_enum_str_with_prefix {
                 match self.to_mnemonic() {
                     Some(m) => {
                         for ch in m {
-                            try!(f.write_char(*ch as char))
+                            f.write_char(*ch as char)?
                         }
                         Ok(())
                     }
@@ -429,16 +429,16 @@ macro_rules! int_enum_str_with_prefix {
             }
         }
 
-        impl ::master::scan::Scan for $ianatype {
-            fn scan<C: ::master::scan::CharSource>(
-                scanner: &mut ::master::scan::Scanner<C>
-            ) -> Result<Self, ::master::scan::ScanError> {
+        impl $crate::master::scan::Scan for $ianatype {
+            fn scan<C: $crate::master::scan::CharSource>(
+                scanner: &mut $crate::master::scan::Scanner<C>
+            ) -> Result<Self, $crate::master::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
 
                     Self::from_str(&word)
                          .map_err(|_| {
-                             ::master::scan::SyntaxError::UnknownMnemonic
+                             $crate::master::scan::SyntaxError::UnknownMnemonic
                          })
                 })
             }

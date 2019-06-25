@@ -202,11 +202,10 @@ where R: Resolver, S: ToRelativeDname + Clone + Send + 'static {
 
         // Start a new query if necessary. Return if we are done.
         match self.items.last() {
-            Some(item) => match item.state {
-                SrvItemState::Unresolved(ref host) => {
+            Some(item) => {
+                if let SrvItemState::Unresolved(ref host) = item.state {
                     self.lookup = Some(lookup_host(&self.resolver, host));
                 }
-                _ => { }
             }
             None => return Ok(Async::Ready(None)) // we are done.
         }
@@ -255,7 +254,7 @@ impl<R: Resolver, S: Clone> FoundSrvs<R, S> {
         let mut rrs = Vec::new();
         Self::process_records(&mut rrs, &answer, &name)?;
 
-        if rrs.len() == 0 {
+        if rrs.is_empty() {
             return Ok(Some(Self::new_dummy(data)))
         }
         if rrs.len() == 1 && rrs[0].target().is_root() {
@@ -336,7 +335,7 @@ impl<R: Resolver, S: Clone> FoundSrvs<R, S> {
             result.push(SrvItem  {
                 priority: rr.priority(),
                 weight: rr.weight(),
-                state: state,
+                state,
                 port: rr.port(),
                 service: Some(data.service.clone())
             })
@@ -363,7 +362,7 @@ impl<R, S> FoundSrvs<R, S> {
                 weight_sum = 0;
                 first_index = i;
             }
-            weight_sum += items[i].weight as u32;
+            weight_sum += u32::from(items[i].weight);
         }
         Self::reorder_by_weight(&mut items[first_index..], weight_sum);
     }
@@ -377,9 +376,9 @@ impl<R, S> FoundSrvs<R, S> {
             let mut sum : u32 = 0;
             let pick = range.sample(&mut rng);
             for j in 0 .. items.len() {
-                sum += items[j].weight as u32;
+                sum += u32::from(items[j].weight);
                 if sum >= pick {
-                    weight_sum -= items[j].weight as u32;
+                    weight_sum -= u32::from(items[j].weight);
                     items.swap(i, j);
                     break;
                 }
@@ -452,7 +451,7 @@ impl<S> ResolvedSrvItem<S> {
             weight: item.weight,
             port: item.port,
             service: item.service,
-            hosts: hosts
+            hosts,
             })
         }
         else {
@@ -466,7 +465,7 @@ impl<S> ResolvedSrvItem<S> {
             weight: item.weight,
             port: item.port,
             service: item.service,
-            hosts: hosts
+            hosts,
         }
     }
 }

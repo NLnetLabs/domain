@@ -52,7 +52,7 @@
 //! [`ClientSequence`]: struct.ClientSequence.html
 //! [`ServerSequence`]: struct.ServerSequence.html
 
-use std::{cmp, fmt, mem, str};
+use std::{cmp, fmt, hash, mem, str};
 use std::collections::HashMap;
 use bytes::{BigEndian, ByteOrder, Bytes, BytesMut};
 use derive_more::Display;
@@ -291,7 +291,7 @@ impl Key {
         else {
             expected.as_ref()
         };
-        constant_time::verify_slices_are_equal(expected, provided.as_ref())
+        constant_time::verify_slices_are_equal(expected, provided)
             .map_err(|_| ValidationError::BadSig)
     }
 
@@ -377,7 +377,8 @@ impl<K: AsRef<Key> + Clone> KeyStore for K {
     }
 }
 
-impl<K: AsRef<Key> + Clone> KeyStore for HashMap<(Dname, Algorithm), K> {
+impl<K, S> KeyStore for HashMap<(Dname, Algorithm), K, S>
+where K: AsRef<Key> + Clone, S: hash::BuildHasher {
     type Key = K;
 
     fn get_key<N: ToDname>(
@@ -995,6 +996,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// `Ok(None)` if there is no TSIG at all. Otherwise, if all steps
     /// succeed, returns the TSIG variables and the TSIG record. If there
     /// is an error, returns that.
+    #[allow(clippy::type_complexity)]
     fn extract_answer_tsig(
         &self,
         message: &mut Message
@@ -1392,7 +1394,7 @@ impl Algorithm {
             Algorithm::Sha256
         }
         else if *alg == digest::SHA384 {
-            Algorithm::Sha256
+            Algorithm::Sha384
         }
         else if *alg == digest::SHA512 {
             Algorithm::Sha512

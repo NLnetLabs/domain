@@ -32,7 +32,6 @@ impl Reader<Utf8File> {
 }
 
 impl<C: CharSource> Reader<C> {
-    #[allow(match_same_arms)]
     pub fn next_record(&mut self) -> Result<Option<ReaderItem>, ScanError> {
         loop {
             match self.next_entry() {
@@ -109,9 +108,9 @@ impl fmt::Display for ReaderItem {
         match *self {
             ReaderItem::Record(ref record) => write!(f, "{}", record),
             ReaderItem::Include { ref path, ref origin } => {
-                try!(write!(f, "$INCLUDE {}", path.display()));
+                write!(f, "$INCLUDE {}", path.display())?;
                 if let Some(ref origin) = *origin {
-                    try!(write!(f, " {}", origin));
+                    write!(f, " {}", origin)?;
                 }
                 Ok(())
             }

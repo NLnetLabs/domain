@@ -5,6 +5,7 @@
 
 use std::{error, fmt, iter};
 use bytes::BufMut;
+use derive_more::Display;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::parse::ShortBuf;
 use super::label::Label;

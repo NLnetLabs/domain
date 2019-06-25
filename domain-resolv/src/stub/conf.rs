@@ -434,7 +434,7 @@ impl ResolvConf {
         Ok(())
     }
  
-    #[allow(match_same_arms)]
+    #[allow(clippy::match_same_arms)]
     fn parse_options(&mut self, words: SplitWhitespace) -> Result<(), Error> {
         for word in words {
             match split_arg(word)? {
@@ -502,7 +502,7 @@ impl Default for ResolvConf {
 //--- Display
 
 impl fmt::Display for ResolvConf {
-    #[allow(cyclomatic_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for server in &self.servers {
             let server = server.addr;
@@ -512,7 +512,7 @@ impl fmt::Display for ResolvConf {
             "\n".fmt(f)?;
         }
         if self.options.search.len() == 1 {
-            write!(f, "domain {}\n", self.options.search[0])?;
+            writeln!(f, "domain {}", self.options.search[0])?;
         }
         else if self.options.search.len() > 1 {
             "search".fmt(f)?;

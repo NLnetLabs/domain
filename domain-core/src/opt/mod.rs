@@ -300,7 +300,7 @@ pub struct OptionHeader {
     len: u16,
 }
 
-#[allow(len_without_is_empty)]
+#[allow(clippy::len_without_is_empty)]
 impl OptionHeader {
     pub fn new(code: u16, len: u16) -> Self {
         OptionHeader { code, len }

@@ -258,7 +258,7 @@ impl FoundHosts {
         Ok(FoundHosts {
             qname,
             canonical: name.to_name(),
-            addrs: addrs
+            addrs,
         })
     }
 

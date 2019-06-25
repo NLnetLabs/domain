@@ -5,6 +5,7 @@
 
 use std::error;
 use bytes::{BufMut, BytesMut};
+use derive_more::Display;
 use super::dname::Dname;
 use super::relative::RelativeDname;
 use super::traits::{ToDname, ToRelativeDname};
