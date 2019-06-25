@@ -91,7 +91,7 @@
 //!
 //! ```
 //! use std::str::FromStr;
-//! use domain_core::bits::{Dname, MessageBuilder, SectionBuilder, RecordSectionBuilder};
+//! use domain_core::{Dname, MessageBuilder, SectionBuilder, RecordSectionBuilder};
 //! use domain_core::iana::Rtype;
 //! use domain_core::rdata::A;
 //!
@@ -947,10 +947,10 @@ pub trait RecordSectionBuilder : SectionBuilder {
 #[cfg(test)]
 mod test {
     use std::str::FromStr;
+    use crate::rdata::*;
+    use crate::name::*;
+    use crate::message::*;
     use super::*;
-    use rdata::*;
-    use bits::name::*;
-    use bits::message::*;
 
     fn get_built_message() -> Message {
         let msg = MessageBuilder::with_capacity(512);

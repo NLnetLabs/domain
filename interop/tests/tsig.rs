@@ -10,8 +10,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use ring::rand::SystemRandom;
 use interop::nsd;
-use interop::domain::core::bits::{Dname, Message, MessageBuilder, Record};
-use interop::domain::core::bits::message_builder::{
+use interop::domain::core::{Dname, Message, MessageBuilder, Record};
+use interop::domain::core::message_builder::{
     AdditionalBuilder, RecordSectionBuilder, SectionBuilder
 };
 use interop::domain::core::iana::{Rcode, Rtype};

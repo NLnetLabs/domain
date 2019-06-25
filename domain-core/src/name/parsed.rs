@@ -682,8 +682,8 @@ impl From<ShortBuf> for ParsedDnameAllError {
 mod test {
     use super::*;
     use bytes::BytesMut;
-    use ::bits::parse::Parser;
-    use ::bits::name::Dname;
+    use crate::parse::Parser;
+    use crate::name::Dname;
 
     macro_rules! name {
         (root) => {
@@ -747,7 +747,7 @@ mod test {
 
     #[test]
     fn iter() {
-        use ::bits::name::dname::test::cmp_iter;
+        use crate::name::dname::test::cmp_iter;
 
         let labels: &[&[u8]] = &[b"www", b"example", b"com", b""];
         cmp_iter(name!(root).iter(), &[b""]);
@@ -758,7 +758,7 @@ mod test {
 
     #[test]
     fn iter_back() {
-        use ::bits::name::dname::test::cmp_iter_back;
+        use crate::name::dname::test::cmp_iter_back;
 
         let labels: &[&[u8]] = &[b"", b"com", b"example", b"www"];
         cmp_iter_back(name!(root).iter(), &[b""]);

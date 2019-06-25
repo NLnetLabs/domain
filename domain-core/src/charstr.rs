@@ -596,7 +596,7 @@ mod test {
 
     #[test]
     fn parse() {
-        use ::bits::parse::{Parse, Parser, ShortBuf};
+        use crate::parse::{Parse, Parser, ShortBuf};
 
         let mut parser = Parser::from_static(b"12\x03foo\x02bartail");
         parser.advance(2).unwrap();
@@ -612,7 +612,7 @@ mod test {
 
     #[test]
     fn parse_all() {
-        use ::bits::parse::{ParseAll, ParseAllError, Parser};
+        use crate::parse::{ParseAll, ParseAllError, Parser};
 
         let mut parser = Parser::from_static(b"12\x03foo12");
         parser.advance(2).unwrap();
@@ -633,7 +633,7 @@ mod test {
     #[test]
     fn compose() {
         use bytes::BytesMut;
-        use bits::compose::Compose;
+        use crate::compose::Compose;
 
         let mut buf = BytesMut::with_capacity(10);
         let val = CharStr::from_bytes(Bytes::from_static(b"foo")).unwrap();

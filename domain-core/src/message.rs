@@ -110,7 +110,7 @@ use crate::record::{
 /// would do something like this:
 ///
 /// ```
-/// # use domain_core::bits::message::Message;
+/// # use domain_core::message::Message;
 /// use domain_core::rdata::parsed::Mx;
 ///
 /// # let bytes = vec![0; 12].into();
@@ -843,10 +843,10 @@ impl<D: ParseRecordData> Iterator for RecordIter<D> {
 #[cfg(test)]
 mod test {
     use std::str::FromStr;
+    use crate::name::*;
+    use crate::message_builder::*;
+    use crate::rdata::{Ns, AllRecordData};
     use super::*;
-    use bits::name::*;
-    use bits::message_builder::*;
-    use rdata::{Ns, AllRecordData};
 
     // Helper for test cases
     fn get_test_message() -> Message {

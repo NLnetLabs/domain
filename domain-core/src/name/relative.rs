@@ -589,7 +589,7 @@ pub struct StripSuffixError;
 #[cfg(test)]
 mod test {
     use super::*;
-    use ::bits::parse::ShortBuf;
+    use crate::parse::ShortBuf;
 
     macro_rules! assert_panic {
         ( $cond:expr ) => {
@@ -677,7 +677,7 @@ mod test {
 
     #[test]
     fn iter() {
-        use ::bits::name::dname::test::cmp_iter;
+        use crate::name::dname::test::cmp_iter;
 
         cmp_iter(RelativeDname::empty().iter(), &[]);
         cmp_iter(RelativeDname::wildcard().iter(), &[b"*"]);
@@ -688,7 +688,7 @@ mod test {
 
     #[test]
     fn iter_back() {
-        use ::bits::name::dname::test::cmp_iter_back;
+        use crate::name::dname::test::cmp_iter_back;
 
         cmp_iter_back(RelativeDname::empty().iter(), &[]);
         cmp_iter_back(RelativeDname::wildcard().iter(), &[b"*"]);
