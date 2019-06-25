@@ -4,9 +4,9 @@
 
 use std::{cmp, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes};
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
-use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
+use crate::compose::{Compose, Compress, Compressor};
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{RelativeDname, DnameIter};
 use super::traits::{ToLabelIter, ToDname};

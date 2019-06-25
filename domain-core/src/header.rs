@@ -20,9 +20,9 @@
 
 use std::mem;
 use bytes::{BigEndian, BufMut, ByteOrder};
-use ::iana::{Opcode, Rcode};
-use super::compose::Compose;
-use super::parse::{Parse, Parser, ShortBuf};
+use crate::compose::Compose;
+use crate::iana::{Opcode, Rcode};
+use crate::parse::{Parse, Parser, ShortBuf};
 
 
 //------------ Header --------------------------------------------------

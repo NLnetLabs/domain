@@ -5,9 +5,10 @@
 
 use std::{cmp, fmt, hash};
 use bytes::{BufMut, Bytes};
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, Parser, ParseAllError, ParseOpenError,
-                    ShortBuf};
+use crate::compose::{Compose, Compress, Compressor};
+use crate::parse::{
+    Parse, ParseAll, Parser, ParseAllError, ParseOpenError, ShortBuf
+};
 use super::label::{Label, LabelTypeError};
 use super::traits::{ToLabelIter, ToDname};
 use super::relative::RelativeDname;

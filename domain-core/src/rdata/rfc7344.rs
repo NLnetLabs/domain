@@ -1,11 +1,11 @@
-use bits::compose::{Compose, Compress, Compressor};
-use bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
-use bits::rdata::RtypeRecordData;
-use bytes::{BufMut, Bytes};
-use iana::{DigestAlg, Rtype, SecAlg};
-use master::scan::{CharSource, Scan, ScanError, Scanner};
 use std::fmt;
-use utils::base64;
+use bytes::{BufMut, Bytes};
+use crate::compose::{Compose, Compress, Compressor};
+use crate::iana::{DigestAlg, Rtype, SecAlg};
+use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+use crate::utils::base64;
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::record::RtypeRecordData;
 
 //------------ Cdnskey --------------------------------------------------------
 

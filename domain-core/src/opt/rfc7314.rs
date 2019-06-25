@@ -1,10 +1,10 @@
 //! EDNS Options from RFC 7314
 
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, Parser, ParseAllError, ShortBuf};
-use ::iana::OptionCode;
+use crate::compose::Compose;
+use crate::iana::OptionCode;
+use crate::message_builder::OptBuilder;
+use crate::parse::{ParseAll, Parser, ParseAllError, ShortBuf};
 use super::CodeOptData;
 
 

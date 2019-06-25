@@ -26,10 +26,12 @@
 
 use std::{cmp, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes, BytesMut};
-use ::master::scan::{BadSymbol, CharSource, Scan, Scanner, ScanError, Symbol,
-                     SymbolError, SyntaxError};
-use super::compose::Compose;
-use super::parse::{ParseAll, ParseAllError, Parse, Parser, ShortBuf};
+use crate::compose::Compose;
+use crate::master::scan::{
+    BadSymbol, CharSource, Scan, Scanner, ScanError, Symbol, SymbolError,
+    SyntaxError
+};
+use crate::parse::{ParseAll, ParseAllError, Parse, Parser, ShortBuf};
 
 
 //------------ CharStr -------------------------------------------------------

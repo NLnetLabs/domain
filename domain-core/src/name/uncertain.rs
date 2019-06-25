@@ -4,8 +4,8 @@
 
 use std::{fmt, str};
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::master::scan::{CharSource, Scan, Scanner, ScanError, Symbol};
+use crate::compose::Compose;
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError, Symbol};
 use super::builder::{DnameBuilder, PushError, PushNameError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;

@@ -6,13 +6,13 @@
 
 use std::fmt;
 use bytes::BufMut;
-use ::bits::charstr::CharStr;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::iana::{Nsec3HashAlg, Rtype};
-use ::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
-use ::utils::base32;
+use crate::charstr::CharStr;
+use crate::compose::{Compose, Compress, Compressor};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::iana::{Nsec3HashAlg, Rtype};
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
+use crate::record::RtypeRecordData;
+use crate::utils::base32;
 use super::rfc4034::{RtypeBitmap, RtypeBitmapError};
 
 

@@ -1,11 +1,11 @@
 //! EDNS Options from RFC 7901
 
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::name::{Dname, ToDname};
-use ::bits::parse::{ParseAll, Parser, ShortBuf};
-use ::iana::OptionCode;
+use crate::compose::Compose;
+use crate::iana::OptionCode;
+use crate::message_builder::OptBuilder;
+use crate::name::{Dname, ToDname};
+use crate::parse::{ParseAll, Parser, ShortBuf};
 use super::CodeOptData;
 
 

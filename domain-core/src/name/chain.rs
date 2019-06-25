@@ -5,8 +5,8 @@
 
 use std::{fmt, iter};
 use bytes::BufMut;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::ShortBuf;
+use crate::compose::{Compose, Compress, Compressor};
+use crate::parse::ShortBuf;
 use super::label::Label;
 use super::relative::DnameIter;
 use super::traits::{ToLabelIter, ToRelativeDname, ToDname};

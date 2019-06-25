@@ -141,16 +141,15 @@
 use std::{mem, ops};
 use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
-use iana::{Class, OptionCode, Rcode, Rtype};
-use super::compose::{Compose, Compress, Compressor};
-use super::header::{Header, HeaderCounts, HeaderSection};
-use super::message::Message;
-use super::name::ToDname;
-use super::opt::{OptData, OptHeader};
-use super::parse::ShortBuf;
-use super::question::Question;
-use super::rdata::RecordData;
-use super::record::Record;
+use crate::compose::{Compose, Compress, Compressor};
+use crate::header::{Header, HeaderCounts, HeaderSection};
+use crate::iana::{Class, OptionCode, Rcode, Rtype};
+use crate::message::Message;
+use crate::name::ToDname;
+use crate::opt::{OptData, OptHeader};
+use crate::parse::ShortBuf;
+use crate::question::Question;
+use crate::record::{Record, RecordData};
 
 
 //------------ MessageBuilder -----------------------------------------------

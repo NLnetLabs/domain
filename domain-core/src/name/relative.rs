@@ -4,7 +4,7 @@
 
 use std::{cmp, fmt, hash, ops};
 use bytes::{BufMut, Bytes};
-use ::bits::compose::Compose;
+use crate::compose::Compose;
 use super::builder::DnameBuilder;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;

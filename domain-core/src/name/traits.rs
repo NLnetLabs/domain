@@ -4,7 +4,7 @@
 
 use std::cmp;
 use bytes::BytesMut;
-use ::bits::compose::{Compose, Compress};
+use crate::compose::{Compose, Compress};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::Label;

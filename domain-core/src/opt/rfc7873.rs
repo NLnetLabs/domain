@@ -1,10 +1,10 @@
 //! EDNS Options form RFC 7873
 
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::message_builder::OptBuilder;
-use ::bits::parse::{ParseAll, ParseAllError, Parser, ShortBuf};
-use ::iana::OptionCode;
+use crate::compose::Compose;
+use crate::iana::OptionCode;
+use crate::message_builder::OptBuilder;
+use crate::parse::{ParseAll, ParseAllError, Parser, ShortBuf};
 use super::CodeOptData;
 
 

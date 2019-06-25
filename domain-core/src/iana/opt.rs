@@ -4,8 +4,8 @@ use std::cmp;
 use std::fmt;
 use std::hash;
 use bytes::BufMut;
-use ::bits::compose::Compose;
-use ::bits::parse::{Parse, Parser, ShortBuf};
+use crate::compose::Compose;
+use crate::parse::{Parse, Parser, ShortBuf};
 
 
 //------------ OptionCode ---------------------------------------------------

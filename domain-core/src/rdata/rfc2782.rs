@@ -6,11 +6,11 @@
 
 use std::fmt;
 use bytes::BufMut;
-use ::bits::compose::{Compose, Compress, Compressor};
-use ::bits::parse::{Parse, ParseAll, Parser, ParseOpenError, ShortBuf};
-use ::bits::rdata::RtypeRecordData;
-use ::master::scan::{CharSource, Scan, Scanner, ScanError};
-use ::iana::Rtype;
+use crate::compose::{Compose, Compress, Compressor};
+use crate::iana::Rtype;
+use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
+use crate::parse::{Parse, ParseAll, Parser, ParseOpenError, ShortBuf};
+use crate::record::RtypeRecordData;
 
 
 //------------ Srv ---------------------------------------------------------
@@ -118,7 +118,7 @@ impl<N: fmt::Display> fmt::Display for Srv<N> {
 //------------ parsed --------------------------------------------------------
 
 pub mod parsed {
-    use ::bits::name::ParsedDname;
+    use crate::name::ParsedDname;
 
     pub type Srv = super::Srv<ParsedDname>;
 }

@@ -15,18 +15,19 @@
 use std::{mem, ops};
 use std::marker::PhantomData;
 use bytes::{Bytes, BytesMut};
-use ::iana::{Rcode, Rtype};
-use ::rdata::Cname;
-use super::message_builder::{
+use crate::header::{Header, HeaderCounts, HeaderSection};
+use crate::iana::{Rcode, Rtype};
+use crate::rdata::Cname;
+use crate::message_builder::{
     MessageBuilder, AdditionalBuilder, RecordSectionBuilder
 };
-use super::header::{Header, HeaderCounts, HeaderSection};
-use super::name::{ParsedDname, ParsedDnameError, ToDname};
-use super::parse::{Parse, Parser, ShortBuf};
-use super::question::Question;
-use super::rdata::{ParseRecordData, RecordData};
-use super::record::{ParsedRecord, Record, RecordParseError};
-use super::opt::{Opt, OptRecord};
+use crate::name::{ParsedDname, ParsedDnameError, ToDname};
+use crate::opt::{Opt, OptRecord};
+use crate::parse::{Parse, Parser, ShortBuf};
+use crate::question::Question;
+use crate::record::{
+    ParsedRecord, ParseRecordData, Record, RecordData, RecordParseError
+};
 
 //------------ Message -------------------------------------------------------
 

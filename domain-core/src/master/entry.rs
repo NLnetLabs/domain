@@ -1,12 +1,13 @@
 /// A master file entry.
 
 use std::path::PathBuf;
-use ::bits::name::Dname;
-use ::bits::record::Record;
-use ::iana::{Class, Rtype};
-use ::rdata::MasterRecordData;
-use ::master::scan::{CharSource, Pos, Scan, ScanError, Scanner,
-                     SyntaxError};
+use crate::iana::{Class, Rtype};
+use crate::master::scan::{
+    CharSource, Pos, Scan, ScanError, Scanner, SyntaxError
+};
+use crate::name::Dname;
+use crate::record::Record;
+use crate::rdata::MasterRecordData;
 
 
 //------------ Entry ---------------------------------------------------------

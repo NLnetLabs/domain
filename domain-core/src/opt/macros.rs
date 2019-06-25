@@ -114,8 +114,8 @@ macro_rules! opt_types {
             ShortBuf,
         }
 
-        impl From<::bits::parse::ShortBuf> for AllOptParseError {
-            fn from(_: ::bits::parse::ShortBuf) -> Self {
+        impl From<$crate::parse::ShortBuf> for AllOptParseError {
+            fn from(_: $crate::parse::ShortBuf) -> Self {
                 AllOptParseError::ShortBuf
             }
         }

@@ -42,13 +42,12 @@ opt_types!{
 use std::{fmt, mem, ops};
 use std::marker::PhantomData;
 use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
-use ::iana::{OptionCode, OptRcode, Rtype};
-use super::compose::{Compose, Compress, Compressor};
-use super::header::Header;
-use super::name::ToDname;
-use super::parse::{Parse, ParseAll, Parser, ShortBuf};
-use super::rdata::RtypeRecordData;
-use super::record::Record;
+use crate::iana::{OptionCode, OptRcode, Rtype};
+use crate::compose::{Compose, Compress, Compressor};
+use crate::header::Header;
+use crate::name::ToDname;
+use crate::parse::{Parse, ParseAll, Parser, ShortBuf};
+use crate::record::{Record, RtypeRecordData};
 
 
 //------------ Opt -----------------------------------------------------------

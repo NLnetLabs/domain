@@ -5,10 +5,10 @@
 
 use std::fmt;
 use bytes::BufMut;
-use ::iana::{Class, Rtype};
-use super::compose::{Compose, Compress, Compressor};
-use super::name::ToDname;
-use super::parse::{Parse, Parser, ShortBuf};
+use crate::iana::{Class, Rtype};
+use crate::compose::{Compose, Compress, Compressor};
+use crate::name::ToDname;
+use crate::parse::{Parse, Parser, ShortBuf};
 
 
 //------------ Question ------------------------------------------------------
