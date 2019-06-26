@@ -25,9 +25,8 @@ use crate::name::{ParsedDname, ParsedDnameError, ToDname};
 use crate::opt::{Opt, OptRecord};
 use crate::parse::{Parse, Parser, ShortBuf};
 use crate::question::Question;
-use crate::record::{
-    ParsedRecord, ParseRecordData, Record, RecordData, RecordParseError
-};
+use crate::rdata::{ParseRecordData, RecordData};
+use crate::record::{ParsedRecord, Record, RecordParseError};
 
 //------------ Message -------------------------------------------------------
 

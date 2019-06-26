@@ -34,7 +34,7 @@ macro_rules! rdata_types {
             $( $( $(
                 $mtype($mtype $( <$mn> )*),
             )* )* )*
-            Other($crate::record::UnknownRecordData),
+            Other($crate::rdata::UnknownRecordData),
 
             #[doc(hidden)]
             __Nonexhaustive(::void::Void),
@@ -51,9 +51,9 @@ macro_rules! rdata_types {
             }
         )* )* )*
 
-        impl<N> From<$crate::record::UnknownRecordData>
+        impl<N> From<$crate::rdata::UnknownRecordData>
                     for MasterRecordData<N> {
-            fn from(value: $crate::record::UnknownRecordData) -> Self {
+            fn from(value: $crate::rdata::UnknownRecordData) -> Self {
                 MasterRecordData::Other(value)
             }
         }
@@ -161,7 +161,7 @@ macro_rules! rdata_types {
 
         //--- RecordData and ParseRecordData
 
-        impl<N> $crate::record::RecordData for MasterRecordData<N>
+        impl<N> $crate::rdata::RecordData for MasterRecordData<N>
         where N: $crate::compose::Compose + $crate::compose::Compress
         {
             fn rtype(&self) -> $crate::iana::Rtype {
@@ -177,7 +177,7 @@ macro_rules! rdata_types {
             }
         }
 
-        impl $crate::record::ParseRecordData
+        impl $crate::rdata::ParseRecordData
             for MasterRecordData<$crate::name::ParsedDname>
         {
             type Err = MasterDataParseError;
@@ -197,7 +197,7 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     _ => {
-                        Ok($crate::record::UnknownRecordData::parse_data(
+                        Ok($crate::rdata::UnknownRecordData::parse_data(
                             rtype, parser, rdlen
                         )?.map(MasterRecordData::Other))
                     }
@@ -223,7 +223,7 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     _ => {
-                        $crate::record::UnknownRecordData::scan(rtype, scanner)
+                        $crate::rdata::UnknownRecordData::scan(rtype, scanner)
                             .map(MasterRecordData::Other)
                     }
                 }
@@ -258,7 +258,7 @@ macro_rules! rdata_types {
                 $ptype($ptype $( <$pn> )*),
             )* )* )*
             Opt($crate::opt::Opt),
-            Other($crate::record::UnknownRecordData),
+            Other($crate::rdata::UnknownRecordData),
 
             #[doc(hidden)]
             __Nonexhaustive(::void::Void),
@@ -288,8 +288,8 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<N> From<$crate::record::UnknownRecordData> for AllRecordData<N> {
-            fn from(value: $crate::record::UnknownRecordData) -> Self {
+        impl<N> From<$crate::rdata::UnknownRecordData> for AllRecordData<N> {
+            fn from(value: $crate::rdata::UnknownRecordData) -> Self {
                 AllRecordData::Other(value)
             }
         }
@@ -352,7 +352,7 @@ macro_rules! rdata_types {
         impl<N> ::std::hash::Hash for AllRecordData<N>
         where N: ::std::hash::Hash {
             fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
-                use $crate::record::RecordData;
+                use $crate::rdata::RecordData;
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
@@ -449,7 +449,7 @@ macro_rules! rdata_types {
 
         //--- RecordData and ParseRecordData
 
-        impl<N> $crate::record::RecordData for AllRecordData<N>
+        impl<N> $crate::rdata::RecordData for AllRecordData<N>
         where N: $crate::compose::Compose + $crate::compose::Compress
         {
             fn rtype(&self) -> $crate::iana::Rtype {
@@ -471,7 +471,7 @@ macro_rules! rdata_types {
             }
         }
 
-        impl $crate::record::ParseRecordData
+        impl $crate::rdata::ParseRecordData
             for AllRecordData<$crate::name::ParsedDname>
         {
             type Err = AllDataParseError;
@@ -505,7 +505,7 @@ macro_rules! rdata_types {
                         )))
                     }
                     _ => {
-                        Ok($crate::record::UnknownRecordData::parse_data(
+                        Ok($crate::rdata::UnknownRecordData::parse_data(
                             rtype, parser, rdlen
                         )?.map(AllRecordData::Other))
                     }
@@ -568,7 +568,7 @@ macro_rules! parse_err {
         #[derive(Clone, Debug, Eq, PartialEq)]
         pub enum $err {
             $(
-                $t(<$t $( <$gen> )* as $crate::record::ParseRecordData>::Err),
+                $t(<$t $( <$gen> )* as $crate::rdata::ParseRecordData>::Err),
             )*
             ShortBuf,
         }

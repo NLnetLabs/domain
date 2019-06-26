@@ -10,8 +10,8 @@ use bytes::{BufMut, Bytes};
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{Rtype, TsigRcode};
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
-use crate::record::RtypeRecordData;
 use crate::utils::base64;
+use super::RtypeRecordData;
 
 
 //------------ Tsig ----------------------------------------------------------

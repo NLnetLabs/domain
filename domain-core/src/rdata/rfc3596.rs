@@ -12,7 +12,7 @@ use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::Rtype;
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
 use crate::parse::{Parse, ParseAll, Parser, ShortBuf};
-use crate::record::RtypeRecordData;
+use super::RtypeRecordData;
 
 
 //------------ Aaaa ---------------------------------------------------------

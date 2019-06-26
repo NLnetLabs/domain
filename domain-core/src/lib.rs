@@ -106,10 +106,8 @@ pub use self::name::{
 };
 pub use self::parse::{Parser, Parse, ParseAll, ShortBuf};
 pub use self::question::Question;
-pub use self::record::{
-    ParseRecordData, Record, RecordData, RecordHeader, ParsedRecord,
-    UnknownRecordData
-};
+pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
+pub use self::record::{Record, RecordHeader, ParsedRecord};
 
 
 //--- Modules

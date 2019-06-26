@@ -47,7 +47,8 @@ use crate::compose::{Compose, Compress, Compressor};
 use crate::header::Header;
 use crate::name::ToDname;
 use crate::parse::{Parse, ParseAll, Parser, ShortBuf};
-use crate::record::{Record, RtypeRecordData};
+use crate::rdata::RtypeRecordData;
+use crate::record::Record;
 
 
 //------------ Opt -----------------------------------------------------------
