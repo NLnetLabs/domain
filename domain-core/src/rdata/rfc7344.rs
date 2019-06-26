@@ -5,7 +5,7 @@ use crate::iana::{DigestAlg, Rtype, SecAlg};
 use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
 use crate::utils::base64;
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
-use crate::record::RtypeRecordData;
+use super::RtypeRecordData;
 
 //------------ Cdnskey --------------------------------------------------------
 

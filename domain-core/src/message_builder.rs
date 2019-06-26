@@ -149,7 +149,8 @@ use crate::name::ToDname;
 use crate::opt::{OptData, OptHeader};
 use crate::parse::ShortBuf;
 use crate::question::Question;
-use crate::record::{Record, RecordData};
+use crate::rdata::RecordData;
+use crate::record::Record;
 
 
 //------------ MessageBuilder -----------------------------------------------

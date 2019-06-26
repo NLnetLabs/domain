@@ -13,8 +13,8 @@ use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
 use crate::utils::base64;
 use crate::name::{Dname, DnameBytesError};
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
-use crate::record::RtypeRecordData;
 use crate::serial::Serial;
+use super::RtypeRecordData;
 
 
 //------------ Dnskey --------------------------------------------------------

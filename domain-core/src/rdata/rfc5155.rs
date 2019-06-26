@@ -12,8 +12,8 @@ use crate::compose::{Compose, Compress, Compressor};
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
 use crate::iana::{Nsec3HashAlg, Rtype};
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
-use crate::record::RtypeRecordData;
 use crate::utils::base32;
+use super::RtypeRecordData;
 use super::rfc4034::{RtypeBitmap, RtypeBitmapError};
 
 

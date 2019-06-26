@@ -16,8 +16,8 @@ use crate::name::ParsedDname;
 use crate::parse::{
     ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ShortBuf
 };
-use crate::record::RtypeRecordData;
 use crate::serial::Serial;
+use super::RtypeRecordData;
 
 
 //------------ dname_type! --------------------------------------------------
