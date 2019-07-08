@@ -5,10 +5,13 @@
 //! [RFC 2845]: https://tools.ietf.org/html/rfc2845
 
 use std::fmt;
+use std::cmp::Ordering;
 use std::time::SystemTime;
 use bytes::{BufMut, Bytes};
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{Rtype, TsigRcode};
+use crate::name::ToDname;
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
 use crate::utils::base64;
 use super::RtypeRecordData;
@@ -16,7 +19,7 @@ use super::RtypeRecordData;
 
 //------------ Tsig ----------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash)]
 pub struct Tsig<N> {
     /// The signature algorithm as a domain name.
     algorithm: N,
@@ -155,6 +158,124 @@ impl<N> Tsig<N> {
     /// [`time_signed`]: #method.time_signed
     pub fn is_valid_now(&self) -> bool {
         Time48::now().eq_fudged(self.time_signed, self.fudge.into())
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl<N: PartialEq<NN>, NN> PartialEq<Tsig<NN>> for Tsig<N> {
+    fn eq(&self, other: &Tsig<NN>) -> bool {
+        self.algorithm == other.algorithm
+        && self.time_signed == other.time_signed
+        && self.fudge == other.fudge
+        && self.mac == other.mac
+        && self.original_id == other.original_id
+        && self.error == other.error
+        && self.other == other.other
+    }
+}
+
+impl<N: Eq> Eq for Tsig<N> { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<N: PartialOrd<NN>, NN> PartialOrd<Tsig<NN>> for Tsig<N> {
+    fn partial_cmp(&self, other: &Tsig<NN>) -> Option<Ordering> {
+        match self.algorithm.partial_cmp(&other.algorithm) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.time_signed.partial_cmp(&other.time_signed) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.fudge.partial_cmp(&other.fudge) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.mac.partial_cmp(&other.mac) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.original_id.partial_cmp(&other.original_id) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.error.partial_cmp(&other.error) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.other.partial_cmp(&other.other)
+    }
+}
+
+impl<N: Ord> Ord for Tsig<N> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.algorithm.cmp(&other.algorithm) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.time_signed.cmp(&other.time_signed) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.fudge.cmp(&other.fudge) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.mac.cmp(&other.mac) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.original_id.cmp(&other.original_id) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.error.cmp(&other.error) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.other.cmp(&other.other)
+    }
+}
+
+impl<N: ToDname, NN: ToDname> CanonicalOrd<Tsig<NN>> for Tsig<N> {
+    fn canonical_cmp(&self, other: &Tsig<NN>) -> Ordering {
+        match self.algorithm.composed_cmp(&other.algorithm) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.time_signed.cmp(&other.time_signed) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.fudge.cmp(&other.fudge) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.mac.len().cmp(&other.mac.len()) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.mac.cmp(&other.mac) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.original_id.cmp(&other.original_id) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.error.cmp(&other.error) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.other.len().cmp(&other.other.len()) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.other.cmp(&other.other)
     }
 }
 

@@ -27,6 +27,7 @@
 use std::{cmp, error, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes, BytesMut};
 use derive_more::Display;
+use crate::cmp::CanonicalOrd;
 use crate::compose::Compose;
 use crate::master::scan::{
     BadSymbol, CharSource, Scan, Scanner, ScanError, Symbol, SymbolError,
@@ -163,6 +164,55 @@ impl str::FromStr for CharStr {
 }
 
 
+//--- PartialEq and Eq
+
+impl<T: AsRef<[u8]>> PartialEq<T> for CharStr {
+    fn eq(&self, other: &T) -> bool {
+        self.as_slice().eq_ignore_ascii_case(other.as_ref())
+    }
+}
+
+impl Eq for CharStr { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<T: AsRef<[u8]>> PartialOrd<T> for CharStr {
+    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
+        self.iter().map(u8::to_ascii_lowercase)
+            .partial_cmp(other.as_ref().iter()
+                              .map(u8::to_ascii_lowercase))
+    }
+}
+
+impl Ord for CharStr {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.iter().map(u8::to_ascii_lowercase)
+            .cmp(other.iter().map(u8::to_ascii_lowercase))
+    }
+}
+
+impl CanonicalOrd for CharStr {
+    fn canonical_cmp(&self, other: &Self) -> cmp::Ordering {
+        match self.len().cmp(&other.len()) {
+            cmp::Ordering::Equal => { }
+            other => return other
+        }
+        self.as_slice().cmp(other.as_slice())
+    }
+}
+
+
+//--- Hash
+
+impl hash::Hash for CharStr {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.iter().map(u8::to_ascii_lowercase)
+            .for_each(|ch| ch.hash(state))
+    }
+}
+
+
 
 //--- Parse, ParseAll, and Compose
 
@@ -272,45 +322,6 @@ impl<'a> IntoIterator for &'a CharStr {
 
     fn into_iter(self) -> Self::IntoIter {
         (&self.inner).into_iter()
-    }
-}
-
-
-//--- PartialEq, Eq
-
-impl<T: AsRef<[u8]>> PartialEq<T> for CharStr {
-    fn eq(&self, other: &T) -> bool {
-        self.as_slice().eq_ignore_ascii_case(other.as_ref())
-    }
-}
-
-impl Eq for CharStr { }
-
-
-//--- PartialOrd, Ord
-
-impl<T: AsRef<[u8]>> PartialOrd<T> for CharStr {
-    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
-        self.iter().map(u8::to_ascii_lowercase)
-            .partial_cmp(other.as_ref().iter()
-                              .map(u8::to_ascii_lowercase))
-    }
-}
-
-impl Ord for CharStr {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.iter().map(u8::to_ascii_lowercase)
-            .cmp(other.iter().map(u8::to_ascii_lowercase))
-    }
-}
-
-
-//--- Hash
-
-impl hash::Hash for CharStr {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.iter().map(u8::to_ascii_lowercase)
-            .for_each(|ch| ch.hash(state))
     }
 }
 

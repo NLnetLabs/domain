@@ -1401,11 +1401,16 @@ impl From<name::PushNameError> for SyntaxError {
 //------------ ScanError -----------------------------------------------------
 
 /// An error happened while scanning master data.
-#[derive(Debug)]
+#[derive(Debug, Display)]
 pub enum ScanError {
+    #[display(fmt="{}: {}", _0, _1)]
     Source(io::Error, Pos),
+
+    #[display(fmt="{}: {}", _0, _1)]
     Syntax(SyntaxError, Pos),
 }
+
+impl error::Error for ScanError { }
 
 impl From<(io::Error, Pos)> for ScanError {
     fn from(err: (io::Error, Pos)) -> ScanError {
@@ -1423,7 +1428,8 @@ impl From<(SyntaxError, Pos)> for ScanError {
 //------------ Pos -----------------------------------------------------------
 
 /// The human-friendly position in a reader.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Display, Eq, PartialEq)]
+#[display(fmt="{}:{}", line, col)]
 pub struct Pos {
     line: usize,
     col: usize

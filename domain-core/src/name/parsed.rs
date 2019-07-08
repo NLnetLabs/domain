@@ -6,6 +6,7 @@
 use std::{cmp, error, fmt, hash};
 use bytes::{BufMut, Bytes};
 use derive_more::Display;
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::parse::{
     Parse, ParseAll, Parser, ParseAllError, ParseOpenError, ShortBuf
@@ -333,6 +334,12 @@ impl Compose for ParsedDname {
             buf.put_slice(self.parser.peek(self.len).unwrap())
         }
     }
+    
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        for label in self.iter_labels() {
+            label.compose_canonical(buf)
+        }
+    }
 }
 
 impl Compress for ParsedDname {
@@ -387,7 +394,7 @@ impl<N: ToDname> PartialEq<N> for ParsedDname {
 impl Eq for ParsedDname { }
 
 
-//--- PartialOrd and Ord
+//--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N: ToDname> PartialOrd<N> for ParsedDname {
     fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
@@ -397,6 +404,12 @@ impl<N: ToDname> PartialOrd<N> for ParsedDname {
 
 impl Ord for ParsedDname {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.name_cmp(other)
+    }
+}
+
+impl<N: ToDname> CanonicalOrd<N> for ParsedDname {
+    fn canonical_cmp(&self, other: &N) -> cmp::Ordering {
         self.name_cmp(other)
     }
 }

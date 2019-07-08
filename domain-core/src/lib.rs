@@ -95,6 +95,7 @@
 //--- Re-exports
 
 pub use self::charstr::{CharStr, CharStrMut};
+pub use self::cmp::CanonicalOrd;
 pub use self::compose::{Compose, Compress, Compressor};
 pub use self::header::{Header, HeaderCounts, HeaderSection};
 pub use self::message::{Message, RecordSection, Section};
@@ -108,11 +109,13 @@ pub use self::parse::{Parser, Parse, ParseAll, ShortBuf};
 pub use self::question::Question;
 pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
 pub use self::record::{Record, RecordHeader, ParsedRecord};
+pub use self::serial::Serial;
 
 
 //--- Modules
 
 pub mod charstr;
+pub mod cmp;
 pub mod compose;
 pub mod header;
 pub mod iana;
@@ -128,3 +131,4 @@ pub mod rdata;
 pub mod record;
 pub mod serial;
 pub mod utils;
+

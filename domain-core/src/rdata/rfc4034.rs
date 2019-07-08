@@ -5,11 +5,16 @@
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
 use std::{error, fmt, ptr};
+use std::cmp::Ordering;
+use std::convert::TryInto;
 use bytes::{BufMut, Bytes, BytesMut};
 use derive_more::Display;
+use unwrap::unwrap;
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{DigestAlg, Rtype, SecAlg};
 use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
+use crate::name::ToDname;
 use crate::utils::base64;
 use crate::name::{Dname, DnameBytesError};
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
@@ -56,6 +61,54 @@ impl Dnskey {
 
     pub fn public_key(&self) -> &Bytes {
         &self.public_key
+    }
+
+    /// Returns the key tag for this DNSKEY data.
+    pub fn key_tag(&self) -> u16 {
+        if self.algorithm == SecAlg::RsaMd5 {
+            // The key tag is third-to-last and second-to-last octets of the
+            // key as a big-endian u16. If we don’t have enough octets in the
+            // key, we return 0.
+            let len = self.public_key.len();
+            if len > 2 {
+                u16::from_be_bytes(unwrap!(
+                    self.public_key[len - 3..len - 1].try_into()
+                ))
+            }
+            else {
+                0
+            }
+        }
+        else {
+            // Treat record data as a octet sequence. Add octets at odd
+            // indexes as they are, add octets at even indexes shifted left
+            // by 8 bits.
+            let mut res = u32::from(self.flags);
+            res += u32::from(self.protocol) << 8;
+            res += u32::from(self.algorithm.to_int());
+            let mut iter = self.public_key().as_ref().iter();
+            loop {
+                match iter.next() {
+                    Some(&x) => res += u32::from(x) << 8,
+                    None => break
+                }
+                match iter.next() {
+                    Some(&x) => res += u32::from(x),
+                    None => break
+                }
+            }
+            res += (res >> 16) & 0xFFFF;
+            (res & 0xFFFF) as u16
+        }
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Dnskey {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }
 
@@ -133,7 +186,7 @@ impl RtypeRecordData for Dnskey {
 
 //------------ Rrsig ---------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash)]
 pub struct Rrsig {
     type_covered: Rtype,
     algorithm: SecAlg,
@@ -207,6 +260,108 @@ impl Rrsig {
     pub fn signature(&self) -> &Bytes {
         &self.signature
     }
+
+    pub fn set_signature(&mut self, signature: Bytes) {
+        self.signature = signature
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl PartialEq for Rrsig {
+    fn eq(&self, other: &Self) -> bool {
+        self.type_covered == other.type_covered
+        && self.algorithm == other.algorithm
+        && self.labels == other.labels
+        && self.original_ttl == other.original_ttl
+        && self.expiration.into_int() == other.expiration.into_int()
+        && self.inception.into_int() == other.inception.into_int()
+        && self.key_tag == other.key_tag
+        && self.signer_name == other.signer_name
+        && self.signature == other.signature
+    }
+}
+
+impl Eq for Rrsig { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl PartialOrd for Rrsig {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self.type_covered.partial_cmp(&other.type_covered) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.algorithm.partial_cmp(&other.algorithm) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.labels.partial_cmp(&other.labels) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.original_ttl.partial_cmp(&other.original_ttl) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.expiration.partial_cmp(&other.expiration) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.inception.partial_cmp(&other.inception) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.key_tag.partial_cmp(&other.key_tag) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.signer_name.partial_cmp(&other.signer_name) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.signature.partial_cmp(&other.signature)
+    }
+}
+
+impl CanonicalOrd for Rrsig {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        match self.type_covered.cmp(&other.type_covered) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.algorithm.cmp(&other.algorithm) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.labels.cmp(&other.labels) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.original_ttl.cmp(&other.original_ttl) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.expiration.canonical_cmp(&other.expiration) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.inception.canonical_cmp(&other.inception) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.key_tag.cmp(&other.key_tag) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.signer_name.lowercase_composed_cmp(&other.signer_name) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.signature.cmp(&other.signature)
+    }
 }
 
 
@@ -255,6 +410,18 @@ impl Compose for Rrsig {
         self.signer_name.compose(buf);
         self.signature.compose(buf);
     }
+
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        self.type_covered.compose(buf);
+        self.algorithm.compose(buf);
+        self.labels.compose(buf);
+        self.original_ttl.compose(buf);
+        self.expiration.compose(buf);
+        self.inception.compose(buf);
+        self.key_tag.compose(buf);
+        self.signer_name.compose_canonical(buf);
+        self.signature.compose(buf);
+    }
 }
 
 impl Compress for Rrsig {
@@ -286,7 +453,7 @@ impl Scan for Rrsig {
 
 impl fmt::Display for Rrsig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {} {} {} {} {} {} ",
+        write!(f, "{} {} {} {} {} {} {} {}. ",
                self.type_covered, self.algorithm, self.labels,
                self.original_ttl, self.expiration, self.inception,
                self.key_tag, self.signer_name)?;
@@ -304,7 +471,7 @@ impl RtypeRecordData for Rrsig {
 
 //------------ Nsec ----------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash)]
 pub struct Nsec<N> {
     next_name: N,
     types: RtypeBitmap,
@@ -319,8 +486,58 @@ impl<N> Nsec<N> {
         &self.next_name
     }
 
+    pub fn set_next_name(&mut self, next_name: N) {
+        self.next_name = next_name
+    }
+
     pub fn types(&self) -> &RtypeBitmap {
         &self.types
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl<N: PartialEq<NN>, NN> PartialEq<Nsec<NN>> for Nsec<N> {
+    fn eq(&self, other: &Nsec<NN>) -> bool {
+        self.next_name.eq(&other.next_name)
+        && self.types == other.types
+    }
+}
+
+impl<N: Eq> Eq for Nsec<N> { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<N: PartialOrd<NN>, NN> PartialOrd<Nsec<NN>> for Nsec<N> {
+    fn partial_cmp(&self, other: &Nsec<NN>) -> Option<Ordering> {
+        match self.next_name.partial_cmp(&other.next_name) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.types.partial_cmp(&self.types)
+    }
+}
+
+impl<N: Ord> Ord for Nsec<N> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.next_name.cmp(&other.next_name) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.types.cmp(&self.types)
+    }
+}
+
+impl<N: ToDname, NN: ToDname> CanonicalOrd<Nsec<NN>> for Nsec<N> {
+    fn canonical_cmp(&self, other: &Nsec<NN>) -> Ordering {
+        // RFC 6840 says that Nsec::next_name is not converted to lower case.
+        match self.next_name.composed_cmp(&other.next_name) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.types.cmp(&self.types)
     }
 }
 
@@ -354,6 +571,8 @@ impl<N: Compose> Compose for Nsec<N> {
         self.next_name.compose(buf);
         self.types.compose(buf);
     }
+
+    // Default compose_canonical is correct as we keep the case.
 }
 
 impl<N: Compose> Compress for Nsec<N> {
@@ -378,7 +597,7 @@ impl<N: Scan> Scan for Nsec<N> {
 
 impl<N: fmt::Display> fmt::Display for Nsec<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.next_name, self.types)
+        write!(f, "{}. {}", self.next_name, self.types)
     }
 }
 
@@ -424,6 +643,15 @@ impl Ds {
 
     pub fn digest(&self) -> &Bytes {
         &self.digest
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Ds {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }
 
@@ -523,6 +751,10 @@ impl RtypeBitmap {
         Ok(RtypeBitmap(bytes))
     }
 
+    pub fn builder() -> RtypeBitmapBuilder {
+        RtypeBitmapBuilder::new()
+    }
+
     pub fn as_bytes(&self) -> &Bytes {
         &self.0
     }
@@ -618,14 +850,12 @@ impl Scan for RtypeBitmap {
 
 impl fmt::Display for RtypeBitmap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let first = true;
-        for rtype in self {
-            if first {
-                rtype.fmt(f)?
-            }
-            else {
-                write!(f, " {}", rtype)?
-            }
+        let mut iter = self.iter();
+        if let Some(rtype) = iter.next() {
+            rtype.fmt(f)?;
+        }
+        for rtype in iter {
+            write!(f, " {}", rtype)?
         }
         Ok(())
     }
@@ -638,7 +868,7 @@ impl fmt::Display for RtypeBitmap {
 //
 //  Here is how this is going to work: We keep one long BytesMut into which
 //  we place all added types. The buffer contains a sequence of blocks
-//  encoded similar to the final format but with all 32 octets of the
+//  encoded similarly to the final format but with all 32 octets of the
 //  bitmap present. Blocks are in order and are only added when needed (which
 //  means we may have to insert a block in the middle). When finalizing, we
 //  compress the block buffer by dropping the unncessary octets of each
@@ -734,11 +964,22 @@ impl Default for RtypeBitmapBuilder {
 //------------ RtypeBitmapIter -----------------------------------------------
 
 pub struct RtypeBitmapIter<'a> {
+    /// The data to iterate over.
+    ///
+    /// This starts with the octets of the current block without the block
+    /// number and length.
     data: &'a [u8],
+
+    /// The base value of the current block, i.e., its upper 8 bits.
     block: u16,
+
+    /// The length of the current block’s data.
     len: usize,
 
+    /// Index of the current octet in the current block.
     octet: usize,
+
+    /// Index of the next set bit in the current octet in the current block.
     bit: u16
 }
 
@@ -796,7 +1037,7 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
             return None
         }
         let res = Rtype::from_int(
-            u16::from(self.data[0]) << 8 | (self.octet as u16) << 3 | self.bit
+            self.block | (self.octet as u16) << 3 | self.bit
         );
         self.advance();
         Some(res)
@@ -879,7 +1120,55 @@ fn split_rtype(rtype: Rtype) -> (u8, usize, u8) {
 #[cfg(test)]
 mod test {
     use crate::iana::Rtype;
+    use crate::utils::base64;
     use super::*;
+
+    #[test]
+    fn dnskey_key_tag() {
+        assert_eq!(
+            Dnskey::new(
+                256, 3, SecAlg::RsaSha256,
+                unwrap!(base64::decode(
+                    "AwEAAcTQyaIe6nt3xSPOG2L/YfwBkOVTJN6mlnZ249O5Rtt3ZSRQHxQS\
+                     W61AODYw6bvgxrrGq8eeOuenFjcSYgNAMcBYoEYYmKDW6e9EryW4ZaT/\
+                     MCq+8Am06oR40xAA3fClOM6QjRcT85tP41Go946AicBGP8XOP/Aj1aI/\
+                     oPRGzRnboUPUok/AzTNnW5npBU69+BuiIwYE7mQOiNBFePyvjQBdoiuY\
+                     bmuD3Py0IyjlBxzZUXbqLsRL9gYFkCqeTY29Ik7usuzMTa+JRSLz6KGS\
+                     5RSJ7CTSMjZg8aNaUbN2dvGhakJPh92HnLvMA3TefFgbKJphFNPA3BWS\
+                     KLZ02cRWXqM="
+                ))
+            ).key_tag(),
+            59944
+        );
+        assert_eq!(
+            Dnskey::new(
+                257, 3, SecAlg::RsaSha256,
+                unwrap!(base64::decode(
+                    "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO\
+                    iW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN\
+                    7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5\
+                    LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwVN8\
+                    efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7\
+                    pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLY\
+                    A4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws\
+                    9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU="
+                ))
+            ).key_tag(),
+            20326
+        );
+        assert_eq!(
+            Dnskey::new(
+                257, 3, SecAlg::RsaMd5,
+                unwrap!(base64::decode(
+                    "AwEAAcVaA4jSBIGRrSzpecoJELvKE9+OMuFnL8mmUBsY\
+				    lB6epN1CqX7NzwjDpi6VySiEXr0C4uTYkU/L1uMv2mHE\
+				    AljThFDJ1GuozJ6gA7jf3lnaGppRg2IoVQ9IVmLORmjw\
+				    C+7Eoi12SqybMTicD3Ezwa9XbG1iPjmjhbMrLh7MSQpX"
+                ))
+            ).key_tag(),
+            18698
+        );
+    }
 
     #[test]
     fn rtype_bitmap_builder() {

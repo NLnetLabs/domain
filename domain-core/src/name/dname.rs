@@ -5,6 +5,7 @@
 use std::{cmp, error, fmt, hash, ops, str};
 use bytes::{BufMut, Bytes};
 use derive_more::Display;
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
@@ -424,6 +425,12 @@ impl Compose for Dname {
     fn compose<B: BufMut>(&self, buf: &mut B) {
         buf.put_slice(self.as_ref())
     }
+    
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        for label in self.iter_labels() {
+            label.compose_canonical(buf)
+        }
+    }
 }
 
 impl Compress for Dname {
@@ -507,7 +514,7 @@ impl<'a> IntoIterator for &'a Dname {
 }
 
 
-//--- PartialEq and Eq
+//--- PartialEq, and Eq
 
 impl<N: ToDname> PartialEq<N> for Dname {
     fn eq(&self, other: &N) -> bool {
@@ -518,7 +525,7 @@ impl<N: ToDname> PartialEq<N> for Dname {
 impl Eq for Dname { }
 
 
-//--- PartialOrd and Ord
+//--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N: ToDname> PartialOrd<N> for Dname {
     /// Returns the ordering between `self` and `other`.
@@ -540,6 +547,12 @@ impl Ord for Dname {
     ///
     /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
     fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.name_cmp(other)
+    }
+}
+
+impl<N: ToDname> CanonicalOrd<N> for Dname {
+    fn canonical_cmp(&self, other: &N) -> cmp::Ordering {
         self.name_cmp(other)
     }
 }
@@ -788,6 +801,7 @@ impl<T: Into<DnameParseError>> From<T> for DnameBytesError {
 #[cfg(test)]
 pub(crate) mod test {
     use std::cmp::Ordering;
+    use unwrap::unwrap;
     use super::*;
 
     macro_rules! assert_panic {
@@ -1281,9 +1295,18 @@ pub(crate) mod test {
         assert_eq!(p.peek_all(), b"af");
     }
 
-    // I don’t think we need tests for `Compose` and `Compress`. The
+    // I don’t think we need tests for `Compose::compose` and `Compress`. The
     // former only copies the underlying bytes, the latter simply
     // defers to `Compressor::compress_name` which is tested separately.
+
+    #[test]
+    fn compose_canonical() {
+        let mut buf = Vec::new();
+        unwrap!(
+            Dname::from_slice(b"\x03wWw\x07exaMPle\x03com\0")
+        ).compose_canonical(&mut buf);
+        assert_eq!(buf.as_slice(), b"\x03www\x07example\x03com\0");
+    }
 
     #[test]
     fn from_str() {

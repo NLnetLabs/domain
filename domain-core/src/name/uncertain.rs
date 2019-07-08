@@ -201,6 +201,12 @@ impl Compose for UncertainDname {
             UncertainDname::Relative(ref name) => name.compose(buf),
         }
     }
+    
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        for label in self.iter_labels() {
+            label.compose_canonical(buf)
+        }
+    }
 }
 
 

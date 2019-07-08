@@ -7,7 +7,8 @@
 
 use std::{cmp, fmt, str};
 use bytes::BufMut;
-use chrono::{Utc, TimeZone};
+use chrono::{DateTime, Utc, TimeZone};
+use crate::cmp::CanonicalOrd;
 use crate::compose::Compose;
 use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
 use crate::parse::{Parse, ParseAll, Parser};
@@ -39,6 +40,16 @@ use crate::parse::{Parse, ParseAll, Parser};
 pub struct Serial(pub u32);
 
 impl Serial {
+    /// Returns a serial number for the current Unix time.
+    pub fn now() -> Self {
+        Utc::now().into()
+    }
+
+    /// Returns the serial number as a raw integer.
+    pub fn into_int(self) -> u32 {
+        self.0
+    }
+
     /// Add `other` to `self`.
     ///
     /// Serial numbers only allow values of up to `2^31 - 1` to be added to
@@ -53,6 +64,21 @@ impl Serial {
     pub fn add(self, other: u32) -> Self {
         assert!(other <= 0x7FFF_FFFF);
         Serial(self.0.wrapping_add(other))
+    }
+
+    /// Subtract `other` from `self`.
+    ///
+    /// This operation is not defined in RFC 1982 but it seems to be
+    /// reasonable to provide it for values of `other` of less than `2^31 -1`.
+    /// 
+    ///
+    /// # Panics
+    ///
+    /// This method panics if `other` is greater than `2^31 - 1`.
+    #[allow(clippy::should_implement_trait)]
+    pub fn sub(self, other: u32) -> Self {
+        assert!(other <= 0x7FFF_FFFF);
+        Serial(self.0.wrapping_sub(other))
     }
 
     /// Scan a serial represention signature time values.
@@ -153,6 +179,19 @@ impl From<Serial> for u32 {
     }
 }
 
+impl<T: TimeZone> From<DateTime<T>> for Serial {
+    fn from(value: DateTime<T>) -> Self {
+        let mut value = value.timestamp();
+        while value < 0 {
+            value += i64::from(std::i32::MAX);
+        }
+        while value > i64::from(std::i32::MAX) {
+            value -= i64::from(std::i32::MAX)
+        }
+        Self(value as u32)
+    }
+}
+
 impl str::FromStr for Serial {
     type Err = <u32 as str::FromStr>::Err;
 
@@ -242,6 +281,12 @@ impl cmp::PartialOrd for Serial {
                 None
             }
         }
+    }
+}
+
+impl CanonicalOrd for Serial {
+    fn canonical_cmp(&self, other: &Self) -> cmp::Ordering {
+        self.0.cmp(&other.0)
     }
 }
 

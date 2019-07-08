@@ -4,6 +4,7 @@
 
 use std::cmp;
 use bytes::BytesMut;
+use unwrap::unwrap;
 use crate::compose::{Compose, Compress};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -125,6 +126,8 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
     fn name_eq<N: ToDname>(&self, other: &N) -> bool {
         if let (Some(left), Some(right)) = (self.as_flat_slice(),
                                             other.as_flat_slice()) {
+            // We can do this because the length octets of each label are in
+            // the ranged 0..64 which is before all ASCII letters.
             left.eq_ignore_ascii_case(right)
         }
         else {
@@ -157,6 +160,73 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
                 (Some(_), None) => return cmp::Ordering::Greater,
                 (None, None) => return cmp::Ordering::Equal
             }
+        }
+    }
+
+    /// Returns the composed name ordering.
+    /// 
+    fn composed_cmp<N: ToDname>(&self, other: &N) -> cmp::Ordering {
+        if let (Some(left), Some(right)) =
+                               (self.as_flat_slice(), other.as_flat_slice()) {
+            return left.cmp(right)
+        }
+        let mut self_iter = self.iter_labels();
+        let mut other_iter = other.iter_labels();
+        loop {
+            match (self_iter.next(), other_iter.next()) {
+                (Some(left), Some(right)) => {
+                    match left.composed_cmp(right) {
+                        cmp::Ordering::Equal => { }
+                        other => return other
+                    }
+                }
+                (None, None) => return cmp::Ordering::Equal,
+                _ => {
+                    // The root label sorts before any other label, so we
+                    // can never end up in a situation where one name runs
+                    // out of labels while comparing equal.
+                    unreachable!()
+                }
+            }
+        }
+    }
+
+    /// Returns the lowercase composed ordering.
+    fn lowercase_composed_cmp<N: ToDname>(&self, other: &N) -> cmp::Ordering {
+        // Since there isn’t a `cmp_ignore_ascii_case` on slice, we don’t
+        // gain much from the shortcut.
+        let mut self_iter = self.iter_labels();
+        let mut other_iter = other.iter_labels();
+        loop {
+            match (self_iter.next(), other_iter.next()) {
+                (Some(left), Some(right)) => {
+                    match left.lowercase_composed_cmp(right) {
+                        cmp::Ordering::Equal => { }
+                        other => return other
+                    }
+                }
+                (None, None) => return cmp::Ordering::Equal,
+                _ => {
+                    // The root label sorts before any other label, so we
+                    // can never end up in a situation where one name runs
+                    // out of labels while comparing equal.
+                    unreachable!()
+                }
+            }
+        }
+    }
+
+    /// Returns the number of labels for the RRSIG Labels field.
+    ///
+    /// This is the actual number of labels without counting the root label
+    /// or a possible initial asterisk label.
+    fn rrsig_label_count(&self) -> u8 {
+        let mut labels = self.iter_labels();
+        if unwrap!(labels.next()).is_wildcard() {
+            (labels.count() - 1) as u8
+        }
+        else {
+            labels.count() as u8
         }
     }
 }

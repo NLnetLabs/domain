@@ -1,20 +1,24 @@
 //! Resource data implementations.
 //!
+//!
+//! # Record Data of Well-defined Record Types
+//!
 //! This module will eventually contain implementations for the record data
 //! for all defined resource record types.
 //!
-//! The types are named identically to the [`Rtype`] variant they implement.
-//! They are grouped into submodules for the RFCs they are defined in. All
-//! types are also re-exported at the top level here. Ie., for the AAAA
-//! record type, you can simple `use domain::rdata::Aaaa` instead of
-//! `use domain::rdata::rfc3596::Aaaa` which nobody could possibly remember.
-//! There are, however, some helper data types defined here and there which
-//! are not re-exported to keep things somewhat tidy.
+//! The types are named identically to the [`iana::Rtype`] variant they
+//! implement. They are grouped into submodules for the RFCs they are defined
+//! in. All types are also re-exported at the top level here. Ie., for the
+//! AAAA record type, you can simple `use domain_core::rdata::Aaaa` instead of
+//! `use domain_core::rdata::rfc3596::Aaaa` which nobody could possibly
+//! remember. There are, however, some helper data types defined here and
+//! there which are not re-exported to keep things somewhat tidy.
 //!
-//! See the [`Rtype`] enum for the complete set of record types and,
+//! See the [`iana::Rtype`] enum for the complete set of record types and,
 //! consequently, those types that are still missing.
 //!
-//! [`Rtype`]: ../iana/enum.Rtype.html
+//!
+//! [`iana::Rtype`]: ../iana/enum.Rtype.html
 
 pub mod rfc1035;
 pub mod rfc2782;
@@ -32,8 +36,9 @@ mod macros;
 // containing all record types that can appear in master files or all record
 // types that exist.
 //
-// All record data types listed here should have the same name as the
-// `Rtype` variant they implement.
+// All record data types listed here MUST have the same name as the
+// `Rtype` variant they implement – some of the code implemented by the macro
+// relies on that.
 //
 // Add any new module here and then add all record types in that module that
 // can appear in master files under "master" and all others under "pseudo".
@@ -111,7 +116,9 @@ pub mod parsed {
 }
 
 use std::{error, fmt};
+use std::cmp::Ordering;
 use bytes::{BufMut, Bytes, BytesMut};
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::Rtype;
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
@@ -222,7 +229,7 @@ impl<T: RtypeRecordData + ParseAll + Compose + Compress + Sized>
 /// used safely with these record types.
 ///
 /// [RFC 3597] limits the types for which compressed names are allowed in the
-/// record data to those efined in [RFC 1035] itself. Specific types for all
+/// record data to those defined in [RFC 1035] itself. Specific types for all
 /// these record types exist in [`domain::rdata::rfc1035`].
 ///
 /// Ultimately, you should only use this type for record types for which there
@@ -292,6 +299,15 @@ impl UnknownRecordData {
             )?
         }
         Ok(UnknownRecordData::from_bytes(rtype, res.freeze()))
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for UnknownRecordData {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }
 
