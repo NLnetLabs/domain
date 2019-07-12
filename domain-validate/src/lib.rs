@@ -89,7 +89,7 @@ impl DnskeyExt for Dnskey {
     }
 
     fn rsa_exponent_modulus(&self) -> Result<(&[u8], &[u8]), AlgorithmError> {
-        assert!(self.algorithm() == SecAlg::RsaSha1 || self.algorithm() == SecAlg::RsaSha256);
+        assert!(self.algorithm() == SecAlg::RsaSha1 || self.algorithm() == SecAlg::RsaSha1Nsec3Sha1 || self.algorithm() == SecAlg::RsaSha256);
 
         let public_key = self.public_key();
         if public_key.len() <= 3 {
@@ -228,8 +228,9 @@ impl RrsigExt for Rrsig {
         let signature = Input::from(self.signature());
 
         match self.algorithm() {
-            SecAlg::RsaSha1 | SecAlg::RsaSha256 | SecAlg::RsaSha512 => {
+            SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 | SecAlg::RsaSha256 | SecAlg::RsaSha512 => {
                 let algorithm = match self.algorithm() {
+                    SecAlg::RsaSha1Nsec3Sha1 => &signature::RSA_PKCS1_2048_8192_SHA1,
                     SecAlg::RsaSha1 => &signature::RSA_PKCS1_2048_8192_SHA1,
                     SecAlg::RsaSha256 => &signature::RSA_PKCS1_2048_8192_SHA256,
                     SecAlg::RsaSha512 => &signature::RSA_PKCS1_2048_8192_SHA512,
