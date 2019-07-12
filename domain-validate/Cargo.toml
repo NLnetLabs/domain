@@ -18,8 +18,7 @@ path = "src/lib.rs"
 [dependencies]
 bytes 		= "0.4"
 derive_more	= "^0.15"
-ring		= { version = "^0.14" }
-untrusted 	= { version = "^0.6" }
+ring        = "=0.15.0-alpha3"
 
 [dependencies.domain-core]
 path = "../domain-core"

@@ -9,7 +9,7 @@ use std::error;
 //------------ AlgorithmError ------------------------------------------------
 
 /// An algorithm error during verification.
-#[derive(Clone, Debug, Display)]
+#[derive(Clone, Debug, Display, PartialEq)]
 pub enum AlgorithmError {
     #[display(fmt = "unsupported algorithm")]
     Unsupported,
@@ -73,7 +73,7 @@ impl DnskeyExt for Dnskey {
         self.compose(&mut buf);
 
         let mut ctx = match algorithm {
-            DigestAlg::Sha1 => digest::Context::new(&digest::SHA1),
+            DigestAlg::Sha1 => digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY),
             DigestAlg::Sha256 => digest::Context::new(&digest::SHA256),
             DigestAlg::Gost => {
                 return Err(AlgorithmError::Unsupported);
@@ -194,16 +194,14 @@ impl RrsigExt for Rrsig {
             let rrsig_labels = usize::from(self.labels());
             let fqdn = rr.owner();
             // Subtract the root label from count as the algorithm doesn't accomodate that.
-            let mut fqdn_labels = fqdn.iter_labels().count() - 1;
+            let fqdn_labels = fqdn.iter_labels().count() - 1;
             if rrsig_labels < fqdn_labels {
                 // name = "*." | the rightmost rrsig_label labels of the fqdn
                 b"\x01*".compose(buf);
-                let mut fqdn = fqdn.to_name();
-                while fqdn_labels < rrsig_labels {
-                    fqdn.parent();
-                    fqdn_labels -= 1;
+                match fqdn.to_name().iter_suffixes().skip(fqdn_labels - rrsig_labels).next() {
+                    Some(name) => name.compose_canonical(buf),
+                    None => fqdn.compose_canonical(buf),
                 }
-                fqdn.compose_canonical(buf);
             } else {
                 fqdn.compose_canonical(buf);
             }
@@ -222,28 +220,20 @@ impl RrsigExt for Rrsig {
         dnskey: &Dnskey,
         signed_data: &Bytes,
     ) -> Result<(), AlgorithmError> {
-        use untrusted::Input;
-
-        let message = untrusted::Input::from(signed_data);
-        let signature = Input::from(self.signature());
+        let signature = self.signature();
 
         match self.algorithm() {
             SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 | SecAlg::RsaSha256 | SecAlg::RsaSha512 => {
                 let algorithm = match self.algorithm() {
-                    SecAlg::RsaSha1Nsec3Sha1 => &signature::RSA_PKCS1_2048_8192_SHA1,
-                    SecAlg::RsaSha1 => &signature::RSA_PKCS1_2048_8192_SHA1,
-                    SecAlg::RsaSha256 => &signature::RSA_PKCS1_2048_8192_SHA256,
+                    SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 => &signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
+                    SecAlg::RsaSha256 => &signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
                     SecAlg::RsaSha512 => &signature::RSA_PKCS1_2048_8192_SHA512,
                     _ => unreachable!(),
                 };
                 // The key isn't available in either PEM or DER, so use the direct RSA verifier.
-                let (e, m) = dnskey.rsa_exponent_modulus()?;
-                signature::primitive::verify_rsa(
-                    algorithm,
-                    (Input::from(m), Input::from(e)),
-                    message,
-                    signature,
-                )
+                let (e, n) = dnskey.rsa_exponent_modulus()?;
+                let public_key = signature::RsaPublicKeyComponents { n: &n, e: &e };
+                public_key.verify(algorithm, &signed_data, &signature)
                 .map_err(|_| AlgorithmError::BadSig)
             }
             SecAlg::EcdsaP256Sha256 | SecAlg::EcdsaP384Sha384 => {
@@ -259,13 +249,13 @@ impl RrsigExt for Rrsig {
                 key.push(0x4);
                 key.extend_from_slice(&public_key);
 
-                signature::verify(algorithm, Input::from(&key), message, signature)
-                    .map_err(|_| AlgorithmError::BadSig)
+                signature::UnparsedPublicKey::new(algorithm, &key).verify(&signed_data, &signature)
+                .map_err(|_| AlgorithmError::BadSig)
             }
             SecAlg::Ed25519 => {
                 let key = dnskey.public_key();
-                signature::verify(&signature::ED25519, Input::from(&key), message, signature)
-                    .map_err(|_| AlgorithmError::BadSig)
+                signature::UnparsedPublicKey::new(&signature::ED25519, &key).verify(&signed_data, &signature)
+                .map_err(|_| AlgorithmError::BadSig)
             }
             _ => return Err(AlgorithmError::Unsupported),
         }
@@ -278,7 +268,8 @@ impl RrsigExt for Rrsig {
 mod test {
     use super::*;
     use domain_core::iana::{Class, Rtype, SecAlg};
-    use domain_core::{rdata::{MasterRecordData, Ds}, utils::base64, Dname};
+    use domain_core::{rdata::*, utils::base64, master::scan::Scanner, Dname, Serial};
+    use std::str::FromStr;
 
     // Returns current root KSK/ZSK for testing.
     fn root_pubkey() -> (Dnskey, Dnskey) {
@@ -350,7 +341,7 @@ mod test {
             Dnskey::new(256, 3, SecAlg::EcdsaP256Sha256, base64::decode("oJMRESz5E4gYzS/q6XDrvU1qMPYIjCWzJaOau8XNEZeqCYKD5ar0IRd8KqXXFJkqmVfRvMGPmM1x8fGAa2XhSA==").unwrap().into()),
         );
 
-        let owner = Dname::from_slice(b"\x0acloudflare\x03com\x00").unwrap();
+        let owner = Dname::from_str("cloudflare.com.").unwrap();
         let rrsig = Rrsig::new(Rtype::Dnskey, SecAlg::EcdsaP256Sha256, 2, 3600, 1560314494.into(), 1555130494.into(), 2371, owner.clone(), base64::decode("8jnAGhG7O52wmL065je10XQztRX1vK8P8KBSyo71Z6h5wAT9+GFxKBaEzcJBLvRmofYFDAhju21p1uTfLaYHrg==").unwrap().into());
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
@@ -402,5 +393,29 @@ mod test {
         };
 
         assert!(rrsig.verify_signed_data(&ksk, &signed_data).is_ok());
+    }
+
+    // Parse RRSIG serial from text.
+    fn rrsig_serial(x: &str) -> Serial {
+        let mut s = Scanner::new(x);
+        Serial::scan_rrsig(&mut s).unwrap()
+    }
+
+    #[test]
+    fn rrsig_verify_wildcard() {
+        let key = Dnskey::new(256, 3, SecAlg::RsaSha1, base64::decode("AQOy1bZVvpPqhg4j7EJoM9rI3ZmyEx2OzDBVrZy/lvI5CQePxXHZS4i8dANH4DX3tbHol61ek8EFMcsGXxKciJFHyhl94C+NwILQdzsUlSFovBZsyl/NX6yEbtw/xN9ZNcrbYvgjjZ/UVPZIySFNsgEYvh0z2542lzMKR4Dh8uZffQ==").unwrap().into());
+        let rrsig = Rrsig::new(Rtype::Mx, SecAlg::RsaSha1, 2, 3600, rrsig_serial("20040509183619"), rrsig_serial("20040409183619"), 38519, Dname::from_str("example.").unwrap(), base64::decode("OMK8rAZlepfzLWW75Dxd63jy2wswESzxDKG2f9AMN1CytCd10cYISAxfAdvXSZ7xujKAtPbctvOQ2ofO7AZJ+d01EeeQTVBPq4/6KCWhqe2XTjnkVLNvvhnc0u28aoSsG0+4InvkkOHknKxw4kX18MMR34i8lC36SR5xBni8vHI=").unwrap().into());
+        let record = Record::new(Dname::from_str("a.z.w.example.").unwrap(), Class::In, 3600, Mx::new(1, Dname::from_str("ai.example.").unwrap()));
+        let signed_data = {
+            let mut buf = Vec::new();
+            rrsig.signed_data(&mut buf, &mut [record]);
+            Bytes::from(buf)
+        };
+
+        // Test that the key matches RRSIG
+        assert_eq!(key.key_tag(), rrsig.key_tag());
+
+        // Test verifier
+        assert_eq!(rrsig.verify_signed_data(&key, &signed_data), Ok(()));
     }
 }

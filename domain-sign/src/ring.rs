@@ -12,7 +12,6 @@ use ring::signature::{
     EcdsaKeyPair, Ed25519KeyPair, KeyPair, RsaEncoding, RsaKeyPair,
     ECDSA_P256_SHA256_FIXED_SIGNING
 };
-use untrusted::Input;
 use crate::key::SigningKey;
 
 
@@ -39,7 +38,7 @@ impl<'a> Key<'a> {
         )?;
         let keypair = EcdsaKeyPair::from_pkcs8(
             &ECDSA_P256_SHA256_FIXED_SIGNING,
-            Input::from(pkcs8.as_ref())
+            pkcs8.as_ref()
         )?;
         let public_key = keypair.public_key().as_ref()[1..].into();
         Ok(Key {
@@ -75,7 +74,7 @@ impl<'a> SigningKey for Key<'a> {
     fn sign(&self, msg: &[u8]) -> Result<Bytes, Self::Error> {
         match self.key {
             RingKey::Ecdsa(ref key) => {
-                Ok(Bytes::from(key.sign(self.rng, Input::from(msg))?.as_ref()))
+                Ok(Bytes::from(key.sign(self.rng, msg)?.as_ref()))
             }
             RingKey::Ed25519(ref key) => {
                 Ok(Bytes::from(key.sign(msg).as_ref()))

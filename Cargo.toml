@@ -1,3 +1,5 @@
 [workspace]
 members = ["domain", "domain-core", "domain-resolv", "domain-sign", "domain-tsig", "domain-validate", "interop"]
 
+[patch.crates-io]
+ring = { git = "https://github.com/andrewtj/ring.git", rev = "eedb0514fb73e1034eefbec10140af8a51effff3"}
