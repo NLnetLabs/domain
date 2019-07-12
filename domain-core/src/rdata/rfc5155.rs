@@ -5,9 +5,11 @@
 //! [RFC 5155]: https://tools.ietf.org/html/rfc5155
 
 use std::{error, fmt};
+use std::cmp::Ordering;
 use bytes::BufMut;
 use derive_more::Display;
 use crate::charstr::CharStr;
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
 use crate::iana::{Nsec3HashAlg, Rtype};
@@ -67,6 +69,35 @@ impl Nsec3 {
 
     pub fn types(&self) -> &RtypeBitmap {
         &self.types
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Nsec3 {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        match self.hash_algorithm.cmp(&other.hash_algorithm) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.flags.cmp(&other.flags) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.iterations.cmp(&other.iterations) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.salt.canonical_cmp(&other.salt) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.next_owner.canonical_cmp(&other.next_owner) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.types.cmp(&other.types)
     }
 }
 
@@ -211,6 +242,27 @@ impl Nsec3param {
 
     pub fn salt(&self) -> &CharStr {
         &self.salt
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Nsec3param {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        match self.hash_algorithm.cmp(&other.hash_algorithm) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.flags.cmp(&other.flags) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.iterations.cmp(&other.iterations) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.salt.canonical_cmp(&other.salt)
     }
 }
 

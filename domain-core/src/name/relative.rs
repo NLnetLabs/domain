@@ -366,6 +366,12 @@ impl Compose for RelativeDname {
     fn compose<B: BufMut>(&self, buf: &mut B) {
         buf.put_slice(self.as_ref())
     }
+    
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        for label in self.iter_labels() {
+            label.compose_canonical(buf)
+        }
+    }
 }
 
 

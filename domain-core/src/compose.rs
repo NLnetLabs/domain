@@ -59,6 +59,18 @@ pub trait Compose {
     /// That is, the implementation can use `buf`‘s `put_*()` methods
     /// unchecked.
     fn compose<B: BufMut>(&self, buf: &mut B);
+
+    /// Appends the canoncial representation of this value to `buf`.
+    ///
+    /// The cannonical representation is equal to the uncompressed
+    /// representation provided by `compose` in most cases. It only differs
+    /// in the ASCII-case of domain names and possibly some TTL values.
+    ///
+    /// Consequently, the value returned by `compose_len` is correct for both
+    /// `compose` and `compose_canonical`.
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        self.compose(buf)
+    }
 }
 
 impl<'a, C: Compose> Compose for &'a C {
@@ -68,6 +80,10 @@ impl<'a, C: Compose> Compose for &'a C {
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
         (*self).compose(buf)
+    }
+
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        (*self).compose_canonical(buf)
     }
 }
 
@@ -571,6 +587,24 @@ impl BufMut for Compressor {
         self.buf.bytes_mut()
     }
 }
+
+
+//------------ BufMutExt -----------------------------------------------------
+
+/// Extension trait for `bytes::BufMut`.
+///
+/// This extension trait adds functionality to any `BufMut` that makes it
+/// easier to implement `Compose`.
+pub trait BufMutExt: BufMut {
+    /// Appends `src` to the buffer with all ASCII letters in lowercase.
+    fn put_slice_ascii_lowercase(&mut self, src: &[u8]) {
+        for &ch in src {
+            self.put_u8(ch.to_ascii_lowercase())
+        }
+    }
+}
+
+impl<T: BufMut> BufMutExt for T { }
 
 
 //============ Testing, One, Two =============================================

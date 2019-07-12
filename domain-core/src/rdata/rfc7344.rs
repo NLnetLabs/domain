@@ -1,5 +1,7 @@
 use std::fmt;
+use std::cmp::Ordering;
 use bytes::{BufMut, Bytes};
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{DigestAlg, Rtype, SecAlg};
 use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
@@ -18,7 +20,12 @@ pub struct Cdnskey {
 }
 
 impl Cdnskey {
-    pub fn new(flags: u16, protocol: u8, algorithm: SecAlg, public_key: Bytes) -> Self {
+    pub fn new(
+        flags: u16,
+        protocol: u8,
+        algorithm: SecAlg,
+        public_key: Bytes
+    ) -> Self {
         Cdnskey {
             flags,
             protocol,
@@ -43,6 +50,16 @@ impl Cdnskey {
         &self.public_key
     }
 }
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Cdnskey {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
+    }
+}
+
 
 //--- ParseAll, Compose, and Compress
 
@@ -81,6 +98,7 @@ impl Compress for Cdnskey {
     }
 }
 
+
 //--- Scan and Display
 
 impl Scan for Cdnskey {
@@ -101,11 +119,13 @@ impl fmt::Display for Cdnskey {
     }
 }
 
+
 //--- RecordData
 
 impl RtypeRecordData for Cdnskey {
     const RTYPE: Rtype = Rtype::Cdnskey;
 }
+
 
 //------------ Cds -----------------------------------------------------------
 
@@ -118,7 +138,12 @@ pub struct Cds {
 }
 
 impl Cds {
-    pub fn new(key_tag: u16, algorithm: SecAlg, digest_type: DigestAlg, digest: Bytes) -> Self {
+    pub fn new(
+        key_tag: u16,
+        algorithm: SecAlg,
+        digest_type: DigestAlg,
+        digest: Bytes
+    ) -> Self {
         Cds {
             key_tag,
             algorithm,
@@ -143,6 +168,16 @@ impl Cds {
         &self.digest
     }
 }
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Cds {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
+    }
+}
+
 
 //--- ParseAll, Compose, and Compress
 
@@ -181,6 +216,7 @@ impl Compress for Cds {
     }
 }
 
+
 //--- Scan and Display
 
 impl Scan for Cds {
@@ -207,6 +243,7 @@ impl fmt::Display for Cds {
         Ok(())
     }
 }
+
 
 //--- RtypeRecordData
 

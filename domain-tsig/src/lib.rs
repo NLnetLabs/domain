@@ -56,7 +56,7 @@ use std::{cmp, fmt, hash, mem, str};
 use std::collections::HashMap;
 use bytes::{BigEndian, ByteOrder, Bytes, BytesMut};
 use derive_more::Display;
-use ring::{constant_time, digest, hmac, rand};
+use ring::{constant_time, hmac, rand, hkdf::KeyType};
 use domain_core::iana::{Class, Rcode, TsigRcode};
 use domain_core::message::Message;
 use domain_core::message_builder::{
@@ -99,7 +99,7 @@ use domain_core::rdata::rfc2845::{Time48, Tsig};
 #[derive(Debug)]
 pub struct Key {
     /// The key’s bits and algorithm.
-    key: hmac::SigningKey,
+    key: hmac::Key,
 
     /// The name of the key as a domain name.
     name: Dname,
@@ -149,7 +149,7 @@ impl Key {
             algorithm, min_mac_len, signing_len
         )?;
         Ok(Key {
-            key: hmac::SigningKey::new(algorithm.into_digest_algorithm(), key),
+            key: hmac::Key::new(algorithm.into_hmac_algorithm(), key),
             name,
             min_mac_len,
             signing_len
@@ -173,14 +173,15 @@ impl Key {
         let (min_mac_len, signing_len) = Self::calculate_bounds(
             algorithm, min_mac_len, signing_len
         )?;
-        let algorithm = algorithm.into_digest_algorithm();
-        let key_len = hmac::recommended_key_len(algorithm);
+        let algorithm = algorithm.into_hmac_algorithm();
+        let key_len = algorithm.len();
         let mut bytes = BytesMut::with_capacity(key_len);
         bytes.resize(key_len, 0);
+        rng.fill(&mut bytes)?;
         let key = Key {
-            key: hmac::SigningKey::generate_serializable(
-                algorithm, rng, bytes.as_mut()
-            )?,
+            key: hmac::Key::new(
+                algorithm, &bytes
+            ),
             name,
             min_mac_len,
             signing_len
@@ -219,12 +220,12 @@ impl Key {
     }
 
     /// Creates a signing context for this key.
-    fn signing_context(&self) -> hmac::SigningContext {
-        hmac::SigningContext::with_key(&self.key)
+    fn signing_context(&self) -> hmac::Context {
+        hmac::Context::with_key(&self.key)
     }
 
     /// Returns a the possibly truncated slice of the signature.
-    fn signature_slice<'a>(&self, signature: &'a hmac::Signature) -> &'a [u8] {
+    fn signature_slice<'a>(&self, signature: &'a hmac::Tag) -> &'a [u8] {
         &signature.as_ref()[..self.signing_len]
     }
 }
@@ -235,7 +236,7 @@ impl Key {
 impl Key {
     /// Returns the algorithm of this key.
     pub fn algorithm(&self) -> Algorithm {
-        Algorithm::from_digest_algorithm(self.key.digest_algorithm())
+        Algorithm::from_hmac_algorithm(self.key.algorithm())
     }
 
     /// Returns a reference to the name of this key.
@@ -245,7 +246,7 @@ impl Key {
 
     /// Returns the native length of the signature from this key.
     pub fn native_len(&self) -> usize {
-        self.key.digest_algorithm().output_len
+        self.key.algorithm().len()
     }
 
     /// Returns the minimum acceptable length of a received signature.
@@ -279,7 +280,7 @@ impl Key {
     /// acceptable by this key.
     fn compare_signatures(
         &self,
-        expected: &hmac::Signature,
+        expected: &hmac::Tag,
         provided: &[u8],
     ) -> Result<(), ValidationError> {
         if provided.len() < self.min_mac_len {
@@ -885,7 +886,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
 #[derive(Clone, Debug)]
 struct SigningContext<K> {
     /// The ring signing context.
-    context: hmac::SigningContext,
+    context: hmac::Context,
 
     /// The key.
     ///
@@ -1101,7 +1102,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         key: K,
         message: &[u8],
         variables: &Variables
-    ) -> (Self, hmac::Signature) {
+    ) -> (Self, hmac::Tag) {
         let mut context = key.as_ref().signing_context();
         context.update(message);
         variables.sign(key.as_ref(), &mut context);
@@ -1120,7 +1121,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         &self,
         message: &[u8],
         variables: &Variables
-    ) -> hmac::Signature {
+    ) -> hmac::Tag {
         let mut context = self.context.clone();
         context.update(message);
         variables.sign(self.key.as_ref(), &mut context);
@@ -1134,7 +1135,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         mut self,
         message: &[u8],
         variables: &Variables
-    ) -> (hmac::Signature, K) {
+    ) -> (hmac::Tag, K) {
         self.context.update(message);
         variables.sign(self.key.as_ref(), &mut self.context);
         (self.context.sign(), self.key)
@@ -1147,7 +1148,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         &mut self,
         message: &[u8],
         variables: &Variables
-    ) -> hmac::Signature {
+    ) -> hmac::Tag {
         // Replace current context with new context.
         let mut context = self.key().signing_context();
         mem::swap(&mut self.context, &mut context);
@@ -1173,7 +1174,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         &mut self,
         message: &[u8],
         variables: &Variables
-    ) -> hmac::Signature {
+    ) -> hmac::Tag {
         // Replace current context with new context.
         let mut context = self.key().signing_context();
         mem::swap(&mut self.context, &mut context);
@@ -1299,7 +1300,7 @@ impl Variables {
     /// Applies the variables to a signing context.
     ///
     /// This applies the full variables including key information.
-    fn sign(&self, key: &Key, context: &mut hmac::SigningContext) {
+    fn sign(&self, key: &Key, context: &mut hmac::Context) {
         let mut buf = [0u8; 8];
 
         // Key name, in canonical wire format
@@ -1337,7 +1338,7 @@ impl Variables {
     }
 
     /// Applies only the timing values to the signing context.
-    fn sign_timers(&self, context: &mut hmac::SigningContext) {
+    fn sign_timers(&self, context: &mut hmac::Context) {
         // Time Signed
         context.update(&self.time_signed.into_octets());
 
@@ -1383,34 +1384,30 @@ impl Algorithm {
         }
     }
 
-    /// Creates a value from a digest algorithm.
+    /// Creates a value from a HMAC algorithm.
     ///
     /// This will panic if `alg` is not one of the recognized algorithms.
-    fn from_digest_algorithm(alg: &'static digest::Algorithm) -> Self {
-        if *alg == digest::SHA1 {
+    fn from_hmac_algorithm(alg: hmac::Algorithm) -> Self {
+        if alg == hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY {
             Algorithm::Sha1
-        }
-        else if *alg == digest::SHA256 {
+        } else if alg == hmac::HMAC_SHA256 {
             Algorithm::Sha256
-        }
-        else if *alg == digest::SHA384 {
+        } else if alg == hmac::HMAC_SHA384 {
             Algorithm::Sha384
-        }
-        else if *alg == digest::SHA512 {
+        } else if alg == hmac::HMAC_SHA512 {
             Algorithm::Sha512
-        }
-        else {
-            panic!("Unknown TSIG key algorithm.")
+        } else {
+           panic!("Unknown TSIG key algorithm.") 
         }
     }
 
-    /// Returns the ring digest algorithm for this TSIG algorithm.
-    fn into_digest_algorithm(self) -> &'static digest::Algorithm {
+    /// Returns the ring HMAC algorithm for this TSIG algorithm.
+    fn into_hmac_algorithm(self) -> hmac::Algorithm {
         match self {
-            Algorithm::Sha1 => &digest::SHA1,
-            Algorithm::Sha256 => &digest::SHA256,
-            Algorithm::Sha384 => &digest::SHA384,
-            Algorithm::Sha512 => &digest::SHA512,
+            Algorithm::Sha1 => hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
+            Algorithm::Sha256 => hmac::HMAC_SHA256,
+            Algorithm::Sha384 => hmac::HMAC_SHA384,
+            Algorithm::Sha512 => hmac::HMAC_SHA512,
         }
     }
 
@@ -1435,7 +1432,7 @@ impl Algorithm {
 
     /// Returns the native length of a signature created with this algorithm.
     pub fn native_len(self) -> usize {
-        self.into_digest_algorithm().output_len
+        self.into_hmac_algorithm().len()
     }
 
     /// Returns the bounds for the allowed signature size.

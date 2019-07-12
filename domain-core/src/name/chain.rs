@@ -97,14 +97,8 @@ impl<L, R> Chain<L, R> {
     }
 }
 
-impl<'a, L: ToRelativeDname, R: for<'r> ToLabelIter<'r>> ToLabelIter<'a>
-            for Chain<L, R> {
-    type LabelIter = ChainIter<'a, L, R>;
 
-    fn iter_labels(&'a self) -> Self::LabelIter {
-        ChainIter(self.left.iter_labels().chain(self.right.iter_labels()))
-    }
-}
+//--- Compose and Compress
 
 impl<L: ToRelativeDname, R: Compose> Compose for Chain<L, R> {
     fn compose_len(&self) -> usize {
@@ -115,41 +109,10 @@ impl<L: ToRelativeDname, R: Compose> Compose for Chain<L, R> {
         self.left.compose(buf);
         self.right.compose(buf)
     }
-}
 
-impl<L: ToRelativeDname, R: ToDname> Compress for Chain<L, R> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compress_name(self)
-    }
-}
-
-impl<L: ToRelativeDname, R: ToRelativeDname> ToRelativeDname for Chain<L, R> {
-}
-
-impl<L: ToRelativeDname, R: ToDname> ToDname for Chain<L, R> {
-}
-
-impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}", self.left, self.right)
-    }
-}
-
-impl<'a, R: ToDname> ToLabelIter<'a> for Chain<UncertainDname, R> {
-    type LabelIter = UncertainChainIter<'a, R>;
-
-    fn iter_labels(&'a self) -> Self::LabelIter {
-        match self.left {
-            UncertainDname::Absolute(ref name) => {
-                UncertainChainIter::Absolute(name.iter_labels())
-            }
-            UncertainDname::Relative(ref name) => {
-                UncertainChainIter::Relative(
-                    ChainIter(name.iter_labels()
-                                  .chain(self.right.iter_labels()))
-                )
-            }
-        }
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        self.left.compose_canonical(buf);
+        self.right.compose_canonical(buf);
     }
 }
 
@@ -172,8 +135,23 @@ impl<R: ToDname> Compose for Chain<UncertainDname, R> {
             }
         }
     }
+
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        match self.left {
+            UncertainDname::Absolute(ref name) => name.compose_canonical(buf),
+            UncertainDname::Relative(ref name) => {
+                name.compose_canonical(buf);
+                self.right.compose_canonical(buf)
+            }
+        }
+    }
 }
 
+impl<L: ToRelativeDname, R: ToDname> Compress for Chain<L, R> {
+    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
+        buf.compress_name(self)
+    }
+}
 
 impl<R: ToDname> Compress for Chain<UncertainDname, R> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
@@ -187,7 +165,52 @@ impl<R: ToDname> Compress for Chain<UncertainDname, R> {
     }
 }
 
+
+//--- ToLabelIter, ToRelativeDname, ToDname
+
+impl<'a, L: ToRelativeDname, R: for<'r> ToLabelIter<'r>> ToLabelIter<'a>
+            for Chain<L, R> {
+    type LabelIter = ChainIter<'a, L, R>;
+
+    fn iter_labels(&'a self) -> Self::LabelIter {
+        ChainIter(self.left.iter_labels().chain(self.right.iter_labels()))
+    }
+}
+
+impl<'a, R: ToDname> ToLabelIter<'a> for Chain<UncertainDname, R> {
+    type LabelIter = UncertainChainIter<'a, R>;
+
+    fn iter_labels(&'a self) -> Self::LabelIter {
+        match self.left {
+            UncertainDname::Absolute(ref name) => {
+                UncertainChainIter::Absolute(name.iter_labels())
+            }
+            UncertainDname::Relative(ref name) => {
+                UncertainChainIter::Relative(
+                    ChainIter(name.iter_labels()
+                                  .chain(self.right.iter_labels()))
+                )
+            }
+        }
+    }
+}
+
+impl<L: ToRelativeDname, R: ToRelativeDname> ToRelativeDname for Chain<L, R> {
+}
+
+impl<L: ToRelativeDname, R: ToDname> ToDname for Chain<L, R> {
+}
+
 impl<R: ToDname> ToDname for Chain<UncertainDname, R> { }
+
+
+//--- Display
+
+impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}.{}", self.left, self.right)
+    }
+}
 
 
 //------------ ChainIter -----------------------------------------------------

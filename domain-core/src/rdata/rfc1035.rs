@@ -5,14 +5,16 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use std::{fmt, ops};
+use std::cmp::Ordering;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use bytes::{BufMut, Bytes, BytesMut};
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::Rtype;
 use crate::charstr::CharStr;
 use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
-use crate::name::ParsedDname;
+use crate::name::{ParsedDname, ToDname};
 use crate::parse::{
     ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ShortBuf
 };
@@ -29,7 +31,7 @@ use super::RtypeRecordData;
 macro_rules! dname_type {
     ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
         $(#[$attr])*
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[derive(Clone, Debug, Hash)]
         pub struct $target<N> {
             $field: N
         }
@@ -60,7 +62,39 @@ macro_rules! dname_type {
             }
         }
 
-        
+
+        //--- PartialEq and Eq
+
+        impl<N: PartialEq<NN>, NN> PartialEq<$target<NN>> for $target<N> {
+            fn eq(&self, other: &$target<NN>) -> bool {
+                self.$field.eq(&other.$field)
+            }
+        }
+
+        impl<N: Eq> Eq for $target<N> { }
+
+
+        //--- PartialOrd, Ord, and CanonicalOrd
+
+        impl<N: PartialOrd<NN>, NN> PartialOrd<$target<NN>> for $target<N> {
+            fn partial_cmp(&self, other: &$target<NN>) -> Option<Ordering> {
+                self.$field.partial_cmp(&other.$field)
+            }
+        }
+
+        impl<N: Ord> Ord for $target<N> {
+            fn cmp(&self, other: &Self) -> Ordering {
+                self.$field.cmp(&other.$field)
+            }
+        }
+
+        impl<N: ToDname, NN: ToDname> CanonicalOrd<$target<NN>> for $target<N> {
+            fn canonical_cmp(&self, other: &$target<NN>) -> Ordering {
+                self.$field.lowercase_composed_cmp(&other.$field)
+            }
+        }
+
+
         //--- Parse, ParseAll, Compose, and Compress
 
         impl Parse for $target<ParsedDname> {
@@ -91,6 +125,10 @@ macro_rules! dname_type {
         
             fn compose<B: BufMut>(&self, buf: &mut B) {
                 self.$field.compose(buf)
+            }
+
+            fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+                self.$field.compose_canonical(buf)
             }
         }
 
@@ -186,6 +224,15 @@ impl FromStr for A {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ipv4Addr::from_str(s).map(A::new)
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for A {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }
 
@@ -329,6 +376,20 @@ impl Hinfo {
     }
 }
 
+
+//--- CanonicalCmp
+
+impl CanonicalOrd for Hinfo {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        match self.cpu.canonical_cmp(&other.cpu) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.os.canonical_cmp(&other.os)
+    }
+}
+
+
 //--- Parse, Compose, and Compress
 
 impl Parse for Hinfo {
@@ -471,7 +532,7 @@ dname_type! {
 /// The Minfo record is experimental.
 ///
 /// The Minfo record type is defined in RFC 1035, section 3.3.7.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash)]
 pub struct Minfo<N=ParsedDname> {
     rmailbx: N,
     emailbx: N,
@@ -500,6 +561,50 @@ impl<N> Minfo<N> {
     /// be returned to the sender of the message.
     pub fn emailbx(&self) -> &N {
         &self.emailbx
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl<N: PartialEq<NN>, NN> PartialEq<Minfo<NN>> for Minfo<N> {
+    fn eq(&self, other: &Minfo<NN>) -> bool {
+        self.rmailbx.eq(&other.rmailbx) && self.emailbx.eq(&other.emailbx)
+    }
+}
+
+impl<N: Eq> Eq for Minfo<N> { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<N: PartialOrd<NN>, NN> PartialOrd<Minfo<NN>> for Minfo<N> {
+    fn partial_cmp(&self, other: &Minfo<NN>) -> Option<Ordering> {
+        match self.rmailbx.partial_cmp(&other.rmailbx) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.emailbx.partial_cmp(&other.emailbx)
+    }
+}
+
+impl<N: Ord> Ord for Minfo<N> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.rmailbx.cmp(&other.rmailbx) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.emailbx.cmp(&other.emailbx)
+    }
+}
+
+impl<N: ToDname, NN: ToDname> CanonicalOrd<Minfo<NN>> for Minfo<N> {
+    fn canonical_cmp(&self, other: &Minfo<NN>) -> Ordering {
+        match self.rmailbx.lowercase_composed_cmp(&other.rmailbx) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.emailbx.lowercase_composed_cmp(&other.emailbx)
     }
 }
 
@@ -550,6 +655,11 @@ impl<N: Compose> Compose for Minfo<N> {
     fn compose<B: BufMut>(&self, buf: &mut B) {
         self.rmailbx.compose(buf);
         self.emailbx.compose(buf);
+    }
+
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        self.rmailbx.compose_canonical(buf);
+        self.emailbx.compose_canonical(buf);
     }
 }
 
@@ -607,7 +717,7 @@ dname_type! {
 /// the owner name.
 ///
 /// The Mx record type is defined in RFC 1035, section 3.3.9.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash)]
 pub struct Mx<N=ParsedDname> {
     preference: u16,
     exchange: N,
@@ -630,6 +740,50 @@ impl<N> Mx<N> {
     /// The name of the host that is the exchange.
     pub fn exchange(&self) -> &N {
         &self.exchange
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl<N: PartialEq<NN>, NN> PartialEq<Mx<NN>> for Mx<N> {
+    fn eq(&self, other: &Mx<NN>) -> bool {
+        self.preference == other.preference && self.exchange == other.exchange
+    }
+}
+
+impl<N: Eq> Eq for Mx<N> { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<N: PartialOrd<NN>, NN> PartialOrd<Mx<NN>> for Mx<N> {
+    fn partial_cmp(&self, other: &Mx<NN>) -> Option<Ordering> {
+        match self.preference.partial_cmp(&other.preference) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.exchange.partial_cmp(&other.exchange)
+    }
+}
+
+impl<N: Ord> Ord for Mx<N> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.preference.cmp(&other.preference) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.exchange.cmp(&other.exchange)
+    }
+}
+
+impl<N: ToDname, NN: ToDname> CanonicalOrd<Mx<NN>> for Mx<N> {
+    fn canonical_cmp(&self, other: &Mx<NN>) -> Ordering {
+        match self.preference.cmp(&other.preference) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.exchange.lowercase_composed_cmp(&other.exchange)
     }
 }
 
@@ -670,6 +824,11 @@ impl<N: Compose> Compose for Mx<N> {
     fn compose<B: BufMut>(&self, buf: &mut B) {
         self.preference.compose(buf);
         self.exchange.compose(buf);
+    }
+
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        self.preference.compose(buf);
+        self.exchange.compose_canonical(buf);
     }
 }
 
@@ -747,6 +906,15 @@ impl Null {
 impl From<Bytes> for Null {
     fn from(data: Bytes) -> Self {
         Self::new(data)
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Null {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }
 
@@ -851,7 +1019,7 @@ impl<N> Ptr<N> {
 /// name server maintenance operations.
 ///
 /// The Soa record type is defined in RFC 1035, section 3.3.13.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash)]
 pub struct Soa<N=ParsedDname> {
     mname: N,
     rname: N,
@@ -902,6 +1070,113 @@ impl<N> Soa<N> {
     /// The minimum TTL to be exported with any RR from this zone.
     pub fn minimum(&self) -> u32 {
         self.minimum
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl<N: PartialEq<NN>, NN> PartialEq<Soa<NN>> for Soa<N> {
+    fn eq(&self, other: &Soa<NN>) -> bool {
+        self.mname == other.mname && self.rname == other.rname
+        && self.serial == other.serial && self.refresh == other.refresh
+        && self.retry == other.retry && self.expire == other.expire
+        && self.minimum == other.minimum
+    }
+}
+
+impl<N: Eq> Eq for Soa<N> { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<N: PartialOrd<NN>, NN> PartialOrd<Soa<NN>> for Soa<N> {
+    fn partial_cmp(&self, other: &Soa<NN>) -> Option<Ordering> {
+        match self.mname.partial_cmp(&other.mname) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.rname.partial_cmp(&other.rname) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match u32::from(self.serial).partial_cmp(&u32::from(other.serial)) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.refresh.partial_cmp(&other.refresh) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.retry.partial_cmp(&other.retry) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.expire.partial_cmp(&other.expire) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.minimum.partial_cmp(&other.minimum)
+    }
+}
+
+impl<N: Ord> Ord for Soa<N> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.mname.cmp(&other.mname) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.rname.cmp(&other.rname) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match u32::from(self.serial).cmp(&u32::from(other.serial)) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.refresh.cmp(&other.refresh) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.retry.cmp(&other.retry) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.expire.cmp(&other.expire) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.minimum.cmp(&other.minimum)
+    }
+}
+
+impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
+    fn canonical_cmp(&self, other: &Soa<NN>) -> Ordering {
+        match self.mname.lowercase_composed_cmp(&other.mname) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.rname.lowercase_composed_cmp(&other.rname) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.serial.canonical_cmp(&other.serial) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.refresh.cmp(&other.refresh) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.retry.cmp(&other.retry) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.expire.cmp(&other.expire) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.minimum.cmp(&other.minimum)
     }
 }
 
@@ -960,6 +1235,16 @@ impl<N: Compose> Compose for Soa<N> {
     fn compose<B: BufMut>(&self, buf: &mut B) {
         self.mname.compose(buf);
         self.rname.compose(buf);
+        self.serial.compose(buf);
+        self.refresh.compose(buf);
+        self.retry.compose(buf);
+        self.expire.compose(buf);
+        self.minimum.compose(buf);
+    }
+
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        self.mname.compose_canonical(buf);
+        self.rname.compose_canonical(buf);
         self.serial.compose(buf);
         self.refresh.compose(buf);
         self.retry.compose(buf);
@@ -1077,6 +1362,15 @@ impl<'a> IntoIterator for &'a Txt {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Txt {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }
 
@@ -1234,6 +1528,23 @@ impl Wks {
     /// Returns an iterator over the served ports.
     pub fn iter(&self) -> WksIter {
         WksIter::new(self.bitmap.clone())
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Wks {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        match self.address.octets().cmp(&other.address.octets()) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.protocol.cmp(&other.protocol) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.bitmap.cmp(&other.bitmap)
     }
 }
 

@@ -5,17 +5,20 @@
 //! [RFC 2782]: https://tools.ietf.org/html/rfc2782
 
 use std::fmt;
+use std::cmp::Ordering;
 use bytes::BufMut;
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::Rtype;
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
+use crate::name::ToDname;
 use crate::parse::{Parse, ParseAll, Parser, ParseOpenError, ShortBuf};
 use super::RtypeRecordData;
 
 
 //------------ Srv ---------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash)]
 pub struct Srv<N> {
     priority: u16,
     weight: u16,
@@ -34,6 +37,75 @@ impl<N> Srv<N> {
     pub fn weight(&self) -> u16 { self.weight }
     pub fn port(&self) -> u16 { self.port }
     pub fn target(&self) -> &N { &self.target }
+}
+
+
+//--- PartialEq and Eq
+
+impl<N: PartialEq<NN>, NN> PartialEq<Srv<NN>> for Srv<N> {
+    fn eq(&self, other: &Srv<NN>) -> bool {
+        self.priority == other.priority && self.weight == other.weight
+        && self.port == other.port && self.target == other.target
+    }
+}
+
+impl<N: Eq> Eq for Srv<N> { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<N: PartialOrd<NN>, NN> PartialOrd<Srv<NN>> for Srv<N> {
+    fn partial_cmp(&self, other: &Srv<NN>) -> Option<Ordering> {
+        match self.priority.partial_cmp(&other.priority) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.weight.partial_cmp(&other.weight) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.port.partial_cmp(&other.port) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.target.partial_cmp(&other.target)
+    }
+}
+
+impl<N: Ord> Ord for Srv<N> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.priority.cmp(&other.priority) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.weight.cmp(&other.weight) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.port.cmp(&other.port) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.target.cmp(&other.target)
+    }
+}
+
+impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
+    fn canonical_cmp(&self, other: &Srv<NN>) -> Ordering {
+        match self.priority.cmp(&other.priority) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.weight.cmp(&other.weight) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.port.cmp(&other.port) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.target.lowercase_composed_cmp(&other.target)
+    }
 }
 
 
@@ -77,6 +149,13 @@ impl<N: Compose> Compose for Srv<N> {
         self.weight.compose(buf);
         self.port.compose(buf);
         self.target.compose(buf);
+    }
+
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        self.priority.compose(buf);
+        self.weight.compose(buf);
+        self.port.compose(buf);
+        self.target.compose_canonical(buf);
     }
 }
 

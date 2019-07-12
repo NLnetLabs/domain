@@ -20,5 +20,6 @@ bytes          = "^0.4"
 chrono         = "^0.4"
 derive_more    = "^0.14"
 rand           = "^0.6"
+unwrap         = "^1.2"
 void           = "^1.0"
 

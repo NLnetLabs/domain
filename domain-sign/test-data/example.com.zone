@@ -1,0 +1,28 @@
+$ORIGIN example.com.
+$TTL 86400
+
+@		IN      SOA     ns.example.com. hostmaster.example.com. (
+                                2019070801
+                                86400 3600 604800 300 )
+		IN	NS	ns.example.com.
+		IN	NS	ns1.example.net.
+		IN	NS	ns2.example.net.
+
+		IN	A	192.0.2.2
+		IN	AAAA	2001:db8::2
+
+ns		IN	A	192.0.2.3
+ns		IN	AAAA	2001:db8::3
+
+*		IN	A	192.0.2.4
+*		IN	A	192.0.2.5
+
+www		IN	A	192.0.2.6
+wWw		IN	A	192.0.2.7
+
+sub		IN	NS	ns.sub.example.com.
+sub		IN	NS	ns1.example.net.
+sub		IN	NS	ns2.example.net.
+
+ns.sub		IN	A	192.0.2.4
+ns.sub		IN	AAAA	2001:db8::4

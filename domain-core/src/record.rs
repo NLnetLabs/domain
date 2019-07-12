@@ -41,8 +41,10 @@
 //! [`ParsedRecord`]: struct.ParsedRecord.html
 
 use std::{error, fmt};
+use std::cmp::Ordering;
 use bytes::{BigEndian, BufMut, ByteOrder};
 use derive_more::Display;
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{Class, Rtype};
 use crate::name::{ParsedDname, ParsedDnameError, ToDname};
@@ -109,7 +111,7 @@ use crate::rdata::{ParseRecordData, RecordData};
 /// [`Rtype`]: ../../iana/enum.Rtype.html
 /// [`domain::master`]: ../../master/index.html
 #[derive(Clone, Debug)]
-pub struct Record<N: ToDname, D: RecordData> {
+pub struct Record<N, D> {
     /// The owner of the record.
     owner: N,
 
@@ -126,10 +128,24 @@ pub struct Record<N: ToDname, D: RecordData> {
 
 /// # Creation and Element Access
 ///
-impl<N: ToDname, D: RecordData> Record<N, D> {
+impl<N, D> Record<N, D> {
     /// Creates a new record from its parts.
     pub fn new(owner: N, class: Class, ttl: u32, data: D) -> Self {
         Record { owner, class, ttl, data }
+    }
+
+    /// Creates a new record from a compatible record.
+    ///
+    /// This function only exists because the equivalent `From` implementation
+    /// is currently not possible,
+    pub fn from_record<NN, DD>(record: Record<NN, DD>) -> Self
+    where N: From<NN>, D: From<DD> {
+        Self::new(
+            record.owner.into(),
+            record.class,
+            record.ttl,
+            record.data.into()
+        )
     }
 
     /// Returns a reference to owner domain name.
@@ -141,7 +157,8 @@ impl<N: ToDname, D: RecordData> Record<N, D> {
     }
 
     /// Returns the record type.
-    pub fn rtype(&self) -> Rtype where D: RecordData {
+    pub fn rtype(&self) -> Rtype
+    where D: RecordData {
         self.data.rtype()
     }
 
@@ -184,15 +201,84 @@ impl<N: ToDname, D: RecordData> Record<N, D> {
 
 //--- From
 
-impl<N: ToDname, D: RecordData> From<(N, Class, u32, D)> for Record<N, D> {
+impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
     fn from((owner, class, ttl, data): (N, Class, u32, D)) -> Self {
         Self::new(owner, class, ttl, data)
     }
 }
 
-impl<N: ToDname, D: RecordData> From<(N, u32, D)> for Record<N, D> {
+impl<N, D> From<(N, u32, D)> for Record<N, D> {
     fn from((owner, ttl, data): (N, u32, D)) -> Self {
         Self::new(owner, Class::In, ttl, data)
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl<N, NN, D, DD> PartialEq<Record<NN, DD>> for Record<N, D>
+where N: PartialEq<NN>, D: RecordData + PartialEq<DD>, DD: RecordData {
+    fn eq(&self, other: &Record<NN, DD>) -> bool {
+        self.owner == other.owner
+        && self.class == other.class
+        && self.data == other.data
+    }
+}
+
+impl<N: Eq, D: RecordData + Eq> Eq for Record<N, D> { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<N, NN, D, DD> PartialOrd<Record<NN, DD>> for Record<N, D>
+where N: PartialOrd<NN>, D: RecordData + PartialOrd<DD>, DD: RecordData {
+    fn partial_cmp(&self, other: &Record<NN, DD>) -> Option<Ordering> {
+        match self.owner.partial_cmp(&other.owner) {
+            Some(Ordering::Equal) => { }
+            res => return res
+        }
+        match self.class.partial_cmp(&other.class) {
+            Some(Ordering::Equal) => { }
+            res => return res
+        }
+        self.data.partial_cmp(&other.data)
+    }
+}
+
+impl<N, D> Ord for Record<N, D>
+where N: Ord, D: RecordData + Ord {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.owner.cmp(&other.owner) {
+            Ordering::Equal => { }
+            res => return res
+        }
+        match self.class.cmp(&other.class) {
+            Ordering::Equal => { }
+            res => return res
+        }
+        self.data.cmp(&other.data)
+    }
+}
+
+impl<N, NN, D, DD> CanonicalOrd<Record<NN, DD>> for Record<N, D>
+where N: ToDname, NN: ToDname, D: RecordData + CanonicalOrd<DD>, DD: RecordData {
+    fn canonical_cmp(&self, other: &Record<NN, DD>) -> Ordering {
+        // This sort order will keep all records of a zone together. Ie.,
+        // all the records with the same zone and ending in a given name
+        // form one sequence.
+        match self.class.cmp(&other.class) {
+            Ordering::Equal => { }
+            res => return res
+        }
+        match self.owner.name_cmp(&other.owner) {
+            Ordering::Equal => { }
+            res => return res
+        }
+        match self.rtype().cmp(&other.rtype()) {
+            Ordering::Equal => { }
+            res => return res
+        }
+        self.data.canonical_cmp(&other.data)
     }
 }
 
@@ -233,15 +319,27 @@ impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
     }
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
-        RecordHeader::new(&self.owner, self.data.rtype(), self.class, self.ttl,
-                          self.data.compose_len() as u16)
-                     .compose(buf);
+        RecordHeader::new(
+            &self.owner,
+            self.data.rtype(),
+            self.class, self.ttl,
+            self.data.compose_len() as u16
+        ).compose(buf);
         self.data.compose(buf);
+    }
+
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        RecordHeader::new(
+            &self.owner,
+            self.data.rtype(),
+            self.class, self.ttl,
+            self.data.compose_len() as u16
+        ).compose_canonical(buf);
+        self.data.compose_canonical(buf);
     }
 }
 
-impl<N: ToDname, D: RecordData + Compress> Compress
-            for Record<N, D> {
+impl<N: ToDname, D: RecordData + Compress> Compress for Record<N, D> {
     fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
         self.owner.compress(buf)?;
         buf.compose(&self.rtype())?;
@@ -261,7 +359,7 @@ impl<N: ToDname, D: RecordData + Compress> Compress
 //--- Display
 
 impl<N, D> fmt::Display for Record<N, D>
-     where N: ToDname + fmt::Display, D: RecordData + fmt::Display {
+where N: fmt::Display, D: RecordData + fmt::Display {
    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}. {} {} {} {}",
                self.owner, self.ttl, self.class, self.data.rtype(),
@@ -280,7 +378,7 @@ impl<N, D> fmt::Display for Record<N, D>
 /// in a DNS message.
 ///
 /// See [`Record`] for more details about resource records.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RecordHeader<N> {
     owner: N,
     rtype: Rtype,
@@ -409,6 +507,14 @@ impl<N: Compose> Compose for RecordHeader<N> {
 
     fn compose<B: BufMut>(&self, buf: &mut B) {
         self.owner.compose(buf);
+        self.rtype.compose(buf);
+        self.class.compose(buf);
+        self.ttl.compose(buf);
+        self.rdlen.compose(buf);
+    }
+
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        self.owner.compose_canonical(buf);
         self.rtype.compose(buf);
         self.class.compose(buf);
         self.ttl.compose(buf);

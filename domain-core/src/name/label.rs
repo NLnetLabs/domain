@@ -6,7 +6,7 @@
 use std::{cmp, error, fmt, hash, ops};
 use bytes::BufMut;
 use derive_more::Display;
-use crate::compose::Compose;
+use crate::compose::{BufMutExt, Compose};
 use crate::parse::ShortBuf;
 
 
@@ -133,6 +133,24 @@ impl Label {
         res.make_canonical();
         res
     }
+
+    /// Returns the composed label ordering.
+    pub fn composed_cmp(&self, other: &Self) -> cmp::Ordering {
+        match self.0.len().cmp(&other.0.len()) {
+            cmp::Ordering::Equal => { }
+            other => return other
+        }
+        self.0.cmp(other.as_ref())
+    }
+
+    /// Returns the composed ordering with ASCII letters lowercased.
+    pub fn lowercase_composed_cmp(&self, other: &Self) -> cmp::Ordering {
+        match self.0.len().cmp(&other.0.len()) {
+            cmp::Ordering::Equal => { }
+            other => return other
+        }
+        self.cmp(other)
+    }
 }
 
 /// # Properties
@@ -141,6 +159,11 @@ impl Label {
     /// Returns whether the label is the root label.
     pub fn is_root(&self) -> bool {
         self.is_empty()
+    }
+
+    /// Returns whether the label is the wildcard label.
+    pub fn is_wildcard(&self) -> bool {
+        self.0.len() == 1 && self.0[0] == b'*'
     }
 }
 
@@ -155,6 +178,11 @@ impl Compose for Label {
     fn compose<B: BufMut>(&self, buf: &mut B) {
         buf.put_u8(self.len() as u8);
         buf.put_slice(self.as_ref());
+    }
+    
+    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+        buf.put_u8(self.len() as u8);
+        buf.put_slice_ascii_lowercase(self.as_ref());
     }
 }
 

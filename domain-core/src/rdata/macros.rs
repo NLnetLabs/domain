@@ -61,9 +61,9 @@ macro_rules! rdata_types {
 
         //--- PartialEq and Eq
 
-        impl<N> PartialEq for MasterRecordData<N>
-        where N: PartialEq {
-            fn eq(&self, other: &Self) -> bool {
+        impl<N, NN> PartialEq<MasterRecordData<NN>> for MasterRecordData<N>
+        where N: PartialEq<NN> {
+            fn eq(&self, other: &MasterRecordData<NN>) -> bool {
                 match (self, other) {
                     $( $( $(
                         (
@@ -74,6 +74,12 @@ macro_rules! rdata_types {
                             self_inner.eq(other_inner)
                         }
                     )* )* )*
+                    (
+                        &MasterRecordData::Other(ref self_inner),
+                        &MasterRecordData::Other(ref other_inner)
+                    ) => {
+                        self_inner.eq(other_inner)
+                    }
                     (_, &MasterRecordData::__Nonexhaustive(_))
                         => unreachable!(),
                     (&MasterRecordData::__Nonexhaustive(_), _)
@@ -86,6 +92,74 @@ macro_rules! rdata_types {
         impl<N> Eq for MasterRecordData<N>
         where N: PartialEq { }
 
+
+        //--- PartialOrd, Ord, and CanonicalOrd
+
+        impl<N, NN> PartialOrd<MasterRecordData<NN>> for MasterRecordData<N>
+        where
+            N: PartialOrd<NN> + $crate::compose::Compose
+                + $crate::compose::Compress,
+            NN: $crate::compose::Compose + $crate::compose::Compress
+        {
+            fn partial_cmp(
+                &self,
+                other: &MasterRecordData<NN>
+            ) -> Option<std::cmp::Ordering> {
+                match (self, other) {
+                    $( $( $(
+                        (
+                            &MasterRecordData::$mtype(ref self_inner),
+                            &MasterRecordData::$mtype(ref other_inner)
+                        )
+                        => {
+                            self_inner.partial_cmp(other_inner)
+                        }
+                    )* )* )*
+                    (
+                        &MasterRecordData::Other(ref self_inner),
+                        &MasterRecordData::Other(ref other_inner)
+                    ) => {
+                        self_inner.partial_cmp(other_inner)
+                    }
+                    (_, &MasterRecordData::__Nonexhaustive(_))
+                        => unreachable!(),
+                    (&MasterRecordData::__Nonexhaustive(_), _)
+                        => unreachable!(),
+                    _ => self.rtype().partial_cmp(&other.rtype())
+                }
+            }
+        }
+
+        impl<N, NN> CanonicalOrd<MasterRecordData<NN>> for MasterRecordData<N>
+        where N: $crate::name::ToDname, NN: $crate::name::ToDname {
+            fn canonical_cmp(
+                &self,
+                other: &MasterRecordData<NN>
+            ) -> std::cmp::Ordering {
+                match (self, other) {
+                    $( $( $(
+                        (
+                            &MasterRecordData::$mtype(ref self_inner),
+                            &MasterRecordData::$mtype(ref other_inner)
+                        )
+                        => {
+                            self_inner.canonical_cmp(other_inner)
+                        }
+                    )* )* )*
+                    (
+                        &MasterRecordData::Other(ref self_inner),
+                        &MasterRecordData::Other(ref other_inner)
+                    ) => {
+                        self_inner.canonical_cmp(other_inner)
+                    }
+                    (_, &MasterRecordData::__Nonexhaustive(_))
+                        => unreachable!(),
+                    (&MasterRecordData::__Nonexhaustive(_), _)
+                        => unreachable!(),
+                    _ => self.rtype().cmp(&other.rtype())
+                }
+            }
+        }
 
         //--- Hash
  

@@ -15,14 +15,26 @@ Breaking Changes
 
 New
 
-* `bits::message::Message::opt` returns a messages OPT record if present.
+* `message::Message::opt` returns a messages OPT record if present.
   ([#6], thanks to Marek Vavruša!)
 * unsafe `bits::name::Dname::from_bytes_unchecked` in order to create
   names from well-known sequences. [(#31)]
+* `compose::Compose::compose_canonical` for composing the canonical form
+  for DNSSEC signing. It has a default implementation just doing `compose`
+  and has been implemented for all relevant types. [(#XX)]
+* `cmp::CanonicalOrd` for the ordering of record data and records for
+  DNSSEC signing. Implemented for all relevant types. Also improved
+  implementations of `PartialEq` and `PartialOrd` for types generic over
+  domain name types to be generic over the other values domain name type.
+  [(#XX)]
+* `compose::BufMutExt` allowing to `put_slice_ascii_lowercase`. [(#XX)]
+* Allow `serial::Serial` to be created from datetimes, provide a
+  constructor for `now` and add `sub`. [(#XX)]
 
 Bug fixes
 
 * Do not compress the target of an SRV record’s data. [(#18)]
+* Fix `rdata::rfc4043::RtypeBitmapIter`. [(#XX)]
 
 Dependencies
 

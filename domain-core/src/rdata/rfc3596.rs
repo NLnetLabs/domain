@@ -5,9 +5,11 @@
 //! [RFC 3596]: https://tools.ietf.org/html/rfc3596
 
 use std::{fmt, ops};
+use std::cmp::Ordering;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
 use bytes::BufMut;
+use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::Rtype;
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
@@ -51,6 +53,15 @@ impl FromStr for Aaaa {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ipv6Addr::from_str(s).map(Aaaa::new)
+    }
+}
+
+
+//--- CanonicalOrd
+
+impl CanonicalOrd for Aaaa {
+    fn canonical_cmp(&self, other: &Self) -> Ordering {
+        self.cmp(other)
     }
 }
 
