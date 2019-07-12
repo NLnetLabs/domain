@@ -1,7 +1,7 @@
 use bytes::{BufMut, Bytes};
 use derive_more::Display;
 use domain_core::iana::{DigestAlg, SecAlg};
-use domain_core::rdata::{Dnskey, Rrsig, RtypeRecordData};
+use domain_core::rdata::{Dnskey, Rrsig, RecordData};
 use domain_core::{CanonicalOrd, Compose, Compress, Record, ToDname};
 use ring::{digest, signature};
 use std::error;
@@ -127,7 +127,7 @@ pub trait RrsigExt: Compose {
     ///    the received RRset due to DNS name compression, decremented TTLs, or
     ///    wildcard expansion.
     /// ```
-    fn signed_data<N: ToDname, D: RtypeRecordData, B: BufMut>(
+    fn signed_data<N: ToDname, D: RecordData, B: BufMut>(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
@@ -163,7 +163,7 @@ pub trait RrsigExt: Compose {
 }
 
 impl RrsigExt for Rrsig {
-    fn signed_data<N: ToDname, D: RtypeRecordData, B: BufMut>(
+    fn signed_data<N: ToDname, D: RecordData + CanonicalOrd, B: BufMut>(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
@@ -277,7 +277,7 @@ impl RrsigExt for Rrsig {
 mod test {
     use super::*;
     use domain_core::iana::{Class, Rtype, SecAlg};
-    use domain_core::{rdata::Ds, utils::base64, Dname};
+    use domain_core::{rdata::{MasterRecordData, Ds}, utils::base64, Dname};
 
     // Returns current root KSK/ZSK for testing.
     fn root_pubkey() -> (Dnskey, Dnskey) {
@@ -378,5 +378,28 @@ mod test {
         let owner = Dname::from_slice(b"\x07ED25519\x02nl\x00").unwrap();
         let rrsig = Rrsig::new(Rtype::Dnskey, SecAlg::Ed25519, 2, 3600, 1559174400.into(), 1557360000.into(), 45515, owner.clone(), base64::decode("hvPSS3E9Mx7lMARqtv6IGiw0NE0uz0mZewndJCHTkhwSYqlasUq7KfO5QdtgPXja7YkTaqzrYUbYk01J8ICsAA==").unwrap().into());
         rrsig_verify_dnskey(ksk, zsk, rrsig);
+    }
+
+    #[test]
+    fn rrsig_verify_generic_type() {
+        let (ksk, zsk) = root_pubkey();
+        let rrsig = Rrsig::new(Rtype::Dnskey, SecAlg::RsaSha256, 0, 172800, 1560211200.into(), 1558396800.into(), 20326, Dname::root(), base64::decode("otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==").unwrap().into());
+
+        let mut records: Vec<Record<Dname, MasterRecordData<Dname>>> = [&ksk, &zsk]
+            .iter()
+            .cloned()
+            .map(|x| {
+                let data = MasterRecordData::from(x.clone());
+                Record::new(rrsig.signer_name().clone(), Class::In, 0, data)
+            })
+            .collect();
+
+        let signed_data = {
+            let mut buf = Vec::new();
+            rrsig.signed_data(&mut buf, records.as_mut_slice());
+            Bytes::from(buf)
+        };
+
+        assert!(rrsig.verify_signed_data(&ksk, &signed_data).is_ok());
     }
 }
