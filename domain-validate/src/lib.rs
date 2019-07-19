@@ -15,6 +15,8 @@ pub enum AlgorithmError {
     Unsupported,
     #[display(fmt = "bad signature")]
     BadSig,
+    #[display(fmt = "invalid data")]
+    InvalidData,
 }
 
 impl error::Error for AlgorithmError {}
@@ -41,10 +43,6 @@ pub trait DnskeyExt: Compose {
         dname: &N,
         algorithm: DigestAlg,
     ) -> Result<digest::Digest, AlgorithmError>;
-
-    // Extract public key exponent and modulus.
-    // See [RFC3110, Section 2](https://tools.ietf.org/html/rfc3110#section-2)
-    fn rsa_exponent_modulus(&self) -> Result<(&[u8], &[u8]), AlgorithmError>;
 }
 
 impl DnskeyExt for Dnskey {
@@ -86,31 +84,6 @@ impl DnskeyExt for Dnskey {
 
         ctx.update(&buf);
         Ok(ctx.finish())
-    }
-
-    fn rsa_exponent_modulus(&self) -> Result<(&[u8], &[u8]), AlgorithmError> {
-        assert!(self.algorithm() == SecAlg::RsaSha1 || self.algorithm() == SecAlg::RsaSha1Nsec3Sha1 || self.algorithm() == SecAlg::RsaSha256);
-
-        let public_key = self.public_key();
-        if public_key.len() <= 3 {
-            // TODO: return a better error
-            return Err(AlgorithmError::Unsupported);
-        }
-
-        let (pos, exp_len) = match public_key[0] {
-            0 => (
-                3,
-                (usize::from(public_key[1]) << 8) | usize::from(public_key[2]),
-            ),
-            len => (1, usize::from(len)),
-        };
-
-        // Check if there's enough space for exponent and modulus.
-        if public_key.len() < pos + exp_len {
-            return Err(AlgorithmError::Unsupported);
-        };
-
-        Ok(public_key[pos..].split_at(exp_len))
     }
 }
 
@@ -231,7 +204,7 @@ impl RrsigExt for Rrsig {
                     _ => unreachable!(),
                 };
                 // The key isn't available in either PEM or DER, so use the direct RSA verifier.
-                let (e, n) = dnskey.rsa_exponent_modulus()?;
+                let (e, n) = rsa_exponent_modulus(dnskey)?;
                 let public_key = signature::RsaPublicKeyComponents { n: &n, e: &e };
                 public_key.verify(algorithm, &signed_data, &signature)
                 .map_err(|_| AlgorithmError::BadSig)
@@ -260,6 +233,30 @@ impl RrsigExt for Rrsig {
             _ => return Err(AlgorithmError::Unsupported),
         }
     }
+}
+
+
+/// Return the RSA exponent and modulus components from DNSKEY record data.
+fn rsa_exponent_modulus(dnskey: &Dnskey) -> Result<(&[u8], &[u8]), AlgorithmError> {
+    let public_key = dnskey.public_key();
+    if public_key.len() <= 3 {
+        return Err(AlgorithmError::InvalidData);
+    }
+
+    let (pos, exp_len) = match public_key[0] {
+        0 => (
+            3,
+            (usize::from(public_key[1]) << 8) | usize::from(public_key[2]),
+        ),
+        len => (1, usize::from(len)),
+    };
+
+    // Check if there's enough space for exponent and modulus.
+    if public_key.len() < pos + exp_len {
+        return Err(AlgorithmError::InvalidData);
+    };
+
+    Ok(public_key[pos..].split_at(exp_len))
 }
 
 //============ Test ==========================================================
