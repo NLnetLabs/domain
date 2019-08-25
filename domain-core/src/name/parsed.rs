@@ -484,8 +484,8 @@ impl<'a> ParsedDnameIter<'a> {
             let ltype = self.slice[self.pos];
             self.pos += 1;
             match ltype {
-                0 ... 0x3F => break self.pos + (ltype as usize),
-                0xC0 ... 0xFF => {
+                0 ..= 0x3F => break self.pos + (ltype as usize),
+                0xC0 ..= 0xFF => {
                     self.pos = (self.slice[self.pos] as usize)
                              | (((ltype as usize) & 0x3F) << 8);
                 }
@@ -578,13 +578,13 @@ impl LabelType {
     pub fn parse(parser: &mut Parser) -> Result<Self, ParsedDnameError> {
         let ltype = parser.parse_u8()?;
         match ltype {
-            0 ... 0x3F => Ok(LabelType::Normal(ltype as usize)),
-            0xC0 ... 0xFF => {
+            0 ..= 0x3F => Ok(LabelType::Normal(ltype as usize)),
+            0xC0 ..= 0xFF => {
                 let res = parser.parse_u8()? as usize;
                 let res = res | (((ltype as usize) & 0x3F) << 8);
                 Ok(LabelType::Compressed(res))
             }
-            0x40 ... 0x4F => Err(LabelTypeError::Extended(ltype).into()),
+            0x40 ..= 0x4F => Err(LabelTypeError::Extended(ltype).into()),
             _ => Err(LabelTypeError::Undefined.into())
         }
     }
@@ -593,13 +593,13 @@ impl LabelType {
     pub fn peek(parser: &mut Parser) -> Result<Self, ParsedDnameError> {
         let ltype = parser.peek(1)?[0];
         match ltype {
-            0 ... 0x3F => Ok(LabelType::Normal(ltype as usize)),
-            0xC0 ... 0xFF => {
+            0 ..= 0x3F => Ok(LabelType::Normal(ltype as usize)),
+            0xC0 ..= 0xFF => {
                 let res = (parser.peek(2)?[1]) as usize;
                 let res = res | (((ltype as usize) & 0x3F) << 8);
                 Ok(LabelType::Compressed(res))
             }
-            0x40 ... 0x4F => Err(LabelTypeError::Extended(ltype).into()),
+            0x40 ..= 0x4F => Err(LabelTypeError::Extended(ltype).into()),
             _ => Err(LabelTypeError::Undefined.into())
         }
     }

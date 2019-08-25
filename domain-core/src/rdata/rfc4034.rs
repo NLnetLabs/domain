@@ -4,7 +4,7 @@
 //!
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
-use std::{error, fmt, ptr};
+use std::{error, fmt, hash, ptr};
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use bytes::{BufMut, Bytes, BytesMut};
@@ -214,7 +214,7 @@ impl RtypeRecordData for Dnskey {
 
 //------------ Rrsig ---------------------------------------------------------
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug)]
 pub struct Rrsig {
     type_covered: Rtype,
     algorithm: SecAlg,
@@ -389,6 +389,23 @@ impl CanonicalOrd for Rrsig {
             other => return other
         }
         self.signature.cmp(&other.signature)
+    }
+}
+
+
+//--- Hash
+
+impl hash::Hash for Rrsig {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.type_covered.hash(state);
+        self.algorithm.hash(state);
+        self.labels.hash(state);
+        self.original_ttl.hash(state);
+        self.expiration.into_int().hash(state);
+        self.inception.into_int().hash(state);
+        self.key_tag.hash(state);
+        self.signer_name.hash(state);
+        self.signature.hash(state);
     }
 }
 
@@ -1144,12 +1161,13 @@ fn split_rtype(rtype: Rtype) -> (u8, usize, u8) {
     (
         (rtype >> 8) as u8,
         ((rtype & 0xFF) >> 3) as usize,
-        0b10000000 >> (rtype & 0x07)
+        0b1000_0000 >> (rtype & 0x07)
     )
 }
 
 /// Splits the next bitmap window from the bitmap and returns None when there's no next window.
-fn read_window<'a>(data: &'a [u8]) -> Option<((u8, &'a [u8]), &'a [u8])> {
+#[allow(clippy::type_complexity)]
+fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
     data.split_first()
         .and_then(|(n, data)| {
             data.split_first()

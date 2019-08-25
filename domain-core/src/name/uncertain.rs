@@ -82,7 +82,7 @@ impl UncertainDname {
                     let in_label = target.in_label();
                     target.push(parse_escape(&mut chars, in_label)?)?;
                 }
-                ' ' ... '-' | '/' ... '[' | ']' ... '~' => {
+                ' ' ..= '-' | '/' ..= '[' | ']' ..= '~' => {
                     target.push(ch as u8)?
                 }
                 _ => return Err(FromStrError::IllegalCharacter(ch))

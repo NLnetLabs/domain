@@ -88,13 +88,13 @@ impl Label {
             None => return Err(SplitLabelError::ShortBuf)
         };
         let end = match head {
-            0 ... 0x3F => (head as usize) + 1,
-            0x40 ... 0x7F => {
+            0 ..= 0x3F => (head as usize) + 1,
+            0x40 ..= 0x7F => {
                 return Err(
                     SplitLabelError::BadType(LabelTypeError::Extended(head))
                 )
             }
-            0xC0 ... 0xFF => {
+            0xC0 ..= 0xFF => {
                 let res = match slice.get(1) {
                     Some(ch) => u16::from(*ch),
                     None => return Err(SplitLabelError::ShortBuf)

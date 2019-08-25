@@ -1362,7 +1362,7 @@ pub enum SyntaxError {
 
     /// Used when converting some other content fails.
     #[display(fmt="{}", _0)]
-    Content(Box<error::Error>),
+    Content(Box<dyn error::Error>),
 }
 
 impl SyntaxError {
