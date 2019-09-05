@@ -2,11 +2,10 @@
 
 use std::error;
 use std::net::IpAddr;
-use bytes::BufMut;
 use derive_more::Display;
-use crate::compose::Compose;
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-use crate::message_builder::OptBuilder;
+// XXX use crate::message_builder::OptBuilder;
 use crate::parse::{ParseAll, Parser, ShortBuf};
 use super::CodeOptData;
 
@@ -20,17 +19,21 @@ pub struct ClientSubnet {
     addr: IpAddr,
 }
 
-
 impl ClientSubnet {
-    pub fn new(source_prefix_len: u8, scope_prefix_len: u8, addr: IpAddr)
-               -> ClientSubnet {
+    pub fn new(
+        source_prefix_len: u8,
+        scope_prefix_len: u8,
+        addr: IpAddr
+    ) -> ClientSubnet {
         ClientSubnet { source_prefix_len, scope_prefix_len, addr }
     }
 
+    /* XXX
     pub fn push(builder: &mut OptBuilder, source_prefix_len: u8,
                 scope_prefix_len: u8, addr: IpAddr) -> Result<(), ShortBuf> {
         builder.push(&Self::new(source_prefix_len, scope_prefix_len, addr))
     }
+    */
 
     pub fn source_prefix_len(&self) -> u8 { self.source_prefix_len }
     pub fn scope_prefix_len(&self) -> u8 { self.scope_prefix_len }
@@ -40,11 +43,13 @@ impl ClientSubnet {
 
 //--- ParseAll and Compose
 
-
-impl ParseAll for ClientSubnet {
+impl<Octets: AsRef<[u8]>> ParseAll<Octets> for ClientSubnet {
     type Err = OptionParseError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let family = parser.parse_u16()?;
         let source_prefix_len = parser.parse_u8()?;
         let scope_prefix_len = parser.parse_u8()?;
@@ -76,26 +81,19 @@ impl ParseAll for ClientSubnet {
 }
 
 impl Compose for ClientSubnet {
-    fn compose_len(&self) -> usize {
-        match self.addr {
-            IpAddr::V4(_) => 8,
-            IpAddr::V6(_) => 20,
-        }
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
         match self.addr {
             IpAddr::V4(addr) => {
-                1u16.compose(buf);
-                self.source_prefix_len.compose(buf);
-                self.scope_prefix_len.compose(buf);
-                buf.put_slice(&addr.octets());
+                1u16.compose(target);
+                self.source_prefix_len.compose(target);
+                self.scope_prefix_len.compose(target);
+                addr.compose(target);
             }
             IpAddr::V6(addr) => {
-                2u16.compose(buf);
-                self.source_prefix_len.compose(buf);
-                self.scope_prefix_len.compose(buf);
-                buf.put_slice(&addr.octets());
+                2u16.compose(target);
+                self.source_prefix_len.compose(target);
+                self.scope_prefix_len.compose(target);
+                addr.compose(target);
             }
         }
     }

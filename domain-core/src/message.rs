@@ -11,22 +11,21 @@
 //!
 //! [`Message`]: struct.Message.html
 
-
 use std::{mem, ops};
 use std::marker::PhantomData;
-use bytes::{Bytes, BytesMut};
+use crate::compose::{ComposeTarget, TryCompose};
 use crate::header::{Header, HeaderCounts, HeaderSection};
 use crate::iana::{Rcode, Rtype};
-use crate::rdata::Cname;
 use crate::message_builder::{
-    MessageBuilder, AdditionalBuilder, RecordSectionBuilder
+    AdditionalBuilder, AnswerBuilder, RecordSectionBuilder
 };
 use crate::name::{ParsedDname, ParsedDnameError, ToDname};
 use crate::opt::{Opt, OptRecord};
-use crate::parse::{Parse, Parser, ShortBuf};
+use crate::parse::{Parse, Parser, ParseSource, ShortBuf};
 use crate::question::Question;
-use crate::rdata::{ParseRecordData, RecordData};
+use crate::rdata::{Cname, ParseRecordData, RecordData};
 use crate::record::{ParsedRecord, Record, RecordParseError};
+
 
 //------------ Message -------------------------------------------------------
 
@@ -112,9 +111,9 @@ use crate::record::{ParsedRecord, Record, RecordParseError};
 /// # use domain_core::message::Message;
 /// use domain_core::rdata::parsed::Mx;
 ///
-/// # let bytes = vec![0; 12].into();
-/// let msg = Message::from_bytes(bytes).unwrap();
-/// for record in msg.answer().unwrap().limit_to::<Mx>() {
+/// # let octets = vec![0; 12]; let octets = octets.as_slice();
+/// let msg = Message::from_octets(octets).unwrap();
+/// for record in msg.answer().unwrap().limit_to::<Mx<_>>() {
 ///     if let Ok(record) = record {
 ///         // Do something with the record ...
 ///     }
@@ -146,69 +145,88 @@ use crate::record::{ParsedRecord, Record, RecordParseError};
 /// [Header Section]: #header-section
 /// [rdata]: ../../rdata/index.html
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
-#[derive(Clone, Debug)]
-pub struct Message {
-    bytes: Bytes,
+#[derive(Clone, Copy)]
+pub struct Message<Octets> {
+    octets: Octets
 }
 
 /// # Creation and Conversion
 ///
-impl Message {
+impl<Octets> Message<Octets> {
     /// Creates a message from a bytes value.
     ///
     /// This fails if the slice is too short to even contain a complete
     /// header section.  No further checks are done, though, so if this
     /// function returns `Ok`, the message may still be broken with other
     /// methods returning `Err(_)`.
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, ShortBuf> {
-        if bytes.len() < mem::size_of::<HeaderSection>() {
+    pub fn from_octets(octets: Octets) -> Result<Self, ShortBuf>
+    where Octets: AsRef<[u8]> {
+        if octets.as_ref().len() < mem::size_of::<HeaderSection>() {
             Err(ShortBuf)
         }
         else {
-            Ok(Message { bytes })
+            Ok(unsafe { Self::from_octets_unchecked(octets) })
         }
     }
 
     /// Creates a message from a bytes value without checking.
-    pub(super) unsafe fn from_bytes_unchecked(bytes: Bytes) -> Self {
-        Message { bytes }
+    pub(super) unsafe fn from_octets_unchecked(octets: Octets) -> Self {
+        Message { octets }
     }
 
     /// Returns a reference to the underlying bytes value.
-    pub fn as_bytes(&self) -> &Bytes {
-        &self.bytes
+    pub fn as_octets(&self) -> &Octets {
+        &self.octets
+    }
+
+    /// Converts the message into the underlying octets sequence.
+    pub fn into_octets(self) -> Octets {
+        self.octets
     }
 
     /// Returns a reference to the underlying byte slice.
-    pub fn as_slice(&self) -> &[u8] {
-        self.bytes.as_ref()
+    pub fn as_slice(&self) -> &[u8]
+    where Octets: AsRef<[u8]> {
+        self.octets.as_ref()
+    }
+
+    /// Returns a mutable reference to the underlying octets.
+    ///
+    /// Because it is possible to utterly break the message using this slice,
+    /// the method is private.
+    fn as_slice_mut(&mut self) -> &mut [u8]
+    where Octets: AsMut<[u8]> {
+        self.octets.as_mut()
     }
 }
 
 
 /// # Header Section
 ///
-impl Message {
+impl<Octets: AsRef<[u8]>> Message<Octets> {
     /// Returns a reference to the message header.
     pub fn header(&self) -> &Header {
         Header::for_message_slice(self.as_slice())
     }
+    
+    /// Returns a mutable reference to the message header.
+    pub fn header_mut(&mut self) -> &mut Header
+    where Octets: AsMut<[u8]> {
+        Header::for_message_slice_mut(self.as_slice_mut())
+    }
 
-    /// Returns a refernce the header counts of the message.
+    /// Returns a reference the header counts of the message.
     pub fn header_counts(&self) -> &HeaderCounts {
         HeaderCounts::for_message_slice(self.as_slice())
     }
-    
-    /// Alters the header of the message.
+
+    /// Returns a mutable reference to the header counts.
     ///
-    /// Because messages are normally imutable, this method defers the
-    /// manipulation of the header to a closure.
-    pub fn update_header<F: FnOnce(&mut Header)>(&mut self, op: F) {
-        let mut bytes = BytesMut::from(
-            mem::replace(&mut self.bytes, Bytes::new())
-        );
-        op(&mut Header::for_message_slice_mut(bytes.as_mut()));
-        self.bytes = bytes.freeze();
+    /// Since you can quite effectively break the message with this, it is
+    /// private.
+    pub fn header_counts_mut(&mut self) -> &mut HeaderCounts
+    where Octets: AsMut<[u8]> {
+        HeaderCounts::for_message_slice_mut(self.as_slice_mut())
     }
 
     /// Returns whether the rcode is NoError.
@@ -225,85 +243,109 @@ impl Message {
 
 /// # Sections
 ///
-impl Message {
+impl<Octets: ParseSource> Message<Octets> {
     /// Returns the question section.
-    pub fn question(&self) -> QuestionSection {
-        QuestionSection::new(self.bytes.clone())
+    pub fn question(&self) -> QuestionSection<Octets> {
+        QuestionSection::new(self.octets.clone())
     }
 
     /// Returns the zone section of an UPDATE message.
     ///
     /// This is identical to `self.question()`.
-    pub fn zone(&self) -> QuestionSection { self.question() }
+    pub fn zone(&self) -> QuestionSection<Octets> { self.question() }
 
     /// Returns the answer section.
-    pub fn answer(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn answer(&self) -> Result<RecordSection<Octets>, ParsedDnameError> {
         Ok(self.question().next_section()?)
     }
 
     /// Returns the prerequisite section of an UPDATE message.
     ///
     /// This is identical to `self.answer()`.
-    pub fn prerequisite(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn prerequisite(
+        &self
+    ) -> Result<RecordSection<Octets>, ParsedDnameError> {
         self.answer()
     }
 
     /// Returns the authority section.
-    pub fn authority(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn authority(
+        &self
+    ) -> Result<RecordSection<Octets>, ParsedDnameError> {
         Ok(self.answer()?.next_section()?.unwrap())
     }
 
     /// Returns the update section of an UPDATE message.
     ///
     /// This is identical to `self.authority()`.
-    pub fn update(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn update(&self) -> Result<RecordSection<Octets>, ParsedDnameError> {
         self.authority()
     }
 
     /// Returns the additional section.
-    pub fn additional(&self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn additional(
+        &self
+    ) -> Result<RecordSection<Octets>, ParsedDnameError> {
         Ok(self.authority()?.next_section()?.unwrap())
     }
 
     /// Returns all four sections in one fell swoop.
-    pub fn sections(&self) -> Result<(QuestionSection, RecordSection,
-                                      RecordSection, RecordSection),
-                                     ParsedDnameError> {
-        let question = self.question();
+    #[allow(clippy::type_complexity)]
+    pub fn sections(
+        &self
+    ) -> Result<
+        (
+            QuestionSection<Octets>, RecordSection<Octets>,
+            RecordSection<Octets>, RecordSection<Octets>
+        ),
+        ParsedDnameError
+    >
+    where Octets: Clone {
+        let question = self.clone().question();
         let answer = question.clone().next_section()?;
         let authority = answer.clone().next_section()?.unwrap();
         let additional = authority.clone().next_section()?.unwrap();
         Ok((question, answer, authority, additional))
     }
 
-    /// Returns record iterator for all sections
-    pub fn iter(&self) -> MessageIterator {
-        match self.answer() {
-            Ok(section) => MessageIterator { inner: Some(section) },
-            Err(_) => MessageIterator { inner: None },
-        }
+    pub fn iter(&self) -> MessageIter<Octets> {
+        self.clone().into_iter()
     }
 
     /// Copy records from message into the target message builder.
     ///
-    /// The method uses `op` to process records from all packet sections before inserting,
-    /// caller can use this closure to filter or manipulate records before inserting.
-    pub fn copy_records<N, D, R, F>(&self, target: MessageBuilder, op: F) -> Result<AdditionalBuilder, ParsedDnameError>
-    where N: ToDname, D: RecordData, R: Into<Record<N, D>>, F: FnMut(Result<ParsedRecord, ParsedDnameError>) -> Option<R> + Copy
+    /// The method uses `op` to process records from all record sections
+    /// before inserting, caller can use this closure to filter or manipulate
+    /// records before inserting.
+    pub fn copy_records<N, D, R, F, T, O>(
+        &self,
+        target: T,
+        mut op: F
+    ) -> Result<AdditionalBuilder<O>, ParsedDnameError>
+    where
+        N: ToDname,
+        D: RecordData,
+        R: Into<Record<N, D>>,
+        F: FnMut(
+            Result<ParsedRecord<Octets>, ParsedDnameError>
+        ) -> Option<R>,
+        T: Into<AnswerBuilder<O>>,
+        O: TryCompose + ComposeTarget
     {
+        let mut target = target.into();
+
         // Copy answer, authority, and additional records.
-        let mut target = target.answer();
-        for rr in self.answer()?.filter_map(op) {
+        for rr in self.answer()?.filter_map(&mut op) {
             target.push(rr)?;
         }
 
         let mut target = target.authority();
-        for rr in self.authority()?.filter_map(op) {
+        for rr in self.authority()?.filter_map(&mut op) {
             target.push(rr)?;
         }
 
         let mut target = target.additional();
-        for rr in self.additional()?.filter_map(op) {
+        for rr in self.additional()?.filter_map(&mut op) {
             target.push(rr)?;
         }
 
@@ -311,31 +353,31 @@ impl Message {
     }
 }
 
-
 /// # Helpers for Common Tasks
 ///
-impl Message {
+impl<Octets: ParseSource> Message<Octets> {
     /// Returns whether this is the answer to some other message.
     ///
     /// The method checks whether the ID fields of the headers are the same,
     /// whether the QR flag is set in this message, and whether the questions
     /// are the same.
-    pub fn is_answer(&self, query: &Message) -> bool {
+    pub fn is_answer<Other>(&self, query: &Message<Other>) -> bool
+    where Other: ParseSource {
         if !self.header().qr()
                 || self.header().id() != query.header().id()
                 || self.header_counts().qdcount()
                         != query.header_counts().qdcount() {
             false
         }
-        else { self.question().eq(query.question()) }
+        else { self.clone().question().eq(query.clone().question()) }
     }
 
     /// Returns the first question, if there is any.
     ///
     /// The method will return `None` both if there are no questions or if
     /// parsing fails.
-    pub fn first_question(&self) -> Option<Question<ParsedDname>> {
-        match self.question().next() {
+    pub fn first_question(&self) -> Option<Question<ParsedDname<Octets>>> {
+        match self.clone().question().next() {
             None | Some(Err(..)) => None,
             Some(Ok(question)) => Some(question)
         }
@@ -347,8 +389,8 @@ impl Message {
     }
 
     /// Returns whether the message contains answers of a given type.
-    pub fn contains_answer<D: ParseRecordData>(&self) -> bool {
-        let answer = match self.answer() {
+    pub fn contains_answer<D: ParseRecordData<Octets>>(&self) -> bool {
+        let answer = match self.clone().answer() {
             Ok(answer) => answer,
             Err(..) => return false
         };
@@ -360,14 +402,14 @@ impl Message {
     /// Returns `None` if either the message doesn’t have a question or there
     /// was a parse error. Otherwise starts with the question’s name,
     /// follows any CNAME trail and returns the name answers should be for.
-    pub fn canonical_name(&self) -> Option<ParsedDname> {
+    pub fn canonical_name(&self) -> Option<ParsedDname<Octets>> {
         let question = match self.first_question() {
             None => return None,
             Some(question) => question
         };
         let mut name = question.qname().clone();
         let answer = match self.answer() {
-            Ok(answer) => answer.limit_to::<Cname<ParsedDname>>(),
+            Ok(answer) => answer.limit_to::<Cname<ParsedDname<Octets>>>(),
             Err(_) => return None,
         };
 
@@ -392,10 +434,10 @@ impl Message {
         Some(name)
     }
 
-    /// Get OPT record from message, if there is any.
-    pub fn opt(&self) -> Option<OptRecord> {
+    /// Get the OPT record from the message, if there is one.
+    pub fn opt(&self) -> Option<OptRecord<Octets>> {
         match self.additional() {
-            Ok(section) => match section.limit_to::<Opt>().next() {
+            Ok(section) => match section.limit_to::<Opt<Octets>>().next() {
                 Some(Ok(rr)) => Some(OptRecord::from(rr)),
                 _ => None,
             }
@@ -411,9 +453,10 @@ impl Message {
     ///
     /// If the last record is of the wrong type or parsing fails, returns
     /// `None` and leaves the message untouched.
-    pub fn extract_last<D: ParseRecordData>(
+    pub fn extract_last<D: ParseRecordData<Octets>>(
         &mut self
-    ) -> Option<Record<ParsedDname, D>> {
+    ) -> Option<Record<ParsedDname<Octets>, D>>
+    where Octets: AsMut<[u8]> {
         let mut section = match self.additional() {
             Ok(section) => section,
             Err(_) => return None
@@ -427,7 +470,6 @@ impl Message {
             }
             let _ = section.next();
         }
-        let pos = section.parser.pos();
         let record = match ParsedRecord::parse(&mut section.parser) {
             Ok(record) => record,
             Err(_) => return None,
@@ -436,14 +478,7 @@ impl Message {
             Ok(Some(record)) => record,
             _ => return None
         };
-        // We need to get a BytesMut in order to decrease the ARCOUNT. To
-        // avoid copying, we temporarily replace self.bytes with an empty
-        // Bytes.
-        let mut bytes = BytesMut::from(
-            mem::replace(&mut self.bytes, Bytes::new()).slice_to(pos)
-        );
-        HeaderCounts::for_message_slice_mut(bytes.as_mut()).dec_arcount();
-        self.bytes = bytes.freeze();
+        self.header_counts_mut().dec_arcount();
         Some(record)
     }
 }
@@ -451,62 +486,35 @@ impl Message {
 
 //--- Deref and AsRef
 
-impl ops::Deref for Message {
-    type Target = Bytes;
+impl<Octets> ops::Deref for Message<Octets> {
+    type Target = Octets;
 
     fn deref(&self) -> &Self::Target {
-        self.as_bytes()
+        self.as_octets()
     }
 }
 
-impl AsRef<Message> for Message {
-    fn as_ref(&self) -> &Message {
-        self
+impl<T, Octets: AsRef<T>> AsRef<T> for Message<Octets> {
+    fn as_ref(&self) -> &T {
+        self.as_octets().as_ref()
     }
 }
 
-impl AsRef<Bytes> for Message {
-    fn as_ref(&self) -> &Bytes {
-        self.as_bytes()
-    }
-}
 
-impl AsRef<[u8]> for Message {
-    fn as_ref(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
+//--- IntoIterator
 
-//--- Iterator
+impl<Octets: ParseSource> IntoIterator for Message<Octets> {
+    type Item = Result<(ParsedRecord<Octets>, Section), ParsedDnameError>;
+    type IntoIter = MessageIter<Octets>;
 
-pub struct MessageIterator {
-    inner: Option<RecordSection>,
-}
-
-impl Iterator for MessageIterator {
-    type Item = (Result<ParsedRecord, ParsedDnameError>, Section);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // Try to get next record from current section
-        match self.inner {
-            Some(ref mut inner) => {
-                let item = inner.next();
-                if let Some(item) = item {
-                    return Some((item, inner.section));
-                }
-            },
-            None => return None,
+    fn into_iter(self) -> Self::IntoIter {
+        match self.answer() {
+            Ok(section) => MessageIter { inner: Some(section) },
+            Err(_) => MessageIter { inner: None },
         }
-
-        // Advance to next section if possible, and retry
-        self.inner = match self.inner.clone().unwrap().next_section() {
-            Ok(section) => section,
-            Err(_) => None,
-        };
-
-        self.next()
     }
 }
+
 
 //------------ QuestionSection ----------------------------------------------
 
@@ -523,10 +531,10 @@ impl Iterator for MessageIterator {
 /// [`Message::section`]: struct.Message.html#method.section
 /// [`answer`]: #method.answer
 /// [`next_section`]: #method.next_section
-#[derive(Clone, Debug)]
-pub struct QuestionSection {
+#[derive(Clone)]
+pub struct QuestionSection<Octets> {
     /// The parser for generating the questions.
-    parser: Parser,
+    parser: Parser<Octets>,
 
     /// The remaining number of questions.
     ///
@@ -536,10 +544,11 @@ pub struct QuestionSection {
     count: Result<u16, ParsedDnameError>
 }
 
-impl QuestionSection {
+impl<Octets> QuestionSection<Octets> {
     /// Creates a new question section from a bytes value.
-    fn new(bytes: Bytes) -> Self {
-        let mut parser = Parser::from_bytes(bytes);
+    fn new(octets: Octets) -> Self
+    where Octets: AsRef<[u8]> {
+        let mut parser = Parser::from_octets(octets);
         parser.advance(mem::size_of::<HeaderSection>()).unwrap();
         QuestionSection {
             count: Ok(HeaderCounts::for_message_slice(
@@ -555,7 +564,10 @@ impl QuestionSection {
     /// the first [`RecordSection`].
     ///
     /// [`RecordSection`]: struct.RecordSection.html
-    pub fn answer(mut self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn answer(
+        mut self
+    ) -> Result<RecordSection<Octets>, ParsedDnameError>
+    where Octets: ParseSource {
         // XXX Use Parser::skip here.
         for question in &mut self {
             let _ = question?;
@@ -571,16 +583,34 @@ impl QuestionSection {
     /// This is an alias for the [`answer`] method.
     ///
     /// [`answer`]: #method.answer
-    pub fn next_section(self) -> Result<RecordSection, ParsedDnameError> {
+    pub fn next_section(
+        self
+    ) -> Result<RecordSection<Octets>, ParsedDnameError>
+    where Octets: ParseSource {
         self.answer()
+    }
+
+    fn eq<Other>(mut self, mut other: QuestionSection<Other>) -> bool
+    where Octets: ParseSource, Other: ParseSource {
+        loop {
+            match (self.next(), other.next()) {
+                (Some(Ok(left)), Some(Ok(right))) => {
+                    if left != right {
+                        return false
+                    }
+                }
+                (None, None) => return true,
+                _ => return false
+            }
+        }
     }
 }
 
 
 //--- Iterator
 
-impl Iterator for QuestionSection {
-    type Item = Result<Question<ParsedDname>, ParsedDnameError>;
+impl<Octets: ParseSource> Iterator for QuestionSection<Octets> {
+    type Item = Result<Question<ParsedDname<Octets>>, ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
@@ -627,7 +657,7 @@ impl Section {
     }
 
     /// Returns the value for the following section or `None` if this is last.
-    fn next_section(self) -> Option<Self> {
+    pub(crate) fn next_section(self) -> Option<Self> {
         match self {
             Section::Answer => Some(Section::Authority),
             Section::Authority => Some(Section::Additional),
@@ -666,9 +696,9 @@ impl Section {
 /// [`RecordIter`]: struct.RecordIter.html
 /// [`into_record`]: ../record/struct.ParsedRecord.html#method.into_record
 #[derive(Clone, Debug)]
-pub struct RecordSection {
+pub struct RecordSection<Octets> {
     /// The parser for generating the records.
-    parser: Parser,
+    parser: Parser<Octets>,
 
     /// Which section are we, really?
     section: Section,
@@ -682,12 +712,13 @@ pub struct RecordSection {
 }
 
 
-impl RecordSection {
+impl<Octets> RecordSection<Octets> {
     /// Creates a new section from a parser.
     ///
     /// The parser must only wrap the bytes of the message and it must be
     /// positioned at the beginning of the section.
-    fn new(parser: Parser, section: Section) ->  Self {
+    fn new(parser: Parser<Octets>, section: Section) ->  Self
+    where Octets: AsRef<[u8]> {
         RecordSection {
             count: Ok(section.count(
                 *HeaderCounts::for_message_slice(parser.as_slice())
@@ -712,7 +743,7 @@ impl RecordSection {
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
     /// [`ParsedDname`]: ../name/struct.ParsedDname.html
     /// [domain::rdata::parsed]: ../../rdata/parsed/index.html
-    pub fn limit_to<D: ParseRecordData>(self) -> RecordIter<D> {
+    pub fn limit_to<D: ParseRecordData<Octets>>(self) -> RecordIter<Octets, D> {
         RecordIter::new(self)
     }
 
@@ -720,8 +751,10 @@ impl RecordSection {
     ///
     /// Returns an error if parsing has failed and the message is unsable
     /// now.
-    pub fn next_section(mut self)
-                        -> Result<Option<Self>, ParsedDnameError> {
+    pub fn next_section(
+        mut self
+    ) -> Result<Option<Self>, ParsedDnameError>
+    where Octets: ParseSource {
         let section = match self.section.next_section() {
             Some(section) => section,
             None => return Ok(None)
@@ -740,8 +773,8 @@ impl RecordSection {
 
 //--- Iterator
 
-impl Iterator for RecordSection {
-    type Item = Result<ParsedRecord, ParsedDnameError>;
+impl<Octets: ParseSource> Iterator for RecordSection<Octets> {
+    type Item = Result<ParsedRecord<Octets>, ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
@@ -763,6 +796,41 @@ impl Iterator for RecordSection {
 }
 
 
+
+//------------ MessageIter ---------------------------------------------------
+
+pub struct MessageIter<Octets> {
+    inner: Option<RecordSection<Octets>>,
+}
+
+impl<Octets: ParseSource> Iterator for MessageIter<Octets> {
+    type Item = Result<(ParsedRecord<Octets>, Section), ParsedDnameError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Try to get next record from current section
+        match self.inner {
+            Some(ref mut inner) => {
+                let item = inner.next();
+                if let Some(item) = item {
+                    return Some(item.map(|item| (item, inner.section)));
+                }
+            },
+            None => return None,
+        }
+
+        // Advance to next section if possible, and retry
+        let inner = self.inner.take()?;
+        match inner.next_section() {
+            Ok(section) => {
+                self.inner = section;
+                self.next()
+            }
+            Err(err) => Some(Err(err))
+        }
+    }
+}
+
+
 //------------ RecordIter ----------------------------------------------------
 
 /// An iterator over specific records of a record section of a DNS message.
@@ -771,7 +839,7 @@ impl Iterator for RecordSection {
 /// It silently skips over all records that `D` cannot or does not want to
 /// parse. If parsing the record data fails, the iterator will return an
 /// error but can continue with the next record. If parsing the entire record
-/// fails (and the message thus becoming unusable) or if the end of the
+/// fails (and the message thus becomes unusable) or if the end of the
 /// section is reached, the iterator produces `None`. The latter case can be
 /// distinguished by [`next_section`] returning an error.
 ///
@@ -781,14 +849,14 @@ impl Iterator for RecordSection {
 /// [`next_section`]: #method.next_section
 /// [`RecordSection::limit_to`]: struct.RecordSection.html#method.limit_to
 #[derive(Clone, Debug)]
-pub struct RecordIter<D: ParseRecordData> {
-    section: RecordSection,
+pub struct RecordIter<Octets, D: ParseRecordData<Octets>> {
+    section: RecordSection<Octets>,
     marker: PhantomData<D>
 }
 
-impl<D: ParseRecordData> RecordIter<D> {
+impl<Octets, D: ParseRecordData<Octets>> RecordIter<Octets, D> {
     /// Creates a new limited record iterator from the given section.
-    fn new(section: RecordSection) -> Self {
+    fn new(section: RecordSection<Octets>) -> Self {
         RecordIter { section, marker: PhantomData }
     }
 
@@ -797,7 +865,7 @@ impl<D: ParseRecordData> RecordIter<D> {
     /// The complete iterator will continue right after the last record
     /// returned by `self`. It will *not* restart from the beginning of the
     /// section.
-    pub fn unwrap(self) -> RecordSection {
+    pub fn unwrap(self) -> RecordSection<Octets> {
         self.section
     }
 
@@ -805,8 +873,10 @@ impl<D: ParseRecordData> RecordIter<D> {
     ///
     /// Returns an error if parsing has failed and the message is unusable
     /// now.
-    pub fn next_section(self)
-                        -> Result<Option<RecordSection>, ParsedDnameError> {
+    pub fn next_section(
+        self
+    ) -> Result<Option<RecordSection<Octets>>, ParsedDnameError>
+    where Octets: ParseSource {
         self.section.next_section()
     }
 }
@@ -814,8 +884,9 @@ impl<D: ParseRecordData> RecordIter<D> {
 
 //--- Iterator
 
-impl<D: ParseRecordData> Iterator for RecordIter<D> {
-    type Item = Result<Record<ParsedDname, D>,
+impl<Octets, D> Iterator for RecordIter<Octets, D>
+where Octets: ParseSource, D: ParseRecordData<Octets> {
+    type Item = Result<Record<ParsedDname<Octets>, D>,
                        RecordParseError<ParsedDnameError, D::Err>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -841,102 +912,97 @@ impl<D: ParseRecordData> Iterator for RecordIter<D> {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-    use crate::name::*;
-    use crate::message_builder::*;
+    use bytes::Bytes;
+    use unwrap::unwrap;
+    use crate::message_builder::MessageBuilder;
+    use crate::name::Dname;
     use crate::rdata::{Ns, AllRecordData};
     use super::*;
 
     // Helper for test cases
-    fn get_test_message() -> Message {
-        let msg = MessageBuilder::with_capacity(512);
+    fn get_test_message() -> Message<Bytes> {
+        let msg = MessageBuilder::new_dgram_bytes();
         let mut msg = msg.answer();
-        msg.push((Dname::from_str("foo.example.com.").unwrap(), 86000,
-                     Cname::new(Dname::from_str("baz.example.com.")
-                                         .unwrap()))).unwrap();
+        unwrap!(msg.push((
+            unwrap!(Dname::vec_from_str("foo.example.com.")),
+            86000,
+            Cname::new(unwrap!(Dname::vec_from_str("baz.example.com.")))
+        )));
         let mut msg = msg.authority();
-        msg.push((Dname::from_str("bar.example.com.").unwrap(), 86000,
-                     Ns::new(Dname::from_str("baz.example.com.")
-                                         .unwrap()))).unwrap();
-
-        Message::from_bytes(msg.finish().into()).unwrap()
+        unwrap!(msg.push((
+            unwrap!(Dname::vec_from_str("bar.example.com.")),
+            86000,
+            Ns::new(unwrap!(Dname::vec_from_str("baz.example.com.")))
+        )));
+        msg.into_message()
     }
 
     #[test]
     fn short_message() {
-        assert!(Message::from_bytes(Bytes::from_static(&[0u8; 11])).is_err());
-        assert!(Message::from_bytes(Bytes::from_static(&[0u8; 12])).is_ok());
+        assert!(Message::from_octets(&[0u8; 11]).is_err());
+        assert!(Message::from_octets(&[0u8; 12]).is_ok());
     }
-
-        /*
-    use std::str::FromStr;
-    use bits::message_builder::MessageBuilder;
-    use bits::name::Dname;
-    use bits::question::Question;
-    use iana::Rtype;
-    use rdata::Cname;
 
     #[test]
     fn canonical_name() {
         // Message without CNAMEs.
-        let mut msg = MessageBuilder::new_udp();
-        msg.push(&Question::new_in(Dname::from_str("example.com.").unwrap(),
-                                   Rtype::A)).unwrap();
-        let msg = Message::from_bytes(msg.freeze()).unwrap();
-        println!("{:?}", msg);
-        assert_eq!(Dname::from_str("example.com.").unwrap(),
-                   msg.canonical_name().unwrap());
+        let mut msg = MessageBuilder::new_dgram_vec().question();
+        unwrap!(
+            msg.push((unwrap!(Dname::vec_from_str("example.com.")), Rtype::A))
+        );
+        let msg_ref = msg.as_message_ref();
+        assert_eq!(
+            unwrap!(Dname::vec_from_str("example.com.")),
+            unwrap!(msg_ref.canonical_name())
+        );
+
         // Message with CNAMEs.
-        let mut msg = MessageBuilder::new(ComposeMode::Unlimited,
-                                          true).unwrap();
-        msg.push((DNameBuf::from_str("example.com.").unwrap(),
-                  Rtype::A)).unwrap();
-        let mut answer = msg.answer();
-        answer.push((DNameBuf::from_str("bar.example.com.").unwrap(), 86000,
-                     Cname::new(DNameBuf::from_str("baz.example.com.")
-                                         .unwrap())))
-              .unwrap();
-        answer.push((DNameBuf::from_str("example.com.").unwrap(), 86000,
-                     Cname::new(DNameBuf::from_str("foo.example.com.")
-                                         .unwrap())))
-              .unwrap();
-        answer.push((DNameBuf::from_str("foo.example.com.").unwrap(), 86000,
-                     Cname::new(DNameBuf::from_str("bar.example.com.")
-                                         .unwrap())))
-              .unwrap();
-        let msg = MessageBuf::from_vec(answer.finish()).unwrap();
-        assert_eq!(DNameBuf::from_str("baz.example.com.").unwrap(),
-                   msg.canonical_name().unwrap());
+        let mut msg = msg.answer();
+        unwrap!(msg.push((
+            unwrap!(Dname::vec_from_str("bar.example.com.")),
+            86000,
+            Cname::new(unwrap!(Dname::vec_from_str("baz.example.com.")))
+        )));
+        unwrap!(msg.push((
+            unwrap!(Dname::vec_from_str("example.com.")),
+            86000,
+            Cname::new(unwrap!(Dname::vec_from_str("foo.example.com.")))
+        )));
+        unwrap!(msg.push((
+            unwrap!(Dname::vec_from_str("foo.example.com.")),
+            86000,
+            Cname::new(unwrap!(Dname::vec_from_str("bar.example.com.")))
+        )));
+        let msg_ref = msg.as_message_ref();
+        println!("{:02x?}", msg_ref.as_slice());
+        assert_eq!(
+            unwrap!(Dname::vec_from_str("baz.example.com.")),
+            unwrap!(msg_ref.canonical_name())
+        );
     }
-        */
 
     #[test]
     fn message_iterator() {
         let msg = get_test_message();
+        let mut iter = msg.iter();
 
         // Check that it returns a record from first section
-        let mut iter = msg.iter();
-        let mut value = iter.next();
-        assert_eq!(true, value.is_some());
-        let (rr, section) = value.unwrap();
+        let (_rr, section) = unwrap!(unwrap!(iter.next()));
         assert_eq!(Section::Answer, section);
-        assert!(rr.is_ok());
 
         // Check that it advances to next section
-        value = iter.next();
-        assert_eq!(true, value.is_some());
-        let (rr, section) = value.unwrap();
+        let (_rr, section) = unwrap!(unwrap!(iter.next()));
         assert_eq!(Section::Authority, section);
-        assert!(rr.is_ok());
     }
 
     #[test]
     fn copy_records() {
         let msg = get_test_message();
-        let target = MessageBuilder::with_capacity(512);
-        let res = msg.copy_records(target, |rec| {
+        let target = MessageBuilder::new_dgram_vec().question();
+        let res = msg.copy_records(target.answer(), |rec| {
             if let Ok(rr) = rec {
-                if let Ok(Some(rr)) = rr.into_record::<AllRecordData<ParsedDname>>() {
+                if let Ok(Some(rr)) =
+                        rr.into_record::<AllRecordData<_, ParsedDname<_>>>() {
                     if rr.rtype() == Rtype::Cname {
                         return Some(rr);
                     }
@@ -947,9 +1013,10 @@ mod test {
 
         assert!(res.is_ok());
         if let Ok(target) = res {
-            let msg = target.freeze();
+            let msg = target.into_message();
             assert_eq!(1, msg.header_counts().ancount());
             assert_eq!(0, msg.header_counts().arcount());
         }
     }
 }
+

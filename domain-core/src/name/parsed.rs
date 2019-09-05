@@ -4,12 +4,12 @@
 //! module.
 
 use std::{cmp, error, fmt, hash};
-use bytes::{BufMut, Bytes};
 use derive_more::Display;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, Compress, Compressor};
+use crate::compose::{Compose, ComposeTarget};
 use crate::parse::{
-    Parse, ParseAll, Parser, ParseAllError, ParseOpenError, ShortBuf
+    Parse, ParseAll, Parser, ParseAllError, ParseOpenError, ParseSource,
+    ShortBuf
 };
 use super::label::{Label, LabelTypeError};
 use super::traits::{ToLabelIter, ToDname};
@@ -51,13 +51,13 @@ use super::relative::RelativeDname;
 /// [`ToDname`]: trait.ToDname.html
 /// [`ToDname::to_name`]: trait.ToDname.html#method.to_name
 #[derive(Clone)]
-pub struct ParsedDname {
+pub struct ParsedDname<Octets> {
     /// A parser positioned at the beginning of the name.
-    parser: Parser,
+    parser: Parser<Octets>,
 
     /// The length of the uncompressed name in bytes.
     ///
-    /// We need this for implementing `Compose`.
+    /// We need this for implementing `ToLabelIter`.
     len: usize,
 
     /// Whether the name is compressed.
@@ -66,29 +66,10 @@ pub struct ParsedDname {
     compressed: bool,
 }
 
-/// # Conversion
-/// 
-/// For a conversion into a regular [`Dname`], see [`ToDname::to_name`].
-///
-/// [`Dname`]: struct.Dname.html
-/// [`ToDname::to_name`]: trait.ToDname.html#method.to_name
-impl ParsedDname {
-    /// Converts the name into a bytes value with its flat representation.
-    pub fn into_bytes(self) -> Bytes {
-        self.to_name().into_bytes()
-    }
-}
-
 
 /// # Properties
 ///
-#[allow(clippy::len_without_is_empty)]
-impl ParsedDname {
-    /// Returns the length of the name in bytes.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
+impl<Octets> ParsedDname<Octets> {
     /// Returns whether the name is compressed.
     pub fn is_compressed(&self) -> bool {
         self.compressed
@@ -102,7 +83,7 @@ impl ParsedDname {
 
 /// # Working with Labels
 ///
-impl ParsedDname {
+impl<Octets: AsRef<[u8]>> ParsedDname<Octets> {
     /// Returns an iterator over the labels of the name.
     pub fn iter(&self) -> ParsedDnameIter {
         ParsedDnameIter::new(&self.parser, self.len)
@@ -113,7 +94,8 @@ impl ParsedDname {
     /// The returned iterator starts with the full name and then for each
     /// additional step returns a name with the left-most label stripped off
     /// until it reaches the root label.
-    pub fn iter_suffixes(&self) -> ParsedSuffixIter {
+    pub fn iter_suffixes(&self) -> ParsedSuffixIter<Octets>
+    where Octets: ParseSource {
         ParsedSuffixIter::new(self)
     }
 
@@ -151,7 +133,8 @@ impl ParsedDname {
     /// If this name is longer than just the root label, returns the first
     /// label as a relative name and removes it from the name itself. If the
     /// name is only the root label, returns `None` and does nothing.
-    pub fn split_first(&mut self) -> Option<RelativeDname> {
+    pub fn split_first(&mut self) -> Option<RelativeDname<Octets>>
+    where Octets: ParseSource {
         if self.len == 1 {
             return None
         }
@@ -170,8 +153,8 @@ impl ParsedDname {
         };
         self.len -= len;
         Some(unsafe {
-            RelativeDname::from_bytes_unchecked(
-                self.parser.parse_bytes(len).unwrap()
+            RelativeDname::from_octets_unchecked(
+                self.parser.parse_octets(len).unwrap()
             )
         })
     }
@@ -180,18 +163,112 @@ impl ParsedDname {
     ///
     /// If the name consists of the root label only, returns `false` and does
     /// nothing. Otherwise, drops the first label and returns `true`.
-    pub fn parent(&mut self) -> bool {
+    pub fn parent(&mut self) -> bool 
+    where Octets: ParseSource {
         self.split_first().is_some()
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl<Octets, N> PartialEq<N> for ParsedDname<Octets>
+where
+    Octets: AsRef<[u8]>,
+    N: ToDname + ?Sized
+{
+    fn eq(&self, other: &N) -> bool {
+        self.name_eq(other)
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for ParsedDname<Octets> { }
+
+
+//--- PartialOrd, Ord, and CanonicalOrd
+
+impl<Octets, N> PartialOrd<N> for ParsedDname<Octets>
+where
+    Octets: AsRef<[u8]>,
+    N: ToDname + ?Sized
+{
+    fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
+        Some(self.name_cmp(other))
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Ord for ParsedDname<Octets> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.name_cmp(other)
+    }
+}
+
+impl<Octets, N> CanonicalOrd<N> for ParsedDname<Octets>
+where
+    Octets: AsRef<[u8]>,
+    N: ToDname + ?Sized
+{
+    fn canonical_cmp(&self, other: &N) -> cmp::Ordering {
+        self.name_cmp(other)
+    }
+}
+
+
+//--- Hash
+
+impl<Octets: AsRef<[u8]>> hash::Hash for ParsedDname<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        for item in self.iter() {
+            item.hash(state)
+        }
+    }
+}
+
+
+//--- ToLabelIter and ToDname
+
+impl<'a, Octets: AsRef<[u8]>> ToLabelIter<'a> for ParsedDname<Octets> {
+    type LabelIter = ParsedDnameIter<'a>;
+
+    fn iter_labels(&'a self) -> Self::LabelIter {
+        self.iter()
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<Octets: AsRef<[u8]>> ToDname for ParsedDname<Octets> {
+    fn as_flat_slice(&self) -> Option<&[u8]> {
+        if self.compressed {
+            None
+        }
+        else {
+            Some(self.parser.peek(self.len).unwrap())
+        }
+    }
+}
+
+
+//--- IntoIterator
+
+impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a ParsedDname<Octets> {
+    type Item = &'a Label;
+    type IntoIter = ParsedDnameIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
 
 //--- Parse, Compose, and Compress
 
-impl Parse for ParsedDname {
+impl<Octets: ParseSource> Parse<Octets> for ParsedDname<Octets> {
     type Err = ParsedDnameError;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
         // We will walk over the entire name to ensure it is valid. Because
         // we need to clone the original parser for the result, anyway, it is
         // okay to clone the input parser into a temporary parser to do the
@@ -268,7 +345,7 @@ impl Parse for ParsedDname {
     ///
     /// If you need to check that the name you are skipping over is valid, you
     /// will have to use `parse` and drop the result.
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
         let mut len = 0;
         loop {
             match LabelType::parse(parser) {
@@ -299,10 +376,12 @@ impl Parse for ParsedDname {
     }
 }
 
-impl ParseAll for ParsedDname {
+impl<Octets: ParseSource> ParseAll<Octets> for ParsedDname<Octets> {
     type Err = ParsedDnameAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>, len: usize
+    ) -> Result<Self, Self::Err> {
         let mut tmp = parser.clone();
         let end = tmp.pos() + len;
         let res = Self::parse(&mut tmp)?;
@@ -319,116 +398,29 @@ impl ParseAll for ParsedDname {
 }
                
 
-impl Compose for ParsedDname {
-    fn compose_len(&self) -> usize {
-        self.len
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
+impl<Octets: AsRef<[u8]>> Compose for ParsedDname<Octets> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
         if self.compressed {
             for label in self.iter() {
-                label.compose(buf)
+                label.compose(target)
             }
         }
         else {
-            buf.put_slice(self.parser.peek(self.len).unwrap())
+            target.append_slice(self.parser.peek(self.len).unwrap())
         }
     }
     
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
         for label in self.iter_labels() {
-            label.compose_canonical(buf)
-        }
-    }
-}
-
-impl Compress for ParsedDname {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compress_name(self)
-    }
-}
-
-
-//--- ToLabelIter and ToDname
-
-impl<'a> ToLabelIter<'a> for ParsedDname {
-    type LabelIter = ParsedDnameIter<'a>;
-
-    fn iter_labels(&'a self) -> Self::LabelIter {
-        self.iter()
-    }
-}
-
-impl ToDname for ParsedDname {
-    fn as_flat_slice(&self) -> Option<&[u8]> {
-        if self.compressed {
-            None
-        }
-        else {
-            Some(self.parser.peek(self.len).unwrap())
+            label.compose_canonical(target)
         }
     }
 }
 
 
-//--- IntoIterator
+//--- Display and Debug
 
-impl<'a> IntoIterator for &'a ParsedDname {
-    type Item = &'a Label;
-    type IntoIter = ParsedDnameIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-
-//--- PartialEq and Eq
-
-impl<N: ToDname> PartialEq<N> for ParsedDname {
-    fn eq(&self, other: &N) -> bool {
-        self.name_eq(other)
-    }
-}
-
-impl Eq for ParsedDname { }
-
-
-//--- PartialOrd, Ord, and CanonicalOrd
-
-impl<N: ToDname> PartialOrd<N> for ParsedDname {
-    fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
-        Some(self.name_cmp(other))
-    }
-}
-
-impl Ord for ParsedDname {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.name_cmp(other)
-    }
-}
-
-impl<N: ToDname> CanonicalOrd<N> for ParsedDname {
-    fn canonical_cmp(&self, other: &N) -> cmp::Ordering {
-        self.name_cmp(other)
-    }
-}
-
-
-//--- Hash
-
-impl hash::Hash for ParsedDname {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        for item in self.iter() {
-            item.hash(state)
-        }
-    }
-}
-
-
-//--- Display
-
-impl fmt::Display for ParsedDname {
+impl<Octets: AsRef<[u8]>> fmt::Display for ParsedDname<Octets> {
     /// Formats the domain name.
     ///
     /// This will produce the domain name in common display format without
@@ -445,10 +437,7 @@ impl fmt::Display for ParsedDname {
     }
 }
 
-
-//--- Debug
-
-impl fmt::Debug for ParsedDname {
+impl<Octets: AsRef<[u8]>> fmt::Debug for ParsedDname<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ParsedDname({}.)", self)
     }
@@ -469,7 +458,8 @@ impl<'a> ParsedDnameIter<'a> {
     /// Creates a new iterator from the parser and the name length.
     ///
     /// The parser must be positioned at the beginning of the name.
-    fn new(parser: &'a Parser, len: usize) -> Self {
+    pub(crate) fn new<Octets>(parser: &'a Parser<Octets>, len: usize) -> Self
+    where Octets: AsRef<[u8]> {
         ParsedDnameIter { slice: parser.as_slice(), pos: parser.pos(), len }
     }
 
@@ -534,19 +524,19 @@ impl<'a> DoubleEndedIterator for ParsedDnameIter<'a> {
 
 /// An iterator over ever shorter suffixes of a parsed domain name.
 #[derive(Clone, Debug)]
-pub struct ParsedSuffixIter {
-    name: Option<ParsedDname>,
+pub struct ParsedSuffixIter<Octets: ParseSource> {
+    name: Option<ParsedDname<Octets>>,
 }
 
-impl ParsedSuffixIter {
+impl<Octets: ParseSource> ParsedSuffixIter<Octets> {
     /// Creates a new iterator cloning `name`.
-    fn new(name: &ParsedDname) -> Self {
+    fn new(name: &ParsedDname<Octets>) -> Self {
         ParsedSuffixIter { name: Some(name.clone()) }
     }
 }
 
-impl Iterator for ParsedSuffixIter {
-    type Item = ParsedDname;
+impl<Octets: ParseSource> Iterator for ParsedSuffixIter<Octets> {
+    type Item = ParsedDname<Octets>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (res, ok) = match self.name {
@@ -575,7 +565,9 @@ enum LabelType {
 
 impl LabelType {
     /// Attempts to take a label type from the beginning of `parser`.
-    pub fn parse(parser: &mut Parser) -> Result<Self, ParsedDnameError> {
+    pub fn parse<Octets: AsRef<[u8]>>(
+        parser: &mut Parser<Octets>
+    ) -> Result<Self, ParsedDnameError> {
         let ltype = parser.parse_u8()?;
         match ltype {
             0 ..= 0x3F => Ok(LabelType::Normal(ltype as usize)),
@@ -590,7 +582,9 @@ impl LabelType {
     }
 
     /// Returns the label type at the beginning of `parser` without advancing.
-    pub fn peek(parser: &mut Parser) -> Result<Self, ParsedDnameError> {
+    pub fn peek<Octets: AsRef<[u8]>>(
+        parser: &mut Parser<Octets>
+    ) -> Result<Self, ParsedDnameError> {
         let ltype = parser.peek(1)?[0];
         match ltype {
             0 ..= 0x3F => Ok(LabelType::Normal(ltype as usize)),
@@ -699,8 +693,11 @@ impl From<ShortBuf> for ParsedDnameAllError {
 #[cfg(test)]
 mod test {
     use super::*;
+/*
     use bytes::BytesMut;
-    use crate::parse::Parser;
+    use crate::Parser;
+*/
+    use unwrap::unwrap;
     use crate::name::Dname;
 
     macro_rules! name {
@@ -722,7 +719,7 @@ mod test {
 
         ($bytes:expr, $start:expr, $len:expr, $compressed:expr) => {
             {
-                let mut parser = Parser::from_static($bytes);
+                let mut parser = Parser::from_octets($bytes.as_ref());
                 parser.advance($start).unwrap();
                 ParsedDname { parser, len: $len, compressed: $compressed }
             }
@@ -730,14 +727,6 @@ mod test {
     }
 
     static WECR: &[u8] = b"\x03www\x07example\x03com\0";
-
-    #[test]
-    fn into_bytes() {
-        assert_eq!(name!(root).into_bytes(), b"\0".as_ref());
-        assert_eq!(name!(flat).into_bytes(), WECR);
-        assert_eq!(name!(once).into_bytes(), WECR);
-        assert_eq!(name!(twice).into_bytes(), WECR);
-    }
 
     #[test]
     fn len() {
@@ -786,7 +775,7 @@ mod test {
     }
 
     fn cmp_iter_suffixes<I>(iter: I, labels: &[&[u8]])
-    where I: Iterator<Item=ParsedDname> {
+    where I: Iterator<Item=ParsedDname<&'static [u8]>> {
         for (name, labels) in iter.zip(labels) {
             let mut iter = name.iter();
             let labels = Dname::from_slice(labels).unwrap();
@@ -836,60 +825,67 @@ mod test {
         let once_wec = name!(once);
         let twice_wec = name!(twice);
 
-        let test = Dname::root();
+        let test = Dname::root_ref();
         assert!( root.starts_with(&test));
         assert!(!flat_wec.starts_with(&test));
         assert!(!once_wec.starts_with(&test));
         assert!(!twice_wec.starts_with(&test));
 
-        let test = RelativeDname::empty();
+        let test = RelativeDname::empty_ref();
         assert!(root.starts_with(&test));
         assert!(flat_wec.starts_with(&test));
         assert!(once_wec.starts_with(&test));
         assert!(twice_wec.starts_with(&test));
 
-        let test = RelativeDname::from_slice(b"\x03www").unwrap();
+        let test = unwrap!(RelativeDname::from_slice(b"\x03www"));
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
         
-        let test = RelativeDname::from_slice(b"\x03www\x07example").unwrap();
+        let test = unwrap!(RelativeDname::from_slice(b"\x03www\x07example"));
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
 
-        let test = RelativeDname::from_slice(b"\x03www\x07example\x03com")
-                                 .unwrap();
+        let test = unwrap!(
+            RelativeDname::from_slice(b"\x03www\x07example\x03com")
+        );
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
 
-        let test = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+        let test = unwrap!(Dname::from_slice(b"\x03www\x07example\x03com\0"));
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
 
-        let test = RelativeDname::from_slice(b"\x07example\x03com").unwrap();
+        let test = unwrap!(RelativeDname::from_slice(b"\x07example\x03com"));
         assert!(!root.starts_with(&test));
         assert!(!flat_wec.starts_with(&test));
         assert!(!once_wec.starts_with(&test));
         assert!(!twice_wec.starts_with(&test));
 
-        let test = RelativeDname::from_slice(b"\x03www").unwrap()
-                    .chain(RelativeDname::from_slice(b"\x07example").unwrap())
-                    .unwrap();
+        let test = unwrap!(
+            unwrap!(
+                RelativeDname::from_octets(b"\x03www".as_ref())
+            ).chain(
+                unwrap!(
+                    RelativeDname::from_octets(b"\x07example".as_ref())
+                )
+            )
+        );
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
 
-        let test = test.chain(RelativeDname::from_slice(b"\x03com")
-                                            .unwrap())
-                       .unwrap();
+        let test = unwrap!(test.chain(
+            unwrap!(RelativeDname::from_octets(b"\x03com".as_ref()))
+        ));
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
@@ -902,7 +898,9 @@ mod test {
         let flat_wec = name!(flat);
         let once_wec = name!(once);
         let twice_wec = name!(twice);
-        let wecr = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+        let wecr = unwrap!(
+            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
+        );
 
         for name in wecr.iter_suffixes() {
             if name.is_root() {
@@ -917,21 +915,35 @@ mod test {
         }
     }
 
-    fn split_first_wec(mut name: ParsedDname) {
-        assert_eq!(name.clone().into_bytes(),
-                   b"\x03www\x07example\x03com\0".as_ref());
-        assert_eq!(name.split_first().unwrap().as_slice(),
-                   b"\x03www".as_ref());
-        assert_eq!(name.clone().into_bytes(),
-                   b"\x07example\x03com\0".as_ref());
-        assert_eq!(name.split_first().unwrap().as_slice(),
-                   b"\x07example".as_ref());
-        assert_eq!(name.clone().into_bytes(),
-                   b"\x03com\0".as_ref());
-        assert_eq!(name.split_first().unwrap().as_slice(),
-                   b"\x03com".as_ref());
-        assert_eq!(name.clone().into_bytes(),
-                   b"\0".as_ref());
+    fn split_first_wec(mut name: ParsedDname<&'static [u8]>) {
+        assert_eq!(
+            name.to_dname_vec().as_slice(),
+            b"\x03www\x07example\x03com\0"
+        );
+        assert_eq!(
+            name.split_first().unwrap().as_slice(),
+            b"\x03www".as_ref()
+        );
+        assert_eq!(
+            name.to_dname_vec().as_slice(),
+            b"\x07example\x03com\0"
+        );
+        assert_eq!(
+            name.split_first().unwrap().as_slice(),
+            b"\x07example".as_ref()
+        );
+        assert_eq!(
+            name.to_dname_vec().as_slice(),
+            b"\x03com\0"
+        );
+        assert_eq!(
+            name.split_first().unwrap().as_slice(),
+            b"\x03com".as_ref()
+        );
+        assert_eq!(
+            name.to_dname_vec().as_slice(),
+            b"\0"
+        );
         assert_eq!(name.split_first(), None);
         assert_eq!(name.split_first(), None);
     }
@@ -943,18 +955,26 @@ mod test {
         split_first_wec(name!(twice));
     }
 
-    fn parent_wec(mut name: ParsedDname) {
-        assert_eq!(name.clone().into_bytes(),
-                   b"\x03www\x07example\x03com\0".as_ref());
+    fn parent_wec(mut name: ParsedDname<&'static [u8]>) {
+        assert_eq!(
+            name.to_dname_vec().as_slice(),
+            b"\x03www\x07example\x03com\0"
+        );
         assert_eq!(name.parent(), true);
-        assert_eq!(name.clone().into_bytes(),
-                   b"\x07example\x03com\0".as_ref());
+        assert_eq!(
+            name.to_dname_vec().as_slice(),
+            b"\x07example\x03com\0"
+        );
         assert_eq!(name.parent(), true);
-        assert_eq!(name.clone().into_bytes(),
-                   b"\x03com\0".as_ref());
+        assert_eq!(
+            name.to_dname_vec().as_slice(),
+            b"\x03com\0"
+        );
         assert_eq!(name.parent(), true);
-        assert_eq!(name.clone().into_bytes(),
-                   b"\0".as_ref());
+        assert_eq!(
+            name.to_dname_vec().as_slice(),
+            b"\0"
+        );
         assert_eq!(name.parent(), false);
         assert_eq!(name.parent(), false);
     } 
@@ -966,27 +986,31 @@ mod test {
         parent_wec(name!(twice));
     }
 
-    fn name_eq(parsed: ParsedDname, name: ParsedDname) {
+    fn name_eq(parsed: ParsedDname<&[u8]>, name: ParsedDname<&[u8]>) {
         assert_eq!(parsed.parser.as_slice(), name.parser.as_slice());
         assert_eq!(parsed.parser.pos(), name.parser.pos());
         assert_eq!(parsed.len, name.len);
         assert_eq!(parsed.compressed, name.compressed);
     }
 
-    fn parse(mut parser: Parser, equals: ParsedDname, compose_len: usize) {
+    fn parse(
+        mut parser: Parser<&[u8]>,
+        equals: ParsedDname<&[u8]>,
+        compose_len: usize
+    ) {
         let end = parser.pos() + compose_len;
         name_eq(ParsedDname::parse(&mut parser).unwrap(), equals);
         assert_eq!(parser.pos(), end);
     }
 
-    fn skip(mut name: ParsedDname, len: usize) {
+    fn skip(mut name: ParsedDname<&[u8]>, len: usize) {
         let end = name.parser.pos() + len;
         assert_eq!(ParsedDname::skip(&mut name.parser), Ok(()));
         assert_eq!(name.parser.pos(), end);
     }
 
-    fn p(slice: &'static [u8], pos: usize) -> Parser {
-        let mut res = Parser::from_static(slice);
+    fn p(slice: &'static [u8], pos: usize) -> Parser<&'static [u8]> {
+        let mut res = Parser::from_octets(slice);
         res.advance(pos).unwrap();
         res
     }
@@ -1039,7 +1063,7 @@ mod test {
             buf.extend_from_slice(b"\x09123456789");
         }
         buf.extend_from_slice(b"\xc0\012");
-        let mut parser = Parser::from_bytes(buf.into());
+        let mut parser = Parser::from_octets(buf.as_slice());
         parser.advance(5).unwrap();
         let name = ParsedDname::parse(&mut parser.clone()).unwrap();
         assert_eq!(name.len(), 255);
@@ -1052,7 +1076,7 @@ mod test {
             buf.extend_from_slice(b"\x09123456789");
         }
         buf.extend_from_slice(b"\xc0\012");
-        let mut parser = Parser::from_bytes(buf.into());
+        let mut parser = Parser::from_octets(buf.as_slice());
         parser.advance(6).unwrap();
         assert_eq!(ParsedDname::parse(&mut parser.clone()),
                    Err(ParsedDnameError::LongName));
@@ -1081,6 +1105,7 @@ mod test {
         assert_eq!(parser.remaining(), 2);
     }
 
+
     #[test]
     fn parse_all() {
         // The current implementation defers to `Dname::from_bytes`. As there
@@ -1101,12 +1126,10 @@ mod test {
 
     #[test]
     fn compose() {
-        fn step(name: ParsedDname, result: &[u8]) {
-            assert_eq!(name.compose_len(), result.len());
-            let mut buf = BytesMut::with_capacity(result.len());
+        fn step(name: ParsedDname<&[u8]>, result: &[u8]) {
+            let mut buf = Vec::new();
             name.compose(&mut buf);
-            let buf = buf.freeze();
-            assert_eq!(buf, result);
+            assert_eq!(buf.as_slice(), result);
         }
 
         step(name!(root), b"\0");
@@ -1115,7 +1138,7 @@ mod test {
         step(name!(twice), WECR);
     }
 
-    // Compress is tested with Compressor.
+    // XXX TODO compose_canonical
 
     #[test]
     fn as_flat_slice() {
@@ -1145,11 +1168,18 @@ mod test {
 
         step(Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap());
         step(Dname::from_slice(b"\x03wWw\x07EXAMPLE\x03com\0").unwrap());
-        step(RelativeDname::from_slice(b"\x03www\x07example\x03com").unwrap()
-                           .chain_root());
-        step(RelativeDname::from_slice(b"\x03www\x07example").unwrap()
-                           .chain(Dname::from_slice(b"\x03com\0").unwrap())
-                           .unwrap());
+        step(
+            unwrap!(
+                RelativeDname::from_octets(b"\x03www\x07example\x03com")
+            ).chain_root()
+        );
+        step(
+            unwrap!(
+                unwrap!(
+                    RelativeDname::from_octets(b"\x03www\x07example")
+                ).chain(unwrap!(Dname::from_octets(b"\x03com\0")))
+            )
+        );
 
         ne_step(Dname::from_slice(b"\x03ww4\x07EXAMPLE\x03com\0").unwrap());
     }

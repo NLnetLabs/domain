@@ -1006,7 +1006,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
             ValidationError
          >
     {
-        // Extact TSIG or bail out.
+        // Extract TSIG or bail out.
         let tsig = match extract_tsig(message) {
             Some(tsig) => tsig,
             None => return Ok(None)

@@ -1,25 +1,26 @@
 //! EDNS Options from RFC 8145.
 
-use bytes::{BigEndian, BufMut, ByteOrder, Bytes};
-use crate::compose::Compose;
+use bytes::{BigEndian, ByteOrder};
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-use crate::message_builder::OptBuilder;
-use crate::parse::{ParseAll, ParseAllError, Parser, ShortBuf};
+// XXX use crate::message_builder::OptBuilder;
+use crate::parse::{ParseAll, ParseAllError, Parser, ParseSource};
 use super::CodeOptData;
 
 
 //------------ KeyTag -------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct KeyTag {
-    bytes: Bytes,
+pub struct KeyTag<Octets> {
+    octets: Octets,
 }
 
-impl KeyTag {
-    pub fn new(bytes: Bytes) -> Self {
-        KeyTag { bytes }
+impl<Octets> KeyTag<Octets> {
+    pub fn new(octets: Octets) -> Self {
+        KeyTag { octets }
     }
 
+    /* XXX
     pub fn push(builder: &mut OptBuilder, tags: &[u16])
                 -> Result<(), ShortBuf> {
         let len = tags.len() * 2;
@@ -31,49 +32,50 @@ impl KeyTag {
             Ok(())
         })
     }
+    */
 
-    pub fn iter(&self) -> KeyTagIter {
-        KeyTagIter(self.bytes.as_ref())
+    pub fn iter(&self) -> KeyTagIter
+    where Octets: AsRef<[u8]> {
+        KeyTagIter(self.octets.as_ref())
     }
 }
 
 
 //--- ParseAll and Compose
 
-impl ParseAll for KeyTag {
+impl<Octets: ParseSource> ParseAll<Octets> for KeyTag<Octets> {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len % 2 == 1 {
             Err(ParseAllError::TrailingData)
         }
         else {
-            Ok(Self::new(parser.parse_bytes(len)?))
+            Ok(Self::new(parser.parse_octets(len)?))
         }
     }
 }
 
-impl Compose for KeyTag {
-    fn compose_len(&self) -> usize {
-        self.bytes.len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(self.bytes.as_ref())
+impl<Octets: AsRef<[u8]>> Compose for KeyTag<Octets> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        target.append_slice(self.octets.as_ref())
     }
 }
 
 
 //--- CodeOptData
 
-impl CodeOptData for KeyTag {
+impl<Octets> CodeOptData for KeyTag<Octets> {
     const CODE: OptionCode = OptionCode::KeyTag;
 }
 
 
 //--- IntoIterator
 
-impl<'a> IntoIterator for &'a KeyTag {
+impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a KeyTag<Octets> {
     type Item = u16;
     type IntoIter = KeyTagIter<'a>;
 

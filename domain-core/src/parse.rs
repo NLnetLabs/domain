@@ -1,101 +1,116 @@
 //! Parsing DNS wire-format data.
-//!
-//! This module provides a [`Parser`] that helps extracting data from DNS
-//! messages and two traits for types that know how to parse themselves:
-//! [`Parse`] for types that have an encoding of determinable length and
-//! [`ParseAll`] for types that fill the entire available space.
-//!
-//! [`Parser`]: struct.Parser.html
-//! [`Parse`]: trait.Parse.html
-//! [`ParseAll`]: trait.ParseAll.html
 
 use std::error;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use bytes::{BigEndian, ByteOrder, Bytes};
 use derive_more::Display;
+use bytes::Bytes;
+
+
+//------------ ParseSource ---------------------------------------------------
+
+// XXX Consider renaming to ParseOctets.
+pub trait ParseSource: Clone + AsRef<[u8]> + Sized {
+    fn range(&self, start: usize, end: usize) -> Self;
+
+    fn range_to(&self, end: usize) -> Self {
+        self.range(0, end)
+    }
+
+    fn range_from(&self, start: usize) -> Self {
+        self.range(start, self.as_ref().len())
+    }
+
+    fn split_at(self, mid: usize) -> (Self, Self) {
+        (self.range_to(mid), self.range_from(mid))
+    }
+
+    fn split_off(&mut self, mid: usize) -> Self {
+        let res = self.range_from(mid);
+        *self = self.range_to(mid);
+        res
+    }
+
+    fn split_to(&mut self, mid: usize) -> Self {
+        let res = self.range_to(mid);
+        *self = self.range_from(mid);
+        res
+    }
+
+    fn truncate(&mut self, len: usize) {
+        *self = self.range_to(len)
+    }
+}
+
+impl<'a> ParseSource for &'a [u8] {
+    fn range(&self, start: usize, end: usize) -> Self {
+        &self[start..end]
+    }
+}
+
+impl ParseSource for Bytes {
+    fn range(&self, start: usize, end: usize) -> Self {
+        self.slice(start, end)
+    }
+}
 
 
 //------------ Parser --------------------------------------------------------
 
-/// The raw data and state of a DNS message being parsed.
-///
-/// Because of name compression, a full message needs to be available for
-/// parsing of DNS data. This type is a small layer atop a [`Bytes`] value.
-/// You can wrap one using the [`from_bytes()`] function.
-///
-/// The parser allows you to successively parse one item after another
-/// out of the message via a few methods prefixed with `parse_`. Additional
-/// methods are available for repositioning the parser’s position or access
-/// the raw, underlying bytes.
-///
-/// The methods of a parser never panic if you try to go beyond the end of
-/// the parser’s data. Instead, they will return a [`ShortBuf`] error,
-/// making it more straightforward to implement a complex parser. Since an
-/// error normally leads to processing being aborted, functions that return
-/// an error can leave the parser at whatever position they like. In the
-/// rare case that you actually need to backtrack on the parser in case of
-/// an error, you will have to remember and reposition yourself. 
-///
-/// Parsers are `Clone`, so you can keep around a copy of a parser for later
-/// use. This is, for instance, done by [`ParsedDname`] in order to be able
-/// to rummage around the message bytes to find all its labels. Because
-/// copying a [`Bytes`] value is relatively cheap, cloning a parser is cheap,
-/// too.
-///
-/// [`from_bytes()`]: #method.from_bytes
-/// [`Bytes`]: ../../../bytes/struct.Bytes.html
-/// [`ParsedDname`]: ../name/struct.ParsedDname.html
-/// [`ShortBuf`]: ../struct.ShortBuf.html
-#[derive(Clone, Debug)]
-pub struct Parser {
-    /// The underlying data.
-    bytes: Bytes,
-
-    /// The index in `bytes` where parsing should continue.
+#[derive(Clone, Copy, Debug)]
+pub struct Parser<T> {
+    octets: T,
     pos: usize
 }
 
-impl Parser {
-    /// Creates a new parser atop a bytes value.
-    pub fn from_bytes(bytes: Bytes) -> Self {
-        Parser { bytes, pos: 0 }
+impl<T> Parser<T> {
+    /// Creates a new parser atop an octet sequence.
+    pub fn from_octets(octets: T) -> Self {
+        Parser { octets, pos: 0 }
     }
 
-    /// Creates a new parser atop a static byte slice.
-    ///
-    /// This function is most useful for testing.
-    pub fn from_static(slice: &'static [u8]) -> Self {
-        Self::from_bytes(Bytes::from_static(slice))
+    /// Returns a reference to the underlying octets sequence.
+    pub fn as_octets(&self) -> &T {
+        &self.octets
     }
 
-    /// Extracts the underlying bytes value from the parser.
+    /// Extracts the underlying octet sequence from the parser.
     ///
-    /// This will be the same bytes value the parser was created with. It
+    /// This will be the same sequence the parser was created with. It
     /// will not be modified by parsing at all.
-    pub fn unwrap(self) -> Bytes {
-        self.bytes
-    }
-}
-
-impl Parser {
-    /// Returns a reference to the underlying bytes.
-    pub fn as_bytes(&self) -> &Bytes {
-        &self.bytes
-    }
-
-    /// Returns a reference to the underlying byte slice.
-    pub fn as_slice(&self) -> &[u8] {
-        self.bytes.as_ref()
+    pub fn into_octets(self) -> T {
+        self.octets
     }
 
     /// Returns the current parse position as an index into the byte slice.
     pub fn pos(&self) -> usize {
         self.pos
     }
+}
+
+impl Parser<&'static [u8]> {
+    /// Creates a new parser atop a static byte slice.
+    ///
+    /// This function is most useful for testing.
+    pub fn from_static(slice: &'static [u8]) -> Self {
+        Self::from_octets(slice)
+    }
+}
+
+impl<T: AsRef<[u8]>> Parser<T> {
+    /// Returns a reference to the underlying octets sequence.
+    pub fn as_slice(&self) -> &[u8] {
+        self.octets.as_ref()
+    }
+
+    /// Returns a mutable reference to the underlying octets sequence.
+    pub fn as_slice_mut(&mut self) -> &mut [u8]
+    where T: AsMut<[u8]> {
+        self.octets.as_mut()
+    }
 
     /// Returns the number of remaining bytes to parse.
     pub fn remaining(&self) -> usize {
-        self.bytes.len() - self.pos
+        self.octets.as_ref().len() - self.pos
     }
 
     /// Returns a slice containing the next `len` bytes.
@@ -108,7 +123,7 @@ impl Parser {
 
     /// Returns a byte slice of the data left to parse.
     pub fn peek_all(&self) -> &[u8] {
-        &self.bytes.as_ref()[self.pos..]
+        &self.octets.as_ref()[self.pos..]
     }
 
     /// Repositions the parser to the given index.
@@ -116,7 +131,7 @@ impl Parser {
     /// If `pos` is larger than the length of the parser, an error is
     /// returned.
     pub fn seek(&mut self, pos: usize) -> Result<(), ShortBuf> {
-        if pos > self.bytes.len() {
+        if pos > self.octets.as_ref().len() {
             Err(ShortBuf)
         }
         else {
@@ -149,17 +164,20 @@ impl Parser {
             Ok(())
         }
     }
+}
 
-    /// Takes the next `len` bytes and returns them as a `Bytes` value.
+impl<T: AsRef<[u8]>> Parser<T> {
+    /// Takes and returns the next `len` octets.
     ///
     /// Advances the parser by `len` bytes. If there aren’t enough bytes left,
     /// leaves the parser untouched and returns an error, instead.
-    pub fn parse_bytes(&mut self, len: usize) -> Result<Bytes, ShortBuf> {
+    pub fn parse_octets(&mut self, len: usize) -> Result<T, ShortBuf>
+    where T: ParseSource {
         let end = self.pos + len;
-        if end > self.bytes.len() {
+        if end > self.octets.as_ref().len() {
             return Err(ShortBuf)
         }
-        let res = self.bytes.slice(self.pos, end);
+        let res = self.octets.range(self.pos, end);
         self.pos = end;
         Ok(res)
     }
@@ -168,7 +186,7 @@ impl Parser {
     pub fn parse_buf(&mut self, buf: &mut [u8]) -> Result<(), ShortBuf> {
         let pos = self.pos;
         self.advance(buf.len())?;
-        buf.copy_from_slice(&self.bytes.as_ref()[pos..self.pos]);
+        buf.copy_from_slice(&self.octets.as_ref()[pos..self.pos]);
         Ok(())
     }
 
@@ -199,9 +217,9 @@ impl Parser {
     /// aren’t enough bytes left, leaves the parser untouched and returns an
     /// error, instead.
     pub fn parse_i16(&mut self) -> Result<i16, ShortBuf> {
-        let res = BigEndian::read_i16(self.peek(2)?);
-        self.pos += 2;
-        Ok(res)
+        let mut res = [0; 2];
+        self.parse_buf(&mut res)?;
+        Ok(i16::from_be_bytes(res))
     }
 
     /// Takes a `u16` from the beginning of the parser.
@@ -211,9 +229,9 @@ impl Parser {
     /// aren’t enough bytes left, leaves the parser untouched and returns an
     /// error, instead.
     pub fn parse_u16(&mut self) -> Result<u16, ShortBuf> {
-        let res = BigEndian::read_u16(self.peek(2)?);
-        self.pos += 2;
-        Ok(res)
+        let mut res = [0; 2];
+        self.parse_buf(&mut res)?;
+        Ok(u16::from_be_bytes(res))
     }
 
     /// Takes an `i32` from the beginning of the parser.
@@ -223,9 +241,9 @@ impl Parser {
     /// there aren’t enough bytes left, leaves the parser untouched and
     /// returns an error, instead.
     pub fn parse_i32(&mut self) -> Result<i32, ShortBuf> {
-        let res = BigEndian::read_i32(self.peek(4)?);
-        self.pos += 4;
-        Ok(res)
+        let mut res = [0; 4];
+        self.parse_buf(&mut res)?;
+        Ok(i32::from_be_bytes(res))
     }
 
     /// Takes a `u32` from the beginning of the parser.
@@ -235,9 +253,9 @@ impl Parser {
     /// there aren’t enough bytes left, leaves the parser untouched and
     /// returns an error, instead.
     pub fn parse_u32(&mut self) -> Result<u32, ShortBuf> {
-        let res = BigEndian::read_u32(self.peek(4)?);
-        self.pos += 4;
-        Ok(res)
+        let mut res = [0; 4];
+        self.parse_buf(&mut res)?;
+        Ok(u32::from_be_bytes(res))
     }
 }
 
@@ -250,7 +268,7 @@ impl Parser {
 /// value in the parser can be determined from data read so far. These are
 /// either fixed length types like `u32` or types that either contain length
 /// bytes or boundary markers.
-pub trait Parse: Sized {
+pub trait Parse<T>: Sized {
     /// The type of an error returned when parsing fails.
     type Err: From<ShortBuf> + error::Error;
 
@@ -260,86 +278,86 @@ pub trait Parse: Sized {
     /// should be considered to be undefined. If it supposed to be reused in
     /// this case, you should store the position before attempting to parse
     /// and seek to that position again before continuing.
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err>;
+    fn parse(parser: &mut Parser<T>) -> Result<Self, Self::Err>;
 
     /// Skips over a value of this type at the beginning of `parser`.
     ///
     /// This function is the same as `parse` but doesn’t return the result.
     /// It can be used to check if the content of `parser` is correct or to
     /// skip over unneeded parts of a message.
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err>;
+    fn skip(parser: &mut Parser<T>) -> Result<(), Self::Err>;
 }
 
-impl Parse for i8 {
+impl<T: AsRef<[u8]>> Parse<T> for i8 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, ShortBuf> {
         parser.parse_i8()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ShortBuf> {
         parser.advance(1)
     }
 }
 
-impl Parse for u8 {
+impl<T: AsRef<[u8]>> Parse<T> for u8 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, ShortBuf> {
         parser.parse_u8()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ShortBuf> {
         parser.advance(1)
     }
 }
 
-impl Parse for i16 {
+impl<T: AsRef<[u8]>> Parse<T> for i16 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, ShortBuf> {
         parser.parse_i16()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ShortBuf> {
         parser.advance(2)
     }
 }
 
-impl Parse for u16 {
+impl<T: AsRef<[u8]>> Parse<T> for u16 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, ShortBuf> {
         parser.parse_u16()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ShortBuf> {
         parser.advance(2)
     }
 }
 
-impl Parse for i32 {
+impl<T: AsRef<[u8]>> Parse<T> for i32 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, ShortBuf> {
         parser.parse_i32()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ShortBuf> {
         parser.advance(4)
     }
 }
 
-impl Parse for u32 {
+impl<T: AsRef<[u8]>> Parse<T> for u32 {
     type Err = ShortBuf;
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, ShortBuf> {
         parser.parse_u32()
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ShortBuf> {
         parser.advance(4)
     }
 }
 
-impl Parse for Ipv4Addr {
+impl<T: AsRef<[u8]>> Parse<T> for Ipv4Addr {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, ShortBuf> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, ShortBuf> {
         Ok(Self::new(
             u8::parse(parser)?,
             u8::parse(parser)?,
@@ -348,21 +366,21 @@ impl Parse for Ipv4Addr {
         ))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ShortBuf> {
         parser.advance(4)
     }
 }
 
-impl Parse for Ipv6Addr {
+impl<T: AsRef<[u8]>> Parse<T> for Ipv6Addr {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, Self::Err> {
         let mut buf = [0u8; 16];
         parser.parse_buf(&mut buf)?;
         Ok(buf.into())
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), ShortBuf> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ShortBuf> {
         parser.advance(16)
     }
 }
@@ -376,7 +394,7 @@ impl Parse for Ipv6Addr {
 /// value is expected to stretch over this entire length. There are types
 /// that can implement `ParseAll` but not [`Parse`] because they simply take
 /// all remaining bytes.
-pub trait ParseAll: Sized {
+pub trait ParseAll<T>: Sized {
     /// The type returned when parsing fails.
     type Err: From<ShortBuf> + error::Error;
 
@@ -385,14 +403,17 @@ pub trait ParseAll: Sized {
     /// An implementation must read exactly `len` bytes from the parser or
     /// fail. If it fails, the position of the parser is considered
     /// undefined.
-    fn parse_all(parser: &mut Parser, len: usize)
-                 -> Result<Self, Self::Err>;
+    fn parse_all(
+        parser: &mut Parser<T>, len: usize
+    ) -> Result<Self, Self::Err>;
 }
 
-impl ParseAll for u8 {
+impl<T: AsRef<[u8]>> ParseAll<T> for u8 {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<T>, len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 1 {
             Err(ParseAllError::ShortField)
         }
@@ -405,10 +426,12 @@ impl ParseAll for u8 {
     }
 }
 
-impl ParseAll for u16 {
+impl<T: AsRef<[u8]>> ParseAll<T>for u16 {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<T>, len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 2 {
             Err(ParseAllError::ShortField)
         }
@@ -421,10 +444,12 @@ impl ParseAll for u16 {
     }
 }
 
-impl ParseAll for u32 {
+impl<T: AsRef<[u8]>> ParseAll<T> for u32 {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<T>, len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 4 {
             Err(ParseAllError::ShortField)
         }
@@ -437,18 +462,12 @@ impl ParseAll for u32 {
     }
 }
 
-impl ParseAll for Bytes {
-    type Err = ShortBuf;
-
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        parser.parse_bytes(len)
-    }
-}
-
-impl ParseAll for Ipv4Addr {
+impl<T: AsRef<[u8]>> ParseAll<T> for Ipv4Addr {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<T>, len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 4 {
             Err(ParseAllError::ShortField)
         }
@@ -461,10 +480,12 @@ impl ParseAll for Ipv4Addr {
     }
 }
 
-impl ParseAll for Ipv6Addr {
+impl<T: AsRef<[u8]>> ParseAll<T> for Ipv6Addr {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<T>, len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 16 {
             Err(ParseAllError::ShortField)
         }
@@ -549,6 +570,15 @@ impl From<ShortBuf> for ParseAllError {
     }
 }
 
+impl From<ParseOpenError> for ParseAllError {
+    fn from(err: ParseOpenError) -> Self {
+        match err {
+            ParseOpenError::ShortField => ParseAllError::ShortField,
+            ParseOpenError::ShortBuf => ParseAllError::ShortBuf,
+        }
+    }
+}
+
 
 //============ Testing =======================================================
 
@@ -616,12 +646,12 @@ mod test {
     }
 
     #[test]
-    fn parse_bytes() {
+    fn parse_octets() {
         let mut parser = Parser::from_static(b"0123456789");
-        assert_eq!(parser.parse_bytes(2).unwrap().as_ref(), b"01");
-        assert_eq!(parser.parse_bytes(2).unwrap().as_ref(), b"23");
-        assert_eq!(parser.parse_bytes(7), Err(ShortBuf));
-        assert_eq!(parser.parse_bytes(6).unwrap().as_ref(), b"456789");
+        assert_eq!(parser.parse_octets(2).unwrap(), b"01");
+        assert_eq!(parser.parse_octets(2).unwrap(), b"23");
+        assert_eq!(parser.parse_octets(7), Err(ShortBuf));
+        assert_eq!(parser.parse_octets(6).unwrap(), b"456789");
     }
 
     #[test]
@@ -691,3 +721,4 @@ mod test {
 
 
 }
+

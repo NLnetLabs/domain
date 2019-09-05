@@ -1,6 +1,7 @@
 /// A master file entry.
 
 use std::path::PathBuf;
+use bytes::Bytes;
 use crate::iana::{Class, Rtype};
 use crate::master::scan::{
     CharSource, Pos, Scan, ScanError, Scanner, SyntaxError
@@ -32,7 +33,7 @@ pub enum Entry {
     ///
     /// This entry contains the origin for relative domain names encountered
     /// in subsequent entries.
-    Origin(Dname),
+    Origin(Dname<Bytes>),
     
     /// An `$INCLUDE` control entry.
     ///
@@ -42,7 +43,7 @@ pub enum Entry {
     /// system dependent. The optional `origin` attribute contains the
     /// initial value of the origin of relative domain names when including
     /// the file.
-    Include { path: PathBuf, origin: Option<Dname> },
+    Include { path: PathBuf, origin: Option<Dname<Bytes>> },
 
     /// A `$TTL` control entry.
     ///
@@ -88,7 +89,7 @@ impl Entry {
     /// If successful, the function returns some entry or `None` if it
     /// encountered an end of file before an entry even started.
     pub fn scan<C: CharSource>(scanner: &mut Scanner<C>,
-                               last_owner: Option<&Dname>,
+                               last_owner: Option<&Dname<Bytes>>,
                                last_class: Option<Class>,
                                default_ttl: Option<u32>)
                                -> Result<Option<Self>, ScanError> {
@@ -143,7 +144,7 @@ impl Entry {
     }
 
     fn scan_record<C: CharSource>(scanner: &mut Scanner<C>,
-                               last_owner: Option<&Dname>,
+                               last_owner: Option<&Dname<Bytes>>,
                                last_class: Option<Class>,
                                default_ttl: Option<u32>)
                                -> Result<MasterRecord, ScanError> {
@@ -157,8 +158,8 @@ impl Entry {
     }
 
     fn scan_owner<C: CharSource>(scanner: &mut Scanner<C>,
-                                 last_owner: Option<&Dname>)
-                                 -> Result<Dname, ScanError> {
+                                 last_owner: Option<&Dname<Bytes>>)
+                                 -> Result<Dname<Bytes>, ScanError> {
         let pos = scanner.pos();
         if let Ok(()) = scanner.scan_space() {
             if let Some(owner) = last_owner { Ok(owner.clone()) }
@@ -257,5 +258,7 @@ impl Scan for ControlType {
 
 //------------ MasterRecord --------------------------------------------------
 
-pub type MasterRecord = Record<Dname, MasterRecordData<Dname>>;
+pub type MasterRecord = Record<
+    Dname<Bytes>, MasterRecordData<Bytes, Dname<Bytes>>
+>;
 

@@ -4,23 +4,24 @@
 //!
 //! [RFC 2845]: https://tools.ietf.org/html/rfc2845
 
-use std::fmt;
+use std::{fmt, hash};
 use std::cmp::Ordering;
 use std::time::SystemTime;
-use bytes::{BufMut, Bytes};
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, Compress, Compressor};
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{Rtype, TsigRcode};
 use crate::name::ToDname;
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::parse::{
+    Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
+};
 use crate::utils::base64;
 use super::RtypeRecordData;
 
 
 //------------ Tsig ----------------------------------------------------------
 
-#[derive(Clone, Debug, Hash)]
-pub struct Tsig<N> {
+#[derive(Clone)]
+pub struct Tsig<O, N> {
     /// The signature algorithm as a domain name.
     algorithm: N,
 
@@ -36,7 +37,7 @@ pub struct Tsig<N> {
     ///
     /// In wire format, consists of a unsigned 16 bit integer containing the
     /// length followed by that many octets of actual MAC.
-    mac: Bytes,
+    mac: O,
 
     /// Original message ID.
     original_id: u16,
@@ -49,10 +50,10 @@ pub struct Tsig<N> {
     /// This is normally empty unless a BADTIME error happened. In wire
     /// format, it is encoded as a unsigned 16 bit integer followed by that
     /// many octets.
-    other: Bytes,
+    other: O,
 }
 
-impl<N> Tsig<N> {
+impl<O, N> Tsig<O, N> {
     /// Creates a new TSIG record from its components.
     ///
     /// See the access methods for an explanation of these components.
@@ -65,10 +66,10 @@ impl<N> Tsig<N> {
         algorithm: N,
         time_signed: Time48,
         fudge: u16,
-        mac: Bytes,
+        mac: O,
         original_id: u16,
         error: TsigRcode,
-        other: Bytes
+        other: O
     ) -> Self {
         Tsig {
             algorithm, time_signed, fudge, mac, original_id, error, other
@@ -101,17 +102,18 @@ impl<N> Tsig<N> {
     }
 
     /// Returns a reference to the bytes value containing the MAC.
-    pub fn mac(&self) -> &Bytes {
+    pub fn mac(&self) -> &O {
         &self.mac
     }
 
     /// Returns an octet slice containing the MAC.
-    pub fn mac_slice(&self) -> &[u8] {
+    pub fn mac_slice(&self) -> &[u8]
+    where O: AsRef<[u8]> {
         self.mac.as_ref()
     }
 
     /// Converts the record data into the MAC.
-    pub fn into_mac(self) -> Bytes {
+    pub fn into_mac(self) -> O {
         self.mac
     }
 
@@ -132,7 +134,7 @@ impl<N> Tsig<N> {
     ///
     /// This field is only used for BADTIME errors to return the server time.
     /// Otherwise it is empty.
-    pub fn other(&self) -> &Bytes {
+    pub fn other(&self) -> &O {
         &self.other
     }
 
@@ -140,8 +142,9 @@ impl<N> Tsig<N> {
     ///
     /// If the other bytes field is exactly 6 bytes long, this methods
     /// returns it as a `u64` representation of the Unix time contained.
-    pub fn other_time(&self) -> Option<Time48> {
-        if self.other.len() == 6 {
+    pub fn other_time(&self) -> Option<Time48>
+    where O: AsRef<[u8]> {
+        if self.other.as_ref().len() == 6 {
             Some(Time48::from_slice(self.other.as_ref()))
         }
         else {
@@ -161,31 +164,32 @@ impl<N> Tsig<N> {
     }
 }
 
-
 //--- PartialEq and Eq
 
-impl<N: PartialEq<NN>, NN> PartialEq<Tsig<NN>> for Tsig<N> {
-    fn eq(&self, other: &Tsig<NN>) -> bool {
-        self.algorithm == other.algorithm
+impl<O, OO, N, NN> PartialEq<Tsig<OO, NN>> for Tsig<O, N>
+where O: AsRef<[u8]>, OO: AsRef<[u8]>, N: ToDname, NN: ToDname {
+    fn eq(&self, other: &Tsig<OO, NN>) -> bool {
+        self.algorithm.name_eq(&other.algorithm)
         && self.time_signed == other.time_signed
         && self.fudge == other.fudge
-        && self.mac == other.mac
+        && self.mac.as_ref().eq(other.mac.as_ref())
         && self.original_id == other.original_id
         && self.error == other.error
-        && self.other == other.other
+        && self.other.as_ref().eq(other.other.as_ref())
     }
 }
 
-impl<N: Eq> Eq for Tsig<N> { }
+impl<O: AsRef<[u8]>, N: ToDname> Eq for Tsig<O, N> { }
 
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
-impl<N: PartialOrd<NN>, NN> PartialOrd<Tsig<NN>> for Tsig<N> {
-    fn partial_cmp(&self, other: &Tsig<NN>) -> Option<Ordering> {
-        match self.algorithm.partial_cmp(&other.algorithm) {
-            Some(Ordering::Equal) => { }
-            other => return other
+impl<O, OO, N, NN> PartialOrd<Tsig<OO, NN>> for Tsig<O, N>
+where O: AsRef<[u8]>, OO: AsRef<[u8]>, N: ToDname, NN: ToDname {
+    fn partial_cmp(&self, other: &Tsig<OO, NN>) -> Option<Ordering> {
+        match self.algorithm.name_cmp(&other.algorithm) {
+            Ordering::Equal => { }
+            other => return Some(other)
         }
         match self.time_signed.partial_cmp(&other.time_signed) {
             Some(Ordering::Equal) => { }
@@ -195,7 +199,7 @@ impl<N: PartialOrd<NN>, NN> PartialOrd<Tsig<NN>> for Tsig<N> {
             Some(Ordering::Equal) => { }
             other => return other
         }
-        match self.mac.partial_cmp(&other.mac) {
+        match self.mac.as_ref().partial_cmp(other.mac.as_ref()) {
             Some(Ordering::Equal) => { }
             other => return other
         }
@@ -207,13 +211,13 @@ impl<N: PartialOrd<NN>, NN> PartialOrd<Tsig<NN>> for Tsig<N> {
             Some(Ordering::Equal) => { }
             other => return other
         }
-        self.other.partial_cmp(&other.other)
+        self.other.as_ref().partial_cmp(other.other.as_ref())
     }
 }
 
-impl<N: Ord> Ord for Tsig<N> {
+impl<O: AsRef<[u8]>, N: ToDname> Ord for Tsig<O, N> {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.algorithm.cmp(&other.algorithm) {
+        match self.algorithm.name_cmp(&other.algorithm) {
             Ordering::Equal => { }
             other => return other
         }
@@ -225,7 +229,7 @@ impl<N: Ord> Ord for Tsig<N> {
             Ordering::Equal => { }
             other => return other
         }
-        match self.mac.cmp(&other.mac) {
+        match self.mac.as_ref().cmp(other.mac.as_ref()) {
             Ordering::Equal => { }
             other => return other
         }
@@ -237,12 +241,13 @@ impl<N: Ord> Ord for Tsig<N> {
             Ordering::Equal => { }
             other => return other
         }
-        self.other.cmp(&other.other)
+        self.other.as_ref().cmp(other.other.as_ref())
     }
 }
 
-impl<N: ToDname, NN: ToDname> CanonicalOrd<Tsig<NN>> for Tsig<N> {
-    fn canonical_cmp(&self, other: &Tsig<NN>) -> Ordering {
+impl<O, OO, N, NN> CanonicalOrd<Tsig<OO, NN>> for Tsig<O, N>
+where O: AsRef<[u8]>, OO: AsRef<[u8]>, N: ToDname, NN: ToDname {
+    fn canonical_cmp(&self, other: &Tsig<OO, NN>) -> Ordering {
         match self.algorithm.composed_cmp(&other.algorithm) {
             Ordering::Equal => { }
             other => return other
@@ -255,11 +260,11 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Tsig<NN>> for Tsig<N> {
             Ordering::Equal => { }
             other => return other
         }
-        match self.mac.len().cmp(&other.mac.len()) {
+        match self.mac.as_ref().len().cmp(&other.mac.as_ref().len()) {
             Ordering::Equal => { }
             other => return other
         }
-        match self.mac.cmp(&other.mac) {
+        match self.mac.as_ref().cmp(other.mac.as_ref()) {
             Ordering::Equal => { }
             other => return other
         }
@@ -271,37 +276,52 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Tsig<NN>> for Tsig<N> {
             Ordering::Equal => { }
             other => return other
         }
-        match self.other.len().cmp(&other.other.len()) {
+        match self.other.as_ref().len().cmp(&other.other.as_ref().len()) {
             Ordering::Equal => { }
             other => return other
         }
-        self.other.cmp(&other.other)
+        self.other.as_ref().cmp(other.other.as_ref())
+    }
+}
+
+
+//--- Hash
+
+impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.algorithm.hash(state);
+        self.time_signed.hash(state);
+        self.fudge.hash(state);
+        self.mac.as_ref().hash(state);
+        self.original_id.hash(state);
+        self.error.hash(state);
+        self.other.as_ref().hash(state);
     }
 }
 
 
 //--- Parse, ParseAll, Compose, and Compress
 
-impl<N: Parse> Parse for Tsig<N>
+impl<O: ParseSource, N: Parse<O>> Parse<O> for Tsig<O, N>
 where N::Err: From<ShortBuf> {
     type Err = N::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
         let algorithm = N::parse(parser)?;
         let time_signed = Time48::parse(parser)?;
         let fudge = u16::parse(parser)?;
         let mac_size = u16::parse(parser)?;
-        let mac = parser.parse_bytes(mac_size as usize)?;
+        let mac = parser.parse_octets(mac_size as usize)?;
         let original_id = u16::parse(parser)?;
         let error = TsigRcode::parse(parser)?;
         let other_len = u16::parse(parser)?;
-        let other = parser.parse_bytes(other_len as usize)?;
+        let other = parser.parse_octets(other_len as usize)?;
         Ok(Tsig {
             algorithm, time_signed, fudge, mac, original_id, error, other
         })
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
         N::skip(parser)?;
         Time48::skip(parser)?;
         u16::skip(parser)?;
@@ -315,17 +335,20 @@ where N::Err: From<ShortBuf> {
     }
 }
 
-impl<N: ParseAll + Parse> ParseAll for Tsig<N>
+impl<O: ParseSource, N: ParseAll<O> + Parse<O>> ParseAll<O> for Tsig<O, N>
 where
-    <N as ParseAll>::Err: From<<N as Parse>::Err>,
-    <N as ParseAll>::Err: From<ParseAllError>,
-    <N as Parse>::Err: From<ShortBuf>
+    <N as ParseAll<O>>::Err: From<<N as Parse<O>>::Err>,
+    <N as ParseAll<O>>::Err: From<ParseAllError>,
+    <N as Parse<O>>::Err: From<ShortBuf>
 {
-    type Err = <N as ParseAll>::Err;
+    type Err = <N as ParseAll<O>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<O>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let mut tmp = parser.clone();
-        let res = <Self as Parse>::parse(&mut tmp)?;
+        let res = <Self as Parse<O>>::parse(&mut tmp)?;
         if tmp.pos() - parser.pos() < len {
             Err(ParseAllError::TrailingData.into())
         }
@@ -339,38 +362,26 @@ where
     }
 }
         
-impl<N: Compose> Compose for Tsig<N> {
-    fn compose_len(&self) -> usize {
-        assert!(self.mac.len() <= usize::from(std::u16::MAX));
-        assert!(self.other.len() <= usize::from(std::u16::MAX));
-        self.algorithm.compose_len() + self.mac.len() + self.other.len() + 16
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        assert!(self.mac.len() <= usize::from(std::u16::MAX));
-        assert!(self.other.len() <= usize::from(std::u16::MAX));
+impl<O: AsRef<[u8]>, N: Compose> Compose for Tsig<O, N> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
+        assert!(self.mac.as_ref().len() <= usize::from(std::u16::MAX));
+        assert!(self.other.as_ref().len() <= usize::from(std::u16::MAX));
         self.algorithm.compose(buf);
         self.time_signed.compose(buf);
         self.fudge.compose(buf);
-        (self.mac.len() as u16).compose(buf);
-        self.mac.compose(buf);
+        (self.mac.as_ref().len() as u16).compose(buf);
+        buf.append_slice(self.mac.as_ref());
         self.original_id.compose(buf);
         self.error.compose(buf);
-        (self.other.len() as u16).compose(buf);
-        self.other.compose(buf);
-    }
-}
-
-impl<N: Compose> Compress for Tsig<N> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+        (self.other.as_ref().len() as u16).compose(buf);
+        buf.append_slice(self.other.as_ref());
     }
 }
 
 
-//--- Display
+//--- Display and Debug
 
-impl<N: fmt::Display> fmt::Display for Tsig<N> {
+impl<O: AsRef<[u8]>, N: fmt::Display> fmt::Display for Tsig<O, N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}. {} {} ", self.algorithm, self.time_signed, self.fudge)?;
         base64::display(&self.mac, f)?;
@@ -380,10 +391,23 @@ impl<N: fmt::Display> fmt::Display for Tsig<N> {
     }
 }
 
+impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Tsig")
+            .field("algorithm", &self.algorithm)
+            .field("time_signed", &self.time_signed)
+            .field("fudge", &self.fudge)
+            .field("mac", &self.mac.as_ref())
+            .field("original_id", &self.original_id)
+            .field("error", &self.error)
+            .field("other", &self.other.as_ref())
+            .finish()
+    }
+}
 
 //--- RtypeRecordData
 
-impl<N> RtypeRecordData for Tsig<N> {
+impl<O, N> RtypeRecordData for Tsig<O, N> {
     const RTYPE: Rtype = Rtype::Tsig;
 }
 
@@ -450,11 +474,6 @@ impl Time48 {
         res
     }
 
-    /// Converts a value into a bytes value.
-    pub fn into_bytes(self) -> Bytes {
-        Bytes::from(self.into_octets().as_ref())
-    }
-
     /// Returns whether the time is within a given period.
     ///
     /// Returns `true` iff `other` is at most `fudge` seconds before or after
@@ -477,27 +496,23 @@ impl From<Time48> for u64 {
 
 //--- Parse and Compose
 
-impl Parse for Time48 {
+impl<Octets: AsRef<[u8]>> Parse<Octets> for Time48 {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
         let mut buf = [0u8; 6];
         parser.parse_buf(&mut buf)?;
         Ok(Time48::from_slice(&buf))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
         parser.advance(6)
     }
 }
 
 impl Compose for Time48 {
-    fn compose_len(&self) -> usize {
-        6
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(&self.into_octets())
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        target.append_slice(&self.into_octets())
     }
 }
 

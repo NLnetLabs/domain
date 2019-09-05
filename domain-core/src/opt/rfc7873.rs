@@ -1,10 +1,9 @@
 //! EDNS Options form RFC 7873
 
-use bytes::BufMut;
-use crate::compose::Compose;
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-use crate::message_builder::OptBuilder;
-use crate::parse::{ParseAll, ParseAllError, Parser, ShortBuf};
+// XXX use crate::message_builder::OptBuilder;
+use crate::parse::{ParseAll, ParseAllError, Parser};
 use super::CodeOptData;
 
 
@@ -18,23 +17,28 @@ impl Cookie {
         Cookie(cookie)
     }
 
+    /* XXX
     pub fn push(builder: &mut OptBuilder, cookie: [u8; 8])
                 -> Result<(), ShortBuf> {
         builder.push(&Self::new(cookie))
     }
+    */
 
-    pub fn cookie(&self) -> &[u8; 8] {
-        &self.0
+    pub fn cookie(self) -> [u8; 8] {
+        self.0
     }
 }
 
 
 //--- ParseAll and Compose
 
-impl ParseAll for Cookie {
+impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Cookie {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         ParseAllError::check(8, len)?;
         let mut res = [0u8; 8];
         parser.parse_buf(&mut res[..])?;
@@ -44,12 +48,8 @@ impl ParseAll for Cookie {
 
 
 impl Compose for Cookie {
-    fn compose_len(&self) -> usize {
-        8
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(&self.0[..])
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        target.append_slice(&self.0[..])
     }
 }
 

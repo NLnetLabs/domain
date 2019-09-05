@@ -4,13 +4,11 @@
 //! crate.
 
 use std::{error, fmt, iter};
-use bytes::BufMut;
 use derive_more::Display;
-use crate::compose::{Compose, Compress, Compressor};
-use crate::parse::ShortBuf;
+use crate::compose::{Compose, ComposeTarget};
 use super::label::Label;
 use super::relative::DnameIter;
-use super::traits::{ToLabelIter, ToRelativeDname, ToDname};
+use super::traits::{ToDname, ToEitherDname, ToLabelIter, ToRelativeDname};
 use super::uncertain::UncertainDname;
 
 
@@ -42,10 +40,10 @@ pub struct Chain<L, R> {
     right: R,
 }
 
-impl<L: Compose, R: Compose> Chain<L, R> {
+impl<L: ToEitherDname, R: ToEitherDname> Chain<L, R> {
     /// Creates a new chain from a first and second name.
     pub(super) fn new(left: L, right: R) -> Result<Self, LongChainError> {
-        if left.compose_len() + right.compose_len() > 255 {
+        if left.len() + right.len() > 255 {
             Err(LongChainError)
         }
         else {
@@ -54,15 +52,16 @@ impl<L: Compose, R: Compose> Chain<L, R> {
     }
 }
 
-impl<R: Compose> Chain<UncertainDname, R> {
+impl<Octets: AsRef<[u8]>, R: ToEitherDname> Chain<UncertainDname<Octets>, R> {
     /// Creates a chain from an uncertain name.
     /// 
     /// This function is separate because the ultimate size depends on the
     /// variant of the left name.
-    pub(super) fn new_uncertain(left: UncertainDname, right: R)
-                                -> Result<Self, LongChainError> {
+    pub(super) fn new_uncertain(
+        left: UncertainDname<Octets>, right: R
+    ) -> Result<Self, LongChainError> {
         if let UncertainDname::Relative(ref name) = left {
-            if name.compose_len() + right.compose_len() > 255 {
+            if name.len() + right.len() > 255 {
                 return Err(LongChainError)
             }
         }
@@ -70,7 +69,7 @@ impl<R: Compose> Chain<UncertainDname, R> {
     }
 }
 
-impl<L: ToRelativeDname, R: Compose> Chain<L, R> {
+impl<L: ToRelativeDname, R: ToEitherDname> Chain<L, R> {
     /// Extends the chain with another domain name.
     ///
     /// While the method accepts anything [`Compose`] as the second element of
@@ -84,8 +83,10 @@ impl<L: ToRelativeDname, R: Compose> Chain<L, R> {
     /// [`Compose`]: ../compose/trait.Compose.html
     /// [`ToDname`]: trait.ToDname.html
     /// [`ToRelativeDname`]: trait.ToRelativeDname.html
-    pub fn chain<N: Compose>(self, other: N)
-                                -> Result<Chain<Self, N>, LongChainError> {
+    pub fn chain<N: ToEitherDname>(
+        self,
+        other: N
+    ) -> Result<Chain<Self, N>, LongChainError> {
         Chain::new(self, other)
     }
 }
@@ -98,69 +99,41 @@ impl<L, R> Chain<L, R> {
 }
 
 
-//--- Compose and Compress
+//--- Compose
 
-impl<L: ToRelativeDname, R: Compose> Compose for Chain<L, R> {
-    fn compose_len(&self) -> usize {
-        self.left.compose_len() + self.right.compose_len()
+impl<L: ToRelativeDname, R: ToEitherDname> Compose for Chain<L, R> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.left.compose(target);
+        self.right.compose(target)
     }
 
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.left.compose(buf);
-        self.right.compose(buf)
-    }
-
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
-        self.left.compose_canonical(buf);
-        self.right.compose_canonical(buf);
+    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.left.compose_canonical(target);
+        self.right.compose_canonical(target);
     }
 }
 
-impl<R: ToDname> Compose for Chain<UncertainDname, R> {
-    fn compose_len(&self) -> usize {
+impl<Octets, R: ToDname> Compose for Chain<UncertainDname<Octets>, R>
+where Octets: AsRef<[u8]>, R: ToDname {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
         match self.left {
-            UncertainDname::Absolute(ref name) => name.compose_len(),
+            UncertainDname::Absolute(ref name) => name.compose(target),
             UncertainDname::Relative(ref name) => {
-                name.compose_len() + self.right.compose_len()
+                name.compose(target);
+                self.right.compose(target)
             }
         }
     }
 
-    fn compose<B: BufMut>(&self, buf: &mut B) {
+    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
         match self.left {
-            UncertainDname::Absolute(ref name) => name.compose(buf),
-            UncertainDname::Relative(ref name) => {
-                name.compose(buf);
-                self.right.compose(buf)
+            UncertainDname::Absolute(ref name) => {
+                name.compose_canonical(target)
             }
-        }
-    }
-
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
-        match self.left {
-            UncertainDname::Absolute(ref name) => name.compose_canonical(buf),
             UncertainDname::Relative(ref name) => {
-                name.compose_canonical(buf);
-                self.right.compose_canonical(buf)
+                name.compose_canonical(target);
+                self.right.compose_canonical(target)
             }
-        }
-    }
-}
-
-impl<L: ToRelativeDname, R: ToDname> Compress for Chain<L, R> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compress_name(self)
-    }
-}
-
-impl<R: ToDname> Compress for Chain<UncertainDname, R> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        if let UncertainDname::Absolute(ref name) = self.left {
-            buf.compress_name(name)
-        }
-        else {
-            // XXX Test this!
-            buf.compress_name(self)
         }
     }
 }
@@ -168,7 +141,7 @@ impl<R: ToDname> Compress for Chain<UncertainDname, R> {
 
 //--- ToLabelIter, ToRelativeDname, ToDname
 
-impl<'a, L: ToRelativeDname, R: for<'r> ToLabelIter<'r>> ToLabelIter<'a>
+impl<'a, L: ToRelativeDname, R: ToEitherDname> ToLabelIter<'a>
             for Chain<L, R> {
     type LabelIter = ChainIter<'a, L, R>;
 
@@ -177,8 +150,9 @@ impl<'a, L: ToRelativeDname, R: for<'r> ToLabelIter<'r>> ToLabelIter<'a>
     }
 }
 
-impl<'a, R: ToDname> ToLabelIter<'a> for Chain<UncertainDname, R> {
-    type LabelIter = UncertainChainIter<'a, R>;
+impl<'a, Octets, R> ToLabelIter<'a> for Chain<UncertainDname<Octets>, R>
+where Octets: AsRef<[u8]>, R: ToDname {
+    type LabelIter = UncertainChainIter<'a, Octets, R>;
 
     fn iter_labels(&'a self) -> Self::LabelIter {
         match self.left {
@@ -201,7 +175,9 @@ impl<L: ToRelativeDname, R: ToRelativeDname> ToRelativeDname for Chain<L, R> {
 impl<L: ToRelativeDname, R: ToDname> ToDname for Chain<L, R> {
 }
 
-impl<R: ToDname> ToDname for Chain<UncertainDname, R> { }
+impl<Octets, R> ToDname for Chain<UncertainDname<Octets>, R>
+where Octets: AsRef<[u8]>, R: ToDname
+{ }
 
 
 //--- Display
@@ -216,10 +192,17 @@ impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
 //------------ ChainIter -----------------------------------------------------
 
 /// The label iterator for chained domain names.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ChainIter<'a, L: ToLabelIter<'a>, R: ToLabelIter<'a>>(
     iter::Chain<L::LabelIter, R::LabelIter>
 );
+
+impl<'a, L, R> Clone for ChainIter<'a, L, R>
+where L: ToLabelIter<'a>, R: ToLabelIter<'a> {
+    fn clone(&self) -> Self {
+        ChainIter(self.0.clone())
+    }
+}
 
 impl<'a, L, R> Iterator for ChainIter<'a, L, R>
         where L: ToLabelIter<'a>, R: ToLabelIter<'a> {
@@ -241,13 +224,25 @@ impl<'a, L, R> DoubleEndedIterator for ChainIter<'a, L, R>
 //------------ UncertainChainIter --------------------------------------------
 
 /// The label iterator for domain name chains with uncertain domain names.
-pub enum UncertainChainIter<'a, R: ToLabelIter<'a>> {
+pub enum UncertainChainIter<'a, Octets: AsRef<[u8]>, R: ToLabelIter<'a>> {
     Absolute(DnameIter<'a>),
-    Relative(ChainIter<'a, UncertainDname, R>),
+    Relative(ChainIter<'a, UncertainDname<Octets>, R>),
 }
 
-impl<'a, R> Iterator for UncertainChainIter<'a, R>
-where R: ToLabelIter<'a>
+impl<'a, Octets, R> Clone for UncertainChainIter<'a, Octets, R>
+where Octets: AsRef<[u8]>, R: ToLabelIter<'a> {
+    fn clone(&self) -> Self {
+        use UncertainChainIter::*;
+
+        match *self {
+            Absolute(ref inner) => Absolute(inner.clone()),
+            Relative(ref inner) => Relative(inner.clone())
+        }
+    }
+}
+
+impl<'a, Octets, R> Iterator for UncertainChainIter<'a, Octets, R>
+where Octets: AsRef<[u8]>, R: ToLabelIter<'a>
 {
     type Item = &'a Label;
 
@@ -259,8 +254,8 @@ where R: ToLabelIter<'a>
     }
 }
 
-impl<'a, R> DoubleEndedIterator for UncertainChainIter<'a, R>
-where R: ToLabelIter<'a>
+impl<'a, Octets, R> DoubleEndedIterator for UncertainChainIter<'a, Octets, R>
+where Octets: AsRef<[u8]>, R: ToLabelIter<'a>
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         match *self {
@@ -285,174 +280,192 @@ impl error::Error for LongChainError { }
 
 #[cfg(test)]
 mod test {
-    use bytes::BytesMut;
-    use crate::compose::{Compose, Compress, Compressor};
-    use crate::name::{
-        Dname, DnameBuilder, Label, RelativeDname, ToDname,
-        ToLabelIter, ToRelativeDname, UncertainDname
-    };
-
-    fn assert_to_dname<T: ToDname>(_: &T) { }
-    fn assert_to_relative_dname<T: ToRelativeDname>(_: &T) { }
+    use unwrap::unwrap;
+    use crate::name::{Dname, DnameBuilder, RelativeDname, ToLabelIter};
+    use super::*;
 
     /// Tests that `ToDname` and `ToRelativeDname` are implemented for the
     /// right types.
     #[test]
     fn impls() {
-        let rel = RelativeDname::empty()
-                                .chain(RelativeDname::empty()).unwrap();
-        assert_to_dname(&RelativeDname::empty().chain(Dname::root()).unwrap());
+        fn assert_to_dname<T: ToDname>(_: &T) { }
+        fn assert_to_relative_dname<T: ToRelativeDname>(_: &T) { }
+
+        let rel = RelativeDname::empty_ref()
+                                  .chain(RelativeDname::empty_ref()).unwrap();
         assert_to_relative_dname(&rel);
-        assert_to_dname(&rel.clone().chain(Dname::root()).unwrap());
-        assert_to_relative_dname(&rel.chain(RelativeDname::empty()).unwrap());
-        assert_to_dname(&UncertainDname::root().chain(Dname::root()).unwrap());
+        assert_to_dname(
+            &RelativeDname::empty_ref().chain(Dname::root_ref()).unwrap()
+        );
+        assert_to_dname(
+            &unwrap!(
+                unwrap!(
+                    RelativeDname::empty_ref().chain(
+                        RelativeDname::empty_ref()
+                    )
+                ).chain(Dname::root_ref())
+            )
+        );
+        assert_to_dname(&rel.clone().chain(Dname::root_ref()).unwrap());
+        assert_to_relative_dname(
+            &rel.chain(RelativeDname::empty_ref()).unwrap()
+        );
+        assert_to_dname(
+            &UncertainDname::root_vec().chain(Dname::root_vec()).unwrap()
+        );
+        assert_to_dname(
+            &UncertainDname::empty_vec().chain(Dname::root_vec()).unwrap()
+        );
     }
 
     /// Tests that a chain never becomes too long.
     #[test]
     fn name_limit() {
-        let mut builder = DnameBuilder::new();
+        let mut builder = DnameBuilder::new_vec();
         for _ in 0..25 {
             // 9 bytes label is 10 bytes in total 
-            builder.append_label(b"123456789").unwrap();
+            unwrap!(builder.append_label(b"123456789"));
         }
         let left = builder.finish();
         assert_eq!(left.len(), 250);
 
-        let mut builder = DnameBuilder::new();
-        builder.append(b"123").unwrap();
-        let five_abs = builder.clone().into_dname().unwrap();
+        let mut builder = DnameBuilder::new_vec();
+        unwrap!(builder.append_slice(b"123"));
+        let five_abs = builder.clone().into_dname();
         assert_eq!(five_abs.len(), 5);
-        builder.push(b'4').unwrap();
+        unwrap!(builder.push(b'4'));
         let five_rel = builder.clone().finish();
         assert_eq!(five_rel.len(), 5);
-        let six_abs = builder.clone().into_dname().unwrap();
+        let six_abs = builder.clone().into_dname();
         assert_eq!(six_abs.len(), 6);
-        builder.push(b'5').unwrap();
+        unwrap!(builder.push(b'5'));
         let six_rel = builder.finish();
         assert_eq!(six_rel.len(), 6);
 
-        assert_eq!(left.clone().chain(five_abs.clone())
-                       .unwrap().compose_len(),
-                   255);
-        assert_eq!(left.clone().chain(five_rel.clone())
-                       .unwrap().compose_len(),
-                   255);
+        assert_eq!(
+            unwrap!(left.clone().chain(five_abs.clone())).len(),
+            255
+        );
+        assert_eq!(
+            unwrap!(left.clone().chain(five_rel.clone())).len(),
+            255
+        );
         assert!(left.clone().chain(six_abs.clone()).is_err());
         assert!(left.clone().chain(six_rel.clone()).is_err());
-        assert!(left.clone().chain(five_rel.clone()).unwrap()
-                            .chain(five_abs.clone()).is_err());
-        assert!(left.clone().chain(five_rel.clone()).unwrap()
-                            .chain(five_rel.clone()).is_err());
+        assert!(
+            unwrap!(
+                left.clone().chain(five_rel.clone())
+            ).chain(five_abs.clone()).is_err()
+        );
+        assert!(
+            unwrap!(
+                left.clone().chain(five_rel.clone())
+            ).chain(five_rel.clone()).is_err()
+        );
 
         let left = UncertainDname::from(left);
-        assert_eq!(left.clone().chain(five_abs.clone())
-                       .unwrap().compose_len(),
-                   255);
+        assert_eq!(
+            unwrap!(left.clone().chain(five_abs.clone())).len(),
+            255
+        );
         assert!(left.clone().chain(six_abs.clone()).is_err());
 
         let left = UncertainDname::from(left.into_absolute());
-        assert_eq!(left.clone().chain(six_abs.clone())
-                       .unwrap().compose_len(),
-                   251);
-    }
-
-    fn cmp_iter<'a, I>(iter: I, labels: &[&[u8]])
-                where I: Iterator<Item=&'a Label> {
-        let labels = labels.iter().map(|s| Label::from_slice(s).unwrap());
-        assert!(iter.eq(labels))
+        assert_eq!(
+            unwrap!(left.clone().chain(six_abs.clone())).len(),
+            251
+        );
     }
 
     /// Tests that the label iterators all work as expected.
     #[test]
     fn iter_labels() {
-        let w = RelativeDname::from_slice(b"\x03www").unwrap();
-        let ec = RelativeDname::from_slice(b"\x07example\x03com").unwrap();
-        let ecr = Dname::from_slice(b"\x07example\x03com\x00").unwrap();
-        let fbr = Dname::from_slice(b"\x03foo\x03bar\x00").unwrap();
+        fn cmp_iter<'a, I: Iterator<Item=&'a Label>>(
+            iter: I, labels: &[&[u8]]
+        ) {
+            let labels = labels.iter().map(|s| Label::from_slice(s).unwrap());
+            assert!(iter.eq(labels))
+        }
 
-        cmp_iter(w.clone().chain(ec.clone()).unwrap().iter_labels(), 
-                 &[b"www", b"example", b"com"]);
-        cmp_iter(w.clone().chain(ecr.clone()).unwrap().iter_labels(),
-                 &[b"www", b"example", b"com", b""]);
-        cmp_iter(w.clone().chain(ec.clone()).unwrap()
-                          .chain(Dname::root()).unwrap().iter_labels(),
-                 &[b"www", b"example", b"com", b""]);
+        let w = unwrap!(RelativeDname::from_octets(b"\x03www".as_ref()));
+        let ec = unwrap!(
+            RelativeDname::from_octets(b"\x07example\x03com".as_ref())
+        );
+        let ecr = unwrap!(
+            Dname::from_octets(b"\x07example\x03com\x00".as_ref())
+        );
+        let fbr = unwrap!(
+            Dname::from_octets(b"\x03foo\x03bar\x00".as_ref())
+        );
+
+        cmp_iter(
+            unwrap!(w.clone().chain(ec.clone())).iter_labels(), 
+            &[b"www", b"example", b"com"]
+        );
+        cmp_iter(
+            unwrap!(w.clone().chain(ecr.clone())).iter_labels(),
+            &[b"www", b"example", b"com", b""]
+        );
+        cmp_iter(
+            unwrap!(
+                unwrap!(w.clone().chain(ec.clone())).chain(Dname::root_ref())
+            ).iter_labels(),
+            &[b"www", b"example", b"com", b""]
+        );
         
-        cmp_iter(UncertainDname::from(w.clone())
-                                .chain(ecr.clone()).unwrap().iter_labels(),
-                 &[b"www", b"example", b"com", b""]);
-        cmp_iter(UncertainDname::from(ecr.clone())
-                                .chain(fbr.clone()).unwrap().iter_labels(),
-                 &[b"example", b"com", b""]);
+        cmp_iter(
+            unwrap!(
+                UncertainDname::from(w.clone()).chain(ecr.clone())
+            ).iter_labels(),
+            &[b"www", b"example", b"com", b""]
+        );
+        cmp_iter(
+            unwrap!(
+                UncertainDname::from(ecr.clone()).chain(fbr.clone())
+            ).iter_labels(),
+            &[b"example", b"com", b""]
+        );
     }
 
     /// Tests that composing works as expected.
     #[test]
     fn compose() {
-        let w = RelativeDname::from_slice(b"\x03www").unwrap();
-        let ec = RelativeDname::from_slice(b"\x07example\x03com").unwrap();
-        let ecr = Dname::from_slice(b"\x07example\x03com\x00").unwrap();
-        let fbr = Dname::from_slice(b"\x03foo\x03bar\x00").unwrap();
+        let w = unwrap!(RelativeDname::from_octets(b"\x03www".as_ref()));
+        let ec = unwrap!(
+            RelativeDname::from_octets(b"\x07example\x03com".as_ref())
+        );
+        let ecr = unwrap!(
+            Dname::from_octets(b"\x07example\x03com\x00".as_ref())
+        );
+        let fbr = unwrap!(
+            Dname::from_octets(b"\x03foo\x03bar\x00".as_ref())
+        );
 
-        let mut buf = BytesMut::with_capacity(255);
-        w.clone().chain(ec.clone()).unwrap().compose(&mut buf);
-        assert_eq!(buf.freeze().as_ref(),
-                   b"\x03www\x07example\x03com");
+        let mut buf = Vec::new();
+        unwrap!(w.clone().chain(ec.clone())).compose(&mut buf);
+        assert_eq!(buf, b"\x03www\x07example\x03com".as_ref());
 
-        let mut buf = BytesMut::with_capacity(255);
-        w.clone().chain(ecr.clone()).unwrap().compose(&mut buf);
-        assert_eq!(buf.freeze().as_ref(),
-                   b"\x03www\x07example\x03com\x00");
+        let mut buf = Vec::new();
+        unwrap!(w.clone().chain(ecr.clone())).compose(&mut buf);
+        assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
-        let mut buf = BytesMut::with_capacity(255);
-        w.clone().chain(ec.clone()).unwrap().chain(Dname::root()).unwrap()
-         .compose(&mut buf);
-        assert_eq!(buf.freeze().as_ref(),
-                   b"\x03www\x07example\x03com\x00");
+        let mut buf = Vec::new();
+        unwrap!(
+            unwrap!(w.clone().chain(ec.clone())).chain(Dname::root_ref())
+        ).compose(&mut buf);
+        assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
-        let mut buf = BytesMut::with_capacity(255);
-        UncertainDname::from(w.clone()).chain(ecr.clone()).unwrap()
-            .compose(&mut buf);
-        assert_eq!(buf.freeze().as_ref(),
-                   b"\x03www\x07example\x03com\x00");
+        let mut buf = Vec::new();
+        unwrap!(
+            UncertainDname::from(w.clone()).chain(ecr.clone())
+        ).compose(&mut buf);
+        assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
-        let mut buf = BytesMut::with_capacity(255);
-        UncertainDname::from(ecr.clone()).chain(fbr.clone()).unwrap()
-            .compose(&mut buf);
-        assert_eq!(buf.freeze().as_ref(),
-                   b"\x07example\x03com\x00");
-    }
-
-    /// Tests that compressing works as expected.
-    #[test]
-    fn compress() {
-        let w = RelativeDname::from_slice(b"\x03www").unwrap();
-        let ec = RelativeDname::from_slice(b"\x07example\x03com").unwrap();
-        let ecr = Dname::from_slice(b"\x07example\x03com\x00").unwrap();
-        let fbr = Dname::from_slice(b"\x03foo\x03bar\x00").unwrap();
-
-        let mut buf = Compressor::with_capacity(255);
-        w.clone().chain(ecr.clone()).unwrap().compress(&mut buf).unwrap();
-        assert_eq!(buf.freeze().as_ref(),
-                   b"\x03www\x07example\x03com\x00");
-
-        let mut buf = Compressor::with_capacity(255);
-        w.clone().chain(ec.clone()).unwrap().chain(Dname::root()).unwrap()
-         .compress(&mut buf).unwrap();
-        assert_eq!(buf.freeze().as_ref(),
-                   b"\x03www\x07example\x03com\x00");
-
-        let mut buf = Compressor::with_capacity(255);
-        UncertainDname::from(w.clone()).chain(ecr.clone()).unwrap()
-            .compress(&mut buf).unwrap();
-        assert_eq!(buf.freeze().as_ref(),
-                   b"\x03www\x07example\x03com\x00");
-
-        let mut buf = Compressor::with_capacity(255);
-        UncertainDname::from(ecr.clone()).chain(fbr.clone()).unwrap()
-            .compress(&mut buf).unwrap();
-        assert_eq!(buf.freeze().as_ref(),
-                   b"\x07example\x03com\x00");
+        let mut buf = Vec::new();
+        unwrap!(
+            UncertainDname::from(ecr.clone()).chain(fbr.clone())
+        ).compose(&mut buf);
+        assert_eq!(buf, b"\x07example\x03com\x00");
     }
 }
+

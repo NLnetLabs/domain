@@ -1,11 +1,10 @@
 //! EDNS Options from RFC 6975.
 
 use std::slice;
-use bytes::{BufMut, Bytes};
-use crate::compose::Compose;
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{OptionCode, SecAlg};
-use crate::message_builder::OptBuilder;
-use crate::parse::{ParseAll, Parser, ShortBuf};
+// XXX use crate::message_builder::OptBuilder;
+use crate::parse::{ParseAll, Parser, ParseSource, ShortBuf};
 use super::CodeOptData;
 
 
@@ -14,20 +13,21 @@ use super::CodeOptData;
 macro_rules! option_type {
     ( $name:ident ) => {
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub struct $name {
-            bytes: Bytes,
+        pub struct $name<Octets> {
+            octets: Octets,
         }
 
-        impl $name {
-
-            pub fn from_bytes(bytes: Bytes) -> Self {
-                $name { bytes }
+        impl<Octets> $name<Octets> {
+            pub fn from_octets(octets: Octets) -> Self {
+                $name { octets }
             }
 
-            pub fn iter(&self) -> SecAlgsIter {
-                SecAlgsIter::new(self.bytes.as_ref())
+            pub fn iter(&self) -> SecAlgsIter
+            where Octets: AsRef<[u8]> {
+                SecAlgsIter::new(self.octets.as_ref())
             }
 
+            /* XXX
             pub fn push(builder: &mut OptBuilder, algs: &[SecAlg])
                         -> Result<(), ShortBuf> {
                 assert!(algs.len() <= ::std::u16::MAX as usize);
@@ -38,40 +38,39 @@ macro_rules! option_type {
                     Ok(())
                 })
             }
+            */
         }
 
         //--- ParseAll, Compose
 
-        impl ParseAll for $name {
+        impl<Octets: ParseSource> ParseAll<Octets> for $name<Octets> {
             type Err = ShortBuf;
 
-            fn parse_all(parser: &mut Parser, len: usize)
-                         -> Result<Self, Self::Err> {
-                parser.parse_bytes(len).map(Self::from_bytes)
+            fn parse_all(
+                parser: &mut Parser<Octets>,
+                len: usize
+            ) -> Result<Self, Self::Err> {
+                parser.parse_octets(len).map(Self::from_octets)
             }
         }
 
-        impl Compose for $name {
-            fn compose_len(&self) -> usize {
-                self.bytes.len()
-            }
-
-            fn compose<B: BufMut>(&self, buf: &mut B) {
-                buf.put_slice(self.bytes.as_ref())
+        impl<Octets: AsRef<[u8]>> Compose for $name<Octets> {
+            fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+                target.append_slice(self.octets.as_ref())
             }
         }
 
 
         //--- CodeOptData
         
-        impl CodeOptData for $name {
+        impl<Octets> CodeOptData for $name<Octets> {
             const CODE: OptionCode = OptionCode::$name;
         }
 
         
         //--- IntoIter
 
-        impl<'a> IntoIterator for &'a $name {
+        impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a $name<Octets> {
             type Item = SecAlg;
             type IntoIter = SecAlgsIter<'a>;
 

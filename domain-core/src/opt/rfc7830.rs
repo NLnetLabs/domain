@@ -1,10 +1,9 @@
 //! EDNS Options from RFC 7830
 
-use bytes::BufMut;
 use rand::random;
-use crate::compose::Compose;
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-use crate::message_builder::OptBuilder;
+// XXX use crate::message_builder::OptBuilder;
 use crate::parse::{ParseAll, Parser, ShortBuf};
 use super::CodeOptData;
 
@@ -26,20 +25,24 @@ pub struct Padding {
     mode: PaddingMode
 }
 
-
-#[allow(clippy::len_without_is_empty)] // It’s not that kind of len.
 impl Padding {
     pub fn new(len: u16, mode: PaddingMode) -> Self {
         Padding { len, mode }
     }
     
+    /* XXX
     pub fn push(builder: &mut OptBuilder, len: u16, mode: PaddingMode)
                 -> Result<(), ShortBuf> {
         builder.push(&Self::new(len, mode))
     }
+    */
 
     pub fn len(self) -> u16 {
         self.len
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.len == 0
     }
 
     pub fn mode(self) -> PaddingMode {
@@ -50,10 +53,13 @@ impl Padding {
 
 //--- ParseAll and Compose
 
-impl ParseAll for Padding {
+impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Padding {
     type Err = ShortBuf;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         // XXX Check whether there really are all zeros.
         parser.advance(len)?;
         Ok(Padding::new(len as u16, PaddingMode::Zero))
@@ -61,20 +67,16 @@ impl ParseAll for Padding {
 }
 
 impl Compose for Padding {
-    fn compose_len(&self) -> usize {
-        self.len as usize
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
         match self.mode {
             PaddingMode::Zero => {
                 for _ in 0..self.len {
-                    buf.put_u8(0)
+                    0u8.compose(target)
                 }
             }
             PaddingMode::Random => {
                 for _ in 0..self.len {
-                    buf.put_u8(random())
+                    random::<u8>().compose(target)
                 }
             }
         }

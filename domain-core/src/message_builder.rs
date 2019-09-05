@@ -1,975 +1,930 @@
 //! Building a new DNS message.
-//!
-//! DNS messages consist of five sections. The first, the *header section*
-//! contain, among other things, the number of entries in the following four
-//! section which then contain these entries without any further
-//! delimitation. In order to safely build a correct message, it thus needs
-//! to be assembled step by step, entry by entry. This module provides a
-//! number of types that can be used to assembling entries in these sections.
-//!
-//! Message building happens by appending data to a [`BytesMut`] buffer. This
-//! buffer is automatically grown to accomodate the data if necessary. It
-//! does, however, consider the size limit that all DNS messages have. Thus,
-//! when you start building by creating a [`MessageBuilder`], you can pass
-//! an initial buffer size, a size limit, and a strategy for growing to its
-//! [`with_params`][`MessageBuilder::with_params`] function. Alternatively,
-//! you can create the message atop an existing buffer via
-//! [`from_buf`][`MessageBuilder::from_buf`]. In this case you can adjust the
-//! limits via methods such as [`set_limit`][`MessageBuilder::set_limit`].
-//! 
-//! All types allow to change the limit later. This is useful if you know
-//! already that your message will have to end with an OPT or TSIG record.
-//! Since for these you also know the size in advance, you can reserve space
-//! by setting a lower limit and increase it only when finally adding those
-//! records.
-//!
-//! Because domain name compression is somewhat expensive, it needs to be
-//! enable explicitely through the 
-//! [`enable_compression`][`MessageBuilder::enable_compression`] method.
-//!
-//! The inital [`MessageBuilder`] allows access to the two first sections of
-//! the new message. The header section can be accessed via
-//! [`header`][`MessageBuilder::header`] and
-//! [`header_mut`][`MessageBuilder::header_mut`]. In addition, it is used for
-//! building the *question section* of the message. This section contains
-//! [`Question`]s to be asked of a name server, normally exactly one. You
-//! can add questions using the [`push`][`MessageBuilder::push`] method.
-//!
-//! Once you are happy with the question section, you can proceed to the
-//! next section, the *answer section,* by calling the
-//! [`answer`][`MessageBuilder::answer`] method.
-//! In a response, this section contains those resource records that answer
-//! the question. The section is represented by the [`AnswerBuilder`] type.
-//! It, too, has a [`push`][`AnswerBuilder::push`] method, but for adding
-//! [`Record`]s.
-//!
-//! A call to [`authority`][`AnswerBuilder::authority`] moves on to the
-//! *authority section,* represented by an [`AuthorityBuilder`]. It contains
-//! resource records that allow to identify the name servers that are
-//! authoritative for the records requested in the question. As with the
-//! answer section, [`push`][`AdditionalBuilder`] adds records to this
-//! section.
-//!
-//! The final section is the *additional section.* Here a name server can add
-//! information it believes will help the client to get to the answer it
-//! really wants. Which these are depends on the question and is generally
-//! given in RFCs that define the record types. Unsurprisingly, you will
-//! arrive at an [`AdditionalBuilder`] by calling the
-//! [`additional`][`AuthorityBuilder::additional`] method once you are done
-//! with the authority section. Adding records, once again, happens via the
-//! [`push`][`AdditionalBuilder::push`] method.
-//! 
-//! Once you are done with the additional section, too, you call
-//! [`finish`][`AdditionalBuilder::finish`] to retrieve the bytes buffer with
-//! the message data or [`freeze`][`AdditionalBuilder::freeze`] to get the
-//! [`Message`] instead.
-//!
-//! Since some of the sections are empty in many messages – for instance, a
-//! simple request only contains a single question – there are
-//! shortcuts in place to skip over sections. Each type can go to any later
-//! section through the methods named above. Each type also has the `finish`
-//! and `freeze` methods to arrive at the final data quickly.
-//!
-//! There is one more type: [`OptBuilder`]. It can be used to assemble an
-//! OPT record in the additional section. This is helpful because the OPT
-//! record in turn is a sequence of options that need to be assembled one
-//! by one.
-//!
-//! Since OPT records are part of the additional section, an [`OptBuilder`]
-//! can be retrieved from an [`AdditionalBuilder`] via its
-//! [`opt`][`AdditionalBuilder::opt`] method. Options can then be added as
-//! usually via [`push`][`OptBuilder::push`]. Once done, you can return to
-//! the additional section with [`additional`][`OptBuilder::additional`] or,
-//! if your OPT record is the final record, conclude message construction
-//! via [`finish`][`OptBuilder::finish`] or [`freeze`][`OptBuilder::freeze`].
-//!
-//! # Example
-//!
-//! To summarize all of this, here is an example that builds a
-//! response to an A query for example.com that contains two A records and
-//! and empty OPT record setting the UDP payload size.
-//!
-//! ```
-//! use std::str::FromStr;
-//! use domain_core::{Dname, MessageBuilder, SectionBuilder, RecordSectionBuilder};
-//! use domain_core::iana::Rtype;
-//! use domain_core::rdata::A;
-//!
-//! let name = Dname::from_str("example.com.").unwrap();
-//! let mut msg = MessageBuilder::new_udp();
-//! msg.header_mut().set_rd(true);
-//! msg.push((&name, Rtype::A));
-//! let mut msg = msg.answer();
-//! msg.push((&name, 86400, A::from_octets(192, 0, 2, 1))).unwrap();
-//! msg.push((&name, 86400, A::from_octets(192, 0, 2, 2))).unwrap();
-//! let mut msg = msg.opt().unwrap();
-//! msg.set_udp_payload_size(4096);
-//! let _ = msg.freeze(); // get the message
-//! ```
-//!
-//! [`BytesMut`]: ../../../bytes/struct.BytesMut.html
-//! [`AdditionalBuilder`]: struct.AdditionalBuilder.html
-//! [`AdditionalBuilder::opt`]: struct.AdditionalBuilder.html#method.opt
-//! [`AdditionalBuilder::push`]: struct.AdditionalBuilder.html#method.push
-//! [`AdditionalBuilder::finish`]: struct.AdditionalBuilder.html#method.finish
-//! [`AdditionalBuilder::freeze`]: struct.AdditionalBuilder.html#method.freeze
-//! [`AnswerBuilder`]: struct.AnswerBuilder.html
-//! [`AnswerBuilder::authority`]: struct.AnswerBuilder.html#method.authority
-//! [`AnswerBuilder::push`]: struct.AnswerBuilder.html#method.push
-//! [`AuthorityBuilder`]: struct.AuthorityBuilder.html
-//! [`AuthorityBuilder::additional`]: struct.AuthorityBuilder.html#method.additional
-//! [`AuthorityBuilder::push`]: struct.AuthorityBuilder.html#method.push
-//! [`Composer`]: ../compose/Composer.html
-//! [`Message`]: ../message/struct.Messsage.html
-//! [`MessageBuilder`]: struct.MessageBuilder.html
-//! [`MessageBuilder::answer`]: struct.MessageBuilder.html#method.answer
-//! [`MessageBuilder::enable_compression`]: struct.MessageBuilder.html#method.enable_compression
-//! [`MessageBuilder::from_buf`]: struct.MessageBuilder.html#method.from_buf
-//! [`MessageBuilder::header`]: struct.MessageBuilder.html#method.header
-//! [`MessageBuilder::header_mut`]: struct.MessageBuilder.html#method.header_mut
-//! [`MessageBuilder::push`]: struct.MessageBuilder.html#method.push
-//! [`MessageBuilder::with_params`]: struct.MessageBuilder.html#method.with_params
-//! [`MessageBuilder::set_limit`]: struct.MessageBuilder.html#method.set_limit
-//! [`OptBuilder`]: struct.OptBuilder.html
-//! [`OptBuilder::additional`]: struct.OptBuilder.html#method.additional
-//! [`OptBuilder::finish`]: struct.OptBuilder.html#method.finish
-//! [`OptBuilder::freeze`]: struct.OptBuilder.html#method.freeze
-//! [`OptBuilder::push`]: struct.OptBuilder.html#method.push
-//! [`Question`]: ../question/struct.Question.html
-//! [`Record`]: ../record/struct.Record.html
 
-use std::{mem, ops};
-use std::marker::PhantomData;
-use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
-use crate::compose::{Compose, Compress, Compressor};
+use std::mem;
+use std::cmp::min;
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+use bytes::BytesMut;
+use unwrap::unwrap;
+use crate::compose::{Compose, ComposeTarget, TryCompose};
 use crate::header::{Header, HeaderCounts, HeaderSection};
-use crate::iana::{Class, OptionCode, Rcode, Rtype};
 use crate::message::Message;
-use crate::name::ToDname;
-use crate::opt::{OptData, OptHeader};
+use crate::name::{ToDname, Label, OwnedLabel};
+use crate::octets::OctetsBuilder;
 use crate::parse::ShortBuf;
 use crate::question::Question;
 use crate::rdata::RecordData;
 use crate::record::Record;
 
 
-//------------ MessageBuilder -----------------------------------------------
+//------------ MessageBuilder ------------------------------------------------
 
-/// Starts building a DNS message.
-///
-/// This type starts building a DNS message and allows adding questions to
-/// its question section. See the [module documentation] for an overview of 
-/// how to build a message.
-///
-/// Message builders operate atop a [`BytesMut`] byte buffer. There are a
-/// number of functions to create a builder either using an existing
-/// buffer or with a newly created buffer. 
-/// 
-/// Once created, it is possible to access the message header or append
-/// questions to the question section before proceeding to the subsequent
-/// parts of the message.
-///
-/// [module documentation]: index.html
-/// [`BytesMut`]: ../../../bytes/struct.BytesMut.html
-#[derive(Clone, Debug)]
-pub struct MessageBuilder {
-    target: MessageTarget,
+pub struct MessageBuilder<Target> {
+    target: Target,
 }
 
-
-/// # Creation and Preparation
-///
-impl MessageBuilder {
-    /// Creates a new builder for a UDP message.
-    ///
-    /// The builder will use a new bytes buffer. The buffer will have a
-    /// capacity of 512 bytes and will also be limited to that.
-    ///
-    /// This will result in a UDP message following the original limit. If you
-    /// want to create larger messages, you should signal this through the use
-    /// of EDNS.
-    pub fn new_udp() -> Self {
-        Self::with_params(512, 512, 0)
+impl<Target: ComposeTarget> MessageBuilder<Target> {
+    pub fn from_target(mut target: Target) -> Self {
+        target.append_slice(HeaderSection::new().as_slice());
+        MessageBuilder {
+            target,
+        }
     }
 
-    /// Creates a new builder for a TCP message.
-    ///
-    /// The builder will use a new buffer. It will be limited to 65535 bytes,
-    /// starting with the capacity given and also growing by that amount.
-    ///
-    /// Since DNS messages are preceded on TCP by a two octet length
-    /// inicator, the function will add two bytes with zero before the
-    /// message. Once you have completed your message, you can use can set
-    /// these two bytes to the size of the message. But remember that they
-    /// are in network byte order.
-    pub fn new_tcp(capacity: usize) -> Self {
-        let mut buf = BytesMut::with_capacity(capacity + 2);
-        buf.put_u16_be(0);
-        let mut res = Self::from_buf(buf);
-        res.set_limit(::std::u16::MAX as usize);
-        res.set_page_size(capacity);
-        res
+    pub fn question(self) -> QuestionBuilder<Target> {
+        QuestionBuilder::new(self)
     }
 
-    /// Creates a new message builder using an existing bytes buffer.
-    ///
-    /// The builder’s initial limit will be equal to whatever capacity is
-    /// left in the buffer. As a consequence, the builder will never grow
-    /// beyond that remaining capacity.
-    pub fn from_buf(buf: BytesMut) -> Self {
-        MessageBuilder { target: MessageTarget::from_buf(buf) }
+    pub fn answer(self) -> AnswerBuilder<Target> {
+        self.question().answer()
     }
 
-    /// Creates a message builder with the given capacity.
-    ///
-    /// The builder will have its own newly created bytes buffer. Its inital
-    /// limit will be equal to the capacity of that buffer. This may be larger
-    /// than `capacity`. If you need finer control over the limit, use
-    /// [`with_params`] instead.
-    ///
-    /// [`with_params`]: #method.with_params
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self::from_buf(BytesMut::with_capacity(capacity))
+    pub fn authority(self) -> AuthorityBuilder<Target> {
+        self.question().answer().authority()
     }
 
-    /// Creates a new message builder.
-    ///
-    /// A new buffer will be created for this builder. It will initially
-    /// allocate space for at least `initial` bytes. The message will never
-    /// exceed a size of `limit` bytes. Whenever the buffer’s capacity is
-    /// exhausted, the builder will allocate at least another `page_size`
-    /// bytes. If `page_size` is set to `0`, the builder will allocate at
-    /// most once and then enough bytes to have room for the limit.
-    pub fn with_params(initial: usize, limit: usize, page_size: usize)
-                       -> Self {
-        let mut res = Self::with_capacity(initial);
-        res.set_limit(limit);
-        res.set_page_size(page_size);
-        res
+    pub fn additional(self) -> AdditionalBuilder<Target> {
+        self.question().answer().authority().additional()
     }
 
-    /// Enables support for domain name compression.
-    ///
-    /// After this method is called, the domain names in questions, the owner
-    /// domain names of resource records, and domain names appearing in the
-    /// record data of record types defined in [RFC 1035] will be compressed.
-    ///
-    /// [RFC 1035]: ../../rdata/rfc1035.rs
-    pub fn enable_compression(&mut self) {
-        self.target.buf.enable_compression()
+    pub fn finish(self) -> Target {
+        self.target
     }
 
-    /// Sets the maximum size of the constructed DNS message.
-    ///
-    /// After this method was called, additional data will not be added to the
-    /// message if that would result in the message exceeding a size of
-    /// `limit` bytes. If the message is already larger than `limit` when the
-    /// method is called, it will _not_ be truncated. That is, you can never
-    /// actually set a limit smaller than the current message size.
-    ///
-    /// Note also that the limit only regards the message constructed by the
-    /// builder itself. If a builder was created atop a buffer that already
-    /// contained some data, this pre-existing data is not considered.
-    pub fn set_limit(&mut self, limit: usize) {
-        self.target.buf.set_limit(limit)
+    fn as_target(&self) -> &Target {
+        &self.target
     }
 
-    /// Sets the amount of data by which to grow the underlying buffer.
-    ///
-    /// Whenever the buffer runs out of space but the message size limit has
-    /// not yet been reached, the builder will grow the buffer by at least
-    /// `page_size` bytes.
-    ///
-    /// A special case is a page size of zero, in which case the buffer will
-    /// be grown only once to have enough space to reach the current limit.
-    pub fn set_page_size(&mut self, page_size: usize) {
-        self.target.buf.set_page_size(page_size)
+    fn as_target_mut(&mut self) -> &mut Target {
+        &mut self.target
+    }
+}
+
+impl<Octets, Comp> MessageBuilder<DgramTarget<Octets, Comp>> {
+    pub fn as_message_ref(&self) -> Message<&[u8]>
+    where Octets: AsRef<[u8]> {
+        unsafe { Message::from_octets_unchecked(self.target.as_ref()) }
+    }
+
+    pub fn into_message(self) -> Message<Octets::Octets>
+    where Octets: OctetsBuilder {
+        self.target.into_message()
+    }
+}
+
+impl MessageBuilder<DgramTarget<Vec<u8>, StaticCompressor>> {
+    pub fn new_dgram_vec() -> Self {
+        Self::from_target(DgramTarget::new())
+    }
+}
+
+impl MessageBuilder<DgramTarget<BytesMut, StaticCompressor>> {
+    pub fn new_dgram_bytes() -> Self {
+        Self::from_target(DgramTarget::new())
+    }
+}
+
+impl<Target> MessageBuilder<Target> {
+    pub fn header(&self) -> &Header
+    where Target: AsRef<[u8]> {
+        Header::for_message_slice(self.target.as_ref())
+    }
+
+    pub fn header_mut(&mut self) -> &mut Header
+    where Target: AsMut<[u8]> {
+        Header::for_message_slice_mut(self.target.as_mut())
+    }
+
+    pub fn counts(&self) -> &HeaderCounts
+    where Target: AsRef<[u8]> {
+        HeaderCounts::for_message_slice(self.target.as_ref())
+    }
+
+    fn counts_mut(&mut self) -> &mut HeaderCounts
+    where Target: AsMut<[u8]> {
+        HeaderCounts::for_message_slice_mut(self.target.as_mut())
     }
 }
 
 
-/// # Building
-///
-impl MessageBuilder {
-    /// Appends a new question to the message.
-    ///
-    /// This function is generic over anything that can be converted into a
-    /// [`Question`]. In particular, triples of a domain name, a record type,
-    /// and a class as well as pairs of just a domain name and a record type
-    /// fulfill this requirement with the class assumed to be `Class::In` in
-    /// the latter case.
-    ///
-    /// The method will fail if by appending the question the message would
-    /// exceed its size limit.
-    ///
-    /// [`Question`]: ../question/struct.Question.html
-    pub fn push<N: ToDname, Q: Into<Question<N>>>(&mut self, question: Q)
-                                                  -> Result<(), ShortBuf> {
-        self.target.push(|target| question.into().compress(target),
-                         |counts| counts.inc_qdcount())
+//------------ QuestionBuilder -----------------------------------------------
+
+pub struct QuestionBuilder<Target> {
+    builder: MessageBuilder<Target>,
+}
+
+impl<Target: ComposeTarget> QuestionBuilder<Target> {
+    fn new(builder: MessageBuilder<Target>) -> Self {
+        Self { builder }
     }
 
-    /// Proceeds to building the answer section.
-    pub fn answer(self) -> AnswerBuilder {
-        AnswerBuilder::new(self.target)
+    fn rewind(mut self) -> MessageBuilder<Target> {
+        self.as_target_mut().truncate(mem::size_of::<HeaderSection>());
+        self.counts_mut().set_qdcount(0);
+        self.builder
     }
 
-    /// Proceeds to building the authority section, skipping the answer.
-    pub fn authority(self) -> AuthorityBuilder {
+    pub fn builder(self) -> MessageBuilder<Target> {
+        self.rewind()
+    }
+
+    pub fn question(self) -> QuestionBuilder<Target> {
+        self
+    }
+
+    pub fn answer(self) -> AnswerBuilder<Target> {
+        AnswerBuilder::new(self.builder)
+    }
+
+    pub fn authority(self) -> AuthorityBuilder<Target> {
         self.answer().authority()
     }
 
-    /// Proceeds to building the additional section.
-    ///
-    /// Leaves the answer and additional sections empty.
-    pub fn additional(self) -> AdditionalBuilder {
+    pub fn additional(self) -> AdditionalBuilder<Target> {
         self.answer().authority().additional()
+    }
+
+    pub fn finish(self) -> Target {
+        self.builder.finish()
+    }
+
+    pub fn as_builder(&self) -> &MessageBuilder<Target> {
+        &self.builder
+    }
+}
+
+impl<Octets, Comp> QuestionBuilder<DgramTarget<Octets, Comp>> {
+    pub fn into_message(self) -> Message<Octets::Octets>
+    where Octets: OctetsBuilder, Comp: Compressor {
+        self.finish().into_message()
+    }
+}
+
+impl<Target: TryCompose + AsMut<[u8]>> QuestionBuilder<Target> {
+    pub fn push<N: ToDname, Q: Into<Question<N>>>(
+        &mut self,
+        question: Q
+    ) -> Result<(), ShortBuf> {
+        self.target.try_compose(|target| {
+            question.into().compose(target)
+        })?;
+        self.counts_mut().inc_qdcount();
+        Ok(())
     }
 }
 
 
-/// # Shortcuts
-///
-impl MessageBuilder {
+//--- From
 
-    /// Starts creating an answer for the given message.
-    ///
-    /// Specifically, this sets the ID, QR, OPCODE, RD, and RCODE fields
-    /// in the header and attempts to push the message’s questions to the
-    /// builder. If iterating of the questions fails, it adds what it can.
-    pub fn start_answer(&mut self, msg: &Message, rcode: Rcode) {
-        {
-            let header = self.header_mut();
-            header.set_id(msg.header().id());
-            header.set_qr(true);
-            header.set_opcode(msg.header().opcode());
-            header.set_rd(msg.header().rd());
-            header.set_rcode(rcode);
+/*
+impl<Target> From<AnswerBuilder<Target>> for QuestionBuilder<Target>
+where Target: OctetsBuilder {
+    fn from(value: AnswerBuilder<Target>) -> Self {
+        value.rewind();
+        QuestionBuilder { builder: value.builder }
+    }
+}
+*/
+
+
+//--- Deref, DerefMut, AsRef, and AsMut
+
+impl<Target> Deref for QuestionBuilder<Target> {
+    type Target = MessageBuilder<Target>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.builder
+    }
+}
+
+impl<Target> DerefMut for QuestionBuilder<Target> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.builder
+    }
+}
+
+impl<Target> AsRef<MessageBuilder<Target>> for QuestionBuilder<Target> {
+    fn as_ref(&self) -> &MessageBuilder<Target> {
+        &self.builder
+    }
+}
+
+impl<Target> AsMut<MessageBuilder<Target>> for QuestionBuilder<Target> {
+    fn as_mut(&mut self) -> &mut MessageBuilder<Target> {
+        &mut self.builder
+    }
+}
+
+
+//------------ RecordSectionBuilder ------------------------------------------
+
+pub trait RecordSectionBuilder {
+    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
+    where N: ToDname, D: RecordData, R: Into<Record<N, D>>;
+}
+
+
+//------------ AnswerBuilder -------------------------------------------------
+
+pub struct AnswerBuilder<Target> {
+    builder: MessageBuilder<Target>,
+    start: usize,
+}
+
+impl<Target: ComposeTarget + AsRef<[u8]>> AnswerBuilder<Target> {
+    fn new(builder: MessageBuilder<Target>) -> Self {
+        AnswerBuilder {
+            start: builder.target.as_ref().len(),
+            builder
         }
-        for item in msg.question() {
-            if let Ok(item) = item {
-                self.push(item).unwrap();
+    }
+
+    fn rewind(mut self) -> QuestionBuilder<Target> {
+        self.builder.target.truncate(self.start);
+        self.counts_mut().set_ancount(0);
+        QuestionBuilder::new(self.builder)
+    }
+
+    pub fn builder(self) -> MessageBuilder<Target> {
+        self.question().builder()
+    }
+
+    pub fn question(self) -> QuestionBuilder<Target> {
+        self.rewind()
+    }
+
+    pub fn authority(self) -> AuthorityBuilder<Target> {
+        AuthorityBuilder::new(self)
+    }
+
+    pub fn additional(self) -> AdditionalBuilder<Target> {
+        self.authority().additional()
+    }
+
+    pub fn finish(self) -> Target {
+        self.builder.finish()
+    }
+}
+
+impl<Octets, Comp> AnswerBuilder<DgramTarget<Octets, Comp>> {
+    pub fn into_message(self) -> Message<Octets::Octets>
+    where Octets: OctetsBuilder, Comp: Compressor {
+        self.finish().into_message()
+    }
+}
+
+
+//--- Deref, DerefMut, AsRef, and AsMut
+
+impl<Target> Deref for AnswerBuilder<Target> {
+    type Target = MessageBuilder<Target>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.builder
+    }
+}
+
+impl<Target> DerefMut for AnswerBuilder<Target> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.builder
+    }
+}
+
+
+//--- RecordSectionBuilder
+
+impl<Target> RecordSectionBuilder for AnswerBuilder<Target>
+where Target: ComposeTarget + TryCompose {
+    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
+    where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        self.as_target_mut().try_compose(|target| {
+            record.into().compose(target)
+        })?;
+        self.counts_mut().inc_ancount();
+        Ok(())
+    }
+}
+
+
+//------------ AuthorityBuilder ----------------------------------------------
+
+pub struct AuthorityBuilder<Target> {
+    answer: AnswerBuilder<Target>,
+    start: usize
+}
+
+impl<Target: ComposeTarget> AuthorityBuilder<Target> {
+    fn new(answer: AnswerBuilder<Target>) -> Self {
+        AuthorityBuilder {
+            start: answer.as_target().as_ref().len(),
+            answer
+        }
+    }
+
+    fn rewind(mut self) -> AnswerBuilder<Target> {
+        self.answer.as_target_mut().truncate(self.start);
+        self.counts_mut().set_nscount(0);
+        self.answer
+    }
+
+    pub fn builder(self) -> MessageBuilder<Target> {
+        self.question().builder()
+    }
+
+    pub fn question(self) -> QuestionBuilder<Target> {
+        self.answer().question()
+    }
+
+    pub fn answer(self) -> AnswerBuilder<Target> {
+        self.rewind()
+    }
+
+    pub fn additional(self) -> AdditionalBuilder<Target> {
+        AdditionalBuilder::new(self)
+    }
+
+    pub fn finish(self) -> Target {
+        self.answer.finish()
+    }
+
+    fn as_target(&self) -> &Target {
+        self.answer.as_target()
+    }
+
+    fn as_target_mut(&mut self) -> &mut Target {
+        self.answer.as_target_mut()
+    }
+}
+
+impl<Octets, Comp> AuthorityBuilder<DgramTarget<Octets, Comp>> {
+    pub fn into_message(self) -> Message<Octets::Octets>
+    where Octets: OctetsBuilder, Comp: Compressor {
+        self.finish().into_message()
+    }
+}
+
+
+//--- Deref, DerefMut, AsRef, and AsMut
+
+impl<Target> Deref for AuthorityBuilder<Target> {
+    type Target = MessageBuilder<Target>;
+
+    fn deref(&self) -> &Self::Target {
+        self.answer.deref()
+    }
+}
+
+impl<Target> DerefMut for AuthorityBuilder<Target> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.answer.deref_mut()
+    }
+}
+
+
+//--- RecordSectionBuilder
+
+impl<Target> RecordSectionBuilder for AuthorityBuilder<Target>
+where Target: ComposeTarget + TryCompose {
+    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
+    where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        self.as_target_mut().try_compose(|target| {
+            record.into().compose(target)
+        })?;
+        self.counts_mut().inc_nscount();
+        Ok(())
+    }
+}
+
+
+//------------ AdditionalBuilder ---------------------------------------------
+
+pub struct AdditionalBuilder<Target> {
+    authority: AuthorityBuilder<Target>,
+    start: usize,
+}
+
+impl<Target: ComposeTarget> AdditionalBuilder<Target> {
+    fn new(authority: AuthorityBuilder<Target>) -> Self {
+        AdditionalBuilder {
+            start: authority.as_target().as_ref().len(),
+            authority
+        }
+    }
+
+    fn rewind(mut self) -> AuthorityBuilder<Target> {
+        self.authority.as_target_mut().truncate(self.start);
+        self.counts_mut().set_arcount(0);
+        self.authority
+    }
+
+    pub fn builder(self) -> MessageBuilder<Target> {
+        self.question().builder()
+    }
+
+    pub fn question(self) -> QuestionBuilder<Target> {
+        self.answer().question()
+    }
+
+    pub fn answer(self) -> AnswerBuilder<Target> {
+        self.authority().answer()
+    }
+
+    pub fn authority(self) -> AuthorityBuilder<Target> {
+        self.rewind()
+    }
+
+    pub fn finish(self) -> Target {
+        self.authority.finish()
+    }
+}
+
+impl<Octets, Comp> AdditionalBuilder<DgramTarget<Octets, Comp>> {
+    pub fn into_message(self) -> Message<Octets::Octets>
+    where Octets: OctetsBuilder, Comp: Compressor {
+        self.finish().into_message()
+    }
+}
+
+
+//--- Deref, DerefMut, AsRef, and AsMut
+
+impl<Target> Deref for AdditionalBuilder<Target> {
+    type Target = MessageBuilder<Target>;
+
+    fn deref(&self) -> &Self::Target {
+        self.authority.deref()
+    }
+}
+
+impl<Target> DerefMut for AdditionalBuilder<Target> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.authority.deref_mut()
+    }
+}
+
+
+//--- RecordSectionBuilder
+
+impl<Target> RecordSectionBuilder for AdditionalBuilder<Target>
+where Target: ComposeTarget + TryCompose {
+    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
+    where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        self.as_target_mut().try_compose(|target| {
+            record.into().compose(target)
+        })?;
+        self.counts_mut().inc_ancount();
+        Ok(())
+    }
+}
+
+
+//------------ DgramTarget ---------------------------------------------------
+
+#[derive(Clone)]
+pub struct DgramTarget<Target, Compressor> {
+    target: Target,
+    limit: usize,
+    exhausted: bool,
+    compressor: Compressor,
+}
+
+impl<Target: OctetsBuilder, Comp> DgramTarget<Target, Comp> {
+    pub fn new() -> Self
+    where Comp: Compressor {
+        Self::from_target(Target::empty())
+    }
+
+    pub fn from_target(mut target: Target) -> Self
+    where Comp: Compressor {
+        target.truncate(0); // XXX Do we want to do this?
+        Self {
+            target,
+            limit: Target::MAX_CAPACITY,
+            exhausted: false,
+            compressor: Default::default(),
+        }
+    }
+
+    fn into_message(self) -> Message<Target::Octets> {
+        unsafe { Message::from_octets_unchecked(self.target.finish()) }
+    }
+
+    pub fn limit(&self) -> usize {
+        self.limit
+    }
+
+    pub fn set_limit(&mut self, limit: Option<usize>) {
+        if let Some(limit) = limit {
+            self.limit = min(limit, Target::MAX_CAPACITY);
+        }
+        else {
+            self.limit = Target::MAX_CAPACITY;
+        }
+    }
+
+    fn compress_pos(&self) -> Option<u16> {
+        let res = self.target.len();
+        if res > 0x0300 {
+            None
+        }
+        else {
+            Some(res as u16)
+        }
+    }
+}
+
+impl<Target, Comp> Default for DgramTarget<Target, Comp>
+where Target: OctetsBuilder, Comp: Compressor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Target: AsRef<[u8]>, Comp> AsRef<[u8]> for DgramTarget<Target, Comp> {
+    fn as_ref(&self) -> &[u8] {
+        self.target.as_ref()
+    }
+}
+
+impl<Target: AsMut<[u8]>, Comp> AsMut<[u8]> for DgramTarget<Target, Comp> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.target.as_mut()
+    }
+}
+
+impl<Target, Comp> ComposeTarget for DgramTarget<Target, Comp>
+where Target: OctetsBuilder, Comp: Compressor {
+    type LenTarget = Self;
+
+    fn append_slice(&mut self, slice: &[u8]) {
+        match slice.len().checked_sub(self.limit - self.target.len()) {
+            Some(len) => {
+                self.target.append_slice(&slice[..len]);
+                self.exhausted = true;
+            }
+            None => self.target.append_slice(slice)
+        }
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.target.truncate(len)
+    }
+
+    fn append_compressed_dname<N: ToDname>(&mut self, name: &N) {
+        let mut name = name.iter_labels();
+        loop {
+            // If the name is known to the compressor, append compressed
+            // label and be done.
+            if let Some(pos) = self.compressor.get(
+                name.clone(), self.target.as_ref()
+            ) {
+                (pos | 0xC000).compose(self);
+                return
+            }
+
+            // The name is not known. Insert it into the compressor if the
+            // message isn’t too long for that yet.
+            if let Some(pos) = self.compress_pos() {
+                self.compressor.insert(name.clone(), pos)
+            }
+            else {
+                // Just write out the uncompressed name and be done.
+                while let Some(label) = name.next() {
+                    label.compose(self);
+                }
+                return
+            }
+
+            // Advance to the parent name. If the parent is the root, just
+            // write that and be done. Because we do that, there will always
+            // be a next label here.
+            let label = unwrap!(name.next());
+            if label.is_root() {
+                0u8.compose(self);
+                return
+            }
+            else {
+                label.compose(self)
             }
         }
     }
 
-    /// Creates an AXFR request for the given domain.
-    pub fn request_axfr<N: ToDname>(apex: N) -> Self {
-        let mut res = Self::new_udp();
-        res.header_mut().set_random_id();
-        res.push((apex, Rtype::Axfr, Class::In)).unwrap();
-        res
-    }
-}
-
-impl SectionBuilder for MessageBuilder {
-    fn into_target(self) -> MessageTarget { self.target }
-    fn get_target(&self) -> &MessageTarget { &self.target }
-    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
-}
-
-//------------ AnswerBuilder -------------------------------------------------
-
-/// Builds the answer section of a DNS message.
-///
-/// This type is typically constructed by calling [`answer`] on a
-/// [`MessageBuilder`]. See the [module documentation] for an overview of how
-/// to build a message.
-///
-/// Once acquired, you can access a message’s header or append resource
-/// records to the message’s answer section with the [`push`] method.
-///
-/// [`answer`]: struct.MessageBuilder.html#method.answer
-/// [`MessageBuilder`]: struct.MessageBuilder.html
-/// [`push`]: #method.push
-/// [module documentation]: index.html
-#[derive(Clone, Debug)]
-pub struct AnswerBuilder {
-    target: MessageTarget,
-}
-
-
-impl AnswerBuilder {
-    /// Creates a new answer builder from a message target.
-    fn new(target: MessageTarget) -> Self {
-        AnswerBuilder { target }
-    }
-
-    /// Proceeds to building the authority section.
-    pub fn authority(self) -> AuthorityBuilder {
-        AuthorityBuilder::new(self.target)
-    }
-
-    /// Proceeds to building the additional section, skipping authority.
-    pub fn additional(self) -> AdditionalBuilder {
-        self.authority().additional()
-    }
-
-    /// Proceeds to building the OPT record.
-    ///
-    /// The method will start by adding the record header. Since this may
-    /// exceed the message limit, the method may fail.
-    /// If you have saved space for the OPT record via [`set_limit`] earlier,
-    /// remember to increase the limit again before calling `opt`.
-    ///
-    /// [`set_limit`]: #method.set_limit
-    pub fn opt(self) -> Result<OptBuilder, ShortBuf> where Self: Sized {
-        OptBuilder::new(self.into_target())
-    }
-}
-
-impl SectionBuilder for AnswerBuilder {
-    fn into_target(self) -> MessageTarget { self.target }
-    fn get_target(&self) -> &MessageTarget { &self.target }
-    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
-}
-
-impl RecordSectionBuilder for AnswerBuilder {
-    fn push_ref<N, D, R>(&mut self, record: &R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData + Compress, R: Into<Record<N, D>> + Compress {
-        self.target.push(|target| record.compress(target),
-                         |counts| counts.inc_ancount())
-    }
-}
-
-
-//------------ AuthorityBuilder ---------------------------------------------
-
-/// Builds the authority section of a DNS message.
-///
-/// This type can be constructed by calling `authority()` on a
-/// [`MessageBuilder`] or [`AnswerBuilder`]. See the [module documentation]
-/// for details on constructing messages.
-///
-/// Once acquired, you can use this type to add records to the authority
-/// section of a message via the [`push`] method.
-///
-/// [`AnswerBuilder`]: struct.AnswerBuilder.html
-/// [`MessageBuilder`]: struct.MessageBuilder.html
-/// [`push`]: #method.push
-/// [module documentation]: index.html
-#[derive(Clone, Debug)]
-pub struct AuthorityBuilder {
-    target: MessageTarget,
-}
-
-
-impl AuthorityBuilder {
-    /// Creates a new authority builder from a compser.
-    fn new(target: MessageTarget) -> Self {
-        AuthorityBuilder { target }
-    }
-
-    /// Proceeds to building the additional section.
-    pub fn additional(self) -> AdditionalBuilder {
-        AdditionalBuilder::new(self.target)
-    }
-
-    /// Proceeds to building the OPT record.
-    ///
-    /// The method will start by adding the record header. Since this may
-    /// exceed the message limit, the method may fail.
-    /// If you have saved space for the OPT record via [`set_limit`] earlier,
-    /// remember to increase the limit again before calling `opt`.
-    ///
-    /// [`set_limit`]: #method.set_limit
-    pub fn opt(self) -> Result<OptBuilder, ShortBuf> where Self: Sized {
-        OptBuilder::new(self.into_target())
-    }
-}
-
-impl SectionBuilder for AuthorityBuilder {
-    fn into_target(self) -> MessageTarget { self.target }
-    fn get_target(&self) -> &MessageTarget { &self.target }
-    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
-}
-
-impl RecordSectionBuilder for AuthorityBuilder {
-    fn push_ref<N, D, R>(&mut self, record: &R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData + Compress, R: Into<Record<N, D>> + Compress {
-        self.target.push(|target| record.compress(target),
-                         |counts| counts.inc_nscount())
-    }
-}
-
-
-//------------ AdditionalBuilder --------------------------------------------
-
-/// Builds the additional section of a DNS message.
-///
-/// This type can be constructed by calling `additional` on a
-/// [`MessageBuilder`], [`AnswerBuilder`], or [`AuthorityBuilder`]. See the
-/// [module documentation] for on overview on building messages.
-///
-/// Once aquired, you can add records to the additional section via the
-/// [`push`] method. If the record you want to add is an OPT record, you
-/// can also use the [`OptBuilder`] type which you can acquire via the
-/// [`opt`] method.
-///
-/// [`AnswerBuilder`]: struct.AnswerBuilder.html
-/// [`AuthorityBuilder`]: struct.AuthorityBuilder.html
-/// [`MessageBuilder`]: struct.MessageBuilder.html
-/// [`OptBuilder`]: struct.OptBuilder.html
-/// [`push`]: #method.push
-/// [`opt`]: #method.opt
-/// [module documentation]: index.html
-#[derive(Clone, Debug)]
-pub struct AdditionalBuilder {
-    target: MessageTarget,
-}
-
-
-impl AdditionalBuilder {
-    /// Creates a new additional builder from a compser.
-    fn new(target: MessageTarget) -> Self {
-        AdditionalBuilder { target }
-    }
-
-    /// Proceeds to building the OPT record.
-    ///
-    /// The method will start by adding the record header. Since this may
-    /// exceed the message limit, the method may fail.
-    /// If you have saved space for the OPT record via [`set_limit`] earlier,
-    /// remember to increase the limit again before calling `opt`.
-    ///
-    /// [`set_limit`]: #method.set_limit
-    pub fn opt(self) -> Result<OptBuilder, ShortBuf> where Self: Sized {
-        OptBuilder::new(self.into_target())
-    }
-}
-
-impl SectionBuilder for AdditionalBuilder {
-    fn into_target(self) -> MessageTarget { self.target }
-    fn get_target(&self) -> &MessageTarget { &self.target }
-    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
-}
-
-impl RecordSectionBuilder for AdditionalBuilder {
-    fn push_ref<N, D, R>(&mut self, record: &R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData + Compress, R: Into<Record<N, D>> + Compress {
-        self.target.push(|target| record.compress(target),
-                         |counts| counts.inc_arcount())
-    }
-}
-
-//------------ OptBuilder ----------------------------------------------------
-
-/// Builds an OPT record as part of the additional section of a DNS message,
-///
-/// This type can be constructed by calling the `opt` method on any other
-/// builder type.  See the [module documentation] for on overview
-/// on building messages.
-///
-/// As OPT records are part of the additional section, this type will, when
-/// constructed proceed to this section and append an OPT record without any
-/// options to it. Options can be appened via the [`push`] method.
-///
-/// The type also deref-muts to [`OptHeader`] allowing you to modify the
-/// header’s fields such as setting the
-/// [UDP payload size][`OptHeader::set_udp_payload_size`] or the
-/// [DO bit][`OptHeader::set_dnssec_ok`].
-///
-/// Once you have adjusted the OPT record to your liking, you can return to
-/// the additional section via [`additional`]. Note, however, that the OPT
-/// record should be the last record except for a possible TSIG record. You
-/// can also finish the message via [`finish`] or [`freeze`].
-///
-/// [module documentation]: index.html
-/// [`OptHeader`]: ../opt/struct.OptHeader.html
-/// [`additional`]: #method.additional
-/// [`finish`]: #method.finish
-/// [`freeze`]: #method.freeze
-/// [`push`]: #method.push
-/// [`OptHeader::set_udp_payload_size`]: ../opt/struct.OptHeader.html#method.set_udp_payload_size
-/// [`OptHeader::set_dnssec_ok`]: ../opt/struct.OptHeader.html#method.set_dnssec_ok
-#[derive(Clone, Debug)]
-pub struct OptBuilder {
-    target: MessageTarget,
-
-    /// The position of in `target` of the start of the OPT record.
-    pos: usize,
-}
-
-impl OptBuilder {
-    /// Creates a new OPT builder atop the given target.
-    ///
-    /// This appends the OPT header to the message and increases the
-    /// ARCOUNT of the message.
-    fn new(mut target: MessageTarget) -> Result<Self, ShortBuf> {
-        let pos = target.len();
-        target.compose(&OptHeader::default())?;
-        target.compose(&0u16)?;
-        target.counts_mut().inc_arcount();
-        Ok(OptBuilder { pos, target })
-    }
-
-    /// Pushes an option to the OPT record.
-    ///
-    /// The method is generic over anything that implements the `OptData`
-    /// trait representing an option. Alternatively, most of these types
-    /// provide a `push` associated function that allows to construct an
-    /// option directly into a record from its data.
-    pub fn push<O: OptData>(&mut self, option: &O) -> Result<(), ShortBuf> {
-        self.target.compose(&option.code())?;
-        let len = option.compose_len();
-        assert!(len <= ::std::u16::MAX as usize);
-        self.target.compose(&(len as u16))?;
-        self.target.compose(option)?;
-        self.complete();
-        Ok(())
-    }
-
-    /// Builds an option into the record.
-    ///
-    /// The option will have the option code `code`. Its data will be `len`
-    /// octets long and appened to the record via the `op` closure.
-    pub(super) fn build<F>(&mut self, code: OptionCode, len: u16, op: F)
-                           -> Result<(), ShortBuf>
-                        where F: FnOnce(&mut Compressor)
-                                        -> Result<(), ShortBuf> {
-        self.target.compose(&code)?;
-        self.target.compose(&len)?;
-        op(&mut self.target.buf)?;
-        self.complete();
-        Ok(())
-    }
-
-    /// Completes the OPT record and returns to the additional section builder.
-    pub fn additional(self) -> AdditionalBuilder {
-        AdditionalBuilder::new(self.target)
-    }
-
-    /// Completes building the OPT record.
-    ///
-    /// This will update the RDLEN field of the record header.
-    fn complete(&mut self) {
-        let len = self.target.len()
-                - (self.pos + mem::size_of::<OptHeader>() + 2);
-        assert!(len <= ::std::u16::MAX as usize);
-        let count_pos = self.pos + mem::size_of::<OptHeader>();
-        BigEndian::write_u16(&mut self.target.as_slice_mut()[count_pos..],
-                             len as u16);
-    }
-}
-
-impl SectionBuilder for OptBuilder {
-    fn into_target(self) -> MessageTarget { self.target }
-    fn get_target(&self) -> &MessageTarget { &self.target }
-    fn get_target_mut(&mut self) -> &mut MessageTarget { &mut self.target }
-}
-
-impl ops::Deref for OptBuilder {
-    type Target = OptHeader;
-
-    fn deref(&self) -> &Self::Target {
-        OptHeader::for_record_slice(&self.target.as_slice()[self.pos..])
-    }
-}
-
-impl ops::DerefMut for OptBuilder {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        OptHeader::for_record_slice_mut(&mut self.target.as_slice_mut()
-                                                                 [self.pos..])
-    }
-}
-
-
-//------------ MessageTarget -------------------------------------------------
-
-/// Underlying data for constructing a DNS message.
-///
-/// This private type does all the heavy lifting for constructing messages.
-#[derive(Clone, Debug)]
-pub struct MessageTarget {
-    buf: Compressor,
-    start: usize,
-}
-
-
-impl MessageTarget {
-    /// Creates a new message target atop a given buffer.
-    fn from_buf(mut buf: BytesMut) -> Self {
-        let start = buf.len();
-        if buf.remaining_mut() < mem::size_of::<HeaderSection>() {
-            let additional = mem::size_of::<HeaderSection>()
-                           - buf.remaining_mut();
-            buf.reserve(additional)
-        }
-        let mut buf = Compressor::from_buf(buf);
-        HeaderSection::default().compose(&mut buf);
-        MessageTarget { buf, start }
-    }
-
-    /// Returns a reference to the message’s header.
-    fn header(&self) -> &Header {
-        Header::for_message_slice(self.buf.so_far())
-    }
-
-    /// Returns a mutable reference to the message’s header.
-    fn header_mut(&mut self) -> &mut Header {
-        Header::for_message_slice_mut(self.buf.so_far_mut())
-    }
-
-    fn counts(&self) -> &HeaderCounts {
-        HeaderCounts::for_message_slice(self.buf.so_far())
-    }
-
-    /// Returns a mutable reference to the message’s header counts.
-    fn counts_mut(&mut self) -> &mut HeaderCounts {
-        HeaderCounts::for_message_slice_mut(self.buf.so_far_mut())
-    }
-
-    /// Pushes something to the end of the message.
-    ///
-    /// There’s two closures here. The first one, `composeop` actually
-    /// writes the data. The second, `incop` increments the counter in the
-    /// messages header to reflect the new element.
-    fn push<O, I, E>(&mut self, composeop: O, incop: I) -> Result<(), E>
-            where O: FnOnce(&mut Compressor) -> Result<(), E>,
-                  I: FnOnce(&mut HeaderCounts) {
-        composeop(&mut self.buf).map(|()| incop(self.counts_mut()))
-    }
-
-    fn snapshot<T>(&self) -> Snapshot<T> {
-        Snapshot {
-            pos: self.buf.len(),
-            counts: *self.counts(),
-            marker: PhantomData,
+    fn len_prefixed<F: FnOnce(&mut Self::LenTarget)>(&mut self, op: F) {
+        let pos = self.target.as_ref().len();
+        self.target.append_slice(&[0; 2]);
+        op(self);
+        if !self.exhausted {
+            let len = (self.target.as_ref().len() - pos - 2) as u16;
+            self.target.as_mut()[pos..pos + 2]
+                .copy_from_slice(&len.to_be_bytes());
         }
     }
+}
 
-    fn rewind<T>(&mut self, snapshot: &Snapshot<T>) {
-        self.buf.truncate(snapshot.pos);
-        self.counts_mut().set(snapshot.counts);
-    }
+impl<Target, Comp> TryCompose for DgramTarget<Target, Comp>
+where Target: OctetsBuilder, Comp: Compressor {
+    type Target = Self;
 
-    /// Returns a reference to the data assembled so far.
-    ///
-    /// In case the builder was created from a buffer with pre-existing
-    /// content, the returned reference is for the complete content of this
-    /// buffer.
-    fn preview(&self) -> &[u8] {
-        self.buf.as_slice()
-    }
-
-    /// Returns a reference to the message assembled so far.
-    ///
-    /// The returned slice will only contain the message itself, not any
-    /// prelude.
-    fn so_far(&self) -> &[u8] {
-        self.buf.so_far()
-    }
-
-    fn prelude(&self) -> &[u8] {
-        &self.buf.as_slice()[..self.start]
-    }
-
-    fn prelude_mut(&mut self) -> &mut [u8] {
-        &mut self.buf.as_slice_mut()[..self.start]
-    }
-
-    fn unwrap(self) -> BytesMut {
-        self.buf.unwrap()
-    }
-
-    fn freeze(self) -> Message {
-        let bytes = if self.start == 0 {
-            self.buf.unwrap().freeze()
+    fn try_compose<F>(&mut self, op: F) -> Result<(), ShortBuf>
+    where F: FnOnce(&mut Self::Target) {
+        let pos = self.target.len();
+        op(self);
+        if self.exhausted {
+            self.target.truncate(pos);
+            self.exhausted = false;
+            Err(ShortBuf)
         }
         else {
-            self.buf.unwrap().freeze().slice_from(self.start)
-        };
-        unsafe { Message::from_bytes_unchecked(bytes) }
-    }
-}
-
-impl ops::Deref for MessageTarget {
-    type Target = Compressor;
-
-    fn deref(&self) -> &Self::Target {
-        &self.buf
-    }
-}
-
-impl ops::DerefMut for MessageTarget {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.buf
+            Ok(())
+        }
     }
 }
 
 
-//------------ Snapshot ------------------------------------------------------
+//------------ StreamTarget --------------------------------------------------
 
-/// Contains information about the state of a message.
-///
-/// This type is returned by the `snapshot` method of the various builders and
-/// allows to later return to that state through the `rewind` method.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct Snapshot<T> {
-    pos: usize,
-    counts: HeaderCounts,
-    marker: PhantomData<T>,
+pub struct StreamTarget<Target, Compressor> {
+    target: Target,
+    exhausted: bool,
+    compressor: Compressor,
+}
+
+impl<Target: OctetsBuilder, Comp: Compressor> StreamTarget<Target, Comp> {
+    pub fn new() -> Self {
+        Self::from_target(Target::empty())
+    }
+
+    pub fn from_target(mut target: Target) -> Self {
+        target.truncate(0);
+        target.append_slice(&[0; 2]);
+        Self {
+            target,
+            exhausted: false,
+            compressor: Default::default(),
+        }
+    }
+
+    fn limit(&self) -> usize {
+        min(Target::MAX_CAPACITY, 0x1_0001)
+    }
+
+    fn compress_pos(&self) -> Option<u16> {
+        let res = self.target.len() - 2;
+        if res > 0x0300 {
+            None
+        }
+        else {
+            Some(res as u16)
+        }
+    }
+
+    fn update_shim(&mut self) {
+        let len = (self.target.len() - 2) as u16;
+        self.target.as_mut()[..2].copy_from_slice(&len.to_be_bytes())
+    }
+}
+
+impl<Target, Comp> Default for StreamTarget<Target, Comp>
+where Target: OctetsBuilder, Comp: Compressor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<Target: AsRef<[u8]>, Comp> AsRef<[u8]> for StreamTarget<Target, Comp> {
+    fn as_ref(&self) -> &[u8] {
+        self.target.as_ref()
+    }
+}
+
+impl<Target: AsMut<[u8]>, Comp> AsMut<[u8]> for StreamTarget<Target, Comp> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.target.as_mut()
+    }
+}
+
+impl<Target, Comp> ComposeTarget for StreamTarget<Target, Comp>
+where Target: OctetsBuilder, Comp: Compressor {
+    type LenTarget = Self;
+
+    fn append_slice(&mut self, slice: &[u8]) {
+        match slice.len().checked_sub(self.limit() - self.target.len()) {
+            Some(len) => {
+                self.target.append_slice(&slice[..len]);
+                self.exhausted = true;
+            }
+            None => {
+                self.target.append_slice(slice);
+                self.update_shim();
+            }
+        }
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.target.truncate(len)
+    }
+
+    fn append_compressed_dname<N: ToDname>(&mut self, name: &N) {
+        let mut name = name.iter_labels();
+        loop {
+            // If the name is known to the compressor, append compressed
+            // label and be done.
+            if let Some(pos) = self.compressor.get(
+                name.clone(), self.target.as_ref()
+            ) {
+                (pos | 0xC000).compose(self);
+                return
+            }
+
+            // The name is not known. Insert it into the compressor if the
+            // message isn’t too long for that yet.
+            if let Some(pos) = self.compress_pos() {
+                self.compressor.insert(name.clone(), pos)
+            }
+            else {
+                // Just write out the uncompressed name and be done.
+                while let Some(label) = name.next() {
+                    label.compose(self);
+                }
+                return
+            }
+
+            // Advance to the parent name. If the parent is the root, just
+            // write that and be done. Because we do that, there will always
+            // be a next label here.
+            let label = unwrap!(name.next());
+            if label.is_root() {
+                0u8.compose(self);
+                return
+            }
+            else {
+                label.compose(self)
+            }
+        }
+    }
+
+    fn len_prefixed<F: FnOnce(&mut Self::LenTarget)>(&mut self, op: F) {
+        let pos = self.target.as_ref().len();
+        self.target.append_slice(&[0; 2]);
+        op(self);
+        if !self.exhausted {
+            let len = (self.target.as_ref().len() - pos - 2) as u16;
+            self.target.as_mut()[pos..pos + 2]
+                .copy_from_slice(&len.to_be_bytes());
+        }
+    }
+}
+
+impl<Target, Comp> TryCompose for StreamTarget<Target, Comp>
+where Target: OctetsBuilder, Comp: Compressor {
+    type Target = Self;
+
+    fn try_compose<F>(&mut self, op: F) -> Result<(), ShortBuf>
+    where F: FnOnce(&mut Self::Target) {
+        let pos = self.target.len();
+        op(self);
+        if self.exhausted {
+            self.target.truncate(pos);
+            self.update_shim();
+            self.exhausted = false;
+            Err(ShortBuf)
+        }
+        else {
+            Ok(())
+        }
+    }
 }
 
 
-//------------ SectionBuilder ------------------------------------------------
+//------------ Compressor ----------------------------------------------------
 
-/// Trait that implements common interface for building message sections
-pub trait SectionBuilder : Sized {
-    /// Updates the message’s size limit.
-    ///
-    /// After this method was called, additional data will not be added to the
-    /// message if that would result in the message exceeding a size of
-    /// `limit` bytes. If the message is already larger than `limit` when the
-    /// method is called, it will _not_ be truncated. That is, you can never
-    /// actually set a limit smaller than the current message size.
-    ///
-    /// Note also that the limit only regards the message constructed by the
-    /// builder itself. If a builder was created atop a buffer that already
-    /// contained some data, this pre-existing data is not considered.
-    fn set_limit(&mut self, limit: usize) {
-        self.get_target_mut().buf.set_limit(limit)
-    }
+pub trait Compressor: Default {
+    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &mut self,
+        name: N,
+        pos: u16
+    );
 
-    /// Returns a reference to the messages header.
-    fn header(&self) -> &Header {
-        self.get_target().header()
-    }
-
-    /// Returns a mutable reference to the messages header.
-    fn header_mut(&mut self) -> &mut Header {
-        self.get_target_mut().header_mut()
-    }
-
-    /// Returns a reference to the data assembled so far.
-    ///
-    /// In case the builder was created from a buffer with pre-existing
-    /// content, the returned reference is for the complete content of this
-    /// buffer.
-    fn preview(&self) -> &[u8] {
-        self.get_target().preview()
-    }
-
-    /// Returns a reference to the message assembled so far.
-    ///
-    /// The returned slice will only contain the message itself, not any
-    /// prelude.
-    fn so_far(&self) -> &[u8] {
-        self.get_target().so_far()
-    }
-
-    /// Returns a reference to the slice preceeding the message.
-    ///
-    /// The slice is may be empty.
-    fn prelude(&self) -> &[u8] {
-        self.get_target().prelude()
-    }
-
-    /// Returns a mutable reference to the slice preceeding the message.
-    fn prelude_mut(&mut self) -> &mut [u8] {
-        self.get_target_mut().prelude_mut()
-    }
-
-    /// Finishes the message and returns the underlying bytes buffer.
-    ///
-    /// This will result in a message with empty authority and additional
-    /// sections.
-    fn finish(self) -> BytesMut {
-        self.into_target().unwrap()
-    }
-
-    /// Finishes the message and returns the resulting bytes value.
-    ///
-    /// This will result in a message with empty authority and additional
-    /// sections.
-    fn freeze(self) -> Message {
-        self.into_target().freeze()
-    }
-
-    /// Returns a snapshot indicating the current state of the message.
-    ///
-    /// The returned value can be used to later return the message to the
-    /// state at the time the method was called through the [`rewind`]
-    /// method.
-    ///
-    /// [`rewind`]: #method.rewind
-    fn snapshot(&self) -> Snapshot<Self> {
-        self.get_target().snapshot()
-    }
-
-    /// Rewinds the message to the state it had at `snapshot`.
-    ///
-    /// This will truncate the message to the size it had at the time the
-    /// [`snapshot`] method was called, making it forget all records added
-    /// since.
-    ///
-    /// [`snapshot`]: #method.snapshot
-    fn rewind(&mut self, snapshot: &Snapshot<Self>) {
-        self.get_target_mut().rewind(snapshot)
-    }
-
-    /// Converts into target
-    fn into_target(self) -> MessageTarget;
-
-    /// Returns message target
-    fn get_target(&self) -> &MessageTarget;
-
-    /// Returns message target
-    fn get_target_mut(&mut self) -> &mut MessageTarget;
+    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &self,
+        name: N,
+        slice: &[u8]
+    ) -> Option<u16>;
 }
 
-/// Trait for pushing resource records into a section
-pub trait RecordSectionBuilder : SectionBuilder {
-    /// Appends a new resource record to the section.
-    ///
-    /// This method is generic over anything that can be converted into a
-    /// [`Record`]. In particular, you can use four-tuples consisting of
-    /// a domain name, class, TTL, and record data or triples leaving out
-    /// the class which will then be assumed to be `Class::In`.
-    ///
-    /// If appending the record would result in the message exceeding its
-    /// size limit, the method will fail.
-    ///
-    /// [`Record`]: ../record/struct.Record.html
-    fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.push_ref(&record.into())
+
+//------------ Uncompressed --------------------------------------------------
+
+#[derive(Clone, Debug, Default)]
+pub struct Uncompressed;
+
+impl Compressor for Uncompressed {
+    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &mut self,
+        _name: N,
+        _pos: u16
+    ) {
     }
 
-    /// Appends a new resource record reference to the section.
-    ///
-    /// This method doesn't require record to be moved for compose.
-    fn push_ref<N, D, R>(&mut self, record: &R) -> Result<(), ShortBuf>
-                where N: ToDname, D: RecordData + Compress, R: Into<Record<N, D>> + Compress;
-}
-
-//============ Testing ======================================================
-
-#[cfg(test)]
-mod test {
-    use std::str::FromStr;
-    use crate::rdata::*;
-    use crate::name::*;
-    use crate::message::*;
-    use super::*;
-
-    fn get_built_message() -> Message {
-        let msg = MessageBuilder::with_capacity(512);
-        let mut msg = msg.answer();
-        msg.push((Dname::from_str("foo.example.com.").unwrap(), 86000,
-                     Cname::new(Dname::from_str("baz.example.com.")
-                                         .unwrap()))).unwrap();
-        let mut msg = msg.authority();
-        msg.push((Dname::from_str("bar.example.com.").unwrap(), 86000,
-                     Cname::new(Dname::from_str("baz.example.com.")
-                                         .unwrap()))).unwrap();
-        msg.freeze()
-    }
-
-    #[test]
-    fn build_message() {
-        let msg = get_built_message();
-        assert_eq!(1, msg.header_counts().ancount());
-        assert_eq!(1, msg.header_counts().nscount());
+    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &self,
+        _name: N,
+        _slice: &[u8]
+    ) -> Option<u16> {
+        None
     }
 }
+
+
+
+//------------ StaticCompressor ----------------------------------------------
+
+#[derive(Clone, Debug, Default)]
+pub struct StaticCompressor {
+    entries: [u16; 20],
+    len: usize,
+}
+
+impl Compressor for StaticCompressor {
+    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &mut self,
+        _name: N,
+        pos: u16
+    ) {
+        if self.len < 20 {
+            self.entries[self.len] = pos;
+            self.len += 1
+        }
+    }
+
+    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &self,
+        name: N,
+        slice: &[u8]
+    ) -> Option<u16> {
+        self.entries[..self.len].iter().find_map(|&pos| {
+            if pos as usize > slice.len() {
+                return None
+            }
+            if name.clone().eq(Label::iter_slice(slice, pos as usize)) {
+                Some(pos)
+            }
+            else {
+                None
+            }
+        })
+    }
+}
+
+
+//------------ TreeCompressor ------------------------------------------------
+
+#[derive(Default)]
+pub struct TreeCompressor {
+    start: Node,
+}
+
+#[derive(Default)]
+struct Node {
+    parents: HashMap<OwnedLabel, Self>,
+    value: Option<u16>,
+}
+
+impl TreeCompressor {
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl Compressor for TreeCompressor {
+    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &mut self,
+        name: N,
+        pos: u16
+    ) {
+        let mut node = &mut self.start;
+        for label in name {
+            if label.is_root() {
+                node.value = Some(pos);
+                return
+            }
+            node = node.parents.entry(label.into()).or_default();
+        }
+    }
+
+    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &self,
+        name: N,
+        _slice: &[u8]
+    ) -> Option<u16> {
+        let mut node = &self.start;
+        for label in name {
+            if label.is_root() {
+                return node.value;
+            }
+            node = node.parents.get(label)?;
+        }
+        None
+    }
+}
+

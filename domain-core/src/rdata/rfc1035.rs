@@ -4,19 +4,24 @@
 //!
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{fmt, ops};
+use std::{hash, fmt, ops};
 use std::cmp::Ordering;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
+use unwrap::unwrap;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, Compress, Compressor};
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
-use crate::charstr::CharStr;
-use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
+use crate::charstr::{CharStr, PushError};
+use crate::master::scan::{
+    CharSource, ScanError, Scan, Scanner, Symbol, SyntaxError
+};
 use crate::name::{ParsedDname, ToDname};
+use crate::octets::{FromBuilder, OctetsBuilder};
 use crate::parse::{
-    ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ShortBuf
+    ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ParseSource,
+    ShortBuf
 };
 use crate::serial::Serial;
 use super::RtypeRecordData;
@@ -31,7 +36,7 @@ use super::RtypeRecordData;
 macro_rules! dname_type {
     ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
         $(#[$attr])*
-        #[derive(Clone, Debug, Hash)]
+        #[derive(Clone, Debug)]
         pub struct $target<N> {
             $field: N
         }
@@ -65,26 +70,28 @@ macro_rules! dname_type {
 
         //--- PartialEq and Eq
 
-        impl<N: PartialEq<NN>, NN> PartialEq<$target<NN>> for $target<N> {
+        impl<N, NN> PartialEq<$target<NN>> for $target<N>
+        where N: ToDname, NN: ToDname {
             fn eq(&self, other: &$target<NN>) -> bool {
-                self.$field.eq(&other.$field)
+                self.$field.name_eq(&other.$field)
             }
         }
 
-        impl<N: Eq> Eq for $target<N> { }
+        impl<N: ToDname> Eq for $target<N> { }
 
 
         //--- PartialOrd, Ord, and CanonicalOrd
 
-        impl<N: PartialOrd<NN>, NN> PartialOrd<$target<NN>> for $target<N> {
+        impl<N, NN> PartialOrd<$target<NN>> for $target<N>
+        where N: ToDname, NN: ToDname {
             fn partial_cmp(&self, other: &$target<NN>) -> Option<Ordering> {
-                self.$field.partial_cmp(&other.$field)
+                Some(self.$field.name_cmp(&other.$field))
             }
         }
 
-        impl<N: Ord> Ord for $target<N> {
+        impl<N: ToDname> Ord for $target<N> {
             fn cmp(&self, other: &Self) -> Ordering {
-                self.$field.cmp(&other.$field)
+                self.$field.name_cmp(&other.$field)
             }
         }
 
@@ -95,46 +102,52 @@ macro_rules! dname_type {
         }
 
 
-        //--- Parse, ParseAll, Compose, and Compress
+        //--- Hash
 
-        impl Parse for $target<ParsedDname> {
-            type Err = <ParsedDname as Parse>::Err;
+        impl<N: hash::Hash> hash::Hash for $target<N> {
+            fn hash<H: hash::Hasher>(&self, state: &mut H) {
+                self.$field.hash(state)
+            }
+        }
 
-            fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+
+        //--- Parse, ParseAll, and Compose
+
+        impl<Octets> Parse<Octets> for $target<ParsedDname<Octets>>
+        where Octets: ParseSource {
+            type Err = <ParsedDname<Octets> as Parse<Octets>>::Err;
+
+            fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
                 ParsedDname::parse(parser).map(Self::new)
             }
 
-            fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+            fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
                 ParsedDname::skip(parser).map_err(Into::into)
             }
         }
 
-        impl ParseAll for $target<ParsedDname> {
-            type Err = <ParsedDname as ParseAll>::Err;
+        impl<Octets> ParseAll<Octets> for $target<ParsedDname<Octets>>
+        where Octets: ParseSource {
+            type Err = <ParsedDname<Octets> as ParseAll<Octets>>::Err;
 
-            fn parse_all(parser: &mut Parser, len: usize)
-                         -> Result<Self, Self::Err> {
+            fn parse_all(
+                parser: &mut Parser<Octets>,
+                len: usize
+            ) -> Result<Self, Self::Err> {
                 ParsedDname::parse_all(parser, len).map(Self::new)
             }
         }
 
-        impl<N: Compose> Compose for $target<N> {
-            fn compose_len(&self) -> usize {
-                self.$field.compose_len()
-            }
-        
-            fn compose<B: BufMut>(&self, buf: &mut B) {
-                self.$field.compose(buf)
+        impl<N: ToDname> Compose for $target<N> {
+            fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+                target.append_compressed_dname(&self.$field)
             }
 
-            fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
-                self.$field.compose_canonical(buf)
-            }
-        }
-
-        impl<N: Compress> Compress for $target<N> {
-            fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-                self.$field.compress(buf)
+            fn compose_canonical<T: ComposeTarget + ?Sized>(
+                &self,
+                target: &mut T
+            ) {
+                self.$field.compose_canonical(target)
             }
         }
 
@@ -237,42 +250,34 @@ impl CanonicalOrd for A {
 }
 
 
-//--- Parse, ParseAll, Compose, and Compress
+//--- Parse, ParseAll and Compose
 
-impl Parse for A {
-    type Err = <Ipv4Addr as Parse>::Err;
+impl<Octets: AsRef<[u8]>> Parse<Octets> for A {
+    type Err = <Ipv4Addr as Parse<Octets>>::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
         Ipv4Addr::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
-        Ipv4Addr::skip(parser)?;
-        Ok(())
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+        Ipv4Addr::skip(parser)
     }
 }
 
-impl ParseAll for A {
-    type Err = <Ipv4Addr as ParseAll>::Err;
+impl<Octets: AsRef<[u8]>> ParseAll<Octets> for A {
+    type Err = <Ipv4Addr as ParseAll<Octets>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         Ipv4Addr::parse_all(parser, len).map(Self::new)
     }
 }
 
 impl Compose for A {
-    fn compose_len(&self) -> usize {
-        4
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.addr.compose(buf)
-    }
-}
-
-impl Compress for A {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.addr.compose(target)
     }
 }
 
@@ -353,34 +358,58 @@ dname_type! {
 /// specifically the CPU type and operating system type.
 ///
 /// The Hinfo type is defined in RFC 1035, section 3.3.2.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Hinfo {
-    cpu: CharStr,
-    os: CharStr,
+#[derive(Clone)]
+pub struct Hinfo<Octets> {
+    cpu: CharStr<Octets>,
+    os: CharStr<Octets>,
 }
 
-impl Hinfo {
+impl<Octets> Hinfo<Octets> {
     /// Creates a new Hinfo record data from the components.
-    pub fn new(cpu: CharStr, os: CharStr) -> Self {
+    pub fn new(cpu: CharStr<Octets>, os: CharStr<Octets>) -> Self {
         Hinfo { cpu, os }
     }
 
     /// The CPU type of the host.
-    pub fn cpu(&self) -> &CharStr {
+    pub fn cpu(&self) -> &CharStr<Octets> {
         &self.cpu
     }
 
     /// The operating system type of the host.
-    pub fn os(&self) -> &CharStr {
+    pub fn os(&self) -> &CharStr<Octets> {
         &self.os
     }
 }
 
 
-//--- CanonicalCmp
+//--- PartialEq and Eq
 
-impl CanonicalOrd for Hinfo {
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
+impl<Octets, Other> PartialEq<Hinfo<Other>> for Hinfo<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn eq(&self, other: &Hinfo<Other>) -> bool {
+        self.cpu.eq(&other.cpu) && self.os.eq(&other.os)
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for Hinfo<Octets> { }
+
+
+//--- PartialOrd, CanonicalOrd, and Ord
+
+impl<Octets, Other> PartialOrd<Hinfo<Other>> for Hinfo<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn partial_cmp(&self, other: &Hinfo<Other>) -> Option<Ordering> {
+        match self.cpu.partial_cmp(&other.cpu) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.os.partial_cmp(&other.os)
+    }
+}
+
+impl<Octets, Other> CanonicalOrd<Hinfo<Other>> for Hinfo<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn canonical_cmp(&self, other: &Hinfo<Other>) -> Ordering {
         match self.cpu.canonical_cmp(&other.cpu) {
             Ordering::Equal => { }
             other => return other
@@ -389,28 +418,50 @@ impl CanonicalOrd for Hinfo {
     }
 }
 
+impl<Octets: AsRef<[u8]>> Ord for Hinfo<Octets> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.cpu.cmp(&other.cpu) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.os.cmp(&other.os)
+    }
+}
+
+
+//--- Hash
+
+impl<Octets: AsRef<[u8]>> hash::Hash for Hinfo<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.cpu.hash(state);
+        self.os.hash(state);
+    }
+}
+
 
 //--- Parse, Compose, and Compress
 
-impl Parse for Hinfo {
+impl<Octets: ParseSource> Parse<Octets> for Hinfo<Octets> {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
         Ok(Self::new(CharStr::parse(parser)?, CharStr::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
         CharStr::skip(parser)?;
         CharStr::skip(parser)?;
         Ok(())
     }
 }
 
-impl ParseAll for Hinfo {
+impl<Octets: ParseSource> ParseAll<Octets> for Hinfo<Octets> {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize)
-                    -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let cpu = CharStr::parse(parser)?;
         let len = match len.checked_sub(cpu.len() + 1) {
             Some(len) => len,
@@ -421,43 +472,45 @@ impl ParseAll for Hinfo {
     }
 }
 
-impl Compose for Hinfo {
-    fn compose_len(&self) -> usize {
-        self.cpu.compose_len() + self.os.compose_len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.cpu.compose(buf);
-        self.os.compose(buf);
-    }
-}
-
-impl Compress for Hinfo {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.cpu.compose(target);
+        self.os.compose(target);
     }
 }
 
 
 //--- Scan and Display
 
-impl Scan for Hinfo {
+impl Scan for Hinfo<Bytes> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         Ok(Self::new(CharStr::scan(scanner)?, CharStr::scan(scanner)?))
     }
 }
 
-impl fmt::Display for Hinfo {
+impl<Octets: AsRef<[u8]>> fmt::Display for Hinfo<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.cpu, self.os)
     }
 }
 
 
+//--- Debug
+
+impl<Octets: AsRef<[u8]>> fmt::Debug for Hinfo<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Hinfo")
+            .field("cpu", &self.cpu)
+            .field("os", &self.os)
+            .finish()
+    }
+}
+
+
 //--- RtypeRecordData
 
-impl RtypeRecordData for Hinfo {
+impl<Octets> RtypeRecordData for Hinfo<Octets> {
     const RTYPE: Rtype = Rtype::Hinfo;
 }
 
@@ -533,7 +586,7 @@ dname_type! {
 ///
 /// The Minfo record type is defined in RFC 1035, section 3.3.7.
 #[derive(Clone, Debug, Hash)]
-pub struct Minfo<N=ParsedDname> {
+pub struct Minfo<N> {
     rmailbx: N,
     emailbx: N,
 }
@@ -567,34 +620,37 @@ impl<N> Minfo<N> {
 
 //--- PartialEq and Eq
 
-impl<N: PartialEq<NN>, NN> PartialEq<Minfo<NN>> for Minfo<N> {
+impl<N, NN> PartialEq<Minfo<NN>> for Minfo<N>
+where N: ToDname, NN: ToDname {
     fn eq(&self, other: &Minfo<NN>) -> bool {
-        self.rmailbx.eq(&other.rmailbx) && self.emailbx.eq(&other.emailbx)
+        self.rmailbx.name_eq(&other.rmailbx)
+        && self.emailbx.name_eq(&other.emailbx)
     }
 }
 
-impl<N: Eq> Eq for Minfo<N> { }
+impl<N: ToDname> Eq for Minfo<N> { }
 
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
-impl<N: PartialOrd<NN>, NN> PartialOrd<Minfo<NN>> for Minfo<N> {
+impl<N, NN> PartialOrd<Minfo<NN>> for Minfo<N>
+where N: ToDname, NN: ToDname {
     fn partial_cmp(&self, other: &Minfo<NN>) -> Option<Ordering> {
-        match self.rmailbx.partial_cmp(&other.rmailbx) {
-            Some(Ordering::Equal) => { }
-            other => return other
+        match self.rmailbx.name_cmp(&other.rmailbx) {
+            Ordering::Equal => { }
+            other => return Some(other)
         }
-        self.emailbx.partial_cmp(&other.emailbx)
+        Some(self.emailbx.name_cmp(&other.emailbx))
     }
 }
 
-impl<N: Ord> Ord for Minfo<N> {
+impl<N: ToDname> Ord for Minfo<N> {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.rmailbx.cmp(&other.rmailbx) {
+        match self.rmailbx.name_cmp(&other.rmailbx) {
             Ordering::Equal => { }
             other => return other
         }
-        self.emailbx.cmp(&other.emailbx)
+        self.emailbx.name_cmp(&other.emailbx)
     }
 }
 
@@ -609,27 +665,35 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Minfo<NN>> for Minfo<N> {
 }
 
 
-//--- Parse, ParseAll, Compose, and Compress
+//--- Parse, ParseAll and Compose
 
-impl<N: Parse> Parse for Minfo<N> {
+impl<Octets, N: Parse<Octets>> Parse<Octets> for Minfo<N> {
     type Err = N::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
         Ok(Self::new(N::parse(parser)?, N::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
         N::skip(parser)?;
         N::skip(parser)?;
         Ok(())
     }
 }
 
-impl<N: Parse + ParseAll> ParseAll for Minfo<N>
-     where <N as ParseAll>::Err: From<<N as Parse>::Err> + From<ShortBuf> {
-    type Err = <N as ParseAll>::Err;
+impl<Octets, N> ParseAll<Octets> for Minfo<N>
+where
+    Octets: AsRef<[u8]>,
+    N: Parse<Octets> + ParseAll<Octets>,
+    <N as ParseAll<Octets>>::Err:
+        From<<N as Parse<Octets>>::Err> + From<ShortBuf>
+{
+    type Err = <N as ParseAll<Octets>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let pos = parser.pos();
         let rmailbx = N::parse(parser)?;
         let rlen = parser.pos() - pos;
@@ -647,26 +711,15 @@ impl<N: Parse + ParseAll> ParseAll for Minfo<N>
     }
 }
 
-impl<N: Compose> Compose for Minfo<N> {
-    fn compose_len(&self) -> usize {
-        self.rmailbx.compose_len() + self.emailbx.compose_len()
+impl<N: ToDname> Compose for Minfo<N> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        target.append_compressed_dname(&self.rmailbx);
+        target.append_compressed_dname(&self.emailbx);
     }
 
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.rmailbx.compose(buf);
-        self.emailbx.compose(buf);
-    }
-
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
-        self.rmailbx.compose_canonical(buf);
-        self.emailbx.compose_canonical(buf);
-    }
-}
-
-impl<N: Compress> Compress for Minfo<N> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        self.rmailbx.compress(buf)?;
-        self.emailbx.compress(buf)
+    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.rmailbx.compose_canonical(target);
+        self.emailbx.compose_canonical(target);
     }
 }
 
@@ -718,7 +771,7 @@ dname_type! {
 ///
 /// The Mx record type is defined in RFC 1035, section 3.3.9.
 #[derive(Clone, Debug, Hash)]
-pub struct Mx<N=ParsedDname> {
+pub struct Mx<N> {
     preference: u16,
     exchange: N,
 }
@@ -746,34 +799,37 @@ impl<N> Mx<N> {
 
 //--- PartialEq and Eq
 
-impl<N: PartialEq<NN>, NN> PartialEq<Mx<NN>> for Mx<N> {
+impl<N, NN> PartialEq<Mx<NN>> for Mx<N>
+where N: ToDname, NN: ToDname {
     fn eq(&self, other: &Mx<NN>) -> bool {
-        self.preference == other.preference && self.exchange == other.exchange
+        self.preference == other.preference
+        && self.exchange.name_eq(&other.exchange)
     }
 }
 
-impl<N: Eq> Eq for Mx<N> { }
+impl<N: ToDname> Eq for Mx<N> { }
 
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
-impl<N: PartialOrd<NN>, NN> PartialOrd<Mx<NN>> for Mx<N> {
+impl<N, NN> PartialOrd<Mx<NN>> for Mx<N>
+where N: ToDname, NN: ToDname {
     fn partial_cmp(&self, other: &Mx<NN>) -> Option<Ordering> {
         match self.preference.partial_cmp(&other.preference) {
             Some(Ordering::Equal) => { }
             other => return other
         }
-        self.exchange.partial_cmp(&other.exchange)
+        Some(self.exchange.name_cmp(&other.exchange))
     }
 }
 
-impl<N: Ord> Ord for Mx<N> {
+impl<N: ToDname> Ord for Mx<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.preference.cmp(&other.preference) {
             Ordering::Equal => { }
             other => return other
         }
-        self.exchange.cmp(&other.exchange)
+        self.exchange.name_cmp(&other.exchange)
     }
 }
 
@@ -790,25 +846,28 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Mx<NN>> for Mx<N> {
 
 //--- Parse, ParseAll, Compose, Compress
 
-impl<N: Parse> Parse for Mx<N>
+impl<Octets: AsRef<[u8]>, N: Parse<Octets>> Parse<Octets> for Mx<N>
      where N::Err: From<ShortBuf> {
     type Err = N::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
         Ok(Self::new(u16::parse(parser)?, N::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
         u16::skip(parser)?;
         N::skip(parser)
     }
 }
 
-impl<N: ParseAll> ParseAll for Mx<N>
-     where N::Err: From<ParseOpenError> + From<ShortBuf> {
+impl<Octets: AsRef<[u8]>, N: ParseAll<Octets>> ParseAll<Octets> for Mx<N>
+where N::Err: From<ParseOpenError> + From<ShortBuf> {
     type Err = N::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 3 {
             return Err(ParseOpenError::ShortField.into())
         }
@@ -816,26 +875,15 @@ impl<N: ParseAll> ParseAll for Mx<N>
     }
 }
 
-impl<N: Compose> Compose for Mx<N> {
-    fn compose_len(&self) -> usize {
-        self.exchange.compose_len() + 2
+impl<N: ToDname> Compose for Mx<N> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.preference.compose(target);
+        target.append_compressed_dname(&self.exchange);
     }
 
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.preference.compose(buf);
-        self.exchange.compose(buf);
-    }
-
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
-        self.preference.compose(buf);
-        self.exchange.compose_canonical(buf);
-    }
-}
-
-impl<N: Compress> Compress for Mx<N> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(&self.preference)?;
-        self.exchange.compress(buf)
+    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.preference.compose(target);
+        self.exchange.compose_canonical(target);
     }
 }
 
@@ -883,80 +931,118 @@ dname_type! {
 /// allowed in master files.
 ///
 /// The Null record type is defined in RFC 1035, section 3.3.10.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Null {
-    data: Bytes,
+#[derive(Clone)]
+pub struct Null<Octets> {
+    data: Octets,
 }
 
-impl Null {
+impl<Octets> Null<Octets> {
     /// Creates new, empty owned Null record data.
-    pub fn new(data: Bytes) -> Self {
+    pub fn new(data: Octets) -> Self {
         Null { data }
     }
 
     /// The raw content of the record.
-    pub fn data(&self) -> &Bytes {
+    pub fn data(&self) -> &Octets {
         &self.data
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Null<Octets> {
+    pub fn len(&self) -> usize {
+        self.data.as_ref().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.as_ref().is_empty()
     }
 }
 
 
 //--- From
 
-impl From<Bytes> for Null {
-    fn from(data: Bytes) -> Self {
+impl<Octets> From<Octets> for Null<Octets> {
+    fn from(data: Octets) -> Self {
         Self::new(data)
     }
 }
 
 
-//--- CanonicalOrd
+//--- PartialEq and Eq
 
-impl CanonicalOrd for Null {
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
-        self.cmp(other)
+impl<Octets, Other> PartialEq<Null<Other>> for Null<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn eq(&self, other: &Null<Other>) -> bool {
+        self.data.as_ref().eq(other.data.as_ref())
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for Null<Octets> { }
+
+
+//--- PartialOrd, CanonicalOrd, and Ord
+
+impl<Octets, Other> PartialOrd<Null<Other>> for Null<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn partial_cmp(&self, other: &Null<Other>) -> Option<Ordering> {
+        self.data.as_ref().partial_cmp(other.data.as_ref())
+    }
+}
+
+impl<Octets, Other> CanonicalOrd<Null<Other>> for Null<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn canonical_cmp(&self, other: &Null<Other>) -> Ordering {
+        self.data.as_ref().cmp(other.data.as_ref())
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Ord for Null<Octets> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.data.as_ref().cmp(other.data.as_ref())
     }
 }
 
 
-//--- ParseAll, Compose, and Compress
+//--- Hash
 
-impl ParseAll for Null {
+impl<Octets: AsRef<[u8]>> hash::Hash for Null<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.data.as_ref().hash(state)
+    }
+}
+
+
+//--- ParseAll and Compose
+
+impl<Octets: ParseSource> ParseAll<Octets> for Null<Octets> {
     type Err = ShortBuf;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        parser.parse_bytes(len).map(Self::new)
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
+        parser.parse_octets(len).map(Self::new)
     }
 }
 
-impl Compose for Null {
-    fn compose_len(&self) -> usize {
-        self.data.len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(self.data.as_ref())
-    }
-}
-
-impl Compress for Null {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+impl<Octets: AsRef<[u8]>> Compose for Null<Octets> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        target.append_slice(self.data.as_ref())
     }
 }
 
 
 //--- RtypeRecordData
 
-impl RtypeRecordData for Null {
+impl<Octets> RtypeRecordData for Null<Octets> {
     const RTYPE: Rtype = Rtype::Null;
 }
 
 
 //--- Deref
 
-impl ops::Deref for Null {
-    type Target = Bytes;
+impl<Octets> ops::Deref for Null<Octets> {
+    type Target = Octets;
 
     fn deref(&self) -> &Self::Target {
         &self.data
@@ -966,28 +1052,30 @@ impl ops::Deref for Null {
 
 //--- AsRef
 
-impl AsRef<Bytes> for Null {
-    fn as_ref(&self) -> &Bytes {
-        &self.data
-    }
-}
-
-impl AsRef<[u8]> for Null {
-    fn as_ref(&self) -> &[u8] {
+impl<Octets: AsRef<Other>, Other> AsRef<Other> for Null<Octets> {
+    fn as_ref(&self) -> &Other {
         self.data.as_ref()
     }
 }
 
 
-//--- Display
+//--- Display and Debug
 
-impl fmt::Display for Null {
+impl<Octets: AsRef<[u8]>> fmt::Display for Null<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "\\# {}", self.data().len())?;
-        for ch in self.data().iter() {
+        write!(f, "\\# {}", self.data.as_ref().len())?;
+        for ch in self.data.as_ref().iter() {
             write!(f, " {:02x}", ch)?;
         }
         Ok(())
+    }
+}
+
+impl<Octets: AsRef<[u8]>> fmt::Debug for Null<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("Null(")?;
+        fmt::Display::fmt(self, f)?;
+        f.write_str(")")
     }
 }
 
@@ -1020,7 +1108,7 @@ impl<N> Ptr<N> {
 ///
 /// The Soa record type is defined in RFC 1035, section 3.3.13.
 #[derive(Clone, Debug, Hash)]
-pub struct Soa<N=ParsedDname> {
+pub struct Soa<N> {
     mname: N,
     rname: N,
     serial: Serial,
@@ -1076,29 +1164,32 @@ impl<N> Soa<N> {
 
 //--- PartialEq and Eq
 
-impl<N: PartialEq<NN>, NN> PartialEq<Soa<NN>> for Soa<N> {
+impl<N, NN> PartialEq<Soa<NN>> for Soa<N>
+where N: ToDname, NN: ToDname {
     fn eq(&self, other: &Soa<NN>) -> bool {
-        self.mname == other.mname && self.rname == other.rname
+        self.mname.name_eq(&other.mname)
+        && self.rname.name_eq(&other.rname)
         && self.serial == other.serial && self.refresh == other.refresh
         && self.retry == other.retry && self.expire == other.expire
         && self.minimum == other.minimum
     }
 }
 
-impl<N: Eq> Eq for Soa<N> { }
+impl<N: ToDname> Eq for Soa<N> { }
 
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
-impl<N: PartialOrd<NN>, NN> PartialOrd<Soa<NN>> for Soa<N> {
+impl<N, NN> PartialOrd<Soa<NN>> for Soa<N>
+where N: ToDname, NN: ToDname {
     fn partial_cmp(&self, other: &Soa<NN>) -> Option<Ordering> {
-        match self.mname.partial_cmp(&other.mname) {
-            Some(Ordering::Equal) => { }
-            other => return other
+        match self.mname.name_cmp(&other.mname) {
+            Ordering::Equal => { }
+            other => return Some(other)
         }
-        match self.rname.partial_cmp(&other.rname) {
-            Some(Ordering::Equal) => { }
-            other => return other
+        match self.rname.name_cmp(&other.rname) {
+            Ordering::Equal => { }
+            other => return Some(other)
         }
         match u32::from(self.serial).partial_cmp(&u32::from(other.serial)) {
             Some(Ordering::Equal) => { }
@@ -1120,13 +1211,13 @@ impl<N: PartialOrd<NN>, NN> PartialOrd<Soa<NN>> for Soa<N> {
     }
 }
 
-impl<N: Ord> Ord for Soa<N> {
+impl<N: ToDname> Ord for Soa<N> {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.mname.cmp(&other.mname) {
+        match self.mname.name_cmp(&other.mname) {
             Ordering::Equal => { }
             other => return other
         }
-        match self.rname.cmp(&other.rname) {
+        match self.rname.name_cmp(&other.rname) {
             Ordering::Equal => { }
             other => return other
         }
@@ -1181,19 +1272,28 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
 }
 
 
-//--- Parse, ParseAll, Compose, and Compress
+//--- Parse, ParseAll, and Compose
 
-impl<N: Parse> Parse for Soa<N> where N::Err: From<ShortBuf> {
+impl<Octets, N> Parse<Octets> for Soa<N>
+where
+    Octets: AsRef<[u8]>, N: Parse<Octets>,
+    N::Err: From<ShortBuf>
+{
     type Err = N::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
-        Ok(Self::new(N::parse(parser)?, N::parse(parser)?,
-                     Serial::parse(parser)?, u32::parse(parser)?,
-                     u32::parse(parser)?, u32::parse(parser)?,
-                     u32::parse(parser)?))
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+        Ok(Self::new(
+            N::parse(parser)?,
+            N::parse(parser)?,
+            Serial::parse(parser)?,
+            u32::parse(parser)?,
+            u32::parse(parser)?,
+            u32::parse(parser)?,
+            u32::parse(parser)?
+        ))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
         N::skip(parser)?;
         N::skip(parser)?;
         Serial::skip(parser)?;
@@ -1205,15 +1305,22 @@ impl<N: Parse> Parse for Soa<N> where N::Err: From<ShortBuf> {
     }
 }
 
-impl<N: ParseAll + Parse> ParseAll for Soa<N>
-        where <N as ParseAll>::Err: From<<N as Parse>::Err>,
-              <N as ParseAll>::Err: From<ParseAllError>,
-              <N as Parse>::Err: From<ShortBuf> {
-    type Err = <N as ParseAll>::Err;
+impl<Octets, N> ParseAll<Octets> for Soa<N>
+where
+    Octets: AsRef<[u8]> + Clone,
+    N: ParseAll<Octets> + Parse<Octets>,
+    <N as ParseAll<Octets>>::Err: From<<N as Parse<Octets>>::Err>,
+    <N as ParseAll<Octets>>::Err: From<ParseAllError>,
+    <N as Parse<Octets>>::Err: From<ShortBuf>
+{
+    type Err = <N as ParseAll<Octets>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         let mut tmp = parser.clone();
-        let res = <Self as Parse>::parse(&mut tmp)?;
+        let res = <Self as Parse<Octets>>::parse(&mut tmp)?;
         if tmp.pos() - parser.pos() < len {
             Err(ParseAllError::TrailingData.into())
         }
@@ -1227,14 +1334,10 @@ impl<N: ParseAll + Parse> ParseAll for Soa<N>
     }
 }
 
-impl<N: Compose> Compose for Soa<N> {
-    fn compose_len(&self) -> usize {
-        self.mname.compose_len() + self.rname.compose_len() + (5 * 4)
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.mname.compose(buf);
-        self.rname.compose(buf);
+impl<N: ToDname> Compose for Soa<N> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
+        buf.append_compressed_dname(&self.mname);
+        buf.append_compressed_dname(&self.rname);
         self.serial.compose(buf);
         self.refresh.compose(buf);
         self.retry.compose(buf);
@@ -1242,7 +1345,7 @@ impl<N: Compose> Compose for Soa<N> {
         self.minimum.compose(buf);
     }
 
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
+    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
         self.mname.compose_canonical(buf);
         self.rname.compose_canonical(buf);
         self.serial.compose(buf);
@@ -1250,18 +1353,6 @@ impl<N: Compose> Compose for Soa<N> {
         self.retry.compose(buf);
         self.expire.compose(buf);
         self.minimum.compose(buf);
-    }
-}
-
-impl<N: Compress> Compress for Soa<N> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        self.mname.compress(buf)?;
-        self.rname.compress(buf)?;
-        buf.compose(&self.serial)?;
-        buf.compose(&self.refresh)?;
-        buf.compose(&self.retry)?;
-        buf.compose(&self.expire)?;
-        buf.compose(&self.minimum)
     }
 }
 
@@ -1301,23 +1392,42 @@ impl<N> RtypeRecordData for Soa<N> {
 /// Txt records hold descriptive text.
 ///
 /// The Txt record type is defined in RFC 1035, section 3.3.14.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Txt {
-    text: Bytes,
+#[derive(Clone)]
+pub struct Txt<Octets>(Octets);
+
+impl<Octets: FromBuilder> Txt<Octets> {
+    /// Creates a new Txt record from a single character string.
+    pub fn from_slice(text: &[u8]) -> Result<Self, PushError> {
+        let mut builder = TxtBuilder::<Octets::Builder>::new();
+        builder.append_slice(text)?;
+        Ok(builder.finish())
+    }
 }
 
-impl Txt {
-    /// Creates a new Txt record from a single character string.
-    pub fn new(text: CharStr) -> Self {
-        Txt { text: text.into_bytes() }
-    }
-
+impl<Octets: AsRef<[u8]>> Txt<Octets> {
     /// Returns an iterator over the text items.
     ///
     /// The Txt format contains one or more length-delimited byte strings.
     /// This method returns an iterator over each of them.
     pub fn iter(&self) -> TxtIter {
-        TxtIter::new(self.text.clone())
+        TxtIter(Parser::from_octets(self.0.as_ref()))
+    }
+
+    pub fn as_flat_slice(&self) -> Option<&[u8]> {
+        if self.0.as_ref()[0] as usize == self.0.as_ref().len() - 1 {
+            Some(&self.0.as_ref()[1..])
+        }
+        else {
+            None
+        }
+    }
+    
+    pub fn len(&self) -> usize {
+        self.0.as_ref().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        false
     }
 
     /// Returns the text content.
@@ -1328,122 +1438,151 @@ impl Txt {
     /// newly allocated bytes value.
     ///
     /// Access to the individual character strings is possible via iteration.
-    pub fn text(&self) -> Bytes {
-        if self.text[0] as usize == self.text.len() + 1 {
-            self.text.slice_from(1)
+    pub fn text<T: FromBuilder>(&self) -> T {
+        // Capacity will be a few bytes too much. Probably better than
+        // re-allocating.
+        let mut res = T::Builder::with_capacity(self.len());
+        for item in self.iter() {
+            res.append_slice(item);
         }
-        else {
-            // Capacity will be a few bytes too much. Probably better than
-            // re-allocating.
-            let mut res = BytesMut::with_capacity(self.text.len());
-            for item in self.iter() {
-                res.put_slice(item.as_ref());
-            }
-            res.freeze()
-        }
+        res.finish()
     }
 }
 
 
 //--- IntoIterator
 
-impl IntoIterator for Txt {
-    type Item = CharStr;
-    type IntoIter = TxtIter;
+impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a Txt<Octets> {
+    type Item = &'a [u8];
+    type IntoIter = TxtIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a> IntoIterator for &'a Txt {
-    type Item = CharStr;
-    type IntoIter = TxtIter;
+//--- PartialEq and Eq
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+impl<Octets, Other> PartialEq<Txt<Other>> for Txt<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn eq(&self, other: &Txt<Other>) -> bool {
+        self.iter().flat_map(|s| s.iter().copied()).eq(
+            other.iter().flat_map(|s| s.iter().copied())
+        )
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for Txt<Octets> { }
+
+
+//--- PartialOrd, CanonicalOrd, and Ord
+
+impl<Octets, Other> PartialOrd<Txt<Other>> for Txt<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn partial_cmp(&self, other: &Txt<Other>) -> Option<Ordering> {
+        self.iter().flat_map(|s| s.iter().copied()).partial_cmp(
+            other.iter().flat_map(|s| s.iter().copied())
+        )
+    }
+}
+
+impl<Octets, Other> CanonicalOrd<Txt<Other>> for Txt<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn canonical_cmp(&self, other: &Txt<Other>) -> Ordering {
+        self.iter().flat_map(|s| s.iter().copied()).cmp(
+            other.iter().flat_map(|s| s.iter().copied())
+        )
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Ord for Txt<Octets> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.iter().flat_map(|s| s.iter().copied()).cmp(
+            other.iter().flat_map(|s| s.iter().copied())
+        )
     }
 }
 
 
-//--- CanonicalOrd
+//--- Hash
 
-impl CanonicalOrd for Txt {
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
-        self.cmp(other)
+impl<Octets: AsRef<[u8]>> hash::Hash for Txt<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.iter().flat_map(|s| s.iter().copied())
+            .for_each(|c| c.hash(state))
     }
 }
 
 
-//--- ParseAll, Compose, and Compress
+//--- ParseAll and Compose
 
-impl ParseAll for Txt {
+impl<Octets: ParseSource> ParseAll<Octets> for Txt<Octets> {
     type Err = ParseOpenError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        let text = parser.parse_bytes(len)?;
-        let mut tmp = Parser::from_bytes(text.clone());
-        while tmp.remaining() > 0 {
-            CharStr::skip(&mut tmp).map_err(|_| ParseOpenError::ShortField)?
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
+        let text = parser.parse_octets(len)?;
+        let mut tmp = Parser::from_octets(text.clone());
+        while parser.remaining() != 0 {
+            CharStr::skip(&mut tmp)?
         }
-        Ok(Txt { text })
+        Ok(Txt(tmp.into_octets()))
     }
 }
 
-impl Compose for Txt {
-    fn compose_len(&self) -> usize {
-        self.text.len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(self.text.as_ref())
-    }
-}
-
-impl Compress for Txt {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        target.append_slice(self.0.as_ref())
     }
 }
 
 
 //--- Scan and Display
 
-impl Scan for Txt {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
-        let first = CharStr::scan(scanner)?;
-        let second = match CharStr::scan(scanner) {
-            Err(_) => return Ok(Txt::new(first)),
-            Ok(second) => second,
-        };
-        let mut text = first.into_bytes();
-        text.extend_from_slice(second.as_ref());
-        while let Ok(some) = CharStr::scan(scanner) {
-            text.extend_from_slice(some.as_ref());
-        }
-        Ok(Txt { text })
+impl Scan for Txt<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>
+    ) -> Result<Self, ScanError> {
+        scanner.scan_byte_phrase(|res| {
+            let mut builder = TxtBuilder::new_bytes();
+            if builder.append_slice(res.as_ref()).is_err() {
+                Err(SyntaxError::LongCharStr)
+            }
+            else {
+                Ok(builder.finish())
+            }
+        })
     }
 }
 
-impl fmt::Display for Txt {
+impl<Octets: AsRef<[u8]>> fmt::Display for Txt<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut items = self.iter();
-        match items.next() {
-            Some(item) => item.fmt(f)?,
-            None => return Ok(())
-        }
-        for item in items {
-            write!(f, " {}", item)?;
+        for slice in self.iter() {
+            for ch in slice.iter() {
+                fmt::Display::fmt(&Symbol::from_byte(*ch), f)?
+            }
         }
         Ok(())
     }
 }
 
 
-//--- RecordData
+//--- Debug
 
-impl RtypeRecordData for Txt {
+impl<Octets: AsRef<[u8]>> fmt::Debug for Txt<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("Txt(")?;
+        fmt::Display::fmt(self, f)?;
+        f.write_str(")")
+    }
+}
+
+
+//--- RtypeRecordData
+
+impl<Octets> RtypeRecordData for Txt<Octets> {
     const RTYPE: Rtype = Rtype::Txt;
 }
 
@@ -1451,27 +1590,92 @@ impl RtypeRecordData for Txt {
 //------------ TxtIter -------------------------------------------------------
 
 /// An iterator over the character strings of a Txt record.
-#[derive(Clone, Debug)]
-pub struct TxtIter {
-    parser: Parser,
-}
+#[derive(Clone)]
+pub struct TxtIter<'a>(Parser<&'a [u8]>);
 
-impl TxtIter {
-    fn new(text: Bytes)-> Self {
-        TxtIter { parser: Parser::from_bytes(text) }
-    }
-}
-
-impl Iterator for TxtIter {
-    type Item = CharStr;
+impl<'a> Iterator for TxtIter<'a> {
+    type Item = &'a [u8];
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.parser.remaining() == 0 {
+        if self.0.remaining() == 0 {
             None
         }
         else {
-            Some(CharStr::parse(&mut self.parser).unwrap())
+            Some(unwrap!(CharStr::parse(&mut self.0)).into_octets())
         }
+    }
+}
+
+
+//------------ TxtBuilder ---------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct TxtBuilder<Builder> {
+    builder: Builder,
+
+    /// The index of the start of the current char string.
+    ///
+    /// If this is `None`, there currently is no char string being worked on.
+    start: Option<usize>,
+}
+
+impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
+    pub fn new() -> Self {
+        TxtBuilder {
+            builder: Builder::empty(),
+            start: None
+        }
+    }
+}
+
+impl TxtBuilder<BytesMut> {
+    pub fn new_bytes() -> Self {
+        Self::new()
+    }
+}
+
+impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
+    pub fn append_slice(&mut self, mut slice: &[u8]) -> Result<(), PushError> {
+        if let Some(start) = self.start {
+            let left = 255 - (self.builder.len() - (start + 1));
+            if slice.len() < left {
+                self.builder.append_slice(slice);
+                return Ok(())
+            }
+            let (append, left) = slice.split_at(left);
+            self.builder.append_slice(append);
+            self.builder.as_mut()[start] = 255;
+            slice = left;
+        }
+        for chunk in slice.chunks(255) {
+            if self.builder.len() >= 0xFFFF {
+                return Err(PushError);
+            }
+            self.start = if chunk.len() == 255 {
+                None
+            }
+            else {
+                Some(self.builder.len())
+            };
+            self.builder.append_slice(&[chunk.len() as u8]);
+            self.builder.append_slice(chunk);
+        }
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Txt<Builder::Octets> {
+        if let Some(start) = self.start {
+            self.builder.as_mut()[start] = 
+                (255 - (self.builder.len() - (start + 1))) as u8;
+        }
+        Txt(self.builder.finish())
+    }
+}
+
+
+impl<Builder: OctetsBuilder> Default for TxtBuilder<Builder> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1484,17 +1688,16 @@ impl Iterator for TxtIter {
 /// protocol on a particular internet address.
 ///
 /// The Wks record type is defined in RFC 1035, section 3.4.2.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Wks {
+#[derive(Clone)]
+pub struct Wks<Octets> {
     address: Ipv4Addr,
     protocol: u8,
-    bitmap: Bytes,
+    bitmap: Octets,
 }
 
-
-impl Wks {
+impl<Octets> Wks<Octets> {
     /// Creates a new record data from components.
-    pub fn new(address: Ipv4Addr, protocol: u8, bitmap: Bytes) -> Self {
+    pub fn new(address: Ipv4Addr, protocol: u8, bitmap: Octets) -> Self {
         Wks { address, protocol, bitmap }
     }
 
@@ -1511,15 +1714,17 @@ impl Wks {
     }
 
     /// A bitmap indicating the ports where service is being provided.
-    pub fn bitmap(&self) -> &Bytes {
+    pub fn bitmap(&self) -> &Octets {
         &self.bitmap
     }
+}
 
+impl<Octets: AsRef<[u8]>> Wks<Octets> {
     /// Returns whether a certain service is being provided.
     pub fn serves(&self, port: u16) -> bool {
         let octet = (port / 8) as usize;
         let bit = (port % 8) as usize;
-        match self.bitmap.get(octet) {
+        match self.bitmap.as_ref().get(octet) {
             Some(x) => (x >> bit) > 0,
             None => false
         }
@@ -1527,15 +1732,45 @@ impl Wks {
 
     /// Returns an iterator over the served ports.
     pub fn iter(&self) -> WksIter {
-        WksIter::new(self.bitmap.clone())
+        WksIter::new(self.bitmap.as_ref())
     }
 }
 
 
-//--- CanonicalOrd
+//--- PartialEq and Eq
 
-impl CanonicalOrd for Wks {
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
+impl<Octets, Other> PartialEq<Wks<Other>> for Wks<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn eq(&self, other: &Wks<Other>) -> bool {
+        self.address == other.address
+        && self.protocol == other.protocol
+        && self.bitmap.as_ref() == other.bitmap.as_ref()
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for Wks<Octets> { }
+
+
+//--- PartialOrd, CanonicalOrd, and Ord
+
+impl<Octets, Other> PartialOrd<Wks<Other>> for Wks<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn partial_cmp(&self, other: &Wks<Other>) -> Option<Ordering> {
+        match self.address.octets().partial_cmp(&other.address.octets()) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.protocol.partial_cmp(&other.protocol) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.bitmap.as_ref().partial_cmp(other.bitmap.as_ref())
+    }
+}
+
+impl<Octets, Other> CanonicalOrd<Wks<Other>> for Wks<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn canonical_cmp(&self, other: &Wks<Other>) -> Ordering {
         match self.address.octets().cmp(&other.address.octets()) {
             Ordering::Equal => { }
             other => return other
@@ -1544,54 +1779,76 @@ impl CanonicalOrd for Wks {
             Ordering::Equal => { }
             other => return other
         }
-        self.bitmap.cmp(&other.bitmap)
+        self.bitmap.as_ref().cmp(other.bitmap.as_ref())
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Ord for Wks<Octets> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.address.octets().cmp(&other.address.octets()) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.protocol.cmp(&other.protocol) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.bitmap.as_ref().cmp(other.bitmap.as_ref())
+    }
+}
+
+
+//--- Hash
+
+impl<Octets: AsRef<[u8]>> hash::Hash for Wks<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.address.hash(state);
+        self.protocol.hash(state);
+        self.bitmap.as_ref().hash(state);
     }
 }
 
 
 //--- ParseAll, Compose, Compress
 
-impl ParseAll for Wks {
+impl<Octets: ParseSource> ParseAll<Octets> for Wks<Octets> {
     type Err = ParseOpenError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 5 {
             return Err(ParseOpenError::ShortField)
         }
-        Ok(Self::new(Ipv4Addr::parse(parser)?, u8::parse(parser)?,
-                     parser.parse_bytes(len - 5)?))
+        Ok(Self::new(
+            Ipv4Addr::parse(parser)?,
+            u8::parse(parser)?,
+            parser.parse_octets(len - 5)?
+        ))
     }
 }
 
-impl Compose for Wks {
-    fn compose_len(&self) -> usize {
-        self.bitmap.len() + 5
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.address.compose(buf);
-        self.protocol.compose(buf);
-        self.bitmap.compose(buf);
-    }
-}
-
-impl Compress for Wks {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+impl<Octets: AsRef<[u8]>> Compose for Wks<Octets> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.address.compose(target);
+        self.protocol.compose(target);
+        target.append_slice(self.bitmap.as_ref());
     }
 }
 
 
 //--- Scan and Display
 
-impl Scan for Wks {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+impl Scan for Wks<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>
+    ) -> Result<Self, ScanError> {
         let address = scanner.scan_string_phrase(|res| {
             Ipv4Addr::from_str(&res).map_err(Into::into)
         })?;
         let protocol = u8::scan(scanner)?;
-        let mut builder = WksBuilder::new(address, protocol);
+        let mut builder = WksBuilder::new_bytes(address, protocol);
         while let Ok(service) = u16::scan(scanner) {
             builder.add_service(service)
         }
@@ -1599,7 +1856,7 @@ impl Scan for Wks {
     }
 }
 
-impl fmt::Display for Wks {
+impl<Octets: AsRef<[u8]>> fmt::Display for Wks<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.address, self.protocol)?;
         for service in self.iter() {
@@ -1610,9 +1867,20 @@ impl fmt::Display for Wks {
 }
 
 
+//--- Debug
+
+impl<Octets: AsRef<[u8]>> fmt::Debug for Wks<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("Wks(")?;
+        fmt::Display::fmt(self, f)?;
+        f.write_str(")")
+    }
+}
+
+
 //--- RecordData
 
-impl RtypeRecordData for Wks {
+impl<Octets> RtypeRecordData for Wks<Octets> {
     const RTYPE: Rtype = Rtype::Wks;
 }
 
@@ -1623,14 +1891,14 @@ impl RtypeRecordData for Wks {
 ///
 /// This iterates over the port numbers in growing order.
 #[derive(Clone, Debug)]
-pub struct WksIter {
-    bitmap: Bytes,
+pub struct WksIter<'a> {
+    bitmap: &'a [u8],
     octet: usize,
     bit: usize
 }
 
-impl WksIter {
-    fn new(bitmap: Bytes) -> Self {
+impl<'a> WksIter<'a> {
+    fn new(bitmap: &'a [u8]) -> Self {
         WksIter { bitmap, octet: 0, bit: 0 }
     }
 
@@ -1639,7 +1907,7 @@ impl WksIter {
     }
 }
 
-impl Iterator for WksIter {
+impl<'a> Iterator for WksIter<'a> {
     type Item = u16;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1660,28 +1928,36 @@ impl Iterator for WksIter {
 //------------ WksBuilder ----------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct WksBuilder {
+pub struct WksBuilder<Builder> {
     address: Ipv4Addr,
     protocol: u8,
-    bitmap: BytesMut,
+    bitmap: Builder,
 }
 
-impl WksBuilder {
+impl<Builder: OctetsBuilder> WksBuilder<Builder> {
     pub fn new(address: Ipv4Addr, protocol: u8) -> Self {
-        WksBuilder { address, protocol, bitmap: BytesMut::new() }
+        WksBuilder { address, protocol, bitmap: Builder::empty() }
     }
+}
 
+impl WksBuilder<BytesMut> {
+    pub fn new_bytes(address: Ipv4Addr, protocol: u8) -> Self {
+        Self::new(address, protocol)
+    }
+}
+
+impl<Builder: OctetsBuilder> WksBuilder<Builder> {
     pub fn add_service(&mut self, service: u16) {
         let octet = (service >> 2) as usize;
         let bit = 1 << (service & 0x3);
         while self.bitmap.len() < octet + 1 {
-            self.bitmap.extend_from_slice(b"0")
+            self.bitmap.append_slice(b"0")
         }
-        self.bitmap[octet] |= bit;
+        self.bitmap.as_mut()[octet] |= bit;
     }
 
-    pub fn finish(self) -> Wks {
-        Wks::new(self.address, self.protocol, self.bitmap.freeze())
+    pub fn finish(self) -> Wks<Builder::Octets> {
+        Wks::new(self.address, self.protocol, self.bitmap.finish())
     }
 }
 
@@ -1692,19 +1968,19 @@ pub mod parsed {
     use crate::name::ParsedDname;
 
     pub use super::A;
-    pub type Cname = super::Cname<ParsedDname>;
+    pub type Cname<Octets> = super::Cname<ParsedDname<Octets>>;
     pub use super::Hinfo;
-    pub type Mb = super::Mb<ParsedDname>;
-    pub type Md = super::Md<ParsedDname>;
-    pub type Mf = super::Mf<ParsedDname>;
-    pub type Mg = super::Mg<ParsedDname>;
-    pub type Minfo = super::Minfo<ParsedDname>;
-    pub type Mr = super::Mr<ParsedDname>;
-    pub type Mx = super::Mx<ParsedDname>;
-    pub type Ns = super::Ns<ParsedDname>;
+    pub type Mb<Octets> = super::Mb<ParsedDname<Octets>>;
+    pub type Md<Octets> = super::Md<ParsedDname<Octets>>;
+    pub type Mf<Octets> = super::Mf<ParsedDname<Octets>>;
+    pub type Mg<Octets> = super::Mg<ParsedDname<Octets>>;
+    pub type Minfo<Octets> = super::Minfo<ParsedDname<Octets>>;
+    pub type Mr<Octets> = super::Mr<ParsedDname<Octets>>;
+    pub type Mx<Octets> = super::Mx<ParsedDname<Octets>>;
+    pub type Ns<Octets> = super::Ns<ParsedDname<Octets>>;
     pub use super::Null;
-    pub type Ptr = super::Ptr<ParsedDname>;
-    pub type Soa = super::Soa<ParsedDname>;
+    pub type Ptr<Octets> = super::Ptr<ParsedDname<Octets>>;
+    pub type Soa<Octets> = super::Soa<ParsedDname<Octets>>;
     pub use super::Txt;
     pub use super::Wks;
 }

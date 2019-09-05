@@ -16,6 +16,7 @@ name = "domain_core"
 path = "src/lib.rs"
 
 [dependencies]
+arrayvec       = { version="^0.4.11", optional=true }
 bytes          = "^0.4"
 chrono         = "^0.4"
 derive_more    = "^0.14"

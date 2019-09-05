@@ -93,9 +93,10 @@
 
 //--- Re-exports
 
-pub use self::charstr::{CharStr, CharStrMut};
+/*
+pub use self::charstr::{CharStr, CharStrBuilder};
 pub use self::cmp::CanonicalOrd;
-pub use self::compose::{Compose, Compress, Compressor};
+pub use self::oldcompose::{Compose, Compress, Compressor};
 pub use self::header::{Header, HeaderCounts, HeaderSection};
 pub use self::message::{Message, RecordSection, Section};
 pub use self::message_builder::{
@@ -104,26 +105,27 @@ pub use self::message_builder::{
 pub use self::name::{
     Dname, ParsedDname, RelativeDname, ToDname, ToRelativeDname
 };
-pub use self::parse::{Parser, Parse, ParseAll, ShortBuf};
+pub use self::oldparse::{Parser, Parse, ParseAll, ShortBuf};
 pub use self::question::Question;
 pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
 pub use self::record::{Record, RecordHeader, ParsedRecord};
 pub use self::serial::Serial;
+*/
 
 //--- Modules
 
 pub mod charstr;
-pub mod cmp;
 pub mod compose;
+pub mod cmp;
 pub mod header;
 pub mod iana;
 pub mod master;
 pub mod message;
 pub mod message_builder;
 pub mod name;
+pub mod octets;
 pub mod opt;
 pub mod parse;
-pub mod query;
 pub mod question;
 pub mod rdata;
 pub mod record;

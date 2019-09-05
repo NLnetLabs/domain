@@ -88,29 +88,32 @@ macro_rules! int_enum {
 
         //--- Parse and Compose
 
-        impl $crate::parse::Parse for $ianatype {
+        impl<T: AsRef<[u8]>> $crate::parse::Parse<T> for $ianatype {
             type Err = $crate::parse::ShortBuf;
 
-            fn parse(parser: &mut $crate::parse::Parser)
-                     -> Result<Self, Self::Err> {
-                <$inttype as $crate::parse::Parse>::parse(parser)
-                    .map(Self::from_int)
+            fn parse(
+                parser: &mut $crate::parse::Parser<T>
+            ) -> Result<Self, Self::Err> {
+                <$inttype as $crate::parse::Parse<T>>::parse(
+                    parser
+                ).map(Self::from_int)
             }
 
-            fn skip(parser: &mut $crate::parse::Parser)
-                    -> Result<(), Self::Err> {
-                <$inttype as $crate::parse::Parse>::skip(parser)
+            fn skip(
+                parser: &mut $crate::parse::Parser<T>
+            ) -> Result<(), Self::Err> {
+                <$inttype as $crate::parse::Parse<T>>::skip(parser)
             }
         }
 
         impl $crate::compose::Compose for $ianatype {
-            fn compose_len(&self) -> usize {
-                <$inttype as $crate::compose::Compose>
-                    ::compose_len(&self.to_int())
-            }
-
-            fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
-                $crate::compose::Compose::compose(&self.to_int(), buf)
+            fn compose<T: $crate::compose::ComposeTarget + ?Sized>(
+                &self,
+                target: &mut T
+            ) {
+                <$inttype as $crate::compose::Compose>::compose(
+                    &self.to_int(), target
+                )
             }
         }
 

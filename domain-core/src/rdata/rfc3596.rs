@@ -8,12 +8,11 @@ use std::{fmt, ops};
 use std::cmp::Ordering;
 use std::net::Ipv6Addr;
 use std::str::FromStr;
-use bytes::BufMut;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, Compress, Compressor};
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
 use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
-use crate::parse::{Parse, ParseAll, Parser, ShortBuf};
+use crate::parse::{Parse, ParseAll, Parser};
 use super::RtypeRecordData;
 
 
@@ -66,41 +65,34 @@ impl CanonicalOrd for Aaaa {
 }
 
 
-//--- Parse, ParseAll, Compose, and Compress
+//--- Parse, ParseAll, and Compose
 
-impl Parse for Aaaa {
-    type Err = <Ipv6Addr as Parse>::Err;
+impl<Octets: AsRef<[u8]>> Parse<Octets> for Aaaa {
+    type Err = <Ipv6Addr as Parse<Octets>>::Err;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
         Ipv6Addr::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
         Ipv6Addr::skip(parser)
     }
 }
 
-impl ParseAll for Aaaa {
-    type Err = <Ipv6Addr as ParseAll>::Err;
+impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Aaaa {
+    type Err = <Ipv6Addr as ParseAll<Octets>>::Err;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         Ipv6Addr::parse_all(parser, len).map(Self::new)
     }
 }
 
 impl Compose for Aaaa {
-    fn compose_len(&self) -> usize {
-        16
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.addr.compose(buf)
-    }
-}
-
-impl Compress for Aaaa {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.addr.compose(target)
     }
 }
 

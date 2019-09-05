@@ -19,8 +19,8 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use std::mem;
-use bytes::{BigEndian, BufMut, ByteOrder};
-use crate::compose::Compose;
+use bytes::{BigEndian, ByteOrder};
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{Opcode, Rcode};
 use crate::parse::{Parse, Parser, ShortBuf};
 
@@ -638,27 +638,23 @@ impl HeaderSection {
 
 //--- Parse and Compose
 
-impl Parse for HeaderSection {
+impl<T: AsRef<[u8]>> Parse<T> for Header {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, Self::Err> {
         let mut res = Self::default();
         parser.parse_buf(&mut res.inner)?;
         Ok(res)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), Self::Err> {
         parser.advance(12)
     }
 }
 
 impl Compose for HeaderSection {
-    fn compose_len(&self) -> usize {
-        12
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(&self.inner)
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        target.append_slice(&self.inner)
     }
 }
 
@@ -802,3 +798,4 @@ mod test {
         c.inc_arcount()
     }
 }
+

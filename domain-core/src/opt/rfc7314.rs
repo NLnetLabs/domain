@@ -1,10 +1,9 @@
 //! EDNS Options from RFC 7314
 
-use bytes::BufMut;
-use crate::compose::Compose;
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-use crate::message_builder::OptBuilder;
-use crate::parse::{ParseAll, Parser, ParseAllError, ShortBuf};
+// XXX use crate::message_builder::OptBuilder;
+use crate::parse::{ParseAll, Parser, ParseAllError};
 use super::CodeOptData;
 
 
@@ -14,15 +13,16 @@ use super::CodeOptData;
 pub struct Expire(Option<u32>);
 
 impl Expire {
-
     pub fn new(expire: Option<u32>) -> Self {
         Expire(expire)
     }
 
+    /* XXX
     pub fn push(builder: &mut OptBuilder, expire: Option<u32>)
                 -> Result<(), ShortBuf> {
         builder.push(&Self::new(expire))
     }
+    */
 
     pub fn expire(self) -> Option<u32> {
         self.0
@@ -32,10 +32,13 @@ impl Expire {
 
 //--- ParseAll and Compose
 
-impl ParseAll for Expire {
+impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Expire {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len == 0 {
             Ok(Expire::new(None))
         }
@@ -46,16 +49,9 @@ impl ParseAll for Expire {
 }
 
 impl Compose for Expire {
-    fn compose_len(&self) -> usize {
-        match self.0 {
-            Some(_) => 4,
-            None => 0,
-        }
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
         if let Some(value) = self.0 {
-            value.compose(buf)
+            value.compose(target)
         }
     }
 }

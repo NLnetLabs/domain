@@ -3,11 +3,10 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
-use std::{cmp, error, fmt, hash, ops};
-use bytes::BufMut;
+use std::{borrow, cmp, error, fmt, hash, ops};
 use derive_more::Display;
-use crate::compose::{BufMutExt, Compose};
-use crate::parse::ShortBuf;
+use crate::compose::{Compose, ComposeTarget};
+use crate::octets::OctetsBuilder;
 
 
 //------------ Label ---------------------------------------------------------
@@ -115,6 +114,20 @@ impl Label {
             &slice[end..]))
     }
 
+    /// Iterates over the labels in a message slice.
+    ///
+    /// The first label is assumed to start at index `start`.
+    ///
+    /// Stops at the root label, the first broken label, or if a compression
+    /// pointer is found that is pointing forward.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `start` is beyond the end of `slice`.
+    pub fn iter_slice(slice: &[u8], start: usize) -> SliceLabelsIter {
+        SliceLabelsIter { slice, start }
+    }
+
     /// Returns a reference to the underlying byte slice.
     pub fn as_slice(&self) -> &[u8] {
         self.as_ref()
@@ -151,6 +164,20 @@ impl Label {
         }
         self.cmp(other)
     }
+
+    pub fn build<Builder: OctetsBuilder>(&self, target: &mut Builder) {
+        target.append_slice(&[self.len() as u8]);
+        target.append_slice(self.as_slice());
+    }
+
+    pub fn build_lowercase<Builder: OctetsBuilder>(
+        &self, target: &mut Builder
+    ) {
+        target.append_slice(&[self.len() as u8]);
+        for &ch in self.into_iter() {
+            target.append_slice(&[ch.to_ascii_lowercase()])
+        }
+    }
 }
 
 /// # Properties
@@ -165,24 +192,27 @@ impl Label {
     pub fn is_wildcard(&self) -> bool {
         self.0.len() == 1 && self.0[0] == b'*'
     }
+
+    /// Returns the length of the composed version of the label.
+    pub fn compose_len(&self) -> usize {
+        self.len() + 1
+    }
 }
 
 
 //--- Compose
 
 impl Compose for Label {
-    fn compose_len(&self) -> usize {
-        self.len() + 1
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        (self.len() as u8).compose(target);
+        target.append_slice(self.as_ref())
     }
 
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_u8(self.len() as u8);
-        buf.put_slice(self.as_ref());
-    }
-    
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
-        buf.put_u8(self.len() as u8);
-        buf.put_slice_ascii_lowercase(self.as_ref());
+    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        (self.len() as u8).compose(target);
+        for &ch in self.into_iter() {
+            ch.to_ascii_lowercase().compose(target);
+        }
     }
 }
 
@@ -212,6 +242,17 @@ impl AsRef<[u8]> for Label {
 impl AsMut<[u8]> for Label {
     fn as_mut(&mut self) -> &mut [u8] {
         unsafe { &mut *(self as *mut Label as *mut [u8]) }
+    }
+}
+
+
+//--- ToOwned
+
+impl borrow::ToOwned for Label {
+    type Owned = OwnedLabel;
+    
+    fn to_owned(&self) -> Self::Owned {
+        self.into()
     }
 }
 
@@ -358,7 +399,16 @@ impl OwnedLabel {
 }
 
 
-//--- Deref, DerefMut, AsRef, and AsMut
+//--- From
+
+impl<'a> From<&'a Label> for OwnedLabel {
+    fn from(label: &'a Label) -> Self {
+        Self::from_label(label)
+    }
+}
+
+
+//--- Deref, DerefMut, AsRef, AsMut, Borrow, and BorrowMut
 
 impl ops::Deref for OwnedLabel {
     type Target = Label;
@@ -395,6 +445,104 @@ impl AsMut<Label> for OwnedLabel {
 impl AsMut<[u8]> for OwnedLabel {
     fn as_mut(&mut self) -> &mut [u8] {
         self.as_label_mut().as_slice_mut()
+    }
+}
+
+impl borrow::Borrow<Label> for OwnedLabel {
+    fn borrow(&self) -> &Label {
+        self.as_label()
+    }
+}
+
+impl borrow::BorrowMut<Label> for OwnedLabel {
+    fn borrow_mut(&mut self) -> &mut Label {
+        self.as_label_mut()
+    }
+}
+
+
+//--- PartialEq and Eq
+
+impl<T: AsRef<Label>> PartialEq<T> for OwnedLabel {
+    fn eq(&self, other: &T) -> bool {
+        self.as_label().eq(other.as_ref())
+    }
+}
+
+impl Eq for OwnedLabel { }
+
+
+//--- PartialOrd and Ord
+
+impl<T: AsRef<Label>> PartialOrd<T> for OwnedLabel {
+    fn partial_cmp(&self, other: &T) -> Option<cmp::Ordering> {
+        self.as_label().partial_cmp(other.as_ref())
+    }
+}
+
+impl Ord for OwnedLabel {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.as_label().cmp(other.as_ref())
+    }
+}
+
+
+//--- Hash
+
+impl hash::Hash for OwnedLabel {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.as_label().hash(state)
+    }
+}
+
+
+//------------ SliceLabelsIter -----------------------------------------------
+
+pub struct SliceLabelsIter<'a> {
+    /// The message slice to work on.
+    slice: &'a [u8],
+
+    /// The position in `slice` where the next label start.
+    ///
+    /// As a life hack, we use `usize::max_value` to fuse the iterator.
+    start: usize
+}
+
+impl<'a> Iterator for SliceLabelsIter<'a> {
+    type Item = &'a Label;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.start == usize::max_value() {
+            return None
+        }
+        loop {
+            match Label::split_from(&self.slice[self.start..]) {
+                Ok((label, _)) => {
+                    if label.is_root() {
+                        self.start = usize::max_value();
+                    }
+                    else {
+                        self.start += label.compose_len();
+                    }
+                    return Some(label)
+                }
+                Err(SplitLabelError::Pointer(pos)) => {
+                    let pos = pos as usize;
+                    if pos > self.start {
+                        // Incidentally, this also covers the case where
+                        // pos points past the end of the message.
+                        self.start = usize::max_value();
+                        return None
+                    }
+                    self.start = pos;
+                    continue;
+                }
+                Err(_) => {
+                    self.start = usize::max_value();
+                    return None
+                }
+            }
+        }
     }
 }
 
@@ -452,12 +600,6 @@ impl error::Error for SplitLabelError { }
 impl From<LabelTypeError> for SplitLabelError {
     fn from(err: LabelTypeError) -> SplitLabelError {
         SplitLabelError::BadType(err)
-    }
-}
-
-impl From<ShortBuf> for SplitLabelError {
-    fn from(_: ShortBuf) -> SplitLabelError {
-        SplitLabelError::ShortBuf
     }
 }
 
@@ -520,18 +662,14 @@ mod test {
 
     #[test]
     fn compose() {
-        use bytes::BytesMut;
-
-        let mut buf = BytesMut::with_capacity(64);
-        assert_eq!(Label::root().compose_len(), 1);
+        let mut buf = Vec::new();
         Label::root().compose(&mut buf);
-        assert_eq!(buf.freeze(), &b"\0"[..]);
+        assert_eq!(buf, &b"\0"[..]);
 
-        let mut buf = BytesMut::with_capacity(64);
+        let mut buf = Vec::new();
         let label = Label::from_slice(b"123").unwrap();
-        assert_eq!(label.compose_len(), 4);
         label.compose(&mut buf);
-        assert_eq!(buf.freeze(), &b"\x03123"[..]);
+        assert_eq!(buf, &b"\x03123"[..]);
     }
 
     #[test]
@@ -578,3 +716,4 @@ mod test {
         assert_eq!(s1.finish(), s2.finish());
     }
 }
+

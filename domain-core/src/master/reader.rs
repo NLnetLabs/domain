@@ -2,6 +2,7 @@
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use bytes::Bytes;
 use crate::iana::Class;
 use crate::name::Dname;
 use super::entry::{Entry, MasterRecord};
@@ -12,7 +13,7 @@ use super::source::Utf8File;
 pub struct Reader<C: CharSource> {
     scanner: Option<Scanner<C>>,
     ttl: Option<u32>,
-    last: Option<(Dname, Class)>,
+    last: Option<(Dname<Bytes>, Class)>,
 }
 
 impl<C: CharSource> Reader<C> {
@@ -76,7 +77,7 @@ impl<C: CharSource> Reader<C> {
         Entry::scan(scanner, owner, class, self.ttl)
     }
 
-    fn set_origin(&mut self, origin: Dname) {
+    fn set_origin(&mut self, origin: Dname<Bytes>) {
         if let Some(ref mut scanner) = self.scanner {
             scanner.set_origin(Some(origin))
         }
@@ -99,7 +100,7 @@ impl<C: CharSource> Iterator for Reader<C> {
 #[derive(Clone, Debug)]
 pub enum ReaderItem {
     Record(MasterRecord),
-    Include { path: PathBuf, origin: Option<Dname> },
+    Include { path: PathBuf, origin: Option<Dname<Bytes>> },
     Control { name: String, start: Pos },
 }
 

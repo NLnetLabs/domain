@@ -3,11 +3,12 @@
 //! This is a private module for tidiness. `DnameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
-use std::error;
-use bytes::{BufMut, BytesMut};
+use std::{error, ops};
+use bytes::BytesMut;
 use derive_more::Display;
+use crate::octets::OctetsBuilder;
 use super::dname::Dname;
-use super::relative::RelativeDname;
+use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
 
 
@@ -16,74 +17,80 @@ use super::traits::{ToDname, ToRelativeDname};
 /// Builds a domain name step by step by appending data.
 /// 
 /// The domain name builder is the most fundamental way to construct a new
-/// domain name. It wraps a [`BytesMut`] value and allows adding single bytes,
-/// byte slices, or entire labels.
-///
-/// Unlike a [`BytesMut`], the name builder will take care of growing the
-/// buffer if there isn’t enough space. It will, however, do so only once. If
-/// it runs out of space, it will grow the buffer to 255 bytes, since that is
-/// the maximum length of a domain name.
-///
-/// [`BytesMut`]: ../../../bytes/struct.BytesMut.html
+/// domain name. It wraps an octet sequence and allows adding single octets,
+/// octet slices, or entire labels.
 #[derive(Clone)]
-pub struct DnameBuilder {
+pub struct DnameBuilder<Builder> {
     /// The buffer to build the name in.
-    bytes: BytesMut,
+    builder: Builder,
 
-    /// The position in `bytes` where the current label started.
+    /// The position in `octets` where the current label started.
     ///
-    /// If this is `None` we do not have a label currently.
+    /// If this is `None` we currently do not have a label.
     head: Option<usize>,
 }
 
-impl DnameBuilder {
+impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// Creates a new domain name builder from an existing bytes buffer.
     ///
     /// Whatever is in the buffer already is considered to be a relative
     /// domain name. Since that may not be the case, this function is
     /// unsafe.
-    pub(super) unsafe fn from_bytes(bytes: BytesMut) -> Self {
-        DnameBuilder { bytes, head: None }
+    pub(super) unsafe fn from_builder_unchecked(builder: Builder) -> Self {
+        DnameBuilder { builder, head: None }
     }
 
-    /// Creates a domain name builder with default capacity.
-    ///
-    /// The capacity will be just large enough that the underlying `BytesMut`
-    /// value does not need to allocate. On a 64 bit system, that will be 31
-    /// bytes, with 15 bytes on a 32 bit system. Either should be enough to
-    /// hold most common domain names.
+    /// Creates a new, empty name builder.
     pub fn new() -> Self {
-        unsafe {
-            DnameBuilder::from_bytes(BytesMut::new())
-        }
+        unsafe { DnameBuilder::from_builder_unchecked(Builder::empty()) }
     }
 
-    /// Creates a domain name builder with a given capacity.
-    ///
-    /// The `capacity` may be larger than 255, even if the resulting domain
-    /// name will never be.
+    /// Creates a new, empty builder with a given capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         unsafe {
-            DnameBuilder::from_bytes(BytesMut::with_capacity(capacity))
+            DnameBuilder::from_builder_unchecked(
+                Builder::with_capacity(capacity)
+            )
         }
     }
 
-    /// Returns the current length of the domain name.
-    pub fn len(&self) -> usize {
-        self.bytes.len()
+    /// Creates a new domain name builder atop an existing octets builder.
+    pub fn from_builder(builder: Builder) -> Result<Self, RelativeDnameError> {
+        RelativeDname::check_slice(builder.as_ref())?;
+        Ok(unsafe { DnameBuilder::from_builder_unchecked(builder) })
+    }
+}
+
+impl DnameBuilder<Vec<u8>> {
+    pub fn new_vec() -> Self {
+        Self::new()
     }
 
-    /// Returns whether the builder is empty.
-    pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty()
+    pub fn vec_with_capacity(capacity: usize) -> Self {
+        Self::with_capacity(capacity)
+    }
+}
+
+impl DnameBuilder<BytesMut> {
+    pub fn new_bytes() -> Self {
+        Self::new()
     }
 
-    /// Returns the capacity of the underlying bytes buffer.
-    ///
-    /// A domain name can be up to 255 bytes in size independently of what
-    /// this method returns.
-    pub fn capacity(&self) -> usize {
-        self.bytes.capacity()
+    pub fn bytes_with_capacity(capacity: usize) -> Self {
+        Self::with_capacity(capacity)
+    }
+}
+
+impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
+
+    // This should be a `const fn` once that becomes allowed.
+    fn max_capacity() -> usize {
+        std::cmp::min(Builder::MAX_CAPACITY - 1, 254)
+    }
+
+    // This should be a `const fn` once that becomes allowed.
+    fn max_absolute_capacity() -> usize {
+        std::cmp::min(Builder::MAX_CAPACITY - 1, 254)
     }
 
     /// Returns whether there currently is a label under construction.
@@ -96,27 +103,25 @@ impl DnameBuilder {
         self.head.is_some()
     }
 
-    /// Pushes a byte to the end of the domain name.
+    /// Pushes an octet to the end of the domain name.
     ///
     /// Starts a new label if necessary. Returns an error if pushing the byte
     /// would exceed the size limits for labels or domain names.
     pub fn push(&mut self, ch: u8) -> Result<(), PushError> {
-        let len = self.bytes.len();
-        if len >= 254 {
+        let len = self.len();
+        if len >= Self::max_capacity() {
             return Err(PushError::LongName);
         }
         if let Some(head) = self.head {
             if len - head > 63 {
                 return Err(PushError::LongLabel)
             }
-            self.ensure_capacity(1);
+            self.builder.append_slice(&[ch]);
         }
         else {
             self.head = Some(len);
-            self.ensure_capacity(2);
-            self.bytes.put_u8(0)
+            self.builder.append_slice(&[0, ch]);
         }
-        self.bytes.put_u8(ch);
         Ok(())
     }
 
@@ -126,44 +131,27 @@ impl DnameBuilder {
     /// would exceed the size limits for labels or domain names.
     ///
     /// If bytes is empty, does absolutely nothing.
-    pub fn append<T: AsRef<[u8]>>(&mut self, bytes: T)
-                                  -> Result<(), PushError> {
-        let bytes = bytes.as_ref();
-        if bytes.is_empty() {
+    pub fn append_slice(&mut self, slice: &[u8]) -> Result<(), PushError> {
+        if slice.is_empty() {
             return Ok(())
         }
         if let Some(head) = self.head {
-            if bytes.len() > 63 - (self.bytes.len() - head) {
+            if slice.len() > 63 - (self.len() - head) {
                 return Err(PushError::LongLabel)
             }
         }
         else {
-            if bytes.len() > 63 {
+            if slice.len() > 63 {
                 return Err(PushError::LongLabel)
             }
-            if self.bytes.len() + bytes.len() > 254 {
+            if self.len() + slice.len() > Self::max_capacity() {
                 return Err(PushError::LongName)
             }
-            self.head = Some(self.bytes.len());
-            self.ensure_capacity(1);
-            self.bytes.put_u8(0)
+            self.head = Some(self.len());
+            self.builder.append_slice(&[0]);
         }
-        self.ensure_capacity(bytes.len());
-        self.bytes.put_slice(bytes);
+        self.builder.append_slice(slice);
         Ok(())
-    }
-
-    /// Ensures that there is enough capacity for `additional` bytes.
-    ///
-    /// The argument `additional` is only used to check whether adding that
-    /// many bytes will exceed the current capacity. If it does, the buffer
-    /// will be grown to a total capacity of 255 bytes. It will *not* be
-    /// grown to `additional` bytes.
-    fn ensure_capacity(&mut self, additional: usize) {
-        if self.bytes.remaining_mut() < additional {
-            let additional = 255 - self.bytes.len();
-            self.bytes.reserve(additional)
-        }
     }
 
     /// Ends the current label.
@@ -171,8 +159,8 @@ impl DnameBuilder {
     /// If there isn’t a current label, does nothing.
     pub fn end_label(&mut self) {
         if let Some(head) = self.head {
-            let len = self.bytes.len() - head - 1;
-            self.bytes[head] = len as u8;
+            let len = self.len() - head - 1;
+            self.builder.as_mut()[head] = len as u8;
             self.head = None;
         }
     }
@@ -185,11 +173,10 @@ impl DnameBuilder {
     /// Returns an error if `label` exceeds the label size limit of 63 bytes
     /// or appending the label would exceed the domain name size limit of
     /// 255 bytes.
-    pub fn append_label<T: AsRef<[u8]>>(&mut self, label: T)
-                                        -> Result<(), PushError> {
+    pub fn append_label(&mut self, label: &[u8]) -> Result<(), PushError> {
         let head = self.head;
         self.end_label();
-        if let Err(err) = self.append(label) {
+        if let Err(err) = self.append_slice(label) {
             self.head = head;
             return Err(err)
         }
@@ -199,23 +186,65 @@ impl DnameBuilder {
 
     /// Appends a relative domain name.
     ///
-    /// If there currently is a lable under construction, it will be ended
+    /// If there currently is a label under construction, it will be ended
     /// before appending `name`.
     ///
     /// Returns an error if appending would result in a name longer than 254
     /// bytes.
     //
     //  XXX NEEDS TESTS
-    pub fn append_name<N: ToRelativeDname>(&mut self, name: &N)
-                                           -> Result<(), PushNameError> {
+    pub fn append_name<N: ToRelativeDname>(
+        &mut self, name: &N
+    ) -> Result<(), PushNameError> {
         let head = self.head.take();
         self.end_label();
-        if self.bytes.len() + name.compose_len() > 254 {
+        if self.len() + name.len() > Self::max_capacity() {
             self.head = head;
             return Err(PushNameError)
         }
-        self.ensure_capacity(name.compose_len());
-        name.compose(&mut self.bytes);
+        for label in name.iter_labels() {
+            label.build(&mut self.builder)
+        }
+        Ok(())
+    }
+
+    /// Appends a name from a sequence of characters.
+    ///
+    /// If there currently is a label under construction, it will be ended
+    /// before appending `chars`.
+    ///
+    /// The character sequence must result in a domain name in master format
+    /// representation. That is, its labels should be separated by dots,
+    /// actual dots, white space and backslashes should be escaped by a
+    /// preceeding backslash, and any byte value that is not a printable
+    /// ASCII character should be encoded by a backslash followed by its
+    /// three digit decimal value.
+    ///
+    /// The last label will only be ended if the last character was a dot.
+    /// Thus, you can determine if that was the case via `in_label`.
+    pub fn append_chars<C: IntoIterator<Item = char>>(
+        &mut self,
+        chars: C
+    ) -> Result<(), FromStrError> {
+        let mut chars = chars.into_iter();
+        while let Some(ch) = chars.next() {
+            match ch {
+                '.' => {
+                    if !self.in_label() {
+                        return Err(FromStrError::EmptyLabel)
+                    }
+                    self.end_label();
+                }
+                '\\' => {
+                    let in_label = self.in_label();
+                    self.push(parse_escape(&mut chars, in_label)?)?;
+                }
+                ' ' ..= '-' | '/' ..= '[' | ']' ..= '~' => {
+                    self.push(ch as u8)?
+                }
+                _ => return Err(FromStrError::IllegalCharacter(ch))
+            }
+        }
         Ok(())
     }
 
@@ -226,30 +255,27 @@ impl DnameBuilder {
     /// explicitely.
     ///
     /// [`end_label`]: #method.end_label
-    pub fn finish(mut self) -> RelativeDname {
+    pub fn finish(
+        mut self
+    ) -> RelativeDname<Builder::Octets> {
         self.end_label();
-        unsafe { RelativeDname::from_bytes_unchecked(self.bytes.freeze()) }
+        unsafe {
+            RelativeDname::from_octets_unchecked(self.builder.finish())
+        }
     }
 
     /// Appends the root label to the name and returns it as a `Dname`.
     ///
     /// If there currently is a label under construction, ends the label.
     /// Then adds the empty root label and transforms the name into a
-    /// `Dname`. As adding the root label may push the name over the size
-    /// limit, this may return an error.
-    //
-    // XXX I don’t think adding the root label will actually ever push the
-    //     builder over the limit. Double check and if true, change the return
-    //     type.
-    pub fn into_dname(mut self) -> Result<Dname, PushNameError> {
+    /// `Dname`.
+    pub fn into_dname(
+        mut self
+    ) -> Dname<Builder::Octets> {
         self.end_label();
-        if self.bytes.len() >= 255 {
-            Err(PushNameError)
-        }
-        else {
-            self.ensure_capacity(1);
-            self.bytes.put_u8(0);
-            Ok(unsafe { Dname::from_bytes_unchecked(self.bytes.freeze()) })
+        self.builder.append_slice(&[0]);
+        unsafe {
+            Dname::from_octets_unchecked(self.builder.finish())
         }
     }
 
@@ -259,24 +285,45 @@ impl DnameBuilder {
     /// `Dname`. 
     //
     //  XXX NEEDS TESTS
-    pub fn append_origin<N: ToDname>(mut self, origin: &N)
-                                     -> Result<Dname, PushNameError> {
+    pub fn append_origin<N: ToDname>(
+        mut self, origin: &N
+    ) -> Result<Dname<Builder::Octets>, PushNameError> {
         self.end_label();
-        if self.bytes.len() + origin.compose_len() > 255 {
+        if self.len() + origin.len() > Self::max_absolute_capacity() {
             return Err(PushNameError)
         }
-        self.ensure_capacity(origin.compose_len());
-        origin.compose(&mut self.bytes);
-        Ok(unsafe { Dname::from_bytes_unchecked(self.bytes.freeze()) })
+        for label in origin.iter_labels() {
+            label.build(&mut self.builder)
+        }
+        Ok(unsafe {
+            Dname::from_octets_unchecked(self.builder.finish())
+        })
     }
 }
 
 
 //--- Default
 
-impl Default for DnameBuilder {
+impl<Builder: OctetsBuilder> Default for DnameBuilder<Builder> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+
+//--- Deref and AsRef
+
+impl<Builder: OctetsBuilder> ops::Deref for DnameBuilder<Builder> {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        self.builder.as_ref()
+    }
+}
+
+impl<Builder: OctetsBuilder> AsRef<[u8]> for DnameBuilder<Builder> {
+    fn as_ref(&self) -> &[u8] {
+        self.builder.as_ref()
     }
 }
 
@@ -308,6 +355,101 @@ pub struct PushNameError;
 impl error::Error for PushNameError { }
 
 
+//------------ FromStrError --------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+pub enum FromStrError {
+    /// The string ended when there should have been more characters.
+    ///
+    /// This most likely happens inside escape sequences and quoting.
+    #[display(fmt="unexpected end of input")]
+    UnexpectedEnd,
+
+    /// An empty label was encountered.
+    #[display(fmt="an empty label was encountered")]
+    EmptyLabel,
+
+    /// A binary label was encountered.
+    #[display(fmt="a binary label was encountered")]
+    BinaryLabel,
+
+    /// A domain name label has more than 63 octets.
+    #[display(fmt="label length limit exceeded")]
+    LongLabel,
+
+    /// An illegal escape sequence was encountered.
+    ///
+    /// Escape sequences are a backslash character followed by either a
+    /// three decimal digit sequence encoding a byte value or a single
+    /// other printable ASCII character.
+    #[display(fmt="illegal escape sequence")]
+    IllegalEscape,
+
+    /// An illegal character was encountered.
+    ///
+    /// Only printable ASCII characters are allowed.
+    #[display(fmt="illegal character '{}'", _0)]
+    IllegalCharacter(char),
+
+    /// The name has more than 255 characters.
+    #[display(fmt="long domain name")]
+    LongName,
+}
+
+impl error::Error for FromStrError { }
+
+impl From<PushError> for FromStrError {
+    fn from(err: PushError) -> FromStrError {
+        match err {
+            PushError::LongLabel => FromStrError::LongLabel,
+            PushError::LongName => FromStrError::LongName,
+        }
+    }
+}
+
+impl From<PushNameError> for FromStrError {
+    fn from(_: PushNameError) -> FromStrError {
+        FromStrError::LongName
+    }
+}
+
+
+//------------ Santa’s Little Helpers ----------------------------------------
+
+/// Parses the contents of an escape sequence from `chars`.
+///
+/// The backslash should already have been taken out of `chars`.
+fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
+                where C: Iterator<Item=char> {
+    let ch = chars.next().ok_or(FromStrError::UnexpectedEnd)?;
+    if ch >= '0' &&  ch <= '9' {
+        let v = ch.to_digit(10).unwrap() * 100
+              + chars.next().ok_or(FromStrError::UnexpectedEnd)
+                     .and_then(|c| c.to_digit(10)
+                                    .ok_or(FromStrError::IllegalEscape))?
+                     * 10
+              + chars.next().ok_or(FromStrError::UnexpectedEnd)
+                     .and_then(|c| c.to_digit(10)
+                                    .ok_or(FromStrError::IllegalEscape))?;
+        if v > 255 {
+            return Err(FromStrError::IllegalEscape)
+        }
+        Ok(v as u8)
+    }
+    else if ch == '[' {
+        // `\[` at the start of a label marks a binary label which we don’t
+        // support. Within a label, the sequence is fine.
+        if in_label {
+            Ok(b'[')
+        }
+        else {
+            Err(FromStrError::BinaryLabel)
+        }
+    }
+    else { Ok(ch as u8) }
+}
+
+
 //============ Testing =======================================================
 
 #[cfg(test)]
@@ -316,23 +458,23 @@ mod test {
 
     #[test]
     fn build() {
-        let mut builder = DnameBuilder::with_capacity(255);
+        let mut builder = DnameBuilder::new_vec();
         builder.push(b'w').unwrap();
-        builder.append(b"ww").unwrap();
+        builder.append_slice(b"ww").unwrap();
         builder.end_label();
-        builder.append(b"exa").unwrap();
+        builder.append_slice(b"exa").unwrap();
         builder.push(b'm').unwrap();
         builder.push(b'p').unwrap();
-        builder.append(b"le").unwrap();
+        builder.append_slice(b"le").unwrap();
         builder.end_label();
-        builder.append(b"com").unwrap();
+        builder.append_slice(b"com").unwrap();
         assert_eq!(builder.finish().as_slice(),
                    b"\x03www\x07example\x03com");
     }
 
     #[test]
     fn build_by_label() {
-        let mut builder = DnameBuilder::with_capacity(255);
+        let mut builder = DnameBuilder::new_vec();
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
         builder.append_label(b"com").unwrap();
@@ -342,32 +484,18 @@ mod test {
 
     #[test]
     fn build_mixed() {
-        let mut builder = DnameBuilder::with_capacity(255);
+        let mut builder = DnameBuilder::new_vec();
         builder.push(b'w').unwrap();
-        builder.append(b"ww").unwrap();
+        builder.append_slice(b"ww").unwrap();
         builder.append_label(b"example").unwrap();
-        builder.append(b"com").unwrap();
+        builder.append_slice(b"com").unwrap();
         assert_eq!(builder.finish().as_slice(),
                    b"\x03www\x07example\x03com");
     }
 
     #[test]
-    fn buf_growth() {
-        let mut builder = DnameBuilder::new();
-        builder.append_label(b"1234567890").unwrap();
-        builder.append_label(b"1234567890").unwrap();
-        builder.append_label(b"1234567890").unwrap();
-        builder.append_label(b"1234567890").unwrap();
-        assert!(builder.capacity() >= 255 && builder.capacity() < 1024);
-        assert_eq!(
-            builder.finish().as_slice(),
-            &b"\x0a1234567890\x0a1234567890\x0a1234567890\x0a1234567890"[..]
-        );
-    }
-
-    #[test]
     fn name_limit() {
-        let mut builder = DnameBuilder::new();
+        let mut builder = DnameBuilder::new_vec();
         for _ in 0..25 {
             // 9 bytes label is 10 bytes in total 
             builder.append_label(b"123456789").unwrap();
@@ -376,59 +504,48 @@ mod test {
         assert_eq!(builder.append_label(b"12345"), Err(PushError::LongName));
         assert_eq!(builder.clone().append_label(b"1234"), Ok(()));
 
-        assert_eq!(builder.append(b"12345"), Err(PushError::LongName));
-        assert_eq!(builder.clone().append(b"1234"), Ok(()));
+        assert_eq!(builder.append_slice(b"12345"), Err(PushError::LongName));
+        assert_eq!(builder.clone().append_slice(b"1234"), Ok(()));
 
-        assert_eq!(builder.append(b"12"), Ok(()));
+        assert_eq!(builder.append_slice(b"12"), Ok(()));
         assert_eq!(builder.push(b'3'), Ok(()));
         assert_eq!(builder.push(b'4'), Err(PushError::LongName))
     }
 
     #[test]
     fn label_limit() {
-        let mut builder = DnameBuilder::new();
+        let mut builder = DnameBuilder::new_vec();
         builder.append_label(&[0u8; 63][..]).unwrap();
         assert_eq!(builder.append_label(&[0u8; 64][..]),
                    Err(PushError::LongLabel));
         assert_eq!(builder.append_label(&[0u8; 164][..]),
                    Err(PushError::LongLabel));
 
-        builder.append(&[0u8; 60][..]).unwrap();
+        builder.append_slice(&[0u8; 60][..]).unwrap();
         let _ = builder.clone().append_label(b"123").unwrap();
-        assert_eq!(builder.append(b"1234"), Err(PushError::LongLabel));
-        builder.append(b"12").unwrap();
+        assert_eq!(builder.append_slice(b"1234"), Err(PushError::LongLabel));
+        builder.append_slice(b"12").unwrap();
         builder.push(b'3').unwrap();
         assert_eq!(builder.push(b'4'), Err(PushError::LongLabel));
     }
 
     #[test]
     fn finish() {
-        let mut builder = DnameBuilder::new();
+        let mut builder = DnameBuilder::new_vec();
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
-        builder.append(b"com").unwrap();
+        builder.append_slice(b"com").unwrap();
         assert_eq!(builder.finish().as_slice(),
                    b"\x03www\x07example\x03com");
     }
 
     #[test]
     fn into_dname() {
-        let mut builder = DnameBuilder::new();
+        let mut builder = DnameBuilder::new_vec();
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
-        builder.append(b"com").unwrap();
-        assert_eq!(builder.into_dname().unwrap().as_slice(),
+        builder.append_slice(b"com").unwrap();
+        assert_eq!(builder.into_dname().as_slice(),
                    b"\x03www\x07example\x03com\x00");
     }
-
-    #[test]
-    fn into_dname_limit() {
-        let mut builder = DnameBuilder::new();
-        for _ in 0..51 {
-            builder.append_label(b"1234").unwrap();
-        }
-        assert_eq!(builder.len(), 255);
-        assert_eq!(builder.into_dname(), Err(PushNameError));
-    }
 }
-

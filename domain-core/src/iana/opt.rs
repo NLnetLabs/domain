@@ -3,8 +3,7 @@
 use std::cmp;
 use std::fmt;
 use std::hash;
-use bytes::BufMut;
-use crate::compose::Compose;
+use crate::compose::{Compose, ComposeTarget};
 use crate::parse::{Parse, Parser, ShortBuf};
 
 
@@ -91,25 +90,21 @@ impl OptionCode {
 
 //--- Parse and Compose
 
-impl Parse for OptionCode {
+impl<T: AsRef<[u8]>> Parse<T> for OptionCode {
     type Err = ShortBuf;
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, Self::Err> {
         u16::parse(parser).map(OptionCode::from_int)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), Self::Err> {
         u16::skip(parser)
     }
 }
 
 impl Compose for OptionCode {
-    fn compose_len(&self) -> usize {
-        2
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.to_int().compose(buf)
+    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+        self.to_int().compose(target)
     }
 }
 

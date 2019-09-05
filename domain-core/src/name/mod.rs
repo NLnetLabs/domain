@@ -55,17 +55,22 @@
 //! [`ToRelativeDname`]: trait.ToRelativeDname.html
 //! [`UncertainDname`]: enum.UncertainDname.html
 
-pub use self::builder::{DnameBuilder, PushError, PushNameError};
+pub use self::builder::{DnameBuilder, FromStrError, PushError, PushNameError};
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
 pub use self::dname::{Dname, DnameError, DnameParseError, DnameBytesError};
-pub use self::label::{Label, LabelTypeError, LongLabelError,
-                      SplitLabelError};
-pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedDnameError,
-                       ParsedDnameAllError, ParsedSuffixIter};
-pub use self::relative::{RelativeDname, DnameIter, RelativeDnameError,
-                         StripSuffixError};
-pub use self::traits::{ToLabelIter, ToRelativeDname, ToDname};
-pub use self::uncertain::{UncertainDname, FromStrError};
+pub use self::label::{
+    Label, LabelTypeError, LongLabelError, OwnedLabel, SliceLabelsIter,
+    SplitLabelError
+};
+pub use self::parsed::{
+    ParsedDname, ParsedDnameIter, ParsedDnameError, ParsedDnameAllError,
+    ParsedSuffixIter
+};
+pub use self::relative::{
+    RelativeDname, DnameIter, RelativeDnameError, StripSuffixError
+};
+pub use self::traits::{ToDname, ToEitherDname, ToLabelIter, ToRelativeDname};
+pub use self::uncertain::UncertainDname;
 
 mod builder;
 mod chain;

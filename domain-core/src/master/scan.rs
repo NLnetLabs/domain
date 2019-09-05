@@ -59,7 +59,7 @@ pub struct Scanner<C: CharSource> {
     newline: NewlineMode,
 
     /// The current origin for domain names, if any.
-    origin: Option<Dname>,
+    origin: Option<Dname<Bytes>>,
 }
 
 
@@ -101,12 +101,12 @@ impl<C: CharSource> Scanner<C> {
 /// and can be set and retrieved any time.
 impl<C: CharSource> Scanner<C> {
     /// Returns the current origin if any.
-    pub fn origin(&self) -> &Option<Dname> {
+    pub fn origin(&self) -> &Option<Dname<Bytes>> {
         &self.origin
     }
 
     /// Sets the origin to the given value.
-    pub fn set_origin(&mut self, origin: Option<Dname>) {
+    pub fn set_origin(&mut self, origin: Option<Dname<Bytes>>) {
         self.origin = origin
     }
 }
@@ -1484,3 +1484,4 @@ mod test {
         assert_eq!(scanner.scan_string_word(Ok).unwrap(), "one");
     }
 }
+

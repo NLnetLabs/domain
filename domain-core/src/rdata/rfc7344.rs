@@ -1,30 +1,33 @@
-use std::fmt;
+use std::{fmt, hash};
 use std::cmp::Ordering;
-use bytes::{BufMut, Bytes};
+use bytes::Bytes;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, Compress, Compressor};
+use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{DigestAlg, Rtype, SecAlg};
 use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
 use crate::utils::base64;
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::parse::{
+    Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
+};
 use super::RtypeRecordData;
+
 
 //------------ Cdnskey --------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Cdnskey {
+#[derive(Clone)]
+pub struct Cdnskey<Octets> {
     flags: u16,
     protocol: u8,
     algorithm: SecAlg,
-    public_key: Bytes,
+    public_key: Octets,
 }
 
-impl Cdnskey {
+impl<Octets> Cdnskey<Octets> {
     pub fn new(
         flags: u16,
         protocol: u8,
         algorithm: SecAlg,
-        public_key: Bytes
+        public_key: Octets
     ) -> Self {
         Cdnskey {
             flags,
@@ -46,27 +49,83 @@ impl Cdnskey {
         self.algorithm
     }
 
-    pub fn public_key(&self) -> &Bytes {
+    pub fn public_key(&self) -> &Octets {
         &self.public_key
     }
 }
 
 
-//--- CanonicalOrd
+//--- PartialEq and Eq
 
-impl CanonicalOrd for Cdnskey {
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
-        self.cmp(other)
+impl<Octets, Other> PartialEq<Cdnskey<Other>> for Cdnskey<Octets> 
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn eq(&self, other: &Cdnskey<Other>) -> bool {
+        self.flags == other.flags
+        && self.protocol == other.protocol
+        && self.algorithm == other.algorithm
+        && self.public_key.as_ref() == other.public_key.as_ref()
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for Cdnskey<Octets> { }
+
+
+//--- PartialOrd, CanonicalOrd, and Ord
+
+impl<Octets, Other> PartialOrd<Cdnskey<Other>> for Cdnskey<Octets> 
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn partial_cmp(&self, other: &Cdnskey<Other>) -> Option<Ordering> {
+        Some(self.canonical_cmp(other))
+    }
+}
+
+impl<Octets, Other> CanonicalOrd<Cdnskey<Other>> for Cdnskey<Octets> 
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn canonical_cmp(&self, other: &Cdnskey<Other>) -> Ordering {
+        match self.flags.cmp(&other.flags) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.protocol.cmp(&other.protocol) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.algorithm.cmp(&other.algorithm) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.public_key.as_ref().cmp(other.public_key.as_ref())
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Ord for Cdnskey<Octets> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.canonical_cmp(other)
     }
 }
 
 
-//--- ParseAll, Compose, and Compress
+//--- Hash
 
-impl ParseAll for Cdnskey {
+impl<Octets: AsRef<[u8]>> hash::Hash for Cdnskey<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.flags.hash(state);
+        self.protocol.hash(state);
+        self.algorithm.hash(state);
+        self.public_key.as_ref().hash(state);
+    }
+}
+
+
+//--- ParseAll and Compose
+
+impl<Octets: ParseSource> ParseAll<Octets> for Cdnskey<Octets> {
     type Err = ParseAllError;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize,
+    ) -> Result<Self, Self::Err> {
         if len < 4 {
             return Err(ParseAllError::ShortField);
         }
@@ -74,45 +133,37 @@ impl ParseAll for Cdnskey {
             u16::parse(parser)?,
             u8::parse(parser)?,
             SecAlg::parse(parser)?,
-            Bytes::parse_all(parser, len - 4)?,
+            parser.parse_octets(len - 4)?
         ))
     }
 }
 
-impl Compose for Cdnskey {
-    fn compose_len(&self) -> usize {
-        4 + self.public_key.len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
+impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
         self.flags.compose(buf);
         self.protocol.compose(buf);
         self.algorithm.compose(buf);
-        self.public_key.compose(buf);
-    }
-}
-
-impl Compress for Cdnskey {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+        buf.append_slice(self.public_key.as_ref());
     }
 }
 
 
 //--- Scan and Display
 
-impl Scan for Cdnskey {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+impl Scan for Cdnskey<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
-            scanner.scan_base64_phrases(Ok)?,
+            scanner.scan_base64_phrases(Ok)?
         ))
     }
 }
 
-impl fmt::Display for Cdnskey {
+impl<Octets: AsRef<[u8]>> fmt::Display for Cdnskey<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {} {} ", self.flags, self.protocol, self.algorithm)?;
         base64::display(&self.public_key, f)
@@ -120,36 +171,45 @@ impl fmt::Display for Cdnskey {
 }
 
 
+//--- Debug
+
+impl<Octets: AsRef<[u8]>> fmt::Debug for Cdnskey<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Cdnskey")
+            .field("flags", &self.flags)
+            .field("protocol", &self.protocol)
+            .field("algorithm", &self.algorithm)
+            .field("public_key", &self.public_key.as_ref())
+            .finish()
+    }
+}
+
+
 //--- RecordData
 
-impl RtypeRecordData for Cdnskey {
+impl<Octets> RtypeRecordData for Cdnskey<Octets> {
     const RTYPE: Rtype = Rtype::Cdnskey;
 }
 
 
 //------------ Cds -----------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Cds {
+#[derive(Clone)]
+pub struct Cds<Octets> {
     key_tag: u16,
     algorithm: SecAlg,
     digest_type: DigestAlg,
-    digest: Bytes,
+    digest: Octets,
 }
 
-impl Cds {
+impl<Octets> Cds<Octets> {
     pub fn new(
         key_tag: u16,
         algorithm: SecAlg,
         digest_type: DigestAlg,
-        digest: Bytes
+        digest: Octets
     ) -> Self {
-        Cds {
-            key_tag,
-            algorithm,
-            digest_type,
-            digest,
-        }
+        Cds { key_tag, algorithm, digest_type, digest }
     }
 
     pub fn key_tag(&self) -> u16 {
@@ -164,63 +224,127 @@ impl Cds {
         self.digest_type
     }
 
-    pub fn digest(&self) -> &Bytes {
+    pub fn digest(&self) -> &Octets {
         &self.digest
     }
-}
 
-
-//--- CanonicalOrd
-
-impl CanonicalOrd for Cds {
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
-        self.cmp(other)
+    pub fn into_digest(self) -> Octets {
+        self.digest
     }
 }
 
 
-//--- ParseAll, Compose, and Compress
+//--- PartialEq and Eq
 
-impl ParseAll for Cds {
+impl<Octets, Other> PartialEq<Cds<Other>> for Cds<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn eq(&self, other: &Cds<Other>) -> bool {
+        self.key_tag == other.key_tag
+        && self.algorithm == other.algorithm
+        && self.digest_type == other.digest_type
+        && self.digest.as_ref().eq(other.digest.as_ref())
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for Cds<Octets> { }
+
+
+//--- PartialOrd, CanonicalOrd, and Ord
+
+impl<Octets, Other> PartialOrd<Cds<Other>> for Cds<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn partial_cmp(&self, other: &Cds<Other>) -> Option<Ordering> {
+        match self.key_tag.partial_cmp(&other.key_tag) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.algorithm.partial_cmp(&other.algorithm) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.digest_type.partial_cmp(&other.digest_type) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.digest.as_ref().partial_cmp(other.digest.as_ref())
+    }
+}
+
+impl<Octets, Other> CanonicalOrd<Cds<Other>> for Cds<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn canonical_cmp(&self, other: &Cds<Other>) -> Ordering {
+        match self.key_tag.cmp(&other.key_tag) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.algorithm.cmp(&other.algorithm) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.digest_type.cmp(&other.digest_type) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.digest.as_ref().cmp(other.digest.as_ref())
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Ord for Cds<Octets> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.canonical_cmp(other)
+    }
+}
+
+
+//--- Hash
+
+impl<Octets: AsRef<[u8]>> hash::Hash for Cds<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.key_tag.hash(state);
+        self.algorithm.hash(state);
+        self.digest_type.hash(state);
+        self.digest.as_ref().hash(state);
+    }
+}
+
+
+//--- ParseAll and Compose
+
+impl<Octets: ParseSource> ParseAll<Octets> for Cds<Octets> {
     type Err = ShortBuf;
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+    fn parse_all(
+        parser: &mut Parser<Octets>,
+        len: usize
+    ) -> Result<Self, Self::Err> {
         if len < 4 {
-            return Err(ShortBuf);
+            return Err(ShortBuf)
         }
         Ok(Self::new(
             u16::parse(parser)?,
             SecAlg::parse(parser)?,
             DigestAlg::parse(parser)?,
-            Bytes::parse_all(parser, len - 4)?,
+            parser.parse_octets(len - 4)?
         ))
     }
 }
 
-impl Compose for Cds {
-    fn compose_len(&self) -> usize {
-        self.digest.len() + 4
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
+impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
+    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
         self.key_tag.compose(buf);
         self.algorithm.compose(buf);
         self.digest_type.compose(buf);
-        self.digest.compose(buf);
-    }
-}
-
-impl Compress for Cds {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+        buf.append_slice(self.digest.as_ref())
     }
 }
 
 
 //--- Scan and Display
 
-impl Scan for Cds {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+impl Scan for Cds<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
@@ -230,14 +354,11 @@ impl Scan for Cds {
     }
 }
 
-impl fmt::Display for Cds {
+impl<Octets: AsRef<[u8]>> fmt::Display for Cds<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} ",
-            self.key_tag, self.algorithm, self.digest_type
-        )?;
-        for ch in self.digest() {
+        write!(f, "{} {} {} ", self.key_tag, self.algorithm,
+               self.digest_type)?;
+        for ch in self.digest.as_ref() {
             write!(f, "{:02x}", ch)?
         }
         Ok(())
@@ -245,9 +366,23 @@ impl fmt::Display for Cds {
 }
 
 
+//--- Debug
+
+impl<Octets: AsRef<[u8]>> fmt::Debug for Cds<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Cds")
+            .field("key_tag", &self.key_tag)
+            .field("algorithm", &self.algorithm)
+            .field("digest_type", &self.digest_type)
+            .field("digest", &self.digest.as_ref())
+            .finish()
+    }
+}
+
+
 //--- RtypeRecordData
 
-impl RtypeRecordData for Cds {
+impl<Octets> RtypeRecordData for Cds<Octets> {
     const RTYPE: Rtype = Rtype::Cds;
 }
 

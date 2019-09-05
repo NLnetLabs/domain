@@ -2,10 +2,10 @@
 use std::mem;
 use bytes::{BigEndian, BufMut, ByteOrder, BytesMut};
 use optional::Optioned;
-use super::compose::{Compose, Compress, Compressor};
+use super::oldcompose::{Compose, Compress, Compressor};
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::name::ToDname;
-use super::parse::ShortBuf;
+use super::oldparse::ShortBuf;
 use super::question::Question;
 
 

@@ -8,12 +8,12 @@ macro_rules! rdata_types {
         $module:ident::{
             $(
                 master {
-                    $( $mtype:ident $( <$mn:ident> )*, )*
+                    $( $mtype:ident $( < $( $mn:ident ),* > )*, )*
                 }
             )*
             $(
                 pseudo {
-                    $( $ptype:ident $( <$pn:ident> )*, )*
+                    $( $ptype:ident $( < $( $pn:ident ),* > )*, )*
                 }
             )*
 
@@ -29,31 +29,47 @@ macro_rules! rdata_types {
 
         //------------- MasterRecordData -------------------------------------
 
-        #[derive(Clone, Debug)]
-        pub enum MasterRecordData<N> {
+        #[derive(Clone)]
+        pub enum MasterRecordData<O, N> {
             $( $( $(
-                $mtype($mtype $( <$mn> )*),
+                $mtype($mtype $( < $( $mn ),* > )*),
             )* )* )*
-            Other($crate::rdata::UnknownRecordData),
+            Other($crate::rdata::UnknownRecordData<O>),
 
             #[doc(hidden)]
             __Nonexhaustive(::void::Void),
+        }
+
+        impl<O, N> MasterRecordData<O, N> {
+            fn rtype(&self) -> $crate::iana::Rtype {
+                match *self {
+                    $( $( $(
+                        MasterRecordData::$mtype(_) => {
+                            <$mtype $( < $( $mn ),* > )*
+                                as RtypeRecordData>::RTYPE
+                        }
+                    )* )* )*
+                    MasterRecordData::Other(ref inner) => inner.rtype(),
+                    MasterRecordData::__Nonexhaustive(_) => unreachable!(),
+                }
+            }
         }
 
 
         //--- From
 
         $( $( $(
-            impl<N> From<$mtype $( < $mn >)*> for MasterRecordData<N> {
-                fn from(value: $mtype $( < $mn >)*) -> Self {
+            impl<O, N> From<$mtype $( < $( $mn ),* >)*>
+            for MasterRecordData<O, N> {
+                fn from(value: $mtype $( < $( $mn ),* >)*) -> Self {
                     MasterRecordData::$mtype(value)
                 }
             }
         )* )* )*
 
-        impl<N> From<$crate::rdata::UnknownRecordData>
-                    for MasterRecordData<N> {
-            fn from(value: $crate::rdata::UnknownRecordData) -> Self {
+        impl<O, N> From<$crate::rdata::UnknownRecordData<O>>
+        for MasterRecordData<O, N> {
+            fn from(value: $crate::rdata::UnknownRecordData<O>) -> Self {
                 MasterRecordData::Other(value)
             }
         }
@@ -61,9 +77,13 @@ macro_rules! rdata_types {
 
         //--- PartialEq and Eq
 
-        impl<N, NN> PartialEq<MasterRecordData<NN>> for MasterRecordData<N>
-        where N: PartialEq<NN> {
-            fn eq(&self, other: &MasterRecordData<NN>) -> bool {
+        impl<O, OO, N, NN> PartialEq<MasterRecordData<OO, NN>>
+        for MasterRecordData<O, N>
+        where
+            O: AsRef<[u8]>, OO: AsRef<[u8]>,
+            N: $crate::name::ToDname, NN: $crate::name::ToDname,
+        {
+            fn eq(&self, other: &MasterRecordData<OO, NN>) -> bool {
                 match (self, other) {
                     $( $( $(
                         (
@@ -89,21 +109,21 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<N> Eq for MasterRecordData<N>
-        where N: PartialEq { }
+        impl<O, N> Eq for MasterRecordData<O, N>
+        where O: AsRef<[u8]>, N: $crate::name::ToDname { }
 
 
         //--- PartialOrd, Ord, and CanonicalOrd
 
-        impl<N, NN> PartialOrd<MasterRecordData<NN>> for MasterRecordData<N>
+        impl<O, OO, N, NN> PartialOrd<MasterRecordData<OO, NN>>
+        for MasterRecordData<O, N>
         where
-            N: PartialOrd<NN> + $crate::compose::Compose
-                + $crate::compose::Compress,
-            NN: $crate::compose::Compose + $crate::compose::Compress
+            O: AsRef<[u8]>, OO: AsRef<[u8]>,
+            N: $crate::name::ToDname, NN: $crate::name::ToDname,
         {
             fn partial_cmp(
                 &self,
-                other: &MasterRecordData<NN>
+                other: &MasterRecordData<OO, NN>
             ) -> Option<std::cmp::Ordering> {
                 match (self, other) {
                     $( $( $(
@@ -130,11 +150,16 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<N, NN> CanonicalOrd<MasterRecordData<NN>> for MasterRecordData<N>
-        where N: $crate::name::ToDname, NN: $crate::name::ToDname {
+        impl<O, OO, N, NN> CanonicalOrd<MasterRecordData<OO, NN>>
+        for MasterRecordData<O, N>
+        where
+            O: AsRef<[u8]>, OO: AsRef<[u8]>,
+            N: CanonicalOrd<NN> + $crate::name::ToDname,
+            NN: $crate::name::ToDname,
+        {
             fn canonical_cmp(
                 &self,
-                other: &MasterRecordData<NN>
+                other: &MasterRecordData<OO, NN>
             ) -> std::cmp::Ordering {
                 match (self, other) {
                     $( $( $(
@@ -163,8 +188,8 @@ macro_rules! rdata_types {
 
         //--- Hash
  
-        impl<N> ::std::hash::Hash for MasterRecordData<N>
-        where N: ::std::hash::Hash {
+        impl<O, N> ::std::hash::Hash for MasterRecordData<O, N>
+        where O: AsRef<[u8]>, N: ::std::hash::Hash {
             fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
                 match *self {
                     $( $( $(
@@ -175,7 +200,7 @@ macro_rules! rdata_types {
                     )* )* )*
                     MasterRecordData::Other(ref inner) => {
                         inner.rtype().hash(state);
-                        inner.data().hash(state);
+                        inner.data().as_ref().hash(state);
                     }
                     MasterRecordData::__Nonexhaustive(_) => unreachable!()
                 }
@@ -183,50 +208,39 @@ macro_rules! rdata_types {
         }
 
 
-        //--- Compose and Compress
+        //--- Compose
         //
         //    No Parse or ParseAll because Other variant needs to know the
         //    record type.
 
-        impl<N> $crate::compose::Compose for MasterRecordData<N>
-        where N: $crate::compose::Compose
-        {
-            fn compose_len(&self) -> usize {
+        impl<O, N> $crate::compose::Compose for MasterRecordData<O, N>
+        where O: AsRef<[u8]>, N: $crate::name::ToDname {
+            fn compose<T>(&self, target: &mut T)
+            where T: $crate::compose::ComposeTarget + ?Sized {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
-                            inner.compose_len()
+                            inner.compose(target)
                         }
                     )* )* )*
-                    MasterRecordData::Other(ref inner) => inner.compose_len(),
+                    MasterRecordData::Other(ref inner) => {
+                        inner.compose(target)
+                    }
                     MasterRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
 
-            fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
+            fn compose_canonical<T>(&self, target: &mut T)
+            where T: $crate::compose::ComposeTarget + ?Sized {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
-                            inner.compose(buf)
+                            inner.compose_canonical(target)
                         }
                     )* )* )*
-                    MasterRecordData::Other(ref inner) => inner.compose(buf),
-                    MasterRecordData::__Nonexhaustive(_) => unreachable!(),
-                }
-            }
-        }
-
-        impl<N> $crate::compose::Compress for MasterRecordData<N>
-        where N: $crate::compose::Compress + $crate::compose::Compose {
-            fn compress(&self, buf: &mut $crate::compose::Compressor)
-                        -> Result<(), $crate::parse::ShortBuf> {
-                match *self {
-                    $( $( $(
-                        MasterRecordData::$mtype(ref inner) => {
-                            inner.compress(buf)
-                        }
-                    )* )* )*
-                    MasterRecordData::Other(ref inner) => inner.compress(buf),
+                    MasterRecordData::Other(ref inner) => {
+                        inner.compose_canonical(target)
+                    }
                     MasterRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
@@ -235,38 +249,32 @@ macro_rules! rdata_types {
 
         //--- RecordData and ParseRecordData
 
-        impl<N> $crate::rdata::RecordData for MasterRecordData<N>
-        where N: $crate::compose::Compose + $crate::compose::Compress
+        impl<O, N> $crate::rdata::RecordData for MasterRecordData<O, N>
+        where O: AsRef<[u8]>, N: $crate::name::ToDname
         {
             fn rtype(&self) -> $crate::iana::Rtype {
-                match *self {
-                    $( $( $(
-                        MasterRecordData::$mtype(ref inner) => {
-                            inner.rtype()
-                        }
-                    )* )* )*
-                    MasterRecordData::Other(ref inner) => inner.rtype(),
-                    MasterRecordData::__Nonexhaustive(_) => unreachable!(),
-                }
+                self.rtype()
             }
         }
 
-        impl $crate::rdata::ParseRecordData
-            for MasterRecordData<$crate::name::ParsedDname>
+        impl<O> $crate::rdata::ParseRecordData<O>
+        for MasterRecordData<O, $crate::name::ParsedDname<O>>
+        where O: $crate::parse::ParseSource
         {
-            type Err = MasterDataParseError;
+            type Err = RdataParseError;
 
-            fn parse_data(rtype: $crate::iana::Rtype,
-                          parser: &mut $crate::parse::Parser, rdlen: usize)
-                          -> Result<Option<Self>, Self::Err> {
+            fn parse_data(
+                rtype: $crate::iana::Rtype,
+                parser: &mut $crate::parse::Parser<O>,
+                rdlen: usize
+            ) -> Result<Option<Self>, Self::Err> {
                 use $crate::parse::ParseAll;
 
                 match rtype {
                     $( $( $(
                         $crate::iana::Rtype::$mtype => {
                             Ok(Some(MasterRecordData::$mtype(
-                                $mtype::parse_all(parser, rdlen)
-                                    .map_err(MasterDataParseError::$mtype)?
+                                $mtype::parse_all(parser, rdlen)?
                             )))
                         }
                     )* )* )*
@@ -282,7 +290,9 @@ macro_rules! rdata_types {
 
         //--- (Scan) and Display
 
-        impl<N: $crate::master::scan::Scan> MasterRecordData<N> {
+        impl MasterRecordData<
+            bytes::Bytes, $crate::name::Dname<bytes::Bytes>
+        > {
             pub fn scan<C>(rtype: $crate::iana::Rtype,
                            scanner: &mut $crate::master::scan::Scanner<C>)
                            -> Result<Self, $crate::master::scan::ScanError>
@@ -304,8 +314,11 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<N> ::std::fmt::Display for MasterRecordData<N>
-        where N: ::std::fmt::Display {
+        impl<O, N> std::fmt::Display for MasterRecordData<O, N>
+        where
+            O: AsRef<[u8]>,
+            N: std::fmt::Display
+        {
             fn fmt(&self, f: &mut ::std::fmt::Formatter)
                    -> ::std::fmt::Result {
                 match *self {
@@ -320,57 +333,118 @@ macro_rules! rdata_types {
             }
         }
 
+        //--- Debug
+
+        impl<O, N> std::fmt::Debug for MasterRecordData<O, N>
+        where
+            O: AsRef<[u8]>,
+            N: std::fmt::Debug
+        {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter)
+                   -> ::std::fmt::Result {
+                match *self {
+                    $( $( $(
+                        MasterRecordData::$mtype(ref inner) => {
+                            f.write_str(
+                                concat!(
+                                    "MasterRecordData::",
+                                    stringify!($mtype),
+                                    "("
+                                )
+                            )?;
+                            std::fmt::Debug::fmt(inner, f)?;
+                            f.write_str(")")
+                        }
+                    )* )* )*
+                    MasterRecordData::Other(ref inner) => {
+                        f.write_str("MasterRecordData::Other(")?;
+                        std::fmt::Debug::fmt(inner, f)?;
+                        f.write_str(")")
+                    }
+                    MasterRecordData::__Nonexhaustive(_) => unreachable!(),
+                }
+            }
+        }
+
+
 
         //------------- AllRecordData ----------------------------------------
 
-        #[derive(Clone, Debug)]
-        pub enum AllRecordData<N> {
+        #[derive(Clone)]
+        pub enum AllRecordData<O, N> {
             $( $( $(
-                $mtype($mtype $( <$mn> )*),
+                $mtype($mtype $( < $( $mn ),* > )*),
             )* )* )*
             $( $( $(
-                $ptype($ptype $( <$pn> )*),
+                $ptype($ptype $( < $( $pn ),* > )*),
             )* )* )*
-            Opt($crate::opt::Opt),
-            Other($crate::rdata::UnknownRecordData),
+            Opt($crate::opt::Opt<O>),
+            Other($crate::rdata::UnknownRecordData<O>),
 
             #[doc(hidden)]
             __Nonexhaustive(::void::Void),
         }
 
+        impl<O, N> AllRecordData<O, N> {
+            fn rtype(&self) -> $crate::iana::Rtype {
+                match *self {
+                    $( $( $(
+                        AllRecordData::$mtype(_) => {
+                            <$mtype $( < $( $mn ),* > )*
+                                as RtypeRecordData>::RTYPE
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(_) => {
+                            <$ptype $( < $( $pn ),* > )*
+                                as RtypeRecordData>::RTYPE
+                        }
+                    )* )* )*
+
+                    AllRecordData::Opt(_) => Rtype::Opt,
+                    AllRecordData::Other(ref inner) => inner.rtype(),
+                    AllRecordData::__Nonexhaustive(_) => unreachable!(),
+                }
+            }
+        }
+
         //--- From and Into
 
         $( $( $(
-            impl<N> From<$mtype $( < $mn >)*> for AllRecordData<N> {
-                fn from(value: $mtype $( < $mn >)*) -> Self {
+            impl<O, N> From<$mtype $( < $( $mn ),* > )*>
+            for AllRecordData<O, N> {
+                fn from(value: $mtype $( < $( $mn ),* >)*) -> Self {
                     AllRecordData::$mtype(value)
                 }
             }
         )* )* )*
 
         $( $( $(
-            impl<N> From<$ptype $( < $pn >)*> for AllRecordData<N> {
-                fn from(value: $ptype $( < $pn >)*) -> Self {
+            impl<O, N> From<$ptype $( < $( $pn ),* > )*>
+            for AllRecordData<O, N> {
+                fn from(value: $ptype $( < $( $pn ),* >)*) -> Self {
                     AllRecordData::$ptype(value)
                 }
             }
         )* )* )*
 
-        impl<N> From<$crate::opt::Opt> for AllRecordData<N> {
-            fn from(value: $crate::opt::Opt) -> Self {
+        impl<O, N> From<$crate::opt::Opt<O>> for AllRecordData<O, N> {
+            fn from(value: $crate::opt::Opt<O>) -> Self {
                 AllRecordData::Opt(value)
             }
         }
 
-        impl<N> From<$crate::rdata::UnknownRecordData> for AllRecordData<N> {
-            fn from(value: $crate::rdata::UnknownRecordData) -> Self {
+        impl<O, N> From<$crate::rdata::UnknownRecordData<O>>
+        for AllRecordData<O, N> {
+            fn from(value: $crate::rdata::UnknownRecordData<O>) -> Self {
                 AllRecordData::Other(value)
             }
         }
 
-        impl<N> Into<Result<MasterRecordData<N>, Self>> for AllRecordData<N>
+        impl<O, N> Into<Result<MasterRecordData<O, N>, Self>>
+        for AllRecordData<O, N>
         {
-            fn into(self) -> Result<MasterRecordData<N>, Self> {
+            fn into(self) -> Result<MasterRecordData<O, N>, Self> {
                 match self {
                     $( $( $(
                         AllRecordData::$mtype(inner) => {
@@ -388,9 +462,13 @@ macro_rules! rdata_types {
 
         //--- PartialEq and Eq
 
-        impl<N> PartialEq for AllRecordData<N>
-        where N: PartialEq {
-            fn eq(&self, other: &Self) -> bool {
+        impl<O, OO, N, NN> PartialEq<AllRecordData<OO, NN>>
+        for AllRecordData<O, N>
+        where
+            O: AsRef<[u8]>, OO: AsRef<[u8]>,
+            N: $crate::name::ToDname, NN: $crate::name::ToDname
+        {
+            fn eq(&self, other: &AllRecordData<OO, NN>) -> bool {
                 match (self, other) {
                     $( $( $(
                         (
@@ -417,36 +495,32 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<N> Eq for AllRecordData<N>
-        where N: PartialEq { }
+        impl<O, N> Eq for AllRecordData<O, N>
+        where O: AsRef<[u8]>, N: $crate::name::ToDname { }
 
 
         //--- Hash
 
-        impl<N> ::std::hash::Hash for AllRecordData<N>
-        where N: ::std::hash::Hash {
+        impl<O, N> ::std::hash::Hash for AllRecordData<O, N>
+        where O: AsRef<[u8]>, N: ::std::hash::Hash {
             fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
-                use $crate::rdata::RecordData;
+                self.rtype().hash(state);
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
-                            $crate::iana::Rtype::$mtype.hash(state);
                             inner.hash(state)
                         }
                     )* )* )*
                     $( $( $(
                         AllRecordData::$ptype(ref inner) => {
-                            $crate::iana::Rtype::$ptype.hash(state);
                             inner.hash(state)
                         }
                     )* )* )*
                     AllRecordData::Opt(ref inner) => {
-                        inner.rtype().hash(state);
                         inner.hash(state);
                     }
                     AllRecordData::Other(ref inner) => {
-                        inner.rtype().hash(state);
-                        inner.data().hash(state);
+                        inner.data().as_ref().hash(state);
                     }
                     AllRecordData::__Nonexhaustive(_) => unreachable!()
                 }
@@ -454,32 +528,16 @@ macro_rules! rdata_types {
         }
 
 
-        //--- Compose and Compress
+        //--- Compose
         //
         //    No Parse or ParseAll because Other variant needs to know the
         //    record type.
-        impl<N> $crate::compose::Compose for AllRecordData<N>
-        where N: $crate::compose::Compose
-        {
-            fn compose_len(&self) -> usize {
-                match *self {
-                    $( $( $(
-                        AllRecordData::$mtype(ref inner) => {
-                            inner.compose_len()
-                        }
-                    )* )* )*
-                    $( $( $(
-                        AllRecordData::$ptype(ref inner) => {
-                            inner.compose_len()
-                        }
-                    )* )* )*
-                    AllRecordData::Opt(ref inner) => inner.compose_len(),
-                    AllRecordData::Other(ref inner) => inner.compose_len(),
-                    AllRecordData::__Nonexhaustive(_) => unreachable!(),
-                }
-            }
 
-            fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
+        impl<O, N> $crate::compose::Compose for AllRecordData<O, N>
+        where O: AsRef<[u8]>, N: $crate::name::ToDname
+        {
+            fn compose<T>(&self, buf: &mut T)
+            where T: ComposeTarget + ?Sized {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
@@ -496,25 +554,26 @@ macro_rules! rdata_types {
                     AllRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
-        }
 
-        impl<N> $crate::compose::Compress for AllRecordData<N>
-        where N: $crate::compose::Compress + $crate::compose::Compose {
-            fn compress(&self, buf: &mut $crate::compose::Compressor)
-                        -> Result<(), $crate::parse::ShortBuf> {
+            fn compose_canonical<T>(&self, buf: &mut T)
+            where T: ComposeTarget + ?Sized {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
-                            inner.compress(buf)
+                            inner.compose_canonical(buf)
                         }
                     )* )* )*
                     $( $( $(
                         AllRecordData::$ptype(ref inner) => {
-                            inner.compress(buf)
+                            inner.compose_canonical(buf)
                         }
                     )* )* )*
-                    AllRecordData::Opt(ref inner) => inner.compress(buf),
-                    AllRecordData::Other(ref inner) => inner.compress(buf),
+                    AllRecordData::Opt(ref inner) => {
+                        inner.compose_canonical(buf)
+                    }
+                    AllRecordData::Other(ref inner) => {
+                        inner.compose_canonical(buf)
+                    }
                     AllRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
@@ -523,9 +582,8 @@ macro_rules! rdata_types {
 
         //--- RecordData and ParseRecordData
 
-        impl<N> $crate::rdata::RecordData for AllRecordData<N>
-        where N: $crate::compose::Compose + $crate::compose::Compress
-        {
+        impl<O, N> $crate::rdata::RecordData for AllRecordData<O, N>
+        where O: AsRef<[u8]>, N: $crate::name::ToDname {
             fn rtype(&self) -> $crate::iana::Rtype {
                 match *self {
                     $( $( $(
@@ -545,37 +603,36 @@ macro_rules! rdata_types {
             }
         }
 
-        impl $crate::rdata::ParseRecordData
-            for AllRecordData<$crate::name::ParsedDname>
+        impl<O: ParseSource> $crate::rdata::ParseRecordData<O>
+        for AllRecordData<O, $crate::name::ParsedDname<O>>
         {
-            type Err = AllDataParseError;
+            type Err = RdataParseError;
 
-            fn parse_data(rtype: $crate::iana::Rtype,
-                          parser: &mut $crate::parse::Parser, rdlen: usize)
-                          -> Result<Option<Self>, Self::Err> {
+            fn parse_data(
+                rtype: $crate::iana::Rtype,
+                parser: &mut $crate::parse::Parser<O>,
+                rdlen: usize
+            ) -> Result<Option<Self>, Self::Err> {
                 use $crate::parse::ParseAll;
 
                 match rtype {
                     $( $( $(
                         $crate::iana::Rtype::$mtype => {
                             Ok(Some(AllRecordData::$mtype(
-                                $mtype::parse_all(parser, rdlen)
-                                    .map_err(AllDataParseError::$mtype)?
+                                $mtype::parse_all(parser, rdlen)?
                             )))
                         }
                     )* )* )*
                     $( $( $(
                         $crate::iana::Rtype::$ptype => {
                             Ok(Some(AllRecordData::$ptype(
-                                $ptype::parse_all(parser, rdlen)
-                                    .map_err(AllDataParseError::$ptype)?
+                                $ptype::parse_all(parser, rdlen)?
                             )))
                         }
                     )* )* )*
                     $crate::iana::Rtype::Opt => {
                         Ok(Some(AllRecordData::Opt(
-                            $crate::opt::Opt::parse_all(parser, rdlen)
-                                .map_err(AllDataParseError::Opt)?
+                            $crate::opt::Opt::parse_all(parser, rdlen)?
                         )))
                     }
                     _ => {
@@ -588,10 +645,10 @@ macro_rules! rdata_types {
         }
 
         
-        //--- Display
+        //--- Display and Debug
 
-        impl<N> ::std::fmt::Display for AllRecordData<N>
-        where N: ::std::fmt::Display {
+        impl<O, N> ::std::fmt::Display for AllRecordData<O, N>
+        where O: AsRef<[u8]>, N: ::std::fmt::Display {
             fn fmt(&self, f: &mut ::std::fmt::Formatter)
                    -> ::std::fmt::Result {
                 match *self {
@@ -612,61 +669,55 @@ macro_rules! rdata_types {
             }
         }
 
-
-        //------------- MasterDataParseError ---------------------------------
-
-        parse_err!(MasterDataParseError,
-            $( $( $(
-                { $mtype $( $mn $crate::name::ParsedDname )* }
-            )* )* )*
-        );
-
-
-        //------------- AllDataParseError ------------------------------------
-
-        parse_err!(AllDataParseError,
-            $( $( $(
-                { $mtype $( $mn $crate::name::ParsedDname )* }
-            )* )* )*
-            $( $( $(
-                { $ptype $( $pn $crate::name::ParsedDname )* }
-            )* )* )*
-            { Opt  }
-        );
-    }
-}
-
-
-macro_rules! parse_err {
-    ( $err:ident, $( { $t:ident $( $x:ident $gen:ty )* } )* ) => {
-        #[derive(Clone, Debug, Eq, PartialEq)]
-        pub enum $err {
-            $(
-                $t(<$t $( <$gen> )* as $crate::rdata::ParseRecordData>::Err),
-            )*
-            ShortBuf,
-        }
-
-        impl std::error::Error for $err { }
-
-        impl std::fmt::Display for $err {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        impl<O, N> std::fmt::Debug for AllRecordData<O, N>
+        where
+            O: AsRef<[u8]>,
+            N: std::fmt::Debug
+        {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter)
+                   -> ::std::fmt::Result {
                 match *self {
-                    $(
-                        $err::$t(ref inner) => inner.fmt(f),
-                    )*
-                    $err::ShortBuf => {
-                        "short buffer".fmt(f)
+                    $( $( $(
+                        AllRecordData::$mtype(ref inner) => {
+                            f.write_str(
+                                concat!(
+                                    "AllRecordData::",
+                                    stringify!($mtype),
+                                    "("
+                                )
+                            )?;
+                            std::fmt::Debug::fmt(inner, f)?;
+                            f.write_str(")")
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(ref inner) => {
+                            f.write_str(
+                                concat!(
+                                    "AllRecordData::",
+                                    stringify!($ptype),
+                                    "("
+                                )
+                            )?;
+                            std::fmt::Debug::fmt(inner, f)?;
+                            f.write_str(")")
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(ref inner) => {
+                        f.write_str("AllRecordData::Opt(")?;
+                        std::fmt::Debug::fmt(inner, f)?;
+                        f.write_str(")")
                     }
+                    AllRecordData::Other(ref inner) => {
+                        f.write_str("AllRecordData::Other(")?;
+                        std::fmt::Debug::fmt(inner, f)?;
+                        f.write_str(")")
+                    }
+                    AllRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
 
-        impl From<$crate::parse::ShortBuf> for $err {
-            fn from(_: $crate::parse::ShortBuf) -> Self {
-                $err::ShortBuf
-            }
-        }
     }
 }
 
