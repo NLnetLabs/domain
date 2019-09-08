@@ -9,10 +9,12 @@ use core::ops::{Deref, DerefMut};
 use unwrap::unwrap;
 use crate::compose::{Compose, ComposeTarget, TryCompose};
 use crate::header::{Header, HeaderCounts, HeaderSection};
+use crate::iana::{OptionCode, OptRcode};
 use crate::message::Message;
 use crate::name::{ToDname, Label};
 #[cfg(feature = "std")] use crate::name::OwnedLabel;
 use crate::octets::OctetsBuilder;
+use crate::opt::{OptHeader, OptData};
 use crate::parse::ShortBuf;
 use crate::question::Question;
 use crate::rdata::RecordData;
@@ -437,6 +439,11 @@ impl<Target: ComposeTarget> AdditionalBuilder<Target> {
         self.rewind()
     }
 
+    pub fn opt(self) -> Result<OptBuilder<Target>, Self>
+    where Target: TryCompose {
+        OptBuilder::new(self)
+    }
+
     pub fn finish(self) -> Target {
         self.authority.finish()
     }
@@ -478,6 +485,159 @@ where Target: ComposeTarget + TryCompose {
         })?;
         self.counts_mut().inc_ancount();
         Ok(())
+    }
+}
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+pub struct OptBuilder<Target> {
+    additional: AdditionalBuilder<Target>,
+    start: usize,
+    arcount: u16,
+}
+
+impl<Target: ComposeTarget> OptBuilder<Target> {
+    fn new(
+        mut additional: AdditionalBuilder<Target>
+    ) -> Result<Self, AdditionalBuilder<Target>>
+    where Target: TryCompose {
+        let start = additional.as_target().as_ref().len();
+        let arcount = additional.counts().arcount();
+
+        let err = additional.as_target_mut().try_compose(|target| {
+            OptHeader::default().compose(target);
+            0u16.compose(target);
+        }).is_err();
+        if err {
+            return Err(additional)
+        }
+        additional.counts_mut().inc_arcount();
+
+        Ok(OptBuilder {
+            additional, start, arcount
+        })
+    }
+
+    fn rewind(self) -> AdditionalBuilder<Target> {
+        let mut res = self.additional;
+        res.as_target_mut().truncate(self.start);
+        res.counts_mut().set_arcount(self.arcount);
+        res
+    }
+
+    pub fn push<Octets, Opt>(&mut self, opt: &Opt) -> Result<(), ShortBuf>
+    where Target: TryCompose, Opt: OptData<Octets> {
+        self.append_raw_option(opt.code(), |target| {
+            opt.compose(target)
+        })
+    }
+
+    pub fn append_raw_option<F>(
+        &mut self, code: OptionCode, op: F
+    ) -> Result<(), ShortBuf>
+    where
+        Target: TryCompose,
+        F: FnOnce(&mut <Target::Target as ComposeTarget>::LenTarget)
+    {
+        // Add the option.
+        let pos = self.as_target().as_ref().len();
+        self.as_target_mut().try_compose(|target| {
+            code.compose(target);
+            target.len_prefixed(op);
+        })?;
+
+        // Update the length. If the option is too long, truncate and return
+        // an error.
+        let len = self.as_target().as_ref().len()
+                - self.start
+                - (mem::size_of::<OptHeader>() + 2);
+        if len > usize::from(u16::max_value()) {
+            self.as_target_mut().truncate(pos);
+            return Err(ShortBuf)
+        }
+        let start = self.start + mem::size_of::<OptHeader>();
+        self.as_target_mut().as_mut()[start..start + 2]
+            .copy_from_slice(&(len as u16).to_be_bytes());
+        Ok(())
+    }
+
+    pub fn udp_payload_size(&self) -> u16 {
+        self.opt_header().udp_payload_size()
+    }
+
+    pub fn set_udp_payload_size(&mut self, value: u16) {
+        self.opt_header_mut().set_udp_payload_size(value)
+    }
+
+    pub fn rcode(&self) -> OptRcode {
+        let header = self.header().clone();
+        self.opt_header().rcode(header)
+    }
+
+    pub fn set_rcode(&mut self, rcode: OptRcode) {
+        self.header_mut().set_rcode(rcode.rcode());
+        self.opt_header_mut().set_rcode(rcode)
+    }
+
+    fn opt_header(&self) -> &OptHeader {
+        OptHeader::for_record_slice(&self.as_target().as_ref()[self.start..])
+    }
+
+    fn opt_header_mut(&mut self) -> &mut OptHeader {
+        let start = self.start;
+        OptHeader::for_record_slice_mut(
+            &mut self.as_target_mut().as_mut()[start..]
+        )
+    }
+
+    pub fn builder(self) -> MessageBuilder<Target> {
+        self.additional().builder()
+    }
+
+    pub fn question(self) -> QuestionBuilder<Target> {
+        self.additional().question()
+    }
+
+    pub fn answer(self) -> AnswerBuilder<Target> {
+        self.additional().answer()
+    }
+
+    pub fn authority(self) -> AuthorityBuilder<Target> {
+        self.additional().authority()
+    }
+
+    pub fn additional(self) -> AdditionalBuilder<Target> {
+        self.rewind()
+    }
+
+    pub fn finish(self) -> Target {
+        self.additional.finish()
+    }
+
+    fn as_target(&self) -> &Target {
+        self.additional.as_target()
+    }
+
+    fn as_target_mut(&mut self) -> &mut Target {
+        self.additional.as_target_mut()
+    }
+}
+
+
+//--- Deref, DerefMut, AsRef, and AsMut
+
+impl<Target> Deref for OptBuilder<Target> {
+    type Target = MessageBuilder<Target>;
+
+    fn deref(&self) -> &Self::Target {
+        self.additional.deref()
+    }
+}
+
+impl<Target> DerefMut for OptBuilder<Target> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.additional.deref_mut()
     }
 }
 
