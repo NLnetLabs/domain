@@ -1,15 +1,17 @@
 //! Building a new DNS message.
 
-use std::mem;
-use std::cmp::min;
-use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
-use bytes::BytesMut;
+use core::mem;
+use core::cmp::min;
+#[cfg(feature = "std")] use std::collections::HashMap;
+#[cfg(feature = "std")] use std::vec::Vec;
+use core::ops::{Deref, DerefMut};
+#[cfg(feature = "bytes")] use bytes::BytesMut;
 use unwrap::unwrap;
 use crate::compose::{Compose, ComposeTarget, TryCompose};
 use crate::header::{Header, HeaderCounts, HeaderSection};
 use crate::message::Message;
-use crate::name::{ToDname, Label, OwnedLabel};
+use crate::name::{ToDname, Label};
+#[cfg(feature = "std")] use crate::name::OwnedLabel;
 use crate::octets::OctetsBuilder;
 use crate::parse::ShortBuf;
 use crate::question::Question;
@@ -72,12 +74,14 @@ impl<Octets, Comp> MessageBuilder<DgramTarget<Octets, Comp>> {
     }
 }
 
+#[cfg(feature = "std")]
 impl MessageBuilder<DgramTarget<Vec<u8>, StaticCompressor>> {
     pub fn new_dgram_vec() -> Self {
         Self::from_target(DgramTarget::new())
     }
 }
 
+#[cfg(feature="bytes")] 
 impl MessageBuilder<DgramTarget<BytesMut, StaticCompressor>> {
     pub fn new_dgram_bytes() -> Self {
         Self::from_target(DgramTarget::new())
@@ -879,23 +883,27 @@ impl Compressor for StaticCompressor {
 
 //------------ TreeCompressor ------------------------------------------------
 
+#[cfg(feature = "std")]
 #[derive(Default)]
 pub struct TreeCompressor {
     start: Node,
 }
 
+#[cfg(feature = "std")]
 #[derive(Default)]
 struct Node {
     parents: HashMap<OwnedLabel, Self>,
     value: Option<u16>,
 }
 
+#[cfg(feature = "std")]
 impl TreeCompressor {
     pub fn new() -> Self {
         Default::default()
     }
 }
 
+#[cfg(feature = "std")]
 impl Compressor for TreeCompressor {
     fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
         &mut self,

@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
-use std::{borrow, cmp, error, fmt, hash, ops};
+use core::{borrow, cmp, fmt, hash, ops};
 use derive_more::Display;
 use crate::compose::{Compose, ComposeTarget};
 use crate::octets::OctetsBuilder;
@@ -248,7 +248,8 @@ impl AsMut<[u8]> for Label {
 
 //--- ToOwned
 
-impl borrow::ToOwned for Label {
+#[cfg(feature = "std")]
+impl std::borrow::ToOwned for Label {
     type Owned = OwnedLabel;
     
     fn to_owned(&self) -> Self::Owned {
@@ -314,7 +315,7 @@ impl hash::Hash for Label {
 
 impl<'a> IntoIterator for &'a Label {
     type Item = &'a u8;
-    type IntoIter = ::std::slice::Iter<'a, u8>;
+    type IntoIter = core::slice::Iter<'a, u8>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -564,7 +565,8 @@ pub enum LabelTypeError {
     Extended(u8),
 }
 
-impl error::Error for LabelTypeError { }
+#[cfg(feature = "std")]
+impl std::error::Error for LabelTypeError { }
 
 
 //------------ LongLabelError ------------------------------------------------
@@ -574,7 +576,8 @@ impl error::Error for LabelTypeError { }
 #[display(fmt="long label")]
 pub struct LongLabelError;
 
-impl error::Error for LongLabelError { }
+#[cfg(feature = "std")]
+impl std::error::Error for LongLabelError { }
 
 
 //------------ SplitLabelError -----------------------------------------------
@@ -595,7 +598,8 @@ pub enum SplitLabelError {
     ShortBuf,
 }
 
-impl error::Error for SplitLabelError { }
+#[cfg(feature = "std")]
+impl std::error::Error for SplitLabelError { }
 
 impl From<LabelTypeError> for SplitLabelError {
     fn from(err: LabelTypeError) -> SplitLabelError {

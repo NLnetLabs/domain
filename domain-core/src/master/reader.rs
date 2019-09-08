@@ -2,6 +2,7 @@
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::string::String;
 use bytes::Bytes;
 use crate::iana::Class;
 use crate::name::Dname;

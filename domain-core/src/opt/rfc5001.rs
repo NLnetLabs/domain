@@ -1,6 +1,6 @@
 /// EDNS0 Options from RFC 5001.
 
-use std::fmt;
+use core::fmt;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
 // XXX use crate::message_builder::OptBuilder;
@@ -53,7 +53,7 @@ impl<Octets> CodeOptData for Nsid<Octets> {
 
 impl<Octets: AsRef<[u8]>> Compose for Nsid<Octets> {
     fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        assert!(self.octets.as_ref().len() < ::std::u16::MAX as usize);
+        assert!(self.octets.as_ref().len() < core::u16::MAX as usize);
         target.append_slice(self.octets.as_ref())
     }
 }

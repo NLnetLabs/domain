@@ -1,10 +1,12 @@
-use std::{fmt, hash};
-use std::cmp::Ordering;
-use bytes::Bytes;
+use core::{fmt, hash};
+use core::cmp::Ordering;
+#[cfg(feature="bytes")] use bytes::Bytes;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{DigestAlg, Rtype, SecAlg};
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner
+};
 use crate::utils::base64;
 use crate::parse::{
     Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
@@ -150,6 +152,7 @@ impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Cdnskey<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -341,6 +344,7 @@ impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Cds<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>

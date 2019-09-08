@@ -1,9 +1,8 @@
 //! Parsing DNS wire-format data.
 
-use std::error;
-use std::net::{Ipv4Addr, Ipv6Addr};
 use derive_more::Display;
-use bytes::Bytes;
+#[cfg(feature="bytes")] use bytes::Bytes;
+use crate::net::{Ipv4Addr, Ipv6Addr};
 
 
 //------------ ParseSource ---------------------------------------------------
@@ -47,6 +46,7 @@ impl<'a> ParseSource for &'a [u8] {
     }
 }
 
+#[cfg(feature="bytes")]
 impl ParseSource for Bytes {
     fn range(&self, start: usize, end: usize) -> Self {
         self.slice(start, end)
@@ -270,7 +270,7 @@ impl<T: AsRef<[u8]>> Parser<T> {
 /// bytes or boundary markers.
 pub trait Parse<T>: Sized {
     /// The type of an error returned when parsing fails.
-    type Err: From<ShortBuf> + error::Error;
+    type Err: From<ShortBuf>;
 
     /// Extracts a value from the beginning of `parser`.
     ///
@@ -396,7 +396,7 @@ impl<T: AsRef<[u8]>> Parse<T> for Ipv6Addr {
 /// all remaining bytes.
 pub trait ParseAll<T>: Sized {
     /// The type returned when parsing fails.
-    type Err: From<ShortBuf> + error::Error;
+    type Err: From<ShortBuf>;
 
     /// Parses a value `len` bytes long from the beginning of the parser.
     ///
@@ -511,7 +511,8 @@ pub enum ParseOpenError {
     ShortBuf
 }
 
-impl error::Error for ParseOpenError { }
+#[cfg(feature = "std")]
+impl std::error::Error for ParseOpenError { }
 
 impl From<ShortBuf> for ParseOpenError {
     fn from(_: ShortBuf) -> Self {
@@ -527,7 +528,8 @@ impl From<ShortBuf> for ParseOpenError {
 #[display(fmt="unexpected end of buffer")]
 pub struct ShortBuf;
 
-impl error::Error for ShortBuf { }
+#[cfg(feature = "std")]
+impl std::error::Error for ShortBuf { }
 
 
 //--------- ParseAllError ----------------------------------------------------
@@ -562,7 +564,8 @@ impl ParseAllError {
     }
 }
 
-impl error::Error for ParseAllError { }
+#[cfg(feature = "std")]
+impl std::error::Error for ParseAllError { }
 
 impl From<ShortBuf> for ParseAllError {
     fn from(_: ShortBuf) -> Self {

@@ -1,8 +1,6 @@
 //! DNS EDNS0 Option Codes (OPT)
 
-use std::cmp;
-use std::fmt;
-use std::hash;
+use core::{cmp, fmt, hash};
 use crate::compose::{Compose, ComposeTarget};
 use crate::parse::{Parse, Parser, ShortBuf};
 

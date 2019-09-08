@@ -1,11 +1,10 @@
 //! EDNS Options from RFC 7871
 
-use std::error;
-use std::net::IpAddr;
 use derive_more::Display;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
 // XXX use crate::message_builder::OptBuilder;
+use crate::net::IpAddr;
 use crate::parse::{ParseAll, Parser, ShortBuf};
 use super::CodeOptData;
 
@@ -124,7 +123,8 @@ pub enum OptionParseError {
     ShortBuf,
 }
 
-impl error::Error for OptionParseError { }
+#[cfg(feature = "std")]
+impl std::error::Error for OptionParseError { }
 
 impl From<ShortBuf> for OptionParseError {
     fn from(_: ShortBuf) -> Self {

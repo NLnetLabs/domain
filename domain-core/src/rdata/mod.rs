@@ -115,14 +115,16 @@ pub mod parsed {
     pub use super::rfc7344::parsed::*;
 }
 
-use std::{error, fmt};
-use std::cmp::Ordering;
-use bytes::{BufMut, Bytes, BytesMut};
+use core::fmt;
+use core::cmp::Ordering;
+#[cfg(feature="bytes")] use bytes::{BufMut, Bytes, BytesMut};
 use derive_more::{Display, From};
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
-use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError, SyntaxError
+};
 use crate::name::{ParsedDnameError, ParsedDnameAllError};
 use crate::parse::{
     ParseAll, ParseAllError, ParseOpenError, Parser, ParseSource, ShortBuf
@@ -160,7 +162,7 @@ pub trait RecordData: Compose + Sized {
 /// To reflect this asymmetry, parsing of record data has its own trait.
 pub trait ParseRecordData<Octets>: RecordData {
     /// The type of an error returned when parsing fails.
-    type Err: error::Error;
+    type Err;
 
     /// Parses the record data.
     ///
@@ -273,6 +275,7 @@ impl<Octets> UnknownRecordData<Octets> {
     }
 }
 
+#[cfg(feature="bytes")]
 impl UnknownRecordData<Bytes> {
     /// Scans the record data.
     ///
@@ -439,5 +442,6 @@ impl From<ParsedDnameError> for RdataParseError {
     }
 }
 
-impl error::Error for RdataParseError { }
+#[cfg(feature = "std")]
+impl std::error::Error for RdataParseError { }
 

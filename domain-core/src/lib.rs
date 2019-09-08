@@ -91,6 +91,14 @@
 //! [master]: master/index.html
 //! [rdata]: rdata/index.html
 
+#![no_std]
+
+#[cfg(any(feature = "std"))]
+extern crate std;
+
+#[macro_use] extern crate core;
+
+
 //--- Re-exports
 
 /*
@@ -123,6 +131,7 @@ pub mod master;
 pub mod message;
 pub mod message_builder;
 pub mod name;
+pub mod net;
 pub mod octets;
 pub mod opt;
 pub mod parse;
@@ -130,4 +139,5 @@ pub mod question;
 pub mod rdata;
 pub mod record;
 pub mod serial;
+pub mod str;
 pub mod utils;

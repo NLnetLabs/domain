@@ -24,16 +24,17 @@
 //! [`CharStrMut`]: struct.CharStrMut.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{cmp, error, fmt, hash, ops, str};
-use bytes::{Bytes, BytesMut};
+use core::{cmp, fmt, hash, ops, str};
+#[cfg(feature = "std")] use std::vec::Vec;
+#[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 use derive_more::Display;
 use crate::octets;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
-use crate::master::scan::{
-    BadSymbol, CharSource, Scan, Scanner, ScanError, Symbol, SymbolError,
-    SyntaxError
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError, SyntaxError
 };
+use crate::str::{BadSymbol, Symbol, SymbolError};
 use crate::octets::{FromBuilder, IntoBuilder, OctetsBuilder};
 use crate::parse::{
     ParseAll, ParseAllError, Parse, Parser, ParseSource, ShortBuf
@@ -108,6 +109,7 @@ impl<T: AsRef<[u8]> + ?Sized> CharStr<T> {
     }
 }
 
+#[cfg(feature="bytes")]
 impl CharStr<Bytes> {
     /// Creates a new character string from a bytes value.
     ///
@@ -283,6 +285,7 @@ impl<T: AsRef<[u8]> + ?Sized> Compose for CharStr<T> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for CharStr<Bytes> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -299,8 +302,8 @@ impl Scan for CharStr<Bytes> {
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::Display for CharStr<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for ch in self.0.as_ref() {
-            fmt::Display::fmt(&Symbol::from_byte(*ch), f)?
+        for &ch in self.0.as_ref() {
+            fmt::Display::fmt(&Symbol::from_byte(ch), f)?;
         }
         Ok(())
     }
@@ -353,8 +356,9 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     }
 
     // This should be a `const fn` once that becomes allowed.
+    // (const fn not allowed with generic types)
     fn max_capacity() -> usize {
-        std::cmp::min(Builder::MAX_CAPACITY, 255)
+        core::cmp::min(Builder::MAX_CAPACITY, 255)
     }
 
     /// Creates a character string builder from an octet sequence unchecked.
@@ -379,6 +383,7 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     }
 }
 
+#[cfg(feature = "std")]
 impl CharStrBuilder<Vec<u8>> {
     pub fn new_vec() -> Self {
         Self::new()
@@ -389,6 +394,7 @@ impl CharStrBuilder<Vec<u8>> {
     }
 }
 
+#[cfg(feature="bytes")]
 impl CharStrBuilder<BytesMut> {
     pub fn new_bytes() -> Self {
         Self::new()
@@ -501,7 +507,8 @@ impl<Builder: OctetsBuilder> AsMut<[u8]> for CharStrBuilder<Builder> {
 #[display(fmt="illegal character string")]
 pub struct CharStrError;
 
-impl error::Error for CharStrError { }
+#[cfg(feature = "std")]
+impl std::error::Error for CharStrError { }
 
 
 //------------ FromStrError --------------------------------------------
@@ -534,7 +541,8 @@ pub enum FromStrError {
     BadSymbol(Symbol),
 }
 
-impl error::Error for FromStrError { }
+#[cfg(feature = "std")]
+impl std::error::Error for FromStrError { }
 
 
 //--- From
@@ -573,7 +581,8 @@ impl From<PushError> for FromStrError {
 #[display(fmt="adding bytes would exceed the size limit")]
 pub struct PushError;
 
-impl error::Error for PushError { }
+#[cfg(feature = "std")]
+impl std::error::Error for PushError { }
 
 
 //============ Testing ======================================================
@@ -597,6 +606,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature="bytes")]
     fn from_bytes() {
         assert_eq!(
             unwrap!(CharStr::from_bytes(

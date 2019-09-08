@@ -1,6 +1,7 @@
 //! EDNS Options from RFC 8145.
 
-use bytes::{BigEndian, ByteOrder};
+use core::convert::TryInto;
+use unwrap::unwrap;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
 // XXX use crate::message_builder::OptBuilder;
@@ -100,7 +101,7 @@ impl<'a> Iterator for KeyTagIter<'a> {
         else {
             let (item, tail) = self.0.split_at(2);
             self.0 = tail;
-            Some(BigEndian::read_u16(item))
+            Some(u16::from_be_bytes(unwrap!(item.try_into())))
         }
     }
 }

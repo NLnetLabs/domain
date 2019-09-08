@@ -3,8 +3,8 @@
 //! This module defines the type `Question` which represents an entry in
 //! the question section of a DNS message.
 
-use std::{fmt, hash};
-use std::cmp::Ordering;
+use core::{fmt, hash};
+use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{Class, Rtype};
 use crate::compose::{Compose, ComposeTarget};

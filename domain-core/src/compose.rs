@@ -1,8 +1,9 @@
 //! Assembling wire-format DNS data.
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-use bytes::BytesMut;
+#[cfg(feature = "std")] use std::vec::Vec;
+#[cfg(feature = "bytes")] use bytes::BytesMut;
 use crate::name::ToDname;
+use crate::net::{Ipv4Addr, Ipv6Addr};
 
 //------------ Re-exported for your convenience ------------------------------
 
@@ -32,6 +33,7 @@ pub trait ComposeTarget: AsRef<[u8]> + AsMut<[u8]> {
     fn len_prefixed<F: FnOnce(&mut Self::LenTarget)>(&mut self, op: F);
 }
 
+#[cfg(feature = "std")]
 impl ComposeTarget for Vec<u8> {
     type LenTarget = Self;
 
@@ -52,6 +54,7 @@ impl ComposeTarget for Vec<u8> {
     }
 }
 
+#[cfg(feature="bytes")]
 impl ComposeTarget for BytesMut {
     type LenTarget = Self;
 
@@ -73,7 +76,6 @@ impl ComposeTarget for BytesMut {
 }
 
 
-
 //------------ TryCompose ----------------------------------------------------
 
 pub trait TryCompose {
@@ -83,6 +85,7 @@ pub trait TryCompose {
     where F: FnOnce(&mut Self::Target);
 }
 
+#[cfg(feature = "std")]
 impl TryCompose for Vec<u8> {
     type Target = Self;
 
@@ -93,6 +96,7 @@ impl TryCompose for Vec<u8> {
     }
 }
 
+#[cfg(feature="bytes")]
 impl TryCompose for BytesMut {
     type Target = Self;
 

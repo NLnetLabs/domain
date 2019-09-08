@@ -4,20 +4,21 @@
 //!
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::{hash, fmt, ops};
-use std::cmp::Ordering;
-use std::net::Ipv4Addr;
-use std::str::FromStr;
-use bytes::{Bytes, BytesMut};
+use core::{hash, fmt, ops};
+use core::cmp::Ordering;
+use core::str::FromStr;
+#[cfg(feature="bytes")] use bytes::{Bytes, BytesMut};
 use unwrap::unwrap;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
 use crate::charstr::{CharStr, PushError};
-use crate::master::scan::{
-    CharSource, ScanError, Scan, Scanner, Symbol, SyntaxError
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, ScanError, Scan, Scanner, SyntaxError
 };
+use crate::str::Symbol;
 use crate::name::{ParsedDname, ToDname};
+use crate::net::Ipv4Addr;
 use crate::octets::{FromBuilder, OctetsBuilder};
 use crate::parse::{
     ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ParseSource,
@@ -154,6 +155,7 @@ macro_rules! dname_type {
 
         //--- Scan and Display
 
+        #[cfg(feature="bytes")] 
         impl<N: Scan> Scan for $target<N> {
             fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                                    -> Result<Self, ScanError> {
@@ -232,6 +234,7 @@ impl From<A> for Ipv4Addr {
     }
 }
 
+#[cfg(feature = "std")]
 impl FromStr for A {
     type Err = <Ipv4Addr as FromStr>::Err;
 
@@ -284,6 +287,7 @@ impl Compose for A {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")] 
 impl Scan for A {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -482,6 +486,7 @@ impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")] 
 impl Scan for Hinfo<Bytes> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -726,6 +731,7 @@ impl<N: ToDname> Compose for Minfo<N> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")] 
 impl<N: Scan> Scan for Minfo<N> {
     fn scan<C: CharSource>(scanner: &mut  Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -890,6 +896,7 @@ impl<N: ToDname> Compose for Mx<N> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")] 
 impl<N: Scan> Scan for Mx<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -1359,6 +1366,7 @@ impl<N: ToDname> Compose for Soa<N> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")] 
 impl<N: Scan> Scan for Soa<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -1541,6 +1549,7 @@ impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")] 
 impl Scan for Txt<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -1628,6 +1637,7 @@ impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
     }
 }
 
+#[cfg(feature="bytes")] 
 impl TxtBuilder<BytesMut> {
     pub fn new_bytes() -> Self {
         Self::new()
@@ -1840,6 +1850,7 @@ impl<Octets: AsRef<[u8]>> Compose for Wks<Octets> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")] 
 impl Scan for Wks<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -1940,6 +1951,7 @@ impl<Builder: OctetsBuilder> WksBuilder<Builder> {
     }
 }
 
+#[cfg(feature="bytes")] 
 impl WksBuilder<BytesMut> {
     pub fn new_bytes(address: Ipv4Addr, protocol: u8) -> Self {
         Self::new(address, protocol)

@@ -1,6 +1,6 @@
 //! EDNS Options from RFC 6975.
 
-use std::slice;
+use core::slice;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{OptionCode, SecAlg};
 // XXX use crate::message_builder::OptBuilder;

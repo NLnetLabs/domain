@@ -2,12 +2,16 @@
 //!
 //! This is a private module. Its public types are re-exported by the parent.
 
-use std::{fmt, hash, str};
-use bytes::{Bytes, BytesMut};
+use core::{fmt, hash, str};
+#[cfg(feature = "std")] use std::vec::Vec;
+#[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 use derive_more::From;
 use crate::compose::{Compose, ComposeTarget};
-use crate::master::scan::{CharSource, Scan, Scanner, ScanError, Symbol};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError
+};
 use crate::octets::{FromBuilder, IntoBuilder, OctetsBuilder};
+#[cfg(feature = "bytes")] use crate::str::Symbol;
 use super::builder::{DnameBuilder, FromStrError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -94,6 +98,7 @@ impl UncertainDname<&'static [u8]> {
     }
 }
 
+#[cfg(feature = "std")]
 impl UncertainDname<Vec<u8>> {
     /// Creates an empty relative name atop a vec.
     pub fn empty_vec() -> Self {
@@ -105,6 +110,7 @@ impl UncertainDname<Vec<u8>> {
     }
 }
 
+#[cfg(feature="bytes")] 
 impl UncertainDname<Bytes> {
     /// Creates an empty relative name atop a bytes value.
     pub fn empty_bytes() -> Self {
@@ -317,6 +323,7 @@ impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
 
 //--- Scan
 
+#[cfg(feature="bytes")]
 impl Scan for UncertainDname<Bytes> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {

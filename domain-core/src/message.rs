@@ -11,8 +11,8 @@
 //!
 //! [`Message`]: struct.Message.html
 
-use std::{mem, ops};
-use std::marker::PhantomData;
+use core::{mem, ops};
+use core::marker::PhantomData;
 use crate::compose::{ComposeTarget, TryCompose};
 use crate::header::{Header, HeaderCounts, HeaderSection};
 use crate::iana::{Rcode, Rtype};

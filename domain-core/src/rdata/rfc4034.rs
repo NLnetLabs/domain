@@ -4,17 +4,20 @@
 //!
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
-use std::{error, fmt, hash, ptr};
-use std::cmp::Ordering;
-use std::convert::TryInto;
-use bytes::{Bytes, BytesMut};
+use core::{fmt, hash, ptr};
+use core::cmp::Ordering;
+use core::convert::TryInto;
+#[cfg(feature="bytes")] use bytes::{Bytes, BytesMut};
 use derive_more::{Display, From};
 use unwrap::unwrap;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{DigestAlg, Rtype, SecAlg};
-use crate::master::scan::{CharSource, ScanError, Scan, Scanner};
-use crate::name::{Dname, ParsedDnameError, ToDname};
+#[cfg(feature="bytes")] use crate::master::scan::{ 
+    CharSource, ScanError, Scan, Scanner
+};
+use crate::name::{ParsedDnameError, ToDname};
+#[cfg(feature="bytes")] use crate::name::Dname;
 use crate::octets::{IntoBuilder, OctetsBuilder};
 use crate::parse::{
     Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
@@ -239,6 +242,7 @@ impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Dnskey<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -554,6 +558,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Rrsig<Bytes, Dname<Bytes>> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -748,6 +753,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl<N: Scan> Scan for Nsec<Bytes, N> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -936,6 +942,7 @@ impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Ds<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -1134,6 +1141,7 @@ impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for RtypeBitmap<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -1369,7 +1377,8 @@ pub enum ParseNsecError {
     BadRtypeBitmap,
 }
 
-impl error::Error for ParseNsecError { }
+#[cfg(feature = "std")]
+impl std::error::Error for ParseNsecError { }
 
 impl From<ShortBuf> for ParseNsecError {
     fn from(_: ShortBuf) -> Self {
@@ -1414,7 +1423,8 @@ pub enum RtypeBitmapError {
     BadRtypeBitmap,
 }
 
-impl error::Error for RtypeBitmapError { }
+#[cfg(feature = "std")]
+impl std::error::Error for RtypeBitmapError { }
 
 impl From<ShortBuf> for RtypeBitmapError {
     fn from(_: ShortBuf) -> Self {

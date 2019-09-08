@@ -2,13 +2,16 @@
 ///
 /// This is a private module. Its public types are re-exported by the parent.
 
-use std::{cmp, error, fmt, hash, ops, str};
-use std::str::FromStr;
-use bytes::Bytes;
+use core::{cmp, fmt, hash, ops, str};
+use core::str::FromStr;
+#[cfg(feature = "std")] use std::vec::Vec;
+#[cfg(feature = "bytes")] use bytes::Bytes;
 use derive_more::Display;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
-use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError, SyntaxError
+};
 use crate::octets::FromBuilder;
 use crate::parse::{
     Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
@@ -17,7 +20,7 @@ use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{RelativeDname, DnameIter};
 use super::traits::{ToLabelIter, ToDname};
-use super::uncertain::UncertainDname;
+#[cfg(feature="bytes")] use super::uncertain::UncertainDname;
 
 
 //------------ Dname ---------------------------------------------------------
@@ -169,6 +172,7 @@ impl Dname<&'static [u8]> {
     }
 }
 
+#[cfg(feature = "std")]
 impl Dname<Vec<u8>> {
     pub fn root_vec() -> Self {
         Self::root()
@@ -179,6 +183,7 @@ impl Dname<Vec<u8>> {
     }
 }
 
+#[cfg(feature="bytes")] 
 impl Dname<Bytes> {
     pub fn root_bytes() -> Self {
         Self::root()
@@ -462,7 +467,7 @@ impl<Octets: AsRef<T> + ?Sized, T: ?Sized> AsRef<T> for Dname<Octets> {
 
 //--- FromStr
 
-impl<Octets> str::FromStr for Dname<Octets>
+impl<Octets> FromStr for Dname<Octets>
 where Octets: FromBuilder {
     type Err = FromStrError;
 
@@ -649,6 +654,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Dname<Bytes> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -741,7 +747,8 @@ pub enum DnameError {
     LongName,
 }
 
-impl error::Error for DnameError { }
+#[cfg(feature = "std")]
+impl std::error::Error for DnameError { }
 
 impl From<LabelTypeError> for DnameError {
     fn from(err: LabelTypeError) -> DnameError {
@@ -762,7 +769,8 @@ pub enum DnameParseError {
     ShortBuf,
 }
 
-impl error::Error for DnameParseError { }
+#[cfg(feature = "std")]
+impl std::error::Error for DnameParseError { }
 
 impl<T: Into<DnameError>> From<T> for DnameParseError {
     fn from(err: T) -> DnameParseError {
@@ -801,7 +809,8 @@ pub enum DnameParseAllError {
     ParseError(ParseAllError)
 }
 
-impl error::Error for DnameParseAllError { }
+#[cfg(feature = "std")]
+impl std::error::Error for DnameParseAllError { }
 
 impl<T: Into<DnameError>> From<T> for DnameParseAllError {
     fn from(err: T) -> Self {
@@ -862,7 +871,8 @@ pub enum DnameBytesError {
     TrailingData,
 }
 
-impl error::Error for DnameBytesError { }
+#[cfg(feature = "std")]
+impl std::error::Error for DnameBytesError { }
 
 impl<T: Into<DnameParseError>> From<T> for DnameBytesError {
     fn from(err: T) -> DnameBytesError {

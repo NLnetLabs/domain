@@ -144,28 +144,31 @@ macro_rules! int_enum {
         //--- PartialOrd and Ord
 
         impl PartialOrd for $ianatype {
-            fn partial_cmp(&self, other: &Self)
-                           -> Option<::std::cmp::Ordering> {
+            fn partial_cmp(
+                &self, other: &Self
+            ) -> Option<core::cmp::Ordering> {
                 self.to_int().partial_cmp(&other.to_int())
             }
         }
 
         impl PartialOrd<$inttype> for $ianatype {
-            fn partial_cmp(&self, other: &$inttype)
-                           -> Option<::std::cmp::Ordering> {
+            fn partial_cmp(
+                &self, other: &$inttype
+                ) -> Option<core::cmp::Ordering> {
                 self.to_int().partial_cmp(other)
             }
         }
 
         impl PartialOrd<$ianatype> for $inttype {
-            fn partial_cmp(&self, other: &$ianatype)
-                           -> Option<::std::cmp::Ordering> {
+            fn partial_cmp(
+                &self, other: &$ianatype
+            ) -> Option<core::cmp::Ordering> {
                 self.partial_cmp(&other.to_int())
             }
         }
 
         impl Ord for $ianatype {
-            fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+            fn cmp(&self, other: &Self) -> core::cmp::Ordering {
                 self.to_int().cmp(&other.to_int())
             }
         }
@@ -173,8 +176,8 @@ macro_rules! int_enum {
 
         //--- Hash
 
-        impl ::std::hash::Hash for $ianatype {
-            fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
+        impl core::hash::Hash for $ianatype {
+            fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                 self.to_int().hash(state)
             }
         }
@@ -234,21 +237,22 @@ macro_rules! int_enum_str_decimal {
         
         impl $ianatype {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-                ::std::str::from_utf8(bytes).ok().and_then(|r| {
+                core::str::from_utf8(bytes).ok().and_then(|r| {
                     $inttype::from_str_radix(r, 10).ok()
                         .map($ianatype::from_int)
                 })
             }
         }
 
-        impl ::std::str::FromStr for $ianatype {
-            type Err = ::std::num::ParseIntError;
+        impl core::str::FromStr for $ianatype {
+            type Err = core::num::ParseIntError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 $inttype::from_str_radix(s, 10).map($ianatype::from_int)
             }
         }
 
+        #[cfg(feature="bytes")]
         impl $crate::master::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
                 scanner: &mut $crate::master::scan::Scanner<C>
@@ -262,11 +266,10 @@ macro_rules! int_enum_str_decimal {
             }
         }
 
-        impl ::std::fmt::Display for $ianatype {
+        impl core::fmt::Display for $ianatype {
             fn fmt(
-                &self,
-                f: &mut ::std::fmt::Formatter
-            ) -> ::std::fmt::Result {
+                &self, f: &mut core::fmt::Formatter
+            ) -> core::fmt::Result {
                 write!(f, "{}", self.to_int())
             }
         }
@@ -286,7 +289,7 @@ macro_rules! int_enum_str_with_decimal {
         impl $ianatype {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 $ianatype::from_mnemonic(bytes).or_else(|| {
-                    ::std::str::from_utf8(bytes).ok().and_then(|r| {
+                    core::str::from_utf8(bytes).ok().and_then(|r| {
                         $inttype::from_str_radix(r, 10).ok()
                             .map($ianatype::from_int)
                     })
@@ -294,7 +297,7 @@ macro_rules! int_enum_str_with_decimal {
             }
         }
                                         
-        impl ::std::str::FromStr for $ianatype {
+        impl core::str::FromStr for $ianatype {
             type Err = FromStrError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -314,10 +317,10 @@ macro_rules! int_enum_str_with_decimal {
             }
         }
 
-        impl ::std::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter)
-                   -> ::std::fmt::Result {
-                use ::std::fmt::Write;
+        impl core::fmt::Display for $ianatype {
+            fn fmt(&self, f: &mut core::fmt::Formatter)
+                   -> core::fmt::Result {
+                use core::fmt::Write;
 
                 match self.to_mnemonic() {
                     Some(m) => {
@@ -333,17 +336,15 @@ macro_rules! int_enum_str_with_decimal {
             }
         }
 
+        #[cfg(feature="bytes")]
         impl $crate::master::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
                 scanner: &mut $crate::master::scan::Scanner<C>
             ) -> Result<Self, $crate::master::scan::ScanError> {
                 scanner.scan_string_word(|word| {
-                    use ::std::str::FromStr;
-
-                    Self::from_str(&word)
-                         .map_err(|_| {
-                             $crate::master::scan::SyntaxError::UnknownMnemonic
-                         })
+                    core::str::FromStr::from_str(&word).map_err(|_| {
+                        $crate::master::scan::SyntaxError::UnknownMnemonic
+                    })
                 })
             }
         }
@@ -373,7 +374,7 @@ macro_rules! int_enum_str_with_prefix {
                     if !l.eq_ignore_ascii_case($u8_prefix) {
                         return None
                     }
-                    let r = match ::std::str::from_utf8(r) {
+                    let r = match core::str::from_utf8(r) {
                         Ok(r) => r,
                         Err(_) => return None
                     };
@@ -382,7 +383,7 @@ macro_rules! int_enum_str_with_prefix {
             }
         }
 
-        impl ::std::str::FromStr for $ianatype {
+        impl core::str::FromStr for $ianatype {
             type Err = FromStrError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -413,10 +414,10 @@ macro_rules! int_enum_str_with_prefix {
             }
         }
 
-        impl ::std::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter)
-                   -> ::std::fmt::Result {
-                use ::std::fmt::Write;
+        impl core::fmt::Display for $ianatype {
+            fn fmt(&self, f: &mut core::fmt::Formatter)
+                   -> core::fmt::Result {
+                use core::fmt::Write;
 
                 match self.to_mnemonic() {
                     Some(m) => {
@@ -432,6 +433,7 @@ macro_rules! int_enum_str_with_prefix {
             }
         }
 
+        #[cfg(feature="bytes")]
         impl $crate::master::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
                 scanner: &mut $crate::master::scan::Scanner<C>
@@ -456,15 +458,17 @@ macro_rules! from_str_error {
         #[derive(Clone, Debug)]
         pub struct FromStrError;
 
-        impl ::std::error::Error for FromStrError {
+        #[cfg(feature = "std")]
+        impl std::error::Error for FromStrError {
             fn description(&self) -> &str {
                $description
             }
         }
 
-        impl ::std::fmt::Display for FromStrError {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter)
-                   -> ::std::fmt::Result {
+        impl core::fmt::Display for FromStrError {
+            fn fmt(
+                &self, f: &mut core::fmt::Formatter
+            ) -> core::fmt::Result {
                 $description.fmt(f)
             }
         }

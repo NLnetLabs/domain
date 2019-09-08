@@ -17,9 +17,7 @@
 //! [RFC 6891]: https://tools.ietf.org/html/rfc6891
 //!
 
-use std::cmp;
-use std::fmt;
-use std::hash;
+use core::{cmp, fmt, hash};
 
 
 //------------ Rcode --------------------------------------------------------

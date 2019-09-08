@@ -4,9 +4,9 @@
 //!
 //! [RFC 2845]: https://tools.ietf.org/html/rfc2845
 
-use std::{fmt, hash};
-use std::cmp::Ordering;
-use std::time::SystemTime;
+use core::{fmt, hash};
+use core::cmp::Ordering;
+#[cfg(feature = "std")] use std::time::SystemTime;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{Rtype, TsigRcode};
@@ -159,6 +159,7 @@ impl<O, N> Tsig<O, N> {
     ///
     /// [`fudge`]: #method.fudge
     /// [`time_signed`]: #method.time_signed
+    #[cfg(feature = "chrono")]
     pub fn is_valid_now(&self) -> bool {
         Time48::now().eq_fudged(self.time_signed, self.fudge.into())
     }
@@ -364,8 +365,8 @@ where
         
 impl<O: AsRef<[u8]>, N: Compose> Compose for Tsig<O, N> {
     fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        assert!(self.mac.as_ref().len() <= usize::from(std::u16::MAX));
-        assert!(self.other.as_ref().len() <= usize::from(std::u16::MAX));
+        assert!(self.mac.as_ref().len() <= usize::from(core::u16::MAX));
+        assert!(self.other.as_ref().len() <= usize::from(core::u16::MAX));
         self.algorithm.compose(buf);
         self.time_signed.compose(buf);
         self.fudge.compose(buf);
@@ -424,6 +425,7 @@ impl Time48 {
     /// The funtion will panic if for whatever reason the current moment is
     /// too far in the future to fit into this type. For a correctly set
     /// clock, this will happen in December 8,921,556, so should be fine.
+    #[cfg(feature = "std")]
     pub fn now() -> Time48 {
         Self::from_u64(
             SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)

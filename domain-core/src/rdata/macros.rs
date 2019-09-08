@@ -124,7 +124,7 @@ macro_rules! rdata_types {
             fn partial_cmp(
                 &self,
                 other: &MasterRecordData<OO, NN>
-            ) -> Option<std::cmp::Ordering> {
+            ) -> Option<core::cmp::Ordering> {
                 match (self, other) {
                     $( $( $(
                         (
@@ -160,7 +160,7 @@ macro_rules! rdata_types {
             fn canonical_cmp(
                 &self,
                 other: &MasterRecordData<OO, NN>
-            ) -> std::cmp::Ordering {
+            ) -> core::cmp::Ordering {
                 match (self, other) {
                     $( $( $(
                         (
@@ -188,9 +188,9 @@ macro_rules! rdata_types {
 
         //--- Hash
  
-        impl<O, N> ::std::hash::Hash for MasterRecordData<O, N>
-        where O: AsRef<[u8]>, N: ::std::hash::Hash {
-            fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
+        impl<O, N> core::hash::Hash for MasterRecordData<O, N>
+        where O: AsRef<[u8]>, N: core::hash::Hash {
+            fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
@@ -290,6 +290,7 @@ macro_rules! rdata_types {
 
         //--- (Scan) and Display
 
+        #[cfg(feature="bytes")]
         impl MasterRecordData<
             bytes::Bytes, $crate::name::Dname<bytes::Bytes>
         > {
@@ -314,13 +315,13 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<O, N> std::fmt::Display for MasterRecordData<O, N>
+        impl<O, N> core::fmt::Display for MasterRecordData<O, N>
         where
             O: AsRef<[u8]>,
-            N: std::fmt::Display
+            N: core::fmt::Display
         {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter)
-                   -> ::std::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter)
+                   -> core::fmt::Result {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
@@ -335,13 +336,13 @@ macro_rules! rdata_types {
 
         //--- Debug
 
-        impl<O, N> std::fmt::Debug for MasterRecordData<O, N>
+        impl<O, N> core::fmt::Debug for MasterRecordData<O, N>
         where
             O: AsRef<[u8]>,
-            N: std::fmt::Debug
+            N: core ::fmt::Debug
         {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter)
-                   -> ::std::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter)
+                   -> core::fmt::Result {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
@@ -352,13 +353,13 @@ macro_rules! rdata_types {
                                     "("
                                 )
                             )?;
-                            std::fmt::Debug::fmt(inner, f)?;
+                            core::fmt::Debug::fmt(inner, f)?;
                             f.write_str(")")
                         }
                     )* )* )*
                     MasterRecordData::Other(ref inner) => {
                         f.write_str("MasterRecordData::Other(")?;
-                        std::fmt::Debug::fmt(inner, f)?;
+                        core::fmt::Debug::fmt(inner, f)?;
                         f.write_str(")")
                     }
                     MasterRecordData::__Nonexhaustive(_) => unreachable!(),
@@ -501,9 +502,9 @@ macro_rules! rdata_types {
 
         //--- Hash
 
-        impl<O, N> ::std::hash::Hash for AllRecordData<O, N>
-        where O: AsRef<[u8]>, N: ::std::hash::Hash {
-            fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) {
+        impl<O, N> core::hash::Hash for AllRecordData<O, N>
+        where O: AsRef<[u8]>, N: core::hash::Hash {
+            fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
                 self.rtype().hash(state);
                 match *self {
                     $( $( $(
@@ -647,10 +648,11 @@ macro_rules! rdata_types {
         
         //--- Display and Debug
 
-        impl<O, N> ::std::fmt::Display for AllRecordData<O, N>
-        where O: AsRef<[u8]>, N: ::std::fmt::Display {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter)
-                   -> ::std::fmt::Result {
+        impl<O, N> core::fmt::Display for AllRecordData<O, N>
+        where O: AsRef<[u8]>, N: core::fmt::Display {
+            fn fmt(
+                &self, f: &mut core::fmt::Formatter
+            ) -> core::fmt::Result {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
@@ -669,13 +671,14 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<O, N> std::fmt::Debug for AllRecordData<O, N>
+        impl<O, N> core::fmt::Debug for AllRecordData<O, N>
         where
             O: AsRef<[u8]>,
-            N: std::fmt::Debug
+            N: core::fmt::Debug
         {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter)
-                   -> ::std::fmt::Result {
+            fn fmt(
+                &self, f: &mut core::fmt::Formatter
+            ) -> core::fmt::Result {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
@@ -686,7 +689,7 @@ macro_rules! rdata_types {
                                     "("
                                 )
                             )?;
-                            std::fmt::Debug::fmt(inner, f)?;
+                            core::fmt::Debug::fmt(inner, f)?;
                             f.write_str(")")
                         }
                     )* )* )*
@@ -699,18 +702,18 @@ macro_rules! rdata_types {
                                     "("
                                 )
                             )?;
-                            std::fmt::Debug::fmt(inner, f)?;
+                            core::fmt::Debug::fmt(inner, f)?;
                             f.write_str(")")
                         }
                     )* )* )*
                     AllRecordData::Opt(ref inner) => {
                         f.write_str("AllRecordData::Opt(")?;
-                        std::fmt::Debug::fmt(inner, f)?;
+                        core::fmt::Debug::fmt(inner, f)?;
                         f.write_str(")")
                     }
                     AllRecordData::Other(ref inner) => {
                         f.write_str("AllRecordData::Other(")?;
-                        std::fmt::Debug::fmt(inner, f)?;
+                        core::fmt::Debug::fmt(inner, f)?;
                         f.write_str(")")
                     }
                     AllRecordData::__Nonexhaustive(_) => unreachable!(),

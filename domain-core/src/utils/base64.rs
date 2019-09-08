@@ -1,12 +1,14 @@
 //! Decoding and encoding of Base64.
 
-use std::{error, fmt};
-use bytes::{BufMut, Bytes, BytesMut};
+use core::fmt;
+#[cfg(feature = "std")] use std::string::String;
+#[cfg(feature= "bytes" )] use bytes::{BufMut, Bytes, BytesMut};
 use derive_more::Display;
 
 
 //------------ Convenience Functions -----------------------------------------
 
+#[cfg(feature="bytes")]
 pub fn decode(s: &str) -> Result<Bytes, DecodeError> {
     let mut decoder = Decoder::new();
     for ch in s.chars() {
@@ -48,8 +50,10 @@ where B: AsRef<[u8]> + ?Sized, W: fmt::Write {
     Ok(())
 }
 
-
-pub fn encode_string<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> String {
+#[cfg(feature = "std")]
+pub fn encode_string<B: AsRef<[u8]> + ?Sized>(
+    bytes: &B
+) -> String {
     let mut res = String::with_capacity((bytes.as_ref().len() / 3 + 1) * 4);
     display(bytes, &mut res).unwrap();
     res
@@ -59,6 +63,7 @@ pub fn encode_string<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> String {
 //------------ Decoder -------------------------------------------------------
 
 /// A Base64 decoder.
+#[cfg(feature="bytes")]
 pub struct Decoder {
     /// A buffer for up to four characters.
     ///
@@ -76,6 +81,7 @@ pub struct Decoder {
     target: Result<BytesMut, DecodeError>,
 }
 
+#[cfg(feature="bytes")]
 impl Decoder {
     pub fn new() -> Self {
         Decoder {
@@ -150,6 +156,7 @@ impl Decoder {
 
 //--- Default
 
+#[cfg(feature="bytes")]
 impl Default for Decoder {
     fn default() -> Self {
         Self::new()
@@ -171,7 +178,8 @@ pub enum DecodeError {
     IllegalChar(char),
 }
 
-impl error::Error for DecodeError { }
+#[cfg(feature = "std")]
+impl std::error::Error for DecodeError { }
 
 
 //------------ Constants -----------------------------------------------------
@@ -181,6 +189,7 @@ impl error::Error for DecodeError { }
 /// This maps encoding characters into their values. A value of 0xFF stands in
 /// for illegal characters. We only provide the first 128 characters since the
 /// alphabet will only use ASCII characters.
+#[cfg(feature="bytes")]
 const DECODE_ALPHABET: [u8; 128] = [
     0xFF, 0xFF, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x00 .. 0x07
     0xFF, 0xFF, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x08 .. 0x0F
@@ -222,6 +231,7 @@ const ENCODE_ALPHABET: [char; 64] = [
 ];
 
 /// The padding character
+#[cfg(feature="bytes")]
 const PAD: char = '=';
 
 

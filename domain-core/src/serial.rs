@@ -5,11 +5,13 @@
 //!
 //! [`Serial`]: struct.Serial.html
 
-use std::{cmp, fmt, str};
-use chrono::{DateTime, Utc, TimeZone};
+use core::{cmp, fmt, str};
+#[cfg(feature = "chrono")] use chrono::{DateTime, Utc, TimeZone};
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+#[cfg(feature = "bytes")] use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner, SyntaxError
+};
 use crate::parse::{Parse, ParseAll, Parser};
 
 
@@ -40,6 +42,7 @@ pub struct Serial(pub u32);
 
 impl Serial {
     /// Returns a serial number for the current Unix time.
+    #[cfg(feature = "chrono")]
     pub fn now() -> Self {
         Utc::now().into()
     }
@@ -85,6 +88,7 @@ impl Serial {
     /// In RRSIG records, the expiration and inception time is given as
     /// serial values. Their master file format can either be the signature
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
+    #[cfg(feature="bytes")]
     pub fn scan_rrsig<C: CharSource>(
         scanner: &mut Scanner<C>
     ) -> Result<Self, ScanError> {
@@ -178,6 +182,7 @@ impl From<Serial> for u32 {
     }
 }
 
+#[cfg(feature = "chrono")]
 impl<T: TimeZone> From<DateTime<T>> for Serial {
     fn from(value: DateTime<T>) -> Self {
         let mut value = value.timestamp();
@@ -234,6 +239,7 @@ impl Compose for Serial {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Serial {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -291,6 +297,7 @@ impl CanonicalOrd for Serial {
 
 //------------ Helper Functions ----------------------------------------------
 
+#[cfg(feature="bytes")]
 fn u32_from_buf(buf: &[u8]) -> u32 {
     let mut res = 0;
     for ch in buf {

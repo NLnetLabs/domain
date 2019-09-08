@@ -2,8 +2,9 @@
 ///
 /// This is a private module. Its public types are re-exported by the parent.
 
-use std::{cmp, error, fmt, hash, ops};
-use bytes::Bytes;
+use core::{cmp, fmt, hash, ops};
+#[cfg(feature = "std")] use std::vec::Vec;
+#[cfg(feature = "bytes")] use bytes::Bytes;
 use derive_more::Display;
 use crate::octets::{IntoBuilder, OctetsBuilder};
 use crate::compose::{Compose, ComposeTarget};
@@ -143,6 +144,7 @@ impl RelativeDname<&'static [u8]> {
     }
 }
 
+#[cfg(feature = "std")]
 impl RelativeDname<Vec<u8>> {
     /// Creates an empty relative name atop a vec.
     pub fn empty_vec() -> Self {
@@ -154,6 +156,7 @@ impl RelativeDname<Vec<u8>> {
     }
 }
 
+#[cfg(feature="bytes")] 
 impl RelativeDname<Bytes> {
     /// Creates an empty relative name atop a bytes value.
     pub fn empty_bytes() -> Self {
@@ -653,7 +656,8 @@ pub enum RelativeDnameError {
     AbsoluteName,
 }
 
-impl error::Error for RelativeDnameError { }
+#[cfg(feature = "std")]
+impl std::error::Error for RelativeDnameError { }
 
 impl From<LabelTypeError> for RelativeDnameError {
     fn from(err: LabelTypeError) -> Self {
@@ -679,7 +683,8 @@ impl From<SplitLabelError> for RelativeDnameError {
 #[display(fmt="suffix not found")]
 pub struct StripSuffixError;
 
-impl error::Error for StripSuffixError { }
+#[cfg(feature = "std")]
+impl std::error::Error for StripSuffixError { }
 
 
 //============ Testing =======================================================
@@ -717,6 +722,11 @@ mod test {
                 Vec::from(b"\x03www".as_ref())
             ).unwrap()
         );
+    }
+
+    #[cfg(feature="bytes")] 
+    #[test]
+    fn impl_bytes() {
         assert_to_relative_dname(
             &RelativeDname::from_octets(
                 Bytes::from(b"\x03www".as_ref())

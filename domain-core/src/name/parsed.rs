@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
-use std::{cmp, error, fmt, hash};
+use core::{cmp, fmt, hash};
 use derive_more::Display;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
@@ -386,7 +386,6 @@ impl<Octets: ParseSource> ParseAll<Octets> for ParsedDname<Octets> {
         let end = tmp.pos() + len;
         let res = Self::parse(&mut tmp)?;
         if tmp.pos() < end {
-            println!("pos: {}, end: {}", tmp.pos(), end);
             return Err(ParsedDnameAllError::TrailingData)
         }
         else if tmp.pos() > end {
@@ -621,7 +620,8 @@ pub enum ParsedDnameError {
     ShortBuf,
 }
 
-impl error::Error for ParsedDnameError { }
+#[cfg(feature = "std")]
+impl std::error::Error for ParsedDnameError { }
 
 impl From<LabelTypeError> for ParsedDnameError {
     fn from(err: LabelTypeError) -> Self {
@@ -654,7 +654,8 @@ pub enum ParsedDnameAllError {
     ShortBuf,
 }
 
-impl error::Error for ParsedDnameAllError { }
+#[cfg(feature = "std")]
+impl std::error::Error for ParsedDnameAllError { }
 
 impl From<ParsedDnameError> for ParsedDnameAllError {
     fn from(err: ParsedDnameError) -> Self {

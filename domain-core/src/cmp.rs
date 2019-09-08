@@ -15,7 +15,7 @@
 //! `Compose::compose_canonical` which produces the canonical form of this
 //! data.
 
-use std::cmp::Ordering;
+use core::cmp::Ordering;
 
 
 /// A trait for the canonical sort order of values.

@@ -1,9 +1,6 @@
 //! DNS OpCodes
 
-use std::cmp;
-use std::convert;
-use std::fmt;
-use std::hash;
+use core::{cmp, convert, fmt, hash};
 
 
 /// DNS OpCodes.

@@ -40,9 +40,8 @@
 //! [`RecordHeader`]: struct.RecordHeader.html
 //! [`ParsedRecord`]: struct.ParsedRecord.html
 
-use std::{error, fmt, hash};
-use std::cmp::Ordering;
-use derive_more::Display;
+use core::{fmt, hash};
+use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{Class, Rtype};
@@ -793,23 +792,31 @@ impl<Octets: ParseSource> Parse<Octets> for ParsedRecord<Octets> {
 
 //------------ RecordParseError ----------------------------------------------
 
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum RecordParseError<N: error::Error, D: error::Error> {
-    #[display(fmt="{}", _0)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RecordParseError<N, D> {
     Name(N),
-
-    #[display(fmt="{}", _0)]
     Data(D),
-
-    #[display(fmt="unexpected end of buffer")]
     ShortBuf,
 }
 
-impl<N, D> error::Error for RecordParseError<N, D>
-where N: error::Error, D: error::Error { }
+impl<N, D> fmt::Display for RecordParseError<N, D>
+where N: fmt::Display, D: fmt::Display {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            RecordParseError::Name(ref name) => name.fmt(f),
+            RecordParseError::Data(ref data) => data.fmt(f),
+            RecordParseError::ShortBuf => {
+                f.write_str("unexpected end of buffer")
+            }
+        }
+    }
+}
 
-impl<N, D> From<ShortBuf> for RecordParseError<N, D>
-where N: error::Error, D: error::Error {
+#[cfg(feature = "std")]
+impl<N, D> std::error::Error for RecordParseError<N, D>
+where N: std::error::Error, D: std::error::Error { }
+
+impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
     fn from(_: ShortBuf) -> Self {
         RecordParseError::ShortBuf
     }

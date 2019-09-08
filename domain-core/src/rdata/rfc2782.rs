@@ -4,12 +4,14 @@
 //!
 //! [RFC 2782]: https://tools.ietf.org/html/rfc2782
 
-use std::fmt;
-use std::cmp::Ordering;
+use core::fmt;
+use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
-use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError
+};
 use crate::name::ToDname;
 use crate::parse::{Parse, ParseAll, Parser, ParseOpenError, ParseSource};
 use super::RtypeRecordData;
@@ -180,7 +182,8 @@ impl<N> RtypeRecordData for Srv<N> {
 
 
 //--- Scan and Display
-
+ 
+#[cfg(feature="bytes")]
 impl<N: Scan> Scan for Srv<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {

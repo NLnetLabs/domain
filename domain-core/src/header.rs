@@ -18,8 +18,9 @@
 //! [`HeaderSection`]: struct.HeaderSection.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::mem;
-use bytes::{BigEndian, ByteOrder};
+use core::mem;
+use core::convert::TryInto;
+use unwrap::unwrap;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{Opcode, Rcode};
 use crate::parse::{Parse, Parser, ShortBuf};
@@ -110,12 +111,12 @@ impl Header {
     /// and is copied into a response by a server. It allows matching
     /// incoming responses to their queries.
     pub fn id(self) -> u16 {
-        BigEndian::read_u16(&self.inner)
+        u16::from_be_bytes(unwrap!(self.inner[..2].try_into()))
     }
 
     /// Sets the value of the ID field.
     pub fn set_id(&mut self, value: u16) {
-        BigEndian::write_u16(&mut self.inner, value)
+        self.inner[..2].copy_from_slice(&value.to_be_bytes())
     }
 
     /// Sets the value of the ID field to a randomly chosen number.
@@ -373,7 +374,7 @@ impl HeaderCounts {
     /// This method panics if the count is already at its maximum.
     pub fn inc_qdcount(&mut self) {
         let count = self.qdcount();
-        assert!(count < ::std::u16::MAX);
+        assert!(count < core::u16::MAX);
         self.set_qdcount(count + 1);
     }
 
@@ -409,7 +410,7 @@ impl HeaderCounts {
     /// This method panics if the count is already at its maximum.
     pub fn inc_ancount(&mut self) {
         let count = self.ancount();
-        assert!(count < ::std::u16::MAX);
+        assert!(count < core::u16::MAX);
         self.set_ancount(count + 1);
     }
 
@@ -444,7 +445,7 @@ impl HeaderCounts {
     /// This method panics if the count is already at its maximum.
     pub fn inc_nscount(&mut self) {
         let count = self.nscount();
-        assert!(count < ::std::u16::MAX);
+        assert!(count < core::u16::MAX);
         self.set_nscount(count + 1);
     }
 
@@ -479,7 +480,7 @@ impl HeaderCounts {
     /// This method panics if the count is already at its maximum.
     pub fn inc_arcount(&mut self) {
         let count = self.arcount();
-        assert!(count < ::std::u16::MAX);
+        assert!(count < core::u16::MAX);
         self.set_arcount(count + 1);
     }
 
@@ -554,12 +555,14 @@ impl HeaderCounts {
 
     /// Returns the value of the 16 bit integer starting at a given offset.
     fn get_u16(self, offset: usize) -> u16 {
-        BigEndian::read_u16(&self.inner[offset..])
+        u16::from_be_bytes(unwrap!(
+            self.inner[offset..offset + 2].try_into()
+        ))
     }
 
     /// Sets the value of the 16 bit integer starting at a given offset.
     fn set_u16(&mut self, offset: usize, value: u16) {
-        BigEndian::write_u16(&mut self.inner[offset..], value)
+        self.inner[offset..offset + 2].copy_from_slice(&value.to_be_bytes())
     }
 }
 

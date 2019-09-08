@@ -3,8 +3,9 @@
 //! This is a private module for tidiness. `DnameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
-use std::{error, ops};
-use bytes::BytesMut;
+use core::ops;
+#[cfg(feature = "std")] use std::vec::Vec;
+#[cfg(feature = "bytes")] use bytes::BytesMut;
 use derive_more::Display;
 use crate::octets::OctetsBuilder;
 use super::dname::Dname;
@@ -61,6 +62,7 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     }
 }
 
+#[cfg(feature = "std")]
 impl DnameBuilder<Vec<u8>> {
     pub fn new_vec() -> Self {
         Self::new()
@@ -71,6 +73,7 @@ impl DnameBuilder<Vec<u8>> {
     }
 }
 
+#[cfg(feature="bytes")] 
 impl DnameBuilder<BytesMut> {
     pub fn new_bytes() -> Self {
         Self::new()
@@ -85,12 +88,12 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
 
     // This should be a `const fn` once that becomes allowed.
     fn max_capacity() -> usize {
-        std::cmp::min(Builder::MAX_CAPACITY - 1, 254)
+        core::cmp::min(Builder::MAX_CAPACITY - 1, 254)
     }
 
     // This should be a `const fn` once that becomes allowed.
     fn max_absolute_capacity() -> usize {
-        std::cmp::min(Builder::MAX_CAPACITY - 1, 254)
+        core::cmp::min(Builder::MAX_CAPACITY - 1, 254)
     }
 
     /// Returns whether there currently is a label under construction.
@@ -342,7 +345,8 @@ pub enum PushError {
     LongName,
 }
 
-impl error::Error for PushError { }
+#[cfg(feature = "std")]
+impl std::error::Error for PushError { }
 
 
 //------------ PushNameError -------------------------------------------------
@@ -352,7 +356,8 @@ impl error::Error for PushError { }
 #[display(fmt="long domain name")]
 pub struct PushNameError;
 
-impl error::Error for PushNameError { }
+#[cfg(feature = "std")]
+impl std::error::Error for PushNameError { }
 
 
 //------------ FromStrError --------------------------------------------------
@@ -396,7 +401,8 @@ pub enum FromStrError {
     LongName,
 }
 
-impl error::Error for FromStrError { }
+#[cfg(feature = "std")]
+impl std::error::Error for FromStrError { }
 
 impl From<PushError> for FromStrError {
     fn from(err: PushError) -> FromStrError {

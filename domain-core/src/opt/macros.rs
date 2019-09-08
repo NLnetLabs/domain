@@ -105,12 +105,13 @@ macro_rules! opt_types {
             ShortBuf,
         }
 
+        #[cfg(feature = "std")]
         impl<Octets> std::error::Error for AllOptParseError<Octets> 
         where Octets: $crate::parse::ParseSource { }
 
-        impl<Octets> std::fmt::Debug for AllOptParseError<Octets>
+        impl<Octets> core::fmt::Debug for AllOptParseError<Octets>
         where Octets: $crate::parse::ParseSource {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 write!(f, "AllOptParseError::")?;
                 match *self {
                     $( $(
@@ -129,9 +130,9 @@ macro_rules! opt_types {
             }
         }
 
-        impl<Octets> std::fmt::Display for AllOptParseError<Octets>
+        impl<Octets> core::fmt::Display for AllOptParseError<Octets>
         where Octets: $crate::parse::ParseSource {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 match *self {
                     $( $(
                         AllOptParseError::$opt(ref inner) => inner.fmt(f),

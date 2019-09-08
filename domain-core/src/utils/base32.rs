@@ -1,12 +1,13 @@
 //! Decoding and encoding of Base32.
 
-use std::fmt;
-use bytes::{BufMut, Bytes, BytesMut};
-use super::base64::DecodeError;
+use core::fmt;
+#[cfg(feature="bytes")] use bytes::{BufMut, Bytes, BytesMut};
+#[cfg(feature="bytes")] use super::base64::DecodeError;
 
 
 //------------ Convenience Functions -----------------------------------------
 
+#[cfg(feature="bytes")]
 pub fn decode_hex(s: &str) -> Result<Bytes, DecodeError> {
     let mut decoder = Decoder::new_hex();
     for ch in s.chars() {
@@ -57,6 +58,7 @@ where B: AsRef<[u8]> + ?Sized, W: fmt::Write {
 /// A base32 decoder.
 ///
 /// This doesn’t do padding.
+#[cfg(feature="bytes")]
 pub struct Decoder {
     /// The alphabet we are using.
     alphabet: &'static [u8; 128],
@@ -74,6 +76,7 @@ pub struct Decoder {
     target: Result<BytesMut, DecodeError>,
 }
 
+#[cfg(feature="bytes")]
 impl Decoder {
     pub fn new_hex() -> Self {
         Decoder {
@@ -143,6 +146,7 @@ impl Decoder {
     }
 }
 
+#[cfg(feature="bytes")]
 impl Decoder {
     fn octet_0(&mut self) {
         let ch = self.buf[0] << 3 | self.buf[1] >> 2;
@@ -189,6 +193,7 @@ impl Decoder {
 /// This maps encoding characters into their values. A value of 0xFF stands in
 /// for illegal characters. We only provide the first 128 characters since the
 /// alphabet will only use ASCII characters.
+#[cfg(feature="bytes")]
 const DECODE_HEX_ALPHABET: [u8; 128] = [
     0xFF, 0xFF, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x00 .. 0x07
     0xFF, 0xFF, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x08 .. 0x0F

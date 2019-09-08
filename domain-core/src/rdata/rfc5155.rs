@@ -4,9 +4,9 @@
 //!
 //! [RFC 5155]: https://tools.ietf.org/html/rfc5155
 
-use std::{error, fmt, hash};
-use std::cmp::Ordering;
-use bytes::Bytes;
+use core::{fmt, hash};
+use core::cmp::Ordering;
+#[cfg(feature="bytes")] use bytes::Bytes;
 use derive_more::Display;
 use crate::charstr::CharStr;
 use crate::cmp::CanonicalOrd;
@@ -15,7 +15,9 @@ use crate::parse::{
     Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
 };
 use crate::iana::{Nsec3HashAlg, Rtype};
-use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError, SyntaxError
+};
 use crate::utils::base32;
 use super::{RtypeRecordData, RdataParseError};
 use super::rfc4034::{RtypeBitmap, RtypeBitmapError};
@@ -214,6 +216,7 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
 
 //--- Scan, Display, and Debug
 
+#[cfg(feature="bytes")]
 impl Scan for Nsec3<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -229,6 +232,7 @@ impl Scan for Nsec3<Bytes> {
     }
 }
 
+#[cfg(feature="bytes")]
 fn scan_salt<C: CharSource>(
     scanner: &mut Scanner<C>
 ) -> Result<CharStr<Bytes>, ScanError> {
@@ -240,6 +244,7 @@ fn scan_salt<C: CharSource>(
     }
 }
 
+#[cfg(feature="bytes")]
 fn scan_hash<C: CharSource>(
     scanner: &mut Scanner<C>
 ) -> Result<CharStr<Bytes>, ScanError> {
@@ -455,6 +460,7 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
 
 //--- Scan, Display, and Debug
 
+#[cfg(feature="bytes")]
 impl Scan for Nsec3param<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -506,7 +512,8 @@ pub enum ParseNsec3Error {
     BadRtypeBitmap,
 }
 
-impl error::Error for ParseNsec3Error { }
+#[cfg(feature = "std")]
+impl std::error::Error for ParseNsec3Error { }
 
 impl From<ShortBuf> for ParseNsec3Error {
     fn from(_: ShortBuf) -> Self {

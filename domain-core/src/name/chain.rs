@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! crate.
 
-use std::{error, fmt, iter};
+use core::{fmt, iter};
 use derive_more::Display;
 use crate::compose::{Compose, ComposeTarget};
 use super::label::Label;
@@ -273,7 +273,8 @@ where Octets: AsRef<[u8]>, R: ToLabelIter<'a>
 #[display(fmt="long domain name")]
 pub struct LongChainError;
 
-impl error::Error for LongChainError { }
+#[cfg(feature = "std")]
+impl std::error::Error for LongChainError { }
 
 
 //============ Testing =======================================================

@@ -2,8 +2,8 @@
 //!
 /// This is a private module. Its public traits are re-exported by the parent.
 
-use std::cmp;
-use bytes::Bytes;
+use core::cmp;
+#[cfg(feature="bytes")] use bytes::Bytes;
 use unwrap::unwrap;
 use crate::compose::Compose;
 use crate::octets::{FromBuilder, OctetsBuilder};
@@ -109,10 +109,12 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
         unsafe { Dname::from_octets_unchecked(builder.finish()) }
     }
 
-    fn to_dname_vec(&self) -> Dname<Vec<u8>> {
+    #[cfg(feature = "std")]
+    fn to_dname_vec(&self) -> Dname<std::vec::Vec<u8>> {
         self.to_dname()
     }
 
+    #[cfg(feature="bytes")] 
     fn to_dname_bytes(&self) -> Dname<Bytes> {
         self.to_dname()
     }

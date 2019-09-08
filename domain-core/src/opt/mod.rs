@@ -39,10 +39,11 @@ opt_types!{
 
 //============ Module Content ================================================
 
-use std::{hash, fmt, mem, ops};
-use std::cmp::Ordering;
-use std::marker::PhantomData;
-use bytes::{BigEndian, ByteOrder};
+use core::{hash, fmt, mem, ops};
+use core::cmp::Ordering;
+use core::convert::TryInto;
+use core::marker::PhantomData;
+use unwrap::unwrap;
 use crate::iana::{OptionCode, OptRcode, Rtype};
 use crate::compose::{Compose, ComposeTarget};
 use crate::header::Header;
@@ -207,11 +208,13 @@ impl OptHeader {
     }
 
     pub fn udp_payload_size(&self) -> u16 {
-        BigEndian::read_u16(&self.inner[3..])
+        u16::from_be_bytes(unwrap!(
+            self.inner[3..5].try_into()
+        ))
     }
 
     pub fn set_udp_payload_size(&mut self, value: u16) {
-        BigEndian::write_u16(&mut self.inner[3..], value)
+        self.inner[3..5].copy_from_slice(&value.to_be_bytes())
     }
 
     pub fn rcode(&self, header: Header) -> OptRcode {

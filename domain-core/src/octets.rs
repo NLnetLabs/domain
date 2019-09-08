@@ -1,6 +1,7 @@
 //! Helper types and traits for dealing with generic octet sequences.
 
-use bytes::{Bytes, BytesMut};
+#[cfg(feature = "std")] use std::vec::Vec;
+#[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 
 
 //------------ OctetsBuilder -------------------------------------------------
@@ -26,6 +27,7 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     }
 }
 
+#[cfg(feature = "std")]
 impl OctetsBuilder for Vec<u8> {
     const MAX_CAPACITY: usize = std::usize::MAX;
     type Octets = Self;
@@ -51,6 +53,7 @@ impl OctetsBuilder for Vec<u8> {
     }
 }
 
+#[cfg(feature="bytes")]
 impl OctetsBuilder for BytesMut {
     const MAX_CAPACITY: usize = std::usize::MAX;
     type Octets = Bytes;
@@ -85,6 +88,7 @@ pub trait IntoBuilder {
     fn into_builder(self) -> Self::Builder;
 }
 
+#[cfg(feature = "std")]
 impl IntoBuilder for Vec<u8> {
     type Builder = Self;
 
@@ -93,6 +97,7 @@ impl IntoBuilder for Vec<u8> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a> IntoBuilder for &'a [u8] {
     type Builder = Vec<u8>;
 
@@ -101,6 +106,7 @@ impl<'a> IntoBuilder for &'a [u8] {
     }
 }
 
+#[cfg(feature="bytes")]
 impl IntoBuilder for Bytes {
     type Builder = BytesMut;
 
@@ -118,6 +124,7 @@ pub trait FromBuilder: AsRef<[u8]> + Sized {
     fn from_builder(builder: Self::Builder) -> Self;
 }
 
+#[cfg(feature = "std")]
 impl FromBuilder for Vec<u8> {
     type Builder = Self;
 
@@ -126,6 +133,7 @@ impl FromBuilder for Vec<u8> {
     }
 }
 
+#[cfg(feature="bytes")]
 impl FromBuilder for Bytes {
     type Builder = BytesMut;
 

@@ -4,14 +4,15 @@
 //!
 //! [RFC 3596]: https://tools.ietf.org/html/rfc3596
 
-use std::{fmt, ops};
-use std::cmp::Ordering;
-use std::net::Ipv6Addr;
-use std::str::FromStr;
+use core::{fmt, ops};
+use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
-use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError
+};
+use crate::net::Ipv6Addr;
 use crate::parse::{Parse, ParseAll, Parser};
 use super::RtypeRecordData;
 
@@ -47,8 +48,9 @@ impl From<Aaaa> for Ipv6Addr {
     }
 }
 
-impl FromStr for Aaaa {
-    type Err = <Ipv6Addr as FromStr>::Err;
+#[cfg(feature = "std")]
+impl core::str::FromStr for Aaaa {
+    type Err = <Ipv6Addr as core::str::FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ipv6Addr::from_str(s).map(Aaaa::new)
@@ -99,11 +101,12 @@ impl Compose for Aaaa {
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Aaaa {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_string_phrase(|res| {
-            Aaaa::from_str(&res).map_err(Into::into)
+            core::str::FromStr::from_str(&res).map_err(Into::into)
         })
     }
 }
