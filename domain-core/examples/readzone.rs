@@ -2,11 +2,11 @@
 
 extern crate domain_core;
 
-use std::env;
-use domain_core::master::reader::Reader;
-
-
+#[cfg(feature = "bytes")]
 fn main() {
+    use std::env;
+    use domain_core::master::reader::Reader;
+
     for arg in env::args().skip(1) {
         print!("{}: ", arg);
         let reader = Reader::open(arg).unwrap();
@@ -31,3 +31,7 @@ fn main() {
         }
     }
 }
+
+#[cfg(not(feature = "bytes"))]
+fn main() {
+} 

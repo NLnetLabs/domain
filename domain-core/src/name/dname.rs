@@ -916,6 +916,13 @@ pub(crate) mod test {
         assert_to_dname(
             &Dname::from_octets(Vec::from(b"\0".as_ref())).unwrap()
         );
+    }
+
+    #[cfg(feature = "bytes")]
+    #[test]
+    fn impls_bytes() {
+        fn assert_to_dname<T: ToDname + ?Sized>(_: &T) { }
+
         assert_to_dname(
             &Dname::from_octets(Bytes::from(b"\0".as_ref())).unwrap()
         );
@@ -925,8 +932,13 @@ pub(crate) mod test {
     fn root() {
         assert_eq!(Dname::root_ref().as_slice(), b"\0");
         assert_eq!(Dname::root_vec().as_slice(), b"\0");
-        assert_eq!(Dname::root_bytes().as_slice(), b"\0");
         assert_eq!(Dname::root_slice().as_slice(), b"\0");
+    }
+
+    #[cfg(feature = "bytes")]
+    #[test]
+    fn root_bytes() {
+        assert_eq!(Dname::root_bytes().as_slice(), b"\0");
     }
 
     #[test]

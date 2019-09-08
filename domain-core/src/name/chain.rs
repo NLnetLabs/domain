@@ -281,6 +281,7 @@ impl std::error::Error for LongChainError { }
 
 #[cfg(test)]
 mod test {
+    use std::vec::Vec;
     use unwrap::unwrap;
     use crate::name::{Dname, DnameBuilder, RelativeDname, ToLabelIter};
     use super::*;

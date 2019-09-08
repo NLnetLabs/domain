@@ -241,6 +241,7 @@ const PAD: char = '=';
 mod test {
     use super::*;
 
+    #[cfg(feature="bytes")]
     #[test]
     fn decode_str() {
         assert_eq!(decode("").unwrap().as_ref(), b"");

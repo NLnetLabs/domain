@@ -403,6 +403,7 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for UncertainDname<Octets> {
 
 #[cfg(test)]
 mod test {
+    use std::string::String;
     use super::*;
 
     #[test]

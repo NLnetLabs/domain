@@ -727,6 +727,8 @@ mod test {
     #[cfg(feature="bytes")] 
     #[test]
     fn impl_bytes() {
+        fn assert_to_relative_dname<T: ToRelativeDname + ?Sized>(_: &T) { }
+
         assert_to_relative_dname(
             &RelativeDname::from_octets(
                 Bytes::from(b"\x03www".as_ref())
@@ -739,7 +741,6 @@ mod test {
         assert_eq!(RelativeDname::empty_slice().as_slice(), b"");
         assert_eq!(RelativeDname::empty_ref().as_slice(), b"");
         assert_eq!(RelativeDname::empty_vec().as_slice(), b"");
-        assert_eq!(RelativeDname::empty_bytes().as_slice(), b"");
     }
 
     #[test]
@@ -747,6 +748,12 @@ mod test {
         assert_eq!(RelativeDname::wildcard_slice().as_slice(), b"\x01*");
         assert_eq!(RelativeDname::wildcard_ref().as_slice(), b"\x01*");
         assert_eq!(RelativeDname::wildcard_vec().as_slice(), b"\x01*");
+    }
+
+    #[cfg(feature = "bytes")]
+    #[test]
+    fn literals_bytes() {
+        assert_eq!(RelativeDname::empty_bytes().as_slice(), b"");
         assert_eq!(RelativeDname::wildcard_bytes().as_slice(), b"\x01*");
     }
 

@@ -234,8 +234,10 @@ const ENCODE_HEX_ALPHABET: [char; 32] = [
 
 #[cfg(test)]
 mod test {
+    use std::string::String;
     use super::*;
 
+    #[cfg(feature = "bytes")]
     #[test]
     fn test_decode_hex() {
         assert_eq!(decode_hex("").unwrap().as_ref(), b"");

@@ -11,7 +11,7 @@
 //!
 //! [`Message`]: struct.Message.html
 
-use core::{mem, ops};
+use core::mem;
 use core::marker::PhantomData;
 use crate::compose::{ComposeTarget, TryCompose};
 use crate::header::{Header, HeaderCounts, HeaderSection};
@@ -197,6 +197,11 @@ impl<Octets> Message<Octets> {
     fn as_slice_mut(&mut self) -> &mut [u8]
     where Octets: AsMut<[u8]> {
         self.octets.as_mut()
+    }
+
+    pub fn as_ref_message(&self) -> Message<&[u8]>
+    where Octets: AsRef<[u8]> {
+        unsafe { Message::from_octets_unchecked(self.octets.as_ref()) }
     }
 }
 
@@ -484,15 +489,7 @@ impl<Octets: ParseSource> Message<Octets> {
 }
 
 
-//--- Deref and AsRef
-
-impl<Octets> ops::Deref for Message<Octets> {
-    type Target = Octets;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_octets()
-    }
-}
+//--- AsRef
 
 impl<T, Octets: AsRef<T>> AsRef<T> for Message<Octets> {
     fn as_ref(&self) -> &T {
@@ -912,7 +909,7 @@ where Octets: ParseSource, D: ParseRecordData<Octets> {
 
 #[cfg(test)]
 mod test {
-    use bytes::Bytes;
+    use std::vec::Vec;
     use unwrap::unwrap;
     use crate::message_builder::MessageBuilder;
     use crate::name::Dname;
@@ -920,8 +917,8 @@ mod test {
     use super::*;
 
     // Helper for test cases
-    fn get_test_message() -> Message<Bytes> {
-        let msg = MessageBuilder::new_dgram_bytes();
+    fn get_test_message() -> Message<Vec<u8>> {
+        let msg = MessageBuilder::new_dgram_vec();
         let mut msg = msg.answer();
         unwrap!(msg.push((
             unwrap!(Dname::vec_from_str("foo.example.com.")),
@@ -950,7 +947,7 @@ mod test {
         unwrap!(
             msg.push((unwrap!(Dname::vec_from_str("example.com.")), Rtype::A))
         );
-        let msg_ref = msg.as_message_ref();
+        let msg_ref = msg.as_ref_message();
         assert_eq!(
             unwrap!(Dname::vec_from_str("example.com.")),
             unwrap!(msg_ref.canonical_name())
@@ -973,7 +970,7 @@ mod test {
             86000,
             Cname::new(unwrap!(Dname::vec_from_str("bar.example.com.")))
         )));
-        let msg_ref = msg.as_message_ref();
+        let msg_ref = msg.as_ref_message();
         println!("{:02x?}", msg_ref.as_slice());
         assert_eq!(
             unwrap!(Dname::vec_from_str("baz.example.com.")),
@@ -984,7 +981,7 @@ mod test {
     #[test]
     fn message_iterator() {
         let msg = get_test_message();
-        let mut iter = msg.iter();
+        let mut iter = msg.as_ref_message().iter();
 
         // Check that it returns a record from first section
         let (_rr, section) = unwrap!(unwrap!(iter.next()));
@@ -998,6 +995,7 @@ mod test {
     #[test]
     fn copy_records() {
         let msg = get_test_message();
+        let msg = msg.as_ref_message();
         let target = MessageBuilder::new_dgram_vec().question();
         let res = msg.copy_records(target.answer(), |rec| {
             if let Ok(rr) = rec {

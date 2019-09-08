@@ -63,7 +63,7 @@ impl<Target: ComposeTarget> MessageBuilder<Target> {
 }
 
 impl<Octets, Comp> MessageBuilder<DgramTarget<Octets, Comp>> {
-    pub fn as_message_ref(&self) -> Message<&[u8]>
+    pub fn as_ref_message(&self) -> Message<&[u8]>
     where Octets: AsRef<[u8]> {
         unsafe { Message::from_octets_unchecked(self.target.as_ref()) }
     }

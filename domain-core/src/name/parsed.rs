@@ -693,13 +693,10 @@ impl From<ShortBuf> for ParsedDnameAllError {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-/*
-    use bytes::BytesMut;
-    use crate::Parser;
-*/
+    use std::vec::Vec;
     use unwrap::unwrap;
     use crate::name::Dname;
+    use super::*;
 
     macro_rules! name {
         (root) => {

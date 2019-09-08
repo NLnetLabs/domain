@@ -667,6 +667,7 @@ impl Compose for HeaderSection {
 #[cfg(test)]
 mod test {
     use crate::iana::{Opcode, Rcode};
+    use std::vec::Vec;
     use super::*;
 
     #[test]

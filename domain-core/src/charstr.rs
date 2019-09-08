@@ -590,6 +590,7 @@ impl std::error::Error for PushError { }
 #[cfg(test)]
 mod test {
     use unwrap::unwrap;
+    use std::vec::Vec;
     use super::*;
 
     type CharStrRef<'a> = CharStr<&'a [u8]>;

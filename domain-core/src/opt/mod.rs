@@ -510,8 +510,9 @@ impl<Octets: ParseSource> OptData<Octets> for UnknownOptData<Octets> {
 
 #[cfg(test)]
 mod test {
+    use std::vec::Vec;
+    use crate::record::ParsedRecord;
     use super::*;
-    use super::super::record::ParsedRecord;
 
     #[test]
     fn opt_record_header() {

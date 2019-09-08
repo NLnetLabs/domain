@@ -612,6 +612,7 @@ impl From<LabelTypeError> for SplitLabelError {
 
 #[cfg(test)]
 mod test {
+    use std::vec::Vec;
     use super::*;
 
     #[test]
