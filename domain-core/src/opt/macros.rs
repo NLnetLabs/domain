@@ -71,7 +71,7 @@ macro_rules! opt_types {
         }
 
         impl<Octets> ParseOptData<Octets> for AllOptData<Octets>
-        where Octets: $crate::parse::ParseSource {
+        where Octets: $crate::octets::ParseOctets {
             type ParseErr = AllOptParseError<Octets>;
 
             fn parse_option(
@@ -101,7 +101,7 @@ macro_rules! opt_types {
         //------------ AllOptParseError --------------------------------------
 
         #[derive(Clone, Eq, PartialEq)]
-        pub enum AllOptParseError<Octets: $crate::parse::ParseSource> {
+        pub enum AllOptParseError<Octets: $crate::octets::ParseOctets> {
             $( $(
                 $opt(<$opt $( <$octets> )* as ParseOptData<Octets>>::ParseErr),
             )* )*
@@ -110,10 +110,10 @@ macro_rules! opt_types {
 
         #[cfg(feature = "std")]
         impl<Octets> std::error::Error for AllOptParseError<Octets> 
-        where Octets: $crate::parse::ParseSource { }
+        where Octets: $crate::octets::ParseOctets { }
 
         impl<Octets> core::fmt::Debug for AllOptParseError<Octets>
-        where Octets: $crate::parse::ParseSource {
+        where Octets: $crate::octets::ParseOctets {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 write!(f, "AllOptParseError::")?;
                 match *self {
@@ -134,7 +134,7 @@ macro_rules! opt_types {
         }
 
         impl<Octets> core::fmt::Display for AllOptParseError<Octets>
-        where Octets: $crate::parse::ParseSource {
+        where Octets: $crate::octets::ParseOctets {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 match *self {
                     $( $(
@@ -147,10 +147,10 @@ macro_rules! opt_types {
             }
         }
 
-        impl<Octets> From<$crate::parse::ShortBuf> for
+        impl<Octets> From<$crate::octets::ShortBuf> for
                                                     AllOptParseError<Octets>
-        where Octets: $crate::parse::ParseSource {
-            fn from(_: $crate::parse::ShortBuf) -> Self {
+        where Octets: $crate::octets::ParseOctets {
+            fn from(_: $crate::octets::ShortBuf) -> Self {
                 AllOptParseError::ShortBuf
             }
         }

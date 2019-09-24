@@ -89,7 +89,7 @@ macro_rules! int_enum {
         //--- Parse and Compose
 
         impl<T: AsRef<[u8]>> $crate::parse::Parse<T> for $ianatype {
-            type Err = $crate::parse::ShortBuf;
+            type Err = $crate::octets::ShortBuf;
 
             fn parse(
                 parser: &mut $crate::parse::Parser<T>

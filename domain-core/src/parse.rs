@@ -3,57 +3,7 @@
 #[cfg(feature="bytes")] use bytes::Bytes;
 use derive_more::Display;
 use crate::net::{Ipv4Addr, Ipv6Addr};
-
-pub use crate::octets::ShortBuf;
-
-
-//------------ ParseSource ---------------------------------------------------
-
-// XXX Consider renaming to ParseOctets.
-pub trait ParseSource: Clone + AsRef<[u8]> + Sized {
-    fn range(&self, start: usize, end: usize) -> Self;
-
-    fn range_to(&self, end: usize) -> Self {
-        self.range(0, end)
-    }
-
-    fn range_from(&self, start: usize) -> Self {
-        self.range(start, self.as_ref().len())
-    }
-
-    fn split_at(self, mid: usize) -> (Self, Self) {
-        (self.range_to(mid), self.range_from(mid))
-    }
-
-    fn split_off(&mut self, mid: usize) -> Self {
-        let res = self.range_from(mid);
-        *self = self.range_to(mid);
-        res
-    }
-
-    fn split_to(&mut self, mid: usize) -> Self {
-        let res = self.range_to(mid);
-        *self = self.range_from(mid);
-        res
-    }
-
-    fn truncate(&mut self, len: usize) {
-        *self = self.range_to(len)
-    }
-}
-
-impl<'a> ParseSource for &'a [u8] {
-    fn range(&self, start: usize, end: usize) -> Self {
-        &self[start..end]
-    }
-}
-
-#[cfg(feature="bytes")]
-impl ParseSource for Bytes {
-    fn range(&self, start: usize, end: usize) -> Self {
-        self.slice(start, end)
-    }
-}
+use crate::octets::{ParseOctets, ShortBuf};
 
 
 //------------ Parser --------------------------------------------------------
@@ -174,7 +124,7 @@ impl<T: AsRef<[u8]>> Parser<T> {
     /// Advances the parser by `len` bytes. If there aren’t enough bytes left,
     /// leaves the parser untouched and returns an error, instead.
     pub fn parse_octets(&mut self, len: usize) -> Result<T, ShortBuf>
-    where T: ParseSource {
+    where T: ParseOctets {
         let end = self.pos + len;
         if end > self.octets.as_ref().len() {
             return Err(ShortBuf)

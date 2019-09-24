@@ -10,8 +10,8 @@ use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{Rtype, TsigRcode};
 use crate::name::ToDname;
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ParseSource};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
 use crate::utils::base64;
 use super::RtypeRecordData;
 
@@ -301,7 +301,7 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
 
 //--- Parse, ParseAll, Compose, and Compress
 
-impl<O: ParseSource, N: Parse<O>> Parse<O> for Tsig<O, N>
+impl<O: ParseOctets, N: Parse<O>> Parse<O> for Tsig<O, N>
 where N::Err: From<ShortBuf> {
     type Err = N::Err;
 
@@ -334,7 +334,7 @@ where N::Err: From<ShortBuf> {
     }
 }
 
-impl<O: ParseSource, N: ParseAll<O> + Parse<O>> ParseAll<O> for Tsig<O, N>
+impl<O: ParseOctets, N: ParseAll<O> + Parse<O>> ParseAll<O> for Tsig<O, N>
 where
     <N as ParseAll<O>>::Err: From<<N as Parse<O>>::Err>,
     <N as ParseAll<O>>::Err: From<ParseAllError>,

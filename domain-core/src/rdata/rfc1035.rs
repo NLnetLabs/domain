@@ -19,11 +19,10 @@ use crate::str::Symbol;
 use crate::name::{ParsedDname, ToDname};
 use crate::net::Ipv4Addr;
 use crate::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoOctets, OctetsBuilder, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, IntoOctets, OctetsBuilder,
+    ParseOctets, ShortBuf
 };
-use crate::parse::{
-    ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ParseSource
-};
+use crate::parse::{ParseAll, ParseAllError, ParseOpenError, Parse, Parser};
 use crate::serial::Serial;
 use super::RtypeRecordData;
 
@@ -115,7 +114,7 @@ macro_rules! dname_type {
         //--- Parse, ParseAll, and Compose
 
         impl<Octets> Parse<Octets> for $target<ParsedDname<Octets>>
-        where Octets: ParseSource {
+        where Octets: ParseOctets {
             type Err = <ParsedDname<Octets> as Parse<Octets>>::Err;
 
             fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
@@ -128,7 +127,7 @@ macro_rules! dname_type {
         }
 
         impl<Octets> ParseAll<Octets> for $target<ParsedDname<Octets>>
-        where Octets: ParseSource {
+        where Octets: ParseOctets {
             type Err = <ParsedDname<Octets> as ParseAll<Octets>>::Err;
 
             fn parse_all(
@@ -451,7 +450,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Hinfo<Octets> {
 
 //--- Parse, Compose, and Compress
 
-impl<Octets: ParseSource> Parse<Octets> for Hinfo<Octets> {
+impl<Octets: ParseOctets> Parse<Octets> for Hinfo<Octets> {
     type Err = ShortBuf;
 
     fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
@@ -465,7 +464,7 @@ impl<Octets: ParseSource> Parse<Octets> for Hinfo<Octets> {
     }
 }
 
-impl<Octets: ParseSource> ParseAll<Octets> for Hinfo<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Hinfo<Octets> {
     type Err = ParseAllError;
 
     fn parse_all(
@@ -1052,7 +1051,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Null<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for Null<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Null<Octets> {
     type Err = ShortBuf;
 
     fn parse_all(
@@ -1570,7 +1569,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Txt<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for Txt<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Txt<Octets> {
     type Err = ParseOpenError;
 
     fn parse_all(
@@ -1871,7 +1870,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Wks<Octets> {
 
 //--- ParseAll, Compose, Compress
 
-impl<Octets: ParseSource> ParseAll<Octets> for Wks<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Wks<Octets> {
     type Err = ParseOpenError;
 
     fn parse_all(

@@ -18,9 +18,10 @@ use crate::iana::{DigestAlg, Rtype, SecAlg};
 use crate::name::{ParsedDnameError, ToDname};
 #[cfg(feature="bytes")] use crate::name::Dname;
 use crate::octets::{
-    Compose, EmptyBuilder, IntoBuilder, IntoOctets, OctetsBuilder, ShortBuf
+    Compose, EmptyBuilder, IntoBuilder, IntoOctets, OctetsBuilder,
+    ParseOctets, ShortBuf
 };
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ParseSource};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
 use crate::serial::Serial;
 use crate::utils::base64;
 use super::{RtypeRecordData, RdataParseError};
@@ -210,7 +211,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Dnskey<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for Dnskey<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Dnskey<Octets> {
     type Err = ParseAllError;
 
     fn parse_all(
@@ -501,7 +502,7 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
 
 impl<Octets, Name> ParseAll<Octets> for Rrsig<Octets, Name>
 where
-    Octets: ParseSource, Name: Parse<Octets>,
+    Octets: ParseOctets, Name: Parse<Octets>,
     ParsedDnameError: From<<Name as Parse<Octets>>::Err>
 {
     type Err = ParsedDnameError;
@@ -728,9 +729,9 @@ impl<Octets: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octets, Name> {
 
 //--- ParseAll, Compose, and Compress
 
-impl<Octets: ParseSource, Name> ParseAll<Octets> for Nsec<Octets, Name>
+impl<Octets: ParseOctets, Name> ParseAll<Octets> for Nsec<Octets, Name>
 where
-    Octets: ParseSource,
+    Octets: ParseOctets,
     Name: Parse<Octets>,
     ParsedDnameError: From<<Name as Parse<Octets>>::Err>
 {
@@ -930,7 +931,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Ds<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for Ds<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Ds<Octets> {
     type Err = ShortBuf;
 
     fn parse_all(
@@ -1148,7 +1149,7 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for RtypeBitmap<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for RtypeBitmap<Octets> {
     type Err = RtypeBitmapError;
 
     fn parse_all(

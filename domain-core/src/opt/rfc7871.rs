@@ -4,8 +4,8 @@ use derive_more::Display;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
 use crate::net::IpAddr;
-use crate::octets::{Compose, OctetsBuilder};
-use crate::parse::{ParseAll, Parser, ShortBuf};
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
+use crate::parse::{ParseAll, Parser};
 use super::CodeOptData;
 
 

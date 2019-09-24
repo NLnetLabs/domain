@@ -125,10 +125,8 @@ use crate::iana::Rtype;
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
 use crate::name::{ParsedDnameError, ParsedDnameAllError};
-use crate::octets::{Compose, OctetsBuilder};
-use crate::parse::{
-    ParseAll, ParseAllError, ParseOpenError, Parser, ParseSource, ShortBuf
-};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{ParseAll, ParseAllError, ParseOpenError, Parser};
 
 
 //----------- RecordData -----------------------------------------------------
@@ -379,7 +377,7 @@ impl<Octets: AsRef<[u8]>> RecordData for UnknownRecordData<Octets> {
 }
 
 impl<Octets> ParseRecordData<Octets> for UnknownRecordData<Octets>
-where Octets: ParseSource {
+where Octets: ParseOctets {
     type Err = ShortBuf;
 
     fn parse_data(

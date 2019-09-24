@@ -47,8 +47,8 @@ use unwrap::unwrap;
 use crate::iana::{OptionCode, OptRcode, Rtype};
 use crate::header::Header;
 use crate::name::ToDname;
-use crate::octets::{Compose, OctetsBuilder};
-use crate::parse::{Parse, ParseAll, Parser, ParseSource, ShortBuf};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{Parse, ParseAll, Parser};
 use crate::rdata::RtypeRecordData;
 use crate::record::Record;
 
@@ -129,7 +129,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Opt<Octets> {
 
 //--- ParseAll, Compose, Compress
 
-impl<Octets: ParseSource> ParseAll<Octets> for Opt<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Opt<Octets> {
     type Err = ShortBuf;
 
     fn parse_all(
@@ -518,7 +518,7 @@ impl<Octets: AsRef<[u8]>> OptData for UnknownOptData<Octets> {
     }
 }
 
-impl<Octets: ParseSource> ParseOptData<Octets> for UnknownOptData<Octets> {
+impl<Octets: ParseOctets> ParseOptData<Octets> for UnknownOptData<Octets> {
     type ParseErr = ShortBuf;
 
     fn parse_option(

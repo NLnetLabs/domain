@@ -3,8 +3,8 @@
 use core::fmt;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
-use crate::octets::{Compose, OctetsBuilder};
-use crate::parse::{ParseAll, Parser, ParseSource, ShortBuf};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{ParseAll, Parser};
 use super::CodeOptData;
 
 
@@ -37,7 +37,7 @@ impl Nsid<()> {
     }
 }
 
-impl<Octets: ParseSource> ParseAll<Octets> for Nsid<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Nsid<Octets> {
     type Err = ShortBuf;
 
     fn parse_all(

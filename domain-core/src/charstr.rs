@@ -34,11 +34,10 @@ use crate::cmp::CanonicalOrd;
 };
 use crate::str::{BadSymbol, Symbol, SymbolError};
 use crate::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, IntoOctets, OctetsBuilder
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, IntoOctets,
+    OctetsBuilder, ParseOctets, ShortBuf
 };
-use crate::parse::{
-    ParseAll, ParseAllError, Parse, Parser, ParseSource, ShortBuf
-};
+use crate::parse::{ParseAll, ParseAllError, Parse, Parser};
 
 
 //------------ CharStr -------------------------------------------------------
@@ -251,7 +250,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
 
 //--- Parse, ParseAll, and Compose
 
-impl<T: ParseSource> Parse<T> for CharStr<T> {
+impl<T: ParseOctets> Parse<T> for CharStr<T> {
     type Err = ShortBuf;
 
     fn parse(parser: &mut Parser<T>) -> Result<Self, Self::Err> {
@@ -267,7 +266,7 @@ impl<T: ParseSource> Parse<T> for CharStr<T> {
     }
 }
 
-impl<T: ParseSource> ParseAll<T> for CharStr<T> {
+impl<T: ParseOctets> ParseAll<T> for CharStr<T> {
     type Err = ParseAllError;
 
     fn parse_all(
@@ -720,8 +719,6 @@ mod test {
 
     #[test]
     fn parse() {
-        use crate::parse::{Parse, Parser, ShortBuf};
-
         let mut parser = Parser::from_static(b"12\x03foo\x02bartail");
         unwrap!(parser.advance(2));
         let foo = unwrap!(CharStrRef::parse(&mut parser));
@@ -738,8 +735,6 @@ mod test {
 
     #[test]
     fn parse_all() {
-        use crate::parse::{ParseAll, ParseAllError, Parser};
-
         let mut parser = Parser::from_static(b"12\x03foo12");
         unwrap!(parser.advance(2));
         assert_eq!(

@@ -3,8 +3,8 @@
 use core::slice;
 use crate::iana::{OptionCode, SecAlg};
 use crate::message_builder::OptBuilder;
-use crate::octets::{Compose, OctetsBuilder};
-use crate::parse::{ParseAll, Parser, ParseSource, ShortBuf};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{ParseAll, Parser};
 use super::CodeOptData;
 
 
@@ -47,7 +47,7 @@ macro_rules! option_type {
 
         //--- ParseAll, Compose
 
-        impl<Octets: ParseSource> ParseAll<Octets> for $name<Octets> {
+        impl<Octets: ParseOctets> ParseAll<Octets> for $name<Octets> {
             type Err = ShortBuf;
 
             fn parse_all(

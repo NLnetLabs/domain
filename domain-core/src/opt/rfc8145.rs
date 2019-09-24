@@ -4,8 +4,8 @@ use core::convert::TryInto;
 use unwrap::unwrap;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{ParseAll, ParseAllError, Parser, ParseSource};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{ParseAll, ParseAllError, Parser};
 use super::CodeOptData;
 
 
@@ -46,7 +46,7 @@ impl<Octets> KeyTag<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for KeyTag<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for KeyTag<Octets> {
     type Err = ParseAllError;
 
     fn parse_all(

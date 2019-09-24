@@ -11,10 +11,10 @@ use crate::cmp::CanonicalOrd;
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
-use crate::octets::{Compose, EmptyBuilder, FromBuilder, OctetsBuilder};
-use crate::parse::{
-    Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
+use crate::octets::{
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, ParseOctets, ShortBuf
 };
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{RelativeDname, DnameIter};
@@ -109,7 +109,7 @@ impl<Octets> Dname<Octets> {
  
     /// Converts the name into a relative name by dropping the root label.
     pub fn into_relative(mut self) -> RelativeDname<Octets>
-    where Octets: ParseSource {
+    where Octets: ParseOctets {
         let len = self.0.as_ref().len() - 1;
         self.0.truncate(len);
         unsafe { RelativeDname::from_octets_unchecked(self.0) }
@@ -328,7 +328,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
     }
 }
 
-impl<Octets: ParseSource> Dname<Octets> {
+impl<Octets: ParseOctets> Dname<Octets> {
     /// Returns an iterator over the suffixes of the name.
     ///
     /// The returned iterator starts with the full name and then for each
@@ -591,7 +591,7 @@ where Octets: AsRef<[u8]> + ?Sized {
 
 //--- Parse, ParseAll, and Compose
 
-impl<Octets: ParseSource> Parse<Octets> for Dname<Octets> {
+impl<Octets: ParseOctets> Parse<Octets> for Dname<Octets> {
     type Err = DnameParseError;
 
     fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
@@ -632,7 +632,7 @@ fn name_len<Source: AsRef<[u8]>>(
     }
 }
 
-impl<Octets: ParseSource> ParseAll<Octets> for Dname<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Dname<Octets> {
     type Err = DnameParseAllError;
 
     fn parse_all(
@@ -715,11 +715,11 @@ impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug for Dname<Octets> {
 
 /// An iterator over ever shorter suffixes of a domain name.
 #[derive(Clone, Debug)]
-pub struct SuffixIter<Octets: ParseSource> {
+pub struct SuffixIter<Octets: ParseOctets> {
     name: Option<Dname<Octets>>,
 }
 
-impl<Octets: ParseSource> SuffixIter<Octets> {
+impl<Octets: ParseOctets> SuffixIter<Octets> {
     /// Creates a new iterator cloning `name`.
     fn new(name: &Dname<Octets>) -> Self {
         SuffixIter {
@@ -728,7 +728,7 @@ impl<Octets: ParseSource> SuffixIter<Octets> {
     }
 }
 
-impl<Octets: ParseSource> Iterator for SuffixIter<Octets> {
+impl<Octets: ParseOctets> Iterator for SuffixIter<Octets> {
     type Item = Dname<Octets>;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -45,15 +45,9 @@ use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{Class, Rtype};
 use crate::name::{ParsedDname, ParsedDnameError, ToDname};
-use crate::octets::{Compose, OctetsBuilder};
-use crate::parse::{Parse, Parser, ParseSource, ShortBuf};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{Parse, Parser};
 use crate::rdata::{RecordData, ParseRecordData};
-
-/*
-use std::{error, fmt};
-use bytes::{BigEndian, BufMut, ByteOrder};
-use crate::name::{ParsedDname, ParsedDnameError, ToDname};
-*/
 
 
 //------------ Record --------------------------------------------------------
@@ -303,7 +297,7 @@ where Name: hash::Hash, Data: hash::Hash {
 //--- Parse and Compose
 
 impl<Octets, Data> Parse<Octets> for Option<Record<ParsedDname<Octets>, Data>>
-where Octets: ParseSource, Data: ParseRecordData<Octets> {
+where Octets: ParseOctets, Data: ParseRecordData<Octets> {
     type Err = RecordParseError<ParsedDnameError, Data::Err>;
 
     fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
@@ -419,7 +413,7 @@ impl<Name> RecordHeader<Name> {
     }
 }
 
-impl<Octets: ParseSource> RecordHeader<ParsedDname<Octets>> {
+impl<Octets: ParseOctets> RecordHeader<ParsedDname<Octets>> {
     /// Parses a record header and then skips over the data.
     ///
     /// If the function succeeds, the parser will be positioned right behind
@@ -586,7 +580,7 @@ impl<Name: hash::Hash> hash::Hash for RecordHeader<Name> {
 
 //--- Parse and Compose
 
-impl<Octets: ParseSource> Parse<Octets> for RecordHeader<ParsedDname<Octets>> {
+impl<Octets: ParseOctets> Parse<Octets> for RecordHeader<ParsedDname<Octets>> {
     type Err = ParsedDnameError;
 
     fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
@@ -792,7 +786,7 @@ impl<Octets: AsRef<[u8]>> Eq for ParsedRecord<Octets> { }
 //    No Compose or Compress because the data may contain compressed domain
 //    names.
 
-impl<Octets: ParseSource> Parse<Octets> for ParsedRecord<Octets> {
+impl<Octets: ParseOctets> Parse<Octets> for ParsedRecord<Octets> {
     type Err = ParsedDnameError;
 
     fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {

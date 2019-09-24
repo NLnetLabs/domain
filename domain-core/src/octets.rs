@@ -6,6 +6,53 @@ use derive_more::Display;
 use crate::name::ToDname;
 use crate::net::{Ipv4Addr, Ipv6Addr};
 
+//------------ ParseOctets ---------------------------------------------------
+
+pub trait ParseOctets: Clone + AsRef<[u8]> + Sized {
+    fn range(&self, start: usize, end: usize) -> Self;
+
+    fn range_to(&self, end: usize) -> Self {
+        self.range(0, end)
+    }
+
+    fn range_from(&self, start: usize) -> Self {
+        self.range(start, self.as_ref().len())
+    }
+
+    fn split_at(self, mid: usize) -> (Self, Self) {
+        (self.range_to(mid), self.range_from(mid))
+    }
+
+    fn split_off(&mut self, mid: usize) -> Self {
+        let res = self.range_from(mid);
+        *self = self.range_to(mid);
+        res
+    }
+
+    fn split_to(&mut self, mid: usize) -> Self {
+        let res = self.range_to(mid);
+        *self = self.range_from(mid);
+        res
+    }
+
+    fn truncate(&mut self, len: usize) {
+        *self = self.range_to(len)
+    }
+}
+
+impl<'a> ParseOctets for &'a [u8] {
+    fn range(&self, start: usize, end: usize) -> Self {
+        &self[start..end]
+    }
+}
+
+#[cfg(feature="bytes")]
+impl ParseOctets for Bytes {
+    fn range(&self, start: usize, end: usize) -> Self {
+        self.slice(start, end)
+    }
+}
+
 
 //------------ OctetsBuilder -------------------------------------------------
 

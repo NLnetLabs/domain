@@ -12,8 +12,8 @@ use crate::iana::Rtype;
     CharSource, Scan, Scanner, ScanError
 };
 use crate::name::ToDname;
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, ParseAll, Parser, ParseOpenError, ParseSource};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{Parse, ParseAll, Parser, ParseOpenError};
 use super::RtypeRecordData;
 
 
@@ -116,7 +116,7 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
 
 //--- Parse, ParseAll, Compose and Compress
 
-impl<Octets: ParseSource, N: Parse<Octets>> Parse<Octets> for Srv<N> {
+impl<Octets: ParseOctets, N: Parse<Octets>> Parse<Octets> for Srv<N> {
     type Err = <N as Parse<Octets>>::Err;
 
     fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
@@ -137,7 +137,7 @@ impl<Octets: ParseSource, N: Parse<Octets>> Parse<Octets> for Srv<N> {
 }
 
 impl<Octets, N> ParseAll<Octets> for Srv<N>
-where Octets: ParseSource, N: ParseAll<Octets>, N::Err: From<ParseOpenError>
+where Octets: ParseOctets, N: ParseAll<Octets>, N::Err: From<ParseOpenError>
 {
     type Err = N::Err;
 

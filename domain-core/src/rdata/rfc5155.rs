@@ -10,8 +10,8 @@ use core::cmp::Ordering;
 use derive_more::Display;
 use crate::charstr::CharStr;
 use crate::cmp::CanonicalOrd;
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ParseSource};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
 use crate::iana::{Nsec3HashAlg, Rtype};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
@@ -171,7 +171,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for Nsec3<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Nsec3<Octets> {
     type Err = ParseNsec3Error;
 
     fn parse_all(
@@ -414,7 +414,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3param<Octets> {
 
 //--- Parse, ParseAll, and Compose
 
-impl<Octets: ParseSource> Parse<Octets> for Nsec3param<Octets> {
+impl<Octets: ParseOctets> Parse<Octets> for Nsec3param<Octets> {
     type Err = ShortBuf;
 
     fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
@@ -432,7 +432,7 @@ impl<Octets: ParseSource> Parse<Octets> for Nsec3param<Octets> {
     }
 }
 
-impl<Octets: ParseSource> ParseAll<Octets> for Nsec3param<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Nsec3param<Octets> {
     type Err = ParseAllError;
 
     fn parse_all(

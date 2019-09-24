@@ -263,7 +263,7 @@ macro_rules! rdata_types {
 
         impl<O> $crate::rdata::ParseRecordData<O>
         for MasterRecordData<O, $crate::name::ParsedDname<O>>
-        where O: $crate::parse::ParseSource
+        where O: $crate::octets::ParseOctets
         {
             type Err = RdataParseError;
 
@@ -612,7 +612,7 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<O: ParseSource> $crate::rdata::ParseRecordData<O>
+        impl<O: ParseOctets> $crate::rdata::ParseRecordData<O>
         for AllRecordData<O, $crate::name::ParsedDname<O>>
         {
             type Err = RdataParseError;

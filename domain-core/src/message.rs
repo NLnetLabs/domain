@@ -20,8 +20,8 @@ use crate::message_builder::{
 };
 use crate::name::{ParsedDname, ParsedDnameError, ToDname};
 use crate::opt::{Opt, OptRecord};
-use crate::octets::OctetsBuilder;
-use crate::parse::{Parse, Parser, ParseSource, ShortBuf};
+use crate::octets::{OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{Parse, Parser};
 use crate::question::Question;
 use crate::rdata::{Cname, ParseRecordData, RecordData};
 use crate::record::{ParsedRecord, Record, RecordParseError};
@@ -248,7 +248,7 @@ impl<Octets: AsRef<[u8]>> Message<Octets> {
 
 /// # Sections
 ///
-impl<Octets: ParseSource> Message<Octets> {
+impl<Octets: ParseOctets> Message<Octets> {
     /// Returns the question section.
     pub fn question(&self) -> QuestionSection<Octets> {
         QuestionSection::new(self.octets.clone())
@@ -360,14 +360,14 @@ impl<Octets: ParseSource> Message<Octets> {
 
 /// # Helpers for Common Tasks
 ///
-impl<Octets: ParseSource> Message<Octets> {
+impl<Octets: ParseOctets> Message<Octets> {
     /// Returns whether this is the answer to some other message.
     ///
     /// The method checks whether the ID fields of the headers are the same,
     /// whether the QR flag is set in this message, and whether the questions
     /// are the same.
     pub fn is_answer<Other>(&self, query: &Message<Other>) -> bool
-    where Other: ParseSource {
+    where Other: ParseOctets {
         if !self.header().qr()
                 || self.header().id() != query.header().id()
                 || self.header_counts().qdcount()
@@ -500,7 +500,7 @@ impl<T, Octets: AsRef<T>> AsRef<T> for Message<Octets> {
 
 //--- IntoIterator
 
-impl<Octets: ParseSource> IntoIterator for Message<Octets> {
+impl<Octets: ParseOctets> IntoIterator for Message<Octets> {
     type Item = Result<(ParsedRecord<Octets>, Section), ParsedDnameError>;
     type IntoIter = MessageIter<Octets>;
 
@@ -564,7 +564,7 @@ impl<Octets> QuestionSection<Octets> {
     pub fn answer(
         mut self
     ) -> Result<RecordSection<Octets>, ParsedDnameError>
-    where Octets: ParseSource {
+    where Octets: ParseOctets {
         // XXX Use Parser::skip here.
         for question in &mut self {
             let _ = question?;
@@ -583,12 +583,12 @@ impl<Octets> QuestionSection<Octets> {
     pub fn next_section(
         self
     ) -> Result<RecordSection<Octets>, ParsedDnameError>
-    where Octets: ParseSource {
+    where Octets: ParseOctets {
         self.answer()
     }
 
     fn eq<Other>(mut self, mut other: QuestionSection<Other>) -> bool
-    where Octets: ParseSource, Other: ParseSource {
+    where Octets: ParseOctets, Other: ParseOctets {
         loop {
             match (self.next(), other.next()) {
                 (Some(Ok(left)), Some(Ok(right))) => {
@@ -606,7 +606,7 @@ impl<Octets> QuestionSection<Octets> {
 
 //--- Iterator
 
-impl<Octets: ParseSource> Iterator for QuestionSection<Octets> {
+impl<Octets: ParseOctets> Iterator for QuestionSection<Octets> {
     type Item = Result<Question<ParsedDname<Octets>>, ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -751,7 +751,7 @@ impl<Octets> RecordSection<Octets> {
     pub fn next_section(
         mut self
     ) -> Result<Option<Self>, ParsedDnameError>
-    where Octets: ParseSource {
+    where Octets: ParseOctets {
         let section = match self.section.next_section() {
             Some(section) => section,
             None => return Ok(None)
@@ -770,7 +770,7 @@ impl<Octets> RecordSection<Octets> {
 
 //--- Iterator
 
-impl<Octets: ParseSource> Iterator for RecordSection<Octets> {
+impl<Octets: ParseOctets> Iterator for RecordSection<Octets> {
     type Item = Result<ParsedRecord<Octets>, ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -800,7 +800,7 @@ pub struct MessageIter<Octets> {
     inner: Option<RecordSection<Octets>>,
 }
 
-impl<Octets: ParseSource> Iterator for MessageIter<Octets> {
+impl<Octets: ParseOctets> Iterator for MessageIter<Octets> {
     type Item = Result<(ParsedRecord<Octets>, Section), ParsedDnameError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -873,7 +873,7 @@ impl<Octets, D: ParseRecordData<Octets>> RecordIter<Octets, D> {
     pub fn next_section(
         self
     ) -> Result<Option<RecordSection<Octets>>, ParsedDnameError>
-    where Octets: ParseSource {
+    where Octets: ParseOctets {
         self.section.next_section()
     }
 }
@@ -882,7 +882,7 @@ impl<Octets, D: ParseRecordData<Octets>> RecordIter<Octets, D> {
 //--- Iterator
 
 impl<Octets, D> Iterator for RecordIter<Octets, D>
-where Octets: ParseSource, D: ParseRecordData<Octets> {
+where Octets: ParseOctets, D: ParseRecordData<Octets> {
     type Item = Result<Record<ParsedDname<Octets>, D>,
                        RecordParseError<ParsedDnameError, D::Err>>;
 

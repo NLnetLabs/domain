@@ -6,8 +6,8 @@ use core::{cmp, fmt, hash, ops};
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::Bytes;
 use derive_more::Display;
-use crate::octets::{Compose, IntoBuilder, IntoOctets, OctetsBuilder, ShortBuf};
-use crate::parse::ParseSource;
+use crate::octets::{
+    Compose, IntoBuilder, IntoOctets, OctetsBuilder, ParseOctets, ShortBuf};
 use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -344,7 +344,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> RelativeDname<Octets> {
     }
 }
 
-impl<Octets: ParseSource> RelativeDname<Octets> {
+impl<Octets: ParseOctets> RelativeDname<Octets> {
     pub fn range(&self, begin: usize, end: usize) -> Self {
         self.check_index(begin);
         RelativeDname::from_octets(self.0.range(begin, end))
@@ -706,7 +706,7 @@ impl std::error::Error for StripSuffixError { }
 #[cfg(test)]
 mod test {
     use unwrap::unwrap;
-    use crate::parse::ShortBuf;
+    use crate::octets::ShortBuf;
     use super::*;
 
     macro_rules! assert_panic {

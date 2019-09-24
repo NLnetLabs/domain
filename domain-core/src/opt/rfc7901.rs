@@ -3,8 +3,8 @@
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
 use crate::name::{Dname, ToDname};
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{ParseAll, Parser, ParseSource};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{ParseAll, Parser};
 use super::CodeOptData;
 
 
@@ -44,7 +44,7 @@ impl<Octets> Chain<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for Chain<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Chain<Octets> {
     type Err = <Dname<Octets> as ParseAll<Octets>>::Err;
 
     fn parse_all(

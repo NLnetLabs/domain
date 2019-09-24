@@ -6,11 +6,8 @@
 use core::{cmp, fmt, hash};
 use derive_more::Display;
 use crate::cmp::CanonicalOrd;
-use crate::octets::{Compose, OctetsBuilder};
-use crate::parse::{
-    Parse, ParseAll, Parser, ParseAllError, ParseOpenError, ParseSource,
-    ShortBuf
-};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{Parse, ParseAll, Parser, ParseAllError, ParseOpenError};
 use super::label::{Label, LabelTypeError};
 use super::traits::{ToLabelIter, ToDname};
 use super::relative::RelativeDname;
@@ -95,7 +92,7 @@ impl<Octets: AsRef<[u8]>> ParsedDname<Octets> {
     /// additional step returns a name with the left-most label stripped off
     /// until it reaches the root label.
     pub fn iter_suffixes(&self) -> ParsedSuffixIter<Octets>
-    where Octets: ParseSource {
+    where Octets: ParseOctets {
         ParsedSuffixIter::new(self)
     }
 
@@ -134,7 +131,7 @@ impl<Octets: AsRef<[u8]>> ParsedDname<Octets> {
     /// label as a relative name and removes it from the name itself. If the
     /// name is only the root label, returns `None` and does nothing.
     pub fn split_first(&mut self) -> Option<RelativeDname<Octets>>
-    where Octets: ParseSource {
+    where Octets: ParseOctets {
         if self.len == 1 {
             return None
         }
@@ -164,7 +161,7 @@ impl<Octets: AsRef<[u8]>> ParsedDname<Octets> {
     /// If the name consists of the root label only, returns `false` and does
     /// nothing. Otherwise, drops the first label and returns `true`.
     pub fn parent(&mut self) -> bool 
-    where Octets: ParseSource {
+    where Octets: ParseOctets {
         self.split_first().is_some()
     }
 }
@@ -265,7 +262,7 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a ParsedDname<Octets> {
 
 //--- Parse, Compose, and Compress
 
-impl<Octets: ParseSource> Parse<Octets> for ParsedDname<Octets> {
+impl<Octets: ParseOctets> Parse<Octets> for ParsedDname<Octets> {
     type Err = ParsedDnameError;
 
     fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
@@ -376,7 +373,7 @@ impl<Octets: ParseSource> Parse<Octets> for ParsedDname<Octets> {
     }
 }
 
-impl<Octets: ParseSource> ParseAll<Octets> for ParsedDname<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for ParsedDname<Octets> {
     type Err = ParsedDnameAllError;
 
     fn parse_all(
@@ -535,18 +532,18 @@ impl<'a> DoubleEndedIterator for ParsedDnameIter<'a> {
 
 /// An iterator over ever shorter suffixes of a parsed domain name.
 #[derive(Clone, Debug)]
-pub struct ParsedSuffixIter<Octets: ParseSource> {
+pub struct ParsedSuffixIter<Octets: ParseOctets> {
     name: Option<ParsedDname<Octets>>,
 }
 
-impl<Octets: ParseSource> ParsedSuffixIter<Octets> {
+impl<Octets: ParseOctets> ParsedSuffixIter<Octets> {
     /// Creates a new iterator cloning `name`.
     fn new(name: &ParsedDname<Octets>) -> Self {
         ParsedSuffixIter { name: Some(name.clone()) }
     }
 }
 
-impl<Octets: ParseSource> Iterator for ParsedSuffixIter<Octets> {
+impl<Octets: ParseOctets> Iterator for ParsedSuffixIter<Octets> {
     type Item = ParsedDname<Octets>;
 
     fn next(&mut self) -> Option<Self::Item> {

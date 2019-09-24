@@ -6,8 +6,8 @@ use crate::iana::{DigestAlg, Rtype, SecAlg};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner
 };
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ParseSource};
+use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
 use crate::utils::base64;
 use super::RtypeRecordData;
 
@@ -119,7 +119,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cdnskey<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for Cdnskey<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Cdnskey<Octets> {
     type Err = ParseAllError;
 
     fn parse_all(
@@ -316,7 +316,7 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cds<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseSource> ParseAll<Octets> for Cds<Octets> {
+impl<Octets: ParseOctets> ParseAll<Octets> for Cds<Octets> {
     type Err = ShortBuf;
 
     fn parse_all(
