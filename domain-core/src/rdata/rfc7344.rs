@@ -2,15 +2,13 @@ use core::{fmt, hash};
 use core::cmp::Ordering;
 #[cfg(feature="bytes")] use bytes::Bytes;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{DigestAlg, Rtype, SecAlg};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner
 };
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ParseSource};
 use crate::utils::base64;
-use crate::parse::{
-    Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
-};
 use super::RtypeRecordData;
 
 
@@ -141,11 +139,16 @@ impl<Octets: ParseSource> ParseAll<Octets> for Cdnskey<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.flags.compose(buf);
-        self.protocol.compose(buf);
-        self.algorithm.compose(buf);
-        buf.append_slice(self.public_key.as_ref());
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.flags.compose(buf)?;
+            self.protocol.compose(buf)?;
+            self.algorithm.compose(buf)?;
+            buf.append_slice(self.public_key.as_ref())
+        })
     }
 }
 
@@ -333,11 +336,16 @@ impl<Octets: ParseSource> ParseAll<Octets> for Cds<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.key_tag.compose(buf);
-        self.algorithm.compose(buf);
-        self.digest_type.compose(buf);
-        buf.append_slice(self.digest.as_ref())
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.key_tag.compose(buf)?;
+            self.algorithm.compose(buf)?;
+            self.digest_type.compose(buf)?;
+            buf.append_slice(self.digest.as_ref())
+        })
     }
 }
 

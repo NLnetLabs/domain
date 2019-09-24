@@ -45,9 +45,9 @@ use core::convert::TryInto;
 use core::marker::PhantomData;
 use unwrap::unwrap;
 use crate::iana::{OptionCode, OptRcode, Rtype};
-use crate::compose::{Compose, ComposeTarget};
 use crate::header::Header;
 use crate::name::ToDname;
+use crate::octets::{Compose, OctetsBuilder};
 use crate::parse::{Parse, ParseAll, Parser, ParseSource, ShortBuf};
 use crate::rdata::RtypeRecordData;
 use crate::record::Record;
@@ -83,7 +83,7 @@ impl<Octets> Opt<Octets> {
     ///
     /// The returned iterator will return only options represented by type
     /// `D` and quietly skip over all the others.
-    pub fn iter<D: OptData<Octets>>(&self) -> OptIter<Octets, D>
+    pub fn iter<D: ParseOptData<Octets>>(&self) -> OptIter<Octets, D>
     where Octets: Clone {
         OptIter::new(self.octets.clone())
     }
@@ -141,7 +141,10 @@ impl<Octets: ParseSource> ParseAll<Octets> for Opt<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Opt<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.octets.as_ref())
     }
 }
@@ -254,7 +257,10 @@ impl Default for OptHeader {
 }
 
 impl Compose for OptHeader {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.inner)
     }
 }
@@ -367,9 +373,14 @@ impl<Octets: AsRef<[u8]>> Parse<Octets> for OptionHeader {
 }
 
 impl Compose for OptionHeader {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.code.compose(target);
-        self.len.compose(target);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.code.compose(target)?;
+            self.len.compose(target)
+        })
     }
 }
 
@@ -377,18 +388,19 @@ impl Compose for OptionHeader {
 //------------ OptIter -------------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct OptIter<Octets, D: OptData<Octets>> { 
+pub struct OptIter<Octets, D: ParseOptData<Octets>> { 
     parser: Parser<Octets>,
     marker: PhantomData<D>
 }
 
-impl<Octets, D: OptData<Octets>> OptIter<Octets, D> {
+impl<Octets, D: ParseOptData<Octets>> OptIter<Octets, D> {
     fn new(octets: Octets) -> Self {
         OptIter { parser: Parser::from_octets(octets), marker: PhantomData }
     }
 }
 
-impl<Octets: AsRef<[u8]>, D: OptData<Octets>> Iterator for OptIter<Octets, D> {
+impl<Octets, D> Iterator for OptIter<Octets, D>
+where Octets: AsRef<[u8]>, D: ParseOptData<Octets> {
     type Item = Result<D, D::ParseErr>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -403,7 +415,7 @@ impl<Octets: AsRef<[u8]>, D: OptData<Octets>> Iterator for OptIter<Octets, D> {
     }
 }
 
-impl<Octets: AsRef<[u8]>, D: OptData<Octets>> OptIter<Octets, D> {
+impl<Octets: AsRef<[u8]>, D: ParseOptData<Octets>> OptIter<Octets, D> {
     fn next_step(&mut self) -> Result<Option<D>, D::ParseErr> {
         let code = self.parser.parse_u16().unwrap().into();
         let len = self.parser.parse_u16().unwrap() as usize;
@@ -414,10 +426,15 @@ impl<Octets: AsRef<[u8]>, D: OptData<Octets>> OptIter<Octets, D> {
 
 //------------ OptData -------------------------------------------------------
 
-pub trait OptData<Octets>: Compose + Sized {
-    type ParseErr;
-
+pub trait OptData: Compose + Sized {
     fn code(&self) -> OptionCode;
+}
+
+
+//------------ ParseOptData --------------------------------------------------
+
+pub trait ParseOptData<Octets>: OptData {
+    type ParseErr;
 
     fn parse_option(
         code: OptionCode,
@@ -433,11 +450,15 @@ pub trait CodeOptData {
     const CODE: OptionCode;
 }
 
-impl<Octets, T> OptData<Octets> for T
+impl<T: CodeOptData + Compose> OptData for T {
+    fn code(&self) -> OptionCode {
+        Self::CODE
+    }
+}
+
+impl<Octets, T> ParseOptData<Octets> for T
 where T: CodeOptData + ParseAll<Octets> + Compose + Sized {
     type ParseErr = <Self as ParseAll<Octets>>::Err;
-
-    fn code(&self) -> OptionCode { Self::CODE }
 
     fn parse_option(
         code: OptionCode,
@@ -480,7 +501,10 @@ impl<Octets> UnknownOptData<Octets> {
 //--- Compose
 
 impl<Octets: AsRef<[u8]>> Compose for UnknownOptData<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.data.as_ref())
     }
 }
@@ -488,12 +512,14 @@ impl<Octets: AsRef<[u8]>> Compose for UnknownOptData<Octets> {
 
 //--- OptData
 
-impl<Octets: ParseSource> OptData<Octets> for UnknownOptData<Octets> {
-    type ParseErr = ShortBuf;
-
+impl<Octets: AsRef<[u8]>> OptData for UnknownOptData<Octets> {
     fn code(&self) -> OptionCode {
         self.code
     }
+}
+
+impl<Octets: ParseSource> ParseOptData<Octets> for UnknownOptData<Octets> {
+    type ParseErr = ShortBuf;
 
     fn parse_option(
         code: OptionCode,
@@ -522,8 +548,8 @@ mod test {
         header.set_version(0xbd);
         header.set_dnssec_ok(true);
         let mut buf = Vec::with_capacity(11);
-        header.compose(&mut buf);
-        0u16.compose(&mut buf);
+        unwrap!(header.compose(&mut buf));
+        unwrap!(0u16.compose(&mut buf));
         let mut buf = Parser::from_octets(buf.as_slice());
         let record = ParsedRecord::parse(&mut buf).unwrap()
             .into_record::<Opt<_>>().unwrap().unwrap();

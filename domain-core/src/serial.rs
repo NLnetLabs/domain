@@ -8,10 +8,10 @@
 use core::{cmp, fmt, str};
 #[cfg(feature = "chrono")] use chrono::{DateTime, Utc, TimeZone};
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 #[cfg(feature = "bytes")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner, SyntaxError
 };
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::parse::{Parse, ParseAll, Parser};
 
 
@@ -231,7 +231,10 @@ impl<T: AsRef<[u8]>> ParseAll<T> for Serial {
 }
 
 impl Compose for Serial {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         self.0.compose(target)
     }
 }

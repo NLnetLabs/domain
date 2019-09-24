@@ -5,8 +5,8 @@
 
 use core::{fmt, iter};
 use derive_more::Display;
-use crate::compose::{Compose, ComposeTarget};
 use super::label::Label;
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use super::relative::DnameIter;
 use super::traits::{ToDname, ToEitherDname, ToLabelIter, ToRelativeDname};
 use super::uncertain::UncertainDname;
@@ -102,37 +102,57 @@ impl<L, R> Chain<L, R> {
 //--- Compose
 
 impl<L: ToRelativeDname, R: ToEitherDname> Compose for Chain<L, R> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.left.compose(target);
-        self.right.compose(target)
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.left.compose(target)?;
+            self.right.compose(target)
+        })
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.left.compose_canonical(target);
-        self.right.compose_canonical(target);
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.left.compose_canonical(target)?;
+            self.right.compose_canonical(target)
+        })
     }
 }
 
 impl<Octets, R: ToDname> Compose for Chain<UncertainDname<Octets>, R>
 where Octets: AsRef<[u8]>, R: ToDname {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         match self.left {
             UncertainDname::Absolute(ref name) => name.compose(target),
             UncertainDname::Relative(ref name) => {
-                name.compose(target);
-                self.right.compose(target)
+                target.append_all(|target| {
+                    name.compose(target)?;
+                    self.right.compose(target)
+                })
             }
         }
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         match self.left {
             UncertainDname::Absolute(ref name) => {
                 name.compose_canonical(target)
             }
             UncertainDname::Relative(ref name) => {
-                name.compose_canonical(target);
-                self.right.compose_canonical(target)
+                target.append_all(|target| {
+                    name.compose_canonical(target)?;
+                    self.right.compose_canonical(target)
+                })
             }
         }
     }
@@ -333,12 +353,12 @@ mod test {
 
         let mut builder = DnameBuilder::new_vec();
         unwrap!(builder.append_slice(b"123"));
-        let five_abs = builder.clone().into_dname();
+        let five_abs = unwrap!(builder.clone().into_dname());
         assert_eq!(five_abs.len(), 5);
         unwrap!(builder.push(b'4'));
         let five_rel = builder.clone().finish();
         assert_eq!(five_rel.len(), 5);
-        let six_abs = builder.clone().into_dname();
+        let six_abs = unwrap!(builder.clone().into_dname());
         assert_eq!(six_abs.len(), 6);
         unwrap!(builder.push(b'5'));
         let six_rel = builder.finish();
@@ -372,7 +392,7 @@ mod test {
         );
         assert!(left.clone().chain(six_abs.clone()).is_err());
 
-        let left = UncertainDname::from(left.into_absolute());
+        let left = UncertainDname::from(unwrap!(left.into_absolute()));
         assert_eq!(
             unwrap!(left.clone().chain(six_abs.clone())).len(),
             251
@@ -444,29 +464,35 @@ mod test {
         );
 
         let mut buf = Vec::new();
-        unwrap!(w.clone().chain(ec.clone())).compose(&mut buf);
+        unwrap!(unwrap!(w.clone().chain(ec.clone())).compose(&mut buf));
         assert_eq!(buf, b"\x03www\x07example\x03com".as_ref());
 
         let mut buf = Vec::new();
-        unwrap!(w.clone().chain(ecr.clone())).compose(&mut buf);
+        unwrap!(unwrap!(w.clone().chain(ecr.clone())).compose(&mut buf));
         assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
         let mut buf = Vec::new();
         unwrap!(
-            unwrap!(w.clone().chain(ec.clone())).chain(Dname::root_ref())
-        ).compose(&mut buf);
+            unwrap!(
+                unwrap!(w.clone().chain(ec.clone())).chain(Dname::root_ref())
+            ).compose(&mut buf)
+        );
         assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
         let mut buf = Vec::new();
         unwrap!(
-            UncertainDname::from(w.clone()).chain(ecr.clone())
-        ).compose(&mut buf);
+            unwrap!(
+                UncertainDname::from(w.clone()).chain(ecr.clone())
+            ).compose(&mut buf)
+        );
         assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
         let mut buf = Vec::new();
         unwrap!(
-            UncertainDname::from(ecr.clone()).chain(fbr.clone())
-        ).compose(&mut buf);
+            unwrap!(
+                UncertainDname::from(ecr.clone()).chain(fbr.clone())
+            ).compose(&mut buf)
+        );
         assert_eq!(buf, b"\x07example\x03com\x00");
     }
 }

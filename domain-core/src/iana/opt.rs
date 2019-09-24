@@ -1,7 +1,7 @@
 //! DNS EDNS0 Option Codes (OPT)
 
 use core::{cmp, fmt, hash};
-use crate::compose::{Compose, ComposeTarget};
+use crate::octets::{Compose, OctetsBuilder};
 use crate::parse::{Parse, Parser, ShortBuf};
 
 
@@ -101,7 +101,10 @@ impl<T: AsRef<[u8]>> Parse<T> for OptionCode {
 }
 
 impl Compose for OptionCode {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         self.to_int().compose(target)
     }
 }

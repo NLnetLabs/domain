@@ -5,8 +5,8 @@
 use core::cmp;
 #[cfg(feature="bytes")] use bytes::Bytes;
 use unwrap::unwrap;
-use crate::compose::Compose;
-use crate::octets::{FromBuilder, OctetsBuilder};
+use crate::octets::{Compose, EmptyBuilder, FromBuilder, IntoOctets};
+use super::builder::PushError;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::Label;
@@ -101,22 +101,26 @@ impl<'a, 'b, N: ToLabelIter<'b> + ?Sized> ToLabelIter<'b> for &'a N {
 /// [`Dname`]: struct.Dname.html
 /// [`ParsedDname`]: struct.ParsedDname.html
 pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
-    fn to_dname<Octets: FromBuilder>(&self) -> Dname<Octets> {
+    fn to_dname<Octets>(&self) -> Result<Dname<Octets>, PushError>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder
+    {
         let mut builder = Octets::Builder::with_capacity(self.len());
         for label in self.iter_labels() {
-            label.build(&mut builder);
+            label.build(&mut builder)?;
         }
-        unsafe { Dname::from_octets_unchecked(builder.finish()) }
+        Ok(unsafe { Dname::from_octets_unchecked(builder.into_octets()) })
     }
 
     #[cfg(feature = "std")]
     fn to_dname_vec(&self) -> Dname<std::vec::Vec<u8>> {
-        self.to_dname()
+        unwrap!(self.to_dname())
     }
 
     #[cfg(feature="bytes")] 
     fn to_dname_bytes(&self) -> Dname<Bytes> {
-        self.to_dname()
+        unwrap!(self.to_dname())
     }
 
     /// Returns a byte slice of the content if possible.
@@ -270,12 +274,20 @@ impl<'a, N: ToDname + ?Sized + 'a> ToDname for &'a N { }
 /// [`Chain<L, R>`]: struct.Chain.html
 /// [`RelativeDname`]: struct.RelativeDname.html
 pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
-    fn to_relative_dname<Octets: FromBuilder>(&self) -> RelativeDname<Octets> {
+    fn to_relative_dname<Octets>(
+        &self
+    ) -> Result<RelativeDname<Octets>, PushError>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder
+    {
         let mut builder = Octets::Builder::with_capacity(self.len());
         for label in self.iter_labels() {
-            label.build(&mut builder);
+            label.build(&mut builder)?;
         }
-        unsafe { RelativeDname::from_octets_unchecked(builder.finish()) }
+        Ok(unsafe {
+            RelativeDname::from_octets_unchecked(builder.into_octets()) 
+        })
     }
 
     /// Returns a byte slice of the content if possible.

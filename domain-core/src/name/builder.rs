@@ -7,7 +7,8 @@ use core::ops;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::BytesMut;
 use derive_more::Display;
-use crate::octets::OctetsBuilder;
+use unwrap::unwrap;
+use crate::octets::{EmptyBuilder, OctetsBuilder, IntoOctets, ShortBuf};
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
@@ -31,7 +32,7 @@ pub struct DnameBuilder<Builder> {
     head: Option<usize>,
 }
 
-impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
+impl<Builder> DnameBuilder<Builder> {
     /// Creates a new domain name builder from an existing bytes buffer.
     ///
     /// Whatever is in the buffer already is considered to be a relative
@@ -42,12 +43,14 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     }
 
     /// Creates a new, empty name builder.
-    pub fn new() -> Self {
+    pub fn new() -> Self
+    where Builder: EmptyBuilder {
         unsafe { DnameBuilder::from_builder_unchecked(Builder::empty()) }
     }
 
     /// Creates a new, empty builder with a given capacity.
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub fn with_capacity(capacity: usize) -> Self
+    where Builder: EmptyBuilder {
         unsafe {
             DnameBuilder::from_builder_unchecked(
                 Builder::with_capacity(capacity)
@@ -56,7 +59,8 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     }
 
     /// Creates a new domain name builder atop an existing octets builder.
-    pub fn from_builder(builder: Builder) -> Result<Self, RelativeDnameError> {
+    pub fn from_builder(builder: Builder) -> Result<Self, RelativeDnameError>
+    where Builder: OctetsBuilder {
         RelativeDname::check_slice(builder.as_ref())?;
         Ok(unsafe { DnameBuilder::from_builder_unchecked(builder) })
     }
@@ -85,17 +89,6 @@ impl DnameBuilder<BytesMut> {
 }
 
 impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
-
-    // This should be a `const fn` once that becomes allowed.
-    fn max_capacity() -> usize {
-        core::cmp::min(Builder::MAX_CAPACITY - 1, 254)
-    }
-
-    // This should be a `const fn` once that becomes allowed.
-    fn max_absolute_capacity() -> usize {
-        core::cmp::min(Builder::MAX_CAPACITY - 1, 254)
-    }
-
     /// Returns whether there currently is a label under construction.
     ///
     /// This returns `false` if the name is still empty or if the last thing
@@ -112,18 +105,18 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// would exceed the size limits for labels or domain names.
     pub fn push(&mut self, ch: u8) -> Result<(), PushError> {
         let len = self.len();
-        if len >= Self::max_capacity() {
+        if len >= 254 {
             return Err(PushError::LongName);
         }
         if let Some(head) = self.head {
             if len - head > 63 {
                 return Err(PushError::LongLabel)
             }
-            self.builder.append_slice(&[ch]);
+            self.builder.append_slice(&[ch])?;
         }
         else {
             self.head = Some(len);
-            self.builder.append_slice(&[0, ch]);
+            self.builder.append_slice(&[0, ch])?;
         }
         Ok(())
     }
@@ -147,13 +140,13 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
             if slice.len() > 63 {
                 return Err(PushError::LongLabel)
             }
-            if self.len() + slice.len() > Self::max_capacity() {
+            if self.len() + slice.len() > 254 {
                 return Err(PushError::LongName)
             }
             self.head = Some(self.len());
-            self.builder.append_slice(&[0]);
+            self.builder.append_slice(&[0])?;
         }
-        self.builder.append_slice(slice);
+        self.builder.append_slice(slice)?;
         Ok(())
     }
 
@@ -201,12 +194,12 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     ) -> Result<(), PushNameError> {
         let head = self.head.take();
         self.end_label();
-        if self.len() + name.len() > Self::max_capacity() {
+        if self.len() + name.len() > 254 {
             self.head = head;
             return Err(PushNameError)
         }
         for label in name.iter_labels() {
-            label.build(&mut self.builder)
+            unwrap!(label.build(&mut self.builder))
         }
         Ok(())
     }
@@ -260,10 +253,11 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// [`end_label`]: #method.end_label
     pub fn finish(
         mut self
-    ) -> RelativeDname<Builder::Octets> {
+    ) -> RelativeDname<Builder::Octets>
+    where Builder: IntoOctets {
         self.end_label();
         unsafe {
-            RelativeDname::from_octets_unchecked(self.builder.finish())
+            RelativeDname::from_octets_unchecked(self.builder.into_octets())
         }
     }
 
@@ -274,12 +268,13 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// `Dname`.
     pub fn into_dname(
         mut self
-    ) -> Dname<Builder::Octets> {
+    ) -> Result<Dname<Builder::Octets>, PushError>
+    where Builder: IntoOctets {
         self.end_label();
-        self.builder.append_slice(&[0]);
-        unsafe {
-            Dname::from_octets_unchecked(self.builder.finish())
-        }
+        self.builder.append_slice(&[0])?;
+        Ok(unsafe {
+            Dname::from_octets_unchecked(self.builder.into_octets())
+        })
     }
 
     /// Appends an origin and returns the resulting `Dname`.
@@ -290,16 +285,17 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     //  XXX NEEDS TESTS
     pub fn append_origin<N: ToDname>(
         mut self, origin: &N
-    ) -> Result<Dname<Builder::Octets>, PushNameError> {
+    ) -> Result<Dname<Builder::Octets>, PushNameError>
+    where Builder: IntoOctets {
         self.end_label();
-        if self.len() + origin.len() > Self::max_absolute_capacity() {
+        if self.len() + origin.len() > 255 {
             return Err(PushNameError)
         }
         for label in origin.iter_labels() {
-            label.build(&mut self.builder)
+            unwrap!(label.build(&mut self.builder))
         }
         Ok(unsafe {
-            Dname::from_octets_unchecked(self.builder.finish())
+            Dname::from_octets_unchecked(self.builder.into_octets())
         })
     }
 }
@@ -307,7 +303,7 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
 
 //--- Default
 
-impl<Builder: OctetsBuilder> Default for DnameBuilder<Builder> {
+impl<Builder: EmptyBuilder> Default for DnameBuilder<Builder> {
     fn default() -> Self {
         Self::new()
     }
@@ -343,6 +339,16 @@ pub enum PushError {
     /// The name would exceed the limit of 255 bytes.
     #[display(fmt="long domain name")]
     LongName,
+
+    /// The buffer is too short to contain the name.
+    #[display(fmt="short buffer")]
+    ShortBuf,
+}
+
+impl From<ShortBuf> for PushError {
+    fn from(_: ShortBuf) -> PushError {
+        PushError::ShortBuf
+    }
 }
 
 #[cfg(feature = "std")]
@@ -399,6 +405,10 @@ pub enum FromStrError {
     /// The name has more than 255 characters.
     #[display(fmt="long domain name")]
     LongName,
+
+    /// The buffer is too short to contain the name.
+    #[display(fmt="short buffer")]
+    ShortBuf,
 }
 
 #[cfg(feature = "std")]
@@ -409,6 +419,7 @@ impl From<PushError> for FromStrError {
         match err {
             PushError::LongLabel => FromStrError::LongLabel,
             PushError::LongName => FromStrError::LongName,
+            PushError::ShortBuf => FromStrError::ShortBuf,
         }
     }
 }
@@ -551,7 +562,7 @@ mod test {
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
         builder.append_slice(b"com").unwrap();
-        assert_eq!(builder.into_dname().as_slice(),
+        assert_eq!(unwrap!(builder.into_dname()).as_slice(),
                    b"\x03www\x07example\x03com\x00");
     }
 }

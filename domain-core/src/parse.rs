@@ -1,8 +1,10 @@
 //! Parsing DNS wire-format data.
 
-use derive_more::Display;
 #[cfg(feature="bytes")] use bytes::Bytes;
+use derive_more::Display;
 use crate::net::{Ipv4Addr, Ipv6Addr};
+
+pub use crate::octets::ShortBuf;
 
 
 //------------ ParseSource ---------------------------------------------------
@@ -519,17 +521,6 @@ impl From<ShortBuf> for ParseOpenError {
         ParseOpenError::ShortBuf
     }
 }
-
-
-//------------ ShortBuf ------------------------------------------------------
-
-/// An attempt was made to go beyond the end of a buffer.
-#[derive(Clone, Debug, Display, Eq, PartialEq)]
-#[display(fmt="unexpected end of buffer")]
-pub struct ShortBuf;
-
-#[cfg(feature = "std")]
-impl std::error::Error for ShortBuf { }
 
 
 //--------- ParseAllError ----------------------------------------------------

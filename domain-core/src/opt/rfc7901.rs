@@ -1,9 +1,9 @@
 //! EDNS Options from RFC 7901
 
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-// XXX use crate::message_builder::OptBuilder;
-use crate::name::Dname;
+use crate::message_builder::OptBuilder;
+use crate::name::{Dname, ToDname};
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::parse::{ParseAll, Parser, ParseSource};
 use super::CodeOptData;
 
@@ -22,16 +22,19 @@ impl<Octets> Chain<Octets> {
         Chain { start }
     }
 
-    /* XXX
-    pub fn push<N: ToDname>(builder: &mut OptBuilder, start: &N)
-                            -> Result<(), ShortBuf> {
-        let len = start.compose_len();
-        assert!(len <= ::std::u16::MAX as usize);
-        builder.build(OptionCode::Chain, len as u16, |buf| {
-            buf.compose(start)
+    pub fn push<Target: OctetsBuilder, N: ToDname>(
+        builder: &mut OptBuilder<Target>,
+        start: &N
+    ) -> Result<(), ShortBuf> {
+        builder.append_raw_option(OptionCode::Chain, |target| {
+            target.append_all(|target| {
+                for label in start.iter_labels() {
+                    label.compose(target)?
+                }
+                Ok(())
+            })
         })
     }
-    */
 
     pub fn start(&self) -> &Dname<Octets> {
         &self.start
@@ -53,7 +56,10 @@ impl<Octets: ParseSource> ParseAll<Octets> for Chain<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Chain<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         self.start.compose(target)
     }
 }

@@ -6,10 +6,9 @@ use core::{cmp, fmt, hash, ops};
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::Bytes;
 use derive_more::Display;
-use crate::octets::{IntoBuilder, OctetsBuilder};
-use crate::compose::{Compose, ComposeTarget};
+use crate::octets::{Compose, IntoBuilder, IntoOctets, OctetsBuilder, ShortBuf};
 use crate::parse::ParseSource;
-use super::builder::DnameBuilder;
+use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError, SplitLabelError};
@@ -197,8 +196,14 @@ impl<Octets> RelativeDname<Octets> {
     /// [`chain_root`]: #method.chain_root
     pub fn into_absolute(
         self
-    ) -> Dname<<<Octets as IntoBuilder>::Builder as OctetsBuilder>::Octets>
-    where Octets: IntoBuilder {
+    ) -> Result<
+        Dname<<<Octets as IntoBuilder>::Builder as IntoOctets>::Octets>,
+        PushError
+    >
+    where
+        Octets: IntoBuilder,
+        <Octets as IntoBuilder>::Builder: IntoOctets,
+    {
         self.into_builder().into_dname()
     }
 }
@@ -488,14 +493,23 @@ impl<Octets: AsRef<[u8]> + ?Sized> ToRelativeDname for RelativeDname<Octets> {
 //--- Compose
 
 impl<Octets: AsRef<[u8]> + ?Sized> Compose for RelativeDname<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        for label in self.iter_labels() {
-            label.compose_canonical(target)
-        }
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            for label in self.iter_labels() {
+                label.compose_canonical(target)?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -809,9 +823,13 @@ mod test {
     #[test]
     fn into_absolute() {
         assert_eq!(
-            RelativeDname::from_octets(
-                Vec::from(b"\x03www\x07example\x03com".as_ref())
-            ).unwrap().into_absolute().as_slice(),
+            unwrap!(
+                unwrap!(
+                    RelativeDname::from_octets(
+                        Vec::from(b"\x03www\x07example\x03com".as_ref())
+                    )
+                ).into_absolute()
+            ).as_slice(),
             b"\x03www\x07example\x03com\0"
         );
 
@@ -823,7 +841,9 @@ mod test {
         assert_eq!(buf.len(), 250);
         let mut tmp = buf.clone();
         tmp.extend_from_slice(b"\x03123");
-        RelativeDname::from_octets(tmp).unwrap().into_absolute();
+        unwrap!(
+            unwrap!(RelativeDname::from_octets(tmp)).into_absolute()
+        );
     }
 
     // chain is tested with the Chain type.

@@ -8,11 +8,10 @@ use core::str::FromStr;
 #[cfg(feature = "bytes")] use bytes::Bytes;
 use derive_more::Display;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
-use crate::octets::FromBuilder;
+use crate::octets::{Compose, EmptyBuilder, FromBuilder, OctetsBuilder};
 use crate::parse::{
     Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
 };
@@ -84,11 +83,12 @@ impl<Octets> Dname<Octets> {
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
         C: IntoIterator<Item=char>
     {
         let mut builder = DnameBuilder::<Octets::Builder>::new();
         builder.append_chars(chars)?;
-        Ok(builder.into_dname())
+        builder.into_dname().map_err(Into::into)
     }
 
     /// Returns a domain name consisting of the root label only.
@@ -468,7 +468,10 @@ impl<Octets: AsRef<T> + ?Sized, T: ?Sized> AsRef<T> for Dname<Octets> {
 //--- FromStr
 
 impl<Octets> FromStr for Dname<Octets>
-where Octets: FromBuilder {
+where
+    Octets: FromBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder,
+{
     type Err = FromStrError;
 
     /// Parses a string into an absolute domain name.
@@ -640,14 +643,23 @@ impl<Octets: ParseSource> ParseAll<Octets> for Dname<Octets> {
 }
 
 impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        for label in self.iter_labels() {
-            label.compose_canonical(target)
-        }
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            for label in self.iter_labels() {
+                label.compose_canonical(target)?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -1534,8 +1546,10 @@ pub(crate) mod test {
     fn compose_canonical() {
         let mut buf = Vec::new();
         unwrap!(
-            Dname::from_slice(b"\x03wWw\x07exaMPle\x03com\0")
-        ).compose_canonical(&mut buf);
+            unwrap!(
+                Dname::from_slice(b"\x03wWw\x07exaMPle\x03com\0")
+            ).compose_canonical(&mut buf)
+        );
         assert_eq!(buf.as_slice(), b"\x03www\x07example\x03com\0");
     }
 

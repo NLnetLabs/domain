@@ -21,8 +21,8 @@
 use core::mem;
 use core::convert::TryInto;
 use unwrap::unwrap;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{Opcode, Rcode};
+use crate::octets::{Compose, OctetsBuilder};
 use crate::parse::{Parse, Parser, ShortBuf};
 
 
@@ -656,7 +656,10 @@ impl<T: AsRef<[u8]>> Parse<T> for Header {
 }
 
 impl Compose for HeaderSection {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.inner)
     }
 }

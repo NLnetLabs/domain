@@ -10,10 +10,8 @@ use core::cmp::Ordering;
 use derive_more::Display;
 use crate::charstr::CharStr;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
-use crate::parse::{
-    Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
-};
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ParseSource};
 use crate::iana::{Nsec3HashAlg, Rtype};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
@@ -203,13 +201,18 @@ impl<Octets: ParseSource> ParseAll<Octets> for Nsec3<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.hash_algorithm.compose(buf);
-        self.flags.compose(buf);
-        self.iterations.compose(buf);
-        self.salt.compose(buf);
-        self.next_owner.compose(buf);
-        self.types.compose(buf);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.hash_algorithm.compose(buf)?;
+            self.flags.compose(buf)?;
+            self.iterations.compose(buf)?;
+            self.salt.compose(buf)?;
+            self.next_owner.compose(buf)?;
+            self.types.compose(buf)
+        })
     }
 }
 
@@ -449,11 +452,16 @@ impl<Octets: ParseSource> ParseAll<Octets> for Nsec3param<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.hash_algorithm.compose(buf);
-        self.flags.compose(buf);
-        self.iterations.compose(buf);
-        self.salt.compose(buf);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.hash_algorithm.compose(buf)?;
+            self.flags.compose(buf)?;
+            self.iterations.compose(buf)?;
+            self.salt.compose(buf)
+        })
     }
 }
 

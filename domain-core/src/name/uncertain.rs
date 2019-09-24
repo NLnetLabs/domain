@@ -6,13 +6,15 @@ use core::{fmt, hash, str};
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 use derive_more::From;
-use crate::compose::{Compose, ComposeTarget};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError
 };
-use crate::octets::{FromBuilder, IntoBuilder, OctetsBuilder};
+use crate::octets::{
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, IntoOctets,
+    OctetsBuilder, ShortBuf
+};
 #[cfg(feature = "bytes")] use crate::str::Symbol;
-use super::builder::{DnameBuilder, FromStrError};
+use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::Label;
@@ -72,6 +74,7 @@ impl<Octets> UncertainDname<Octets> {
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
         C: IntoIterator<Item=char>
     {
         let mut builder =
@@ -81,7 +84,7 @@ impl<Octets> UncertainDname<Octets> {
             Ok(builder.finish().into())
         }
         else {
-            Ok(builder.into_dname().into())
+            Ok(builder.into_dname()?.into())
         }
     }
 }
@@ -159,13 +162,18 @@ impl<Octets> UncertainDname<Octets> {
     ///
     /// [`RelativeDname::into_absolute`]:
     ///     struct.RelativeDname.html#method.into_absolute
-    pub fn into_absolute(self) -> Dname<Octets>
+    pub fn into_absolute(
+        self
+    ) -> Result<
+        Dname<<<Octets as IntoBuilder>::Builder as IntoOctets>::Octets>,
+        PushError
+    >
     where
         Octets: AsRef<[u8]> + IntoBuilder,
-        <Octets as IntoBuilder>::Builder: OctetsBuilder<Octets = Octets>
+        <Octets as IntoBuilder>::Builder: IntoOctets<Octets = Octets>,
     {
         match self {
-            UncertainDname::Absolute(name) => name,
+            UncertainDname::Absolute(name) => Ok(name),
             UncertainDname::Relative(name) => name.into_absolute()
         }
     }
@@ -221,7 +229,10 @@ impl<Octets> UncertainDname<Octets> {
 //--- FromStr
 
 impl<Octets> str::FromStr for UncertainDname<Octets>
-where Octets: FromBuilder {
+where
+    Octets: FromBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder,
+{
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -301,14 +312,20 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainDname<Octets> {
 //--- Compose
 
 impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         match *self {
             UncertainDname::Absolute(ref name) => name.compose(target),
             UncertainDname::Relative(ref name) => name.compose(target),
         }
     }
     
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         match *self {
             UncertainDname::Absolute(ref name) => {
                 name.compose_canonical(target)

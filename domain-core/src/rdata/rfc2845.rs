@@ -8,12 +8,10 @@ use core::{fmt, hash};
 use core::cmp::Ordering;
 #[cfg(feature = "std")] use std::time::SystemTime;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{Rtype, TsigRcode};
 use crate::name::ToDname;
-use crate::parse::{
-    Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
-};
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ParseSource};
 use crate::utils::base64;
 use super::RtypeRecordData;
 
@@ -364,18 +362,21 @@ where
 }
         
 impl<O: AsRef<[u8]>, N: Compose> Compose for Tsig<O, N> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        assert!(self.mac.as_ref().len() <= usize::from(core::u16::MAX));
-        assert!(self.other.as_ref().len() <= usize::from(core::u16::MAX));
-        self.algorithm.compose(buf);
-        self.time_signed.compose(buf);
-        self.fudge.compose(buf);
-        (self.mac.as_ref().len() as u16).compose(buf);
-        buf.append_slice(self.mac.as_ref());
-        self.original_id.compose(buf);
-        self.error.compose(buf);
-        (self.other.as_ref().len() as u16).compose(buf);
-        buf.append_slice(self.other.as_ref());
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.algorithm.compose(buf)?;
+            self.time_signed.compose(buf)?;
+            self.fudge.compose(buf)?;
+            (self.mac.as_ref().len() as u16).compose(buf)?;
+            buf.append_slice(self.mac.as_ref())?;
+            self.original_id.compose(buf)?;
+            self.error.compose(buf)?;
+            (self.other.as_ref().len() as u16).compose(buf)?;
+            buf.append_slice(self.other.as_ref())
+        })
     }
 }
 
@@ -513,7 +514,10 @@ impl<Octets: AsRef<[u8]>> Parse<Octets> for Time48 {
 }
 
 impl Compose for Time48 {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.into_octets())
     }
 }

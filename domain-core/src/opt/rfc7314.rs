@@ -1,8 +1,8 @@
 //! EDNS Options from RFC 7314
 
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-// XXX use crate::message_builder::OptBuilder;
+use crate::message_builder::OptBuilder;
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::parse::{ParseAll, Parser, ParseAllError};
 use super::CodeOptData;
 
@@ -17,12 +17,12 @@ impl Expire {
         Expire(expire)
     }
 
-    /* XXX
-    pub fn push(builder: &mut OptBuilder, expire: Option<u32>)
-                -> Result<(), ShortBuf> {
+    pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        expire: Option<u32>
+    ) -> Result<(), ShortBuf> {
         builder.push(&Self::new(expire))
     }
-    */
 
     pub fn expire(self) -> Option<u32> {
         self.0
@@ -49,10 +49,14 @@ impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Expire {
 }
 
 impl Compose for Expire {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         if let Some(value) = self.0 {
-            value.compose(target)
+            value.compose(target)?;
         }
+        Ok(())
     }
 }
 

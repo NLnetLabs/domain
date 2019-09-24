@@ -1,8 +1,8 @@
 //! EDNS Options from RFC 7828
 
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-// XXX use crate::message_builder::OptBuilder;
+use crate::message_builder::OptBuilder;
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::parse::{ParseAll, Parser, ParseAllError};
 use super::CodeOptData;
 
@@ -17,12 +17,12 @@ impl TcpKeepalive {
         TcpKeepalive(timeout)
     }
 
-    /* XXX
-    pub fn push(builder: &mut OptBuilder, timeout: u16)
-                -> Result<(), ShortBuf> {
+    pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        timeout: u16
+    ) -> Result<(), ShortBuf> {
         builder.push(&Self::new(timeout))
     }
-    */
 
     pub fn timeout(self) -> u16 {
         self.0
@@ -44,7 +44,10 @@ impl<Octets: AsRef<[u8]>> ParseAll<Octets> for TcpKeepalive {
 }
 
 impl Compose for TcpKeepalive {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         self.0.compose(target)
     }
 }

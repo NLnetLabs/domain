@@ -43,9 +43,9 @@
 use core::{fmt, hash};
 use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{Class, Rtype};
 use crate::name::{ParsedDname, ParsedDnameError, ToDname};
+use crate::octets::{Compose, OctetsBuilder};
 use crate::parse::{Parse, Parser, ParseSource, ShortBuf};
 use crate::rdata::{RecordData, ParseRecordData};
 
@@ -333,20 +333,30 @@ where Octets: ParseSource, Data: ParseRecordData<Octets> {
 }
 
 impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        target.append_compressed_dname(&self.owner);
-        self.data.rtype().compose(target);
-        self.class.compose(target);
-        self.ttl.compose(target);
-        target.len_prefixed(|target| self.data.compose(target));
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            target.append_compressed_dname(&self.owner)?;
+            self.data.rtype().compose(target)?;
+            self.class.compose(target)?;
+            self.ttl.compose(target)?;
+            target.len_prefixed(|target| self.data.compose(target))
+        })
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.owner.compose_canonical(target);
-        self.data.rtype().compose(target);
-        self.class.compose(target);
-        self.ttl.compose(target);
-        target.len_prefixed(|target| self.data.compose_canonical(target));
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.owner.compose_canonical(target)?;
+            self.data.rtype().compose(target)?;
+            self.class.compose(target)?;
+            self.ttl.compose(target)?;
+            target.len_prefixed(|target| self.data.compose_canonical(target))
+        })
     }
 }
 
@@ -600,20 +610,30 @@ impl<Octets: ParseSource> Parse<Octets> for RecordHeader<ParsedDname<Octets>> {
 }
 
 impl<Name: Compose> Compose for RecordHeader<Name> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.owner.compose(buf);
-        self.rtype.compose(buf);
-        self.class.compose(buf);
-        self.ttl.compose(buf);
-        self.rdlen.compose(buf);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.owner.compose(buf)?;
+            self.rtype.compose(buf)?;
+            self.class.compose(buf)?;
+            self.ttl.compose(buf)?;
+            self.rdlen.compose(buf)
+        })
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.owner.compose_canonical(buf);
-        self.rtype.compose(buf);
-        self.class.compose(buf);
-        self.ttl.compose(buf);
-        self.rdlen.compose(buf);
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.owner.compose_canonical(buf)?;
+            self.rtype.compose(buf)?;
+            self.class.compose(buf)?;
+            self.ttl.compose(buf)?;
+            self.rdlen.compose(buf)
+        })
     }
 }
 

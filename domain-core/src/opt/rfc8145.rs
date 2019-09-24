@@ -2,9 +2,9 @@
 
 use core::convert::TryInto;
 use unwrap::unwrap;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-// XXX use crate::message_builder::OptBuilder;
+use crate::message_builder::OptBuilder;
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::parse::{ParseAll, ParseAllError, Parser, ParseSource};
 use super::CodeOptData;
 
@@ -21,19 +21,21 @@ impl<Octets> KeyTag<Octets> {
         KeyTag { octets }
     }
 
-    /* XXX
-    pub fn push(builder: &mut OptBuilder, tags: &[u16])
-                -> Result<(), ShortBuf> {
+    pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        tags: &[u16]
+    ) -> Result<(), ShortBuf> {
         let len = tags.len() * 2;
         assert!(len <= ::std::u16::MAX as usize);
-        builder.build(OptionCode::KeyTag, len as u16, |buf| {
-            for tag in tags {
-                buf.compose(&tag)?
-            }
-            Ok(())
+        builder.append_raw_option(OptionCode::KeyTag, |target| {
+            target.append_all(|target| {
+                for tag in tags {
+                    tag.compose(target)?;
+                }
+                Ok(())
+            })
         })
     }
-    */
 
     pub fn iter(&self) -> KeyTagIter
     where Octets: AsRef<[u8]> {
@@ -61,7 +63,10 @@ impl<Octets: ParseSource> ParseAll<Octets> for KeyTag<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for KeyTag<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.octets.as_ref())
     }
 }

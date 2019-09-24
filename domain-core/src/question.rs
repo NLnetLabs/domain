@@ -7,8 +7,8 @@ use core::{fmt, hash};
 use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{Class, Rtype};
-use crate::compose::{Compose, ComposeTarget};
 use crate::name::ToDname;
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::parse::{Parse, Parser};
 
 
@@ -189,10 +189,15 @@ where Octets: AsRef<[u8]>, N: ToDname + Parse<Octets>  {
 }
 
 impl<N: ToDname> Compose for Question<N> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.qname.compose(target);
-        self.qtype.compose(target);
-        self.qclass.compose(target);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.qname.compose(target)?;
+            self.qtype.compose(target)?;
+            self.qclass.compose(target)
+        })
     }
 }
 

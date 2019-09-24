@@ -4,6 +4,7 @@
 #[cfg(feature = "bytes")] use bytes::BytesMut;
 use crate::name::ToDname;
 use crate::net::{Ipv4Addr, Ipv6Addr};
+use crate::octets::OctetsBuilder;
 
 //------------ Re-exported for your convenience ------------------------------
 
@@ -12,100 +13,10 @@ pub use crate::parse::ShortBuf;
 
 //------------ ComposeTarget -------------------------------------------------
 
-pub trait ComposeTarget: AsRef<[u8]> + AsMut<[u8]> {
-    type LenTarget: ComposeTarget;
-
-    fn append_slice(&mut self, slice: &[u8]);
-
-    fn truncate(&mut self, len: usize);
-
-    fn append_compressed_dname<N: ToDname>(&mut self, name: &N) {
-        if let Some(slice) = name.as_flat_slice() {
-            self.append_slice(slice)
-        }
-        else {
-            for label in name.iter_labels() {
-                label.compose(self)
-            }
-        }
-    }
-
-    fn len_prefixed<F: FnOnce(&mut Self::LenTarget)>(&mut self, op: F);
+pub trait ComposeTarget: OctetsBuilder {
 }
 
-#[cfg(feature = "std")]
-impl ComposeTarget for Vec<u8> {
-    type LenTarget = Self;
-
-    fn append_slice(&mut self, slice: &[u8]) {
-        self.extend_from_slice(slice);
-    }
-
-    fn truncate(&mut self, len: usize) {
-        Vec::truncate(self, len)
-    }
-
-    fn len_prefixed<F: FnOnce(&mut Self)>(&mut self, op: F) {
-        let pos = self.len();
-        self.extend_from_slice(&[0; 2]);
-        op(self);
-        let len = (self.len() - pos) as u16;
-        self[pos..pos + 2].copy_from_slice(&len.to_be_bytes());
-    }
-}
-
-#[cfg(feature="bytes")]
-impl ComposeTarget for BytesMut {
-    type LenTarget = Self;
-
-    fn append_slice(&mut self, slice: &[u8]) {
-        self.extend_from_slice(slice);
-    }
-
-    fn truncate(&mut self, len: usize) {
-        BytesMut::truncate(self, len)
-    }
-
-    fn len_prefixed<F: FnOnce(&mut Self)>(&mut self, op: F) {
-        let pos = self.len();
-        self.extend_from_slice(&[0; 2]);
-        op(self);
-        let len = (self.len() - pos) as u16;
-        self[pos..pos + 2].copy_from_slice(&len.to_be_bytes());
-    }
-}
-
-
-//------------ TryCompose ----------------------------------------------------
-
-pub trait TryCompose {
-    type Target: ComposeTarget;
-
-    fn try_compose<F>(&mut self, op: F) -> Result<(), ShortBuf>
-    where F: FnOnce(&mut Self::Target);
-}
-
-#[cfg(feature = "std")]
-impl TryCompose for Vec<u8> {
-    type Target = Self;
-
-    fn try_compose<F>(&mut self, op: F) -> Result<(), ShortBuf>
-    where F: FnOnce(&mut Self::Target) {
-        op(self);
-        Ok(())
-    }
-}
-
-#[cfg(feature="bytes")]
-impl TryCompose for BytesMut {
-    type Target = Self;
-
-    fn try_compose<F>(&mut self, op: F) -> Result<(), ShortBuf>
-    where F: FnOnce(&mut Self::Target) {
-        op(self);
-        Ok(())
-    }
-}
+impl<T: OctetsBuilder> ComposeTarget for T { }
 
 
 //------------ Compose -------------------------------------------------------

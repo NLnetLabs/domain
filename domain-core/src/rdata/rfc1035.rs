@@ -10,7 +10,6 @@ use core::str::FromStr;
 #[cfg(feature="bytes")] use bytes::{Bytes, BytesMut};
 use unwrap::unwrap;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
 use crate::charstr::{CharStr, PushError};
 #[cfg(feature="bytes")] use crate::master::scan::{
@@ -19,10 +18,11 @@ use crate::charstr::{CharStr, PushError};
 use crate::str::Symbol;
 use crate::name::{ParsedDname, ToDname};
 use crate::net::Ipv4Addr;
-use crate::octets::{FromBuilder, OctetsBuilder};
+use crate::octets::{
+    Compose, EmptyBuilder, FromBuilder, IntoOctets, OctetsBuilder, ShortBuf
+};
 use crate::parse::{
-    ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ParseSource,
-    ShortBuf
+    ParseAll, ParseAllError, ParseOpenError, Parse, Parser, ParseSource
 };
 use crate::serial::Serial;
 use super::RtypeRecordData;
@@ -140,14 +140,17 @@ macro_rules! dname_type {
         }
 
         impl<N: ToDname> Compose for $target<N> {
-            fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+            fn compose<T: OctetsBuilder>(
+                &self,
+                target: &mut T
+            ) -> Result<(), ShortBuf> {
                 target.append_compressed_dname(&self.$field)
             }
 
-            fn compose_canonical<T: ComposeTarget + ?Sized>(
+            fn compose_canonical<T: OctetsBuilder>(
                 &self,
                 target: &mut T
-            ) {
+            ) -> Result<(), ShortBuf> {
                 self.$field.compose_canonical(target)
             }
         }
@@ -279,7 +282,10 @@ impl<Octets: AsRef<[u8]>> ParseAll<Octets> for A {
 }
 
 impl Compose for A {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         self.addr.compose(target)
     }
 }
@@ -477,9 +483,14 @@ impl<Octets: ParseSource> ParseAll<Octets> for Hinfo<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.cpu.compose(target);
-        self.os.compose(target);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.cpu.compose(target)?;
+            self.os.compose(target)
+        })
     }
 }
 
@@ -717,14 +728,24 @@ where
 }
 
 impl<N: ToDname> Compose for Minfo<N> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        target.append_compressed_dname(&self.rmailbx);
-        target.append_compressed_dname(&self.emailbx);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            target.append_compressed_dname(&self.rmailbx)?;
+            target.append_compressed_dname(&self.emailbx)
+        })
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.rmailbx.compose_canonical(target);
-        self.emailbx.compose_canonical(target);
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.rmailbx.compose_canonical(target)?;
+            self.emailbx.compose_canonical(target)
+        })
     }
 }
 
@@ -882,14 +903,24 @@ where N::Err: From<ParseOpenError> + From<ShortBuf> {
 }
 
 impl<N: ToDname> Compose for Mx<N> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.preference.compose(target);
-        target.append_compressed_dname(&self.exchange);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.preference.compose(target)?;
+            target.append_compressed_dname(&self.exchange)
+        })
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.preference.compose(target);
-        self.exchange.compose_canonical(target);
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.preference.compose(target)?;
+            self.exchange.compose_canonical(target)
+        })
     }
 }
 
@@ -1033,7 +1064,10 @@ impl<Octets: ParseSource> ParseAll<Octets> for Null<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Null<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.data.as_ref())
     }
 }
@@ -1342,24 +1376,34 @@ where
 }
 
 impl<N: ToDname> Compose for Soa<N> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        buf.append_compressed_dname(&self.mname);
-        buf.append_compressed_dname(&self.rname);
-        self.serial.compose(buf);
-        self.refresh.compose(buf);
-        self.retry.compose(buf);
-        self.expire.compose(buf);
-        self.minimum.compose(buf);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            buf.append_compressed_dname(&self.mname)?;
+            buf.append_compressed_dname(&self.rname)?;
+            self.serial.compose(buf)?;
+            self.refresh.compose(buf)?;
+            self.retry.compose(buf)?;
+            self.expire.compose(buf)?;
+            self.minimum.compose(buf)
+        })
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.mname.compose_canonical(buf);
-        self.rname.compose_canonical(buf);
-        self.serial.compose(buf);
-        self.refresh.compose(buf);
-        self.retry.compose(buf);
-        self.expire.compose(buf);
-        self.minimum.compose(buf);
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.mname.compose_canonical(buf)?;
+            self.rname.compose_canonical(buf)?;
+            self.serial.compose(buf)?;
+            self.refresh.compose(buf)?;
+            self.retry.compose(buf)?;
+            self.expire.compose(buf)?;
+            self.minimum.compose(buf)
+        })
     }
 }
 
@@ -1405,7 +1449,8 @@ pub struct Txt<Octets>(Octets);
 
 impl<Octets: FromBuilder> Txt<Octets> {
     /// Creates a new Txt record from a single character string.
-    pub fn from_slice(text: &[u8]) -> Result<Self, PushError> {
+    pub fn from_slice(text: &[u8]) -> Result<Self, PushError>
+    where <Octets as FromBuilder>::Builder: EmptyBuilder {
         let mut builder = TxtBuilder::<Octets::Builder>::new();
         builder.append_slice(text)?;
         Ok(builder.finish())
@@ -1446,14 +1491,15 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
     /// newly allocated bytes value.
     ///
     /// Access to the individual character strings is possible via iteration.
-    pub fn text<T: FromBuilder>(&self) -> T {
+    pub fn text<T: FromBuilder>(&self) -> Result<T, ShortBuf>
+    where <T as FromBuilder>::Builder: EmptyBuilder {
         // Capacity will be a few bytes too much. Probably better than
         // re-allocating.
         let mut res = T::Builder::with_capacity(self.len());
         for item in self.iter() {
-            res.append_slice(item);
+            res.append_slice(item)?;
         }
-        res.finish()
+        Ok(res.into_octets())
     }
 }
 
@@ -1541,7 +1587,10 @@ impl<Octets: ParseSource> ParseAll<Octets> for Txt<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 }
@@ -1628,7 +1677,7 @@ pub struct TxtBuilder<Builder> {
     start: Option<usize>,
 }
 
-impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
+impl<Builder: OctetsBuilder + EmptyBuilder> TxtBuilder<Builder> {
     pub fn new() -> Self {
         TxtBuilder {
             builder: Builder::empty(),
@@ -1649,11 +1698,11 @@ impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
         if let Some(start) = self.start {
             let left = 255 - (self.builder.len() - (start + 1));
             if slice.len() < left {
-                self.builder.append_slice(slice);
+                self.builder.append_slice(slice)?;
                 return Ok(())
             }
             let (append, left) = slice.split_at(left);
-            self.builder.append_slice(append);
+            self.builder.append_slice(append)?;
             self.builder.as_mut()[start] = 255;
             slice = left;
         }
@@ -1667,23 +1716,24 @@ impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
             else {
                 Some(self.builder.len())
             };
-            self.builder.append_slice(&[chunk.len() as u8]);
-            self.builder.append_slice(chunk);
+            self.builder.append_slice(&[chunk.len() as u8])?;
+            self.builder.append_slice(chunk)?;
         }
         Ok(())
     }
 
-    pub fn finish(mut self) -> Txt<Builder::Octets> {
+    pub fn finish(mut self) -> Txt<Builder::Octets>
+    where Builder: IntoOctets {
         if let Some(start) = self.start {
             self.builder.as_mut()[start] = 
                 (255 - (self.builder.len() - (start + 1))) as u8;
         }
-        Txt(self.builder.finish())
+        Txt(self.builder.into_octets())
     }
 }
 
 
-impl<Builder: OctetsBuilder> Default for TxtBuilder<Builder> {
+impl<Builder: OctetsBuilder + EmptyBuilder> Default for TxtBuilder<Builder> {
     fn default() -> Self {
         Self::new()
     }
@@ -1840,10 +1890,15 @@ impl<Octets: ParseSource> ParseAll<Octets> for Wks<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Wks<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.address.compose(target);
-        self.protocol.compose(target);
-        target.append_slice(self.bitmap.as_ref());
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.address.compose(target)?;
+            self.protocol.compose(target)?;
+            target.append_slice(self.bitmap.as_ref())
+        })
     }
 }
 
@@ -1945,7 +2000,7 @@ pub struct WksBuilder<Builder> {
     bitmap: Builder,
 }
 
-impl<Builder: OctetsBuilder> WksBuilder<Builder> {
+impl<Builder: OctetsBuilder + EmptyBuilder> WksBuilder<Builder> {
     pub fn new(address: Ipv4Addr, protocol: u8) -> Self {
         WksBuilder { address, protocol, bitmap: Builder::empty() }
     }
@@ -1959,17 +2014,19 @@ impl WksBuilder<BytesMut> {
 }
 
 impl<Builder: OctetsBuilder> WksBuilder<Builder> {
-    pub fn add_service(&mut self, service: u16) {
+    pub fn add_service(&mut self, service: u16) -> Result<(), ShortBuf> {
         let octet = (service >> 2) as usize;
         let bit = 1 << (service & 0x3);
         while self.bitmap.len() < octet + 1 {
-            self.bitmap.append_slice(b"0")
+            self.bitmap.append_slice(b"0")?
         }
         self.bitmap.as_mut()[octet] |= bit;
+        Ok(())
     }
 
-    pub fn finish(self) -> Wks<Builder::Octets> {
-        Wks::new(self.address, self.protocol, self.bitmap.finish())
+    pub fn finish(self) -> Wks<Builder::Octets>
+    where Builder: IntoOctets + EmptyBuilder {
+        Wks::new(self.address, self.protocol, self.bitmap.into_octets())
     }
 }
 

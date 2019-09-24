@@ -6,7 +6,7 @@
 use core::{cmp, fmt, hash};
 use derive_more::Display;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
+use crate::octets::{Compose, OctetsBuilder};
 use crate::parse::{
     Parse, ParseAll, Parser, ParseAllError, ParseOpenError, ParseSource,
     ShortBuf
@@ -398,21 +398,33 @@ impl<Octets: ParseSource> ParseAll<Octets> for ParsedDname<Octets> {
                
 
 impl<Octets: AsRef<[u8]>> Compose for ParsedDname<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         if self.compressed {
-            for label in self.iter() {
-                label.compose(target)
-            }
+            target.append_all(|target| {
+                for label in self.iter() {
+                    label.compose(target)?
+                }
+                Ok(())
+            })
         }
         else {
             target.append_slice(self.parser.peek(self.len).unwrap())
         }
     }
     
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        for label in self.iter_labels() {
-            label.compose_canonical(target)
-        }
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            for label in self.iter_labels() {
+                label.compose_canonical(target)?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -1126,7 +1138,7 @@ mod test {
     fn compose() {
         fn step(name: ParsedDname<&[u8]>, result: &[u8]) {
             let mut buf = Vec::new();
-            name.compose(&mut buf);
+            unwrap!(name.compose(&mut buf));
             assert_eq!(buf.as_slice(), result);
         }
 

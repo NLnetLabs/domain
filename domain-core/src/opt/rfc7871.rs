@@ -1,10 +1,10 @@
 //! EDNS Options from RFC 7871
 
 use derive_more::Display;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-// XXX use crate::message_builder::OptBuilder;
+use crate::message_builder::OptBuilder;
 use crate::net::IpAddr;
+use crate::octets::{Compose, OctetsBuilder};
 use crate::parse::{ParseAll, Parser, ShortBuf};
 use super::CodeOptData;
 
@@ -27,12 +27,14 @@ impl ClientSubnet {
         ClientSubnet { source_prefix_len, scope_prefix_len, addr }
     }
 
-    /* XXX
-    pub fn push(builder: &mut OptBuilder, source_prefix_len: u8,
-                scope_prefix_len: u8, addr: IpAddr) -> Result<(), ShortBuf> {
+    pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        source_prefix_len: u8,
+        scope_prefix_len: u8,
+        addr: IpAddr
+    ) -> Result<(), ShortBuf> {
         builder.push(&Self::new(source_prefix_len, scope_prefix_len, addr))
     }
-    */
 
     pub fn source_prefix_len(&self) -> u8 { self.source_prefix_len }
     pub fn scope_prefix_len(&self) -> u8 { self.scope_prefix_len }
@@ -80,21 +82,26 @@ impl<Octets: AsRef<[u8]>> ParseAll<Octets> for ClientSubnet {
 }
 
 impl Compose for ClientSubnet {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        match self.addr {
-            IpAddr::V4(addr) => {
-                1u16.compose(target);
-                self.source_prefix_len.compose(target);
-                self.scope_prefix_len.compose(target);
-                addr.compose(target);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            match self.addr {
+                IpAddr::V4(addr) => {
+                    1u16.compose(target)?;
+                    self.source_prefix_len.compose(target)?;
+                    self.scope_prefix_len.compose(target)?;
+                    addr.compose(target)
+                }
+                IpAddr::V6(addr) => {
+                    2u16.compose(target)?;
+                    self.source_prefix_len.compose(target)?;
+                    self.scope_prefix_len.compose(target)?;
+                    addr.compose(target)
+                }
             }
-            IpAddr::V6(addr) => {
-                2u16.compose(target);
-                self.source_prefix_len.compose(target);
-                self.scope_prefix_len.compose(target);
-                addr.compose(target);
-            }
-        }
+        })
     }
 }
 

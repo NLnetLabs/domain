@@ -213,10 +213,12 @@ macro_rules! rdata_types {
         //    No Parse or ParseAll because Other variant needs to know the
         //    record type.
 
-        impl<O, N> $crate::compose::Compose for MasterRecordData<O, N>
+        impl<O, N> $crate::octets::Compose for MasterRecordData<O, N>
         where O: AsRef<[u8]>, N: $crate::name::ToDname {
-            fn compose<T>(&self, target: &mut T)
-            where T: $crate::compose::ComposeTarget + ?Sized {
+            fn compose<T: $crate::octets::OctetsBuilder>(
+                &self,
+                target: &mut T
+            ) -> Result<(), $crate::octets::ShortBuf> {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
@@ -230,8 +232,10 @@ macro_rules! rdata_types {
                 }
             }
 
-            fn compose_canonical<T>(&self, target: &mut T)
-            where T: $crate::compose::ComposeTarget + ?Sized {
+            fn compose_canonical<T: $crate::octets::OctetsBuilder>(
+                &self,
+                target: &mut T
+            ) -> Result<(), $crate::octets::ShortBuf> {
                 match *self {
                     $( $( $(
                         MasterRecordData::$mtype(ref inner) => {
@@ -534,11 +538,13 @@ macro_rules! rdata_types {
         //    No Parse or ParseAll because Other variant needs to know the
         //    record type.
 
-        impl<O, N> $crate::compose::Compose for AllRecordData<O, N>
+        impl<O, N> $crate::octets::Compose for AllRecordData<O, N>
         where O: AsRef<[u8]>, N: $crate::name::ToDname
         {
-            fn compose<T>(&self, buf: &mut T)
-            where T: ComposeTarget + ?Sized {
+            fn compose<T: $crate::octets::OctetsBuilder>(
+                &self,
+                buf: &mut T
+            ) -> Result<(), $crate::octets::ShortBuf> {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
@@ -556,8 +562,10 @@ macro_rules! rdata_types {
                 }
             }
 
-            fn compose_canonical<T>(&self, buf: &mut T)
-            where T: ComposeTarget + ?Sized {
+            fn compose_canonical<T: $crate::octets::OctetsBuilder>(
+                &self,
+                buf: &mut T
+            ) -> Result<(), $crate::octets::ShortBuf> {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {

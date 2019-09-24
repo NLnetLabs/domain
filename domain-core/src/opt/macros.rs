@@ -42,8 +42,9 @@ macro_rules! opt_types {
         //--- Compose
 
         impl<Octets: AsRef<[u8]>> Compose for AllOptData<Octets> {
-            fn compose<T>(&self, target: &mut T)
-            where T: $crate::compose::ComposeTarget + ?Sized {
+            fn compose<T: $crate::octets::OctetsBuilder>(
+                &self, target: &mut T
+            ) -> Result<(), ShortBuf> {
                 match *self {
                     $( $(
                         AllOptData::$opt(ref inner) => inner.compose(target),
@@ -57,10 +58,7 @@ macro_rules! opt_types {
 
         //--- OptData
 
-        impl<Octets> OptData<Octets> for AllOptData<Octets>
-        where Octets: $crate::parse::ParseSource {
-            type ParseErr = AllOptParseError<Octets>;
-
+        impl<Octets: AsRef<[u8]>> OptData for AllOptData<Octets> {
             fn code(&self) -> OptionCode {
                 match *self {
                     $( $(
@@ -70,6 +68,11 @@ macro_rules! opt_types {
                     AllOptData::__Nonexhaustive(_) => unreachable!()
                 }
             }
+        }
+
+        impl<Octets> ParseOptData<Octets> for AllOptData<Octets>
+        where Octets: $crate::parse::ParseSource {
+            type ParseErr = AllOptParseError<Octets>;
 
             fn parse_option(
                 code: OptionCode,
@@ -100,7 +103,7 @@ macro_rules! opt_types {
         #[derive(Clone, Eq, PartialEq)]
         pub enum AllOptParseError<Octets: $crate::parse::ParseSource> {
             $( $(
-                $opt(<$opt $( <$octets> )* as OptData<Octets>>::ParseErr),
+                $opt(<$opt $( <$octets> )* as ParseOptData<Octets>>::ParseErr),
             )* )*
             ShortBuf,
         }

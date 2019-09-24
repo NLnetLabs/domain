@@ -7,12 +7,12 @@
 use core::{fmt, ops};
 use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError
 };
 use crate::net::Ipv6Addr;
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::parse::{Parse, ParseAll, Parser};
 use super::RtypeRecordData;
 
@@ -93,7 +93,10 @@ impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Aaaa {
 }
 
 impl Compose for Aaaa {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         self.addr.compose(target)
     }
 }

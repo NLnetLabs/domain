@@ -1,19 +1,17 @@
 //! Building a new DNS message.
 
 use core::mem;
-use core::cmp::min;
-#[cfg(feature = "std")] use std::collections::HashMap;
+//#[cfg(feature = "std")] use std::collections::HashMap;
 #[cfg(feature = "std")] use std::vec::Vec;
 use core::ops::{Deref, DerefMut};
 #[cfg(feature = "bytes")] use bytes::BytesMut;
 use unwrap::unwrap;
-use crate::compose::{Compose, ComposeTarget, TryCompose};
 use crate::header::{Header, HeaderCounts, HeaderSection};
 use crate::iana::{OptionCode, OptRcode};
 use crate::message::Message;
-use crate::name::{ToDname, Label};
-#[cfg(feature = "std")] use crate::name::OwnedLabel;
-use crate::octets::OctetsBuilder;
+use crate::name::{ToDname, /*Label*/};
+//#[cfg(feature = "std")] use crate::name::OwnedLabel;
+use crate::octets::{Compose, IntoOctets, OctetsBuilder};
 use crate::opt::{OptHeader, OptData};
 use crate::parse::ShortBuf;
 use crate::question::Question;
@@ -27,14 +25,49 @@ pub struct MessageBuilder<Target> {
     target: Target,
 }
 
-impl<Target: ComposeTarget> MessageBuilder<Target> {
-    pub fn from_target(mut target: Target) -> Self {
-        target.append_slice(HeaderSection::new().as_slice());
-        MessageBuilder {
+impl<Target: OctetsBuilder> MessageBuilder<Target> {
+    pub fn from_target(mut target: Target) -> Result<Self, ShortBuf> {
+        target.truncate(0);
+        target.append_slice(HeaderSection::new().as_slice())?;
+        Ok(MessageBuilder {
             target,
-        }
+        })
     }
+}
 
+#[cfg(feature = "std")]
+impl MessageBuilder<Vec<u8>> {
+    pub fn new_vec() -> Self {
+        unwrap!(Self::from_target(Vec::new()))
+    }
+}
+
+#[cfg(feature = "std")]
+impl MessageBuilder<StreamTarget<Vec<u8>>> {
+    pub fn new_stream_vec() -> Self {
+        unwrap!(Self::from_target(
+            unwrap!(StreamTarget::new(Vec::new()))
+        ))
+    }
+}
+
+#[cfg(feature="bytes")]
+impl MessageBuilder<BytesMut> {
+    pub fn new_bytes() -> Self {
+        unwrap!(Self::from_target(BytesMut::new()))
+    }
+}
+
+#[cfg(feature="bytes")]
+impl MessageBuilder<StreamTarget<BytesMut>> {
+    pub fn new_stream_bytes() -> Self {
+        unwrap!(Self::from_target(
+            unwrap!(StreamTarget::new(BytesMut::new()))
+        ))
+    }
+}
+
+impl<Target: OctetsBuilder> MessageBuilder<Target> {
     pub fn question(self) -> QuestionBuilder<Target> {
         QuestionBuilder::new(self)
     }
@@ -55,59 +88,37 @@ impl<Target: ComposeTarget> MessageBuilder<Target> {
         self.target
     }
 
-    fn as_target(&self) -> &Target {
+    pub fn as_target(&self) -> &Target {
         &self.target
     }
 
     fn as_target_mut(&mut self) -> &mut Target {
         &mut self.target
     }
-}
 
-impl<Octets, Comp> MessageBuilder<DgramTarget<Octets, Comp>> {
-    pub fn as_ref_message(&self) -> Message<&[u8]>
-    where Octets: AsRef<[u8]> {
+    pub fn as_message(&self) -> Message<&[u8]>
+    where Target: AsRef<[u8]> {
         unsafe { Message::from_octets_unchecked(self.target.as_ref()) }
     }
 
-    pub fn into_message(self) -> Message<Octets::Octets>
-    where Octets: OctetsBuilder {
-        self.target.into_message()
+    pub fn into_message(self) -> Message<Target::Octets>
+    where Target: IntoOctets {
+        unsafe { Message::from_octets_unchecked(self.target.into_octets()) }
     }
-}
 
-#[cfg(feature = "std")]
-impl MessageBuilder<DgramTarget<Vec<u8>, StaticCompressor>> {
-    pub fn new_dgram_vec() -> Self {
-        Self::from_target(DgramTarget::new())
-    }
-}
-
-#[cfg(feature="bytes")] 
-impl MessageBuilder<DgramTarget<BytesMut, StaticCompressor>> {
-    pub fn new_dgram_bytes() -> Self {
-        Self::from_target(DgramTarget::new())
-    }
-}
-
-impl<Target> MessageBuilder<Target> {
-    pub fn header(&self) -> &Header
-    where Target: AsRef<[u8]> {
+    pub fn header(&self) -> &Header {
         Header::for_message_slice(self.target.as_ref())
     }
 
-    pub fn header_mut(&mut self) -> &mut Header
-    where Target: AsMut<[u8]> {
+    pub fn header_mut(&mut self) -> &mut Header {
         Header::for_message_slice_mut(self.target.as_mut())
     }
 
-    pub fn counts(&self) -> &HeaderCounts
-    where Target: AsRef<[u8]> {
+    pub fn counts(&self) -> &HeaderCounts {
         HeaderCounts::for_message_slice(self.target.as_ref())
     }
 
-    fn counts_mut(&mut self) -> &mut HeaderCounts
-    where Target: AsMut<[u8]> {
+    fn counts_mut(&mut self) -> &mut HeaderCounts {
         HeaderCounts::for_message_slice_mut(self.target.as_mut())
     }
 }
@@ -119,7 +130,7 @@ pub struct QuestionBuilder<Target> {
     builder: MessageBuilder<Target>,
 }
 
-impl<Target: ComposeTarget> QuestionBuilder<Target> {
+impl<Target: OctetsBuilder> QuestionBuilder<Target> {
     fn new(builder: MessageBuilder<Target>) -> Self {
         Self { builder }
     }
@@ -154,26 +165,20 @@ impl<Target: ComposeTarget> QuestionBuilder<Target> {
         self.builder.finish()
     }
 
+    pub fn into_message(self) -> Message<Target::Octets>
+    where Target: IntoOctets {
+        self.builder.into_message()
+    }
+
     pub fn as_builder(&self) -> &MessageBuilder<Target> {
         &self.builder
     }
-}
 
-impl<Octets, Comp> QuestionBuilder<DgramTarget<Octets, Comp>> {
-    pub fn into_message(self) -> Message<Octets::Octets>
-    where Octets: OctetsBuilder, Comp: Compressor {
-        self.finish().into_message()
-    }
-}
-
-impl<Target: TryCompose + AsMut<[u8]>> QuestionBuilder<Target> {
     pub fn push<N: ToDname, Q: Into<Question<N>>>(
         &mut self,
         question: Q
     ) -> Result<(), ShortBuf> {
-        self.target.try_compose(|target| {
-            question.into().compose(target)
-        })?;
+        question.into().compose(self.as_target_mut())?;
         self.counts_mut().inc_qdcount();
         Ok(())
     }
@@ -182,15 +187,33 @@ impl<Target: TryCompose + AsMut<[u8]>> QuestionBuilder<Target> {
 
 //--- From
 
-/*
-impl<Target> From<AnswerBuilder<Target>> for QuestionBuilder<Target>
+impl<Target> From<MessageBuilder<Target>> for QuestionBuilder<Target>
 where Target: OctetsBuilder {
-    fn from(value: AnswerBuilder<Target>) -> Self {
-        value.rewind();
-        QuestionBuilder { builder: value.builder }
+    fn from(src: MessageBuilder<Target>) -> Self {
+        src.question()
     }
 }
-*/
+
+impl<Target> From<AnswerBuilder<Target>> for QuestionBuilder<Target>
+where Target: OctetsBuilder {
+    fn from(src: AnswerBuilder<Target>) -> Self {
+        src.question()
+    }
+}
+
+impl<Target> From<AuthorityBuilder<Target>> for QuestionBuilder<Target>
+where Target: OctetsBuilder {
+    fn from(src: AuthorityBuilder<Target>) -> Self {
+        src.question()
+    }
+}
+
+impl<Target> From<AdditionalBuilder<Target>> for QuestionBuilder<Target>
+where Target: OctetsBuilder {
+    fn from(src: AdditionalBuilder<Target>) -> Self {
+        src.question()
+    }
+}
 
 
 //--- Deref, DerefMut, AsRef, and AsMut
@@ -237,7 +260,7 @@ pub struct AnswerBuilder<Target> {
     start: usize,
 }
 
-impl<Target: ComposeTarget + AsRef<[u8]>> AnswerBuilder<Target> {
+impl<Target: OctetsBuilder> AnswerBuilder<Target> {
     fn new(builder: MessageBuilder<Target>) -> Self {
         AnswerBuilder {
             start: builder.target.as_ref().len(),
@@ -270,12 +293,10 @@ impl<Target: ComposeTarget + AsRef<[u8]>> AnswerBuilder<Target> {
     pub fn finish(self) -> Target {
         self.builder.finish()
     }
-}
 
-impl<Octets, Comp> AnswerBuilder<DgramTarget<Octets, Comp>> {
-    pub fn into_message(self) -> Message<Octets::Octets>
-    where Octets: OctetsBuilder, Comp: Compressor {
-        self.finish().into_message()
+    pub fn into_message(self) -> Message<Target::Octets>
+    where Target: IntoOctets {
+        self.builder.into_message()
     }
 }
 
@@ -300,12 +321,10 @@ impl<Target> DerefMut for AnswerBuilder<Target> {
 //--- RecordSectionBuilder
 
 impl<Target> RecordSectionBuilder for AnswerBuilder<Target>
-where Target: ComposeTarget + TryCompose {
+where Target: OctetsBuilder {
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
     where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.as_target_mut().try_compose(|target| {
-            record.into().compose(target)
-        })?;
+        record.into().compose(self.as_target_mut())?;
         self.counts_mut().inc_ancount();
         Ok(())
     }
@@ -319,7 +338,7 @@ pub struct AuthorityBuilder<Target> {
     start: usize
 }
 
-impl<Target: ComposeTarget> AuthorityBuilder<Target> {
+impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
     fn new(answer: AnswerBuilder<Target>) -> Self {
         AuthorityBuilder {
             start: answer.as_target().as_ref().len(),
@@ -353,19 +372,17 @@ impl<Target: ComposeTarget> AuthorityBuilder<Target> {
         self.answer.finish()
     }
 
+    pub fn into_message(self) -> Message<Target::Octets>
+    where Target: IntoOctets {
+        self.answer.into_message()
+    }
+
     fn as_target(&self) -> &Target {
         self.answer.as_target()
     }
 
     fn as_target_mut(&mut self) -> &mut Target {
         self.answer.as_target_mut()
-    }
-}
-
-impl<Octets, Comp> AuthorityBuilder<DgramTarget<Octets, Comp>> {
-    pub fn into_message(self) -> Message<Octets::Octets>
-    where Octets: OctetsBuilder, Comp: Compressor {
-        self.finish().into_message()
     }
 }
 
@@ -389,13 +406,10 @@ impl<Target> DerefMut for AuthorityBuilder<Target> {
 
 //--- RecordSectionBuilder
 
-impl<Target> RecordSectionBuilder for AuthorityBuilder<Target>
-where Target: ComposeTarget + TryCompose {
+impl<Target: OctetsBuilder> RecordSectionBuilder for AuthorityBuilder<Target> {
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
     where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.as_target_mut().try_compose(|target| {
-            record.into().compose(target)
-        })?;
+        record.into().compose(self.as_target_mut())?;
         self.counts_mut().inc_nscount();
         Ok(())
     }
@@ -409,7 +423,7 @@ pub struct AdditionalBuilder<Target> {
     start: usize,
 }
 
-impl<Target: ComposeTarget> AdditionalBuilder<Target> {
+impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
     fn new(authority: AuthorityBuilder<Target>) -> Self {
         AdditionalBuilder {
             start: authority.as_target().as_ref().len(),
@@ -439,20 +453,17 @@ impl<Target: ComposeTarget> AdditionalBuilder<Target> {
         self.rewind()
     }
 
-    pub fn opt(self) -> Result<OptBuilder<Target>, Self>
-    where Target: TryCompose {
+    pub fn opt(self) -> Result<OptBuilder<Target>, Self> {
         OptBuilder::new(self)
     }
 
     pub fn finish(self) -> Target {
         self.authority.finish()
     }
-}
 
-impl<Octets, Comp> AdditionalBuilder<DgramTarget<Octets, Comp>> {
-    pub fn into_message(self) -> Message<Octets::Octets>
-    where Octets: OctetsBuilder, Comp: Compressor {
-        self.finish().into_message()
+    pub fn into_message(self) -> Message<Target::Octets>
+    where Target: IntoOctets {
+        self.authority.into_message()
     }
 }
 
@@ -477,12 +488,10 @@ impl<Target> DerefMut for AdditionalBuilder<Target> {
 //--- RecordSectionBuilder
 
 impl<Target> RecordSectionBuilder for AdditionalBuilder<Target>
-where Target: ComposeTarget + TryCompose {
+where Target: OctetsBuilder {
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
     where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
-        self.as_target_mut().try_compose(|target| {
-            record.into().compose(target)
-        })?;
+        record.into().compose(self.as_target_mut())?;
         self.counts_mut().inc_ancount();
         Ok(())
     }
@@ -497,17 +506,16 @@ pub struct OptBuilder<Target> {
     arcount: u16,
 }
 
-impl<Target: ComposeTarget> OptBuilder<Target> {
+impl<Target: OctetsBuilder> OptBuilder<Target> {
     fn new(
         mut additional: AdditionalBuilder<Target>
-    ) -> Result<Self, AdditionalBuilder<Target>>
-    where Target: TryCompose {
+    ) -> Result<Self, AdditionalBuilder<Target>> {
         let start = additional.as_target().as_ref().len();
         let arcount = additional.counts().arcount();
 
-        let err = additional.as_target_mut().try_compose(|target| {
-            OptHeader::default().compose(target);
-            0u16.compose(target);
+        let err = additional.as_target_mut().append_all(|target| {
+            OptHeader::default().compose(target)?;
+            0u16.compose(target)
         }).is_err();
         if err {
             return Err(additional)
@@ -526,8 +534,7 @@ impl<Target: ComposeTarget> OptBuilder<Target> {
         res
     }
 
-    pub fn push<Octets, Opt>(&mut self, opt: &Opt) -> Result<(), ShortBuf>
-    where Target: TryCompose, Opt: OptData<Octets> {
+    pub fn push<Opt: OptData>(&mut self, opt: &Opt) -> Result<(), ShortBuf> {
         self.append_raw_option(opt.code(), |target| {
             opt.compose(target)
         })
@@ -536,15 +543,12 @@ impl<Target: ComposeTarget> OptBuilder<Target> {
     pub fn append_raw_option<F>(
         &mut self, code: OptionCode, op: F
     ) -> Result<(), ShortBuf>
-    where
-        Target: TryCompose,
-        F: FnOnce(&mut <Target::Target as ComposeTarget>::LenTarget)
-    {
+    where F: FnOnce(&mut Target) -> Result<(), ShortBuf> {
         // Add the option.
         let pos = self.as_target().as_ref().len();
-        self.as_target_mut().try_compose(|target| {
-            code.compose(target);
-            target.len_prefixed(op);
+        self.as_target_mut().append_all(|target| {
+            code.compose(target)?;
+            op(target)
         })?;
 
         // Update the length. If the option is too long, truncate and return
@@ -615,6 +619,11 @@ impl<Target: ComposeTarget> OptBuilder<Target> {
         self.additional.finish()
     }
 
+    pub fn into_message(self) -> Message<Target::Octets>
+    where Target: IntoOctets {
+        self.additional.into_message()
+    }
+
     fn as_target(&self) -> &Target {
         self.additional.as_target()
     }
@@ -641,6 +650,66 @@ impl<Target> DerefMut for OptBuilder<Target> {
     }
 }
 
+
+//------------ StreamTarget --------------------------------------------------
+
+#[derive(Clone)]
+pub struct StreamTarget<Target> {
+    target: Target
+}
+
+impl<Target: OctetsBuilder> StreamTarget<Target> {
+    pub fn new(mut target: Target) -> Result<Self, ShortBuf> {
+        target.truncate(0);
+        0u16.compose(&mut target)?;
+        Ok(StreamTarget { target })
+    }
+
+    pub fn as_target(&self) -> &Target {
+        &self.target
+    }
+    
+    pub fn into_target(self) -> Target {
+        self.target
+    }
+
+    fn update_shim(&mut self) {
+        let len = (self.target.len() - 2) as u16;
+        self.target.as_mut()[..2].copy_from_slice(&len.to_be_bytes())
+    }
+}
+
+impl<Target: AsRef<[u8]>> AsRef<[u8]> for StreamTarget<Target> {
+    fn as_ref(&self) -> &[u8] {
+        &self.target.as_ref()[2..]
+    }
+}
+
+impl<Target: AsMut<[u8]>> AsMut<[u8]> for StreamTarget<Target> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.target.as_mut()[2..]
+    }
+}
+
+impl<Target: OctetsBuilder> OctetsBuilder for StreamTarget<Target> {
+    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
+        match self.target.append_slice(slice) {
+            Ok(()) => {
+                self.update_shim();
+                Ok(())
+            }
+            Err(ShortBuf) => Err(ShortBuf)
+        }
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.target.truncate(len + 2);
+        self.update_shim();
+    }
+}
+
+
+/*
 
 //------------ DgramTarget ---------------------------------------------------
 
@@ -726,7 +795,9 @@ where Target: OctetsBuilder, Comp: Compressor {
                 self.target.append_slice(&slice[..len]);
                 self.exhausted = true;
             }
-            None => self.target.append_slice(slice)
+            None => {
+                self.target.append_slice(slice);
+            }
         }
     }
 
@@ -1096,3 +1167,4 @@ impl Compressor for TreeCompressor {
     }
 }
 
+*/

@@ -28,14 +28,14 @@ use core::{cmp, fmt, hash, ops, str};
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 use derive_more::Display;
-use crate::octets;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
 use crate::str::{BadSymbol, Symbol, SymbolError};
-use crate::octets::{FromBuilder, IntoBuilder, OctetsBuilder};
+use crate::octets::{
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, IntoOctets, OctetsBuilder
+};
 use crate::parse::{
     ParseAll, ParseAllError, Parse, Parser, ParseSource, ShortBuf
 };
@@ -158,13 +158,19 @@ impl<Octets: AsRef<[u8]>> CharStr<Octets> {
 
 //--- FromStr
 
-impl<Octets: FromBuilder> str::FromStr for CharStr<Octets> {
+impl<Octets> str::FromStr for CharStr<Octets>
+where
+    Octets: FromBuilder,
+    <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
+    <Octets as FromBuilder>::Builder: IntoOctets<Octets = Octets>,
+{
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Most likely, everything is ASCII so take `s`’s length as capacity.
-        let mut builder =
-            CharStrBuilder::<Octets::Builder>::with_capacity(s.len());
+        let mut builder = 
+            CharStrBuilder::<<Octets as FromBuilder>::Builder>
+            ::with_capacity(s.len());
         builder.push_str(s)?;
         Ok(builder.finish())
     }
@@ -276,9 +282,14 @@ impl<T: ParseSource> ParseAll<T> for CharStr<T> {
 }
 
 impl<T: AsRef<[u8]> + ?Sized> Compose for CharStr<T> {
-    fn compose<C: ComposeTarget + ?Sized>(&self, target: &mut C) {
-        (self.as_ref().len() as u8).compose(target);
-        target.append_slice(self.as_ref());
+    fn compose<Target: OctetsBuilder>(
+        &self,
+        target: &mut Target
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            (self.as_ref().len() as u8).compose(target)?;
+            target.append_slice(self.as_ref())
+        })
     }
 }
 
@@ -314,19 +325,19 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::Display for CharStr<T> {
 
 impl<T: AsRef<[u8]>> IntoIterator for CharStr<T> {
     type Item = u8;
-    type IntoIter = octets::IntoIter<T>;
+    type IntoIter = IntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        octets::IntoIter::new(self.0)
+        IntoIter::new(self.0)
     }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized + 'a> IntoIterator for &'a CharStr<T> {
     type Item = u8;
-    type IntoIter = octets::Iter<'a>;
+    type IntoIter = Iter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        octets::Iter::new(self.0.as_ref())
+        Iter::new(self.0.as_ref())
     }
 }
 
@@ -345,8 +356,7 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::Debug for CharStr<T> {
 #[derive(Clone)]
 pub struct CharStrBuilder<Builder>(Builder);
 
-impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
-    /// Creates a new, empty character string builder.
+impl<Builder: EmptyBuilder> CharStrBuilder<Builder> {
     pub fn new() -> Self {
         CharStrBuilder(Builder::empty())
     }
@@ -354,13 +364,9 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     pub fn with_capacity(capacity: usize) -> Self {
         CharStrBuilder(Builder::with_capacity(capacity))
     }
+}
 
-    // This should be a `const fn` once that becomes allowed.
-    // (const fn not allowed with generic types)
-    fn max_capacity() -> usize {
-        core::cmp::min(Builder::MAX_CAPACITY, 255)
-    }
-
+impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     /// Creates a character string builder from an octet sequence unchecked.
     ///
     /// Since the buffer may already be longer than it is allowed to be, this
@@ -374,7 +380,7 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     /// If the octet sequence is longer than 255 octets, an error is
     /// returned.
     pub fn from_builder(builder: Builder) -> Result<Self, CharStrError> {
-        if builder.as_ref().len() > Self::max_capacity() {
+        if builder.as_ref().len() > 255 {
             Err(CharStrError)
         }
         else {
@@ -413,8 +419,9 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     }
 
     /// Turns the builder into an imutable character string.
-    pub fn finish(self) -> CharStr<Builder::Octets> {
-        unsafe { CharStr::from_octets_unchecked(self.0.finish()) }
+    pub fn finish(self) -> CharStr<Builder::Octets>
+    where Builder: IntoOctets {
+        unsafe { CharStr::from_octets_unchecked(self.0.into_octets()) }
     }
 
     /// Pushes a byte to the end of the character string.
@@ -422,12 +429,11 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     /// If this would result in a string longer than the allowed 255 bytes,
     /// returns an error and leaves the string be.
     pub fn push(&mut self, ch: u8) -> Result<(), PushError> {
-        if self.len() == Self::max_capacity() {
+        if self.len() == 255 {
             Err(PushError)
         }
         else {
-            self.0.append_slice(&[ch]);
-            Ok(())
+            self.0.append_slice(&[ch]).map_err(Into::into)
         }
     }
 
@@ -438,12 +444,11 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     pub fn extend_from_slice(
         &mut self, extend: &[u8]
     ) -> Result<(), PushError> {
-        if self.len() + extend.len() > Self::max_capacity() {
+        if self.len() + extend.len() > 255 {
             Err(PushError)
         }
         else {
-            self.0.append_slice(extend);
-            Ok(())
+            self.0.append_slice(extend).map_err(Into::into)
         }
     }
 
@@ -459,7 +464,7 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
 
 //--- Default
 
-impl<Builder: OctetsBuilder> Default for CharStrBuilder<Builder> {
+impl<Builder: EmptyBuilder> Default for CharStrBuilder<Builder> {
     fn default() -> Self {
         Self::new()
     }
@@ -494,6 +499,63 @@ impl<Builder: OctetsBuilder> AsRef<[u8]> for CharStrBuilder<Builder> {
 impl<Builder: OctetsBuilder> AsMut<[u8]> for CharStrBuilder<Builder> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.0.as_mut()
+    }
+}
+
+
+//------------ IntoIter ------------------------------------------------------
+
+pub struct IntoIter<T> {
+    octets: T,
+    len: usize,
+    pos: usize,
+}
+
+impl<T: AsRef<[u8]>> IntoIter<T> {
+    pub(crate) fn new(octets: T) -> Self {
+        IntoIter {
+            len: octets.as_ref().len(),
+            octets,
+            pos: 0
+        }
+    }
+}
+
+impl<T: AsRef<[u8]>> Iterator for IntoIter<T> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos == self.len {
+            None
+        }
+        else {
+            let res = self.octets.as_ref()[self.pos];
+            self.pos += 1;
+            Some(res)
+        }
+    }
+}
+
+
+//------------ Iter ----------------------------------------------------------
+
+pub struct Iter<'a> {
+    octets: &'a [u8],
+}
+
+impl<'a> Iter<'a> {
+    pub(crate) fn new(octets: &'a [u8]) -> Self {
+        Iter { octets }
+    }
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (res, octets) = self.octets.split_first()?;
+        self.octets = octets;
+        Some(*res)
     }
 }
 
@@ -580,6 +642,12 @@ impl From<PushError> for FromStrError {
 #[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 #[display(fmt="adding bytes would exceed the size limit")]
 pub struct PushError;
+
+impl From<ShortBuf> for PushError {
+    fn from(_: ShortBuf) -> PushError {
+        PushError
+    }
+}
 
 #[cfg(feature = "std")]
 impl std::error::Error for PushError { }
@@ -696,16 +764,16 @@ mod test {
 
     #[test]
     fn compose() {
-        use crate::compose::Compose;
+        use crate::octets::Compose;
 
         let mut target = Vec::new();
         let val = unwrap!(CharStr::from_slice(b"foo"));
-        val.compose(&mut target);
+        unwrap!(val.compose(&mut target));
         assert_eq!(target, b"\x03foo".as_ref());
 
         let mut target = Vec::new();
         let val = unwrap!(CharStr::from_slice(b""));
-        val.compose(&mut target);
+        unwrap!(val.compose(&mut target));
         assert_eq!(target, &b"\x00"[..]);
     }
 

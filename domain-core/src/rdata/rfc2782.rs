@@ -7,12 +7,12 @@
 use core::fmt;
 use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError
 };
 use crate::name::ToDname;
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::parse::{Parse, ParseAll, Parser, ParseOpenError, ParseSource};
 use super::RtypeRecordData;
 
@@ -158,18 +158,28 @@ where Octets: ParseSource, N: ParseAll<Octets>, N::Err: From<ParseOpenError>
 }
 
 impl<N: Compose> Compose for Srv<N> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.priority.compose(buf);
-        self.weight.compose(buf);
-        self.port.compose(buf);
-        self.target.compose(buf);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.priority.compose(buf)?;
+            self.weight.compose(buf)?;
+            self.port.compose(buf)?;
+            self.target.compose(buf)
+        })
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.priority.compose(buf);
-        self.weight.compose(buf);
-        self.port.compose(buf);
-        self.target.compose_canonical(buf);
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.priority.compose(buf)?;
+            self.weight.compose(buf)?;
+            self.port.compose(buf)?;
+            self.target.compose_canonical(buf)
+        })
     }
 }
 

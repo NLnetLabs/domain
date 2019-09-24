@@ -1,9 +1,9 @@
 //! EDNS Options from RFC 7830
 
 use rand::random;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-// XXX use crate::message_builder::OptBuilder;
+use crate::message_builder::OptBuilder;
+use crate::octets::{Compose, OctetsBuilder};
 use crate::parse::{ParseAll, Parser, ShortBuf};
 use super::CodeOptData;
 
@@ -30,12 +30,13 @@ impl Padding {
         Padding { len, mode }
     }
     
-    /* XXX
-    pub fn push(builder: &mut OptBuilder, len: u16, mode: PaddingMode)
-                -> Result<(), ShortBuf> {
+    pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        len: u16,
+        mode: PaddingMode
+    ) -> Result<(), ShortBuf> {
         builder.push(&Self::new(len, mode))
     }
-    */
 
     pub fn len(self) -> u16 {
         self.len
@@ -67,19 +68,25 @@ impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Padding {
 }
 
 impl Compose for Padding {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        match self.mode {
-            PaddingMode::Zero => {
-                for _ in 0..self.len {
-                    0u8.compose(target)
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            match self.mode {
+                PaddingMode::Zero => {
+                    for _ in 0..self.len {
+                        0u8.compose(target)?
+                    }
+                }
+                PaddingMode::Random => {
+                    for _ in 0..self.len {
+                        random::<u8>().compose(target)?
+                    }
                 }
             }
-            PaddingMode::Random => {
-                for _ in 0..self.len {
-                    random::<u8>().compose(target)
-                }
-            }
-        }
+            Ok(())
+        })
     }
 }
 

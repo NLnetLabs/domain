@@ -1,6 +1,6 @@
 [package]
 name = "domain-core"
-version = "0.4.1"
+version = "0.5.0-pre"
 edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust – Core."
@@ -19,7 +19,7 @@ path = "src/lib.rs"
 bytes          = { version = "^0.4", optional = true }
 chrono         = { version = "^0.4", optional = true }
 derive_more    = { version = "0.15.1-pre", git = "https://github.com/JelteF/derive_more.git" }
-rand           = "^0.6"
+rand           = "^0.7"
 unwrap         = "^1.2"
 void           = "^1.0"
 

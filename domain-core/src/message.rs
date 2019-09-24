@@ -13,7 +13,6 @@
 
 use core::mem;
 use core::marker::PhantomData;
-use crate::compose::{ComposeTarget, TryCompose};
 use crate::header::{Header, HeaderCounts, HeaderSection};
 use crate::iana::{Rcode, Rtype};
 use crate::message_builder::{
@@ -21,6 +20,7 @@ use crate::message_builder::{
 };
 use crate::name::{ParsedDname, ParsedDnameError, ToDname};
 use crate::opt::{Opt, OptRecord};
+use crate::octets::OctetsBuilder;
 use crate::parse::{Parse, Parser, ParseSource, ShortBuf};
 use crate::question::Question;
 use crate::rdata::{Cname, ParseRecordData, RecordData};
@@ -335,7 +335,7 @@ impl<Octets: ParseSource> Message<Octets> {
             Result<ParsedRecord<Octets>, ParsedDnameError>
         ) -> Option<R>,
         T: Into<AnswerBuilder<O>>,
-        O: TryCompose + ComposeTarget
+        O: OctetsBuilder
     {
         let mut target = target.into();
 
@@ -918,7 +918,7 @@ mod test {
 
     // Helper for test cases
     fn get_test_message() -> Message<Vec<u8>> {
-        let msg = MessageBuilder::new_dgram_vec();
+        let msg = MessageBuilder::new_vec();
         let mut msg = msg.answer();
         unwrap!(msg.push((
             unwrap!(Dname::vec_from_str("foo.example.com.")),
@@ -931,6 +931,7 @@ mod test {
             86000,
             Ns::new(unwrap!(Dname::vec_from_str("baz.example.com.")))
         )));
+        println!("{:02x?}", msg.as_target().as_slice());
         msg.into_message()
     }
 
@@ -943,11 +944,11 @@ mod test {
     #[test]
     fn canonical_name() {
         // Message without CNAMEs.
-        let mut msg = MessageBuilder::new_dgram_vec().question();
+        let mut msg = MessageBuilder::new_vec().question();
         unwrap!(
             msg.push((unwrap!(Dname::vec_from_str("example.com.")), Rtype::A))
         );
-        let msg_ref = msg.as_ref_message();
+        let msg_ref = msg.as_message();
         assert_eq!(
             unwrap!(Dname::vec_from_str("example.com.")),
             unwrap!(msg_ref.canonical_name())
@@ -970,8 +971,7 @@ mod test {
             86000,
             Cname::new(unwrap!(Dname::vec_from_str("bar.example.com.")))
         )));
-        let msg_ref = msg.as_ref_message();
-        println!("{:02x?}", msg_ref.as_slice());
+        let msg_ref = msg.as_message();
         assert_eq!(
             unwrap!(Dname::vec_from_str("baz.example.com.")),
             unwrap!(msg_ref.canonical_name())
@@ -996,7 +996,7 @@ mod test {
     fn copy_records() {
         let msg = get_test_message();
         let msg = msg.as_ref_message();
-        let target = MessageBuilder::new_dgram_vec().question();
+        let target = MessageBuilder::new_vec().question();
         let res = msg.copy_records(target.answer(), |rec| {
             if let Ok(rr) = rec {
                 if let Ok(Some(rr)) =

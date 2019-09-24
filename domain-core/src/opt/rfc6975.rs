@@ -1,9 +1,9 @@
 //! EDNS Options from RFC 6975.
 
 use core::slice;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{OptionCode, SecAlg};
-// XXX use crate::message_builder::OptBuilder;
+use crate::message_builder::OptBuilder;
+use crate::octets::{Compose, OctetsBuilder};
 use crate::parse::{ParseAll, Parser, ParseSource, ShortBuf};
 use super::CodeOptData;
 
@@ -26,19 +26,23 @@ macro_rules! option_type {
             where Octets: AsRef<[u8]> {
                 SecAlgsIter::new(self.octets.as_ref())
             }
+        }
 
-            /* XXX
-            pub fn push(builder: &mut OptBuilder, algs: &[SecAlg])
-                        -> Result<(), ShortBuf> {
+        impl $name<()> {
+            pub fn push<Target: OctetsBuilder>(
+                builder: &mut OptBuilder<Target>,
+                algs: &[SecAlg]
+            ) -> Result<(), ShortBuf> {
                 assert!(algs.len() <= ::std::u16::MAX as usize);
-                builder.build(OptionCode::$name, algs.len() as u16, |buf| {
-                    for alg in algs {
-                        buf.compose(&alg.to_int())?
-                    }
-                    Ok(())
+                builder.append_raw_option(OptionCode::$name, |target| {
+                    target.append_all(|target| {
+                        for alg in algs {
+                            alg.to_int().compose(target)?;
+                        }
+                        Ok(())
+                    })
                 })
             }
-            */
         }
 
         //--- ParseAll, Compose
@@ -55,7 +59,10 @@ macro_rules! option_type {
         }
 
         impl<Octets: AsRef<[u8]>> Compose for $name<Octets> {
-            fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+            fn compose<T: OctetsBuilder>(
+                &self,
+                target: &mut T
+            ) -> Result<(), ShortBuf> {
                 target.append_slice(self.octets.as_ref())
             }
         }

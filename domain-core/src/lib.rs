@@ -100,32 +100,9 @@
 #[macro_use] extern crate core;
 
 
-//--- Re-exports
-
-/*
-pub use self::charstr::{CharStr, CharStrBuilder};
-pub use self::cmp::CanonicalOrd;
-pub use self::oldcompose::{Compose, Compress, Compressor};
-pub use self::header::{Header, HeaderCounts, HeaderSection};
-pub use self::message::{Message, RecordSection, Section};
-pub use self::message_builder::{
-    MessageBuilder, SectionBuilder, RecordSectionBuilder
-};
-pub use self::name::{
-    Dname, ParsedDname, RelativeDname, ToDname, ToRelativeDname
-};
-pub use self::oldparse::{Parser, Parse, ParseAll, ShortBuf};
-pub use self::question::Question;
-pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
-pub use self::record::{Record, RecordHeader, ParsedRecord};
-pub use self::serial::Serial;
-*/
-
-//--- Modules
-
 pub mod charstr;
-pub mod compose;
 pub mod cmp;
+//pub mod compose;
 pub mod header;
 pub mod iana;
 pub mod master;

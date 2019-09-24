@@ -1,8 +1,8 @@
 //! EDNS Options form RFC 7873
 
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::OptionCode;
-// XXX use crate::message_builder::OptBuilder;
+use crate::message_builder::OptBuilder;
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::parse::{ParseAll, ParseAllError, Parser};
 use super::CodeOptData;
 
@@ -17,12 +17,12 @@ impl Cookie {
         Cookie(cookie)
     }
 
-    /* XXX
-    pub fn push(builder: &mut OptBuilder, cookie: [u8; 8])
-                -> Result<(), ShortBuf> {
+    pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        cookie: [u8; 8]
+    ) -> Result<(), ShortBuf> {
         builder.push(&Self::new(cookie))
     }
-    */
 
     pub fn cookie(self) -> [u8; 8] {
         self.0
@@ -48,7 +48,10 @@ impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Cookie {
 
 
 impl Compose for Cookie {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.0[..])
     }
 }

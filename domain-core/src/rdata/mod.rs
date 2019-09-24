@@ -120,12 +120,12 @@ use core::cmp::Ordering;
 #[cfg(feature="bytes")] use bytes::{BufMut, Bytes, BytesMut};
 use derive_more::{Display, From};
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::Rtype;
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
 use crate::name::{ParsedDnameError, ParsedDnameAllError};
+use crate::octets::{Compose, OctetsBuilder};
 use crate::parse::{
     ParseAll, ParseAllError, ParseOpenError, Parser, ParseSource, ShortBuf
 };
@@ -361,7 +361,10 @@ impl<Octets: AsRef<[u8]>> Ord for UnknownRecordData<Octets> {
 //--- Compose, and Compress
 
 impl<Octets: AsRef<[u8]>> Compose for UnknownRecordData<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.data.as_ref())
     }
 }

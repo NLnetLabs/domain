@@ -11,17 +11,16 @@ use core::convert::TryInto;
 use derive_more::{Display, From};
 use unwrap::unwrap;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, ComposeTarget};
 use crate::iana::{DigestAlg, Rtype, SecAlg};
 #[cfg(feature="bytes")] use crate::master::scan::{ 
     CharSource, ScanError, Scan, Scanner
 };
 use crate::name::{ParsedDnameError, ToDname};
 #[cfg(feature="bytes")] use crate::name::Dname;
-use crate::octets::{IntoBuilder, OctetsBuilder};
-use crate::parse::{
-    Parse, ParseAll, ParseAllError, Parser, ParseSource, ShortBuf
+use crate::octets::{
+    Compose, EmptyBuilder, IntoBuilder, IntoOctets, OctetsBuilder, ShortBuf
 };
+use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ParseSource};
 use crate::serial::Serial;
 use crate::utils::base64;
 use super::{RtypeRecordData, RdataParseError};
@@ -231,11 +230,16 @@ impl<Octets: ParseSource> ParseAll<Octets> for Dnskey<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.flags.compose(buf);
-        self.protocol.compose(buf);
-        self.algorithm.compose(buf);
-        buf.append_slice(self.public_key.as_ref());
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.flags.compose(buf)?;
+            self.protocol.compose(buf)?;
+            self.algorithm.compose(buf)?;
+            buf.append_slice(self.public_key.as_ref())
+        })
     }
 }
 
@@ -530,28 +534,38 @@ where
 }
 
 impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.type_covered.compose(buf);
-        self.algorithm.compose(buf);
-        self.labels.compose(buf);
-        self.original_ttl.compose(buf);
-        self.expiration.compose(buf);
-        self.inception.compose(buf);
-        self.key_tag.compose(buf);
-        self.signer_name.compose(buf);
-        buf.append_slice(self.signature.as_ref());
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.type_covered.compose(buf)?;
+            self.algorithm.compose(buf)?;
+            self.labels.compose(buf)?;
+            self.original_ttl.compose(buf)?;
+            self.expiration.compose(buf)?;
+            self.inception.compose(buf)?;
+            self.key_tag.compose(buf)?;
+            self.signer_name.compose(buf)?;
+            buf.append_slice(self.signature.as_ref())
+        })
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.type_covered.compose(buf);
-        self.algorithm.compose(buf);
-        self.labels.compose(buf);
-        self.original_ttl.compose(buf);
-        self.expiration.compose(buf);
-        self.inception.compose(buf);
-        self.key_tag.compose(buf);
-        self.signer_name.compose_canonical(buf);
-        buf.append_slice(self.signature.as_ref());
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.type_covered.compose(buf)?;
+            self.algorithm.compose(buf)?;
+            self.labels.compose(buf)?;
+            self.original_ttl.compose(buf)?;
+            self.expiration.compose(buf)?;
+            self.inception.compose(buf)?;
+            self.key_tag.compose(buf)?;
+            self.signer_name.compose_canonical(buf)?;
+            buf.append_slice(self.signature.as_ref())
+        })
     }
 }
 
@@ -742,9 +756,14 @@ where
 }
 
 impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        self.next_name.compose(target);
-        self.types.compose(target);
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.next_name.compose(target)?;
+            self.types.compose(target)
+        })
     }
 
     // Default compose_canonical is correct as we keep the case.
@@ -931,11 +950,16 @@ impl<Octets: ParseSource> ParseAll<Octets> for Ds<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, buf: &mut T) {
-        self.key_tag.compose(buf);
-        self.algorithm.compose(buf);
-        self.digest_type.compose(buf);
-        buf.append_slice(self.digest.as_ref())
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.key_tag.compose(buf)?;
+            self.algorithm.compose(buf)?;
+            self.digest_type.compose(buf)?;
+            buf.append_slice(self.digest.as_ref())
+        })
     }
 }
 
@@ -1019,7 +1043,10 @@ impl<Octets> RtypeBitmap<Octets> {
     }
 
     pub fn builder() -> RtypeBitmapBuilder<Octets::Builder>
-    where Octets: IntoBuilder {
+    where
+        Octets: IntoBuilder,
+        <Octets as IntoBuilder>::Builder: EmptyBuilder
+    {
         RtypeBitmapBuilder::new()
     }
 
@@ -1133,7 +1160,10 @@ impl<Octets: ParseSource> ParseAll<Octets> for RtypeBitmap<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 }
@@ -1195,31 +1225,33 @@ pub struct RtypeBitmapBuilder<Builder> {
 }
 
 impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
-    pub fn new() -> Self {
+    pub fn new() -> Self
+    where Builder: EmptyBuilder {
         RtypeBitmapBuilder {
             // Start out with the capacity for one block.
             buf: Builder::with_capacity(34)
         }
     }
 
-    pub fn add(&mut self, rtype: Rtype) {
+    pub fn add(&mut self, rtype: Rtype) -> Result<(), ShortBuf> {
         let (block, octet, bit) = split_rtype(rtype);
-        let block = self.get_block(block);
+        let block = self.get_block(block)?;
         if (block[1] as usize) < (octet + 1) {
             block[1] = (octet + 1) as u8
         }
         block[octet + 2] |= bit;
+        Ok(())
     }
 
-    fn get_block(&mut self, block: u8) -> &mut [u8] {
+    fn get_block(&mut self, block: u8) -> Result<&mut [u8], ShortBuf> {
         let mut pos = 0;
         while pos < self.buf.as_ref().len() {
             if self.buf.as_ref()[pos] == block {
-                return &mut self.buf.as_mut()[pos..pos + 34]
+                return Ok(&mut self.buf.as_mut()[pos..pos + 34])
             }
             else if self.buf.as_ref()[pos] > block {
                 let len = self.buf.as_ref().len() - pos;
-                self.buf.append_slice(&[0; 34]);
+                self.buf.append_slice(&[0; 34])?;
                 let buf = self.buf.as_mut();
                 unsafe {
                     ptr::copy(
@@ -1234,19 +1266,20 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
                     );
                 }
                 buf[pos] = block;
-                return &mut buf[pos..pos + 34]
+                return Ok(&mut buf[pos..pos + 34])
             }
             else {
                 pos += 34
             }
         }
 
-        self.buf.append_slice(&[0; 34]);
+        self.buf.append_slice(&[0; 34])?;
         self.buf.as_mut()[pos] = block;
-        &mut self.buf.as_mut()[pos..pos + 34]
+        Ok(&mut self.buf.as_mut()[pos..pos + 34])
     }
 
-    pub fn finalize(mut self) -> RtypeBitmap<Builder::Octets> {
+    pub fn finalize(mut self) -> RtypeBitmap<Builder::Octets>
+    where Builder: IntoOctets {
         let mut src_pos = 0;
         let mut dst_pos = 0;
         while src_pos < self.buf.as_ref().len() {
@@ -1265,14 +1298,15 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
             src_pos += 34;
         }
         self.buf.truncate(dst_pos);
-        RtypeBitmap(self.buf.finish())
+        RtypeBitmap(self.buf.into_octets())
     }
 }
 
 
 //--- Default
 
-impl<Builder: OctetsBuilder> Default for RtypeBitmapBuilder<Builder> {
+impl<Builder> Default for RtypeBitmapBuilder<Builder>
+where Builder: OctetsBuilder + EmptyBuilder {
     fn default() -> Self {
         Self::new()
     }

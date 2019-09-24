@@ -5,8 +5,7 @@
 
 use core::{borrow, cmp, fmt, hash, ops};
 use derive_more::Display;
-use crate::compose::{Compose, ComposeTarget};
-use crate::octets::OctetsBuilder;
+use crate::octets::{Compose, OctetsBuilder, ShortBuf};
 
 
 //------------ Label ---------------------------------------------------------
@@ -165,18 +164,25 @@ impl Label {
         self.cmp(other)
     }
 
-    pub fn build<Builder: OctetsBuilder>(&self, target: &mut Builder) {
-        target.append_slice(&[self.len() as u8]);
-        target.append_slice(self.as_slice());
+    pub fn build<Builder: OctetsBuilder>(
+        &self, target: &mut Builder
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            target.append_slice(&[self.len() as u8])?;
+            target.append_slice(self.as_slice())
+        })
     }
 
     pub fn build_lowercase<Builder: OctetsBuilder>(
         &self, target: &mut Builder
-    ) {
-        target.append_slice(&[self.len() as u8]);
-        for &ch in self.into_iter() {
-            target.append_slice(&[ch.to_ascii_lowercase()])
-        }
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            target.append_slice(&[self.len() as u8])?;
+            for &ch in self.into_iter() {
+                target.append_slice(&[ch.to_ascii_lowercase()])?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -203,16 +209,27 @@ impl Label {
 //--- Compose
 
 impl Compose for Label {
-    fn compose<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        (self.len() as u8).compose(target);
-        target.append_slice(self.as_ref())
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            (self.len() as u8).compose(target)?;
+            target.append_slice(self.as_ref())
+        })
     }
 
-    fn compose_canonical<T: ComposeTarget + ?Sized>(&self, target: &mut T) {
-        (self.len() as u8).compose(target);
-        for &ch in self.into_iter() {
-            ch.to_ascii_lowercase().compose(target);
-        }
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            (self.len() as u8).compose(target)?;
+            for &ch in self.into_iter() {
+                ch.to_ascii_lowercase().compose(target)?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -613,6 +630,7 @@ impl From<LabelTypeError> for SplitLabelError {
 #[cfg(test)]
 mod test {
     use std::vec::Vec;
+    use unwrap::unwrap;
     use super::*;
 
     #[test]
@@ -668,12 +686,12 @@ mod test {
     #[test]
     fn compose() {
         let mut buf = Vec::new();
-        Label::root().compose(&mut buf);
+        unwrap!(Label::root().compose(&mut buf));
         assert_eq!(buf, &b"\0"[..]);
 
         let mut buf = Vec::new();
         let label = Label::from_slice(b"123").unwrap();
-        label.compose(&mut buf);
+        unwrap!(label.compose(&mut buf));
         assert_eq!(buf, &b"\x03123"[..]);
     }
 

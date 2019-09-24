@@ -106,12 +106,12 @@ macro_rules! int_enum {
             }
         }
 
-        impl $crate::compose::Compose for $ianatype {
-            fn compose<T: $crate::compose::ComposeTarget + ?Sized>(
+        impl $crate::octets::Compose for $ianatype {
+            fn compose<T: $crate::octets::OctetsBuilder>(
                 &self,
                 target: &mut T
-            ) {
-                <$inttype as $crate::compose::Compose>::compose(
+            ) -> Result<(), $crate::octets::ShortBuf> {
+                <$inttype as $crate::octets::Compose>::compose(
                     &self.to_int(), target
                 )
             }
