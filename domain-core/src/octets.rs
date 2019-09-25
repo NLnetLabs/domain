@@ -379,6 +379,111 @@ impl Compose for Ipv6Addr {
     }
 }
 
+//------------ octets_array --------------------------------------------------
+
+#[macro_export]
+macro_rules! octets_array {
+    ( $vis:vis $name:ident => $len:expr) => {
+        #[derive(Clone)]
+        $vis struct $name {
+            octets: [u8; $len],
+            len: usize
+        }
+
+        impl core::ops::Deref for $name {
+            type Target = [u8];
+
+            fn deref(&self) -> &[u8] {
+                self.as_ref()
+            }
+        }
+
+        impl core::ops::DerefMut for $name {
+            fn deref_mut(&mut self) -> &mut [u8] {
+                self.as_mut()
+            }
+        }
+
+        impl AsRef<[u8]> for $name {
+            fn as_ref(&self) -> &[u8] {
+                &self.octets[..self.len]
+            }
+        }
+
+        impl AsMut<[u8]> for $name {
+            fn as_mut(&mut self) -> &mut [u8] {
+                &mut self.octets[..self.len]
+            }
+        }
+
+        impl $crate::octets::OctetsBuilder for $name {
+            fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
+                if slice.len() > $len - self.len {
+                    Err(ShortBuf)
+                }
+                else {
+                    let end = self.len + slice.len();
+                    self.octets[self.len..end].copy_from_slice(slice);
+                    self.len = end;
+                    Ok(())
+                }
+            }
+
+            fn truncate(&mut self, len: usize) {
+                if len < self.len {
+                    self.len = len
+                }
+            }
+        }
+
+        impl $crate::octets::EmptyBuilder for $name {
+            fn empty() -> Self {
+                $name {
+                    octets: [0; $len],
+                    len: 0
+                }
+            }
+
+            fn with_capacity(_capacity: usize) -> Self {
+                Self::empty()
+            }
+        }
+
+        impl $crate::octets::IntoBuilder for $name {
+            type Builder = Self;
+
+            fn into_builder(self) -> Self::Builder {
+                self
+            }
+        }
+
+        impl $crate::octets::FromBuilder for $name {
+            type Builder = Self;
+
+            fn from_builder(builder: Self::Builder) -> Self {
+                builder
+            }
+        }
+
+        impl $crate::octets::IntoOctets for $name {
+            type Octets = Self;
+
+            fn into_octets(self) -> Self::Octets {
+                self
+            }
+        }
+    }
+}
+
+octets_array!(pub Octets32 => 32);
+octets_array!(pub Octets64 => 64);
+octets_array!(pub Octets128 => 128);
+octets_array!(pub Octets256 => 256);
+octets_array!(pub Octets512 => 512);
+octets_array!(pub Octets1024 => 1024);
+octets_array!(pub Octets2048 => 2048);
+octets_array!(pub Octets4096 => 4096);
+
 
 //------------ ShortBuf ------------------------------------------------------
 
@@ -389,111 +494,4 @@ pub struct ShortBuf;
 
 #[cfg(feature = "std")]
 impl std::error::Error for ShortBuf { }
-
-
-//------------ OctetsBuf -----------------------------------------------------
-
-pub struct OctetsBuf<Buf> {
-    buf: Buf,
-    len: usize,
-}
-
-impl<Buf> OctetsBuf<Buf> {
-    pub fn new(buf: Buf) -> Self {
-        OctetsBuf {
-            buf,
-            len: 0
-        }
-    }
-}
-
-impl<Buf: Default> Default for OctetsBuf<Buf> {
-    fn default() -> Self {
-        Self::new(Default::default())
-    }
-}
-
-impl<Buf: AsRef<[u8]>> AsRef<[u8]> for OctetsBuf<Buf> {
-    fn as_ref(&self) -> &[u8] {
-        &self.buf.as_ref()[..self.len]
-    }
-}
-
-impl<Buf: AsMut<[u8]>> AsMut<[u8]> for OctetsBuf<Buf> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.buf.as_mut()[..self.len]
-    }
-}
-
-impl<Buf: AsRef<[u8]>> core::ops::Deref for OctetsBuf<Buf> {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        self.as_ref()
-    }
-}
-
-impl<Buf: AsRef<[u8]> + AsMut<[u8]>> core::ops::DerefMut for OctetsBuf<Buf> {
-    fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.buf.as_mut()[..self.len]
-    }
-}
-
-impl<Buf: AsRef<[u8]> + AsMut<[u8]>> OctetsBuilder for OctetsBuf<Buf> {
-    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
-        if slice.len() > self.buf.as_ref().len() {
-            Err(ShortBuf)
-        }
-        else {
-            let end = self.len + slice.len();
-            self.buf.as_mut()[self.len..end].copy_from_slice(slice);
-            self.len = end;
-            Ok(())
-        }
-    }
-
-    fn truncate(&mut self, len: usize) {
-        if len < self.len {
-            self.len = len
-        }
-    }
-}
-
-impl<Buf: Default> EmptyBuilder for OctetsBuf<Buf> {
-    fn empty() -> Self {
-        Default::default()
-    }
-
-    fn with_capacity(_: usize) -> Self {
-        Default::default()
-    }
-}
-
-impl<Buf: AsRef<[u8]>> IntoOctets for OctetsBuf<Buf> {
-    type Octets = Self;
-
-    fn into_octets(self) -> Self {
-        self
-    }
-}
-
-impl<Buf: AsRef<[u8]> + AsMut<[u8]>> IntoBuilder for OctetsBuf<Buf> {
-    type Builder = Self;
-
-    fn into_builder(self) -> Self {
-        self
-    }
-}
-
-impl<Buf: AsRef<[u8]> + AsMut<[u8]>> FromBuilder for OctetsBuf<Buf> {
-    type Builder = Self;
-
-    fn from_builder(builder: Self) -> Self {
-        builder
-    }
-}
-
-pub fn octets_buf_255() -> OctetsBuf<[u8; 255]> {
-    OctetsBuf::new([0; 255])
-}
 
