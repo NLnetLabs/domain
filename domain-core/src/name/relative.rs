@@ -42,7 +42,7 @@ impl<Octets> RelativeDname<Octets> {
     ///
     /// Since the content of the bytes value can be anything, really, this is
     /// an unsafe function.
-    pub(super) unsafe fn from_octets_unchecked(octets: Octets) -> Self {
+    pub const unsafe fn from_octets_unchecked(octets: Octets) -> Self {
         RelativeDname(octets)
     }
 

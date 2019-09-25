@@ -50,7 +50,7 @@ impl<Octets> Dname<Octets> {
     ///
     /// Since this will allow to actually construct an incorrectly encoded
     /// domain name value, the function is unsafe.
-    pub unsafe fn from_octets_unchecked(octets: Octets) -> Self {
+    pub const unsafe fn from_octets_unchecked(octets: Octets) -> Self {
         Dname(octets)
     }
 
