@@ -34,6 +34,10 @@ impl<N> Srv<N> {
         Srv { priority, weight, port, target }
     }
 
+    pub fn into_target(self) -> N {
+        self.target
+    }
+
     pub fn priority(&self) -> u16 { self.priority }
     pub fn weight(&self) -> u16 { self.weight }
     pub fn port(&self) -> u16 { self.port }

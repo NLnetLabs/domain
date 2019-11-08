@@ -56,6 +56,11 @@ impl<N: ToDname> Question<N> {
     pub fn new_in(qname: N, qtype: Rtype) -> Self {
         Question { qname, qtype, qclass: Class::In }
     }
+
+    /// Converts the question into the qname.
+    pub fn into_qname(self) -> N {
+        self.qname
+    }
 }
 
 

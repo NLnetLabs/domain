@@ -54,6 +54,39 @@ impl ParseOctets for Bytes {
 }
 
 
+//------------ IntoParseOctets -----------------------------------------------
+
+pub trait IntoParseOctets<'a> {
+    type Target: ParseOctets;
+
+    fn into_parse_octets(&'a self) -> Self::Target;
+}
+
+impl<'a> IntoParseOctets<'a> for [u8] {
+    type Target = &'a [u8];
+
+    fn into_parse_octets(&'a self) -> &'a [u8] {
+        self
+    }
+}
+
+impl<'a> IntoParseOctets<'a> for Vec<u8> {
+    type Target = &'a [u8];
+
+    fn into_parse_octets(&'a self) -> &'a [u8] {
+        self.as_ref()
+    }
+}
+
+#[cfg(feature="bytes")]
+impl<'a> IntoParseOctets<'a> for Bytes {
+    type Target = Bytes;
+
+    fn into_parse_octets(&'a self) -> Bytes {
+        self.clone()
+    }
+}
+
 //------------ OctetsBuilder -------------------------------------------------
 
 pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {

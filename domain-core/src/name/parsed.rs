@@ -8,6 +8,7 @@ use derive_more::Display;
 use crate::cmp::CanonicalOrd;
 use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
 use crate::parse::{Parse, ParseAll, Parser, ParseAllError, ParseOpenError};
+use super::dname::Dname;
 use super::label::{Label, LabelTypeError};
 use super::traits::{ToLabelIter, ToDname};
 use super::relative::RelativeDname;
@@ -163,6 +164,20 @@ impl<Octets: AsRef<[u8]>> ParsedDname<Octets> {
     pub fn parent(&mut self) -> bool 
     where Octets: ParseOctets {
         self.split_first().is_some()
+    }
+}
+
+
+//--- From
+
+impl<Octets: AsRef<[u8]>> From<Dname<Octets>> for ParsedDname<Octets> {
+    fn from(name: Dname<Octets>) -> ParsedDname<Octets> {
+        let parser = Parser::from_octets(name.into_octets());
+        ParsedDname {
+            len: parser.as_slice().len(),
+            parser,
+            compressed: false
+        }
     }
 }
 

@@ -160,8 +160,8 @@ impl<Octets: AsRef<[u8]>> CharStr<Octets> {
 impl<Octets> str::FromStr for CharStr<Octets>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
-    <Octets as FromBuilder>::Builder: IntoOctets<Octets = Octets>,
+    <Octets as FromBuilder>::Builder:
+        OctetsBuilder + EmptyBuilder + IntoOctets<Octets = Octets>,
 {
     type Err = FromStrError;
 

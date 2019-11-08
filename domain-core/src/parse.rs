@@ -1,6 +1,5 @@
 //! Parsing DNS wire-format data.
 
-#[cfg(feature="bytes")] use bytes::Bytes;
 use derive_more::Display;
 use crate::net::{Ipv4Addr, Ipv6Addr};
 use crate::octets::{ParseOctets, ShortBuf};

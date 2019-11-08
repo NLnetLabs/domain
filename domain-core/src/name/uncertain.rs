@@ -6,6 +6,7 @@ use core::{fmt, hash, str};
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 use derive_more::From;
+#[cfg(feature = "bytes")] use unwrap::unwrap;
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError
 };
@@ -383,7 +384,7 @@ impl Scan for UncertainDname<Bytes> {
                     Ok(UncertainDname::from(name.finish()))
                 }
                 else {
-                    Ok(UncertainDname::from(name.into_dname()))
+                    Ok(UncertainDname::from(unwrap!(name.into_dname())))
                 }
             }
         )

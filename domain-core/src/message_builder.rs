@@ -134,14 +134,18 @@ impl<Target: OctetsBuilder> QuestionBuilder<Target> {
         Self { builder }
     }
 
-    fn rewind(mut self) -> MessageBuilder<Target> {
-        self.as_target_mut().truncate(mem::size_of::<HeaderSection>());
-        self.counts_mut().set_qdcount(0);
-        self.builder
+    pub fn as_target(&self) -> &Target {
+        self.builder.as_target()
     }
 
-    pub fn builder(self) -> MessageBuilder<Target> {
-        self.rewind()
+    pub fn rewind(&mut self) {
+        self.as_target_mut().truncate(mem::size_of::<HeaderSection>());
+        self.counts_mut().set_qdcount(0);
+    }
+
+    pub fn builder(mut self) -> MessageBuilder<Target> {
+        self.rewind();
+        self.builder
     }
 
     pub fn question(self) -> QuestionBuilder<Target> {
@@ -267,18 +271,22 @@ impl<Target: OctetsBuilder> AnswerBuilder<Target> {
         }
     }
 
-    fn rewind(mut self) -> QuestionBuilder<Target> {
+    pub fn as_target(&self) -> &Target {
+        self.builder.as_target()
+    }
+
+    pub fn rewind(&mut self) {
         self.builder.target.truncate(self.start);
         self.counts_mut().set_ancount(0);
-        QuestionBuilder::new(self.builder)
     }
 
     pub fn builder(self) -> MessageBuilder<Target> {
         self.question().builder()
     }
 
-    pub fn question(self) -> QuestionBuilder<Target> {
-        self.rewind()
+    pub fn question(mut self) -> QuestionBuilder<Target> {
+        self.rewind();
+        QuestionBuilder::new(self.builder)
     }
 
     pub fn authority(self) -> AuthorityBuilder<Target> {
@@ -345,10 +353,9 @@ impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
         }
     }
 
-    fn rewind(mut self) -> AnswerBuilder<Target> {
+    pub fn rewind(&mut self) {
         self.answer.as_target_mut().truncate(self.start);
         self.counts_mut().set_nscount(0);
-        self.answer
     }
 
     pub fn builder(self) -> MessageBuilder<Target> {
@@ -359,8 +366,9 @@ impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
         self.answer().question()
     }
 
-    pub fn answer(self) -> AnswerBuilder<Target> {
-        self.rewind()
+    pub fn answer(mut self) -> AnswerBuilder<Target> {
+        self.rewind();
+        self.answer
     }
 
     pub fn additional(self) -> AdditionalBuilder<Target> {
@@ -376,7 +384,7 @@ impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
         self.answer.into_message()
     }
 
-    fn as_target(&self) -> &Target {
+    pub fn as_target(&self) -> &Target {
         self.answer.as_target()
     }
 
@@ -430,10 +438,13 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
         }
     }
 
-    fn rewind(mut self) -> AuthorityBuilder<Target> {
+    pub fn as_target(&self) -> &Target {
+        self.authority.as_target()
+    }
+
+    pub fn rewind(&mut self) {
         self.authority.as_target_mut().truncate(self.start);
         self.counts_mut().set_arcount(0);
-        self.authority
     }
 
     pub fn builder(self) -> MessageBuilder<Target> {
@@ -448,8 +459,9 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
         self.authority().answer()
     }
 
-    pub fn authority(self) -> AuthorityBuilder<Target> {
-        self.rewind()
+    pub fn authority(mut self) -> AuthorityBuilder<Target> {
+        self.rewind();
+        self.authority
     }
 
     pub fn opt(self) -> Result<OptBuilder<Target>, Self> {
@@ -574,8 +586,7 @@ impl<Target: OctetsBuilder> OptBuilder<Target> {
     }
 
     pub fn rcode(&self) -> OptRcode {
-        let header = self.header().clone();
-        self.opt_header().rcode(header)
+        self.opt_header().rcode(*self.header())
     }
 
     pub fn set_rcode(&mut self, rcode: OptRcode) {
@@ -623,7 +634,7 @@ impl<Target: OctetsBuilder> OptBuilder<Target> {
         self.additional.into_message()
     }
 
-    fn as_target(&self) -> &Target {
+    pub fn as_target(&self) -> &Target {
         self.additional.as_target()
     }
 
@@ -675,6 +686,14 @@ impl<Target: OctetsBuilder> StreamTarget<Target> {
     fn update_shim(&mut self) {
         let len = (self.target.len() - 2) as u16;
         self.target.as_mut()[..2].copy_from_slice(&len.to_be_bytes())
+    }
+
+    pub fn as_stream_slice(&self) -> &[u8] {
+        self.target.as_ref()
+    }
+
+    pub fn as_dgram_slice(&self) -> &[u8] {
+        &self.target.as_ref()[2..]
     }
 }
 

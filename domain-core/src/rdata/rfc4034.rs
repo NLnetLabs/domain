@@ -1179,7 +1179,7 @@ impl Scan for RtypeBitmap<Bytes> {
     ) -> Result<Self, ScanError> {
         let mut builder = RtypeBitmapBuilder::<BytesMut>::new();
         while let Ok(rtype) = Rtype::scan(scanner) {
-            builder.add(rtype)
+            unwrap!(builder.add(rtype))
         }
         Ok(builder.finalize())
     }

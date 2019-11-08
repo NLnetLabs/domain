@@ -1915,7 +1915,7 @@ impl Scan for Wks<Bytes> {
         let protocol = u8::scan(scanner)?;
         let mut builder = WksBuilder::new_bytes(address, protocol);
         while let Ok(service) = u16::scan(scanner) {
-            builder.add_service(service)
+            unwrap!(builder.add_service(service))
         }
         Ok(builder.finish())
     }
