@@ -7,9 +7,9 @@ use core::{fmt, hash};
 use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{Class, Rtype};
-use crate::name::ToDname;
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, Parser};
+use crate::name::{ParsedDname, ToDname};
+use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use crate::parse::{Parse, Parser, ParseError};
 
 
 //------------ Question ------------------------------------------------------
@@ -173,20 +173,17 @@ impl<N: hash::Hash> hash::Hash for Question<N> {
 
 //--- Parse and Compose
 
-impl<Octets, N> Parse<Octets> for Question<N>
-where Octets: AsRef<[u8]>, N: ToDname + Parse<Octets>  {
-    type Err = <N as Parse<Octets>>::Err;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for Question<ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(Question::new(
-            N::parse(parser)?,
+            ParsedDname::parse(parser)?,
             Rtype::parse(parser)?,
             Class::parse(parser)?
         ))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
-        N::skip(parser)?;
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        ParsedDname::skip(parser)?;
         Rtype::skip(parser)?;
         Class::skip(parser)?;
         Ok(())

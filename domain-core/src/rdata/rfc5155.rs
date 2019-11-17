@@ -7,18 +7,17 @@
 use core::{fmt, hash};
 use core::cmp::Ordering;
 #[cfg(feature="bytes")] use bytes::Bytes;
-use derive_more::Display;
 use crate::charstr::CharStr;
 use crate::cmp::CanonicalOrd;
-use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
+use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use crate::parse::{Parse, ParseError, Parser};
 use crate::iana::{Nsec3HashAlg, Rtype};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
 use crate::utils::base32;
-use super::{RtypeRecordData, RdataParseError};
-use super::rfc4034::{RtypeBitmap, RtypeBitmapError};
+use super::RtypeRecordData;
+use super::rfc4034::RtypeBitmap;
 
 
 //------------ Nsec3 ---------------------------------------------------------
@@ -171,32 +170,26 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for Nsec3<Octets> {
-    type Err = ParseNsec3Error;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        if len < 6 {
-            return Err(ShortBuf.into())
-        }
-        let start = parser.pos();
+impl<Ref: OctetsRef> Parse<Ref> for Nsec3<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let hash_algorithm = Nsec3HashAlg::parse(parser)?;
         let flags = u8::parse(parser)?;
         let iterations = u16:: parse(parser)?;
         let salt = CharStr::parse(parser)?;
         let next_owner = CharStr::parse(parser)?;
-        let len = if parser.pos() > start + len {
-            return Err(ShortBuf.into())
-        }
-        else {
-            len - (parser.pos() - start)
-        };
-        let types = RtypeBitmap::parse_all(parser, len)?;
+        let types = RtypeBitmap::parse(parser)?;
         Ok(Self::new(
             hash_algorithm, flags, iterations, salt, next_owner, types
         ))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        Nsec3HashAlg::skip(parser)?;
+        u8::skip(parser)?;
+        u16::skip(parser)?;
+        CharStr::skip(parser)?;
+        RtypeBitmap::skip(parser)?;
+        Ok(())
     }
 }
 
@@ -414,10 +407,8 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3param<Octets> {
 
 //--- Parse, ParseAll, and Compose
 
-impl<Octets: ParseOctets> Parse<Octets> for Nsec3param<Octets> {
-    type Err = ShortBuf;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for Nsec3param<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(Self::new(
             Nsec3HashAlg::parse(parser)?,
             u8::parse(parser)?,
@@ -426,28 +417,9 @@ impl<Octets: ParseOctets> Parse<Octets> for Nsec3param<Octets> {
         ))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         parser.advance(4)?;
         CharStr::skip(parser)
-    }
-}
-
-impl<Octets: ParseOctets> ParseAll<Octets> for Nsec3param<Octets> {
-    type Err = ParseAllError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        if len < 5 {
-            return Err(ParseAllError::ShortField)
-        }
-        Ok(Self::new(
-            Nsec3HashAlg::parse(parser)?,
-            u8::parse(parser)?,
-            u16::parse(parser)?,
-            CharStr::parse_all(parser, len - 4)?,
-        ))
     }
 }
 
@@ -506,57 +478,5 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Nsec3param<Octets> {
 
 impl<Octets> RtypeRecordData for Nsec3param<Octets> {
     const RTYPE: Rtype = Rtype::Nsec3param;
-}
-
-
-//------------ ParseNsec3Error -----------------------------------------------
-
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum ParseNsec3Error {
-    #[display(fmt="short field")]
-    ShortField,
-
-    #[display(fmt="invalid record type bitmap")]
-    BadRtypeBitmap,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for ParseNsec3Error { }
-
-impl From<ShortBuf> for ParseNsec3Error {
-    fn from(_: ShortBuf) -> Self {
-        ParseNsec3Error::ShortField
-    }
-}
-
-impl From<RtypeBitmapError> for ParseNsec3Error {
-    fn from(err: RtypeBitmapError) -> Self {
-        match err {
-            RtypeBitmapError::ShortBuf => ParseNsec3Error::ShortField,
-            RtypeBitmapError::BadRtypeBitmap => ParseNsec3Error::BadRtypeBitmap
-        }
-    }
-}
-
-impl From<ParseNsec3Error> for RdataParseError {
-    fn from(err: ParseNsec3Error) -> RdataParseError {
-        match err {
-            ParseNsec3Error::ShortField => {
-                RdataParseError::ParseAllError(
-                    ParseAllError::ShortField
-                )
-            }
-            ParseNsec3Error::BadRtypeBitmap => {
-                RdataParseError::FormErr("invalid record type bitmap")
-            }
-        }
-    }
-}
-
-
-//------------ parsed --------------------------------------------------------
-
-pub mod parsed {
-    pub use super::{Nsec3, Nsec3param};
 }
 

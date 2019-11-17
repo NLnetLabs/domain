@@ -6,8 +6,8 @@ use crate::iana::{DigestAlg, Rtype, SecAlg};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner
 };
-use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
+use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use crate::parse::{Parse, ParseError, Parser};
 use crate::utils::base64;
 use super::RtypeRecordData;
 
@@ -119,22 +119,26 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cdnskey<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for Cdnskey<Octets> {
-    type Err = ParseAllError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize,
-    ) -> Result<Self, Self::Err> {
-        if len < 4 {
-            return Err(ParseAllError::ShortField);
-        }
+impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let len = match parser.remaining().checked_sub(4) {
+            Some(len) => len,
+            None => return Err(ParseError::ShortBuf)
+        };
         Ok(Self::new(
             u16::parse(parser)?,
             u8::parse(parser)?,
             SecAlg::parse(parser)?,
-            parser.parse_octets(len - 4)?
+            parser.parse_octets(len)?
         ))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        if parser.remaining() < 4 {
+            return Err(ParseError::ShortBuf)
+        }
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -314,24 +318,28 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cds<Octets> {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for Cds<Octets> {
-    type Err = ShortBuf;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        if len < 4 {
-            return Err(ShortBuf)
-        }
+impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let len = match parser.remaining().checked_sub(4) {
+            Some(len) => len,
+            None => return Err(ParseError::ShortBuf)
+        };
         Ok(Self::new(
             u16::parse(parser)?,
             SecAlg::parse(parser)?,
             DigestAlg::parse(parser)?,
-            parser.parse_octets(len - 4)?
+            parser.parse_octets(len)?
         ))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        if parser.remaining() < 4 {
+            return Err(ParseError::ShortBuf);
+        }
+        parser.advance_to_end();
+        Ok(())
     }
 }
 

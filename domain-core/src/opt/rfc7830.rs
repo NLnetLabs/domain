@@ -4,7 +4,7 @@ use rand::random;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
 use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{ParseAll, Parser};
+use crate::parse::{Parse, ParseError, Parser};
 use super::CodeOptData;
 
 
@@ -52,18 +52,19 @@ impl Padding {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Padding {
-    type Err = ShortBuf;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for Padding {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         // XXX Check whether there really are all zeros.
+        let len = parser.remaining();
         parser.advance(len)?;
         Ok(Padding::new(len as u16, PaddingMode::Zero))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        parser.advance_to_end();
+        Ok(())
     }
 }
 

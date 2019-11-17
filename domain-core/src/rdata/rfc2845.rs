@@ -9,9 +9,9 @@ use core::cmp::Ordering;
 #[cfg(feature = "std")] use std::time::SystemTime;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{Rtype, TsigRcode};
-use crate::name::ToDname;
-use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
+use crate::name::{ParsedDname, ToDname};
+use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use crate::parse::{Parse, ParseError, Parser};
 use crate::utils::base64;
 use super::RtypeRecordData;
 
@@ -301,12 +301,9 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
 
 //--- Parse, ParseAll, Compose, and Compress
 
-impl<O: ParseOctets, N: Parse<O>> Parse<O> for Tsig<O, N>
-where N::Err: From<ShortBuf> {
-    type Err = N::Err;
-
-    fn parse(parser: &mut Parser<O>) -> Result<Self, Self::Err> {
-        let algorithm = N::parse(parser)?;
+impl<Ref: OctetsRef> Parse<Ref> for Tsig<Ref::Range, ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let algorithm = ParsedDname::parse(parser)?;
         let time_signed = Time48::parse(parser)?;
         let fudge = u16::parse(parser)?;
         let mac_size = u16::parse(parser)?;
@@ -320,8 +317,8 @@ where N::Err: From<ShortBuf> {
         })
     }
 
-    fn skip(parser: &mut Parser<O>) -> Result<(), Self::Err> {
-        N::skip(parser)?;
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        ParsedDname::skip(parser)?;
         Time48::skip(parser)?;
         u16::skip(parser)?;
         let mac_size = u16::parse(parser)?;
@@ -331,33 +328,6 @@ where N::Err: From<ShortBuf> {
         let other_len = u16::parse(parser)?;
         parser.advance(other_len as usize)?;
         Ok(())
-    }
-}
-
-impl<O: ParseOctets, N: ParseAll<O> + Parse<O>> ParseAll<O> for Tsig<O, N>
-where
-    <N as ParseAll<O>>::Err: From<<N as Parse<O>>::Err>,
-    <N as ParseAll<O>>::Err: From<ParseAllError>,
-    <N as Parse<O>>::Err: From<ShortBuf>
-{
-    type Err = <N as ParseAll<O>>::Err;
-
-    fn parse_all(
-        parser: &mut Parser<O>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        let mut tmp = parser.clone();
-        let res = <Self as Parse<O>>::parse(&mut tmp)?;
-        if tmp.pos() - parser.pos() < len {
-            Err(ParseAllError::TrailingData.into())
-        }
-        else if tmp.pos() - parser.pos() > len {
-            Err(ParseAllError::ShortField.into())
-        }
-        else {
-            parser.advance(len)?;
-            Ok(res)
-        }
     }
 }
         
@@ -499,16 +469,14 @@ impl From<Time48> for u64 {
 
 //--- Parse and Compose
 
-impl<Octets: AsRef<[u8]>> Parse<Octets> for Time48 {
-    type Err = ShortBuf;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for Time48 {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let mut buf = [0u8; 6];
         parser.parse_buf(&mut buf)?;
         Ok(Time48::from_slice(&buf))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         parser.advance(6)
     }
 }

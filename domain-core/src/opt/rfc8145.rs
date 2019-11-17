@@ -4,8 +4,8 @@ use core::convert::TryInto;
 use unwrap::unwrap;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
-use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
-use crate::parse::{ParseAll, ParseAllError, Parser};
+use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use crate::parse::{FormError, Parse, ParseError, Parser};
 use super::CodeOptData;
 
 
@@ -46,18 +46,24 @@ impl<Octets> KeyTag<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for KeyTag<Octets> {
-    type Err = ParseAllError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for KeyTag<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let len = parser.remaining();
         if len % 2 == 1 {
-            Err(ParseAllError::TrailingData)
+            Err(FormError::new("invalid keytag length").into())
         }
         else {
             Ok(Self::new(parser.parse_octets(len)?))
+        }
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        if parser.remaining() % 2 == 1 {
+            Err(FormError::new("invalid keytag length").into())
+        }
+        else {
+            parser.advance_to_end();
+            Ok(())
         }
     }
 }

@@ -35,9 +35,9 @@ use crate::cmp::CanonicalOrd;
 use crate::str::{BadSymbol, Symbol, SymbolError};
 use crate::octets::{
     Compose, EmptyBuilder, FromBuilder, IntoBuilder, IntoOctets,
-    OctetsBuilder, ParseOctets, ShortBuf
+    OctetsBuilder, OctetsRef, ShortBuf
 };
-use crate::parse::{ParseAll, ParseAllError, Parse, Parser};
+use crate::parse::{ParseError, Parse, Parser};
 
 
 //------------ CharStr -------------------------------------------------------
@@ -248,35 +248,19 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
 
 
 
-//--- Parse, ParseAll, and Compose
+//--- Parse and Compose
 
-impl<T: ParseOctets> Parse<T> for CharStr<T> {
-    type Err = ShortBuf;
-
-    fn parse(parser: &mut Parser<T>) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for CharStr<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = parser.parse_u8()? as usize;
         parser.parse_octets(len).map(|bytes| {
             unsafe { Self::from_octets_unchecked(bytes) }
         })
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         let len = parser.parse_u8()? as usize;
         parser.advance(len)
-    }
-}
-
-impl<T: ParseOctets> ParseAll<T> for CharStr<T> {
-    type Err = ParseAllError;
-
-    fn parse_all(
-        parser: &mut Parser<T>, len: usize
-    ) -> Result<Self, Self::Err> {
-        let char_len = parser.parse_u8()? as usize;
-        ParseAllError::check(char_len + 1, len)?;
-        parser.parse_octets(char_len).map_err(Into::into).map(|bytes| {
-            unsafe { Self::from_octets_unchecked(bytes) }
-        })
     }
 }
 
@@ -291,7 +275,6 @@ impl<T: AsRef<[u8]> + ?Sized> Compose for CharStr<T> {
         })
     }
 }
-
 
 //--- Scan and Display
 
@@ -729,32 +712,8 @@ mod test {
 
         assert_eq!(
             CharStrRef::parse(&mut Parser::from_static(b"\x04foo")),
-            Err(ShortBuf)
+            Err(ParseError::ShortBuf)
         )
-    }
-
-    #[test]
-    fn parse_all() {
-        let mut parser = Parser::from_static(b"12\x03foo12");
-        unwrap!(parser.advance(2));
-        assert_eq!(
-            CharStrRef::parse_all(&mut parser.clone(), 5),
-            Err(ParseAllError::TrailingData)
-        );
-        assert_eq!(
-            CharStrRef::parse_all(&mut parser.clone(), 2),
-            Err(ParseAllError::ShortField)
-        );
-        let foo = unwrap!(CharStrRef::parse_all(&mut parser, 4));
-        let bar = unwrap!(u8::parse_all(&mut parser, 1));
-        assert_eq!(foo.as_slice(), b"foo");
-        assert_eq!(bar, b'1');
-        assert_eq!(parser.peek_all(), b"2");
-        
-        assert_eq!(
-            CharStrRef::parse_all(&mut Parser::from_static(b"\x04foo"), 5),
-            Err(ParseAllError::ShortBuf)
-        );
     }
 
     #[test]

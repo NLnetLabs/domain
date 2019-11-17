@@ -2,7 +2,7 @@
 
 use core::{cmp, fmt, hash};
 use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, Parser};
+use crate::parse::{Parse, ParseError, Parser};
 
 
 //------------ OptionCode ---------------------------------------------------
@@ -88,14 +88,12 @@ impl OptionCode {
 
 //--- Parse and Compose
 
-impl<T: AsRef<[u8]>> Parse<T> for OptionCode {
-    type Err = ShortBuf;
-
-    fn parse(parser: &mut Parser<T>) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for OptionCode {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         u16::parse(parser).map(OptionCode::from_int)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         u16::skip(parser)
     }
 }

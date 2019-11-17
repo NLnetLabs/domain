@@ -70,88 +70,25 @@ macro_rules! opt_types {
             }
         }
 
-        impl<Octets> ParseOptData<Octets> for AllOptData<Octets>
-        where Octets: $crate::octets::ParseOctets {
-            type ParseErr = AllOptParseError<Octets>;
-
+        impl<Ref: OctetsRef> ParseOptData<Ref> for AllOptData<Ref::Range> {
             fn parse_option(
                 code: OptionCode,
-                parser: &mut Parser<Octets>,
-                len: usize
-            ) -> Result<Option<Self>, Self::ParseErr> {
+                parser: &mut Parser<Ref>,
+            ) -> Result<Option<Self>, ParseError> {
                 match code {
                     $( $(
                         OptionCode::$opt => {
                             Ok(Some(AllOptData::$opt(
-                                $opt::parse_all(parser, len)
-                                    .map_err(AllOptParseError::$opt)?
+                                $opt::parse(parser)?
                             )))
                         }
                     )* )*
                     _ => {
                         Ok(UnknownOptData::parse_option(
-                            code, parser, len
+                            code, parser
                         )?.map(AllOptData::Other))
                     }
                 }
-            }
-        }
-
-
-        //------------ AllOptParseError --------------------------------------
-
-        #[derive(Clone, Eq, PartialEq)]
-        pub enum AllOptParseError<Octets: $crate::octets::ParseOctets> {
-            $( $(
-                $opt(<$opt $( <$octets> )* as ParseOptData<Octets>>::ParseErr),
-            )* )*
-            ShortBuf,
-        }
-
-        #[cfg(feature = "std")]
-        impl<Octets> std::error::Error for AllOptParseError<Octets> 
-        where Octets: $crate::octets::ParseOctets { }
-
-        impl<Octets> core::fmt::Debug for AllOptParseError<Octets>
-        where Octets: $crate::octets::ParseOctets {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                write!(f, "AllOptParseError::")?;
-                match *self {
-                    $( $(
-                        AllOptParseError::$opt(ref inner) => {
-                            write!(
-                                f,
-                                concat!(stringify!($opt), "({:?})"),
-                                inner
-                            )
-                        }
-                    )* )*
-                    AllOptParseError::ShortBuf => {
-                        "ShortBuf".fmt(f)
-                    }
-                }
-            }
-        }
-
-        impl<Octets> core::fmt::Display for AllOptParseError<Octets>
-        where Octets: $crate::octets::ParseOctets {
-            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                match *self {
-                    $( $(
-                        AllOptParseError::$opt(ref inner) => inner.fmt(f),
-                    )* )*
-                    AllOptParseError::ShortBuf => {
-                        "short buffer".fmt(f)
-                    }
-                }
-            }
-        }
-
-        impl<Octets> From<$crate::octets::ShortBuf> for
-                                                    AllOptParseError<Octets>
-        where Octets: $crate::octets::ParseOctets {
-            fn from(_: $crate::octets::ShortBuf) -> Self {
-                AllOptParseError::ShortBuf
             }
         }
     }

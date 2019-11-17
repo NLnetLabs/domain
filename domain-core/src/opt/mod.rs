@@ -47,8 +47,8 @@ use unwrap::unwrap;
 use crate::iana::{OptionCode, OptRcode, Rtype};
 use crate::header::Header;
 use crate::name::ToDname;
-use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
-use crate::parse::{Parse, ParseAll, Parser};
+use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use crate::parse::{Parse, ParseError, Parser};
 use crate::rdata::RtypeRecordData;
 use crate::record::Record;
 
@@ -63,14 +63,13 @@ pub struct Opt<Octets> {
     octets: Octets,
 }
 
-impl<Octets> Opt<Octets> {
+impl<Octets: AsRef<[u8]>> Opt<Octets> {
     /// Creates OPT record data from the underlying bytes value.
     ///
     /// The function checks whether the bytes value contains a sequence of
     /// options. It does not check whether the options itself are valid.
-    pub fn from_octets(octets: Octets) -> Result<Self, ShortBuf>
-    where Octets: AsRef<[u8]> {
-        let mut parser = Parser::from_octets(octets);
+    pub fn from_octets(octets: Octets) -> Result<Self, ParseError> {
+        let mut parser = Parser::from_ref(octets);
         while parser.remaining() > 0 {
             parser.advance(2)?;
             let len = parser.parse_u16()?;
@@ -127,16 +126,17 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Opt<Octets> {
 }
 
 
-//--- ParseAll, Compose, Compress
+//--- Parse and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for Opt<Octets> {
-    type Err = ShortBuf;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for Opt<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let len = parser.remaining();
         Self::from_octets(parser.parse_octets(len)?)
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -361,13 +361,11 @@ impl OptionHeader {
 }
 
 impl<Octets: AsRef<[u8]>> Parse<Octets> for OptionHeader {
-    type Err = ShortBuf;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, ParseError> {
         Ok(OptionHeader::new(parser.parse_u16()?, parser.parse_u16()?))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), ParseError> {
         parser.advance(4)
     }
 }
@@ -393,15 +391,15 @@ pub struct OptIter<Octets, D: ParseOptData<Octets>> {
     marker: PhantomData<D>
 }
 
-impl<Octets, D: ParseOptData<Octets>> OptIter<Octets, D> {
+impl<Octets: AsRef<[u8]>, D: ParseOptData<Octets>> OptIter<Octets, D> {
     fn new(octets: Octets) -> Self {
-        OptIter { parser: Parser::from_octets(octets), marker: PhantomData }
+        OptIter { parser: Parser::from_ref(octets), marker: PhantomData }
     }
 }
 
 impl<Octets, D> Iterator for OptIter<Octets, D>
 where Octets: AsRef<[u8]>, D: ParseOptData<Octets> {
-    type Item = Result<D, D::ParseErr>;
+    type Item = Result<D, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.parser.remaining() > 0 {
@@ -416,10 +414,12 @@ where Octets: AsRef<[u8]>, D: ParseOptData<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>, D: ParseOptData<Octets>> OptIter<Octets, D> {
-    fn next_step(&mut self) -> Result<Option<D>, D::ParseErr> {
+    fn next_step(&mut self) -> Result<Option<D>, ParseError> {
         let code = self.parser.parse_u16().unwrap().into();
         let len = self.parser.parse_u16().unwrap() as usize;
-        D::parse_option(code, &mut self.parser, len)
+        self.parser.parse_block(len, |parser| {
+            D::parse_option(code, parser)
+        })
     }
 }
 
@@ -434,13 +434,10 @@ pub trait OptData: Compose + Sized {
 //------------ ParseOptData --------------------------------------------------
 
 pub trait ParseOptData<Octets>: OptData {
-    type ParseErr;
-
     fn parse_option(
         code: OptionCode,
         parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Option<Self>, Self::ParseErr>;
+    ) -> Result<Option<Self>, ParseError>;
 }
 
 
@@ -457,16 +454,13 @@ impl<T: CodeOptData + Compose> OptData for T {
 }
 
 impl<Octets, T> ParseOptData<Octets> for T
-where T: CodeOptData + ParseAll<Octets> + Compose + Sized {
-    type ParseErr = <Self as ParseAll<Octets>>::Err;
-
+where T: CodeOptData + Parse<Octets> + Compose + Sized {
     fn parse_option(
         code: OptionCode,
         parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Option<Self>, Self::ParseErr> {
+    ) -> Result<Option<Self>, ParseError> {
         if code == Self::CODE {
-            Self::parse_all(parser, len).map(Some)
+            Self::parse(parser).map(Some)
         }
         else {
             Ok(None)
@@ -518,14 +512,13 @@ impl<Octets: AsRef<[u8]>> OptData for UnknownOptData<Octets> {
     }
 }
 
-impl<Octets: ParseOctets> ParseOptData<Octets> for UnknownOptData<Octets> {
-    type ParseErr = ShortBuf;
-
+impl<Octets, Ref> ParseOptData<Ref> for UnknownOptData<Octets>
+where Octets: AsRef<[u8]>, Ref: OctetsRef<Range = Octets> {
     fn parse_option(
         code: OptionCode,
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Option<Self>, Self::ParseErr> {
+        parser: &mut Parser<Ref>,
+    ) -> Result<Option<Self>, ParseError> {
+        let len = parser.remaining();
         parser.parse_octets(len)
             .map(|data| Some(Self::from_octets(code, data)))
     }
@@ -550,9 +543,9 @@ mod test {
         let mut buf = Vec::with_capacity(11);
         unwrap!(header.compose(&mut buf));
         unwrap!(0u16.compose(&mut buf));
-        let mut buf = Parser::from_octets(buf.as_slice());
-        let record = ParsedRecord::parse(&mut buf).unwrap()
-            .into_record::<Opt<_>>().unwrap().unwrap();
+        let mut buf = Parser::from_ref(buf.as_slice());
+        let record = ParsedRecord::parse(&mut buf)
+            .unwrap().into_record::<Opt<_>>().unwrap().unwrap();
         let record = OptRecord::from_record(record);
         assert_eq!(record.udp_payload_size(), 0x1234);
         assert_eq!(record.ext_rcode, OptRcode::BadVers.ext());

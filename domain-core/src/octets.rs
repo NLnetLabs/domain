@@ -6,86 +6,88 @@ use derive_more::Display;
 use crate::name::ToDname;
 use crate::net::{Ipv4Addr, Ipv6Addr};
 
-//------------ ParseOctets ---------------------------------------------------
 
-pub trait ParseOctets: Clone + AsRef<[u8]> + Sized {
-    fn range(&self, start: usize, end: usize) -> Self;
+//------------ OctetsExt -----------------------------------------------------
 
-    fn range_to(&self, end: usize) -> Self {
-        self.range(0, end)
-    }
+pub trait OctetsExt: AsRef<[u8]> {
+    fn truncate(&mut self, len: usize);
+}
 
-    fn range_from(&self, start: usize) -> Self {
-        self.range(start, self.as_ref().len())
-    }
-
-    fn split_at(self, mid: usize) -> (Self, Self) {
-        (self.range_to(mid), self.range_from(mid))
-    }
-
-    fn split_off(&mut self, mid: usize) -> Self {
-        let res = self.range_from(mid);
-        *self = self.range_to(mid);
-        res
-    }
-
-    fn split_to(&mut self, mid: usize) -> Self {
-        let res = self.range_to(mid);
-        *self = self.range_from(mid);
-        res
-    }
-
+impl<'a> OctetsExt for &'a [u8] {
     fn truncate(&mut self, len: usize) {
-        *self = self.range_to(len)
+        if len < self.len() {
+            *self = &self[..len]
+        }
     }
 }
 
-impl<'a> ParseOctets for &'a [u8] {
-    fn range(&self, start: usize, end: usize) -> Self {
+impl OctetsExt for Vec<u8> {
+    fn truncate(&mut self, len: usize) {
+        self.truncate(len)
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl OctetsExt for Bytes {
+    fn truncate(&mut self, len: usize) {
+        self.truncate(len)
+    }
+}
+
+
+//------------ OctetsRef -----------------------------------------------------
+
+pub trait OctetsRef: AsRef<[u8]> + Copy + Sized {
+    type Range: AsRef<[u8]>;
+
+    fn range(self, start: usize, end: usize) -> Self::Range;
+
+    fn range_from(self, start: usize) -> Self::Range {
+        self.range(start, self.as_ref().len())
+    }
+
+    fn range_to(self, end: usize) -> Self::Range {
+        self.range(0, end)
+    }
+
+    fn range_all(self) -> Self::Range {
+        self.range(0, self.as_ref().len())
+    }
+}
+
+impl<'a, T: OctetsRef> OctetsRef for &'a T {
+    type Range = T::Range;
+
+    fn range(self, start: usize, end: usize) -> Self::Range {
+        (*self).range(start, end)
+    }
+}
+
+impl<'a> OctetsRef for &'a [u8] {
+    type Range = &'a [u8];
+
+    fn range(self, start: usize, end: usize) -> Self::Range {
         &self[start..end]
     }
 }
 
-#[cfg(feature="bytes")]
-impl ParseOctets for Bytes {
-    fn range(&self, start: usize, end: usize) -> Self {
+impl<'a> OctetsRef for &'a Vec<u8> {
+    type Range = &'a [u8];
+
+    fn range(self, start: usize, end: usize) -> Self::Range {
+        &self[start..end]
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> OctetsRef for &'a Bytes  {
+    type Range = Bytes;
+
+    fn range(self, start: usize, end: usize) -> Self::Range {
         self.slice(start, end)
     }
 }
 
-
-//------------ IntoParseOctets -----------------------------------------------
-
-pub trait IntoParseOctets<'a> {
-    type Target: ParseOctets;
-
-    fn into_parse_octets(&'a self) -> Self::Target;
-}
-
-impl<'a> IntoParseOctets<'a> for [u8] {
-    type Target = &'a [u8];
-
-    fn into_parse_octets(&'a self) -> &'a [u8] {
-        self
-    }
-}
-
-impl<'a> IntoParseOctets<'a> for Vec<u8> {
-    type Target = &'a [u8];
-
-    fn into_parse_octets(&'a self) -> &'a [u8] {
-        self.as_ref()
-    }
-}
-
-#[cfg(feature="bytes")]
-impl<'a> IntoParseOctets<'a> for Bytes {
-    type Target = Bytes;
-
-    fn into_parse_octets(&'a self) -> Bytes {
-        self.clone()
-    }
-}
 
 //------------ OctetsBuilder -------------------------------------------------
 

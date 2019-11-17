@@ -13,7 +13,7 @@ use crate::iana::Rtype;
 };
 use crate::net::Ipv6Addr;
 use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, ParseAll, Parser};
+use crate::parse::{Parse, ParseError, Parser};
 use super::RtypeRecordData;
 
 
@@ -69,26 +69,13 @@ impl CanonicalOrd for Aaaa {
 
 //--- Parse, ParseAll, and Compose
 
-impl<Octets: AsRef<[u8]>> Parse<Octets> for Aaaa {
-    type Err = <Ipv6Addr as Parse<Octets>>::Err;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for Aaaa {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ipv6Addr::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         Ipv6Addr::skip(parser)
-    }
-}
-
-impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Aaaa {
-    type Err = <Ipv6Addr as ParseAll<Octets>>::Err;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        Ipv6Addr::parse_all(parser, len).map(Self::new)
     }
 }
 
@@ -159,9 +146,3 @@ impl AsMut<Ipv6Addr> for Aaaa {
     }
 }
 
-
-//------------ parsed --------------------------------------------------------
-
-pub mod parsed {
-    pub use super::Aaaa;
-}

@@ -23,7 +23,7 @@ use core::convert::TryInto;
 use unwrap::unwrap;
 use crate::iana::{Opcode, Rcode};
 use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, Parser};
+use crate::parse::{Parse, Parser, ParseError};
 
 
 //------------ Header --------------------------------------------------
@@ -641,16 +641,14 @@ impl HeaderSection {
 
 //--- Parse and Compose
 
-impl<T: AsRef<[u8]>> Parse<T> for Header {
-    type Err = ShortBuf;
-
-    fn parse(parser: &mut Parser<T>) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for Header {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let mut res = Self::default();
         parser.parse_buf(&mut res.inner)?;
         Ok(res)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         parser.advance(12)
     }
 }

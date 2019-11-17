@@ -106,27 +106,16 @@ rdata_types! {
     }
 }
 
-pub mod parsed {
-    pub use super::rfc1035::parsed::*;
-    pub use super::rfc2782::parsed::*;
-    pub use super::rfc3596::parsed::*;
-    pub use super::rfc4034::parsed::*;
-    pub use super::rfc5155::parsed::*;
-    pub use super::rfc7344::parsed::*;
-}
-
 use core::fmt;
 use core::cmp::Ordering;
 #[cfg(feature="bytes")] use bytes::{BufMut, Bytes, BytesMut};
-use derive_more::{Display, From};
 use crate::cmp::CanonicalOrd;
 use crate::iana::Rtype;
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
-use crate::name::{ParsedDnameError, ParsedDnameAllError};
-use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
-use crate::parse::{ParseAll, ParseAllError, ParseOpenError, Parser};
+use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use crate::parse::{Parse, ParseError, Parser};
 
 
 //----------- RecordData -----------------------------------------------------
@@ -159,25 +148,23 @@ pub trait RecordData: Compose + Sized {
 ///
 /// To reflect this asymmetry, parsing of record data has its own trait.
 pub trait ParseRecordData<Octets>: RecordData {
-    /// The type of an error returned when parsing fails.
-    type Err;
-
     /// Parses the record data.
     ///
     /// The record data is for a record of type `rtype`. The function may
     /// decide whether it wants to parse data for that type. It should return
-    /// `Ok(None)` if it doesn’t. The data is `rdlen` bytes long and starts
-    /// at the current position of `parser`. There is no guarantee that the
-    /// parser will have `rdlen` bytes left. If it doesn’t, the function
-    /// should produce an error.
+    /// `Ok(None)` if it doesn’t.
+    ///
+    /// The `parser` is positioned at the beginning of the record data and is
+    /// is limited to the length of the data. The method only needs to parse
+    /// as much data as it needs. The caller has to make sure to deal with
+    /// data remaining in the parser.
     ///
     /// If the function doesn’t want to process the data, it must not touch
     /// the parser. In particual, it must not advance it.
     fn parse_data(
         rtype: Rtype,
         parser: &mut Parser<Octets>,
-        rdlen: usize
-    ) -> Result<Option<Self>, Self::Err>;
+    ) -> Result<Option<Self>, ParseError>;
 }
 
 
@@ -208,16 +195,13 @@ impl<T: RtypeRecordData + Compose + Sized> RecordData for T {
 }
 
 impl<Octets, T> ParseRecordData<Octets> for T
-where T: RtypeRecordData + ParseAll<Octets> + Compose + Sized {
-    type Err = <Self as ParseAll<Octets>>::Err;
-
+where T: RtypeRecordData + Parse<Octets> + Compose + Sized {
     fn parse_data(
         rtype: Rtype,
         parser: &mut Parser<Octets>,
-        rdlen: usize
-    ) -> Result<Option<Self>, Self::Err> {
+    ) -> Result<Option<Self>, ParseError> {
         if rtype == Self::RTYPE {
-            Self::parse_all(parser, rdlen).map(Some)
+            Self::parse(parser).map(Some)
         }
         else {
             Ok(None)
@@ -376,15 +360,13 @@ impl<Octets: AsRef<[u8]>> RecordData for UnknownRecordData<Octets> {
     }
 }
 
-impl<Octets> ParseRecordData<Octets> for UnknownRecordData<Octets>
-where Octets: ParseOctets {
-    type Err = ShortBuf;
-
+impl<Octets, Ref> ParseRecordData<Ref> for UnknownRecordData<Octets>
+where Octets: AsRef<[u8]>, Ref: OctetsRef<Range = Octets> {
     fn parse_data(
         rtype: Rtype,
-        parser: &mut Parser<Octets>,
-        rdlen: usize
-    ) -> Result<Option<Self>, Self::Err> {
+        parser: &mut Parser<Ref>,
+    ) -> Result<Option<Self>, ParseError> {
+        let rdlen = parser.remaining();
         parser.parse_octets(rdlen).map(|data| {
             Some(Self::from_octets(rtype, data))
         })
@@ -414,35 +396,4 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octets> {
         f.write_str(")")
     }
 }
-
-
-//------------ RdataParseError -----------------------------------------------
-
-#[derive(Clone, Debug, Display, Eq, From, PartialEq)]
-pub enum RdataParseError {
-    ParseAllError(ParseAllError),
-    ParsedDnameAllError(ParsedDnameAllError),
-    FormErr(&'static str),
-}
-
-impl From<ShortBuf> for RdataParseError {
-    fn from(err: ShortBuf) -> Self {
-        RdataParseError::ParseAllError(err.into())
-    }
-}
-
-impl From<ParseOpenError> for RdataParseError {
-    fn from(err: ParseOpenError) -> Self {
-        RdataParseError::ParseAllError(err.into())
-    }
-}
-
-impl From<ParsedDnameError> for RdataParseError {
-    fn from(err: ParsedDnameError) -> Self {
-        RdataParseError::ParsedDnameAllError(err.into())
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for RdataParseError { }
 

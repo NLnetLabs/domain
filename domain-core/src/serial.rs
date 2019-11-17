@@ -12,7 +12,7 @@ use crate::cmp::CanonicalOrd;
     CharSource, Scan, ScanError, Scanner, SyntaxError
 };
 use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, ParseAll, Parser};
+use crate::parse::{Parse, Parser, ParseError};
 
 
 //------------ Serial --------------------------------------------------------
@@ -205,28 +205,15 @@ impl str::FromStr for Serial {
 }
 
 
-//--- Parse, ParseAll, and Compose
+//--- Parse and Compose
 
 impl<T: AsRef<[u8]>> Parse<T> for Serial {
-    type Err = <u32 as Parse<T>>::Err;
-
-    fn parse(parser: &mut Parser<T>) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
         u32::parse(parser).map(Into::into)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
         u32::skip(parser)
-    }
-}
-
-impl<T: AsRef<[u8]>> ParseAll<T> for Serial {
-    type Err = <u32 as ParseAll<T>>::Err;
-
-    fn parse_all(
-        parser: &mut Parser<T>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        u32::parse_all(parser, len).map(Into::into)
     }
 }
 

@@ -20,9 +20,9 @@ use crate::name::{ParsedDname, ToDname};
 use crate::net::Ipv4Addr;
 use crate::octets::{
     Compose, EmptyBuilder, FromBuilder, IntoOctets, OctetsBuilder,
-    ParseOctets, ShortBuf
+    OctetsRef, ShortBuf
 };
-use crate::parse::{ParseAll, ParseAllError, ParseOpenError, Parse, Parser};
+use crate::parse::{Parse, ParseError, Parser};
 use crate::serial::Serial;
 use super::RtypeRecordData;
 
@@ -111,30 +111,15 @@ macro_rules! dname_type {
         }
 
 
-        //--- Parse, ParseAll, and Compose
+        //--- Parse and Compose
 
-        impl<Octets> Parse<Octets> for $target<ParsedDname<Octets>>
-        where Octets: ParseOctets {
-            type Err = <ParsedDname<Octets> as Parse<Octets>>::Err;
-
-            fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+        impl<Ref: OctetsRef> Parse<Ref> for $target<ParsedDname<Ref>> {
+            fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
                 ParsedDname::parse(parser).map(Self::new)
             }
 
-            fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+            fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
                 ParsedDname::skip(parser).map_err(Into::into)
-            }
-        }
-
-        impl<Octets> ParseAll<Octets> for $target<ParsedDname<Octets>>
-        where Octets: ParseOctets {
-            type Err = <ParsedDname<Octets> as ParseAll<Octets>>::Err;
-
-            fn parse_all(
-                parser: &mut Parser<Octets>,
-                len: usize
-            ) -> Result<Self, Self::Err> {
-                ParsedDname::parse_all(parser, len).map(Self::new)
             }
         }
 
@@ -255,28 +240,15 @@ impl CanonicalOrd for A {
 }
 
 
-//--- Parse, ParseAll and Compose
+//--- Parse and Compose
 
 impl<Octets: AsRef<[u8]>> Parse<Octets> for A {
-    type Err = <Ipv4Addr as Parse<Octets>>::Err;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+    fn parse(parser: &mut Parser<Octets>) -> Result<Self, ParseError> {
         Ipv4Addr::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Octets>) -> Result<(), ParseError> {
         Ipv4Addr::skip(parser)
-    }
-}
-
-impl<Octets: AsRef<[u8]>> ParseAll<Octets> for A {
-    type Err = <Ipv4Addr as ParseAll<Octets>>::Err;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        Ipv4Addr::parse_all(parser, len).map(Self::new)
     }
 }
 
@@ -448,36 +420,17 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Hinfo<Octets> {
 }
 
 
-//--- Parse, Compose, and Compress
+//--- Parse and Compose
 
-impl<Octets: ParseOctets> Parse<Octets> for Hinfo<Octets> {
-    type Err = ShortBuf;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for Hinfo<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(Self::new(CharStr::parse(parser)?, CharStr::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         CharStr::skip(parser)?;
         CharStr::skip(parser)?;
         Ok(())
-    }
-}
-
-impl<Octets: ParseOctets> ParseAll<Octets> for Hinfo<Octets> {
-    type Err = ParseAllError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        let cpu = CharStr::parse(parser)?;
-        let len = match len.checked_sub(cpu.len() + 1) {
-            Some(len) => len,
-            None => return Err(ParseAllError::ShortField)
-        };
-        let os = CharStr::parse_all(parser, len)?;
-        Ok(Hinfo::new(cpu, os))
     }
 }
 
@@ -680,49 +633,20 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Minfo<NN>> for Minfo<N> {
 }
 
 
-//--- Parse, ParseAll and Compose
+//--- Parse and Compose
 
-impl<Octets, N: Parse<Octets>> Parse<Octets> for Minfo<N> {
-    type Err = N::Err;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
-        Ok(Self::new(N::parse(parser)?, N::parse(parser)?))
+impl<Ref: OctetsRef> Parse<Ref> for Minfo<ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        Ok(Self::new(
+            ParsedDname::parse(parser)?,
+            ParsedDname::parse(parser)?
+        ))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
-        N::skip(parser)?;
-        N::skip(parser)?;
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        ParsedDname::skip(parser)?;
+        ParsedDname::skip(parser)?;
         Ok(())
-    }
-}
-
-impl<Octets, N> ParseAll<Octets> for Minfo<N>
-where
-    Octets: AsRef<[u8]>,
-    N: Parse<Octets> + ParseAll<Octets>,
-    <N as ParseAll<Octets>>::Err:
-        From<<N as Parse<Octets>>::Err> + From<ShortBuf>
-{
-    type Err = <N as ParseAll<Octets>>::Err;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        let pos = parser.pos();
-        let rmailbx = N::parse(parser)?;
-        let rlen = parser.pos() - pos;
-        let len = if len <= rlen {
-            // Because a domain name can never be empty, we seek back to the
-            // beginning and reset the length to zero.
-            parser.seek(pos)?;
-            0
-        }
-        else {
-            len - rlen
-        };
-        let emailbx = N::parse_all(parser, len)?;
-        Ok(Self::new(rmailbx, emailbx))
     }
 }
 
@@ -870,34 +794,16 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Mx<NN>> for Mx<N> {
 }
 
 
-//--- Parse, ParseAll, Compose, Compress
+//--- Parse and Compose
 
-impl<Octets: AsRef<[u8]>, N: Parse<Octets>> Parse<Octets> for Mx<N>
-     where N::Err: From<ShortBuf> {
-    type Err = N::Err;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
-        Ok(Self::new(u16::parse(parser)?, N::parse(parser)?))
+impl<Ref: OctetsRef> Parse<Ref> for Mx<ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        Ok(Self::new(u16::parse(parser)?, ParsedDname::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         u16::skip(parser)?;
-        N::skip(parser)
-    }
-}
-
-impl<Octets: AsRef<[u8]>, N: ParseAll<Octets>> ParseAll<Octets> for Mx<N>
-where N::Err: From<ParseOpenError> + From<ShortBuf> {
-    type Err = N::Err;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        if len < 3 {
-            return Err(ParseOpenError::ShortField.into())
-        }
-        Ok(Self::new(u16::parse(parser)?, N::parse_all(parser, len - 2)?))
+        ParsedDname::skip(parser)
     }
 }
 
@@ -1051,14 +957,15 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Null<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for Null<Octets> {
-    type Err = ShortBuf;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for Null<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let len = parser.remaining();
         parser.parse_octets(len).map(Self::new)
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -1312,19 +1219,13 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
 }
 
 
-//--- Parse, ParseAll, and Compose
+//--- Parse and Compose
 
-impl<Octets, N> Parse<Octets> for Soa<N>
-where
-    Octets: AsRef<[u8]>, N: Parse<Octets>,
-    N::Err: From<ShortBuf>
-{
-    type Err = N::Err;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for Soa<ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(Self::new(
-            N::parse(parser)?,
-            N::parse(parser)?,
+            ParsedDname::parse(parser)?,
+            ParsedDname::parse(parser)?,
             Serial::parse(parser)?,
             u32::parse(parser)?,
             u32::parse(parser)?,
@@ -1333,44 +1234,15 @@ where
         ))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
-        N::skip(parser)?;
-        N::skip(parser)?;
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        ParsedDname::skip(parser)?;
+        ParsedDname::skip(parser)?;
         Serial::skip(parser)?;
         u32::skip(parser)?;
         u32::skip(parser)?;
         u32::skip(parser)?;
         u32::skip(parser)?;
         Ok(())
-    }
-}
-
-impl<Octets, N> ParseAll<Octets> for Soa<N>
-where
-    Octets: AsRef<[u8]> + Clone,
-    N: ParseAll<Octets> + Parse<Octets>,
-    <N as ParseAll<Octets>>::Err: From<<N as Parse<Octets>>::Err>,
-    <N as ParseAll<Octets>>::Err: From<ParseAllError>,
-    <N as Parse<Octets>>::Err: From<ShortBuf>
-{
-    type Err = <N as ParseAll<Octets>>::Err;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        let mut tmp = parser.clone();
-        let res = <Self as Parse<Octets>>::parse(&mut tmp)?;
-        if tmp.pos() - parser.pos() < len {
-            Err(ParseAllError::TrailingData.into())
-        }
-        else if tmp.pos() - parser.pos() > len {
-            Err(ParseAllError::ShortField.into())
-        }
-        else {
-            parser.advance(len)?;
-            Ok(res)
-        }
     }
 }
 
@@ -1462,7 +1334,7 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
     /// The Txt format contains one or more length-delimited byte strings.
     /// This method returns an iterator over each of them.
     pub fn iter(&self) -> TxtIter {
-        TxtIter(Parser::from_octets(self.0.as_ref()))
+        TxtIter(Parser::from_ref(self.0.as_ref()))
     }
 
     pub fn as_flat_slice(&self) -> Option<&[u8]> {
@@ -1569,19 +1441,20 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Txt<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for Txt<Octets> {
-    type Err = ParseOpenError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for Txt<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let len = parser.remaining();
         let text = parser.parse_octets(len)?;
-        let mut tmp = Parser::from_octets(text.clone());
+        let mut tmp = Parser::from_ref(text.as_ref());
         while parser.remaining() != 0 {
             CharStr::skip(&mut tmp)?
         }
-        Ok(Txt(tmp.into_octets()))
+        Ok(Txt(text))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -1868,23 +1741,20 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Wks<Octets> {
 }
 
 
-//--- ParseAll, Compose, Compress
+//--- Parse and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for Wks<Octets> {
-    type Err = ParseOpenError;
+impl<Ref: OctetsRef> Parse<Ref> for Wks<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let address = Ipv4Addr::parse(parser)?;
+        let protocol = u8::parse(parser)?;
+        let len = parser.remaining();
+        let bitmap = parser.parse_octets(len)?;
+        Ok(Wks::new(address, protocol, bitmap))
+    }
 
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        if len < 5 {
-            return Err(ParseOpenError::ShortField)
-        }
-        Ok(Self::new(
-            Ipv4Addr::parse(parser)?,
-            u8::parse(parser)?,
-            parser.parse_octets(len - 5)?
-        ))
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -2027,29 +1897,5 @@ impl<Builder: OctetsBuilder> WksBuilder<Builder> {
     where Builder: IntoOctets + EmptyBuilder {
         Wks::new(self.address, self.protocol, self.bitmap.into_octets())
     }
-}
-
-
-//------------ parsed sub-module ---------------------------------------------
-
-pub mod parsed {
-    use crate::name::ParsedDname;
-
-    pub use super::A;
-    pub type Cname<Octets> = super::Cname<ParsedDname<Octets>>;
-    pub use super::Hinfo;
-    pub type Mb<Octets> = super::Mb<ParsedDname<Octets>>;
-    pub type Md<Octets> = super::Md<ParsedDname<Octets>>;
-    pub type Mf<Octets> = super::Mf<ParsedDname<Octets>>;
-    pub type Mg<Octets> = super::Mg<ParsedDname<Octets>>;
-    pub type Minfo<Octets> = super::Minfo<ParsedDname<Octets>>;
-    pub type Mr<Octets> = super::Mr<ParsedDname<Octets>>;
-    pub type Mx<Octets> = super::Mx<ParsedDname<Octets>>;
-    pub type Ns<Octets> = super::Ns<ParsedDname<Octets>>;
-    pub use super::Null;
-    pub type Ptr<Octets> = super::Ptr<ParsedDname<Octets>>;
-    pub type Soa<Octets> = super::Soa<ParsedDname<Octets>>;
-    pub use super::Txt;
-    pub use super::Wks;
 }
 

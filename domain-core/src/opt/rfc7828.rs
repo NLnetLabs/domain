@@ -3,7 +3,7 @@
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
 use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{ParseAll, Parser, ParseAllError};
+use crate::parse::{Parse, ParseError, Parser};
 use super::CodeOptData;
 
 
@@ -30,16 +30,15 @@ impl TcpKeepalive {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl<Octets: AsRef<[u8]>> ParseAll<Octets> for TcpKeepalive {
-    type Err = ParseAllError;
+impl<Ref: AsRef<[u8]>> Parse<Ref> for TcpKeepalive {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        u16::parse(parser).map(Self::new)
+    }
 
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        u16::parse_all(parser, len).map(Self::new)
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        u16::skip(parser)
     }
 }
 

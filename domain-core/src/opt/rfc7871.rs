@@ -1,11 +1,10 @@
 //! EDNS Options from RFC 7871
 
-use derive_more::Display;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
 use crate::net::IpAddr;
 use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{ParseAll, Parser};
+use crate::parse::{FormError, Parse, ParseError, Parser};
 use super::CodeOptData;
 
 
@@ -44,20 +43,20 @@ impl ClientSubnet {
 
 //--- ParseAll and Compose
 
-impl<Octets: AsRef<[u8]>> ParseAll<Octets> for ClientSubnet {
-    type Err = OptionParseError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let family = parser.parse_u16()?;
         let source_prefix_len = parser.parse_u8()?;
         let scope_prefix_len = parser.parse_u8()?;
+        let len = parser.remaining();
         let addr = match family {
             1 => {
                 if len != 8 {
-                    return Err(OptionParseError::InvalidV4Length(len))
+                    return Err(
+                        FormError::new(
+                            "invalid client subnet address length"
+                        ).into()
+                    )
                 }
                 let bytes: &[u8; 4] = unsafe {
                     &*(parser.peek(4)?.as_ptr() as *const [u8; 4])
@@ -67,7 +66,11 @@ impl<Octets: AsRef<[u8]>> ParseAll<Octets> for ClientSubnet {
             }
             2 => {
                 if len != 20 {
-                    return Err(OptionParseError::InvalidV6Length(len))
+                    return Err(
+                        FormError::new(
+                            "invalid client subnet address length"
+                        ).into()
+                    )
                 }
                 let bytes: &[u8; 16] = unsafe {
                     &*(parser.peek(16)?.as_ptr() as *const [u8; 16])
@@ -75,9 +78,21 @@ impl<Octets: AsRef<[u8]>> ParseAll<Octets> for ClientSubnet {
                 parser.advance(16)?;
                 IpAddr::from(*bytes)
             }
-            _ => return Err(OptionParseError::InvalidFamily(family))
+            _ => {
+                return Err(
+                    FormError::new(
+                        "invalid client subnet address family"
+                    ).into()
+                )
+            }
         };
         Ok(ClientSubnet::new(source_prefix_len, scope_prefix_len, addr))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        // XXX Perhaps do a check?
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -110,32 +125,5 @@ impl Compose for ClientSubnet {
 
 impl CodeOptData for ClientSubnet {
     const CODE: OptionCode = OptionCode::ClientSubnet;
-}
-
-
-//------------ ClientSubnetParseError ----------------------------------------
-
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum OptionParseError {
-    #[display(fmt="invalid family {}", _0)]
-    InvalidFamily(u16),
-
-    #[display(fmt="invalid length {} for IPv4 address", _0)]
-    InvalidV4Length(usize),
-
-    #[display(fmt="invalid length {} for IPv6 address", _0)]
-    InvalidV6Length(usize),
-
-    #[display(fmt="unexpected end of buffer")]
-    ShortBuf,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for OptionParseError { }
-
-impl From<ShortBuf> for OptionParseError {
-    fn from(_: ShortBuf) -> Self {
-        OptionParseError::ShortBuf
-    }
 }
 

@@ -7,7 +7,9 @@ use core::{cmp, fmt, hash, ops};
 #[cfg(feature = "bytes")] use bytes::Bytes;
 use derive_more::Display;
 use crate::octets::{
-    Compose, IntoBuilder, IntoOctets, OctetsBuilder, ParseOctets, ShortBuf};
+    Compose, IntoBuilder, IntoOctets, OctetsBuilder, OctetsExt, OctetsRef,
+    ShortBuf
+};
 use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -344,21 +346,32 @@ impl<Octets: AsRef<[u8]> + ?Sized> RelativeDname<Octets> {
     }
 }
 
-impl<Octets: ParseOctets> RelativeDname<Octets> {
-    pub fn range(&self, begin: usize, end: usize) -> Self {
+impl<Octets: AsRef<[u8]>> RelativeDname<Octets> {
+    pub fn range<'a>(
+        &'a self, begin: usize, end: usize
+    ) -> RelativeDname<<&'a Octets as OctetsRef>::Range>
+    where &'a Octets: OctetsRef {
         self.check_index(begin);
         RelativeDname::from_octets(self.0.range(begin, end))
             .expect("end index not a start of a label")
     }
 
-    pub fn range_from(&self, begin: usize) -> Self {
+    pub fn range_from<'a>(
+        &'a self, begin: usize
+    ) -> RelativeDname<<&'a Octets as OctetsRef>::Range>
+    where &'a Octets: OctetsRef {
         self.check_index(begin);
-        unsafe { Self::from_octets_unchecked(self.0.range_from(begin)) }
+        unsafe {
+            RelativeDname::from_octets_unchecked(self.0.range_from(begin))
+        }
     }
 
-    pub fn range_to(&self, end: usize) -> Self {
+    pub fn range_to<'a>(
+        &'a self, end: usize
+    ) -> RelativeDname<<&'a Octets as OctetsRef>::Range>
+    where &'a Octets: OctetsRef {
         self.check_index(end);
-        unsafe { Self::from_octets_unchecked(self.0.range_to(end)) }
+        unsafe { RelativeDname::from_octets_unchecked(self.0.range_to(end)) }
     }
 
     /// Splits the name into two at the given position.
@@ -370,9 +383,12 @@ impl<Octets: ParseOctets> RelativeDname<Octets> {
     ///
     /// The method panics if the position is not the beginning of a label
     /// or is beyond the end of the name.
-    pub fn split_off(&mut self, mid: usize) -> Self {
+    pub fn split_off(&mut self, mid: usize) -> Self
+    where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         self.check_index(mid);
-        unsafe { Self::from_octets_unchecked(self.0.split_off(mid)) }
+        let res = self.0.range_from(mid);
+        self.0 = self.0.range_to(mid);
+        unsafe { Self::from_octets_unchecked(res) }
     }
 
     /// Splits the name into two at the given position.
@@ -384,9 +400,12 @@ impl<Octets: ParseOctets> RelativeDname<Octets> {
     ///
     /// The method panics if the position is not the beginning of a label
     /// or is beyond the end of the name.
-    pub fn split_to(&mut self, mid: usize) -> Self {
+    pub fn split_to(&mut self, mid: usize) -> Self 
+    where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         self.check_index(mid);
-        unsafe { Self::from_octets_unchecked(self.0.split_to(mid)) }
+        let res = self.0.range_to(mid);
+        self.0 = self.0.range_from(mid);
+        unsafe { Self::from_octets_unchecked(res) }
     }
 
     /// Truncates the name to the given length.
@@ -395,7 +414,8 @@ impl<Octets: ParseOctets> RelativeDname<Octets> {
     ///
     /// The method panics if the position is not the beginning of a label
     /// or is beyond the end of the name.
-    pub fn truncate(&mut self, len: usize) {
+    pub fn truncate(&mut self, len: usize)
+    where Octets: OctetsExt {
         self.check_index(len);
         self.0.truncate(len);
     }
@@ -406,24 +426,24 @@ impl<Octets: ParseOctets> RelativeDname<Octets> {
     /// as a relative domain name with exactly one label and makes `self`
     /// contain the domain name starting after that first label. If the name
     /// is empty, returns `None`.
-    pub fn split_first(&mut self) -> Option<Self> {
+    pub fn split_first(&mut self) -> Option<Self>
+    where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         if self.is_empty() {
             return None
         }
-        let first_end = match self.iter().next() {
+        let end = match self.iter().next() {
             Some(label) => label.compose_len(),
             None => return None
         };
-        Some(unsafe {
-            Self::from_octets_unchecked(self.0.split_to(first_end))
-        })
+        Some(self.split_to(end))
     }
 
     /// Reduces the name to its parent.
     ///
     /// Returns whether that actually happened, since an empty name doesn’t
     /// have a parent.
-    pub fn parent(&mut self) -> bool {
+    pub fn parent(&mut self) -> bool
+    where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         self.split_first().is_some()
     }
 
@@ -433,11 +453,14 @@ impl<Octets: ParseOctets> RelativeDname<Octets> {
     /// [`ends_with`] doesn’t return `true`.
     ///
     /// [`ends_with`]: #method.ends_with
-    pub fn strip_suffix<N: ToRelativeDname>(&mut self, base: &N)
-                                            -> Result<(), StripSuffixError> {
+    pub fn strip_suffix<N: ToRelativeDname>(
+        &mut self,
+        base: &N
+    ) -> Result<(), StripSuffixError>
+    where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         if self.ends_with(base) {
             let idx = self.0.as_ref().len() - base.len();
-            self.0.split_off(idx);
+            self.0 = self.0.range_to(idx);
             Ok(())
         }
         else {
@@ -706,7 +729,6 @@ impl std::error::Error for StripSuffixError { }
 #[cfg(test)]
 mod test {
     use unwrap::unwrap;
-    use crate::octets::ShortBuf;
     use super::*;
 
     macro_rules! assert_panic {
@@ -788,8 +810,8 @@ mod test {
                    Err(RelativeDnameError::AbsoluteName));
 
         // bytes shorter than what label length says.
-        assert_eq!(Dname::from_slice(b"\x03www\x07exa"),
-                   Err(ShortBuf.into()));
+        assert_eq!(RelativeDname::from_slice(b"\x03www\x07exa"),
+                   Err(RelativeDnameError::ShortData));
 
         // label 63 long ok, 64 bad.
         let mut slice = [0u8; 64];

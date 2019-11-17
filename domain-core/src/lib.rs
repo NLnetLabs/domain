@@ -99,10 +99,8 @@
 
 #[macro_use] extern crate core;
 
-
 pub mod charstr;
 pub mod cmp;
-//pub mod compose;
 pub mod header;
 pub mod iana;
 pub mod master;
@@ -113,9 +111,10 @@ pub mod net;
 pub mod octets;
 pub mod opt;
 pub mod parse;
-pub mod question;
 pub mod rdata;
 pub mod record;
+pub mod question;
 pub mod serial;
 pub mod str;
 pub mod utils;
+

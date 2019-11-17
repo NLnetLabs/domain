@@ -11,9 +11,9 @@ use crate::iana::Rtype;
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError
 };
-use crate::name::ToDname;
-use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
-use crate::parse::{Parse, ParseAll, Parser, ParseOpenError};
+use crate::name::{ParsedDname, ToDname};
+use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use crate::parse::{Parse, Parser, ParseError};
 use super::RtypeRecordData;
 
 
@@ -38,10 +38,21 @@ impl<N> Srv<N> {
         self.target
     }
 
-    pub fn priority(&self) -> u16 { self.priority }
-    pub fn weight(&self) -> u16 { self.weight }
-    pub fn port(&self) -> u16 { self.port }
-    pub fn target(&self) -> &N { &self.target }
+    pub fn priority(&self) -> u16 {
+        self.priority
+    }
+
+    pub fn weight(&self) -> u16 {
+        self.weight
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn target(&self) -> &N {
+        &self.target
+    }
 }
 
 
@@ -120,44 +131,21 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
 
 //--- Parse, ParseAll, Compose and Compress
 
-impl<Octets: ParseOctets, N: Parse<Octets>> Parse<Octets> for Srv<N> {
-    type Err = <N as Parse<Octets>>::Err;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for Srv<ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(Self::new(
             u16::parse(parser)?,
             u16::parse(parser)?,
             u16::parse(parser)?,
-            N::parse(parser)?
+            ParsedDname::parse(parser)?
         ))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         u16::skip(parser)?;
         u16::skip(parser)?;
         u16::skip(parser)?;
-        N::skip(parser)
-    }
-}
-
-impl<Octets, N> ParseAll<Octets> for Srv<N>
-where Octets: ParseOctets, N: ParseAll<Octets>, N::Err: From<ParseOpenError>
-{
-    type Err = N::Err;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        if len < 7 {
-            return Err(ParseOpenError::ShortField.into())
-        }
-        Ok(Self::new(
-            u16::parse(parser)?,
-            u16::parse(parser)?,
-            u16::parse(parser)?,
-            N::parse_all(parser, len - 6)?
-        ))
+        ParsedDname::skip(parser)
     }
 }
 
@@ -211,14 +199,5 @@ impl<N: fmt::Display> fmt::Display for Srv<N> {
         write!(f, "{} {} {} {}", self.priority, self.weight, self.port,
                self.target)
     }
-}
-
-
-//------------ parsed --------------------------------------------------------
-
-pub mod parsed {
-    use crate::name::ParsedDname;
-
-    pub type Srv<O> = super::Srv<ParsedDname<O>>;
 }
 

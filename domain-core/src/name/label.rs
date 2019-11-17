@@ -6,6 +6,7 @@
 use core::{borrow, cmp, fmt, hash, ops};
 use derive_more::Display;
 use crate::octets::{Compose, OctetsBuilder, ShortBuf};
+use crate::parse::{FormError, ParseError};
 
 
 //------------ Label ---------------------------------------------------------
@@ -621,6 +622,20 @@ impl std::error::Error for SplitLabelError { }
 impl From<LabelTypeError> for SplitLabelError {
     fn from(err: LabelTypeError) -> SplitLabelError {
         SplitLabelError::BadType(err)
+    }
+}
+
+impl From<SplitLabelError> for ParseError {
+    fn from(err: SplitLabelError) -> ParseError {
+        match err {
+            SplitLabelError::Pointer(_) => {
+                ParseError::Form(FormError::new("compressed domain name"))
+            }
+            SplitLabelError::BadType(_) => {
+                ParseError::Form(FormError::new("invalid label type"))
+            }
+            SplitLabelError::ShortBuf => ParseError::ShortBuf
+        }
     }
 }
 

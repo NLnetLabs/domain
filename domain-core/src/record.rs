@@ -44,9 +44,9 @@ use core::{fmt, hash};
 use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{Class, Rtype};
-use crate::name::{ParsedDname, ParsedDnameError, ToDname};
-use crate::octets::{Compose, OctetsBuilder, ParseOctets, ShortBuf};
-use crate::parse::{Parse, Parser};
+use crate::name::{ParsedDname, ToDname};
+use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use crate::parse::{Parse, Parser, ParseError};
 use crate::rdata::{RecordData, ParseRecordData};
 
 
@@ -296,33 +296,15 @@ where Name: hash::Hash, Data: hash::Hash {
 
 //--- Parse and Compose
 
-impl<Octets, Data> Parse<Octets> for Option<Record<ParsedDname<Octets>, Data>>
-where Octets: ParseOctets, Data: ParseRecordData<Octets> {
-    type Err = RecordParseError<ParsedDnameError, Data::Err>;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
-        let header = match RecordHeader::parse(parser) {
-            Ok(header) => header,
-            Err(err) => return Err(RecordParseError::Name(err)),
-        };
-        match Data::parse_data(
-            header.rtype(), parser, header.rdlen() as usize
-        ) {
-            Ok(Some(data)) => {
-                Ok(Some(header.into_record(data)))
-            }
-            Ok(None) => {
-                parser.advance(header.rdlen() as usize)?;
-                Ok(None)
-            }
-            Err(err) => {
-                Err(RecordParseError::Data(err))
-            }
-        }
+impl<Ref, Data> Parse<Ref> for Option<Record<ParsedDname<Ref>, Data>>
+where Ref: OctetsRef, Data: ParseRecordData<Ref> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let header = RecordHeader::parse(parser)?;
+        header.parse_into_record(parser)
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
-        ParsedRecord::skip(parser).map_err(RecordParseError::Name)
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        ParsedRecord::skip(parser)
     }
 }
 
@@ -413,21 +395,37 @@ impl<Name> RecordHeader<Name> {
     }
 }
 
-impl<Octets: ParseOctets> RecordHeader<ParsedDname<Octets>> {
+impl<Name> RecordHeader<Name> {
     /// Parses a record header and then skips over the data.
     ///
     /// If the function succeeds, the parser will be positioned right behind
     /// the end of the record.
-    pub fn parse_and_skip(
-        parser: &mut Parser<Octets>
-    ) -> Result<Self, ParsedDnameError> {
+    pub fn parse_and_skip<Ref>(
+        parser: &mut Parser<Ref>
+    ) -> Result<Self, ParseError>
+    where Self: Parse<Ref>, Ref: OctetsRef {
         let header = Self::parse(parser)?;
         match parser.advance(header.rdlen() as usize) {
             Ok(()) => Ok(header),
             Err(_) => Err(ShortBuf.into()),
         }
     }
+}
 
+impl RecordHeader<()> {
+    /// Parses only the record length and skips over all the other fields.
+    fn parse_rdlen<Ref: OctetsRef>(
+        parser: &mut Parser<Ref>
+    ) -> Result<u16, ParseError> {
+        ParsedDname::skip(parser)?;
+        Rtype::skip(parser)?;
+        Class::skip(parser)?;
+        u32::skip(parser)?;
+        Ok(u16::parse(parser)?)
+    }
+}
+
+impl<Ref: OctetsRef> RecordHeader<ParsedDname<Ref>> {
     /// Parses the remainder of the record and returns it.
     ///
     /// The method assumes that the parsers is currently positioned right
@@ -435,34 +433,24 @@ impl<Octets: ParseOctets> RecordHeader<ParsedDname<Octets>> {
     /// feels capable of parsing a record with a header of `self`, the
     /// method will parse the data and return a full `Record<D>`. Otherwise,
     /// it skips over the record data.
-    #[allow(clippy::type_complexity)] // I know ...
-    pub fn parse_into_record<D: ParseRecordData<Octets>>(
+    pub fn parse_into_record<Data>(
         self,
-        parser: &mut Parser<Octets>
-    ) -> Result<
-        Option<Record<ParsedDname<Octets>, D>>,
-        RecordParseError<ParsedDnameError, D::Err>
-    > {
-        let end = parser.pos() + self.rdlen as usize;
-        match D::parse_data(self.rtype, parser, self.rdlen as usize)
-                .map_err(RecordParseError::Data)? {
-            Some(data) => Ok(Some(self.into_record(data))),
-            None => {
-                parser.seek(end)?;
-                Ok(None)
+        parser: &mut Parser<Ref>
+    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    where Data: ParseRecordData<Ref> {
+        parser.parse_block(self.rdlen as usize, |parser| {
+            match Data::parse_data(self.rtype, parser)? {
+                Some(data) => {
+                    Ok(Some(Record::new(
+                        self.owner, self.class, self.ttl, data
+                    )))
+                }
+                None => {
+                    parser.advance_to_end();
+                    Ok(None)
+                }
             }
-        }
-    }
-
-    /// Parses only the record length and skips over all the other fields.
-    fn parse_rdlen(
-        parser: &mut Parser<Octets>
-    ) -> Result<u16, ParsedDnameError> {
-        ParsedDname::skip(parser)?;
-        Rtype::skip(parser)?;
-        Class::skip(parser)?;
-        u32::skip(parser)?;
-        Ok(u16::parse(parser)?)
+        })
     }
 }
 
@@ -580,10 +568,8 @@ impl<Name: hash::Hash> hash::Hash for RecordHeader<Name> {
 
 //--- Parse and Compose
 
-impl<Octets: ParseOctets> Parse<Octets> for RecordHeader<ParsedDname<Octets>> {
-    type Err = ParsedDnameError;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for RecordHeader<ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(RecordHeader::new(
             ParsedDname::parse(parser)?,
             Rtype::parse(parser)?,
@@ -593,7 +579,7 @@ impl<Octets: ParseOctets> Parse<Octets> for RecordHeader<ParsedDname<Octets>> {
         ))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         ParsedDname::skip(parser)?;
         Rtype::skip(parser)?;
         Class::skip(parser)?;
@@ -665,28 +651,28 @@ impl<Name: fmt::Debug> fmt::Debug for RecordHeader<Name> {
 /// [`to_record`]: #method.to_record
 /// [`into_record`]: #method.into_record
 #[derive(Clone)]
-pub struct ParsedRecord<Octets> {
+pub struct ParsedRecord<Ref> {
     /// The record’s header.
-    header: RecordHeader<ParsedDname<Octets>>,
+    header: RecordHeader<ParsedDname<Ref>>,
 
     /// A parser positioned at the beginning of the record’s data.
-    data: Parser<Octets>,
+    data: Parser<Ref>,
 }
 
-impl<Octets> ParsedRecord<Octets> {
+impl<Ref> ParsedRecord<Ref> {
     /// Creates a new parsed record from a header and the record data.
     ///
     /// The record data is provided via a parser that is positioned at the
     /// first byte of the record data.
     pub fn new(
-        header: RecordHeader<ParsedDname<Octets>>,
-        data: Parser<Octets>
+        header: RecordHeader<ParsedDname<Ref>>,
+        data: Parser<Ref>
     ) -> Self {
         ParsedRecord { header, data }
     }
 
     /// Returns a reference to the owner of the record.
-    pub fn owner(&self) -> &ParsedDname<Octets> {
+    pub fn owner(&self) -> &ParsedDname<Ref> {
         self.header.owner()
     }
 
@@ -711,7 +697,7 @@ impl<Octets> ParsedRecord<Octets> {
     }
 }
 
-impl<Octets> ParsedRecord<Octets> {
+impl<Ref: OctetsRef> ParsedRecord<Ref> {
     /// Creates a real resource record from the parsed record.
     ///
     /// The method is generic over a type that knows how to parse record
@@ -723,19 +709,11 @@ impl<Octets> ParsedRecord<Octets> {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    #[allow(clippy::type_complexity)] // I know ...
-    pub fn to_record<D>(
+    pub fn to_record<Data>(
         &self
-    ) -> Result<Option<Record<ParsedDname<Octets>, D>>,
-                RecordParseError<ParsedDnameError, D::Err>>
-    where Octets: Clone, D: ParseRecordData<Octets>
-    {
-        match D::parse_data(self.header.rtype(), &mut self.data.clone(),
-                            self.header.rdlen() as usize)
-                .map_err(RecordParseError::Data)? {
-            Some(data) => Ok(Some(self.header.clone().into_record(data))),
-            None => Ok(None)
-        }
+    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    where Data: ParseRecordData<Ref> {
+        self.header.clone().parse_into_record(&mut self.data.clone())
     }
 
     /// Trades the parsed record for a real resource record.
@@ -749,28 +727,20 @@ impl<Octets> ParsedRecord<Octets> {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    #[allow(clippy::type_complexity)] // I know ...
-    pub fn into_record<D>(
+    pub fn into_record<Data>(
         mut self
-    ) -> Result<Option<Record<ParsedDname<Octets>, D>>,
-                RecordParseError<ParsedDnameError, D::Err>>
-    where D: ParseRecordData<Octets>
-    {
-        match D::parse_data(self.header.rtype(), &mut self.data,
-                            self.header.rdlen() as usize)
-                .map_err(RecordParseError::Data)? {
-            Some(data) => Ok(Some(self.header.into_record(data))),
-            None => Ok(None)
-        }
+    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    where Data: ParseRecordData<Ref> {
+        self.header.parse_into_record(&mut self.data)
     }
 }
 
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<ParsedRecord<Other>> for ParsedRecord<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
-    fn eq(&self, other: &ParsedRecord<Other>) -> bool {
+impl<Ref, OtherRef> PartialEq<ParsedRecord<OtherRef>> for ParsedRecord<Ref>
+where Ref: OctetsRef, OtherRef: OctetsRef {
+    fn eq(&self, other: &ParsedRecord<OtherRef>) -> bool {
         self.header == other.header
         && self.data.peek(self.header.rdlen() as usize).eq(
             &other.data.peek(other.header.rdlen() as usize)
@@ -778,7 +748,7 @@ where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for ParsedRecord<Octets> { }
+impl<Ref: OctetsRef> Eq for ParsedRecord<Ref> { }
 
 
 //--- Parse
@@ -786,17 +756,15 @@ impl<Octets: AsRef<[u8]>> Eq for ParsedRecord<Octets> { }
 //    No Compose or Compress because the data may contain compressed domain
 //    names.
 
-impl<Octets: ParseOctets> Parse<Octets> for ParsedRecord<Octets> {
-    type Err = ParsedDnameError;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for ParsedRecord<Ref> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let header = RecordHeader::parse(parser)?;
         let data = parser.clone();
         parser.advance(header.rdlen() as usize)?;
         Ok(Self::new(header, data))
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         let rdlen = RecordHeader::parse_rdlen(parser)?;
         parser.advance(rdlen as usize)?;
         Ok(())

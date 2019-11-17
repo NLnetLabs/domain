@@ -8,23 +8,23 @@ use core::{fmt, hash, ptr};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 #[cfg(feature="bytes")] use bytes::{Bytes, BytesMut};
-use derive_more::{Display, From};
+use derive_more::Display;
 use unwrap::unwrap;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{DigestAlg, Rtype, SecAlg};
 #[cfg(feature="bytes")] use crate::master::scan::{ 
     CharSource, ScanError, Scan, Scanner
 };
-use crate::name::{ParsedDnameError, ToDname};
+use crate::name::{ParsedDname, ToDname};
 #[cfg(feature="bytes")] use crate::name::Dname;
 use crate::octets::{
     Compose, EmptyBuilder, IntoBuilder, IntoOctets, OctetsBuilder,
-    ParseOctets, ShortBuf
+    OctetsRef, ShortBuf
 };
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
+use crate::parse::{FormError, Parse, ParseError, Parser};
 use crate::serial::Serial;
 use crate::utils::base64;
-use super::{RtypeRecordData, RdataParseError};
+use super::{RtypeRecordData};
 
 
 //------------ Dnskey --------------------------------------------------------
@@ -209,24 +209,28 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Dnskey<Octets> {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for Dnskey<Octets> {
-    type Err = ParseAllError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize,
-    ) -> Result<Self, Self::Err> {
-        if len < 4 {
-            return Err(ParseAllError::ShortField);
-        }
+impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let len = match parser.remaining().checked_sub(4) {
+            Some(len) => len,
+            None => return Err(ParseError::ShortBuf)
+        };
         Ok(Self::new(
             u16::parse(parser)?,
             u8::parse(parser)?,
             SecAlg::parse(parser)?,
-            parser.parse_octets(len - 4)?
+            parser.parse_octets(len)?
         ))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        if parser.remaining() < 4 {
+            return Err(ParseError::ShortBuf)
+        }
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -498,20 +502,10 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl<Octets, Name> ParseAll<Octets> for Rrsig<Octets, Name>
-where
-    Octets: ParseOctets, Name: Parse<Octets>,
-    ParsedDnameError: From<<Name as Parse<Octets>>::Err>
-{
-    type Err = ParsedDnameError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        let start = parser.pos();
+impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let type_covered = Rtype::parse(parser)?;
         let algorithm = SecAlg::parse(parser)?;
         let labels = u8::parse(parser)?;
@@ -519,18 +513,26 @@ where
         let expiration = Serial::parse(parser)?;
         let inception = Serial::parse(parser)?;
         let key_tag = u16::parse(parser)?;
-        let signer_name = Name::parse(parser)?;
-        let len = if parser.pos() > start + len {
-            return Err(ShortBuf.into())
-        }
-        else {
-            len - (parser.pos() - start)
-        };
+        let signer_name = ParsedDname::parse(parser)?;
+        let len = parser.remaining();
         let signature = parser.parse_octets(len)?;
         Ok(Self::new(
             type_covered, algorithm, labels, original_ttl, expiration,
             inception, key_tag, signer_name, signature
         ))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        Rtype::skip(parser)?;
+        SecAlg::skip(parser)?;
+        u8::skip(parser)?;
+        u32::skip(parser)?;
+        Serial::skip(parser)?;
+        Serial::skip(parser)?;
+        u16::skip(parser)?;
+        ParsedDname::skip(parser)?;
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -727,32 +729,19 @@ impl<Octets: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octets, Name> {
 }
 
 
-//--- ParseAll, Compose, and Compress
+//--- ParseAll and Compose
 
-impl<Octets: ParseOctets, Name> ParseAll<Octets> for Nsec<Octets, Name>
-where
-    Octets: ParseOctets,
-    Name: Parse<Octets>,
-    ParsedDnameError: From<<Name as Parse<Octets>>::Err>
-{
-    type Err = ParseNsecError;
+impl<Ref: OctetsRef> Parse<Ref> for Nsec<Ref::Range, ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        Ok(Nsec::new(
+            ParsedDname::parse(parser)?,
+            RtypeBitmap::parse(parser)?
+        ))
+    }
 
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        let start = parser.pos();
-        let next_name = Name::parse(parser).map_err(|err| {
-            ParsedDnameError::from(err)
-        })?;
-        let len = if parser.pos() > start + len {
-            return Err(ShortBuf.into())
-        }
-        else {
-            len - (parser.pos() - start)
-        };
-        let types = RtypeBitmap::parse_all(parser, len)?;
-        Ok(Nsec::new(next_name, types))
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        ParsedDname::skip(parser)?;
+        RtypeBitmap::skip(parser)
     }
 }
 
@@ -929,24 +918,28 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Ds<Octets> {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for Ds<Octets> {
-    type Err = ShortBuf;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        if len < 4 {
-            return Err(ShortBuf)
-        }
+impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let len = match parser.remaining().checked_sub(4) {
+            Some(len) => len,
+            None => return Err(ParseError::ShortBuf)
+        };
         Ok(Self::new(
             u16::parse(parser)?,
             SecAlg::parse(parser)?,
             DigestAlg::parse(parser)?,
-            parser.parse_octets(len - 4)?
+            parser.parse_octets(len)?
         ))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        if parser.remaining() < 4 {
+            return Err(ParseError::ShortBuf);
+        }
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -1147,16 +1140,17 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octets> {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl<Octets: ParseOctets> ParseAll<Octets> for RtypeBitmap<Octets> {
-    type Err = RtypeBitmapError;
+impl<Ref: OctetsRef> Parse<Ref> for RtypeBitmap<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let len = parser.remaining();
+        RtypeBitmap::from_octets(parser.parse_octets(len)?).map_err(Into::into)
+    }
 
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        RtypeBitmap::from_octets(parser.parse_octets(len)?)
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
@@ -1398,55 +1392,6 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
 }
 
 
-//------------ ParseNsecError ------------------------------------------------
-
-#[derive(Clone, Copy, Debug, Display, Eq, From, PartialEq)]
-pub enum ParseNsecError {
-    #[display(fmt="short field")]
-    ShortField,
-
-    #[display(fmt="{}", _0)]
-    BadNextName(ParsedDnameError),
-
-    #[display(fmt="invalid record type bitmap")]
-    BadRtypeBitmap,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for ParseNsecError { }
-
-impl From<ShortBuf> for ParseNsecError {
-    fn from(_: ShortBuf) -> Self {
-        ParseNsecError::ShortField
-    }
-}
-
-impl From<RtypeBitmapError> for ParseNsecError {
-    fn from(err: RtypeBitmapError) -> Self {
-        match err {
-            RtypeBitmapError::ShortBuf => ParseNsecError::ShortField,
-            RtypeBitmapError::BadRtypeBitmap => ParseNsecError::BadRtypeBitmap
-        }
-    }
-}
-
-impl From<ParseNsecError> for RdataParseError {
-    fn from(err: ParseNsecError) -> RdataParseError {
-        match err {
-            ParseNsecError::ShortField => {
-                RdataParseError::ParseAllError(
-                    ParseAllError::ShortField
-                )
-            }
-            ParseNsecError::BadNextName(err) => err.into(),
-            ParseNsecError::BadRtypeBitmap => {
-                RdataParseError::FormErr("invalid record type bitmap")
-            }
-        }
-    }
-}
-
-
 //------------ RtypeBitmapError ----------------------------------------------
 
 #[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
@@ -1467,11 +1412,15 @@ impl From<ShortBuf> for RtypeBitmapError {
     }
 }
 
-
-//------------ parsed --------------------------------------------------------
-
-pub mod parsed {
-    pub use super::{Dnskey, Rrsig, Nsec, Ds};
+impl From<RtypeBitmapError> for ParseError {
+    fn from(err: RtypeBitmapError) -> ParseError {
+        match err {
+            RtypeBitmapError::ShortBuf => ParseError::ShortBuf,
+            RtypeBitmapError::BadRtypeBitmap => {
+                FormError::new("invalid NSEC bitmap").into()
+            }
+        }
+    }
 }
 
 

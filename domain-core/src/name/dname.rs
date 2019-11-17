@@ -12,9 +12,10 @@ use crate::cmp::CanonicalOrd;
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
 use crate::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, ParseOctets, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsExt, OctetsRef,
+    ShortBuf
 };
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser};
+use crate::parse::{FormError, Parse, Parser, ParseError};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{RelativeDname, DnameIter};
@@ -59,7 +60,7 @@ impl<Octets> Dname<Octets> {
     /// This will only succeed if `octets` contains a properly encoded
     /// absolute domain name. Because the function checks, this will take
     /// a wee bit of time.
-    pub fn from_octets(octets: Octets) -> Result<Self, DnameBytesError>
+    pub fn from_octets(octets: Octets) -> Result<Self, DnameError>
     where Octets: AsRef<[u8]> {
         Dname::check_slice(octets.as_ref())?;
         Ok(unsafe { Dname::from_octets_unchecked(octets) })
@@ -106,10 +107,15 @@ impl<Octets> Dname<Octets> {
     pub fn into_octets(self) -> Octets {
         self.0
     }
+
+    /// Returns a domain name using a reference to the octets.
+    pub fn ref_octets(&self) -> Dname<&Octets> {
+        Dname(&self.0)
+    }
  
     /// Converts the name into a relative name by dropping the root label.
     pub fn into_relative(mut self) -> RelativeDname<Octets>
-    where Octets: ParseOctets {
+    where Octets: OctetsExt {
         let len = self.0.as_ref().len() - 1;
         self.0.truncate(len);
         unsafe { RelativeDname::from_octets_unchecked(self.0) }
@@ -133,7 +139,7 @@ impl Dname<[u8]> {
     ///
     /// This will only succeed if `slice` contains a properly encoded
     /// absolute domain name. 
-    pub fn from_slice(slice: &[u8]) -> Result<&Self, DnameBytesError> {
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, DnameError> {
         Self::check_slice(slice)?;
         Ok(unsafe { Self::from_slice_unchecked(slice) })
     }
@@ -143,7 +149,7 @@ impl Dname<[u8]> {
     }
 
     /// Checks whether an octet slice contains a correctly encoded name.
-    fn check_slice(mut slice: &[u8]) -> Result<(), DnameBytesError> {
+    fn check_slice(mut slice: &[u8]) -> Result<(), DnameError> {
         if slice.len() > 255 {
             return Err(DnameError::LongName.into());
         }
@@ -154,11 +160,11 @@ impl Dname<[u8]> {
                     break;
                 }
                 else {
-                    return Err(DnameBytesError::TrailingData)
+                    return Err(DnameError::TrailingData)
                 }
             }
             if tail.is_empty() {
-                return Err(DnameBytesError::RelativeName)
+                return Err(DnameError::RelativeName)
             }
             slice = tail;
         }
@@ -328,17 +334,20 @@ impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
     }
 }
 
-impl<Octets: ParseOctets> Dname<Octets> {
+impl<Octets: AsRef<[u8]>> Dname<Octets> {
     /// Returns an iterator over the suffixes of the name.
     ///
     /// The returned iterator starts with the full name and then for each
     /// additional step returns a name with the left-most label stripped off
     /// until it reaches the root label.
-    pub fn iter_suffixes(&self) -> SuffixIter<Octets> {
-        SuffixIter::new(self)
+    pub fn iter_suffixes(&self) -> SuffixIter<&Octets> {
+        SuffixIter::new(self.ref_octets())
     }
 
-    pub fn range(&self, begin: usize, end: usize) -> RelativeDname<Octets> {
+    pub fn range<'a>(
+        &'a self, begin: usize, end: usize
+    ) -> RelativeDname<<&'a Octets as OctetsRef>::Range>
+    where &'a Octets: OctetsRef {
         self.check_index(begin);
         self.check_index(end);
         unsafe {
@@ -346,14 +355,21 @@ impl<Octets: ParseOctets> Dname<Octets> {
         }
     }
  
-    pub fn range_from(&self, begin: usize) -> Self {
+    pub fn range_from<'a>(
+        &'a self, begin: usize
+    ) -> Dname<<&'a Octets as OctetsRef>::Range>
+    where &'a Octets: OctetsRef {
         self.check_index(begin);
         unsafe {
-            Self::from_octets_unchecked(self.0.range_from(begin))
+            Dname::from_octets_unchecked(self.0.range_from(begin))
         }
     }
 
-    pub fn range_to(&self, end: usize) -> RelativeDname<Octets> {
+    pub fn range_to<'a>(
+        &'a self,
+        end: usize
+    ) -> RelativeDname<<&'a Octets as OctetsRef>::Range>
+    where &'a Octets: OctetsRef {
         self.check_index(end);
         unsafe {
             RelativeDname::from_octets_unchecked(self.0.range_to(end))
@@ -369,7 +385,8 @@ impl<Octets: ParseOctets> Dname<Octets> {
     ///
     /// [`Bytes`]: ../../../bytes/struct.Bytes.html#method.split_off
     /// [`RelativeDname`]: struct.RelativeDname.html
-    pub fn split_at(mut self, mid: usize) -> (RelativeDname<Octets>, Self) {
+    pub fn split_at(mut self, mid: usize) -> (RelativeDname<Octets>, Self)
+    where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         let left = self.split_to(mid);
         (left, self)
     }
@@ -383,10 +400,13 @@ impl<Octets: ParseOctets> Dname<Octets> {
     ///
     /// The method will panic if `mid` is not the start of a new label or is
     /// out of bounds.
-    pub fn split_to(&mut self, mid: usize) -> RelativeDname<Octets> {
+    pub fn split_to(&mut self, mid: usize) -> RelativeDname<Octets>
+    where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         self.check_index(mid);
+        let res = self.0.range_to(mid);
+        self.0 = self.0.range_from(mid);
         unsafe {
-            RelativeDname::from_octets_unchecked(self.0.split_to(mid))
+            RelativeDname::from_octets_unchecked(res)
         }
     }
 
@@ -399,7 +419,8 @@ impl<Octets: ParseOctets> Dname<Octets> {
     ///
     /// The method will panic if `len` is not the index of a new label or if
     /// it is out of bounds.
-    pub fn truncate(mut self, len: usize) -> RelativeDname<Octets> {
+    pub fn truncate(mut self, len: usize) -> RelativeDname<Octets>
+    where Octets: OctetsExt {
         self.check_index(len);
         self.0.truncate(len);
         unsafe { RelativeDname::from_octets_unchecked(self.0) }
@@ -410,21 +431,21 @@ impl<Octets: ParseOctets> Dname<Octets> {
     /// If this name is longer than just the root label, returns the first
     /// label as a relative name and removes it from the name itself. If the
     /// name is only the root label, returns `None` and does nothing.
-    pub fn split_first(&mut self) -> Option<RelativeDname<Octets>> {
+    pub fn split_first(&mut self) -> Option<RelativeDname<Octets>>
+    where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         if self.len() == 1 {
             return None
         }
         let end = self.iter().next().unwrap().len() + 1;
-        Some(unsafe {
-            RelativeDname::from_octets_unchecked(self.0.split_to(end))
-        })
+        Some(self.split_to(end))
     }
 
     /// Reduces the name to the parent of the current name.
     ///
     /// If the name consists of the root label only, returns `false` and does
     /// nothing. Otherwise, drops the first label and returns `true`.
-    pub fn parent(&mut self) -> bool {
+    pub fn parent(&mut self) -> bool
+    where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         self.split_first().is_some()
     }
 
@@ -436,7 +457,8 @@ impl<Octets: ParseOctets> Dname<Octets> {
     pub fn strip_suffix<N: ToDname + ?Sized>(
         self,
         base: &N
-    ) -> Result<RelativeDname<Octets>, Self> {
+    ) -> Result<RelativeDname<Octets>, Self>
+    where Octets: OctetsExt {
         if self.ends_with(base) {
             let len = self.0.as_ref().len() - base.len();
             Ok(self.truncate(len))
@@ -589,19 +611,17 @@ where Octets: AsRef<[u8]> + ?Sized {
 }
 
 
-//--- Parse, ParseAll, and Compose
+//--- Parse and Compose
 
-impl<Octets: ParseOctets> Parse<Octets> for Dname<Octets> {
-    type Err = DnameParseError;
-
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for Dname<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = name_len(parser)?;
         Ok(unsafe {
             Self::from_octets_unchecked(parser.parse_octets(len)?)
         })
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         let len = name_len(parser)?;
         parser.advance(len).map_err(Into::into)
     }
@@ -609,7 +629,7 @@ impl<Octets: ParseOctets> Parse<Octets> for Dname<Octets> {
 
 fn name_len<Source: AsRef<[u8]>>(
     parser: &mut Parser<Source>
-) -> Result<usize, DnameParseError> {
+) -> Result<usize, ParseError> {
     let len = {
         let mut tmp = parser.peek_all();
         loop {
@@ -629,16 +649,6 @@ fn name_len<Source: AsRef<[u8]>>(
     }
     else {
         Ok(len)
-    }
-}
-
-impl<Octets: ParseOctets> ParseAll<Octets> for Dname<Octets> {
-    type Err = DnameParseAllError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>, len: usize
-    ) -> Result<Self, Self::Err> {
-        Self::from_octets(parser.parse_octets(len)?).map_err(Into::into)
     }
 }
 
@@ -714,30 +724,34 @@ impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug for Dname<Octets> {
 //------------ SuffixIter ----------------------------------------------------
 
 /// An iterator over ever shorter suffixes of a domain name.
-#[derive(Clone, Debug)]
-pub struct SuffixIter<Octets: ParseOctets> {
-    name: Option<Dname<Octets>>,
+#[derive(Clone)]
+pub struct SuffixIter<Ref> {
+    name: Dname<Ref>,
+    start: Option<usize>,
 }
 
-impl<Octets: ParseOctets> SuffixIter<Octets> {
+impl<Ref> SuffixIter<Ref> {
     /// Creates a new iterator cloning `name`.
-    fn new(name: &Dname<Octets>) -> Self {
-        SuffixIter {
-            name: Some(name.clone())
-        }
+    fn new(name: Dname<Ref>) -> Self {
+        SuffixIter { name, start: Some(0), }
     }
 }
 
-impl<Octets: ParseOctets> Iterator for SuffixIter<Octets> {
-    type Item = Dname<Octets>;
+impl<Ref: OctetsRef> Iterator for SuffixIter<Ref> {
+    type Item = Dname<Ref::Range>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (res, ok) = match self.name {
-            Some(ref mut name) => (name.clone(), name.parent()),
+        let start = match self.start {
+            Some(start) => start,
             None => return None
         };
-        if !ok {
-            self.name = None
+        let res = self.name.range_from(start);
+        let label = res.first();
+        if label.is_root() {
+            self.start = None;
+        }
+        else {
+            self.start = Some(start + label.compose_len())
         }
         Some(res)
     }
@@ -757,6 +771,16 @@ pub enum DnameError {
 
     #[display(fmt="long domain name")]
     LongName,
+
+    #[display(fmt="relative name")]
+    RelativeName,
+
+    #[display(fmt="trailing data")]
+    TrailingData,
+
+    #[display(fmt="unexpected end of buffer")]
+    ShortBuf,
+
 }
 
 #[cfg(feature = "std")]
@@ -768,127 +792,37 @@ impl From<LabelTypeError> for DnameError {
     }
 }
 
-
-//------------ DnameParseError -----------------------------------------------
-
-/// An error happened while parsing a domain name.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum DnameParseError {
-    #[display(fmt="{}", _0)]
-    BadName(DnameError),
-
-    #[display(fmt="unexpected end of buffer")]
-    ShortBuf,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for DnameParseError { }
-
-impl<T: Into<DnameError>> From<T> for DnameParseError {
-    fn from(err: T) -> DnameParseError {
-        DnameParseError::BadName(err.into())
-    }
-}
-
-impl From<SplitLabelError> for DnameParseError {
-    fn from(err: SplitLabelError) -> DnameParseError {
+impl From<SplitLabelError> for DnameError {
+    fn from(err: SplitLabelError) -> DnameError {
         match err {
-            SplitLabelError::Pointer(_)
-                => DnameParseError::BadName(DnameError::CompressedName),
-            SplitLabelError::BadType(t)
-                => DnameParseError::BadName(DnameError::BadLabel(t)),
-            SplitLabelError::ShortBuf => DnameParseError::ShortBuf,
+            SplitLabelError::Pointer(_) => DnameError::CompressedName,
+            SplitLabelError::BadType(t) => DnameError::BadLabel(t),
+            SplitLabelError::ShortBuf => DnameError::ShortBuf,
         }
     }
 }
 
-impl From<ShortBuf> for DnameParseError {
-    fn from(_: ShortBuf) -> DnameParseError {
-        DnameParseError::ShortBuf
+impl From<DnameError> for FormError {
+    fn from(err: DnameError) -> FormError {
+        FormError::new(
+            match err {
+                DnameError::BadLabel(_) => "unknown label type",
+                DnameError::CompressedName => "compressed domain name",
+                DnameError::LongName => "long domain name",
+                DnameError::RelativeName => "relative domain name",
+                DnameError::TrailingData => "trailing data in buffer",
+                DnameError::ShortBuf => "unexpected end of buffer",
+            }
+        )
     }
 }
 
-
-//------------ DnameParseAllError --------------------------------------------
-
-/// An error happened while parsing a domain name.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum DnameParseAllError {
-    #[display(fmt="{}", _0)]
-    BadName(DnameError),
-
-    #[display(fmt="{}", _0)]
-    ParseError(ParseAllError)
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for DnameParseAllError { }
-
-impl<T: Into<DnameError>> From<T> for DnameParseAllError {
-    fn from(err: T) -> Self {
-        DnameParseAllError::BadName(err.into())
-    }
-}
-
-impl From<ShortBuf> for DnameParseAllError {
-    fn from(err: ShortBuf) -> Self {
-        DnameParseAllError::ParseError(err.into())
-    }
-}
-
-impl From<ParseAllError> for DnameParseAllError {
-    fn from(err: ParseAllError) -> Self {
-        DnameParseAllError::ParseError(err)
-    }
-}
-
-impl From<DnameParseError> for DnameParseAllError {
-    fn from(err: DnameParseError) -> Self {
+impl From<DnameError> for ParseError {
+    fn from(err: DnameError) -> ParseError {
         match err {
-            DnameParseError::BadName(err) => DnameParseAllError::BadName(err),
-            DnameParseError::ShortBuf
-                => DnameParseAllError::ParseError(ParseAllError::ShortBuf),
+            DnameError::ShortBuf => ParseError::ShortBuf,
+            other => ParseError::Form(other.into())
         }
-    }
-}
-
-impl From<DnameBytesError> for DnameParseAllError {
-    fn from(err: DnameBytesError) -> Self {
-        match err {
-            DnameBytesError::ParseError(DnameParseError::BadName(err))
-                => DnameParseAllError::BadName(err),
-            DnameBytesError::ParseError(DnameParseError::ShortBuf)
-                => DnameParseAllError::ParseError(ParseAllError::ShortBuf),
-            DnameBytesError::RelativeName
-                => DnameParseAllError::ParseError(ParseAllError::ShortField),
-            DnameBytesError::TrailingData
-                => DnameParseAllError::ParseError(ParseAllError::TrailingData),
-        }
-    }
-}
-
-
-//------------ DnameBytesError -----------------------------------------------
-
-/// An error happened while converting a bytes value into a domain name.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum DnameBytesError {
-    #[display(fmt="{}", _0)]
-    ParseError(DnameParseError),
-
-    #[display(fmt="relative name")]
-    RelativeName,
-
-    #[display(fmt="trailing data")]
-    TrailingData,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for DnameBytesError { }
-
-impl<T: Into<DnameParseError>> From<T> for DnameBytesError {
-    fn from(err: T) -> DnameBytesError {
-        DnameBytesError::ParseError(err.into())
     }
 }
 
@@ -956,17 +890,24 @@ pub(crate) mod test {
     #[test]
     fn from_slice() {
         // a simple good name
-        assert_eq!(Dname::from_slice(b"\x03www\x07example\x03com\0")
-                         .unwrap().as_slice(),
-                   b"\x03www\x07example\x03com\0");
+        assert_eq!(
+            Dname::from_slice(
+                b"\x03www\x07example\x03com\0"
+            ).unwrap().as_slice(),
+            b"\x03www\x07example\x03com\0"
+        );
         
         // relative name
-        assert_eq!(Dname::from_slice(b"\x03www\x07example\x03com"),
-                   Err(DnameBytesError::RelativeName));
+        assert_eq!(
+            Dname::from_slice(b"\x03www\x07example\x03com"),
+            Err(DnameError::RelativeName)
+        );
 
         // bytes shorter than what label length says.
-        assert_eq!(Dname::from_slice(b"\x03www\x07exa"),
-                   Err(ShortBuf.into()));
+        assert_eq!(
+            Dname::from_slice(b"\x03www\x07exa"),
+            Err(DnameError::ShortBuf)
+        );
 
         // label 63 long ok, 64 bad.
         let mut slice = [0u8; 65];
@@ -1000,7 +941,7 @@ pub(crate) mod test {
                    Err(DnameError::CompressedName.into()));
 
         // empty input
-        assert_eq!(Dname::from_slice(b""), Err(ShortBuf.into()));
+        assert_eq!(Dname::from_slice(b""), Err(DnameError::ShortBuf));
     }
 
     // `Dname::from_chars` is covered in the `FromStr` test.
@@ -1491,10 +1432,7 @@ pub(crate) mod test {
 
         // Bad label header.
         let mut p = Parser::from_static(b"\x03www\x07example\xbffoo");
-        assert_eq!(
-            Dname::parse(&mut p),
-            Err(LabelTypeError::Undefined.into())
-        );
+        assert!(Dname::parse(&mut p).is_err());
 
         // Long name: 255 bytes is fine.
         let mut buf = Vec::new();
@@ -1503,7 +1441,7 @@ pub(crate) mod test {
         }
         buf.extend_from_slice(b"\x03123\0");
         assert_eq!(buf.len(), 255);
-        let mut p = Parser::from_octets(buf.as_slice());
+        let mut p = Parser::from_ref(buf.as_slice());
         assert!(Dname::parse(&mut p).is_ok());
         assert_eq!(p.peek_all(), b"");
 
@@ -1514,29 +1452,11 @@ pub(crate) mod test {
         }
         buf.extend_from_slice(b"\0");
         assert_eq!(buf.len(), 256);
-        let mut p = Parser::from_octets(buf.as_slice());
+        let mut p = Parser::from_ref(buf.as_slice());
         assert_eq!(
             Dname::parse(&mut p),
             Err(DnameError::LongName.into())
         );
-    }
-
-    #[test]
-    fn parse_all() {
-        // The current implementation defers to `Dname::from_octets`. As there
-        // are test cases for the error cases with that function, all we need
-        // to do is make sure it defers correctly.
-
-        let mut p = Parser::from_static(b"\x03www\x07example\x03com\0af");
-        assert_eq!(
-            Dname::parse_all(&mut p, 17).unwrap().as_slice(),
-            b"\x03www\x07example\x03com\0"
-        );
-        assert_eq!(p.peek_all(), b"af");
-        
-        let mut p = Parser::from_static(b"\0af");
-        assert_eq!(Dname::parse_all(&mut p, 1).unwrap().as_slice(), b"\0");
-        assert_eq!(p.peek_all(), b"af");
     }
 
     // I don’t think we need tests for `Compose::compose` since it only

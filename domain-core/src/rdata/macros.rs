@@ -26,6 +26,8 @@ macro_rules! rdata_types {
             };
         )*
 
+        use crate::name::ParsedDname;
+
 
         //------------- MasterRecordData -------------------------------------
 
@@ -261,30 +263,25 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<O> $crate::rdata::ParseRecordData<O>
-        for MasterRecordData<O, $crate::name::ParsedDname<O>>
-        where O: $crate::octets::ParseOctets
-        {
-            type Err = RdataParseError;
-
+        impl<Ref: OctetsRef> $crate::rdata::ParseRecordData<Ref>
+        for MasterRecordData<Ref::Range, ParsedDname<Ref>> {
             fn parse_data(
                 rtype: $crate::iana::Rtype,
-                parser: &mut $crate::parse::Parser<O>,
-                rdlen: usize
-            ) -> Result<Option<Self>, Self::Err> {
-                use $crate::parse::ParseAll;
+                parser: &mut $crate::parse::Parser<Ref>,
+            ) -> Result<Option<Self>, ParseError> {
+                use $crate::parse::Parse;
 
                 match rtype {
                     $( $( $(
                         $crate::iana::Rtype::$mtype => {
                             Ok(Some(MasterRecordData::$mtype(
-                                $mtype::parse_all(parser, rdlen)?
+                                $mtype::parse(parser)?
                             )))
                         }
                     )* )* )*
                     _ => {
                         Ok($crate::rdata::UnknownRecordData::parse_data(
-                            rtype, parser, rdlen
+                            rtype, parser
                         )?.map(MasterRecordData::Other))
                     }
                 }
@@ -612,41 +609,37 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<O: ParseOctets> $crate::rdata::ParseRecordData<O>
-        for AllRecordData<O, $crate::name::ParsedDname<O>>
-        {
-            type Err = RdataParseError;
-
+        impl<Ref: OctetsRef> $crate::rdata::ParseRecordData<Ref>
+        for AllRecordData<Ref::Range, ParsedDname<Ref>> {
             fn parse_data(
                 rtype: $crate::iana::Rtype,
-                parser: &mut $crate::parse::Parser<O>,
-                rdlen: usize
-            ) -> Result<Option<Self>, Self::Err> {
-                use $crate::parse::ParseAll;
+                parser: &mut $crate::parse::Parser<Ref>,
+            ) -> Result<Option<Self>, ParseError> {
+                use $crate::parse::Parse;
 
                 match rtype {
                     $( $( $(
                         $crate::iana::Rtype::$mtype => {
                             Ok(Some(AllRecordData::$mtype(
-                                $mtype::parse_all(parser, rdlen)?
+                                $mtype::parse(parser)?
                             )))
                         }
                     )* )* )*
                     $( $( $(
                         $crate::iana::Rtype::$ptype => {
                             Ok(Some(AllRecordData::$ptype(
-                                $ptype::parse_all(parser, rdlen)?
+                                $ptype::parse(parser)?
                             )))
                         }
                     )* )* )*
                     $crate::iana::Rtype::Opt => {
                         Ok(Some(AllRecordData::Opt(
-                            $crate::opt::Opt::parse_all(parser, rdlen)?
+                            $crate::opt::Opt::parse(parser)?
                         )))
                     }
                     _ => {
                         Ok($crate::rdata::UnknownRecordData::parse_data(
-                            rtype, parser, rdlen
+                            rtype, parser
                         )?.map(AllRecordData::Other))
                     }
                 }

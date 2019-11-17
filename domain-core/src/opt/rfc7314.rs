@@ -3,7 +3,7 @@
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
 use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{ParseAll, Parser, ParseAllError};
+use crate::parse::{Parse, ParseError, Parser};
 use super::CodeOptData;
 
 
@@ -30,20 +30,24 @@ impl Expire {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl<Octets: AsRef<[u8]>> ParseAll<Octets> for Expire {
-    type Err = ParseAllError;
-
-    fn parse_all(
-        parser: &mut Parser<Octets>,
-        len: usize
-    ) -> Result<Self, Self::Err> {
-        if len == 0 {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for Expire {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        if parser.remaining() == 0 {
             Ok(Expire::new(None))
         }
         else {
-            u32::parse_all(parser, len).map(|res| Expire::new(Some(res)))
+            u32::parse(parser).map(|res| Expire::new(Some(res)))
+        }
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        if parser.remaining() == 0 {
+            Ok(())
+        }
+        else {
+            parser.advance(4)
         }
     }
 }
