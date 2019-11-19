@@ -385,9 +385,7 @@ where Octets: AsRef<[u8]> + Clone {
                     return Ok(())
                 }
                 Ok(LabelType::Normal(label_len)) => {
-                    if let Err(err) = parser.advance(label_len) {
-                        return Err(err.into())
-                    }
+                    parser.advance(label_len)?;
                     len += label_len + 1;
                     if len > 255 {
                         return Err(ParsedDnameError::LongName.into())

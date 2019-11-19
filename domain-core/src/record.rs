@@ -759,7 +759,7 @@ impl<Ref: OctetsRef> Eq for ParsedRecord<Ref> { }
 impl<Ref: OctetsRef> Parse<Ref> for ParsedRecord<Ref> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let header = RecordHeader::parse(parser)?;
-        let data = parser.clone();
+        let data = *parser;
         parser.advance(header.rdlen() as usize)?;
         Ok(Self::new(header, data))
     }

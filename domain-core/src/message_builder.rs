@@ -1,7 +1,8 @@
 //! Building a new DNS message.
 
 use core::mem;
-//#[cfg(feature = "std")] use std::collections::HashMap;
+use core::convert::TryInto;
+#[cfg(feature = "std")] use std::collections::HashMap;
 #[cfg(feature = "std")] use std::vec::Vec;
 use core::ops::{Deref, DerefMut};
 #[cfg(feature = "bytes")] use bytes::BytesMut;
@@ -9,9 +10,8 @@ use unwrap::unwrap;
 use crate::header::{Header, HeaderCounts, HeaderSection};
 use crate::iana::{OptionCode, OptRcode};
 use crate::message::Message;
-use crate::name::{ToDname, /*Label*/};
-//#[cfg(feature = "std")] use crate::name::OwnedLabel;
-use crate::octets::{Compose, IntoOctets, OctetsBuilder, ShortBuf};
+use crate::name::{ToDname, Label};
+use crate::octets::{Compose, IntoOctets, Octets64, OctetsBuilder, ShortBuf};
 use crate::opt::{OptHeader, OptData};
 use crate::question::Question;
 use crate::rdata::RecordData;
@@ -727,399 +727,54 @@ impl<Target: OctetsBuilder> OctetsBuilder for StreamTarget<Target> {
 }
 
 
-/*
-
-//------------ DgramTarget ---------------------------------------------------
-
-#[derive(Clone)]
-pub struct DgramTarget<Target, Compressor> {
-    target: Target,
-    limit: usize,
-    exhausted: bool,
-    compressor: Compressor,
-}
-
-impl<Target: OctetsBuilder, Comp> DgramTarget<Target, Comp> {
-    pub fn new() -> Self
-    where Comp: Compressor {
-        Self::from_target(Target::empty())
-    }
-
-    pub fn from_target(mut target: Target) -> Self
-    where Comp: Compressor {
-        target.truncate(0); // XXX Do we want to do this?
-        Self {
-            target,
-            limit: Target::MAX_CAPACITY,
-            exhausted: false,
-            compressor: Default::default(),
-        }
-    }
-
-    fn into_message(self) -> Message<Target::Octets> {
-        unsafe { Message::from_octets_unchecked(self.target.finish()) }
-    }
-
-    pub fn limit(&self) -> usize {
-        self.limit
-    }
-
-    pub fn set_limit(&mut self, limit: Option<usize>) {
-        if let Some(limit) = limit {
-            self.limit = min(limit, Target::MAX_CAPACITY);
-        }
-        else {
-            self.limit = Target::MAX_CAPACITY;
-        }
-    }
-
-    fn compress_pos(&self) -> Option<u16> {
-        let res = self.target.len();
-        if res > 0x0300 {
-            None
-        }
-        else {
-            Some(res as u16)
-        }
-    }
-}
-
-impl<Target, Comp> Default for DgramTarget<Target, Comp>
-where Target: OctetsBuilder, Comp: Compressor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<Target: AsRef<[u8]>, Comp> AsRef<[u8]> for DgramTarget<Target, Comp> {
-    fn as_ref(&self) -> &[u8] {
-        self.target.as_ref()
-    }
-}
-
-impl<Target: AsMut<[u8]>, Comp> AsMut<[u8]> for DgramTarget<Target, Comp> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.target.as_mut()
-    }
-}
-
-impl<Target, Comp> ComposeTarget for DgramTarget<Target, Comp>
-where Target: OctetsBuilder, Comp: Compressor {
-    type LenTarget = Self;
-
-    fn append_slice(&mut self, slice: &[u8]) {
-        match slice.len().checked_sub(self.limit - self.target.len()) {
-            Some(len) => {
-                self.target.append_slice(&slice[..len]);
-                self.exhausted = true;
-            }
-            None => {
-                self.target.append_slice(slice);
-            }
-        }
-    }
-
-    fn truncate(&mut self, len: usize) {
-        self.target.truncate(len)
-    }
-
-    fn append_compressed_dname<N: ToDname>(&mut self, name: &N) {
-        let mut name = name.iter_labels();
-        loop {
-            // If the name is known to the compressor, append compressed
-            // label and be done.
-            if let Some(pos) = self.compressor.get(
-                name.clone(), self.target.as_ref()
-            ) {
-                (pos | 0xC000).compose(self);
-                return
-            }
-
-            // The name is not known. Insert it into the compressor if the
-            // message isn’t too long for that yet.
-            if let Some(pos) = self.compress_pos() {
-                self.compressor.insert(name.clone(), pos)
-            }
-            else {
-                // Just write out the uncompressed name and be done.
-                while let Some(label) = name.next() {
-                    label.compose(self);
-                }
-                return
-            }
-
-            // Advance to the parent name. If the parent is the root, just
-            // write that and be done. Because we do that, there will always
-            // be a next label here.
-            let label = unwrap!(name.next());
-            if label.is_root() {
-                0u8.compose(self);
-                return
-            }
-            else {
-                label.compose(self)
-            }
-        }
-    }
-
-    fn len_prefixed<F: FnOnce(&mut Self::LenTarget)>(&mut self, op: F) {
-        let pos = self.target.as_ref().len();
-        self.target.append_slice(&[0; 2]);
-        op(self);
-        if !self.exhausted {
-            let len = (self.target.as_ref().len() - pos - 2) as u16;
-            self.target.as_mut()[pos..pos + 2]
-                .copy_from_slice(&len.to_be_bytes());
-        }
-    }
-}
-
-impl<Target, Comp> TryCompose for DgramTarget<Target, Comp>
-where Target: OctetsBuilder, Comp: Compressor {
-    type Target = Self;
-
-    fn try_compose<F>(&mut self, op: F) -> Result<(), ShortBuf>
-    where F: FnOnce(&mut Self::Target) {
-        let pos = self.target.len();
-        op(self);
-        if self.exhausted {
-            self.target.truncate(pos);
-            self.exhausted = false;
-            Err(ShortBuf)
-        }
-        else {
-            Ok(())
-        }
-    }
-}
-
-
-//------------ StreamTarget --------------------------------------------------
-
-pub struct StreamTarget<Target, Compressor> {
-    target: Target,
-    exhausted: bool,
-    compressor: Compressor,
-}
-
-impl<Target: OctetsBuilder, Comp: Compressor> StreamTarget<Target, Comp> {
-    pub fn new() -> Self {
-        Self::from_target(Target::empty())
-    }
-
-    pub fn from_target(mut target: Target) -> Self {
-        target.truncate(0);
-        target.append_slice(&[0; 2]);
-        Self {
-            target,
-            exhausted: false,
-            compressor: Default::default(),
-        }
-    }
-
-    fn limit(&self) -> usize {
-        min(Target::MAX_CAPACITY, 0x1_0001)
-    }
-
-    fn compress_pos(&self) -> Option<u16> {
-        let res = self.target.len() - 2;
-        if res > 0x0300 {
-            None
-        }
-        else {
-            Some(res as u16)
-        }
-    }
-
-    fn update_shim(&mut self) {
-        let len = (self.target.len() - 2) as u16;
-        self.target.as_mut()[..2].copy_from_slice(&len.to_be_bytes())
-    }
-}
-
-impl<Target, Comp> Default for StreamTarget<Target, Comp>
-where Target: OctetsBuilder, Comp: Compressor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<Target: AsRef<[u8]>, Comp> AsRef<[u8]> for StreamTarget<Target, Comp> {
-    fn as_ref(&self) -> &[u8] {
-        self.target.as_ref()
-    }
-}
-
-impl<Target: AsMut<[u8]>, Comp> AsMut<[u8]> for StreamTarget<Target, Comp> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.target.as_mut()
-    }
-}
-
-impl<Target, Comp> ComposeTarget for StreamTarget<Target, Comp>
-where Target: OctetsBuilder, Comp: Compressor {
-    type LenTarget = Self;
-
-    fn append_slice(&mut self, slice: &[u8]) {
-        match slice.len().checked_sub(self.limit() - self.target.len()) {
-            Some(len) => {
-                self.target.append_slice(&slice[..len]);
-                self.exhausted = true;
-            }
-            None => {
-                self.target.append_slice(slice);
-                self.update_shim();
-            }
-        }
-    }
-
-    fn truncate(&mut self, len: usize) {
-        self.target.truncate(len)
-    }
-
-    fn append_compressed_dname<N: ToDname>(&mut self, name: &N) {
-        let mut name = name.iter_labels();
-        loop {
-            // If the name is known to the compressor, append compressed
-            // label and be done.
-            if let Some(pos) = self.compressor.get(
-                name.clone(), self.target.as_ref()
-            ) {
-                (pos | 0xC000).compose(self);
-                return
-            }
-
-            // The name is not known. Insert it into the compressor if the
-            // message isn’t too long for that yet.
-            if let Some(pos) = self.compress_pos() {
-                self.compressor.insert(name.clone(), pos)
-            }
-            else {
-                // Just write out the uncompressed name and be done.
-                while let Some(label) = name.next() {
-                    label.compose(self);
-                }
-                return
-            }
-
-            // Advance to the parent name. If the parent is the root, just
-            // write that and be done. Because we do that, there will always
-            // be a next label here.
-            let label = unwrap!(name.next());
-            if label.is_root() {
-                0u8.compose(self);
-                return
-            }
-            else {
-                label.compose(self)
-            }
-        }
-    }
-
-    fn len_prefixed<F: FnOnce(&mut Self::LenTarget)>(&mut self, op: F) {
-        let pos = self.target.as_ref().len();
-        self.target.append_slice(&[0; 2]);
-        op(self);
-        if !self.exhausted {
-            let len = (self.target.as_ref().len() - pos - 2) as u16;
-            self.target.as_mut()[pos..pos + 2]
-                .copy_from_slice(&len.to_be_bytes());
-        }
-    }
-}
-
-impl<Target, Comp> TryCompose for StreamTarget<Target, Comp>
-where Target: OctetsBuilder, Comp: Compressor {
-    type Target = Self;
-
-    fn try_compose<F>(&mut self, op: F) -> Result<(), ShortBuf>
-    where F: FnOnce(&mut Self::Target) {
-        let pos = self.target.len();
-        op(self);
-        if self.exhausted {
-            self.target.truncate(pos);
-            self.update_shim();
-            self.exhausted = false;
-            Err(ShortBuf)
-        }
-        else {
-            Ok(())
-        }
-    }
-}
-
-
-//------------ Compressor ----------------------------------------------------
-
-pub trait Compressor: Default {
-    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
-        &mut self,
-        name: N,
-        pos: u16
-    );
-
-    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
-        &self,
-        name: N,
-        slice: &[u8]
-    ) -> Option<u16>;
-}
-
-
-//------------ Uncompressed --------------------------------------------------
-
-#[derive(Clone, Debug, Default)]
-pub struct Uncompressed;
-
-impl Compressor for Uncompressed {
-    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
-        &mut self,
-        _name: N,
-        _pos: u16
-    ) {
-    }
-
-    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
-        &self,
-        _name: N,
-        _slice: &[u8]
-    ) -> Option<u16> {
-        None
-    }
-}
 
 
 
 //------------ StaticCompressor ----------------------------------------------
 
-#[derive(Clone, Debug, Default)]
-pub struct StaticCompressor {
+#[derive(Clone, Debug)]
+pub struct StaticCompressor<Target> {
+    target: Target,
     entries: [u16; 20],
     len: usize,
 }
 
-impl Compressor for StaticCompressor {
-    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
-        &mut self,
-        _name: N,
-        pos: u16
-    ) {
-        if self.len < 20 {
-            self.entries[self.len] = pos;
-            self.len += 1
+impl<Target> StaticCompressor<Target> {
+    pub fn new(target: Target) -> Self {
+        StaticCompressor {
+            target,
+            entries: Default::default(),
+            len: 0
         }
+    }
+
+    pub fn as_target(&self) -> &Target {
+        &self.target
+    }
+
+    pub fn into_target(self) -> Target {
+        self.target
+    }
+
+    pub fn as_slice(&self) -> &[u8]
+    where Target: AsRef<[u8]> {
+        self.target.as_ref()
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [u8]
+    where Target: AsMut<[u8]> {
+        self.target.as_mut()
     }
 
     fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
         &self,
         name: N,
-        slice: &[u8]
-    ) -> Option<u16> {
+    ) -> Option<u16>
+    where Target: AsRef<[u8]> {
         self.entries[..self.len].iter().find_map(|&pos| {
-            if pos as usize > slice.len() {
-                return None
-            }
-            if name.clone().eq(Label::iter_slice(slice, pos as usize)) {
+            if name.clone().eq(
+                Label::iter_slice(self.target.as_ref(), pos as usize)
+            ) {
                 Some(pos)
             }
             else {
@@ -1127,62 +782,231 @@ impl Compressor for StaticCompressor {
             }
         })
     }
+
+    fn insert(&mut self, pos: usize) -> bool {
+        if pos < 0xc000 && self.len < self.entries.len() {
+            self.entries[self.len] = pos as u16;
+            self.len += 1;
+            true
+        }
+        else {
+            false
+        }
+    }
+}
+
+impl<Target: AsRef<[u8]>> AsRef<[u8]> for StaticCompressor<Target> {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl<Target: AsMut<[u8]>> AsMut<[u8]> for StaticCompressor<Target> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_slice_mut()
+    }
+}
+
+impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
+    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
+        self.target.append_slice(slice)
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.target.truncate(len);
+        if len < 0xC000 {
+            let len = len as u16;
+            for i in 0..self.len {
+                if self.entries[i] >= len {
+                    self.len = i;
+                    break
+                }
+            }
+        }
+    }
+
+    fn append_compressed_dname<N: ToDname>(
+        &mut self,
+        name: &N
+    ) -> Result<(), ShortBuf> {
+        let mut name = name.iter_labels();
+        loop {
+            // If we already know this name, append it as a compressed label.
+            if let Some(pos) = self.get(name.clone()) {
+                return (pos | 0xC000).compose(self)
+            }
+
+            // So we don’t know the name. Try inserting it into the
+            // compressor. If we can’t insert anymore, just write out what’s
+            // left and return.
+            if !self.insert(self.target.len()) {
+                while let Some(label) = name.next() {
+                    label.compose(self)?;
+                }
+                return Ok(())
+            }
+
+            // Advance to the parent. If the parent is root, just write that
+            // and return. Because we do that, there will always be a label
+            // left here.
+            let label = unwrap!(name.next());
+            label.compose(self)?;
+            if label.is_root() {
+                return Ok(())
+            }
+        }
+    }
 }
 
 
 //------------ TreeCompressor ------------------------------------------------
 
 #[cfg(feature = "std")]
-#[derive(Default)]
-pub struct TreeCompressor {
+#[derive(Clone, Debug)]
+pub struct TreeCompressor<Target> {
+    target: Target,
     start: Node,
 }
 
 #[cfg(feature = "std")]
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 struct Node {
-    parents: HashMap<OwnedLabel, Self>,
+    parents: HashMap<Octets64, Self>,
     value: Option<u16>,
 }
 
 #[cfg(feature = "std")]
-impl TreeCompressor {
-    pub fn new() -> Self {
-        Default::default()
+impl Node {
+    fn drop_above(&mut self, len: u16) {
+        self.value = match self.value {
+            Some(value) if value < len => Some(value),
+            _ => None
+        };
+        self.parents.values_mut().for_each(|node| node.drop_above(len))
     }
 }
 
 #[cfg(feature = "std")]
-impl Compressor for TreeCompressor {
-    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
-        &mut self,
-        name: N,
-        pos: u16
-    ) {
-        let mut node = &mut self.start;
-        for label in name {
-            if label.is_root() {
-                node.value = Some(pos);
-                return
-            }
-            node = node.parents.entry(label.into()).or_default();
+impl<Target> TreeCompressor<Target> {
+    pub fn new(target: Target) -> Self {
+        TreeCompressor {
+            target,
+            start: Default::default()
         }
+    }
+
+    pub fn as_target(&self) -> &Target {
+        &self.target
+    }
+
+    pub fn into_target(self) -> Target {
+        self.target
+    }
+
+    pub fn as_slice(&self) -> &[u8]
+    where Target: AsRef<[u8]> {
+        self.target.as_ref()
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [u8]
+    where Target: AsMut<[u8]> {
+        self.target.as_mut()
     }
 
     fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
         &self,
-        name: N,
-        _slice: &[u8]
+        name: N
     ) -> Option<u16> {
         let mut node = &self.start;
         for label in name {
             if label.is_root() {
                 return node.value;
             }
-            node = node.parents.get(label)?;
+            node = node.parents.get(label.as_ref())?;
         }
         None
     }
+
+    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &mut self,
+        name: N,
+        pos: usize
+    ) -> bool {
+        if pos >= 0xC000 {
+            return false
+        }
+        let pos = pos as u16;
+        let mut node = &mut self.start;
+        for label in name {
+            if label.is_root() {
+                node.value = Some(pos);
+                break
+            }
+            node = node.parents.entry(
+                unwrap!(label.as_ref().try_into())
+            ).or_default();
+        }
+        true
+    }
 }
 
-*/
+#[cfg(feature = "std")]
+impl<Target: AsRef<[u8]>> AsRef<[u8]> for TreeCompressor<Target> {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<Target: AsMut<[u8]>> AsMut<[u8]> for TreeCompressor<Target> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_slice_mut()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
+    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
+        self.target.append_slice(slice)
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.target.truncate(len);
+        if len < 0xC000 {
+            self.start.drop_above(len as u16)
+        }
+    }
+
+    fn append_compressed_dname<N: ToDname>(
+        &mut self,
+        name: &N
+    ) -> Result<(), ShortBuf> {
+        let mut name = name.iter_labels();
+        loop {
+            // If we already know this name, append it as a compressed label.
+            if let Some(pos) = self.get(name.clone()) {
+                return (pos | 0xC000).compose(self)
+            }
+
+            // So we don’t know the name. Try inserting it into the
+            // compressor. If we can’t insert anymore, just write out what’s
+            // left and return.
+            if !self.insert(name.clone(), self.target.len()) {
+                while let Some(label) = name.next() {
+                    label.compose(self)?;
+                }
+                return Ok(())
+            }
+
+            // Advance to the parent. If the parent is root, just write that
+            // and return. Because we do that, there will always be a label
+            // left here.
+            let label = unwrap!(name.next());
+            label.compose(self)?;
+            if label.is_root() {
+                return Ok(())
+            }
+        }
+    }
+}
+

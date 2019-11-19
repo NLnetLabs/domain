@@ -50,6 +50,13 @@ impl<T> Parser<T> {
     pub fn len(&self) -> usize {
         self.len
     }
+
+    /// Returns whether the underlying octets sequence is empty.
+    ///
+    /// This does _not_ return whether there are no more octets left to parse.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
 }
 
 impl Parser<&'static [u8]> {

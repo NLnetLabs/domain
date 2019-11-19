@@ -151,7 +151,7 @@ impl Dname<[u8]> {
     /// Checks whether an octet slice contains a correctly encoded name.
     fn check_slice(mut slice: &[u8]) -> Result<(), DnameError> {
         if slice.len() > 255 {
-            return Err(DnameError::LongName.into());
+            return Err(DnameError::LongName);
         }
         loop {
             let (label, tail) = Label::split_from(slice)?;

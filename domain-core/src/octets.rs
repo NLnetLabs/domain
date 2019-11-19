@@ -1,5 +1,8 @@
 //! Helper types and traits for dealing with generic octet sequences.
 
+use core::{borrow, hash, fmt};
+use core::cmp::Ordering;
+use core::convert::TryFrom;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 use derive_more::Display;
@@ -425,29 +428,77 @@ macro_rules! octets_array {
             len: usize
         }
 
+        impl $name {
+            pub fn as_slice(&self) -> &[u8] {
+                &self.octets[..self.len]
+            }
+
+            pub fn as_slice_mut(&mut self) -> &mut [u8] {
+                &mut self.octets[..self.len]
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                $name {
+                    octets: [0; $len],
+                    len: 0
+                }
+            }
+        }
+
+        impl<'a> TryFrom<&'a [u8]> for $name {
+            type Error = ShortBuf;
+
+            fn try_from(src: &'a [u8]) -> Result<Self, ShortBuf> {
+                let len = src.len();
+                if len > $len {
+                    Err(ShortBuf)
+                }
+                else {
+                    let mut res = Self::default();
+                    res.octets[..len].copy_from_slice(src);
+                    res.len = len;
+                    Ok(res)
+                }
+            }
+        }
+
         impl core::ops::Deref for $name {
             type Target = [u8];
 
             fn deref(&self) -> &[u8] {
-                self.as_ref()
+                self.as_slice()
             }
         }
 
         impl core::ops::DerefMut for $name {
             fn deref_mut(&mut self) -> &mut [u8] {
-                self.as_mut()
+                self.as_slice_mut()
             }
         }
 
         impl AsRef<[u8]> for $name {
             fn as_ref(&self) -> &[u8] {
-                &self.octets[..self.len]
+                self.as_slice()
             }
         }
 
         impl AsMut<[u8]> for $name {
             fn as_mut(&mut self) -> &mut [u8] {
-                &mut self.octets[..self.len]
+                self.as_slice_mut()
+            }
+        }
+
+        impl borrow::Borrow<[u8]> for $name {
+            fn borrow(&self) -> &[u8] {
+                self.as_slice()
+            }
+        }
+
+        impl borrow::BorrowMut<[u8]> for $name {
+            fn borrow_mut(&mut self) -> &mut [u8] {
+                self.as_slice_mut()
             }
         }
 
@@ -505,6 +556,40 @@ macro_rules! octets_array {
 
             fn into_octets(self) -> Self::Octets {
                 self
+            }
+        }
+
+        impl<T: AsRef<[u8]>> PartialEq<T> for $name {
+            fn eq(&self, other: &T) -> bool {
+                self.as_slice().eq(other.as_ref())
+            }
+        }
+
+        impl Eq for $name { }
+
+        impl<T: AsRef<[u8]>> PartialOrd<T> for $name {
+            fn partial_cmp(&self, other: &T) -> Option<Ordering> {
+                self.as_slice().partial_cmp(other.as_ref())
+            }
+        }
+
+        impl Ord for $name {
+            fn cmp(&self, other: &Self) -> Ordering {
+                self.as_slice().cmp(other.as_slice())
+            }
+        }
+
+        impl hash::Hash for $name {
+            fn hash<H: hash::Hasher>(&self, state: &mut H) {
+                self.as_slice().hash(state)
+            }
+        }
+
+        impl fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.debug_tuple(stringify!($name))
+                    .field(&self.as_slice())
+                    .finish()
             }
         }
     }

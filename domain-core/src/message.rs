@@ -175,7 +175,7 @@ where for<'a> &'a Octets: OctetsRef {
         ),
         ParseError
     > {
-        let question = self.clone().question();
+        let question = self.question();
         let answer = question.clone().next_section()?;
         let authority = answer.clone().next_section()?.unwrap();
         let additional = authority.clone().next_section()?.unwrap();
@@ -183,7 +183,7 @@ where for<'a> &'a Octets: OctetsRef {
     }
 
     pub fn iter(&self) -> MessageIter<&Octets> {
-        self.clone().into_iter()
+        self.into_iter()
     }
 }
 
@@ -219,7 +219,7 @@ where
     /// The method will return `None` both if there are no questions or if
     /// parsing fails.
     pub fn first_question(&self) -> Option<Question<ParsedDname<&Octets>>> {
-        match self.clone().question().next() {
+        match self.question().next() {
             None | Some(Err(..)) => None,
             Some(Ok(question)) => Some(question)
         }
@@ -233,7 +233,7 @@ where
     /// Returns whether the message contains answers of a given type.
     pub fn contains_answer<'s, Data>(&'s self) -> bool
     where Data: ParseRecordData<&'s Octets> {
-        let answer = match self.clone().answer() {
+        let answer = match self.answer() {
             Ok(answer) => answer,
             Err(..) => return false
         };
@@ -250,7 +250,7 @@ where
             None => return None,
             Some(question) => question
         };
-        let mut name = question.qname().clone();
+        let mut name = question.into_qname();
         let answer = match self.answer() {
             Ok(answer) => answer.limit_to::<Cname<_>>(),
             Err(_) => return None,
@@ -264,7 +264,7 @@ where
                     Err(_) => continue,
                 };
                 if *record.owner() == name {
-                    name = record.data().cname().clone();
+                    name = *record.data().cname();
                     found = true;
                     break;
                 }
@@ -369,9 +369,9 @@ where
             }
         }
 
-        let mut source = unwrap!(source.next_section()?);
+        let source = unwrap!(source.next_section()?);
         let mut target = target.additional();
-        while let Some(rr) = source.next() {
+        for rr in source {
             let rr = rr?;
             if let Some(rr) = op(rr) {
                 target.push(rr)?;
@@ -472,8 +472,8 @@ impl<Ref: OctetsRef> Iterator for QuestionSection<Ref> {
 impl<Ref, Other> PartialEq<QuestionSection<Other>> for QuestionSection<Ref>
 where Ref: OctetsRef, Other: OctetsRef {
     fn eq(&self, other: &QuestionSection<Other>) -> bool {
-        let mut me = self.clone();
-        let mut other = other.clone();
+        let mut me = *self;
+        let mut other = *other;
         loop {
             match (me.next(), other.next()) {
                 (Some(Ok(left)), Some(Ok(right))) => {
@@ -596,9 +596,9 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
         match self.count {
             Ok(count) if count > 0 => {
                 match ParsedRecord::skip(&mut self.parser) {
-                    Ok(record) => {
+                    Ok(_) => {
                         self.count = Ok(count - 1);
-                        Some(Ok(record))
+                        Some(Ok(()))
                     }
                     Err(err) => {
                         self.count = Err(err);
