@@ -16,12 +16,14 @@ name = "domain_core"
 path = "src/lib.rs"
 
 [dependencies]
+chrono         = "0.4"
+derive_more    = "0.99.1"
+rand           = "0.7"
+unwrap         = "1.2"
+void           = "1.0"
+
 bytes          = { version = "^0.4", optional = true }
-chrono         = { version = "^0.4", optional = true }
-derive_more    = { version = "0.15.1-pre", git = "https://github.com/JelteF/derive_more.git" }
-rand           = "^0.7"
-unwrap         = "^1.2"
-void           = "^1.0"
+smallvec       = { version = "1.0", optional = true }
 
 [features]
 default = ["std"]

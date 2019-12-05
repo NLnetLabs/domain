@@ -5,6 +5,7 @@ use core::cmp::Ordering;
 use core::convert::TryFrom;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
+#[cfg(feature = "smallvec")] use smallvec::{Array, SmallVec};
 use derive_more::Display;
 use crate::name::ToDname;
 use crate::net::{Ipv4Addr, Ipv6Addr};
@@ -32,6 +33,13 @@ impl OctetsExt for Vec<u8> {
 
 #[cfg(feature = "bytes")]
 impl OctetsExt for Bytes {
+    fn truncate(&mut self, len: usize) {
+        self.truncate(len)
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<A: Array<Item = u8>> OctetsExt for SmallVec<A> {
     fn truncate(&mut self, len: usize) {
         self.truncate(len)
     }
@@ -88,6 +96,15 @@ impl<'a> OctetsRef for &'a Bytes  {
 
     fn range(self, start: usize, end: usize) -> Self::Range {
         self.slice(start, end)
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<'a, A: Array<Item = u8>> OctetsRef for &'a SmallVec<A> {
+    type Range = &'a [u8];
+
+    fn range(self, start: usize, end: usize) -> Self::Range {
+        &self.as_slice()[start..end]
     }
 }
 
@@ -187,6 +204,18 @@ impl OctetsBuilder for BytesMut {
 
 }
 
+#[cfg(feature = "smallvec")]
+impl<A: Array<Item = u8>> OctetsBuilder for SmallVec<A> {
+    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
+        self.extend_from_slice(slice);
+        Ok(())
+    }
+
+    fn truncate(&mut self, len: usize) {
+        SmallVec::truncate(self, len)
+    }
+}
+
 
 //------------ EmptyBuilder --------------------------------------------------
 
@@ -218,6 +247,17 @@ impl EmptyBuilder for BytesMut {
     }
 }
 
+#[cfg(feature = "smallvec")]
+impl<A: Array<Item = u8>> EmptyBuilder for SmallVec<A> {
+    fn empty() -> Self {
+        SmallVec::new()
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        SmallVec::with_capacity(capacity)
+    }
+}
+
 
 //------------ IntoOctets ----------------------------------------------------
 
@@ -242,6 +282,15 @@ impl IntoOctets for BytesMut {
 
     fn into_octets(self) -> Self::Octets {
         self.freeze()
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<A: Array<Item = u8>> IntoOctets for SmallVec<A> {
+    type Octets = Self;
+
+    fn into_octets(self) -> Self::Octets {
+        self
     }
 }
 
@@ -281,6 +330,15 @@ impl IntoBuilder for Bytes {
     }
 }
 
+#[cfg(feature = "smallvec")]
+impl<A: Array<Item = u8>> IntoBuilder for SmallVec<A> {
+    type Builder = Self;
+
+    fn into_builder(self) -> Self::Builder {
+        self
+    }
+}
+
 
 //------------ FromBuilder ---------------------------------------------------
 
@@ -305,6 +363,15 @@ impl FromBuilder for Bytes {
 
     fn from_builder(builder: Self::Builder) -> Self {
         builder.freeze()
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<A: Array<Item = u8>> FromBuilder for SmallVec<A> {
+    type Builder = Self;
+
+    fn from_builder(builder: Self) -> Self {
+        builder
     }
 }
 
