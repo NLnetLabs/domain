@@ -12,34 +12,39 @@ use futures::{future, stream};
 use futures::future::{Either, Future};
 use futures::stream::Stream;
 use tokio::runtime::Runtime;
+use domain_resolv::resolver::SearchNames;
 
 
 fn forward(
     resolver: &StubResolver,
-    name: UncertainDname
+    name: UncertainDname<Vec<u8>>,
 ) -> impl Future<Item=(), Error=()> {
     match name {
-        UncertainDname::Absolute(name) => {
-            Either::A(resolver.lookup_host(&name))
+        UncertainDname::Absolute(ref name) => {
+            Either::A(resolver.lookup_host(name))
         }
-        UncertainDname::Relative(name) => {
-            Either::B(resolver.clone().search_host(name))
+        UncertainDname::Relative(ref name) => {
+            Either::B(resolver.clone().search_host(name.clone()))
         }
     }
     .then(move |answer| {
         match answer {
             Ok(answer) => {
-                if answer.canonical_name() != answer.qname() {
+                if let UncertainDname::Relative(_) = name {
+                    println!("Found answer for {}", answer.qname());
+                }
+                let canon = answer.canonical_name();
+                if canon != answer.qname() {
                     println!(
                         "{} is an alias for {}",
                         answer.qname(),
-                        answer.canonical_name()
+                        canon
                     );
                 }
                 for addr in answer.iter() {
                     println!(
                         "{} has address {}",
-                        answer.canonical_name(),
+                        canon,
                         addr
                     );
                 }
@@ -72,7 +77,7 @@ fn reverse(
 }
 
 
-fn main() -> Result<(), Box<std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let names: Vec<_> = env::args().skip(1).collect();
     if names.is_empty() {
         Err("Usage: lookup <hostname_or_addr> [...]")?;

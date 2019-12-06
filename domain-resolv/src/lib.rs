@@ -32,7 +32,7 @@
 //! [`StubResolver`]: stub/struct.StubResolver.html
 
 pub use self::resolver::Resolver;
-//pub use self::stub::StubResolver;
+pub use self::stub::StubResolver;
 
 pub mod lookup;
 pub mod resolver;

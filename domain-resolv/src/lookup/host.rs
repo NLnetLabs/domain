@@ -84,8 +84,13 @@ where R: Resolver + SearchNames, N: ToRelativeDname {
         let err = match self.pending {
             Some(ref mut pending) => match pending.poll() {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(res)) => return Ok(Async::Ready(res)),
-                Err(err) => err
+                Ok(Async::Ready(res)) => {
+                    if !res.is_empty() {
+                        return Ok(Async::Ready(res))
+                    }
+                    None
+                }
+                Err(err) => Some(err)
             }
             None => {
                 return Err(io::Error::new(
@@ -104,7 +109,12 @@ where R: Resolver + SearchNames, N: ToRelativeDname {
             return self.poll()
         }
         self.pending = None;
-        Err(err)
+        Err(err.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                "no usable search list item"
+            )
+        }))
     }
 }
 
@@ -242,6 +252,20 @@ impl<R: Resolver> FoundHosts<R> {
         Ok(FoundHosts { aaaa, a })
     }
 
+    pub fn is_empty(&self) -> bool {
+        if let Ok(ref aaaa) = self.aaaa {
+            if aaaa.as_ref().header_counts().ancount() > 0 {
+                return false
+            }
+        }
+        if let Ok(ref a) = self.a {
+            if a.as_ref().header_counts().ancount() > 0 {
+                return false
+            }
+        }
+        true
+    }
+
     /// Returns a reference to one of the answers.
     fn answer(&self) -> &R::Answer {
         match self.aaaa.as_ref() {
@@ -253,9 +277,13 @@ impl<R: Resolver> FoundHosts<R> {
 
 impl<R: Resolver> FoundHosts<R>
 where for<'a> &'a R::Octets: OctetsRef {
+    pub fn qname(&self) -> ParsedDname<&R::Octets> {
+        unwrap!(self.answer().as_ref().first_question()).into_qname()
+    }
+
     /// Returns a reference to the canonical name for the host.
-    pub fn canonical_name(&self) -> Option<ParsedDname<&R::Octets>> {
-        self.answer().as_ref().canonical_name()
+    pub fn canonical_name(&self) -> ParsedDname<&R::Octets> {
+        unwrap!(self.answer().as_ref().canonical_name())
     }
 
     /// Returns an iterator over the IP addresses returned by the lookup.
@@ -292,7 +320,7 @@ where for<'a> &'a R::Octets: OctetsRef {
 /// An iterator over the IP addresses returned by a host lookup.
 #[derive(Clone, Debug)]
 pub struct FoundHostsIter<Ref: OctetsRef> {
-    name: Option<ParsedDname<Ref>>,
+    name: ParsedDname<Ref>,
     aaaa: Option<RecordIter<Ref, Aaaa>>,
     a: Option<RecordIter<Ref, A>>
 }
@@ -301,17 +329,16 @@ impl<Ref: OctetsRef> Iterator for FoundHostsIter<Ref> {
     type Item = IpAddr;
 
     fn next(&mut self) -> Option<IpAddr> {
-        let name = self.name.as_ref()?;
         while let Some(res) = self.aaaa.as_mut().and_then(Iterator::next) {
             if let Ok(record) = res {
-                if record.owner() == name {
+                if *record.owner() == self.name {
                     return Some(record.data().addr().into())
                 }
             }
         }
-        while let Some(res) = self.aaaa.as_mut().and_then(Iterator::next) {
+        while let Some(res) = self.a.as_mut().and_then(Iterator::next) {
             if let Ok(record) = res {
-                if record.owner() == name {
+                if *record.owner() == self.name {
                     return Some(record.data().addr().into())
                 }
             }

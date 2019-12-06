@@ -418,9 +418,16 @@ impl ResolvConf {
 
     fn parse_search(&mut self, words: SplitWhitespace) -> Result<(), Error> {
         let mut search = SearchList::new();
+        let mut root = false;
         for word in words {
             let name = SearchSuffix::from_str(word)?;
-            search.push(name)
+            if name.is_root() {
+                root = true
+            }
+            search.push(name);
+        }
+        if !root {
+            search.push(SearchSuffix::root());
         }
         self.options.search = search;
         Ok(())
