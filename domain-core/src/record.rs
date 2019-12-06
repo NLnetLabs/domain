@@ -753,7 +753,7 @@ impl<Ref: OctetsRef> Eq for ParsedRecord<Ref> { }
 
 //--- Parse
 //
-//    No Compose or Compress because the data may contain compressed domain
+//    No Compose because the data may contain compressed domain
 //    names.
 
 impl<Ref: OctetsRef> Parse<Ref> for ParsedRecord<Ref> {

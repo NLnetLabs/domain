@@ -1,13 +1,15 @@
 //! Looking up host names for addresses.
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 use std::str::FromStr;
 use futures::{Async, Future, Poll, try_ready};
+use unwrap::unwrap;
 use domain_core::iana::Rtype;
 use domain_core::message::RecordIter;
 use domain_core::name::{Dname, DnameBuilder, ParsedDname};
-use domain_core::rdata::parsed::Ptr;
+use domain_core::octets::{Octets128, OctetsRef};
+use domain_core::rdata::Ptr;
 use crate::resolver::Resolver;
 
 
@@ -54,28 +56,25 @@ pub struct FoundAddrs<R: Resolver>(R::Answer);
 
 impl<R: Resolver> FoundAddrs<R> {
     /// Returns an iterator over the host names.
-    pub fn iter(&self) -> FoundAddrsIter {
+    pub fn iter(
+        &self
+    ) -> FoundAddrsIter<&R::Octets>
+    where for<'a> &'a R::Octets: OctetsRef {
         FoundAddrsIter {
             name: self.0.as_ref().canonical_name(),
             answer: {
-                self.0.as_ref().answer().ok().map(|sec| sec.limit_to::<Ptr>())
+                self.0.as_ref().answer().ok().map(
+                    |sec| sec.limit_to::<Ptr<_>>()
+                )
             }
         }
     }
 }
 
-impl<R: Resolver> IntoIterator for FoundAddrs<R> {
-    type Item = ParsedDname;
-    type IntoIter = FoundAddrsIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<'a, R: Resolver> IntoIterator for &'a FoundAddrs<R> {
-    type Item = ParsedDname;
-    type IntoIter = FoundAddrsIter;
+impl<'a, R: Resolver> IntoIterator for &'a FoundAddrs<R>
+where for<'x> &'x R::Octets: OctetsRef {
+    type Item = ParsedDname<&'a R::Octets>;
+    type IntoIter = FoundAddrsIter<&'a R::Octets>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -86,13 +85,13 @@ impl<'a, R: Resolver> IntoIterator for &'a FoundAddrs<R> {
 //------------ FoundAddrsIter ------------------------------------------------
 
 /// An iterator over host names returned by address lookup.
-pub struct FoundAddrsIter {
-    name: Option<ParsedDname>,
-    answer: Option<RecordIter<Ptr>>,
+pub struct FoundAddrsIter<Ref: OctetsRef> {
+    name: Option<ParsedDname<Ref>>,
+    answer: Option<RecordIter<Ref, Ptr<ParsedDname<Ref>>>>,
 }
 
-impl Iterator for FoundAddrsIter {
-    type Item = ParsedDname;
+impl<Ref: OctetsRef> Iterator for FoundAddrsIter<Ref> {
+    type Item = ParsedDname<Ref>;
 
     #[allow(clippy::while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -114,37 +113,28 @@ impl Iterator for FoundAddrsIter {
 //------------ Helper Functions ---------------------------------------------
 
 /// Translates an IP address into a domain name.
-fn dname_from_addr(addr: IpAddr) -> Dname {
+fn dname_from_addr(addr: IpAddr) -> Dname<Octets128> {
     match addr {
-        IpAddr::V4(addr) => dname_from_v4(addr),
-        IpAddr::V6(addr) => dname_from_v6(addr)
+        IpAddr::V4(addr) => {
+            let octets = addr.octets();
+            unwrap!(Dname::from_str(
+                &format!(
+                    "{}.{}.{}.{}.in-addr.arpa.", octets[3],
+                    octets[2], octets[1], octets[0]
+                )
+            ))
+        }
+        IpAddr::V6(addr) => {
+            let mut res = DnameBuilder::<Octets128>::new();
+            for &item in addr.octets().iter().rev() {
+                res.append_label(&[hexdigit(item >> 4)]).unwrap();
+                res.append_label(&[hexdigit(item)]).unwrap();
+            }
+            res.append_label(b"ip6").unwrap();
+            res.append_label(b"arpa").unwrap();
+            unwrap!(res.into_dname())
+        }
     }
-}
-
-/// Translates an IPv4 address into a domain name.
-fn dname_from_v4(addr: Ipv4Addr) -> Dname {
-    // XXX There’s a more efficient way to doing this.
-    let octets = addr.octets();
-    Dname::from_str(
-        &format!(
-            "{}.{}.{}.{}.in-addr.arpa.", octets[3],
-            octets[2], octets[1], octets[0])
-    ).unwrap()
-}
-
-/// Translate an IPv6 address into a domain name.
-///
-/// As there are several ways to do this, the functions depends on
-/// resolver options, namely `use_bstring` and `use_ip6dotin`.
-fn dname_from_v6(addr: Ipv6Addr) -> Dname {
-    let mut res = DnameBuilder::new();
-    for &item in addr.octets().iter().rev() {
-        res.append_label(&[hexdigit(item >> 4)]).unwrap();
-        res.append_label(&[hexdigit(item)]).unwrap();
-    }
-    res.append_label(b"ip6").unwrap();
-    res.append_label(b"arpa").unwrap();
-    res.into_dname().unwrap()
 }
 
 fn hexdigit(nibble: u8) -> u8 {
@@ -167,4 +157,5 @@ fn hexdigit(nibble: u8) -> u8 {
         _ => unreachable!()
     }
 }
+
 

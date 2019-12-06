@@ -1,16 +1,21 @@
 //! Looking up SRV records.
 
-use std::io;
+use std::{io, slice};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use domain_core::name::{
-    Dname, ParsedDname, ParsedDnameError, ToRelativeDname, ToDname
+    Dname, ParsedDname, ToRelativeDname, ToDname
 };
 use domain_core::iana::Rtype;
-use domain_core::rdata::parsed::{A, Aaaa, Srv};
+use domain_core::octets::OctetsRef;
+use domain_core::parse::ParseError;
+use domain_core::rdata::{A, Aaaa, Srv};
 use rand;
 use rand::distributions::{Distribution, Uniform};
+use smallvec::SmallVec;
 use tokio::prelude::{Async, Future, Poll, Stream};
+use unwrap::unwrap;
 use crate::resolver::Resolver;
-use super::host::{FoundHosts, FoundHostsSocketIter, LookupHost, lookup_host};
+use super::host::{FoundHosts, LookupHost, lookup_host};
 
 
 //------------ lookup_srv ----------------------------------------------------
@@ -69,7 +74,17 @@ where
 }
 
 
-//------------ LookupData ----------------------------------------------------
+//============ Part One. Looking up SRV Records Themselves -------------------
+
+//------------ LookupSrv -----------------------------------------------------
+
+/// The future returned by [`lookup_srv()`].
+///
+/// [`lookup_srv()`]: fn.lookup_srv.html
+pub struct LookupSrv<R: Resolver, S, N> {
+    data: Option<LookupData<R, S, N>>,
+    query: Result<R::Query, Option<SrvError>>,
+}
 
 #[derive(Debug)]
 struct LookupData<R, S, N> {
@@ -89,22 +104,12 @@ struct LookupData<R, S, N> {
 }
 
 
-//------------ LookupSrv -----------------------------------------------------
-
-/// The future returned by [`lookup_srv()`].
-///
-/// [`lookup_srv()`]: fn.lookup_srv.html
-pub struct LookupSrv<R: Resolver, S, N> {
-    data: Option<LookupData<R, S, N>>,
-    query: Result<R::Query, Option<SrvError>>,
-}
-
-
 impl<R, S, N> Future for LookupSrv<R, S, N>
 where
     R: Resolver,
     S: ToRelativeDname + Clone + Send + 'static,
-    N: ToDname + Send + 'static
+    N: ToDname + Send + 'static,
+    for<'a> &'a R::Octets: OctetsRef,
 {
     type Item = Option<FoundSrvs<R, S>>;
     type Error = SrvError;
@@ -121,12 +126,7 @@ where
                         )?
                     ))
                 }
-                Err(_) => {
-                    Ok(Async::Ready(Some(
-                        FoundSrvs::new_dummy(
-                            self.data.take().expect("polled resolved future"))
-                    )))
-                }
+                Err(err) => Err(SrvError::Query(err)),
             }
             Err(ref mut err) => {
                 Err(err.take().expect("polled resolved future"))
@@ -136,101 +136,15 @@ where
 }
 
 
-//------------ LookupSrvStream -----------------------------------------------
-
-/// Stream over SrvItem elements.
-///
-/// SrvItem elements are resolved as needed, skipping them in case of failure.
-/// It is therefore guaranteed to yield only SrvItem structs that have
-/// a `SrvItemState::Resolved` state.
-pub struct LookupSrvStream<R: Resolver, S> {
-    /// The resolver to use for A/AAAA requests.
-    resolver: R,
-
-    /// A vector of (potentially unresolved) SrvItem elements.
-    ///
-    /// Note that we take items from this via `pop`, so it needs to be ordered
-    /// backwards.
-    items: Vec<SrvItem<S>>,
-
-    /// A/AAAA lookup for the last `SrvItem`  in `items`.
-    lookup: Option<LookupHost<R>>
-}
-
-impl<R: Resolver, S> LookupSrvStream<R, S> {
-    fn new(found: FoundSrvs<R, S>) -> Self {
-        LookupSrvStream {
-            resolver: found.resolver,
-            items: found.items.into_iter().rev().collect(),
-            lookup: None,
-        }
-    }
-}
-
-
-//--- Stream
-
-impl<R, S> Stream for LookupSrvStream<R, S>
-where R: Resolver, S: ToRelativeDname + Clone + Send + 'static {
-    type Item = ResolvedSrvItem<S>;
-    type Error = SrvError;
-
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        // See if we have a query result. We need to break this in to because
-        // of the mut ref on the inside of self.lookup.
-        let res = if let Some(ref mut query) = self.lookup {
-            match query.poll() {
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(found)) => {
-                    Some(ResolvedSrvItem::from_item_and_hosts(
-                        self.items.pop().unwrap(),
-                        found
-                    ))
-                }
-                Err(_) => None
-            }
-        }
-        else {
-            None
-        };
-
-        // We have a query result. Clear lookup and return.
-        if let Some(res) = res {
-            self.lookup = None;
-            return Ok(Async::Ready(Some(res)))
-        }
-
-        // Start a new query if necessary. Return if we are done.
-        match self.items.last() {
-            Some(item) => {
-                if let SrvItemState::Unresolved(ref host) = item.state {
-                    self.lookup = Some(lookup_host(&self.resolver, host));
-                }
-            }
-            None => return Ok(Async::Ready(None)) // we are done.
-        }
-
-        if self.lookup.is_some() {
-            self.poll()
-        }
-        else {
-            Ok(Async::Ready(Some(
-                ResolvedSrvItem::from_item(self.items.pop().unwrap()).unwrap()
-            )))
-        }
-    }
-}
-
-
 //------------ FoundSrvs -----------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct FoundSrvs<R, S> {
+pub struct FoundSrvs<R: Resolver, S> {
     resolver: R,
     items: Vec<SrvItem<S>>,
 }
 
-impl<R, S> FoundSrvs<R, S> {
+impl<R: Resolver, S> FoundSrvs<R, S> {
     pub fn into_stream(self) -> LookupSrvStream<R, S>
     where R: Resolver {
         LookupSrvStream::new(self)
@@ -245,7 +159,8 @@ impl<R, S> FoundSrvs<R, S> {
     }
 }
 
-impl<R: Resolver, S: Clone> FoundSrvs<R, S> {
+impl<R: Resolver, S: Clone> FoundSrvs<R, S>
+where for<'a> &'a R::Octets: OctetsRef {
     fn new<N: ToDname>(
         answer: R::Answer,
         data: LookupData<R, S, N>
@@ -282,18 +197,19 @@ impl<R: Resolver, S: Clone> FoundSrvs<R, S> {
                     weight: 0,
                     port: data.fallback_port,
                     service: None,
-                    state: SrvItemState::Unresolved(data.host.to_name())
+                    target: unwrap!(data.host.to_dname()),
+                    resolved: None
                 }
             ]
         }
     }
 
-    fn process_records(
-        rrs: &mut Vec<Srv>,
-        answer: &R::Answer,
-        name: &ParsedDname
+    fn process_records<'a>(
+        rrs: &mut Vec<Srv<ParsedDname<&'a R::Octets>>>,
+        answer: &'a R::Answer,
+        name: &ParsedDname<&R::Octets>,
     ) -> Result<(), SrvError> {
-        for record in answer.as_ref().answer()?.limit_to::<Srv>() {
+        for record in answer.as_ref().answer()?.limit_to::<Srv<_>>() {
             if let Ok(record) = record {
                 if record.owner() == name {
                     rrs.push(record.data().clone())
@@ -304,14 +220,14 @@ impl<R: Resolver, S: Clone> FoundSrvs<R, S> {
     }
 
     fn items_from_rrs<N>(
-        rrs: &[Srv],
+        rrs: &[Srv<ParsedDname<&R::Octets>>],
         answer: &R::Answer,
         result: &mut Vec<SrvItem<S>>,
         data: &LookupData<R, S, N>,
     ) -> Result<(), SrvError> {
         for rr in rrs {
             let mut addrs = Vec::new();
-            let name = rr.target().to_name();
+            let name = unwrap!(rr.target().to_dname());
             for record in answer.as_ref().additional()?.limit_to::<A>() {
                 if let Ok(record) = record {
                     if record.owner() == &name {
@@ -326,25 +242,26 @@ impl<R: Resolver, S: Clone> FoundSrvs<R, S> {
                     }
                 }
             }
-            let state = if addrs.is_empty() {
-                SrvItemState::Unresolved(name)
+            let resolved = if addrs.is_empty() {
+                None
             }
             else {
-                SrvItemState::Resolved(FoundHosts::new(name, addrs))
+                Some(addrs)
             };
             result.push(SrvItem  {
                 priority: rr.priority(),
                 weight: rr.weight(),
-                state,
                 port: rr.port(),
-                service: Some(data.service.clone())
+                service: Some(data.service.clone()),
+                target: name,
+                resolved
             })
         }
         Ok(())
     }
 }
 
-impl<R, S> FoundSrvs<R, S> {
+impl<R: Resolver, S> FoundSrvs<R, S> {
     fn reorder_items(items: &mut [SrvItem<S>]) {
         // First, reorder by priority and weight, effectively
         // grouping by priority, with weight 0 records at the beginning of
@@ -396,17 +313,11 @@ pub struct SrvItem<S> {
     weight: u16,
     port: u16,
     service: Option<S>,
-    state: SrvItemState
-}
-
-#[derive(Clone, Debug)]
-pub enum SrvItemState {
-    Unresolved(Dname),
-    Resolved(FoundHosts)
+    target: Dname<SmallVec<[u8; 32]>>,
+    resolved: Option<Vec<IpAddr>>,
 }
 
 impl<S> SrvItem<S> {
-
     /// Returns a reference to the service + proto part of the domain name.
     ///
     /// Useful when mixing results from different SRV queries.
@@ -415,10 +326,97 @@ impl<S> SrvItem<S> {
     }
 
     /// Returns a reference to the name of the target.
-    pub fn target(&self) -> &Dname {
-        match self.state {
-            SrvItemState::Unresolved(ref target) => target,
-            SrvItemState::Resolved(ref found_hosts) => found_hosts.canonical_name()
+    pub fn target(&self) -> &Dname<SmallVec<[u8; 32]>> {
+        &self.target
+    }
+}
+
+
+//============ Part Two. Resolving the SRV Targets ---------------------------
+
+//------------ LookupSrvStream -----------------------------------------------
+
+/// Stream over resolved SRV targets.
+pub struct LookupSrvStream<R: Resolver, S> {
+    /// The resolver to use for A/AAAA requests.
+    resolver: R,
+
+    /// A vector of (potentially unresolved) SrvItem elements.
+    ///
+    /// Note that we take items from this via `pop`, so it needs to be ordered
+    /// backwards.
+    items: Vec<SrvItem<S>>,
+
+    /// A/AAAA lookup for the last `SrvItem`  in `items`.
+    lookup: Option<LookupHost<R>>
+}
+
+impl<R: Resolver, S> LookupSrvStream<R, S> {
+    fn new(found: FoundSrvs<R, S>) -> Self {
+        LookupSrvStream {
+            resolver: found.resolver,
+            items: found.items.into_iter().rev().collect(),
+            lookup: None,
+        }
+    }
+}
+
+
+//--- Stream
+
+impl<R, S> Stream for LookupSrvStream<R, S>
+where
+    R: Resolver,
+    for<'a> &'a R::Octets: OctetsRef,
+    S: ToRelativeDname + Clone + Send + 'static,
+{
+    type Item = ResolvedSrvItem<S>;
+    type Error = SrvError;
+
+    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+        // See if we have a query result. We need to break this in to because
+        // of the mut ref on the inside of self.lookup.
+        let res = if let Some(ref mut query) = self.lookup {
+            match query.poll() {
+                Ok(Async::NotReady) => return Ok(Async::NotReady),
+                Ok(Async::Ready(found)) => {
+                    Some(ResolvedSrvItem::from_item_and_hosts(
+                        self.items.pop().unwrap(),
+                        found
+                    ))
+                }
+                Err(_) => None
+            }
+        }
+        else {
+            None
+        };
+
+        // We have a query result. Clear lookup and return.
+        if let Some(res) = res {
+            self.lookup = None;
+            return Ok(Async::Ready(Some(res)))
+        }
+
+        // Start a new query if necessary. Return if we are done.
+        match self.items.last() {
+            Some(item) => {
+                if item.resolved.is_none() {
+                    self.lookup = Some(
+                        lookup_host(&self.resolver, &item.target)
+                    );
+                }
+            }
+            None => return Ok(Async::Ready(None)) // we are done.
+        }
+
+        if self.lookup.is_some() {
+            self.poll()
+        }
+        else {
+            Ok(Async::Ready(Some(
+                ResolvedSrvItem::from_item(self.items.pop().unwrap()).unwrap()
+            )))
         }
     }
 }
@@ -432,10 +430,12 @@ pub struct ResolvedSrvItem<S> {
     weight: u16,
     port: u16,
     service: Option<S>,
-    hosts: FoundHosts,
+    target: Dname<SmallVec<[u8; 32]>>,
+    addrs: Vec<IpAddr>,
 }
 
 impl<S> ResolvedSrvItem<S> {
+    /*
     /// Returns an iterator over socket addresses matching an SRV record.
     ///
     /// SrvItem does not implement the `ToSocketAddrs` trait as the result
@@ -443,30 +443,63 @@ impl<S> ResolvedSrvItem<S> {
     pub fn to_socket_addrs(&self) -> FoundHostsSocketIter {
         self.hosts.port_iter(self.port)
     }
+    */
 
     fn from_item(item: SrvItem<S>) -> Option<Self> {
-        if let SrvItemState::Resolved(hosts) = item.state {
-            Some(ResolvedSrvItem {
-            priority: item.priority,
-            weight: item.weight,
-            port: item.port,
-            service: item.service,
-            hosts,
-            })
-        }
-        else {
-            None
+        match item.resolved {
+            Some(addrs) => {
+                Some(ResolvedSrvItem {
+                    priority: item.priority,
+                    weight: item.weight,
+                    port: item.port,
+                    service: item.service,
+                    target: item.target,
+                    addrs,
+                })
+            }
+            None => None,
         }
     }
 
-    fn from_item_and_hosts(item: SrvItem<S>, hosts: FoundHosts) -> Self {
+    fn from_item_and_hosts<R: Resolver>(
+        item: SrvItem<S>,
+        hosts: FoundHosts<R>
+    ) -> Self
+    where for<'a> &'a R::Octets: OctetsRef {
         ResolvedSrvItem {
             priority: item.priority,
             weight: item.weight,
             port: item.port,
             service: item.service,
-            hosts,
+            target: item.target,
+            addrs: hosts.iter().collect(),
         }
+    }
+}
+
+
+//------------ ResolvedSrvItemSocketIter -------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct ResolvedSrvItemSocketIter<'a> {
+    port: u16,
+    addrs: slice::Iter<'a, IpAddr>,
+}
+
+impl<'a> Iterator for ResolvedSrvItemSocketIter<'a> {
+    type Item = SocketAddr;
+
+    fn next(&mut self) -> Option<SocketAddr> {
+        self.addrs.next().map(|addr| SocketAddr::new(*addr, self.port))
+    }
+}
+
+    
+impl<'a> ToSocketAddrs for ResolvedSrvItemSocketIter<'a> {
+    type Iter = Self;
+
+    fn to_socket_addrs(&self) -> io::Result<Self> {
+        Ok(self.clone())
     }
 }
 
@@ -486,8 +519,8 @@ impl From<io::Error> for SrvError {
     }
 }
 
-impl From<ParsedDnameError> for SrvError {
-    fn from(_: ParsedDnameError) -> SrvError {
+impl From<ParseError> for SrvError {
+    fn from(_: ParseError) -> SrvError {
         SrvError::MalformedAnswer
     }
 }

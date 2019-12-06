@@ -20,6 +20,7 @@ use crate::record::Record;
 
 //------------ MessageBuilder ------------------------------------------------
 
+#[derive(Clone, Debug)]
 pub struct MessageBuilder<Target> {
     target: Target,
 }
@@ -125,6 +126,7 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
 
 //------------ QuestionBuilder -----------------------------------------------
 
+#[derive(Clone, Debug)]
 pub struct QuestionBuilder<Target> {
     builder: MessageBuilder<Target>,
 }
@@ -258,6 +260,7 @@ pub trait RecordSectionBuilder {
 
 //------------ AnswerBuilder -------------------------------------------------
 
+#[derive(Clone, Debug)]
 pub struct AnswerBuilder<Target> {
     builder: MessageBuilder<Target>,
     start: usize,
@@ -340,6 +343,7 @@ where Target: OctetsBuilder {
 
 //------------ AuthorityBuilder ----------------------------------------------
 
+#[derive(Clone, Debug)]
 pub struct AuthorityBuilder<Target> {
     answer: AnswerBuilder<Target>,
     start: usize
@@ -425,6 +429,7 @@ impl<Target: OctetsBuilder> RecordSectionBuilder for AuthorityBuilder<Target> {
 
 //------------ AdditionalBuilder ---------------------------------------------
 
+#[derive(Clone, Debug)]
 pub struct AdditionalBuilder<Target> {
     authority: AuthorityBuilder<Target>,
     start: usize,
@@ -511,6 +516,7 @@ where Target: OctetsBuilder {
 
 //------------ OptBuilder ----------------------------------------------------
 
+#[derive(Clone, Debug)]
 pub struct OptBuilder<Target> {
     additional: AdditionalBuilder<Target>,
     start: usize,
@@ -538,7 +544,7 @@ impl<Target: OctetsBuilder> OptBuilder<Target> {
         })
     }
 
-    fn rewind(self) -> AdditionalBuilder<Target> {
+    pub fn rewind(self) -> AdditionalBuilder<Target> {
         let mut res = self.additional;
         res.as_target_mut().truncate(self.start);
         res.counts_mut().set_arcount(self.arcount);
@@ -622,7 +628,7 @@ impl<Target: OctetsBuilder> OptBuilder<Target> {
     }
 
     pub fn additional(self) -> AdditionalBuilder<Target> {
-        self.rewind()
+        self.additional
     }
 
     pub fn finish(self) -> Target {
@@ -663,7 +669,7 @@ impl<Target> DerefMut for OptBuilder<Target> {
 
 //------------ StreamTarget --------------------------------------------------
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StreamTarget<Target> {
     target: Target
 }

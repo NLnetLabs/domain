@@ -1,14 +1,17 @@
 //! Looking up host names.
 
-use std::{io, mem, slice};
+use std::{io, mem};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use domain_core::iana::Rtype;
-use domain_core::message::Message;
+use domain_core::message::RecordIter;
 use domain_core::name::{
-    Dname, ParsedDname, ParsedDnameError, ToDname, ToRelativeDname
+    ParsedDname, ToDname, ToRelativeDname
 };
-use domain_core::rdata::parsed::{A, Aaaa};
+use domain_core::octets::OctetsRef;
+//use domain_core::parse::ParseError;
+use domain_core::rdata::{A, Aaaa};
 use tokio::prelude::{Async, Future, Poll};
+use unwrap::unwrap;
 use crate::resolver::{Resolver, SearchNames};
 
 
@@ -27,11 +30,11 @@ use crate::resolver::{Resolver, SearchNames};
 /// return the canonical name.
 pub fn lookup_host<R: Resolver, N: ToDname>(
     resolver: &R,
-    name: &N
+    qname: N
 ) -> LookupHost<R> {
     LookupHost {
-        a: MaybeDone::NotYet(resolver.query((name, Rtype::A))),
-        aaaa: MaybeDone::NotYet(resolver.query((name, Rtype::Aaaa))),
+        a: MaybeDone::NotYet(resolver.query((&qname, Rtype::A))),
+        aaaa: MaybeDone::NotYet(resolver.query((&qname, Rtype::Aaaa))),
     }
 }
 
@@ -74,7 +77,7 @@ impl<R: Resolver + SearchNames, N: ToRelativeDname> SearchHost<R, N> {
 
 impl<R, N> Future for SearchHost<R, N>
 where R: Resolver + SearchNames, N: ToRelativeDname {
-    type Item = FoundHosts;
+    type Item = FoundHosts<R>;
     type Error = io::Error;
 
     fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
@@ -123,14 +126,16 @@ pub struct LookupHost<R: Resolver> {
 //--- Future
 
 impl<R: Resolver> Future for LookupHost<R> {
-    type Item = FoundHosts;
+    type Item = FoundHosts<R>;
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         if (self.a.poll(), self.aaaa.poll()) != (true, true) {
             return Ok(Async::NotReady)
         }
-        match FoundHosts::from_answers(self.a.take(), self.aaaa.take()) {
+        match FoundHosts::new(
+            self.aaaa.take(), self.a.take()
+        ) {
             Ok(res) => Ok(Async::Ready(res)),
             Err(err) => Err(err)
         }
@@ -204,8 +209,6 @@ impl<A: Future> MaybeDone<A> {
 }
 
 
-
-
 //------------ FoundHosts ----------------------------------------------------
 
 /// The value returned by a successful host lookup.
@@ -216,91 +219,60 @@ impl<A: Future> MaybeDone<A> {
 ///
 /// The `canonical_name()` method returns the canonical name of the host for
 /// which the addresses were found.
-#[derive(Clone, Debug)]
-pub struct FoundHosts {
-    /// The domain name that was resolved.
-    qname: Dname,
+#[derive(Debug)]
+pub struct FoundHosts<R: Resolver> {
+    /// The answer to the AAAA query.
+    aaaa: Result<R::Answer, io::Error>,
 
-    /// The canonical domain name for the host.
-    canonical: Dname,
-
-    /// All the IP addresses we’ve got.
-    addrs: Vec<IpAddr>
+    /// The answer to the A query.
+    a: Result<R::Answer, io::Error>,
 }
 
-impl FoundHosts {
-    pub fn new(canonical: Dname, addrs: Vec<IpAddr>) -> Self {
-        FoundHosts {
-            qname: canonical.clone(),
-            canonical,
-            addrs,
-        }
-    }
-
-    /// Creates a new value from the results of the A and AAAA queries.
-    ///
-    /// Either of the queries can have resulted in an error but not both.
-    fn from_answers<M: AsRef<Message>>(
-        a: Result<M, io::Error>, b: Result<M, io::Error>
+impl<R: Resolver> FoundHosts<R> {
+    pub fn new(
+        aaaa: Result<R::Answer, io::Error>,
+        a: Result<R::Answer, io::Error>
     ) -> Result<Self, io::Error> {
-        let (a, b) = match (a, b) {
-            (Ok(a), b) => (a, b),
-            (a, Ok(b)) => (b, a),
-            (Err(a), Err(_)) => return Err(a)
-        };
-        let qname = a.as_ref().first_question().unwrap().qname().to_name();
-        let name = a.as_ref().canonical_name().unwrap();
-        let mut addrs = Vec::new();
-        Self::process_records(&mut addrs, &a, &name).ok();
-        if let Ok(b) = b {
-            Self::process_records(&mut addrs, &b, &name).ok();
-        }
-        Ok(FoundHosts {
-            qname,
-            canonical: name.to_name(),
-            addrs,
-        })
-    }
-
-    /// Processes the records of a response message.
-    ///
-    /// Adds all A and AAA records contained in `msg`’s answer to `addrs`,
-    /// assuming they domain name in the record matches `name`.
-    fn process_records<M: AsRef<Message>>(
-        addrs: &mut Vec<IpAddr>,
-        msg: &M,
-        name: &ParsedDname
-    ) -> Result<(), ParsedDnameError> {
-        for record in msg.as_ref().answer()?.limit_to::<A>() {
-            if let Ok(record) = record {
-                if record.owner() == name {
-                    addrs.push(IpAddr::V4(record.data().addr()))
-                }
+        if aaaa.is_err() && a.is_err() {
+            match aaaa {
+                Err(err) => return Err(err),
+                _ => unreachable!()
             }
         }
-        for record in msg.as_ref().answer()?.limit_to::<Aaaa>() {
-            if let Ok(record) = record {
-                if record.owner() == name {
-                    addrs.push(IpAddr::V6(record.data().addr()))
-                }
-            }
+        Ok(FoundHosts { aaaa, a })
+    }
+
+    /// Returns a reference to one of the answers.
+    fn answer(&self) -> &R::Answer {
+        match self.aaaa.as_ref() {
+            Ok(answer) => answer,
+            Err(_) => unwrap!(self.a.as_ref())
         }
-        Ok(())
     }
+}
 
-    /// Returns a reference to the domain name that was queried.
-    pub fn qname(&self) -> &Dname {
-        &self.qname
-    }
-
+impl<R: Resolver> FoundHosts<R>
+where for<'a> &'a R::Octets: OctetsRef {
     /// Returns a reference to the canonical name for the host.
-    pub fn canonical_name(&self) -> &Dname {
-        &self.canonical
+    pub fn canonical_name(&self) -> Option<ParsedDname<&R::Octets>> {
+        self.answer().as_ref().canonical_name()
     }
 
     /// Returns an iterator over the IP addresses returned by the lookup.
-    pub fn iter(&self) -> FoundHostsIter {
-        FoundHostsIter(self.addrs.iter())
+    pub fn iter(&self) -> FoundHostsIter<&R::Octets> {
+        FoundHostsIter {
+            name: self.canonical_name(),
+            aaaa: {
+                self.aaaa.as_ref().ok()
+                .and_then(|msg| msg.as_ref().answer().ok())
+                .map(|answer| answer.limit_to::<Aaaa>())
+            },
+            a: {
+                self.a.as_ref().ok()
+                .and_then(|msg| msg.as_ref().answer().ok())
+                .map(|answer| answer.limit_to::<A>())
+            }
+        }
     }
 
     /// Returns an iterator over socket addresses gained from the lookup.
@@ -308,9 +280,10 @@ impl FoundHosts {
     /// The socket addresses are gained by combining the IP addresses with
     /// `port`. The returned iterator implements `ToSocketAddrs` and thus
     /// can be used where `std::net` wants addresses right away.
-    pub fn port_iter(&self, port: u16) -> FoundHostsSocketIter {
-        FoundHostsSocketIter(self.addrs.iter(), port)
+    pub fn port_iter(&self, port: u16) -> FoundHostsSocketIter<&R::Octets> {
+        FoundHostsSocketIter { iter: self.iter(), port }
     }
+
 }
 
 
@@ -318,13 +291,32 @@ impl FoundHosts {
 
 /// An iterator over the IP addresses returned by a host lookup.
 #[derive(Clone, Debug)]
-pub struct FoundHostsIter<'a>(slice::Iter<'a, IpAddr>);
+pub struct FoundHostsIter<Ref: OctetsRef> {
+    name: Option<ParsedDname<Ref>>,
+    aaaa: Option<RecordIter<Ref, Aaaa>>,
+    a: Option<RecordIter<Ref, A>>
+}
 
-impl<'a> Iterator for FoundHostsIter<'a> {
+impl<Ref: OctetsRef> Iterator for FoundHostsIter<Ref> {
     type Item = IpAddr;
 
     fn next(&mut self) -> Option<IpAddr> {
-        self.0.next().cloned()
+        let name = self.name.as_ref()?;
+        while let Some(res) = self.aaaa.as_mut().and_then(Iterator::next) {
+            if let Ok(record) = res {
+                if record.owner() == name {
+                    return Some(record.data().addr().into())
+                }
+            }
+        }
+        while let Some(res) = self.aaaa.as_mut().and_then(Iterator::next) {
+            if let Ok(record) = res {
+                if record.owner() == name {
+                    return Some(record.data().addr().into())
+                }
+            }
+        }
+        None
     }
 }
 
@@ -333,22 +325,24 @@ impl<'a> Iterator for FoundHostsIter<'a> {
 
 /// An iterator over socket addresses derived from a host lookup.
 #[derive(Clone, Debug)]
-pub struct FoundHostsSocketIter<'a>(slice::Iter<'a, IpAddr>, u16);
+pub struct FoundHostsSocketIter<Ref: OctetsRef> {
+    iter: FoundHostsIter<Ref>,
+    port: u16,
+}
 
-impl<'a> Iterator for FoundHostsSocketIter<'a> {
+impl<Ref: OctetsRef> Iterator for FoundHostsSocketIter<Ref> {
     type Item = SocketAddr;
 
     fn next(&mut self) -> Option<SocketAddr> {
-        self.0.next().map(|addr| SocketAddr::new(*addr, self.1))
+        self.iter.next().map(|addr| SocketAddr::new(addr, self.port))
     }
 }
 
-impl<'a> ToSocketAddrs for FoundHostsSocketIter<'a> {
+impl<Ref: OctetsRef> ToSocketAddrs for FoundHostsSocketIter<Ref> {
     type Iter = Self;
 
     fn to_socket_addrs(&self) -> io::Result<Self> {
         Ok(self.clone())
     }
 }
-
 

@@ -2,11 +2,11 @@ use std::{io, ops};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use domain_core::query::{QueryBuilder, QueryMessage};
 use tokio::prelude::{Async, Future};
 use tokio::timer::Timeout;
+use unwrap::unwrap;
 use super::conf::{ResolvConf, ServerConf, Transport};
-use super::resolver::Answer;
+use super::resolver::{Answer, QueryMessage};
 
 mod tcp;
 mod udp;
@@ -39,19 +39,22 @@ impl ServerInfo {
         self.edns.store(false, Ordering::Relaxed);
     }
 
-    pub fn prepare_message(&self, query: &mut QueryBuilder) {
-        query.revert_additional();
+    pub fn prepare_message(&self, mut query: QueryMessage) -> QueryMessage {
+        query.rewind();
         if self.does_edns() {
-            query.add_opt(|opt| {
-                // These are the values that Unbound uses.
-                // XXX Perhaps this should be configurable.
-                opt.header_mut().set_udp_payload_size(
-                    match self.conf.addr {
-                        SocketAddr::V4(_) => 1472,
-                        SocketAddr::V6(_) => 1232
-                    }
-                )
-            })
+            let mut opt = unwrap!(query.opt());
+            // These are the values that Unbound uses.
+            // XXX Perhaps this should be configurable.
+            opt.set_udp_payload_size(
+                match self.conf.addr {
+                    SocketAddr::V4(_) => 1472,
+                    SocketAddr::V6(_) => 1232
+                }
+            );
+            opt.additional()
+        }
+        else {
+            query
         }
     }
 }

@@ -496,6 +496,10 @@ macro_rules! octets_array {
         }
 
         impl $name {
+            pub fn new() -> Self {
+                Default::default()
+            }
+
             pub fn as_slice(&self) -> &[u8] {
                 &self.octets[..self.len]
             }

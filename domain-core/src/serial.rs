@@ -6,7 +6,7 @@
 //! [`Serial`]: struct.Serial.html
 
 use core::{cmp, fmt, str};
-#[cfg(feature = "chrono")] use chrono::{DateTime, Utc, TimeZone};
+#[cfg(feature = "bytes")] use chrono::{Utc, TimeZone};
 use crate::cmp::CanonicalOrd;
 #[cfg(feature = "bytes")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner, SyntaxError
@@ -88,7 +88,7 @@ impl Serial {
     /// In RRSIG records, the expiration and inception time is given as
     /// serial values. Their master file format can either be the signature
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
-    #[cfg(feature="bytes")]
+    #[cfg(all(feature="bytes"))]
     pub fn scan_rrsig<C: CharSource>(
         scanner: &mut Scanner<C>
     ) -> Result<Self, ScanError> {

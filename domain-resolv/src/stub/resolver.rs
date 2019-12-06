@@ -8,16 +8,21 @@
 
 use std::{io, ops};
 use std::sync::Arc;
+use bytes::Bytes;
 use domain_core::iana::Rcode;
 use domain_core::message::Message;
-use domain_core::name::{Dname, ToDname};
-use domain_core::query::{QueryBuilder, QueryMessage};
+use domain_core::message_builder::{
+    AdditionalBuilder, MessageBuilder, StreamTarget
+};
+use domain_core::name::ToDname;
+use domain_core::octets::Octets512;
 use domain_core::question::Question;
 use tokio::prelude::{Async, Future};
 use tokio::prelude::future::lazy;
 use tokio::runtime::Runtime;
+use unwrap::unwrap;
 use crate::resolver::{Resolver, SearchNames};
-use super::conf::{ResolvConf, ResolvOptions};
+use super::conf::{ResolvConf, ResolvOptions, SearchSuffix};
 use super::net::{ServerInfo, ServerList, ServerListCounter, ServerQuery};
 
 
@@ -141,6 +146,7 @@ impl Default for StubResolver {
 }
 
 impl Resolver for StubResolver {
+    type Octets = Bytes;
     type Answer = Answer;
     type Query = Query;
 
@@ -151,6 +157,7 @@ impl Resolver for StubResolver {
 }
 
 impl SearchNames for StubResolver {
+    type Name = SearchSuffix;
     type Iter = SearchIter;
 
     fn search_iter(&self) -> Self::Iter {
@@ -164,7 +171,6 @@ impl SearchNames for StubResolver {
 
 //------------ Query ---------------------------------------------------------
 
-#[derive(Debug)]
 pub struct Query {
     /// The resolver whose configuration we are using.
     resolver: StubResolver,
@@ -183,18 +189,24 @@ pub struct Query {
     /// If this is an error, we had to bail out before ever starting a query.
     query: Result<ServerQuery, Option<io::Error>>,
 
-    /// The query message we currently work on.
+    /// The message for this query.
     ///
-    /// This is an option so we can take it out temporarily to manipulate it.
-    message: Option<QueryMessage>,
+    /// The message has been prepared to contain the correct header and the
+    /// question and has been positioned such that only the OPT record needs
+    /// to be added if necessary.
+    message: QueryMessage,
 }
 
 impl Query {
     fn new<N, Q>(resolver: StubResolver, question: Q) -> Self
     where N: ToDname, Q: Into<Question<N>> {
-        let mut message = QueryBuilder::new(question);
-        message.set_rd(true);
-        let message = message.freeze();
+        let mut message = unwrap!(MessageBuilder::from_target(
+            unwrap!(StreamTarget::new(Octets512::new()))
+        ));
+        message.header_mut().set_rd(true);
+        let mut message = message.question();
+        unwrap!(message.push(question));
+        let message = message.additional();
         let (preferred, counter) = if resolver.options().use_vc {
             (false, resolver.0.stream.counter(resolver.options().rotate))
         }
@@ -207,7 +219,7 @@ impl Query {
             attempt: 0,
             counter,
             query: Err(None),
-            message: Some(message)
+            message
         };
         res.query = match res.start_query() {
             Some(query) => Ok(query),
@@ -222,21 +234,13 @@ impl Query {
     /// `None` if a query cannot be started because there are no more servers
     /// left.
     fn start_query(&mut self) -> Option<ServerQuery> {
-        let message = self.message.take().unwrap();
-        let (message, res) = {
-            match self.current_server() {
-                Some(info) => {
-                    let mut message = message.unfreeze();
-                    info.prepare_message(&mut message);
-                    let message = message.freeze();
-                    let res = ServerQuery::new(message.clone(), info);
-                    (message, Some(res))
-                }
-                None => (message, None)
+        match self.current_server() {
+            Some(info) => {
+                let message = info.prepare_message(self.message.clone());
+                Some(ServerQuery::new(message, info))
             }
-        };
-        self.message = Some(message);
-        res
+            None => None
+        }
     }
 
     /// Returns the info for the current server.
@@ -347,15 +351,21 @@ impl Future for Query {
 }
 
 
+//------------ QueryMessage --------------------------------------------------
+
+// XXX This needs to be re-evaluated if we start adding OPTtions to the query.
+pub(super) type QueryMessage = AdditionalBuilder<StreamTarget<Octets512>>;
+
+
 //------------ Answer --------------------------------------------------------
 
 /// The answer to a question.
 ///
 /// This type is a wrapper around the DNS [`Message`] containing the answer
 /// that provides some additional information.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Answer {
-    message: Message,
+    message: Message<Bytes>,
 }
 
 impl Answer {
@@ -371,27 +381,27 @@ impl Answer {
         self.message.header().tc()
     }
 
-    pub fn into_message(self) -> Message {
+    pub fn into_message(self) -> Message<Bytes> {
         self.message
     }
 }
 
-impl From<Message> for Answer {
-    fn from(message: Message) -> Self {
+impl From<Message<Bytes>> for Answer {
+    fn from(message: Message<Bytes>) -> Self {
         Answer { message }
     }
 }
 
 impl ops::Deref for Answer {
-    type Target = Message;
+    type Target = Message<Bytes>;
 
     fn deref(&self) -> &Self::Target {
         &self.message
     }
 }
 
-impl AsRef<Message> for Answer {
-    fn as_ref(&self) -> &Message {
+impl AsRef<Message<Bytes>> for Answer {
+    fn as_ref(&self) -> &Message<Bytes> {
         &self.message
     }
 }
@@ -406,7 +416,7 @@ pub struct SearchIter {
 }
 
 impl Iterator for SearchIter {
-    type Item = Dname;
+    type Item = SearchSuffix;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(res) = self.resolver.options().search.get(self.pos) {
