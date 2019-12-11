@@ -11,5 +11,6 @@ domain-core   = { path = "../domain-core" }
 domain-resolv = { path = "../domain-resolv" }
 domain-tsig   = { path = "../domain-tsig" }
 bytes         = "0.4"
-ring          = "0.15.0-alpha"
+ring          = "0.16"
+unwrap        = "1.2"
 

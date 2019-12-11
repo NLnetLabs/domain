@@ -157,7 +157,6 @@ impl<O, N> Tsig<O, N> {
     ///
     /// [`fudge`]: #method.fudge
     /// [`time_signed`]: #method.time_signed
-    #[cfg(feature = "chrono")]
     pub fn is_valid_now(&self) -> bool {
         Time48::now().eq_fudged(self.time_signed, self.fudge.into())
     }

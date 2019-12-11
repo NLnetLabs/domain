@@ -83,9 +83,9 @@ impl<Octets> Message<Octets> {
 /// # Header Section
 ///
 impl<Octets: AsRef<[u8]>> Message<Octets> {
-    /// Returns a reference to the message header.
-    pub fn header(&self) -> &Header {
-        Header::for_message_slice(self.as_slice())
+    /// Returns a the message header.
+    pub fn header(&self) -> Header {
+        *Header::for_message_slice(self.as_slice())
     }
     
     /// Returns a mutable reference to the message header.
@@ -94,18 +94,14 @@ impl<Octets: AsRef<[u8]>> Message<Octets> {
         Header::for_message_slice_mut(self.as_slice_mut())
     }
 
-    /// Returns a reference the header counts of the message.
-    pub fn header_counts(&self) -> &HeaderCounts {
-        HeaderCounts::for_message_slice(self.as_slice())
+    /// Returns the header counts of the message.
+    pub fn header_counts(&self) -> HeaderCounts {
+        *HeaderCounts::for_message_slice(self.as_slice())
     }
 
-    /// Returns a mutable reference to the header counts.
-    ///
-    /// Since you can quite effectively break the message with this, it is
-    /// private.
-    pub fn header_counts_mut(&mut self) -> &mut HeaderCounts
-    where Octets: AsMut<[u8]> {
-        HeaderCounts::for_message_slice_mut(self.as_slice_mut())
+    /// Returns the entire header section.
+    pub fn header_section(&self) -> HeaderSection {
+        *HeaderSection::for_message_slice(&self.as_slice())
     }
 
     /// Returns whether the rcode is NoError.
@@ -424,6 +420,11 @@ impl<Ref: OctetsRef> QuestionSection<Ref> {
         }
     }
 
+    /// Returns the current position relative to the beginning of the message.
+    pub fn pos(&self) -> usize {
+        self.parser.pos()
+    }
+
     /// Proceeds to the answer section.
     ///
     /// Skips over any remaining questions and then converts itself into the
@@ -554,6 +555,11 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
             section,
             parser,
         }
+    }
+
+    /// Returns the current position relative to the beginning of the message.
+    pub fn pos(&self) -> usize {
+        self.parser.pos()
     }
 
     /// Trades `self` in for an iterator limited to a concrete record type.

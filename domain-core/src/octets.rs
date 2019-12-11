@@ -676,6 +676,9 @@ octets_array!(pub Octets2048 => 2048);
 octets_array!(pub Octets4096 => 4096);
 
 
+#[cfg(feature = "smallvec")]
+pub type OctetsVec = SmallVec<[u8; 24]>;
+
 //------------ ShortBuf ------------------------------------------------------
 
 /// An attempt was made to go beyond the end of a buffer.

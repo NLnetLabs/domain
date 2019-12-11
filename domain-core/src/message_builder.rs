@@ -8,10 +8,12 @@ use core::ops::{Deref, DerefMut};
 #[cfg(feature = "bytes")] use bytes::BytesMut;
 use unwrap::unwrap;
 use crate::header::{Header, HeaderCounts, HeaderSection};
-use crate::iana::{OptionCode, OptRcode};
+use crate::iana::{OptionCode, OptRcode, Rcode, Rtype};
 use crate::message::Message;
 use crate::name::{ToDname, Label};
-use crate::octets::{Compose, IntoOctets, Octets64, OctetsBuilder, ShortBuf};
+use crate::octets::{
+    Compose, IntoOctets, Octets64, OctetsBuilder, OctetsRef, ShortBuf
+};
 use crate::opt::{OptHeader, OptData};
 use crate::question::Question;
 use crate::rdata::RecordData;
@@ -68,6 +70,45 @@ impl MessageBuilder<StreamTarget<BytesMut>> {
 }
 
 impl<Target: OctetsBuilder> MessageBuilder<Target> {
+    /// Starts creating an answer for the given message.
+    ///
+    /// Specifically, this sets the ID, QR, OPCODE, RD, and RCODE fields
+    /// in the header and attempts to push the message’s questions to the
+    /// builder. If iterating of the questions fails, it adds what it can.
+    pub fn start_answer<Octets>(
+        mut self,
+        msg: &Message<Octets>,
+        rcode: Rcode,
+    ) -> Result<AnswerBuilder<Target>, ShortBuf>
+    where Octets: AsRef<[u8]>, for<'a> &'a Octets: OctetsRef {
+        {
+            let header = self.header_mut();
+            header.set_id(msg.header().id());
+            header.set_qr(true);
+            header.set_opcode(msg.header().opcode());
+            header.set_rd(msg.header().rd());
+            header.set_rcode(rcode);
+        }
+        let mut builder = self.question();
+        for item in msg.question() {
+            if let Ok(item) = item {
+                builder.push(item)?;
+            }
+        }
+        Ok(builder.answer())
+    }
+
+    /// Creates an AXFR request for the given domain.
+    pub fn request_axfr<N: ToDname>(
+        mut self,
+        apex: N
+    ) -> Result<AnswerBuilder<Target>, ShortBuf> {
+        self.header_mut().set_random_id();
+        let mut builder = self.question();
+        builder.push((apex, Rtype::Axfr))?;
+        Ok(builder.answer())
+    }
+
     pub fn question(self) -> QuestionBuilder<Target> {
         QuestionBuilder::new(self)
     }
@@ -96,6 +137,10 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
         &mut self.target
     }
 
+    pub fn as_slice(&self) -> &[u8] {
+        self.as_target().as_ref()
+    }
+
     pub fn as_message(&self) -> Message<&[u8]>
     where Target: AsRef<[u8]> {
         unsafe { Message::from_octets_unchecked(self.target.as_ref()) }
@@ -106,16 +151,16 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
         unsafe { Message::from_octets_unchecked(self.target.into_octets()) }
     }
 
-    pub fn header(&self) -> &Header {
-        Header::for_message_slice(self.target.as_ref())
+    pub fn header(&self) -> Header {
+        *Header::for_message_slice(self.target.as_ref())
     }
 
     pub fn header_mut(&mut self) -> &mut Header {
         Header::for_message_slice_mut(self.target.as_mut())
     }
 
-    pub fn counts(&self) -> &HeaderCounts {
-        HeaderCounts::for_message_slice(self.target.as_ref())
+    pub fn counts(&self) -> HeaderCounts {
+        *HeaderCounts::for_message_slice(self.target.as_ref())
     }
 
     fn counts_mut(&mut self) -> &mut HeaderCounts {
@@ -508,7 +553,7 @@ where Target: OctetsBuilder {
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
     where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
         record.into().compose(self.as_target_mut())?;
-        self.counts_mut().inc_ancount();
+        self.counts_mut().inc_arcount();
         Ok(())
     }
 }
@@ -592,7 +637,7 @@ impl<Target: OctetsBuilder> OptBuilder<Target> {
     }
 
     pub fn rcode(&self) -> OptRcode {
-        self.opt_header().rcode(*self.header())
+        self.opt_header().rcode(self.header())
     }
 
     pub fn set_rcode(&mut self, rcode: OptRcode) {

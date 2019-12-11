@@ -19,12 +19,12 @@ path = "src/lib.rs"
 bytes 		= "0.4"
 derive_more	= "^0.15"
 openssl		= { version = "^0.10", optional = true }
-ring		= { version = "0.15.0-alpha", optional = true }
+ring		= { version = "0.16", optional = true }
 unwrap      = "^1.2"
 
 [dependencies.domain-core]
 path = "../domain-core"
-version = "0.4.1"
+version = "0.5.0-pre"
 
 [features]
 ringsigner = ["ring"]
