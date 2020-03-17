@@ -694,14 +694,7 @@ pub enum Error {
     Io(io::Error),
 }
 
-impl error::Error for Error {
-    fn description(&self) -> &str {
-        match *self {
-            Error::ParseError => "error parsing configuration",
-            Error::Io(ref e) => e.description(),
-        }
-    }
-}
+impl error::Error for Error { }
 
 impl convert::From<io::Error> for Error {
     fn from(error: io::Error) -> Error {
@@ -723,9 +716,10 @@ impl convert::From<::std::num::ParseIntError> for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use std::error::Error;
-
-        self.description().fmt(f)
+        match *self {
+            Error::ParseError => write!(f, "error parsing configuration"),
+            Error::Io(ref e) => e.fmt(f)
+        }
     }
 }
 

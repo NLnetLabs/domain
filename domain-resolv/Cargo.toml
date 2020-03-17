@@ -16,7 +16,7 @@ name = "domain_resolv"
 path = "src/lib.rs"
 
 [dependencies]
-bytes	       = "^0.4"
+bytes	       = "^0.5"
 futures        = "^0.1"
 rand           = "^0.7"
 smallvec       = "^1.0"

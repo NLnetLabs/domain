@@ -95,7 +95,7 @@ impl<'a> OctetsRef for &'a Bytes  {
     type Range = Bytes;
 
     fn range(self, start: usize, end: usize) -> Self::Range {
-        self.slice(start, end)
+        self.slice(start..end)
     }
 }
 
@@ -326,7 +326,10 @@ impl IntoBuilder for Bytes {
     type Builder = BytesMut;
 
     fn into_builder(self) -> Self::Builder {
-        self.into()
+        // XXX Currently, we need to copy to do this. If bytes gains a way
+        //     to convert from Bytes to BytesMut for non-shared data without
+        //     copying, we should change this.
+        BytesMut::from(self.as_ref())
     }
 }
 
