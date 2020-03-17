@@ -17,7 +17,7 @@ use crate::key::SigningKey;
 pub struct Key {
     dnskey: Dnskey<Vec<u8>>,
     key: PKey<Private>,
-    digest: Option<MessageDigest>,
+    digest: MessageDigest,
 }
 
 impl SigningKey for Key {
@@ -46,7 +46,7 @@ impl SigningKey for Key {
     }
 
     fn sign(&self, data: &[u8]) -> Result<Self::Signature, Self::Error> {
-        let mut signer = OpenSslSigner::new_intern(
+        let mut signer = OpenSslSigner::new(
             self.digest, &self.key
         )?;
         signer.update(data)?;
