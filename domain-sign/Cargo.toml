@@ -16,7 +16,7 @@ name = "domain_sign"
 path = "src/lib.rs"
 
 [dependencies]
-bytes 		= "0.4"
+bytes 		= "0.5"
 derive_more	= "^0.15"
 openssl		= { version = "^0.10", optional = true }
 ring		= { version = "0.16", optional = true }
@@ -25,6 +25,7 @@ unwrap      = "^1.2"
 [dependencies.domain-core]
 path = "../domain-core"
 version = "0.5.0-pre"
+features = ["bytes"]
 
 [features]
 ringsigner = ["ring"]

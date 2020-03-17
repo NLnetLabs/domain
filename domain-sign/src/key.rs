@@ -1,14 +1,15 @@
-use bytes::Bytes;
-use domain_core::ToDname;
 use domain_core::iana::SecAlg;
+use domain_core::name::ToDname;
 use domain_core::rdata::{Ds, Dnskey};
 
 
 pub trait SigningKey {
+    type Octets: AsRef<[u8]>;
+    type Signature: AsRef<[u8]>;
     type Error;
 
-    fn dnskey(&self) -> Result<Dnskey, Self::Error>;
-    fn ds<N: ToDname>(&self, owner: N) -> Result<Ds, Self::Error>;
+    fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error>;
+    fn ds<N: ToDname>(&self, owner: N) -> Result<Ds<Self::Octets>, Self::Error>;
 
     fn algorithm(&self) -> Result<SecAlg, Self::Error> {
         self.dnskey().map(|dnskey| dnskey.algorithm())
@@ -18,17 +19,22 @@ pub trait SigningKey {
         self.dnskey().map(|dnskey| dnskey.key_tag())
     }
 
-    fn sign(&self, data: &[u8]) -> Result<Bytes, Self::Error>;
+    fn sign(&self, data: &[u8]) -> Result<Self::Signature, Self::Error>;
 }
 
 
 impl<'a, K: SigningKey> SigningKey for &'a K {
+    type Octets = K::Octets;
+    type Signature = K::Signature;
     type Error = K::Error;
 
-    fn dnskey(&self) -> Result<Dnskey, Self::Error> {
+    fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
         (*self).dnskey()
     }
-    fn ds<N: ToDname>(&self, owner: N) -> Result<Ds, Self::Error> {
+    fn ds<N: ToDname>(
+        &self,
+        owner: N
+    ) -> Result<Ds<Self::Octets>, Self::Error> {
         (*self).ds(owner)
     }
 
@@ -40,7 +46,7 @@ impl<'a, K: SigningKey> SigningKey for &'a K {
         (*self).key_tag()
     }
 
-    fn sign(&self, data: &[u8]) -> Result<Bytes, Self::Error> {
+    fn sign(&self, data: &[u8]) -> Result<Self::Signature, Self::Error> {
         (*self).sign(data)
     }
 }

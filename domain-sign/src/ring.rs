@@ -1,22 +1,25 @@
 //! Key and Signer using ring.
 #![cfg(feature = "ringsigner")]
 
-use bytes::Bytes;
-use domain_core::{Compose, ToDname};
 use domain_core::iana::{DigestAlg, SecAlg};
+use domain_core::name::ToDname;
+use domain_core::octets::Compose;
 use domain_core::rdata::{Ds, Dnskey};
+use bytes::Bytes;
 use ring::digest;
 use ring::error::Unspecified;
 use ring::rand::SecureRandom;
 use ring::signature::{
     EcdsaKeyPair, Ed25519KeyPair, KeyPair, RsaEncoding, RsaKeyPair,
+    Signature as RingSignature,
     ECDSA_P256_SHA256_FIXED_SIGNING
 };
+use unwrap::unwrap;
 use crate::key::SigningKey;
 
 
 pub struct Key<'a> {
-    dnskey: Dnskey,
+    dnskey: Dnskey<Vec<u8>>,
     key: RingKey,
     rng: &'a dyn SecureRandom,
 }
@@ -52,38 +55,78 @@ impl<'a> Key<'a> {
 }
 
 impl<'a> SigningKey for Key<'a> {
+    type Octets = Vec<u8>;
+    type Signature = Signature;
     type Error = Unspecified;
 
-    fn dnskey(&self) -> Result<Dnskey, Self::Error> {
+    fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
         Ok(self.dnskey.clone())
     }
 
-    fn ds<N: ToDname>(&self, owner: N) -> Result<Ds, Self::Error> {
+    fn ds<N: ToDname>(
+        &self,
+        owner: N
+    ) -> Result<Ds<Self::Octets>, Self::Error> {
         let mut buf = Vec::new();
-        owner.compose_canonical(&mut buf);
-        self.dnskey.compose_canonical(&mut buf);
-        let digest = digest::digest(&digest::SHA256, &buf);
+        unwrap!(owner.compose_canonical(&mut buf));
+        unwrap!(self.dnskey.compose_canonical(&mut buf));
+        let digest = Vec::from(digest::digest(&digest::SHA256, &buf).as_ref());
         Ok(Ds::new(
             self.key_tag()?,
             self.dnskey.algorithm(),
             DigestAlg::Sha256,
-            Bytes::from(digest.as_ref())
+            digest,
         ))
     }
 
-    fn sign(&self, msg: &[u8]) -> Result<Bytes, Self::Error> {
+    fn sign(&self, msg: &[u8]) -> Result<Self::Signature, Self::Error> {
         match self.key {
             RingKey::Ecdsa(ref key) => {
-                Ok(Bytes::from(key.sign(self.rng, msg)?.as_ref()))
+                key.sign(self.rng, msg).map(Signature::sig)
             }
             RingKey::Ed25519(ref key) => {
-                Ok(Bytes::from(key.sign(msg).as_ref()))
+                Ok(Signature::sig(key.sign(msg)))
             }
             RingKey::Rsa(ref key, encoding) => {
                 let mut sig = vec![0; key.public_modulus_len()];
                 key.sign(encoding, self.rng, msg, &mut sig)?;
-                Ok(sig.into())
+                Ok(Signature::vec(sig))
             }
+        }
+    }
+}
+
+pub struct Signature(SignatureInner);
+
+enum SignatureInner {
+    Sig(RingSignature),
+    Vec(Vec<u8>),
+}
+
+impl Signature {
+    fn sig(sig: RingSignature) -> Signature {
+        Signature(SignatureInner::Sig(sig))
+    }
+
+    fn vec(vec: Vec<u8>) -> Signature {
+        Signature(SignatureInner::Vec(vec))
+    }
+}
+
+impl AsRef<[u8]> for Signature {
+    fn as_ref(&self) -> &[u8] {
+        match self.0 {
+            SignatureInner::Sig(ref sig) => sig.as_ref(),
+            SignatureInner::Vec(ref vec) => vec.as_slice()
+        }
+    }
+}
+
+impl From<Signature> for Bytes {
+    fn from(sig: Signature) -> Self {
+        match sig.0 {
+            SignatureInner::Sig(sig) => Bytes::copy_from_slice(sig.as_ref()),
+            SignatureInner::Vec(sig) => Bytes::from(sig)
         }
     }
 }

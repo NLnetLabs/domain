@@ -2,13 +2,16 @@
 
 use std::{fmt, io, slice};
 use std::iter::FromIterator;
-use bytes::Bytes;
-use domain_core::{
-    CanonicalOrd, Compose, Dname, Record, RecordData, Serial, ToDname
-};
+use domain_core::cmp::CanonicalOrd;
+use domain_core::name::ToDname;
+use domain_core::octets::{Compose, EmptyBuilder, FromBuilder};
+use domain_core::rdata::RecordData;
+use domain_core::record::Record;
+use domain_core::serial::Serial;
 use domain_core::iana::{Class, Rtype};
 use domain_core::rdata::{Dnskey, Ds, Nsec, Rrsig};
-use domain_core::rdata::rfc4034::RtypeBitmap;
+use domain_core::rdata::rfc4034::{ProtoRrsig, RtypeBitmap};
+use unwrap::unwrap;
 use crate::key::SigningKey;
 
 
@@ -60,20 +63,25 @@ impl<N, D> SortedRecords<N, D> {
         None
     }
 
-
-    pub fn sign<K: SigningKey>(
+    pub fn sign<Octets, Key, ApexName>(
         &self,
-        apex: &FamilyName<Dname>,
+        apex: &FamilyName<ApexName>,
         expiration: Serial,
         inception: Serial,
-        key: K
-    ) -> Result<Vec<Record<Dname, Rrsig>>, K::Error>
-    where N: ToDname, D: RecordData {
+        key: Key
+    ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
+    where
+        N: ToDname + Clone,
+        D: RecordData,
+        Key: SigningKey,
+        Octets: From<Key::Signature>,
+        ApexName: ToDname + Clone,
+    {
         let mut res = Vec::new();
         let mut buf = Vec::new();
 
         // The owner name of a zone cut if we currently are at or below one.
-        let mut cut: Option<FamilyName<Dname>> = None;
+        let mut cut: Option<FamilyName<N>> = None;
 
         let mut families = self.families();
 
@@ -95,8 +103,8 @@ impl<N, D> SortedRecords<N, D> {
                 }
             }
 
-            // Create an owned, uncompressed family name. We’ll need it later.
-            let name = family.family_name().to_name();
+            // A copy of the family name. We’ll need it later.
+            let name = family.family_name().cloned();
 
             // If this family is the parent side of a zone cut, we keep the
             // family name for later. This also means below that if
@@ -125,47 +133,51 @@ impl<N, D> SortedRecords<N, D> {
                     }
                 }
 
-                // Let’s make a signature!
-                let mut rrsig = Record::new(
+                // Create the signature.
+                buf.clear();
+                let rrsig = ProtoRrsig::new(
+                    rrset.rtype(),
+                    key.algorithm()?,
+                    name.owner().rrsig_label_count(),
+                    rrset.ttl(),
+                    expiration,
+                    inception,
+                    key.key_tag()?,
+                    apex.owner().clone(),
+                );
+                unwrap!(rrsig.compose_canonical(&mut buf));
+                for record in rrset.iter() {
+                    unwrap!(record.compose_canonical(&mut buf));
+                }
+
+                // Create and push the RRSIG record.
+                res.push(Record::new(
                     name.owner().clone(),
                     name.class(),
                     rrset.ttl(),
-                    Rrsig::new(
-                        rrset.rtype(),
-                        key.algorithm()?,
-                        name.owner().rrsig_label_count(),
-                        rrset.ttl(),
-                        expiration,
-                        inception,
-                        key.key_tag()?,
-                        apex.owner().clone(),
-                        Bytes::new(),
-                    )
-                );
-                buf.clear();
-                rrsig.data().compose_canonical(&mut buf);
-
-                for record in rrset.iter() {
-                    record.compose_canonical(&mut buf);
-                }
-
-                rrsig.data_mut().set_signature(key.sign(&buf)?);
-                res.push(rrsig);
+                    rrsig.into_rrsig(key.sign(&buf)?.into())
+                ));
             }
         }
         Ok(res)
     }
 
-    pub fn nsecs(
+    pub fn nsecs<Octets, ApexName>(
         &self,
-        apex: &FamilyName<Dname>,
+        apex: &FamilyName<ApexName>,
         ttl: u32
-    ) -> Vec<Record<Dname, Nsec<Dname>>>
-    where N: ToDname, D: RecordData {
+    ) -> Vec<Record<N, Nsec<Octets, N>>>
+    where
+        N: ToDname + Clone,
+        D: RecordData,
+        Octets: FromBuilder,
+        Octets::Builder: EmptyBuilder,
+        ApexName: ToDname,
+    {
         let mut res = Vec::new();
 
         // The owner name of a zone cut if we currently are at or below one.
-        let mut cut: Option<FamilyName<Dname>> = None;
+        let mut cut: Option<FamilyName<N>> = None;
 
         let mut families = self.families();
 
@@ -175,7 +187,13 @@ impl<N, D> SortedRecords<N, D> {
 
         // Because of the next name thing, we need to keep the last NSEC
         // around.
-        let mut prev: Option<Record<Dname, Nsec<Dname>>> = None;
+        let mut prev: Option<(
+            FamilyName<N>,
+            RtypeBitmap<Octets>
+        )> = None;
+
+        // We also need the apex for the last NSEC.
+        let apex_owner = families.first_owner().clone();
 
         for family in families {
             // If the owner is out of zone, we have moved out of our zone and
@@ -191,8 +209,8 @@ impl<N, D> SortedRecords<N, D> {
                 }
             }
 
-            // Create an owned, uncompressed family name. We’ll need it later.
-            let name = family.family_name().to_name();
+            // A copy of the family name. We’ll need it later.
+            let name = family.family_name().cloned();
 
             // If this family is the parent side of a zone cut, we keep the
             // family name for later. This also means below that if
@@ -204,25 +222,27 @@ impl<N, D> SortedRecords<N, D> {
                 None
             };
 
-            if let Some(mut nsec) = prev.take() {
-                nsec.data_mut().set_next_name(name.owner().clone());
-                res.push(nsec);
+            if let Some((prev_name, bitmap)) = prev.take() {
+                res.push(prev_name.into_record(
+                    ttl,
+                    Nsec::new(name.owner().clone(), bitmap)
+                ));
             }
 
-            let mut bitmap = RtypeBitmap::builder();
-            bitmap.add(Rtype::Rrsig); // Assume there’s gonna be an RRSIG.
+            let mut bitmap = RtypeBitmap::<Octets>::builder();
+            // Assume there’s gonna be an RRSIG.
+            unwrap!(bitmap.add(Rtype::Rrsig));
             for rrset in family.rrsets() {
-                bitmap.add(rrset.rtype())
+                unwrap!(bitmap.add(rrset.rtype()))
             }
 
-            prev = Some(name.into_record(ttl, Nsec::new(
-                Dname::root(),
-                bitmap.finalize()
-            )))
+            prev = Some((name, bitmap.finalize()));
         }
-        if let Some(mut nsec) = prev {
-            nsec.data_mut().set_next_name(apex.owner().clone());
-            res.push(nsec)
+        if let Some((prev_name, bitmap)) = prev {
+            res.push(prev_name.into_record(
+                ttl,
+                Nsec::new(apex_owner, bitmap)
+            ));
         }
         res
     }
@@ -339,31 +359,38 @@ impl<N> FamilyName<N> {
         self.class
     }
 
-    pub fn to_name(&self) -> FamilyName<Dname>
-    where N: ToDname {
-        FamilyName::new(self.owner.to_name(), self.class)
+    pub fn into_record<D>(self, ttl: u32, data: D) -> Record<N, D>
+    where N: Clone {
+        Record::new(self.owner.clone(), self.class, ttl, data)
     }
 
-    pub fn into_record<D>(self, ttl: u32, data: D) -> Record<N, D> {
-        Record::new(self.owner, self.class, ttl, data)
-    }
-
-    pub fn dnskey<K: SigningKey>(
+    pub fn dnskey<K: SigningKey, Octets: From<K::Octets>>(
         &self,
         ttl: u32,
         key: K
-    ) -> Result<Record<N, Dnskey>, K::Error>
+    ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
     where N: Clone {
-        key.dnskey().map(|dnskey| self.clone().into_record(ttl, dnskey))
+        key.dnskey().map(|dnskey| {
+            self.clone().into_record(ttl, dnskey.convert())
+        })
     }
 
     pub fn ds<K: SigningKey>(
         &self,
         ttl: u32,
         key: K
-    ) -> Result<Record<N, Ds>, K::Error>
+    ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
     where N: ToDname + Clone {
         key.ds(&self.owner).map(|ds| self.clone().into_record(ttl, ds))
+    }
+}
+
+impl<'a, N: Clone> FamilyName<&'a N> {
+    pub fn cloned(&self) -> FamilyName<N> {
+        FamilyName {
+            owner: (*self.owner).clone(),
+            class: self.class
+        }
     }
 }
 
@@ -433,6 +460,10 @@ pub struct RecordsIter<'a, N, D> {
 impl<'a, N, D> RecordsIter<'a, N, D> {
     fn new(slice: &'a [Record<N, D>]) -> Self {
         RecordsIter { slice }
+    }
+
+    pub fn first_owner(&self) -> &'a N {
+        self.slice[0].owner()
     }
 
     pub fn skip_before<NN: ToDname>(&mut self, apex: &FamilyName<NN>)

@@ -18,7 +18,7 @@ use crate::iana::{DigestAlg, Rtype, SecAlg};
 use crate::name::{ParsedDname, ToDname};
 #[cfg(feature="bytes")] use crate::name::Dname;
 use crate::octets::{
-    Compose, EmptyBuilder, IntoBuilder, IntoOctets, OctetsBuilder,
+    Compose, EmptyBuilder, FromBuilder, IntoOctets, OctetsBuilder,
     OctetsRef, ShortBuf
 };
 use crate::parse::{FormError, Parse, ParseError, Parser};
@@ -70,6 +70,17 @@ impl<Octets> Dnskey<Octets> {
 
     pub fn into_public_key(self) -> Octets {
         self.public_key
+    }
+
+    pub fn convert<Other: From<Octets>>(
+        self
+    ) -> Dnskey<Other> {
+        Dnskey {
+            flags: self.flags,
+            protocol: self.protocol,
+            algorithm: self.algorithm,
+            public_key: self.public_key.into()
+        }
     }
 
     /// Returns whether the Revoke flag is set.
@@ -292,6 +303,95 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Dnskey<Octets> {
 impl<Octets> RtypeRecordData for Dnskey<Octets> {
     const RTYPE: Rtype = Rtype::Dnskey;
 }
+
+
+//------------ ProtoRrsig ----------------------------------------------------
+
+/// The RRSIG RDATA to be included when creating the signature.
+#[derive(Clone)]
+pub struct ProtoRrsig<Name> {
+    type_covered: Rtype,
+    algorithm: SecAlg,
+    labels: u8,
+    original_ttl: u32,
+    expiration: Serial,
+    inception: Serial,
+    key_tag: u16,
+    signer_name: Name,
+}
+
+impl<Name> ProtoRrsig<Name> {
+    #[allow(clippy::too_many_arguments)] // XXX Consider changing.
+    pub fn new(
+        type_covered: Rtype,
+        algorithm: SecAlg,
+        labels: u8,
+        original_ttl: u32,
+        expiration: Serial,
+        inception: Serial,
+        key_tag: u16,
+        signer_name: Name,
+    ) -> Self {
+        ProtoRrsig {
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name,
+        }
+    }
+
+    pub fn into_rrsig<Octets>(
+        self,
+        signature: Octets
+    ) -> Rrsig<Octets, Name> {
+        Rrsig::new(
+            self.type_covered, self.algorithm, self.labels,
+            self.original_ttl, self.expiration, self.inception,
+            self.key_tag, self.signer_name, signature
+        )
+    }
+}
+
+//--- Compose
+
+impl<Name: Compose> Compose for ProtoRrsig<Name> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.type_covered.compose(buf)?;
+            self.algorithm.compose(buf)?;
+            self.labels.compose(buf)?;
+            self.original_ttl.compose(buf)?;
+            self.expiration.compose(buf)?;
+            self.inception.compose(buf)?;
+            self.key_tag.compose(buf)?;
+            self.signer_name.compose(buf)
+        })
+    }
+
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.type_covered.compose(buf)?;
+            self.algorithm.compose(buf)?;
+            self.labels.compose(buf)?;
+            self.original_ttl.compose(buf)?;
+            self.expiration.compose(buf)?;
+            self.inception.compose(buf)?;
+            self.key_tag.compose(buf)?;
+            self.signer_name.compose_canonical(buf)
+        })
+    }
+}
+
 
 
 //------------ Rrsig ---------------------------------------------------------
@@ -1038,8 +1138,8 @@ impl<Octets> RtypeBitmap<Octets> {
 
     pub fn builder() -> RtypeBitmapBuilder<Octets::Builder>
     where
-        Octets: IntoBuilder,
-        <Octets as IntoBuilder>::Builder: EmptyBuilder
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder
     {
         RtypeBitmapBuilder::new()
     }
