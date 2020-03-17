@@ -3,6 +3,7 @@
 use core::{borrow, hash, fmt};
 use core::cmp::Ordering;
 use core::convert::TryFrom;
+#[cfg(feature = "std")] use std::borrow::Cow;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 #[cfg(feature = "smallvec")] use smallvec::{Array, SmallVec};
@@ -21,6 +22,18 @@ impl<'a> OctetsExt for &'a [u8] {
     fn truncate(&mut self, len: usize) {
         if len < self.len() {
             *self = &self[..len]
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a> OctetsExt for Cow<'a, [u8]> {
+    fn truncate(&mut self, len: usize) {
+        match *self {
+            Cow::Borrowed(ref mut slice) => {
+                *slice = &slice[..len]
+            }
+            Cow::Owned(ref mut vec) => vec.truncate(len)
         }
     }
 }
@@ -79,6 +92,15 @@ impl<'a> OctetsRef for &'a [u8] {
 
     fn range(self, start: usize, end: usize) -> Self::Range {
         &self[start..end]
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a, 's> OctetsRef for &'a Cow<'s, [u8]> {
+    type Range = &'a [u8];
+
+    fn range(self, start: usize, end: usize) -> Self::Range {
+        &self.as_ref()[start..end]
     }
 }
 
@@ -318,6 +340,15 @@ impl<'a> IntoBuilder for &'a [u8] {
 
     fn into_builder(self) -> Self::Builder {
         self.into()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a> IntoBuilder for Cow<'a, [u8]> {
+    type Builder = Vec<u8>;
+
+    fn into_builder(self) -> Self::Builder {
+        self.into_owned()
     }
 }
 

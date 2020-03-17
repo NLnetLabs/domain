@@ -1,6 +1,6 @@
 [package]
 name = "domain-validate"
-version = "0.4.1"
+version = "0.5.0-pre"
 edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust – DNSSEC validation."
@@ -16,10 +16,19 @@ name = "domain_validate"
 path = "src/lib.rs"
 
 [dependencies]
-bytes 		= "0.4"
 derive_more	= "^0.15"
 ring        = "0.16"
+
+[dev-dependencies]
+bytes 		= "0.5"
 
 [dependencies.domain-core]
 path = "../domain-core"
 version = "0.5.0-pre"
+features = ["std"]
+
+[dev-dependencies.domain-core]
+path = "../domain-core"
+version = "0.5.0-pre"
+features = ["bytes", "std"]
+

@@ -3,7 +3,8 @@
 /// This is a private module. Its public traits are re-exported by the parent.
 
 use core::cmp;
-#[cfg(feature="bytes")] use bytes::Bytes;
+#[cfg(feature = "std")] use std::borrow::Cow;
+#[cfg(feature = "bytes")] use bytes::Bytes;
 use unwrap::unwrap;
 use crate::octets::{Compose, EmptyBuilder, FromBuilder, IntoOctets};
 use super::builder::PushError;
@@ -111,6 +112,14 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
             label.build(&mut builder)?;
         }
         Ok(unsafe { Dname::from_octets_unchecked(builder.into_octets()) })
+    }
+
+    #[cfg(feature = "std")]
+    fn to_dname_cow(&self) -> Dname<std::borrow::Cow<[u8]>> {
+        let octets = self.as_flat_slice().map(Cow::Borrowed).unwrap_or_else(|| {
+            Cow::Owned(self.to_dname_vec().into_octets())
+        });
+        unsafe { Dname::from_octets_unchecked(octets) }
     }
 
     #[cfg(feature = "std")]

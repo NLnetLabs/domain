@@ -1,8 +1,10 @@
-use bytes::{BufMut, Bytes};
 use derive_more::Display;
+use domain_core::cmp::CanonicalOrd;
 use domain_core::iana::{DigestAlg, SecAlg};
+use domain_core::octets::{Compose, OctetsBuilder, ShortBuf};
+use domain_core::name::ToDname;
 use domain_core::rdata::{Dnskey, Rrsig, RecordData};
-use domain_core::{CanonicalOrd, Compose, Compress, Record, ToDname};
+use domain_core::record::Record;
 use ring::{digest, signature};
 use std::error;
 
@@ -21,10 +23,14 @@ pub enum AlgorithmError {
 
 impl error::Error for AlgorithmError {}
 
+
+//------------ Dnskey --------------------------------------------------------
+
 /// Extensions for DNSKEY record type.
 pub trait DnskeyExt: Compose {
     /// Calculates a digest from DNSKEY.
-    /// See [RFC 4034, Section 5.1.4](https://tools.ietf.org/html/rfc4034#section-5.1.4)
+    ///
+    /// See [RFC 4034, Section 5.1.4]:
     ///
     /// ```text
     /// 5.1.4.  The Digest Field
@@ -38,6 +44,8 @@ pub trait DnskeyExt: Compose {
     ///
     ///     DNSKEY RDATA = Flags | Protocol | Algorithm | Public Key.
     /// ```
+    ///
+    /// [RFC 4034, Section 5.1.4]: https://tools.ietf.org/html/rfc4034#section-5.1.4
     fn digest<N: ToDname>(
         &self,
         dname: &N,
@@ -45,9 +53,11 @@ pub trait DnskeyExt: Compose {
     ) -> Result<digest::Digest, AlgorithmError>;
 }
 
-impl DnskeyExt for Dnskey {
+impl<Octets> DnskeyExt for Dnskey<Octets>
+where Octets: AsRef<[u8]> {
     /// Calculates a digest from DNSKEY.
-    /// See [RFC 4034, Section 5.1.4](https://tools.ietf.org/html/rfc4034#section-5.1.4)
+    ///
+    /// See [RFC 4034, Section 5.1.4]:
     ///
     /// ```text
     /// 5.1.4.  The Digest Field
@@ -61,21 +71,22 @@ impl DnskeyExt for Dnskey {
     ///
     ///     DNSKEY RDATA = Flags | Protocol | Algorithm | Public Key.
     /// ```
+    ///
+    /// [RFC 4034, Section 5.1.4]: https://tools.ietf.org/html/rfc4034#section-5.1.4
     fn digest<N: ToDname>(
         &self,
         dname: &N,
         algorithm: DigestAlg,
     ) -> Result<digest::Digest, AlgorithmError> {
         let mut buf: Vec<u8> = Vec::new();
-        dname.compose(&mut buf);
-        self.compose(&mut buf);
+        dname.compose(&mut buf).unwrap();
+        self.compose(&mut buf).unwrap();
 
         let mut ctx = match algorithm {
-            DigestAlg::Sha1 => digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY),
+            DigestAlg::Sha1 => {
+                digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY)
+            },
             DigestAlg::Sha256 => digest::Context::new(&digest::SHA256),
-            DigestAlg::Gost => {
-                return Err(AlgorithmError::Unsupported);
-            }
             DigestAlg::Sha384 => digest::Context::new(&digest::SHA384),
             _ => {
                 return Err(AlgorithmError::Unsupported);
@@ -86,6 +97,9 @@ impl DnskeyExt for Dnskey {
         Ok(ctx.finish())
     }
 }
+
+
+//------------ Rrsig ---------------------------------------------------------
 
 /// Extensions for DNSKEY record type.
 pub trait RrsigExt: Compose {
@@ -100,12 +114,11 @@ pub trait RrsigExt: Compose {
     ///    the received RRset due to DNS name compression, decremented TTLs, or
     ///    wildcard expansion.
     /// ```
-    fn signed_data<N: ToDname, D: RecordData, B: BufMut>(
+    fn signed_data<N: ToDname, D: RecordData, B: OctetsBuilder>(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
-    ) where
-        D: CanonicalOrd + Compose + Compress + Sized;
+    ) -> Result<(), ShortBuf> where D: CanonicalOrd + Compose + Sized;
 
     /// Attempt to use the cryptographic signature to authenticate the signed data, and thus authenticate the RRSET.
     /// The signed data is expected to be calculated as per [RFC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
@@ -130,32 +143,31 @@ pub trait RrsigExt: Compose {
     /// ```
     fn verify_signed_data(
         &self,
-        dnskey: &Dnskey,
-        signed_data: &Bytes,
+        dnskey: &Dnskey<impl AsRef<[u8]>>,
+        signed_data: &impl AsRef<[u8]>,
     ) -> Result<(), AlgorithmError>;
 }
 
-impl RrsigExt for Rrsig {
-    fn signed_data<N: ToDname, D: RecordData + CanonicalOrd, B: BufMut>(
+impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
+    fn signed_data<N: ToDname, D: RecordData, B: OctetsBuilder>(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
-    ) where
-        D: CanonicalOrd + Compose + Compress + Sized,
-    {
+    ) -> Result<(), ShortBuf>
+    where D: CanonicalOrd + Compose + Sized {
         // signed_data = RRSIG_RDATA | RR(1) | RR(2)...  where
         //    "|" denotes concatenation
         // RRSIG_RDATA is the wire format of the RRSIG RDATA fields
         //    with the Signature field excluded and the Signer's Name
         //    in canonical form.
-        self.type_covered().compose(buf);
-        self.algorithm().compose(buf);
-        self.labels().compose(buf);
-        self.original_ttl().compose(buf);
-        self.expiration().compose(buf);
-        self.inception().compose(buf);
-        self.key_tag().compose(buf);
-        self.signer_name().compose_canonical(buf);
+        self.type_covered().compose(buf)?;
+        self.algorithm().compose(buf)?;
+        self.labels().compose(buf)?;
+        self.original_ttl().compose(buf)?;
+        self.expiration().compose(buf)?;
+        self.inception().compose(buf)?;
+        self.key_tag().compose(buf)?;
+        self.signer_name().compose_canonical(buf)?;
 
         // The set of all RR(i) is sorted into canonical order.
         // See https://tools.ietf.org/html/rfc4034#section-6.3
@@ -163,37 +175,41 @@ impl RrsigExt for Rrsig {
 
         // RR(i) = name | type | class | OrigTTL | RDATA length | RDATA
         for rr in records {
-            // Handle expanded wildcards as per [RFC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
+            // Handle expanded wildcards as per [RFC4035, Section 5.3.2]
+            // (https://tools.ietf.org/html/rfc4035#section-5.3.2).
             let rrsig_labels = usize::from(self.labels());
             let fqdn = rr.owner();
-            // Subtract the root label from count as the algorithm doesn't accomodate that.
+            // Subtract the root label from count as the algorithm doesn't
+            // accomodate that.
             let fqdn_labels = fqdn.iter_labels().count() - 1;
             if rrsig_labels < fqdn_labels {
                 // name = "*." | the rightmost rrsig_label labels of the fqdn
-                b"\x01*".compose(buf);
-                match fqdn.to_name().iter_suffixes().skip(fqdn_labels - rrsig_labels).next() {
+                buf.append_slice(b"\x01*")?;
+                match fqdn.to_dname_cow().iter_suffixes().skip(fqdn_labels - rrsig_labels).next() {
                     Some(name) => name.compose_canonical(buf),
                     None => fqdn.compose_canonical(buf),
-                }
+                }?;
             } else {
-                fqdn.compose_canonical(buf);
+                fqdn.compose_canonical(buf)?;
             }
 
-            rr.rtype().compose(buf);
-            rr.class().compose(buf);
-            self.original_ttl().compose(buf);
-            let rdlen = rr.data().compose_len() as u16;
-            rdlen.compose(buf);
-            rr.data().compose_canonical(buf);
+            rr.rtype().compose(buf)?;
+            rr.class().compose(buf)?;
+            self.original_ttl().compose(buf)?;
+            buf.len_prefixed(|buf| {
+                rr.data().compose_canonical(buf)
+            })?;
         }
+        Ok(())
     }
 
     fn verify_signed_data(
         &self,
-        dnskey: &Dnskey,
-        signed_data: &Bytes,
+        dnskey: &Dnskey<impl AsRef<[u8]>>,
+        signed_data: &impl AsRef<[u8]>,
     ) -> Result<(), AlgorithmError> {
-        let signature = self.signature();
+        let signature = self.signature().as_ref();
+        let signed_data = signed_data.as_ref();
 
         match self.algorithm() {
             SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 | SecAlg::RsaSha256 | SecAlg::RsaSha512 => {
@@ -206,7 +222,7 @@ impl RrsigExt for Rrsig {
                 // The key isn't available in either PEM or DER, so use the direct RSA verifier.
                 let (e, n) = rsa_exponent_modulus(dnskey)?;
                 let public_key = signature::RsaPublicKeyComponents { n: &n, e: &e };
-                public_key.verify(algorithm, &signed_data, &signature)
+                public_key.verify(algorithm, signed_data, &signature)
                 .map_err(|_| AlgorithmError::BadSig)
             }
             SecAlg::EcdsaP256Sha256 | SecAlg::EcdsaP384Sha384 => {
@@ -217,7 +233,7 @@ impl RrsigExt for Rrsig {
                 };
 
                 // Add 0x4 identifier to the ECDSA pubkey as expected by ring.
-                let public_key = dnskey.public_key();
+                let public_key = dnskey.public_key().as_ref();
                 let mut key = Vec::with_capacity(public_key.len() + 1);
                 key.push(0x4);
                 key.extend_from_slice(&public_key);
@@ -237,8 +253,10 @@ impl RrsigExt for Rrsig {
 
 
 /// Return the RSA exponent and modulus components from DNSKEY record data.
-fn rsa_exponent_modulus(dnskey: &Dnskey) -> Result<(&[u8], &[u8]), AlgorithmError> {
-    let public_key = dnskey.public_key();
+fn rsa_exponent_modulus(
+    dnskey: &Dnskey<impl AsRef<[u8]>>
+) -> Result<(&[u8], &[u8]), AlgorithmError> {
+    let public_key = dnskey.public_key().as_ref();
     if public_key.len() <= 3 {
         return Err(AlgorithmError::InvalidData);
     }
@@ -263,10 +281,19 @@ fn rsa_exponent_modulus(dnskey: &Dnskey) -> Result<(&[u8], &[u8]), AlgorithmErro
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use bytes::Bytes;
     use domain_core::iana::{Class, Rtype, SecAlg};
-    use domain_core::{rdata::*, utils::base64, master::scan::Scanner, Dname, Serial};
+    use domain_core::rdata::*;
+    use domain_core::utils::base64;
+    use domain_core::master::scan::Scanner;
+    use domain_core::serial::Serial;
     use std::str::FromStr;
+    use super::*;
+
+    type Dname = domain_core::name::Dname<Bytes>;
+    type Ds = domain_core::rdata::Ds<Bytes>;
+    type Dnskey = domain_core::rdata::Dnskey<Bytes>;
+    type Rrsig = domain_core::rdata::Rrsig<Bytes, Dname>;
 
     // Returns current root KSK/ZSK for testing.
     fn root_pubkey() -> (Dnskey, Dnskey) {
@@ -311,7 +338,7 @@ mod test {
             .collect();
         let signed_data = {
             let mut buf = Vec::new();
-            rrsig.signed_data(&mut buf, records.as_mut_slice());
+            rrsig.signed_data(&mut buf, records.as_mut_slice()).unwrap();
             Bytes::from(buf)
         };
 
@@ -364,7 +391,9 @@ mod test {
             ),
         );
 
-        let owner = Dname::from_slice(b"\x07ED25519\x02nl\x00").unwrap();
+        let owner = Dname::from_octets(
+            Bytes::from(b"\x07ED25519\x02nl\x00".as_ref())
+        ).unwrap();
         let rrsig = Rrsig::new(Rtype::Dnskey, SecAlg::Ed25519, 2, 3600, 1559174400.into(), 1557360000.into(), 45515, owner.clone(), base64::decode("hvPSS3E9Mx7lMARqtv6IGiw0NE0uz0mZewndJCHTkhwSYqlasUq7KfO5QdtgPXja7YkTaqzrYUbYk01J8ICsAA==").unwrap().into());
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
@@ -374,7 +403,7 @@ mod test {
         let (ksk, zsk) = root_pubkey();
         let rrsig = Rrsig::new(Rtype::Dnskey, SecAlg::RsaSha256, 0, 172800, 1560211200.into(), 1558396800.into(), 20326, Dname::root(), base64::decode("otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==").unwrap().into());
 
-        let mut records: Vec<Record<Dname, MasterRecordData<Dname>>> = [&ksk, &zsk]
+        let mut records: Vec<Record<Dname, MasterRecordData<Bytes, Dname>>> = [&ksk, &zsk]
             .iter()
             .cloned()
             .map(|x| {
@@ -385,7 +414,7 @@ mod test {
 
         let signed_data = {
             let mut buf = Vec::new();
-            rrsig.signed_data(&mut buf, records.as_mut_slice());
+            rrsig.signed_data(&mut buf, records.as_mut_slice()).unwrap();
             Bytes::from(buf)
         };
 
@@ -405,7 +434,7 @@ mod test {
         let record = Record::new(Dname::from_str("a.z.w.example.").unwrap(), Class::In, 3600, Mx::new(1, Dname::from_str("ai.example.").unwrap()));
         let signed_data = {
             let mut buf = Vec::new();
-            rrsig.signed_data(&mut buf, &mut [record]);
+            rrsig.signed_data(&mut buf, &mut [record]).unwrap();
             Bytes::from(buf)
         };
 

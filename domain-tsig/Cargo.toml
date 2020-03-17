@@ -1,6 +1,6 @@
 [package]
 name = "domain-tsig"
-version = "0.4.1"
+version = "0.5.0-pre"
 edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust – TSIG Support."
