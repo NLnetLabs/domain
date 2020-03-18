@@ -12,7 +12,6 @@ use futures::{future, stream};
 use futures::future::{Either, Future};
 use futures::stream::Stream;
 use tokio::runtime::Runtime;
-use domain_resolv::resolver::SearchNames;
 
 
 fn forward(
