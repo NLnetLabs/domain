@@ -22,8 +22,9 @@ use core::mem;
 use core::convert::TryInto;
 use unwrap::unwrap;
 use crate::iana::{Opcode, Rcode};
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, Parser, ParseError};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 
 
 //------------ Header --------------------------------------------------

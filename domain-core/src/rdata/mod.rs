@@ -114,8 +114,9 @@ use crate::iana::Rtype;
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+};
 
 
 //----------- RecordData -----------------------------------------------------

@@ -9,6 +9,7 @@
 //! * data and master file access for various resource record types in the
 //!   [rdata] module.
 //!
+//!
 //! # Handling of DNS data.
 //!
 //! This module provides types and traits for working with DNS data. The types
@@ -22,24 +23,17 @@
 //! ## Representation of Variable-length Data and DNS Messages
 //!
 //! Various types have to deal with data of variable length. For instance, a
-//! domain name can be anywhere between one and 255 bytes long. Such types,
-//! all the way up to complete DNS messages, use the [`bytes::Bytes`] type
-//! for holding the actual octets. Values of this type provide a good
-//! compromise between the convenience of owned values and the performance
-//! gained by using slices wherever possible. (The prize for the latter would
-//! be excessive use of generic types and, worse yet, lifetime arguments all
-//! over the place.)
+//! domain name can be anywhere between one and 255 bytes long. Since there
+//! is no single best type to deal with such data – slices, vecs, or even
+//! byte arrays may all be prefered in certain cases –, the crate uses a set
+//! of traits to be able to be generic over bytes sequences. We call types
+//! that provide these traits ‘octet sequences’ or simple ‘octets.’
 //!
-//! In order to distinguish between the various possible representations of
-//! a sequence of bytes, the module attempts to use a consistent terminology.
-//! The term ‘bytes’ will always mean a [`Bytes`] value; a `slice` or `byte
-//! slice` is always a reference to a slice of `u8`; and a `vec` is always a
-//! `Vec<u8>`. Thus a method `as_bytes` on a type would return a [`Bytes`]
-//! reference of the types raw content, while `as_slice` will provide access
-//! to the even more raw `[u8]` of it.
-//!
-//! [`bytes::Bytes`]: ../../bytes/struct.Bytes.html
-//! [`Bytes`]: ../../bytes/struct.Bytes.html
+//! Different traits exist for octet references, owned octets, and octet
+//! builder, that is types that allow constructing an octet stequence from
+//! indidivual bytes or slice. The [octets] module contains all traits and
+//! trait implementations. It also contains a detailed descriptions of the
+//! traits, their purpose, and how it all fits together.
 //!
 //!
 //! ## Parsing and Composing Messages
@@ -51,8 +45,8 @@
 //! representation. 
 //!
 //! Both parsing and composing happen on buffers holding a complete DNS
-//! message. This seems to be a reasonably good choice given the limited 
-//! size of DNS messages and the complexities introduced by to compress
+//! message. This seems to be a reasonable choice given the limited 
+//! size of DNS messages and the complexities introduced by compressing
 //! domain names in message by referencing other parts of the message.
 //! The details are explained in the [parse] and [compose] sub-modules.
 //! Unless you are implementing your own resource record types, you are
@@ -110,7 +104,6 @@ pub mod name;
 pub mod net;
 pub mod octets;
 pub mod opt;
-pub mod parse;
 pub mod rdata;
 pub mod record;
 pub mod question;

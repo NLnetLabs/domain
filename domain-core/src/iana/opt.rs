@@ -1,8 +1,9 @@
 //! DNS EDNS0 Option Codes (OPT)
 
 use core::{cmp, fmt, hash};
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 
 
 //------------ OptionCode ---------------------------------------------------

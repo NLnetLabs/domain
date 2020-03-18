@@ -12,10 +12,9 @@ use crate::cmp::CanonicalOrd;
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
 use crate::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsExt, OctetsRef,
-    ShortBuf
+    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsExt,
+    OctetsRef, Parse, Parser, ParseError, ShortBuf
 };
-use crate::parse::{FormError, Parse, Parser, ParseError};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{RelativeDname, DnameIter};

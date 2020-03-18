@@ -5,8 +5,10 @@
 
 use core::{cmp, fmt, hash};
 use crate::cmp::CanonicalOrd;
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{FormError, Parse, Parser, ParseError};
+use crate::octets::{
+    Compose, FormError, OctetsBuilder, OctetsRef, Parse, Parser, ParseError,
+    ShortBuf
+};
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError};
 use super::relative::RelativeDname;

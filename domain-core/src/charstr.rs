@@ -35,9 +35,8 @@ use crate::cmp::CanonicalOrd;
 use crate::str::{BadSymbol, Symbol, SymbolError};
 use crate::octets::{
     Compose, EmptyBuilder, FromBuilder, IntoBuilder, IntoOctets,
-    OctetsBuilder, OctetsRef, ShortBuf
+    OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
-use crate::parse::{ParseError, Parse, Parser};
 
 
 //------------ CharStr -------------------------------------------------------

@@ -4,8 +4,10 @@ use core::convert::TryInto;
 use unwrap::unwrap;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{FormError, Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, FormError, OctetsBuilder, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf
+};
 use super::CodeOptData;
 
 

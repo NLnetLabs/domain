@@ -12,8 +12,9 @@ use crate::iana::Rtype;
     CharSource, Scan, Scanner, ScanError
 };
 use crate::net::Ipv6Addr;
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 use super::RtypeRecordData;
 
 

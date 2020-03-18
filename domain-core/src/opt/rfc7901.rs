@@ -3,8 +3,9 @@
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
 use crate::name::{Dname, ToDname};
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+};
 use super::CodeOptData;
 
 

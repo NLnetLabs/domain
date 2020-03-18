@@ -3,8 +3,9 @@
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
 use crate::net::IpAddr;
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{FormError, Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, FormError, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 use super::CodeOptData;
 
 

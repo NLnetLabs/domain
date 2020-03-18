@@ -6,8 +6,7 @@ use domain_core::name::{
     Dname, ParsedDname, ToRelativeDname, ToDname
 };
 use domain_core::iana::Rtype;
-use domain_core::octets::OctetsRef;
-use domain_core::parse::ParseError;
+use domain_core::octets::{OctetsRef, ParseError};
 use domain_core::rdata::{A, Aaaa, Srv};
 use rand;
 use rand::distributions::{Distribution, Uniform};

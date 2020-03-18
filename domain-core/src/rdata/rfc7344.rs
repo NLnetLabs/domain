@@ -6,8 +6,9 @@ use crate::iana::{DigestAlg, Rtype, SecAlg};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner
 };
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+};
 use crate::utils::base64;
 use super::RtypeRecordData;
 

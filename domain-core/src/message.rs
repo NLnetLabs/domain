@@ -8,9 +8,10 @@ use crate::message_builder::{
     AdditionalBuilder, AnswerBuilder, RecordSectionBuilder
 };
 use crate::name::{ParsedDname, ToDname};
-use crate::octets::{OctetsBuilder, OctetsRef, ShortBuf};
+use crate::octets::{
+    OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+};
 use crate::opt::{Opt, OptRecord};
-use crate::parse::{Parse, ParseError, Parser};
 use crate::question::Question;
 use crate::rdata::{ParseRecordData, RecordData};
 use crate::rdata::rfc1035::Cname;

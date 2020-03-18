@@ -67,8 +67,9 @@ use domain_core::message_builder::{
 use domain_core::name::{
     Dname, Label, ParsedDname, ToDname, ToLabelIter
 };
-use domain_core::octets::{OctetsBuilder, OctetsRef, OctetsVec, ShortBuf};
-use domain_core::parse::ParseError;
+use domain_core::octets::{
+    OctetsBuilder, OctetsRef, OctetsVec, ParseError, ShortBuf
+};
 use domain_core::record::Record;
 use domain_core::rdata::rfc2845::{Time48, Tsig};
 

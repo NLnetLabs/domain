@@ -11,8 +11,9 @@ use crate::cmp::CanonicalOrd;
 #[cfg(feature = "bytes")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner, SyntaxError
 };
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{Parse, Parser, ParseError};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, Parser, ParseError, ShortBuf
+};
 
 
 //------------ Serial --------------------------------------------------------

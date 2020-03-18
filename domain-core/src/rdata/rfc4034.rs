@@ -18,10 +18,9 @@ use crate::iana::{DigestAlg, Rtype, SecAlg};
 use crate::name::{ParsedDname, ToDname};
 #[cfg(feature="bytes")] use crate::name::Dname;
 use crate::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoOctets, OctetsBuilder,
-    OctetsRef, ShortBuf
+    Compose, EmptyBuilder, FormError, FromBuilder, IntoOctets, OctetsBuilder,
+    OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
-use crate::parse::{FormError, Parse, ParseError, Parser};
 use crate::serial::Serial;
 use crate::utils::base64;
 use super::{RtypeRecordData};

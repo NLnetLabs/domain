@@ -8,8 +8,9 @@ use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{Class, Rtype};
 use crate::name::{ParsedDname, ToDname};
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{Parse, Parser, ParseError};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError, ShortBuf
+};
 
 
 //------------ Question ------------------------------------------------------

@@ -5,8 +5,7 @@
 
 use core::{borrow, cmp, fmt, hash, ops};
 use derive_more::Display;
-use crate::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::parse::{FormError, ParseError};
+use crate::octets::{Compose, FormError, OctetsBuilder, ParseError, ShortBuf};
 
 
 //------------ Label ---------------------------------------------------------

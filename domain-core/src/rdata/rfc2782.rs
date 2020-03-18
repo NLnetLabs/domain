@@ -12,8 +12,10 @@ use crate::iana::Rtype;
     CharSource, Scan, Scanner, ScanError
 };
 use crate::name::{ParsedDname, ToDname};
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{Parse, Parser, ParseError};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError,
+    ShortBuf
+};
 use super::RtypeRecordData;
 
 

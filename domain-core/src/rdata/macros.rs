@@ -267,9 +267,9 @@ macro_rules! rdata_types {
         for MasterRecordData<Ref::Range, ParsedDname<Ref>> {
             fn parse_data(
                 rtype: $crate::iana::Rtype,
-                parser: &mut $crate::parse::Parser<Ref>,
+                parser: &mut $crate::octets::Parser<Ref>,
             ) -> Result<Option<Self>, ParseError> {
-                use $crate::parse::Parse;
+                use $crate::octets::Parse;
 
                 match rtype {
                     $( $( $(
@@ -613,9 +613,9 @@ macro_rules! rdata_types {
         for AllRecordData<Ref::Range, ParsedDname<Ref>> {
             fn parse_data(
                 rtype: $crate::iana::Rtype,
-                parser: &mut $crate::parse::Parser<Ref>,
+                parser: &mut $crate::octets::Parser<Ref>,
             ) -> Result<Option<Self>, ParseError> {
-                use $crate::parse::Parse;
+                use $crate::octets::Parse;
 
                 match rtype {
                     $( $( $(

@@ -47,8 +47,9 @@ use unwrap::unwrap;
 use crate::iana::{OptionCode, OptRcode, Rtype};
 use crate::header::Header;
 use crate::name::ToDname;
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+};
 use crate::rdata::RtypeRecordData;
 use crate::record::Record;
 

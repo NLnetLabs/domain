@@ -88,19 +88,19 @@ macro_rules! int_enum {
 
         //--- Parse and Compose
 
-        impl<Ref: AsRef<[u8]>> $crate::parse::Parse<Ref> for $ianatype {
+        impl<Ref: AsRef<[u8]>> $crate::octets::Parse<Ref> for $ianatype {
             fn parse(
-                parser: &mut $crate::parse::Parser<Ref>
-            ) -> Result<Self, $crate::parse::ParseError> {
-                <$inttype as $crate::parse::Parse<Ref>>::parse(
+                parser: &mut $crate::octets::Parser<Ref>
+            ) -> Result<Self, $crate::octets::ParseError> {
+                <$inttype as $crate::octets::Parse<Ref>>::parse(
                     parser
                 ).map(Self::from_int)
             }
 
             fn skip(
-                parser: &mut $crate::parse::Parser<Ref>
-            ) -> Result<(), $crate::parse::ParseError> {
-                <$inttype as $crate::parse::Parse<Ref>>::skip(parser)
+                parser: &mut $crate::octets::Parser<Ref>
+            ) -> Result<(), $crate::octets::ParseError> {
+                <$inttype as $crate::octets::Parse<Ref>>::skip(parser)
             }
         }
 

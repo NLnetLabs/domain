@@ -9,8 +9,9 @@ use core::cmp::Ordering;
 #[cfg(feature="bytes")] use bytes::Bytes;
 use crate::charstr::CharStr;
 use crate::cmp::CanonicalOrd;
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+};
 use crate::iana::{Nsec3HashAlg, Rtype};
 #[cfg(feature="bytes")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError

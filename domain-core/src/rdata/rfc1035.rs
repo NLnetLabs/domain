@@ -20,9 +20,8 @@ use crate::name::{ParsedDname, ToDname};
 use crate::net::Ipv4Addr;
 use crate::octets::{
     Compose, EmptyBuilder, FromBuilder, IntoOctets, OctetsBuilder,
-    OctetsRef, ShortBuf
+    OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
-use crate::parse::{Parse, ParseError, Parser};
 use crate::serial::Serial;
 use super::RtypeRecordData;
 

@@ -10,8 +10,10 @@ use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
 use crate::iana::{Rtype, TsigRcode};
 use crate::name::{ParsedDname, ToDname};
-use crate::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-use crate::parse::{Parse, ParseError, Parser};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf
+};
 use crate::utils::base64;
 use super::RtypeRecordData;
 
