@@ -319,7 +319,7 @@ impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
             self.data.rtype().compose(target)?;
             self.class.compose(target)?;
             self.ttl.compose(target)?;
-            target.len_prefixed(|target| self.data.compose(target))
+            target.u16_len_prefixed(|target| self.data.compose(target))
         })
     }
 
@@ -332,7 +332,9 @@ impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
             self.data.rtype().compose(target)?;
             self.class.compose(target)?;
             self.ttl.compose(target)?;
-            target.len_prefixed(|target| self.data.compose_canonical(target))
+            target.u16_len_prefixed(|target| {
+                self.data.compose_canonical(target)
+            })
         })
     }
 }

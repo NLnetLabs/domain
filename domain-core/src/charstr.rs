@@ -5,7 +5,7 @@
 //! contain (ASCII-) characters nor is it a string in a Rust-sense.
 //!
 //! An existing, immutable character string is represented by the type
-//! [`CharStr`]. The type [`CharStrMut`] allows constructing a character
+//! [`CharStr`]. The type [`CharStrBuilder`] allows constructing a character
 //! string from individual octets or byte slices.
 //!
 //! In wire-format, character strings are encoded as one octet giving the
@@ -21,7 +21,7 @@
 //! is accepted, too, with the ASCII value of this character used.
 //!
 //! [`CharStr`]: struct.CharStr.html
-//! [`CharStrMut`]: struct.CharStrMut.html
+//! [`CharStrBuilder`]: struct.CharStrMut.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use core::{cmp, fmt, hash, ops, str};

@@ -196,7 +196,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
             rr.rtype().compose(buf)?;
             rr.class().compose(buf)?;
             self.original_ttl().compose(buf)?;
-            buf.len_prefixed(|buf| {
+            buf.u16_len_prefixed(|buf| {
                 rr.data().compose_canonical(buf)
             })?;
         }

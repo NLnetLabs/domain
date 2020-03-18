@@ -1,4 +1,127 @@
-//! Helper types and traits for dealing with generic octet sequences.
+//! Variable length octet sequences.
+//!
+//! This module provides the basic traits that allow defining types that are
+//! generic over a variable length sequence of octets. It implements these
+//! traits for most comonly used types of such sequences and provides a few
+//! additional types for use in a no-std environment. In addition, it provides
+//! a few types and traits that make it easier to access data contained in
+//! such sequences.
+//!
+//!
+//! # Traits for Octet Sequences
+//!
+//! There are two fundamental types of octet sequences. If a sequence is of a
+//! given size, we call it simply ‘octets.’ If the sequence is actually a
+//! buffer into which octets can be placed, it is called an `octets builder.`
+//!
+//!
+//! ## Octets and Octets References
+//!
+//! There is no special trait for octets, we simply use `AsRef<[u8]>` for
+//! imutable octets or `AsMut<[u8]>` if the octets of the sequence can be
+//! manupilated (but the length is still fixed). This way, any type
+//! implementing these traits can be used already. The trait [`OctetsExt`]
+//! has been defined to collect additional methods that aren’t available via
+//! plain `AsRef<[u8]>`.
+//!
+//! A reference to an octets type implements [`OctetsRef`]. The main purpose
+//! of this trait is to allow cheaply taking a sub-sequence, called a ‘range’,
+//! out of the octets. For most types, ranges will be octet slices `&[u8]` but
+//! some shareable types (most notably `bytes::Bytes`) allow ranges to be 
+//! owned values, thus avoiding the lifetime limitations a slice would
+//! bring.
+//!
+//! The trait is separate because of limitations of lifetimes in traits. It
+//! has an associated type `OctetsRef::Range` that defines the type of a
+//! range. When using the trait as a trait bound for a generic type, you will
+//! typically bound a reference to this type. For instance, a generic function
+//! taking part out of some octets and returning a reference to it could be
+//! defined like so:
+//!
+//! ```
+//! # use domain_core::octets::OctetsRef;
+//!
+//! fn take_part<'a, Octets>(
+//!     src: &'a Octets
+//! ) -> <&'a Octets as OctetsRef>::Range
+//! where &'a Octets: OctetsRef {
+//!     unimplemented!()
+//! }
+//! ```
+//! 
+//! The where clause demands that whatever octets type is being used, a
+//! reference to it must be an octets ref. The return value refers to the
+//! range type defined for this octets ref. The lifetime argument is
+//! necessary to tie all these references together.
+//!
+//!
+//! ## Octets Builders
+//!
+//! Octets builders and their [`OctetsBuilder`] trait are comparatively
+//! straightforward. They represent a buffer to which octets can be appended.
+//! Whether the buffer can grow to accommodate appended data depends on the
+//! underlying type. Because it may not, all such operations may fail with a
+//! [`ShortBuf`] error.
+//!
+//! The [`EmptyBuilder`] trait marks a type as being able to create a new,
+//! empty builder.
+//!
+//!
+//! ## Conversion Traits
+//!
+//! A series of special traits allows converting octets into octets builder
+//! and vice versa. They pair octets with their natural builders via
+//! associated types. These conversions are always cyclic, i.e., if an
+//! octets value is converted into a builder and then that builder is
+//! converted back into an octets value, the initial and final octets value
+//! have the same type.
+//!
+//!
+//! ## Using Trait Bounds
+//!
+//! When using these traits as bounds for generic types, always limit yourself
+//! to the most loose bounds you can get away with. Not all types holding
+//! octet sequences can actually implement all these traits, so by being to
+//! eager you may paint yourself into a corner.
+//!
+//! In many cases you can get away with a simple `AsRef<[u8]>` bound. Only use
+//! an explicit `OctetsRef` bound when you need to return a range that may be
+//! kept around.
+//!
+//!
+//! # Composing and Parsing
+//!
+//! Octet sequences are often used to encode data, such as with the DNS wire
+//! format. We call the process of converting data into its octet sequence
+//! encoding ‘composing’ and the reverse process of reading data out of its
+//! encoded form ‘parsing.’ In order to make implementing these functions
+//! easier, the module contains a traits for types that can be composed or
+//! parsed as well as helper types for parsing.
+//!
+//! ## Composing
+//!
+//! Composing encoded data always happens directly into an octets builder.
+//! Any type that can be encoded as DNS wire data implements the [`Compose`]
+//! trait through which its values can be appened to the builder.
+//!
+//! ## Parsing
+//!
+//! Parsing is a little more complicated since encoded data may very well be
+//! broken or ambiguously encoded. The helper type [`Parser`] wraps an octets
+//! ref and allows to parse values from the octets. The trait [`Parse`] is
+//! implemented by types that can decode values from octets.
+//!
+//!
+//!
+//! [`Compose`]: trait.Compose.html
+//! [`EmptyBuilder`]: trait.EmptyBuilder.html
+//! [`Octets`]: trait.Octets.html
+//! [`OctetsExt`]: trait.OctetsExt.html
+//! [`OctetsBuilder`]: trait.OctetsBuilder.html
+//! [`OctetsRef`]: trait.OctetsRef.html
+//! [`Parse`]: trait.Parse.html
+//! [`Parser`]: struct.Parser.html
+//! [`ShortBuf`]: struct.ShortBuf.html
 
 use core::{borrow, hash, fmt};
 use core::cmp::Ordering;
@@ -14,7 +137,15 @@ use crate::net::{Ipv4Addr, Ipv6Addr};
 
 //------------ OctetsExt -----------------------------------------------------
 
+/// An extension trait for octet sequences.
+///
+/// This trait collects some additional functionality that is not available
+/// via the more general `AsRef<[u8]>`. Currently, that is only truncating
+/// the sequence to a given length.
 pub trait OctetsExt: AsRef<[u8]> {
+    /// Truncate the sequence to `len` octets.
+    ///
+    /// If `len` is larger than the length of the sequence, nothing happens.
     fn truncate(&mut self, len: usize);
 }
 
@@ -61,11 +192,38 @@ impl<A: Array<Item = u8>> OctetsExt for SmallVec<A> {
 
 //------------ OctetsRef -----------------------------------------------------
 
+/// A reference to an octets sequence.
+///
+/// This trait is to be implemented for a (imutable) reference to a type of
+/// an octets sequence. I.e., it `T` is an octets sequence, `OctetsRef` needs
+/// to be implemented for `&T`.
+///
+/// The primary purpose of the trait is to allow access to a sub-sequence,
+/// called a ‘range.’ The type of this range is given via the `Range`
+/// associated type. For most types it will be a `&[u8]` with a lifetime equal
+/// to that of the reference itself. Only if an owned range can be created
+/// cheaply, it should be that type.
+///
+/// There is two basic ways of using the trait for a trait bound. You can
+/// either limit the octets sequence type itself by bounding references to it
+/// via a where clause. I.e., for an  octets sequence type argument `Octets`
+/// you can specify `where &'a Octets: OctetsRef` or, if you don’t have a
+/// lifetime argument available `where for<'a> &'a Octets: OctetsRef`. For
+/// this option, you’d typically refer to values as references to the
+/// octets type, i.e., `&Octets`.
+///
+/// Alternatively, you can refer to the reference itself as a owned value.
+/// This works out fine since all octets references are required to be
+/// `Copy`. For instance, a function can take a value of generic type `Oref`
+/// and that type can then be directly bounded via `Oref: OctetsRef`.
 pub trait OctetsRef: AsRef<[u8]> + Copy + Sized {
+    /// The type of a range of the sequence.
     type Range: AsRef<[u8]>;
 
+    /// Returns a sub-sequence or ‘range’ of the sequence.
     fn range(self, start: usize, end: usize) -> Self::Range;
 
+    /// Returns a range starting 
     fn range_from(self, start: usize) -> Self::Range {
         self.range(start, self.as_ref().len())
     }
@@ -133,19 +291,49 @@ impl<'a, A: Array<Item = u8>> OctetsRef for &'a SmallVec<A> {
 
 //------------ OctetsBuilder -------------------------------------------------
 
+/// A buffer to construct an octet sequence.
+///
+/// Octet builders represent a buffer of space available for building an
+/// octets sequence by appending the contents of octet slices. The buffers
+/// may consist of a predefined amount of space or grow as needed.
+///
+/// Octet builders provide access to the already assembled data through
+/// octet slices via their implementations of `AsRef<[u8]>` and `AsMut<[u8]>`.
 pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
-
+    /// Appends the content of a slice to the builder.
+    ///
+    /// If there isn’t enough space available for appending the slice,
+    /// returns an error and leaves the builder alone.
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf>;
+
+    /// Truncates the builder back to a length of `len` octets.
     fn truncate(&mut self, len: usize);
 
+    /// Returns the length of the already assembled data.
+    ///
+    /// This is a convenience method and identical to `self.as_ref().len()`.
     fn len(&self) -> usize {
         self.as_ref().len()
     }
 
+    /// Returns whether the builder is currently empty.
+    ///
+    /// This is a convenience method and identical to
+    /// `self.as_ref().is_empty()`.
     fn is_empty(&self) -> bool {
         self.as_ref().is_empty()
     }
 
+    /// Appends all data or nothing.
+    ///
+    /// The method executes the provided closure that presumably will try to
+    /// append data to the builder and propagates an error from the builder.
+    /// If the closure returns with an error, the builder is truncated back
+    /// to the length from before the closure was executed.
+    ///
+    /// Note that upon an error the builder is _only_ truncated. If the
+    /// closure modified any already present data via `AsMut<[u8]>`, these
+    /// modification will survive.
     fn append_all<F>(&mut self, op: F) -> Result<(), ShortBuf>
     where F: FnOnce(&mut Self) -> Result<(), ShortBuf> {
         let pos = self.len();
@@ -158,6 +346,18 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
         }
     }
 
+    /// Appends a domain name using name compression if supported.
+    ///
+    /// Domain name compression attempts to lower the size of a DNS message
+    /// by avoiding to include repeated domain name suffixes. Instead of
+    /// adding the full suffix, a pointer to the location of the previous
+    /// occurence is added. Since that occurence may itself contain a
+    /// compressed suffix, doing name compression isn’t cheap and therefore
+    /// optional. However, in order to be able to opt in, we need to know
+    /// if we are dealing with a domain name that ought to be compressed.
+    ///
+    /// The trait provides a default implementation which simply appends the
+    /// name uncompressed.
     fn append_compressed_dname<N: ToDname>(
         &mut self,
         name: &N
@@ -175,7 +375,16 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
         }
     }
 
-    fn len_prefixed<F>(&mut self, op: F) -> Result<(), ShortBuf>
+    /// Prepends some appended data with its length as a `u16`.
+    ///
+    /// The method will append the data being added via the closure `op` to
+    /// the builder prepended with a 16 bit unsigned value of its length.
+    ///
+    /// The implementation will prepend a `0u16` before executing the closure
+    /// and update it to the number of octets added afterwards. If the
+    /// closure adds more than 65535 octets or if any appending fails, the
+    /// builder will be truncated to its previous length.
+    fn u16_len_prefixed<F>(&mut self, op: F) -> Result<(), ShortBuf>
     where F: FnOnce(&mut Self) -> Result<(), ShortBuf> {
         let pos = self.len();
         self.append_slice(&[0; 2])?;
@@ -241,9 +450,18 @@ impl<A: Array<Item = u8>> OctetsBuilder for SmallVec<A> {
 
 //------------ EmptyBuilder --------------------------------------------------
 
+/// An octets builder that can be newly created empty.
 pub trait EmptyBuilder {
+    /// Creates a new empty octets builder with a default size.
     fn empty() -> Self;
 
+    /// Creates a new empty octets builder with a suggested initial size.
+    ///
+    /// The builder may or may not use the size provided by `capacity` as the
+    /// initial size of the buffer. It may very well be possibly that the
+    /// builder is never able to grow to this capacity at all. Therefore,
+    /// even if you create a builder for your data size via this function,
+    /// appending may still fail.
     fn with_capacity(capacity: usize) -> Self;
 }
 
@@ -283,9 +501,17 @@ impl<A: Array<Item = u8>> EmptyBuilder for SmallVec<A> {
 
 //------------ IntoOctets ----------------------------------------------------
 
+/// An octets builder that can be converted into octets.
 pub trait IntoOctets {
+    /// The type of the octets the builder can be converted into.
+    ///
+    /// If `Octets` implements [`IntoBuilder`], the `Builder` associated
+    /// type of that trait must be `Self`.
+    ///
+    /// [`IntoBuilder`]: trait.IntoBuilder.html
     type Octets: AsRef<[u8]>;
 
+    /// Converts the builder into the octets.
     fn into_octets(self) -> Self::Octets;
 }
 
@@ -319,9 +545,17 @@ impl<A: Array<Item = u8>> IntoOctets for SmallVec<A> {
 
 //------------ IntoBuilder ---------------------------------------------------
 
+/// An octets type that can be converted into an octets builder.
 pub trait IntoBuilder {
+    /// The type of octets builder this octets type can be converted into.
+    ///
+    /// If `Builder` implements [`IntoOctets`], the `Octets` associated
+    /// type of that trait must be `Self`.
+    ///
+    /// [`IntoOctets`]: trait.IntoOctets.html
     type Builder: OctetsBuilder;
 
+    /// Converts an octets value into an octets builder.
     fn into_builder(self) -> Self::Builder;
 }
 
@@ -376,9 +610,18 @@ impl<A: Array<Item = u8>> IntoBuilder for SmallVec<A> {
 
 //------------ FromBuilder ---------------------------------------------------
 
+/// An octets type that can be created from an octets builder.
+///
+/// This trait is a mirror of [`IntoOctets`] and only exists because otherwise
+/// trait bounds become ridiculously complex. The implementations of the two
+/// traits must behave identically.
+///
+/// [`IntoOctets`]: trait.IntoOctets.html
 pub trait FromBuilder: AsRef<[u8]> + Sized {
+    /// The type of builder this octets type can be created from.
     type Builder: OctetsBuilder + IntoOctets<Octets = Self>;
 
+    /// Creates an octets value from an octets builder.
     fn from_builder(builder: Self::Builder) -> Self;
 }
 
@@ -412,35 +655,34 @@ impl<A: Array<Item = u8>> FromBuilder for SmallVec<A> {
 
 //------------ Parser --------------------------------------------------------
 
+/// A parser for sequentially extracting data from an octets sequence. 
+///
+/// The parser wraps an [octets reference] and remembers the read position on
+/// the referenced octets sequence. Methods allow reading out data and
+/// progressing the position past the read data.
+///
+/// [octets reference]: trait.OctetsRef.html
 #[derive(Clone, Copy, Debug)]
-pub struct Parser<T> {
-    octets: T,
+pub struct Parser<Ref> {
+    octets: Ref,
     pos: usize,
     len: usize,
 }
 
-impl<T> Parser<T> {
+impl<Ref> Parser<Ref> {
     /// Creates a new parser atop a reference to an octet sequence.
-    pub fn from_ref(octets: T) -> Self
-    where T: AsRef<[u8]> {
+    pub fn from_ref(octets: Ref) -> Self
+    where Ref: AsRef<[u8]> {
         Parser { pos: 0, len: octets.as_ref().len(), octets }
     }
 
-    /// Returns a reference to the underlying octets sequence.
-    pub fn octets_ref(&self) -> T
-    where T: Copy {
+    /// Returns the wrapped reference to the underlying octets sequence.
+    pub fn octets_ref(&self) -> Ref
+    where Ref: Copy {
         self.octets
     }
 
-    /// Extracts the underlying octet sequence from the parser.
-    ///
-    /// This will be the same sequence the parser was created with. It
-    /// will not be modified by parsing at all.
-    pub fn into_octets(self) -> T {
-        self.octets
-    }
-
-    /// Returns the current parse position as an index into the byte slice.
+    /// Returns the current parse position as an index into the octets.
     pub fn pos(&self) -> usize {
         self.pos
     }
@@ -472,7 +714,7 @@ impl Parser<&'static [u8]> {
     }
 }
 
-impl<T: AsRef<[u8]>> Parser<T> {
+impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// Returns a reference to the underlying octets sequence.
     pub fn as_slice(&self) -> &[u8] {
         self.octets.as_ref()
@@ -480,7 +722,7 @@ impl<T: AsRef<[u8]>> Parser<T> {
 
     /// Returns a mutable reference to the underlying octets sequence.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
-    where T: AsMut<[u8]> {
+    where Ref: AsMut<[u8]> {
         self.octets.as_mut()
     }
 
@@ -489,7 +731,7 @@ impl<T: AsRef<[u8]>> Parser<T> {
         self.len - self.pos
     }
 
-    /// Returns a slice containing the next `len` bytes.
+    /// Returns a slice containing the next `len` octets.
     ///
     /// If less than `len` bytes are left, returns an error.
     pub fn peek(&self, len: usize) -> Result<&[u8], ParseError> {
@@ -497,14 +739,15 @@ impl<T: AsRef<[u8]>> Parser<T> {
         Ok(&self.peek_all()[..len])
     }
 
-    /// Returns a byte slice of the data left to parse.
+    /// Returns a slice of the data left to parse.
     pub fn peek_all(&self) -> &[u8] {
         &self.octets.as_ref()[self.pos..]
     }
 
     /// Repositions the parser to the given index.
     ///
-    /// If `pos` is larger than the length of the parser, an error is
+    /// It is okay to reposition anywhere within the sequence. However,
+    /// if `pos` is larger than the length of the sequence, an error is
     /// returned.
     pub fn seek(&mut self, pos: usize) -> Result<(), ParseError> {
         if pos > self.len {
@@ -516,7 +759,7 @@ impl<T: AsRef<[u8]>> Parser<T> {
         }
     }
 
-    /// Advances the parser‘s position by `len` bytes.
+    /// Advances the parser‘s position by `len` octets.
     ///
     /// If this would take the parser beyond its end, an error is returned.
     pub fn advance(&mut self, len: usize) -> Result<(), ParseError> {
@@ -534,7 +777,7 @@ impl<T: AsRef<[u8]>> Parser<T> {
         self.pos = self.len
     }
 
-    /// Checks that there are `len` bytes left to parse.
+    /// Checks that there are `len` octets left to parse.
     ///
     /// If there aren’t, returns an error.
     pub fn check_len(&self, len: usize) -> Result<(), ParseError> {
@@ -547,13 +790,16 @@ impl<T: AsRef<[u8]>> Parser<T> {
     }
 }
 
-impl<T: AsRef<[u8]>> Parser<T> {
+impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// Takes and returns the next `len` octets.
     ///
-    /// Advances the parser by `len` bytes. If there aren’t enough bytes left,
-    /// leaves the parser untouched and returns an error, instead.
-    pub fn parse_octets(&mut self, len: usize) -> Result<T::Range, ParseError>
-    where T: OctetsRef {
+    /// Advances the parser by `len` octets. If there aren’t enough octats
+    /// left, leaves the parser untouched and returns an error, instead.
+    pub fn parse_octets(
+        &mut self,
+        len: usize
+    ) -> Result<Ref::Range, ParseError>
+    where Ref: OctetsRef {
         let end = self.pos + len;
         if end > self.len {
             return Err(ParseError::ShortBuf)
@@ -563,7 +809,10 @@ impl<T: AsRef<[u8]>> Parser<T> {
         Ok(res)
     }
 
-    /// Fills the provided buffer by taking bytes from the parser.
+    /// Fills the provided buffer by taking octets from the parser.
+    ///
+    /// If there aren’t enough octets left in the parser to fill the buffer
+    /// completely, returns an error.
     pub fn parse_buf(&mut self, buf: &mut [u8]) -> Result<(), ParseError> {
         let pos = self.pos;
         self.advance(buf.len())?;
@@ -573,7 +822,7 @@ impl<T: AsRef<[u8]>> Parser<T> {
 
     /// Takes an `i8` from the beginning of the parser.
     ///
-    /// Advances the parser by one byte. If there aren’t enough bytes left,
+    /// Advances the parser by one octet. If there aren’t enough octets left,
     /// leaves the parser untouched and returns an error, instead.
     pub fn parse_i8(&mut self) -> Result<i8, ParseError> {
         let res = self.peek(1)?[0] as i8;
@@ -583,7 +832,7 @@ impl<T: AsRef<[u8]>> Parser<T> {
 
     /// Takes a `u8` from the beginning of the parser.
     ///
-    /// Advances the parser by one byte. If there aren’t enough bytes left,
+    /// Advances the parser by one octet. If there aren’t enough octets left,
     /// leaves the parser untouched and returns an error, instead.
     pub fn parse_u8(&mut self) -> Result<u8, ParseError> {
         let res = self.peek(1)?[0];
@@ -594,9 +843,9 @@ impl<T: AsRef<[u8]>> Parser<T> {
     /// Takes an `i16` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
-    /// byte order if necessary. The parser is advanced by two bytes. If there
-    /// aren’t enough bytes left, leaves the parser untouched and returns an
-    /// error, instead.
+    /// byte order if necessary. The parser is advanced by two octets. If
+    /// there aren’t enough octets left, leaves the parser untouched and
+    /// returns an error, instead.
     pub fn parse_i16(&mut self) -> Result<i16, ParseError> {
         let mut res = [0; 2];
         self.parse_buf(&mut res)?;
@@ -606,9 +855,9 @@ impl<T: AsRef<[u8]>> Parser<T> {
     /// Takes a `u16` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
-    /// byte order if necessary. The parser is advanced by two bytes. If there
-    /// aren’t enough bytes left, leaves the parser untouched and returns an
-    /// error, instead.
+    /// byte order if necessary. The parser is advanced by two ocetets. If
+    /// there aren’t enough octets left, leaves the parser untouched and
+    /// returns an error, instead.
     pub fn parse_u16(&mut self) -> Result<u16, ParseError> {
         let mut res = [0; 2];
         self.parse_buf(&mut res)?;
@@ -618,8 +867,8 @@ impl<T: AsRef<[u8]>> Parser<T> {
     /// Takes an `i32` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
-    /// byte order if necessary. The parser is advanced by four bytes. If
-    /// there aren’t enough bytes left, leaves the parser untouched and
+    /// byte order if necessary. The parser is advanced by four octets. If
+    /// there aren’t enough octets left, leaves the parser untouched and
     /// returns an error, instead.
     pub fn parse_i32(&mut self) -> Result<i32, ParseError> {
         let mut res = [0; 4];
@@ -630,8 +879,8 @@ impl<T: AsRef<[u8]>> Parser<T> {
     /// Takes a `u32` from the beginning of the parser.
     ///
     /// The value is converted from network byte order into the system’s own
-    /// byte order if necessary. The parser is advanced by four bytes. If
-    /// there aren’t enough bytes left, leaves the parser untouched and
+    /// byte order if necessary. The parser is advanced by four octets. If
+    /// there aren’t enough octets left, leaves the parser untouched and
     /// returns an error, instead.
     pub fn parse_u32(&mut self) -> Result<u32, ParseError> {
         let mut res = [0; 4];
@@ -680,29 +929,42 @@ impl<T: AsRef<[u8]>> Parser<T> {
 
 //------------ Parse ------------------------------------------------------
 
-/// A type that can extract a value from the beginning of a parser.
+/// A type that can extract a value from a parser.
 ///
-/// If your implementing `Parse` for a type that is generic over an octet
-/// sequence, try to provide a specific implementation for a given octet
-/// sequence. Typically, this will be via implementing
-/// `Parse<T: OctetsRef>` for a type that is then generic over `T::Range`.
-/// This will avoid having to provide type annotations when simply calling
-/// `parse` for your type.
-pub trait Parse<T>: Sized {
+/// The trait is a companion to [`Parser<Ref>`]: it allows a type to use a
+/// parser to create a value of itself. Because types may be generic over
+/// octets types, the trait is generic over the octets reference of the
+/// parser in question. Implementations should use minimal trait bounds
+/// matching the parser methods they use. 
+///
+/// For types that are generic over an octets sequence, the reference type
+/// should be tied to the type’s own type argument. This will avoid having
+/// to provide type annotations when simply calling `Parse::parse` for the
+/// type. Typically this will happen via `OctetsRef::Range`. For instance,
+/// a type `Foo<Octets>` should provide:
+///
+/// ```ignore
+/// impl<Ref: OctetsRef> Parse<Ref> for Foo<Ref::Range> {
+///     // etc.
+/// }
+/// ```
+///
+/// [`Parser<Ref>`]: struct.Parser.html
+pub trait Parse<Ref>: Sized {
     /// Extracts a value from the beginning of `parser`.
     ///
     /// If parsing fails and an error is returned, the parser’s position
-    /// should be considered to be undefined. If it supposed to be reused in
-    /// this case, you should store the position before attempting to parse
+    /// should be considered to be undefined. If it is supposed to be reused
+    /// in this case, you should store the position before attempting to parse
     /// and seek to that position again before continuing.
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError>;
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError>;
 
     /// Skips over a value of this type at the beginning of `parser`.
     ///
     /// This function is the same as `parse` but doesn’t return the result.
     /// It can be used to check if the content of `parser` is correct or to
-    /// skip over unneeded parts of a message.
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError>;
+    /// skip over unneeded parts of the parser.
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError>;
 }
 
 impl<T: AsRef<[u8]>> Parse<T> for i8 {
@@ -795,16 +1057,36 @@ impl<T: AsRef<[u8]>> Parse<T> for Ipv6Addr {
 
 //------------ Compose -------------------------------------------------------
 
-/// A type that knows how to compose itself.
+/// A type that knows how to compose itself into an octets builder.
 ///
 /// The term ‘composing’ refers to the process of creating a DNS wire-format
-/// representation of a value’s data.
+/// representation of a value’s data by appending this representation to the
+/// end of an [octets builder].
+///
+/// The trait supports two different representations: a concrete and a
+/// canonical representation. The former represents the actual data of the
+/// value. For instance, it reflects the capitalisation of strings. The
+/// canonical representation is used when calculating digests or ordering
+/// values. Typically, it ignores capitalization and never compresses domain
+/// names.
+///
+/// [octets builder]: trait.OctetsBuilder.html
 pub trait Compose {
+    /// Appends the concrete representation of the value to the target.
+    ///
+    /// If the representation doesn’t fit into the builder, returns an error.
+    /// In this case the target is considered undefined. If it is supposed to
+    /// be reused, it needs to be reset specifically.
     fn compose<T: OctetsBuilder>(
         &self,
         target: &mut T
     ) -> Result<(), ShortBuf>;
 
+    /// Appends the canonical representation of the value to the target.
+    ///
+    /// If the representation doesn’t fit into the builder, returns an error.
+    /// In this case the target is considered undefined. If it is supposed to
+    /// be reused, it needs to be reset specifically.
     fn compose_canonical<T: OctetsBuilder>(
         &self,
         target: &mut T
@@ -906,6 +1188,10 @@ impl Compose for Ipv6Addr {
 #[macro_export]
 macro_rules! octets_array {
     ( $vis:vis $name:ident => $len:expr) => {
+        /// A fixed length octet buffer.
+        ///
+        /// The type functions both as an octets sequence and an octets
+        /// builder atop a fixed size bytes array.
         #[derive(Clone)]
         $vis struct $name {
             octets: [u8; $len],
@@ -913,14 +1199,17 @@ macro_rules! octets_array {
         }
 
         impl $name {
+            /// Creates a new empty value.
             pub fn new() -> Self {
                 Default::default()
             }
 
+            /// Returns the contents as an octet slice.
             pub fn as_slice(&self) -> &[u8] {
                 &self.octets[..self.len]
             }
 
+            /// Returns the contents as a mutable octet slice.
             pub fn as_slice_mut(&mut self) -> &mut [u8] {
                 &mut self.octets[..self.len]
             }
@@ -1093,6 +1382,9 @@ octets_array!(pub Octets2048 => 2048);
 octets_array!(pub Octets4096 => 4096);
 
 
+//------------ OctetsVec -----------------------------------------------------
+
+/// A octets vector that doesn’t allocate for small sizes.
 #[cfg(feature = "smallvec")]
 pub type OctetsVec = SmallVec<[u8; 24]>;
 
@@ -1113,9 +1405,11 @@ impl std::error::Error for ShortBuf { }
 /// An error happened while parsing data.
 #[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
 pub enum ParseError {
+    /// An attempt was made to go beyond the end of the parser.
     #[display(fmt="unexpected end of buffer")]
     ShortBuf,
 
+    /// A formatting error occurred.
     #[display(fmt="{}", _0)]
     Form(FormError)
 }
@@ -1138,6 +1432,7 @@ impl From<FormError> for ParseError {
 
 //------------ FormError -----------------------------------------------------
 
+/// A formatting error occured.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FormError(&'static str);
 

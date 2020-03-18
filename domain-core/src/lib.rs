@@ -48,24 +48,20 @@
 //! message. This seems to be a reasonable choice given the limited 
 //! size of DNS messages and the complexities introduced by compressing
 //! domain names in message by referencing other parts of the message.
-//! The details are explained in the [parse] and [compose] sub-modules.
-//! Unless you are implementing your own resource record types, you are
-//! unlikely to ever having to deal with parsing and composing directly.
+//! The fundamental types for parsing and composing are also part of the
+//! [octets] module. But unless you are implementing your own resource record
+//! types, you are unlikely to ever having to deal with parsing and composing
+//! directly.
 //!
 //! Instead, the types [`Message`] and [`MessageBuilder`] are there to make
 //! parsing and constructing DNS messages easy. A [`Message`] takes the
 //! binary data of a DNS message and allows iterating over its four
 //! sections to look at the questions and resource records. Similarly,
 //! a [`MessageBuilder`] takes a bytes vector (or creates one for you) and
-//! has functionality to build the sections of the message step-by-step.//!
-//!
-//! [compose]: compose/index.html
-//! [parse]: parse/index.html
-//! [`Message`]: message/struct.Message.html
-//! [`MessageBuilder`]: message_builder/struct.MessageBuilder.html
+//! has functionality to build the sections of the message step-by-step.
 //!
 //!
-//! ## Types for DNS Data
+//! # Types for DNS Data
 //!
 //! The module contains a number of types for DNS data, both fundamental
 //! and composed. Because they often come with a number of support types,
@@ -79,11 +75,34 @@
 //! * [question](question/index.html) for questions,
 //! * [serial](serial/index.html) for serial numbers of zones, and
 //! * [record](record/index.html) for DNS resource records including record
-//!   data. 
+//!   data,
+//! * [rdata](rdata/index.html) for all the individual record types.
+//!
+//!
+//! # Master File Processing
+//!
+//! Handling for the text format for DNS data, sometimes called master files
+//! or zone files is available via the [master] module. See there for more
+//! information.
+//!
+//!
+//! # Support for `no_std`
+//!
+//! The crate is capable of operating without the `std` crate. Obviously, the
+//! set of features is somewhat limited. Specifically, most owned octet
+//! sequence types require an allocator. The [octets] module thus defines a
+//! set of types atop fixed size byte arrays that can be kept on the stack.
+//! Additional types can be created via the `octets_array` macro.
+//!
+//! Use of the `std` crate is selected via the `std` feature. This is part of
+//! the default set, so you will have to disable the default features.
 //!
 //! [iana]: iana/index.html
 //! [master]: master/index.html
+//! [octets]: octets/index.html
 //! [rdata]: rdata/index.html
+//! [`Message`]: message/struct.Message.html
+//! [`MessageBuilder`]: message_builder/struct.MessageBuilder.html
 
 #![no_std]
 

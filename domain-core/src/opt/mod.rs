@@ -70,13 +70,13 @@ impl<Octets: AsRef<[u8]>> Opt<Octets> {
     /// The function checks whether the bytes value contains a sequence of
     /// options. It does not check whether the options itself are valid.
     pub fn from_octets(octets: Octets) -> Result<Self, ParseError> {
-        let mut parser = Parser::from_ref(octets);
+        let mut parser = Parser::from_ref(octets.as_ref());
         while parser.remaining() > 0 {
             parser.advance(2)?;
             let len = parser.parse_u16()?;
             parser.advance(len as usize)?;
         }
-        Ok(Opt { octets: parser.into_octets() })
+        Ok(Opt { octets })
     }
 
     /// Returns an iterator over options of a given type.
