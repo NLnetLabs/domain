@@ -54,7 +54,7 @@
 
 use std::{cmp, fmt, hash, mem, str};
 use std::collections::HashMap;
-use bytes::{BigEndian, ByteOrder, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use derive_more::Display;
 use ring::{constant_time, hmac, rand, hkdf::KeyType};
 use unwrap::unwrap;
@@ -1133,9 +1133,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// Applies the length as a 16 bit big-endian unsigned followed by the
     /// actual octets.
     fn apply_signature(&mut self, data: &[u8]) {
-        let mut buf = [0u8; 2];
-        BigEndian::write_u16(&mut buf, data.len() as u16);
-        self.context.update(&buf);
+        self.context.update(&(data.len() as u16).to_be_bytes());
         self.context.update(data);
     }
 
@@ -1393,39 +1391,32 @@ impl Variables {
     ///
     /// This applies the full variables including key information.
     fn sign(&self, key: &Key, context: &mut hmac::Context) {
-        let mut buf = [0u8; 8];
-
         // Key name, in canonical wire format
         for label in key.name.iter_labels().map(Label::to_canonical) {
             context.update(label.as_wire_slice());
         }
         // CLASS (Always ANY in the current specification)
-        BigEndian::write_u16(&mut buf, Class::Any.to_int());
-        context.update(&buf[..2]);
+        context.update(&Class::Any.to_int().to_be_bytes());
         // TTL (Always 0 in the current specification)
-        BigEndian::write_u32(&mut buf, 0);
-        context.update(&buf[..4]);
+        context.update(&0u32.to_be_bytes());
         // Algorithm Name (in canonical wire format)
         context.update(key.algorithm().into_wire_slice());
         // Time Signed
         context.update(&self.time_signed.into_octets());
         // Fudge
-        BigEndian::write_u16(&mut buf, self.fudge);
-        context.update(&buf[..2]);
+        context.update(&self.fudge.to_be_bytes());
         // Error
-        BigEndian::write_u16(&mut buf, self.error.to_int());
-        context.update(&buf[..2]);
+        context.update(&self.error.to_int().to_be_bytes());
         // Other Len
-        BigEndian::write_u16(
-            &mut buf,
-            if self.other.is_some() { 6 }
-            else { 0 }
-        );
-        context.update(&buf[..2]);
+        if self.other.is_some() {
+            context.update(&6u16.to_be_bytes());
+        }
+        else {
+            context.update(&0u16.to_be_bytes());
+        }
         // Other
         if let Some(time) = self.other {
-            BigEndian::write_u64(&mut buf, time.into());
-            context.update(&buf[2..]);
+            context.update(&u64::from(time).to_be_bytes());
         }
     }
 
@@ -1435,9 +1426,7 @@ impl Variables {
         context.update(&self.time_signed.into_octets());
 
         // Fudge
-        let mut buf = [0u8; 2];
-        BigEndian::write_u16(&mut buf, self.fudge);
-        context.update(&buf[..2]);
+        context.update(&self.fudge.to_be_bytes());
     }
 }
 

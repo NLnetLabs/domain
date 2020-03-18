@@ -16,7 +16,7 @@ name = "domain_tsig"
 path = "src/lib.rs"
 
 [dependencies]
-bytes          = "^0.4"
+bytes          = "^0.5"
 derive_more    = "^0.99"
 ring           = "0.16"
 smallvec       = "1.0"
