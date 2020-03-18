@@ -309,8 +309,8 @@ fn tsig_server_sequence_drill() {
 //------------ Helpers ------------------------------------------------------
 
 fn send_tcp(sock: &mut TcpStream, msg: &[u8]) -> Result<(), io::Error> {
-    sock.write_all(&(msg.len() as u16).to_be_bytes())?;
-    sock.write_all(msg)
+    sock.write_all(msg)?;
+    Ok(())
 }
 
 fn make_first_axfr(request: &TestMessage) -> TestAdditional {
@@ -318,6 +318,7 @@ fn make_first_axfr(request: &TestMessage) -> TestAdditional {
     let mut msg = unwrap!(msg.start_answer(request, Rcode::NoError));
     push_soa(&mut msg);
     push_a(&mut msg, 0, 0, 0);
+    println!("---> {:?}", msg.counts());
     msg.additional()
 }
 
