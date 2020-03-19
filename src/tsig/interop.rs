@@ -320,7 +320,6 @@ fn make_first_axfr(request: &TestMessage) -> TestAdditional {
     let mut msg = unwrap!(msg.start_answer(request, Rcode::NoError));
     push_soa(&mut msg);
     push_a(&mut msg, 0, 0, 0);
-    println!("---> {:?}", msg.counts());
     msg.additional()
 }
 

@@ -81,8 +81,8 @@ where Octets: AsRef<[u8]> {
         algorithm: DigestAlg,
     ) -> Result<digest::Digest, AlgorithmError> {
         let mut buf: Vec<u8> = Vec::new();
-        dname.compose(&mut buf).unwrap();
-        self.compose(&mut buf).unwrap();
+        dname.compose_canonical(&mut buf).unwrap();
+        self.compose_canonical(&mut buf).unwrap();
 
         let mut ctx = match algorithm {
             DigestAlg::Sha1 => {
@@ -214,23 +214,52 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
         let signed_data = signed_data.as_ref();
 
         match self.algorithm() {
-            SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 | SecAlg::RsaSha256 | SecAlg::RsaSha512 => {
-                let algorithm = match self.algorithm() {
-                    SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 => &signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
-                    SecAlg::RsaSha256 => &signature::RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
-                    SecAlg::RsaSha512 => &signature::RSA_PKCS1_2048_8192_SHA512,
+            SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 | SecAlg::RsaSha256 |
+            SecAlg::RsaSha512 => {
+                let (algorithm, min_bytes) = match self.algorithm() {
+                    SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 => {
+                        (
+                            &signature::
+                                RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
+                            1024 / 8
+                        )
+                    }
+                    SecAlg::RsaSha256 => {
+                        (
+                            &signature::
+                                RSA_PKCS1_1024_8192_SHA256_FOR_LEGACY_USE_ONLY,
+                            1024 / 8
+                        )
+                    }
+                    SecAlg::RsaSha512 => {
+                        (
+                            &signature::RSA_PKCS1_2048_8192_SHA512,
+                            2048 / 8
+                        )
+                    }
                     _ => unreachable!(),
                 };
-                // The key isn't available in either PEM or DER, so use the direct RSA verifier.
+
+                // Check for minimum supported key size
+                if self.signature().len() < min_bytes {
+                    return Err(AlgorithmError::Unsupported);
+                }
+
+                // The key isn't available in either PEM or DER, so use the
+                // direct RSA verifier.
                 let (e, n) = rsa_exponent_modulus(dnskey)?;
-                let public_key = signature::RsaPublicKeyComponents { n: &n, e: &e };
+                let public_key = signature::RsaPublicKeyComponents {
+                    n: &n, e: &e
+                };
                 public_key.verify(algorithm, signed_data, &signature)
                 .map_err(|_| AlgorithmError::BadSig)
             }
             SecAlg::EcdsaP256Sha256 | SecAlg::EcdsaP384Sha384 => {
                 let algorithm = match self.algorithm() {
-                    SecAlg::EcdsaP256Sha256 => &signature::ECDSA_P256_SHA256_FIXED,
-                    SecAlg::EcdsaP384Sha384 => &signature::ECDSA_P384_SHA384_FIXED,
+                    SecAlg::EcdsaP256Sha256 =>
+                        &signature::ECDSA_P256_SHA256_FIXED,
+                    SecAlg::EcdsaP384Sha384 =>
+                        &signature::ECDSA_P384_SHA384_FIXED,
                     _ => unreachable!(),
                 };
 
@@ -240,13 +269,19 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                 key.push(0x4);
                 key.extend_from_slice(&public_key);
 
-                signature::UnparsedPublicKey::new(algorithm, &key).verify(&signed_data, &signature)
-                .map_err(|_| AlgorithmError::BadSig)
+                signature::UnparsedPublicKey::new(
+                    algorithm, &key
+                ).verify(&signed_data, &signature).map_err(|_|
+                    AlgorithmError::BadSig
+                )
             }
             SecAlg::Ed25519 => {
                 let key = dnskey.public_key();
-                signature::UnparsedPublicKey::new(&signature::ED25519, &key).verify(&signed_data, &signature)
-                .map_err(|_| AlgorithmError::BadSig)
+                signature::UnparsedPublicKey::new(
+                    &signature::ED25519, &key
+                ).verify(&signed_data, &signature).map_err(|_|
+                    AlgorithmError::BadSig
+                )
             }
             _ => return Err(AlgorithmError::Unsupported),
         }

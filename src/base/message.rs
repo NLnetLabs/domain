@@ -758,7 +758,6 @@ mod test {
             86000,
             Ns::new(unwrap!(Dname::vec_from_str("baz.example.com.")))
         )));
-        println!("{:02x?}", msg.as_target().as_slice());
         msg.into_message()
     }
 

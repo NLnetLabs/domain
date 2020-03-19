@@ -42,42 +42,46 @@ impl ClientSubnet {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
 impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let family = parser.parse_u16()?;
         let source_prefix_len = parser.parse_u8()?;
         let scope_prefix_len = parser.parse_u8()?;
-        let len = parser.remaining();
+
+        // https://tools.ietf.org/html/rfc7871#section-6
+        //
+        // | ADDRESS, variable number of octets, contains either an IPv4 or
+        // | IPv6 address, depending on FAMILY, which MUST be truncated to
+        // | the number of bits indicated by the SOURCE PREFIX-LENGTH field,
+        // | padding with 0 bits to pad to the end of the last octet needed.
+        let prefix_bytes = prefix_bytes(usize::from(source_prefix_len));
+
         let addr = match family {
             1 => {
-                if len != 8 {
+                let mut buf = [0; 4];
+                if prefix_bytes > buf.len() {
                     return Err(
                         FormError::new(
-                            "invalid client subnet address length"
+                            "invalid address length in client subnet option"
                         ).into()
-                    )
+                    );
                 }
-                let bytes: &[u8; 4] = unsafe {
-                    &*(parser.peek(4)?.as_ptr() as *const [u8; 4])
-                };
-                parser.advance(4)?;
-                IpAddr::from(*bytes)
+                parser.parse_buf(&mut buf[..prefix_bytes])?;
+                IpAddr::from(buf)
             }
             2 => {
-                if len != 20 {
+                let mut buf = [0; 16];
+                if prefix_bytes > buf.len() {
                     return Err(
                         FormError::new(
-                            "invalid client subnet address length"
+                            "invalid address length in client subnet option"
                         ).into()
-                    )
+                    );
                 }
-                let bytes: &[u8; 16] = unsafe {
-                    &*(parser.peek(16)?.as_ptr() as *const [u8; 16])
-                };
-                parser.advance(16)?;
-                IpAddr::from(*bytes)
+                parser.parse_buf(&mut buf[..prefix_bytes])?;
+                IpAddr::from(buf)
             }
             _ => {
                 return Err(
@@ -102,23 +106,28 @@ impl Compose for ClientSubnet {
         &self,
         target: &mut T
     ) -> Result<(), ShortBuf> {
+        let prefix_bytes = prefix_bytes(self.source_prefix_len as usize);
         target.append_all(|target| {
             match self.addr {
                 IpAddr::V4(addr) => {
                     1u16.compose(target)?;
                     self.source_prefix_len.compose(target)?;
                     self.scope_prefix_len.compose(target)?;
-                    addr.compose(target)
+                    target.append_slice(&addr.octets()[..prefix_bytes])
                 }
                 IpAddr::V6(addr) => {
                     2u16.compose(target)?;
                     self.source_prefix_len.compose(target)?;
                     self.scope_prefix_len.compose(target)?;
-                    addr.compose(target)
+                    target.append_slice(&addr.octets()[..prefix_bytes])
                 }
             }
         })
     }
+}
+
+fn prefix_bytes(bits: usize) -> usize {
+    (bits + 7) / 8
 }
 
 

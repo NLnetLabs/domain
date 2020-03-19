@@ -407,7 +407,11 @@ where Octets: AsRef<[u8]>, D: ParseOptData<Octets> {
             match self.next_step() {
                 Ok(Some(res)) => return Some(Ok(res)),
                 Ok(None) => { }
-                Err(err) => return Some(Err(err)),
+                Err(err) => {
+                    // Advance to end so we’ll return None from now on.
+                    self.parser.advance_to_end();
+                    return Some(Err(err))
+                }
             }
         }
         None
@@ -416,8 +420,8 @@ where Octets: AsRef<[u8]>, D: ParseOptData<Octets> {
 
 impl<Octets: AsRef<[u8]>, D: ParseOptData<Octets>> OptIter<Octets, D> {
     fn next_step(&mut self) -> Result<Option<D>, ParseError> {
-        let code = self.parser.parse_u16().unwrap().into();
-        let len = self.parser.parse_u16().unwrap() as usize;
+        let code = self.parser.parse_u16()?.into();
+        let len = self.parser.parse_u16()? as usize;
         self.parser.parse_block(len, |parser| {
             D::parse_option(code, parser)
         })
