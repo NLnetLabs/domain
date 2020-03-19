@@ -15,10 +15,10 @@ use tokio::runtime::Runtime;
 use domain_core::name::Dname;
 use domain_resolv::{Resolver, StubResolver};
 
-fn main() -> Result<(), Box<std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut runtime = Runtime::new()?;
     let addr = StubResolver::new().lookup_host(
-        &Dname::from_str("www.rust-lang.org").unwrap()
+        &Dname::<Vec<u8>>::from_str("www.rust-lang.org").unwrap()
     );
     let addr = addr.and_then(|addr| {
         addr.port_iter(443).next()

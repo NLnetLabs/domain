@@ -9,6 +9,7 @@
 //! * data and master file access for various resource record types in the
 //!   [rdata] module.
 //!
+//!
 //! # Handling of DNS data.
 //!
 //! This module provides types and traits for working with DNS data. The types
@@ -22,24 +23,17 @@
 //! ## Representation of Variable-length Data and DNS Messages
 //!
 //! Various types have to deal with data of variable length. For instance, a
-//! domain name can be anywhere between one and 255 bytes long. Such types,
-//! all the way up to complete DNS messages, use the [`bytes::Bytes`] type
-//! for holding the actual octets. Values of this type provide a good
-//! compromise between the convenience of owned values and the performance
-//! gained by using slices wherever possible. (The prize for the latter would
-//! be excessive use of generic types and, worse yet, lifetime arguments all
-//! over the place.)
+//! domain name can be anywhere between one and 255 bytes long. Since there
+//! is no single best type to deal with such data – slices, vecs, or even
+//! byte arrays may all be prefered in certain cases –, the crate uses a set
+//! of traits to be able to be generic over bytes sequences. We call types
+//! that provide these traits ‘octet sequences’ or simple ‘octets.’
 //!
-//! In order to distinguish between the various possible representations of
-//! a sequence of bytes, the module attempts to use a consistent terminology.
-//! The term ‘bytes’ will always mean a [`Bytes`] value; a `slice` or `byte
-//! slice` is always a reference to a slice of `u8`; and a `vec` is always a
-//! `Vec<u8>`. Thus a method `as_bytes` on a type would return a [`Bytes`]
-//! reference of the types raw content, while `as_slice` will provide access
-//! to the even more raw `[u8]` of it.
-//!
-//! [`bytes::Bytes`]: ../../bytes/struct.Bytes.html
-//! [`Bytes`]: ../../bytes/struct.Bytes.html
+//! Different traits exist for octet references, owned octets, and octet
+//! builder, that is types that allow constructing an octet stequence from
+//! indidivual bytes or slice. The [octets] module contains all traits and
+//! trait implementations. It also contains a detailed descriptions of the
+//! traits, their purpose, and how it all fits together.
 //!
 //!
 //! ## Parsing and Composing Messages
@@ -51,27 +45,23 @@
 //! representation. 
 //!
 //! Both parsing and composing happen on buffers holding a complete DNS
-//! message. This seems to be a reasonably good choice given the limited 
-//! size of DNS messages and the complexities introduced by to compress
+//! message. This seems to be a reasonable choice given the limited 
+//! size of DNS messages and the complexities introduced by compressing
 //! domain names in message by referencing other parts of the message.
-//! The details are explained in the [parse] and [compose] sub-modules.
-//! Unless you are implementing your own resource record types, you are
-//! unlikely to ever having to deal with parsing and composing directly.
+//! The fundamental types for parsing and composing are also part of the
+//! [octets] module. But unless you are implementing your own resource record
+//! types, you are unlikely to ever having to deal with parsing and composing
+//! directly.
 //!
 //! Instead, the types [`Message`] and [`MessageBuilder`] are there to make
 //! parsing and constructing DNS messages easy. A [`Message`] takes the
 //! binary data of a DNS message and allows iterating over its four
 //! sections to look at the questions and resource records. Similarly,
 //! a [`MessageBuilder`] takes a bytes vector (or creates one for you) and
-//! has functionality to build the sections of the message step-by-step.//!
-//!
-//! [compose]: compose/index.html
-//! [parse]: parse/index.html
-//! [`Message`]: message/struct.Message.html
-//! [`MessageBuilder`]: message_builder/struct.MessageBuilder.html
+//! has functionality to build the sections of the message step-by-step.
 //!
 //!
-//! ## Types for DNS Data
+//! # Types for DNS Data
 //!
 //! The module contains a number of types for DNS data, both fundamental
 //! and composed. Because they often come with a number of support types,
@@ -85,47 +75,58 @@
 //! * [question](question/index.html) for questions,
 //! * [serial](serial/index.html) for serial numbers of zones, and
 //! * [record](record/index.html) for DNS resource records including record
-//!   data. 
+//!   data,
+//! * [rdata](rdata/index.html) for all the individual record types.
+//!
+//!
+//! # Master File Processing
+//!
+//! Handling for the text format for DNS data, sometimes called master files
+//! or zone files is available via the [master] module. See there for more
+//! information.
+//!
+//!
+//! # Support for `no_std`
+//!
+//! The crate is capable of operating without the `std` crate. Obviously, the
+//! set of features is somewhat limited. Specifically, most owned octet
+//! sequence types require an allocator. The [octets] module thus defines a
+//! set of types atop fixed size byte arrays that can be kept on the stack.
+//! Additional types can be created via the `octets_array` macro.
+//!
+//! Use of the `std` crate is selected via the `std` feature. This is part of
+//! the default set, so you will have to disable the default features.
 //!
 //! [iana]: iana/index.html
 //! [master]: master/index.html
+//! [octets]: octets/index.html
 //! [rdata]: rdata/index.html
+//! [`Message`]: message/struct.Message.html
+//! [`MessageBuilder`]: message_builder/struct.MessageBuilder.html
 
-//--- Re-exports
+#![no_std]
 
-pub use self::charstr::{CharStr, CharStrMut};
-pub use self::cmp::CanonicalOrd;
-pub use self::compose::{Compose, Compress, Compressor};
-pub use self::header::{Header, HeaderCounts, HeaderSection};
-pub use self::message::{Message, RecordSection, Section};
-pub use self::message_builder::{
-    MessageBuilder, SectionBuilder, RecordSectionBuilder
-};
-pub use self::name::{
-    Dname, ParsedDname, RelativeDname, ToDname, ToRelativeDname
-};
-pub use self::parse::{Parser, Parse, ParseAll, ShortBuf};
-pub use self::question::Question;
-pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
-pub use self::record::{Record, RecordHeader, ParsedRecord};
-pub use self::serial::Serial;
+#[cfg(any(feature = "std"))]
+#[allow(unused_imports)] // Import macros even if unused.
+#[macro_use] extern crate std;
 
-//--- Modules
+#[macro_use] extern crate core;
 
 pub mod charstr;
 pub mod cmp;
-pub mod compose;
 pub mod header;
 pub mod iana;
 pub mod master;
 pub mod message;
 pub mod message_builder;
 pub mod name;
+pub mod net;
+pub mod octets;
 pub mod opt;
-pub mod parse;
-pub mod query;
-pub mod question;
 pub mod rdata;
 pub mod record;
+pub mod question;
 pub mod serial;
+pub mod str;
 pub mod utils;
+

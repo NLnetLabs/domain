@@ -4,15 +4,18 @@
 //!
 //! [RFC 2782]: https://tools.ietf.org/html/rfc2782
 
-use std::fmt;
-use std::cmp::Ordering;
-use bytes::BufMut;
+use core::fmt;
+use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::Rtype;
-use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
-use crate::name::ToDname;
-use crate::parse::{Parse, ParseAll, Parser, ParseOpenError, ShortBuf};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError
+};
+use crate::name::{ParsedDname, ToDname};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError,
+    ShortBuf
+};
 use super::RtypeRecordData;
 
 
@@ -33,28 +36,47 @@ impl<N> Srv<N> {
         Srv { priority, weight, port, target }
     }
 
-    pub fn priority(&self) -> u16 { self.priority }
-    pub fn weight(&self) -> u16 { self.weight }
-    pub fn port(&self) -> u16 { self.port }
-    pub fn target(&self) -> &N { &self.target }
+    pub fn into_target(self) -> N {
+        self.target
+    }
+
+    pub fn priority(&self) -> u16 {
+        self.priority
+    }
+
+    pub fn weight(&self) -> u16 {
+        self.weight
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn target(&self) -> &N {
+        &self.target
+    }
 }
 
 
 //--- PartialEq and Eq
 
-impl<N: PartialEq<NN>, NN> PartialEq<Srv<NN>> for Srv<N> {
+impl<N, NN> PartialEq<Srv<NN>> for Srv<N>
+where N: ToDname, NN: ToDname {
     fn eq(&self, other: &Srv<NN>) -> bool {
-        self.priority == other.priority && self.weight == other.weight
-        && self.port == other.port && self.target == other.target
+        self.priority == other.priority
+        && self.weight == other.weight
+        && self.port == other.port
+        && self.target.name_eq(&other.target)
     }
 }
 
-impl<N: Eq> Eq for Srv<N> { }
+impl<N: ToDname> Eq for Srv<N> { }
 
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
-impl<N: PartialOrd<NN>, NN> PartialOrd<Srv<NN>> for Srv<N> {
+impl<N, NN> PartialOrd<Srv<NN>> for Srv<N>
+where N: ToDname, NN: ToDname {
     fn partial_cmp(&self, other: &Srv<NN>) -> Option<Ordering> {
         match self.priority.partial_cmp(&other.priority) {
             Some(Ordering::Equal) => { }
@@ -68,11 +90,11 @@ impl<N: PartialOrd<NN>, NN> PartialOrd<Srv<NN>> for Srv<N> {
             Some(Ordering::Equal) => { }
             other => return other
         }
-        self.target.partial_cmp(&other.target)
+        Some(self.target.name_cmp(&other.target))
     }
 }
 
-impl<N: Ord> Ord for Srv<N> {
+impl<N: ToDname> Ord for Srv<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.priority.cmp(&other.priority) {
             Ordering::Equal => { }
@@ -86,7 +108,7 @@ impl<N: Ord> Ord for Srv<N> {
             Ordering::Equal => { }
             other => return other
         }
-        self.target.cmp(&other.target)
+        self.target.name_cmp(&other.target)
     }
 }
 
@@ -111,60 +133,47 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
 
 //--- Parse, ParseAll, Compose and Compress
 
-impl<N: Parse> Parse for Srv<N> {
-    type Err = <N as Parse>::Err;
-
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
-        Ok(Self::new(u16::parse(parser)?, u16::parse(parser)?,
-                     u16::parse(parser)?, N::parse(parser)?))
+impl<Ref: OctetsRef> Parse<Ref> for Srv<ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        Ok(Self::new(
+            u16::parse(parser)?,
+            u16::parse(parser)?,
+            u16::parse(parser)?,
+            ParsedDname::parse(parser)?
+        ))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         u16::skip(parser)?;
         u16::skip(parser)?;
         u16::skip(parser)?;
-        N::skip(parser)
-    }
-}
-
-impl<N: ParseAll> ParseAll for Srv<N> where N::Err: From<ParseOpenError> {
-    type Err = N::Err;
-
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        if len < 7 {
-            return Err(ParseOpenError::ShortField.into())
-        }
-        Ok(Self::new(u16::parse(parser)?, u16::parse(parser)?,
-                     u16::parse(parser)?, N::parse_all(parser, len - 6)?))
+        ParsedDname::skip(parser)
     }
 }
 
 impl<N: Compose> Compose for Srv<N> {
-    fn compose_len(&self) -> usize {
-        self.target.compose_len() + 6
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.priority.compose(buf)?;
+            self.weight.compose(buf)?;
+            self.port.compose(buf)?;
+            self.target.compose(buf)
+        })
     }
 
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.priority.compose(buf);
-        self.weight.compose(buf);
-        self.port.compose(buf);
-        self.target.compose(buf);
-    }
-
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
-        self.priority.compose(buf);
-        self.weight.compose(buf);
-        self.port.compose(buf);
-        self.target.compose_canonical(buf);
-    }
-}
-
-impl<N: Compose> Compress for Srv<N> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(&self.priority)?;
-        buf.compose(&self.weight)?;
-        buf.compose(&self.port)?;
-        buf.compose(&self.target)
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.priority.compose(buf)?;
+            self.weight.compose(buf)?;
+            self.port.compose(buf)?;
+            self.target.compose_canonical(buf)
+        })
     }
 }
 
@@ -177,7 +186,8 @@ impl<N> RtypeRecordData for Srv<N> {
 
 
 //--- Scan and Display
-
+ 
+#[cfg(feature="bytes")]
 impl<N: Scan> Scan for Srv<N> {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -191,14 +201,5 @@ impl<N: fmt::Display> fmt::Display for Srv<N> {
         write!(f, "{} {} {} {}", self.priority, self.weight, self.port,
                self.target)
     }
-}
-
-
-//------------ parsed --------------------------------------------------------
-
-pub mod parsed {
-    use crate::name::ParsedDname;
-
-    pub type Srv = super::Srv<ParsedDname>;
 }
 

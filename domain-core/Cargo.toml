@@ -1,6 +1,6 @@
 [package]
 name = "domain-core"
-version = "0.4.1"
+version = "0.5.0-pre"
 edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust – Core."
@@ -16,10 +16,15 @@ name = "domain_core"
 path = "src/lib.rs"
 
 [dependencies]
-bytes          = "^0.4"
-chrono         = "^0.4"
-derive_more    = "^0.14"
-rand           = "^0.6"
-unwrap         = "^1.2"
-void           = "^1.0"
+chrono         = "0.4"
+derive_more    = "0.99.1"
+rand           = "0.7"
+unwrap         = "1.2"
+void           = "1.0"
 
+bytes          = { version = "^0.5", optional = true }
+smallvec       = { version = "1.2", optional = true }
+
+[features]
+default = ["std"]
+std = []

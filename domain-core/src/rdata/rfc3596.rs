@@ -4,16 +4,17 @@
 //!
 //! [RFC 3596]: https://tools.ietf.org/html/rfc3596
 
-use std::{fmt, ops};
-use std::cmp::Ordering;
-use std::net::Ipv6Addr;
-use std::str::FromStr;
-use bytes::BufMut;
+use core::{fmt, ops};
+use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::Rtype;
-use crate::master::scan::{CharSource, Scan, Scanner, ScanError};
-use crate::parse::{Parse, ParseAll, Parser, ShortBuf};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError
+};
+use crate::net::Ipv6Addr;
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 use super::RtypeRecordData;
 
 
@@ -48,8 +49,9 @@ impl From<Aaaa> for Ipv6Addr {
     }
 }
 
-impl FromStr for Aaaa {
-    type Err = <Ipv6Addr as FromStr>::Err;
+#[cfg(feature = "std")]
+impl core::str::FromStr for Aaaa {
+    type Err = <Ipv6Addr as core::str::FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ipv6Addr::from_str(s).map(Aaaa::new)
@@ -66,52 +68,36 @@ impl CanonicalOrd for Aaaa {
 }
 
 
-//--- Parse, ParseAll, Compose, and Compress
+//--- Parse, ParseAll, and Compose
 
-impl Parse for Aaaa {
-    type Err = <Ipv6Addr as Parse>::Err;
-
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for Aaaa {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ipv6Addr::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         Ipv6Addr::skip(parser)
     }
 }
 
-impl ParseAll for Aaaa {
-    type Err = <Ipv6Addr as ParseAll>::Err;
-
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        Ipv6Addr::parse_all(parser, len).map(Self::new)
-    }
-}
-
 impl Compose for Aaaa {
-    fn compose_len(&self) -> usize {
-        16
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.addr.compose(buf)
-    }
-}
-
-impl Compress for Aaaa {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        self.addr.compose(target)
     }
 }
 
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Aaaa {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
         scanner.scan_string_phrase(|res| {
-            Aaaa::from_str(&res).map_err(Into::into)
+            core::str::FromStr::from_str(&res).map_err(Into::into)
         })
     }
 }
@@ -161,9 +147,3 @@ impl AsMut<Ipv6Addr> for Aaaa {
     }
 }
 
-
-//------------ parsed --------------------------------------------------------
-
-pub mod parsed {
-    pub use super::Aaaa;
-}

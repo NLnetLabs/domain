@@ -1,6 +1,6 @@
 [package]
 name = "domain-tsig"
-version = "0.4.1"
+version = "0.5.0-pre"
 edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust – TSIG Support."
@@ -16,11 +16,14 @@ name = "domain_tsig"
 path = "src/lib.rs"
 
 [dependencies]
-bytes          = "^0.4"
-derive_more    = "^0.14"
-ring           = "0.15.0-alpha"
+bytes          = "^0.5"
+derive_more    = "^0.99"
+ring           = "0.16"
+smallvec       = "1.0"
+unwrap         = "1.2"
 
 [dependencies.domain-core]
 path = "../domain-core"
-version = "0.4.1"
+version = "0.5.0-pre"
+features = ["std", "smallvec"]
 

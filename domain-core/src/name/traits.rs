@@ -2,10 +2,12 @@
 //!
 /// This is a private module. Its public traits are re-exported by the parent.
 
-use std::cmp;
-use bytes::BytesMut;
+use core::cmp;
+#[cfg(feature = "std")] use std::borrow::Cow;
+#[cfg(feature = "bytes")] use bytes::Bytes;
 use unwrap::unwrap;
-use crate::compose::{Compose, Compress};
+use crate::octets::{Compose, EmptyBuilder, FromBuilder, IntoOctets};
+use super::builder::PushError;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::Label;
@@ -23,18 +25,26 @@ use super::relative::RelativeDname;
 ///
 /// [`ToDname`]: trait.ToDname.html
 /// [`ToRelativeDname`]: trait ToRelativeDname.html
+#[allow(clippy::len_without_is_empty)]
 pub trait ToLabelIter<'a> {
     /// The type of the iterator over the labels.
     ///
     /// This iterator types needs to be double ended so that we can deal with
-    /// name suffixes.
-    type LabelIter: Iterator<Item=&'a Label> + DoubleEndedIterator;
+    /// name suffixes. It needs to be cloneable to be able to cascade over
+    /// parents of a name.
+    type LabelIter: Iterator<Item=&'a Label> + DoubleEndedIterator + Clone;
 
     /// Returns an iterator over the labels.
     fn iter_labels(&'a self) -> Self::LabelIter;
 
+    fn len(&'a self) -> usize {
+        self.iter_labels().map(Label::compose_len).sum()
+    }
+
     /// Determines whether `base` is a prefix of `self`.
-    fn starts_with<N: ToLabelIter<'a>>(&'a self, base: &'a N) -> bool {
+    fn starts_with<N: ToLabelIter<'a> + ?Sized>(
+        &'a self, base: &'a N
+    ) -> bool {
         let mut self_iter = self.iter_labels();
         let mut base_iter = base.iter_labels();
         loop {
@@ -49,7 +59,9 @@ pub trait ToLabelIter<'a> {
     }
 
     /// Determines whether `base` is a suffix of `self`.
-    fn ends_with<N: ToLabelIter<'a>>(&'a self, base: &'a N) -> bool {
+    fn ends_with<N: ToLabelIter<'a> + ?Sized>(
+        &'a self, base: &'a N
+    ) -> bool {
         let mut self_iter = self.iter_labels();
         let mut base_iter = base.iter_labels();
         loop {
@@ -64,7 +76,7 @@ pub trait ToLabelIter<'a> {
     }
 }
 
-impl<'a, 'b, N: ToLabelIter<'b>> ToLabelIter<'b> for &'a N {
+impl<'a, 'b, N: ToLabelIter<'b> + ?Sized> ToLabelIter<'b> for &'a N {
     type LabelIter = N::LabelIter;
 
     fn iter_labels(&'b self) -> Self::LabelIter {
@@ -89,19 +101,35 @@ impl<'a, 'b, N: ToLabelIter<'b>> ToLabelIter<'b> for &'a N {
 /// [`Chain<L, R>`]: struct.Chain.html
 /// [`Dname`]: struct.Dname.html
 /// [`ParsedDname`]: struct.ParsedDname.html
-pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
-    /// Creates an uncompressed value of the domain name.
-    ///
-    /// The method has a default implementation that composes the name into
-    /// a new buffer and returns this buffer. If the implementing type can
-    /// create a `Dname` more efficiently, then it should provide its
-    /// own implementation.
-    fn to_name(&self) -> Dname {
-        let mut bytes = BytesMut::with_capacity(self.compose_len());
-        self.compose(&mut bytes);
-        unsafe {
-            Dname::from_bytes_unchecked(bytes.freeze())
+pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
+    fn to_dname<Octets>(&self) -> Result<Dname<Octets>, PushError>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder
+    {
+        let mut builder = Octets::Builder::with_capacity(self.len());
+        for label in self.iter_labels() {
+            label.build(&mut builder)?;
         }
+        Ok(unsafe { Dname::from_octets_unchecked(builder.into_octets()) })
+    }
+
+    #[cfg(feature = "std")]
+    fn to_dname_cow(&self) -> Dname<std::borrow::Cow<[u8]>> {
+        let octets = self.as_flat_slice().map(Cow::Borrowed).unwrap_or_else(|| {
+            Cow::Owned(self.to_dname_vec().into_octets())
+        });
+        unsafe { Dname::from_octets_unchecked(octets) }
+    }
+
+    #[cfg(feature = "std")]
+    fn to_dname_vec(&self) -> Dname<std::vec::Vec<u8>> {
+        unwrap!(self.to_dname())
+    }
+
+    #[cfg(feature="bytes")] 
+    fn to_dname_bytes(&self) -> Dname<Bytes> {
+        unwrap!(self.to_dname())
     }
 
     /// Returns a byte slice of the content if possible.
@@ -123,7 +151,7 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
     /// is currently impossible.
     ///
     /// Domain names are compared ignoring ASCII case.
-    fn name_eq<N: ToDname>(&self, other: &N) -> bool {
+    fn name_eq<N: ToDname + ?Sized>(&self, other: &N) -> bool {
         if let (Some(left), Some(right)) = (self.as_flat_slice(),
                                             other.as_flat_slice()) {
             // We can do this because the length octets of each label are in
@@ -145,7 +173,7 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
     /// name order’ as defined in [section 6.1 of RFC 4034][RFC4034-6.1].
     ///
     /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
-    fn name_cmp<N: ToDname>(&self, other: &N) -> cmp::Ordering {
+    fn name_cmp<N: ToDname + ?Sized>(&self, other: &N) -> cmp::Ordering {
         let mut self_iter = self.iter_labels();
         let mut other_iter = other.iter_labels();
         loop {
@@ -165,7 +193,7 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
 
     /// Returns the composed name ordering.
     /// 
-    fn composed_cmp<N: ToDname>(&self, other: &N) -> cmp::Ordering {
+    fn composed_cmp<N: ToDname + ?Sized>(&self, other: &N) -> cmp::Ordering {
         if let (Some(left), Some(right)) =
                                (self.as_flat_slice(), other.as_flat_slice()) {
             return left.cmp(right)
@@ -192,7 +220,10 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
     }
 
     /// Returns the lowercase composed ordering.
-    fn lowercase_composed_cmp<N: ToDname>(&self, other: &N) -> cmp::Ordering {
+    fn lowercase_composed_cmp<N: ToDname + ?Sized>(
+        &self,
+        other: &N
+    ) -> cmp::Ordering {
         // Since there isn’t a `cmp_ignore_ascii_case` on slice, we don’t
         // gain much from the shortcut.
         let mut self_iter = self.iter_labels();
@@ -231,7 +262,7 @@ pub trait ToDname: Compose + Compress + for<'a> ToLabelIter<'a> {
     }
 }
 
-impl<'a, N: ToDname + 'a> ToDname for &'a N { }
+impl<'a, N: ToDname + ?Sized + 'a> ToDname for &'a N { }
 
 
 //------------ ToRelativeDname -----------------------------------------------
@@ -252,18 +283,20 @@ impl<'a, N: ToDname + 'a> ToDname for &'a N { }
 /// [`Chain<L, R>`]: struct.Chain.html
 /// [`RelativeDname`]: struct.RelativeDname.html
 pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
-    /// Creates an uncompressed value of the domain name.
-    ///
-    /// The method has a default implementation that composes the name into
-    /// a new buffer and returns this buffer. If the implementing type can
-    /// create a `RelativeDname` more efficiently, then it should provide its
-    /// own implementation.
-    fn to_name(&self) -> RelativeDname {
-        let mut bytes = BytesMut::with_capacity(self.compose_len());
-        self.compose(&mut bytes);
-        unsafe {
-            RelativeDname::from_bytes_unchecked(bytes.freeze())
+    fn to_relative_dname<Octets>(
+        &self
+    ) -> Result<RelativeDname<Octets>, PushError>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder
+    {
+        let mut builder = Octets::Builder::with_capacity(self.len());
+        for label in self.iter_labels() {
+            label.build(&mut builder)?;
         }
+        Ok(unsafe {
+            RelativeDname::from_octets_unchecked(builder.into_octets()) 
+        })
     }
 
     /// Returns a byte slice of the content if possible.
@@ -274,8 +307,12 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
         None
     }
 
-    /// Returns a chain of this name and the provided absolute name.
-    fn chain<N: Compose>(
+    fn is_empty(&self) -> bool {
+        self.iter_labels().next().is_none()
+    }
+
+    /// Returns a chain of this name and the provided name.
+    fn chain<N: ToEitherDname>(
         self,
         suffix: N
     ) -> Result<Chain<Self, N>, LongChainError>
@@ -284,7 +321,7 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     }
 
     /// Returns the absolute name by chaining it with the root label.
-    fn chain_root(self) -> Chain<Self, Dname>
+    fn chain_root(self) -> Chain<Self, Dname<&'static [u8]>>
     where Self: Sized {
         // Appending the root label will always work.
         Chain::new(self, Dname::root()).unwrap()
@@ -297,7 +334,7 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// is currently impossible.
     ///
     /// Domain names are compared ignoring ASCII case.
-    fn name_eq<N: ToRelativeDname>(&self, other: &N) -> bool {
+    fn name_eq<N: ToRelativeDname + ?Sized>(&self, other: &N) -> bool {
         if let (Some(left), Some(right)) = (self.as_flat_slice(),
                                             other.as_flat_slice()) {
             left.eq_ignore_ascii_case(right)
@@ -321,7 +358,10 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// same name.
     ///
     /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
-    fn name_cmp<N: ToRelativeDname>(&self, other: &N) -> cmp::Ordering {
+    fn name_cmp<N: ToRelativeDname + ?Sized>(
+        &self,
+        other: &N
+    ) -> cmp::Ordering {
         let mut self_iter = self.iter_labels();
         let mut other_iter = other.iter_labels();
         loop {
@@ -340,5 +380,9 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     }
 }
 
-impl<'a, N: ToRelativeDname + 'a> ToRelativeDname for &'a N { }
+impl<'a, N: ToRelativeDname + ?Sized + 'a> ToRelativeDname for &'a N { }
 
+
+pub trait ToEitherDname: Compose + for<'a> ToLabelIter<'a> { }
+
+impl<N: Compose + for<'a> ToLabelIter<'a>> ToEitherDname for N { }

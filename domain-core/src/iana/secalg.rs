@@ -1,6 +1,6 @@
 //! DNSSEC Algorithm Numbers
 
-use std::str;
+use core::str;
 
 
 //------------ SecAlg -------------------------------------------------------

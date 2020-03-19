@@ -4,41 +4,43 @@
 //!
 //! [RFC 5155]: https://tools.ietf.org/html/rfc5155
 
-use std::{error, fmt};
-use std::cmp::Ordering;
-use bytes::BufMut;
-use derive_more::Display;
+use core::{fmt, hash};
+use core::cmp::Ordering;
+#[cfg(feature="bytes")] use bytes::Bytes;
 use crate::charstr::CharStr;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, Compress, Compressor};
-use crate::parse::{Parse, ParseAll, ParseAllError, Parser, ShortBuf};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+};
 use crate::iana::{Nsec3HashAlg, Rtype};
-use crate::master::scan::{CharSource, Scan, Scanner, ScanError, SyntaxError};
+#[cfg(feature="bytes")] use crate::master::scan::{
+    CharSource, Scan, Scanner, ScanError, SyntaxError
+};
 use crate::utils::base32;
 use super::RtypeRecordData;
-use super::rfc4034::{RtypeBitmap, RtypeBitmapError};
+use super::rfc4034::RtypeBitmap;
 
 
 //------------ Nsec3 ---------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Nsec3 {
+#[derive(Clone)]
+pub struct Nsec3<Octets> {
     hash_algorithm: Nsec3HashAlg,
     flags: u8,
     iterations: u16,
-    salt: CharStr,
-    next_owner: CharStr,
-    types: RtypeBitmap,
+    salt: CharStr<Octets>,
+    next_owner: CharStr<Octets>,
+    types: RtypeBitmap<Octets>,
 }
 
-impl Nsec3 {
+impl<Octets> Nsec3<Octets> {
     pub fn new(
         hash_algorithm: Nsec3HashAlg,
         flags: u8,
         iterations: u16,
-        salt: CharStr,
-        next_owner: CharStr,
-        types: RtypeBitmap
+        salt: CharStr<Octets>,
+        next_owner: CharStr<Octets>,
+        types: RtypeBitmap<Octets>
     ) -> Self {
         Nsec3 { hash_algorithm, flags, iterations, salt, next_owner, types }
     }
@@ -59,24 +61,69 @@ impl Nsec3 {
         self.iterations
     }
 
-    pub fn salt(&self) -> &CharStr {
+    pub fn salt(&self) -> &CharStr<Octets> {
         &self.salt
     }
 
-    pub fn next_owner(&self) -> &CharStr {
+    pub fn next_owner(&self) -> &CharStr<Octets> {
         &self.next_owner
     }
 
-    pub fn types(&self) -> &RtypeBitmap {
+    pub fn types(&self) -> &RtypeBitmap<Octets> {
         &self.types
     }
 }
 
 
-//--- CanonicalOrd
+//--- PartialEq and Eq
 
-impl CanonicalOrd for Nsec3 {
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
+impl<Octets, Other> PartialEq<Nsec3<Other>> for Nsec3<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn eq(&self, other: &Nsec3<Other>) -> bool {
+        self.hash_algorithm == other.hash_algorithm
+        && self.flags == other.flags
+        && self.iterations == other.iterations
+        && self.salt == other.salt
+        && self.next_owner == other.next_owner
+        && self.types == other.types
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for Nsec3<Octets> { }
+
+
+//--- PartialOrd, CanonicalOrd, and Ord
+
+impl<Octets, Other> PartialOrd<Nsec3<Other>> for Nsec3<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn partial_cmp(&self, other: &Nsec3<Other>) -> Option<Ordering> {
+        match self.hash_algorithm.partial_cmp(&other.hash_algorithm) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.flags.partial_cmp(&other.flags) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.iterations.partial_cmp(&other.iterations) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.salt.partial_cmp(&other.salt) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.next_owner.partial_cmp(&other.next_owner) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.types.partial_cmp(&other.types)
+    }
+}
+
+impl<Octets, Other> CanonicalOrd<Nsec3<Other>> for Nsec3<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn canonical_cmp(&self, other: &Nsec3<Other>) -> Ordering {
         match self.hash_algorithm.cmp(&other.hash_algorithm) {
             Ordering::Equal => { }
             other => return other
@@ -97,65 +144,77 @@ impl CanonicalOrd for Nsec3 {
             Ordering::Equal => { }
             other => return other
         }
-        self.types.cmp(&other.types)
+        self.types.canonical_cmp(&other.types)
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Ord for Nsec3<Octets> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.canonical_cmp(other)
     }
 }
 
 
-//--- ParseAll, Compose, Compress
+//--- Hash
 
-impl ParseAll for Nsec3 {
-    type Err = ParseNsec3Error;
+impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.hash_algorithm.hash(state);
+        self.flags.hash(state);
+        self.iterations.hash(state);
+        self.salt.hash(state);
+        self.next_owner.hash(state);
+        self.types.hash(state);
+    }
+}
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        if len < 6 {
-            return Err(ShortBuf.into())
-        }
-        let start = parser.pos();
+
+//--- ParseAll and Compose
+
+impl<Ref: OctetsRef> Parse<Ref> for Nsec3<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let hash_algorithm = Nsec3HashAlg::parse(parser)?;
         let flags = u8::parse(parser)?;
         let iterations = u16:: parse(parser)?;
         let salt = CharStr::parse(parser)?;
         let next_owner = CharStr::parse(parser)?;
-        let len = if parser.pos() > start + len {
-            return Err(ShortBuf.into())
-        }
-        else {
-            len - (parser.pos() - start)
-        };
-        let types = RtypeBitmap::parse_all(parser, len)?;
+        let types = RtypeBitmap::parse(parser)?;
         Ok(Self::new(
             hash_algorithm, flags, iterations, salt, next_owner, types
         ))
     }
-}
 
-impl Compose for Nsec3 {
-    fn compose_len(&self) -> usize {
-        4 + self.salt.compose_len() + self.next_owner.compose_len() +
-            self.types.compose_len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.hash_algorithm.compose(buf);
-        self.flags.compose(buf);
-        self.iterations.compose(buf);
-        self.salt.compose(buf);
-        self.next_owner.compose(buf);
-        self.types.compose(buf);
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        Nsec3HashAlg::skip(parser)?;
+        u8::skip(parser)?;
+        u16::skip(parser)?;
+        CharStr::skip(parser)?;
+        RtypeBitmap::skip(parser)?;
+        Ok(())
     }
 }
 
-impl Compress for Nsec3 {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.hash_algorithm.compose(buf)?;
+            self.flags.compose(buf)?;
+            self.iterations.compose(buf)?;
+            self.salt.compose(buf)?;
+            self.next_owner.compose(buf)?;
+            self.types.compose(buf)
+        })
     }
 }
 
 
-//------------ Scan and Display ----------------------------------------------
+//--- Scan, Display, and Debug
 
-impl Scan for Nsec3 {
+#[cfg(feature="bytes")]
+impl Scan for Nsec3<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
     ) -> Result<Self, ScanError> {
@@ -170,9 +229,10 @@ impl Scan for Nsec3 {
     }
 }
 
+#[cfg(feature="bytes")]
 fn scan_salt<C: CharSource>(
     scanner: &mut Scanner<C>
-) -> Result<CharStr, ScanError> {
+) -> Result<CharStr<Bytes>, ScanError> {
     if let Ok(()) = scanner.skip_literal("-") {    
         Ok(CharStr::empty())
     }
@@ -181,15 +241,16 @@ fn scan_salt<C: CharSource>(
     }
 }
 
+#[cfg(feature="bytes")]
 fn scan_hash<C: CharSource>(
     scanner: &mut Scanner<C>
-) -> Result<CharStr, ScanError> {
+) -> Result<CharStr<Bytes>, ScanError> {
     scanner.scan_base32hex_phrase(|bytes| {
         CharStr::from_bytes(bytes).map_err(SyntaxError::content)
     })
 }
 
-impl fmt::Display for Nsec3 {
+impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {} {} ", self.hash_algorithm, self.flags,
                self.iterations)?;
@@ -199,10 +260,23 @@ impl fmt::Display for Nsec3 {
     }
 }
 
+impl<Octets: AsRef<[u8]>> fmt::Debug for Nsec3<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Nsec3")
+            .field("hash_algorithm", &self.hash_algorithm)
+            .field("flags", &self.flags)
+            .field("iterations", &self.iterations)
+            .field("salt", &self.salt)
+            .field("next_owner", &self.next_owner)
+            .field("types", &self.types)
+            .finish()
+    }
+}
+
 
 //--- RtypeRecordData
 
-impl RtypeRecordData for Nsec3 {
+impl<Octets> RtypeRecordData for Nsec3<Octets> {
     const RTYPE: Rtype = Rtype::Nsec3;
 }
 
@@ -210,20 +284,20 @@ impl RtypeRecordData for Nsec3 {
 //------------ Nsec3param ----------------------------------------------------
 
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Nsec3param {
+#[derive(Clone)]
+pub struct Nsec3param<Octets> {
     hash_algorithm: Nsec3HashAlg,
     flags: u8,
     iterations: u16,
-    salt: CharStr,
+    salt: CharStr<Octets>,
 }
 
-impl Nsec3param {
+impl<Octets> Nsec3param<Octets> {
     pub fn new(
         hash_algorithm: Nsec3HashAlg,
         flags: u8,
         iterations: u16,
-        salt: CharStr
+        salt: CharStr<Octets>
     ) -> Self {
         Nsec3param { hash_algorithm, flags, iterations, salt } 
     }
@@ -240,16 +314,51 @@ impl Nsec3param {
         self.iterations
     }
 
-    pub fn salt(&self) -> &CharStr {
+    pub fn salt(&self) -> &CharStr<Octets> {
         &self.salt
     }
 }
 
 
-//--- CanonicalOrd
+//--- PartialEq and Eq
 
-impl CanonicalOrd for Nsec3param {
-    fn canonical_cmp(&self, other: &Self) -> Ordering {
+impl<Octets, Other> PartialEq<Nsec3param<Other>> for Nsec3param<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn eq(&self, other: &Nsec3param<Other>) -> bool {
+        self.hash_algorithm == other.hash_algorithm
+        && self.flags == other.flags
+        && self.iterations == other.iterations
+        && self.salt == other.salt
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for Nsec3param<Octets> { }
+
+
+//--- PartialOrd, CanonicalOrd, and Ord
+
+impl<Octets, Other> PartialOrd<Nsec3param<Other>> for Nsec3param<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn partial_cmp(&self, other: &Nsec3param<Other>) -> Option<Ordering> {
+        match self.hash_algorithm.partial_cmp(&other.hash_algorithm) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.flags.partial_cmp(&other.flags) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.iterations.partial_cmp(&other.iterations) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.salt.partial_cmp(&other.salt)
+    }
+}
+
+impl<Octets, Other> CanonicalOrd<Nsec3param<Other>> for Nsec3param<Octets>
+where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    fn canonical_cmp(&self, other: &Nsec3param<Other>) -> Ordering {
         match self.hash_algorithm.cmp(&other.hash_algorithm) {
             Ordering::Equal => { }
             other => return other
@@ -266,13 +375,41 @@ impl CanonicalOrd for Nsec3param {
     }
 }
 
+impl<Octets: AsRef<[u8]>> Ord for Nsec3param<Octets> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.hash_algorithm.cmp(&other.hash_algorithm) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.flags.cmp(&other.flags) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.iterations.cmp(&other.iterations) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.salt.cmp(&other.salt)
+    }
+}
 
-//--- Parse, ParseAll, Compose, Compres
 
-impl Parse for Nsec3param {
-    type Err = ShortBuf;
+//--- Hash
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3param<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.hash_algorithm.hash(state);
+        self.flags.hash(state);
+        self.iterations.hash(state);
+        self.salt.hash(state);
+    }
+}
+
+
+//--- Parse, ParseAll, and Compose
+
+impl<Ref: OctetsRef> Parse<Ref> for Nsec3param<Ref::Range> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(Self::new(
             Nsec3HashAlg::parse(parser)?,
             u8::parse(parser)?,
@@ -281,51 +418,31 @@ impl Parse for Nsec3param {
         ))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         parser.advance(4)?;
         CharStr::skip(parser)
     }
 }
 
-impl ParseAll for Nsec3param {
-    type Err = ParseAllError;
-
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        if len < 5 {
-            return Err(ParseAllError::ShortField)
-        }
-        Ok(Self::new(
-            Nsec3HashAlg::parse(parser)?,
-            u8::parse(parser)?,
-            u16::parse(parser)?,
-            CharStr::parse_all(parser, len - 4)?,
-        ))
-    }
-}
-
-impl Compose for Nsec3param {
-    fn compose_len(&self) -> usize {
-        4 + self.salt.compose_len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.hash_algorithm.compose(buf);
-        self.flags.compose(buf);
-        self.iterations.compose(buf);
-        self.salt.compose(buf);
-    }
-}
-
-impl Compress for Nsec3param {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        buf.compose(self)
+impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.hash_algorithm.compose(buf)?;
+            self.flags.compose(buf)?;
+            self.iterations.compose(buf)?;
+            self.salt.compose(buf)
+        })
     }
 }
 
 
-//--- Scan and Display
+//--- Scan, Display, and Debug
 
-impl Scan for Nsec3param {
+#[cfg(feature="bytes")]
+impl Scan for Nsec3param<Bytes> {
     fn scan<C: CharSource>(
         scanner: &mut Scanner<C>
     ) -> Result<Self, ScanError> {
@@ -338,7 +455,7 @@ impl Scan for Nsec3param {
     }
 }
 
-impl fmt::Display for Nsec3param {
+impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3param<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {} {} ", self.hash_algorithm, self.flags,
                self.iterations)?;
@@ -346,46 +463,21 @@ impl fmt::Display for Nsec3param {
     }
 }
 
+impl<Octets: AsRef<[u8]>> fmt::Debug for Nsec3param<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Nsec3param")
+            .field("hash_algorithm", &self.hash_algorithm)
+            .field("flags", &self.flags)
+            .field("iterations", &self.iterations)
+            .field("salt", &self.salt)
+            .finish()
+    }
+}
+
 
 //--- RtypeRecordData
 
-impl RtypeRecordData for Nsec3param {
+impl<Octets> RtypeRecordData for Nsec3param<Octets> {
     const RTYPE: Rtype = Rtype::Nsec3param;
-}
-
-
-//------------ ParseNsec3Error -----------------------------------------------
-
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum ParseNsec3Error {
-    #[display(fmt="short field")]
-    ShortField,
-
-    #[display(fmt="invalid record type bitmap")]
-    BadRtypeBitmap,
-}
-
-impl error::Error for ParseNsec3Error { }
-
-impl From<ShortBuf> for ParseNsec3Error {
-    fn from(_: ShortBuf) -> Self {
-        ParseNsec3Error::ShortField
-    }
-}
-
-impl From<RtypeBitmapError> for ParseNsec3Error {
-    fn from(err: RtypeBitmapError) -> Self {
-        match err {
-            RtypeBitmapError::ShortBuf => ParseNsec3Error::ShortField,
-            RtypeBitmapError::BadRtypeBitmap => ParseNsec3Error::BadRtypeBitmap
-        }
-    }
-}
-
-
-//------------ parsed --------------------------------------------------------
-
-pub mod parsed {
-    pub use super::{Nsec3, Nsec3param};
 }
 

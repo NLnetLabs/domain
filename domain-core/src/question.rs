@@ -3,12 +3,14 @@
 //! This module defines the type `Question` which represents an entry in
 //! the question section of a DNS message.
 
-use std::fmt;
-use bytes::BufMut;
+use core::{fmt, hash};
+use core::cmp::Ordering;
+use crate::cmp::CanonicalOrd;
 use crate::iana::{Class, Rtype};
-use crate::compose::{Compose, Compress, Compressor};
-use crate::name::ToDname;
-use crate::parse::{Parse, Parser, ShortBuf};
+use crate::name::{ParsedDname, ToDname};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError, ShortBuf
+};
 
 
 //------------ Question ------------------------------------------------------
@@ -31,8 +33,8 @@ use crate::parse::{Parse, Parser, ShortBuf};
 ///
 /// [`ParsedDname`]: ../name/struct.ParsedDname.html
 /// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Question<N: ToDname> {
+#[derive(Clone, Copy)]
+pub struct Question<N> {
     /// The domain name of the question.
     qname: N,
 
@@ -54,6 +56,11 @@ impl<N: ToDname> Question<N> {
     /// Creates a new question from a name and record type, assuming class IN.
     pub fn new_in(qname: N, qtype: Rtype) -> Self {
         Question { qname, qtype, qclass: Class::In }
+    }
+
+    /// Converts the question into the qname.
+    pub fn into_qname(self) -> N {
+        self.qname
     }
 }
 
@@ -93,21 +100,91 @@ impl<N: ToDname> From<(N, Rtype)> for Question<N> {
 }
 
 
-//--- Parse, Compose, and Compress
+//--- PartialEq and Eq
 
-impl<N: ToDname + Parse> Parse for Question<N> {
-    type Err = <N as Parse>::Err;
+impl<N, NN> PartialEq<Question<NN>> for Question<N>
+where N: ToDname, NN: ToDname {
+    fn eq(&self, other: &Question<NN>) -> bool {
+        self.qname.name_eq(&other.qname)
+        && self.qtype == other.qtype
+        && self.qclass == other.qclass
+    }
+}
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+impl<N: ToDname> Eq for Question<N> { }
+
+
+//--- PartialOrd, CanonicalOrd, and Ord
+
+impl<N, NN> PartialOrd<Question<NN>> for Question<N>
+where N: ToDname, NN: ToDname {
+    fn partial_cmp(&self, other: &Question<NN>) -> Option<Ordering> {
+        match self.qname.name_cmp(&other.qname) {
+            Ordering::Equal => { }
+            other => return Some(other)
+        }
+        match self.qtype.partial_cmp(&other.qtype) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.qclass.partial_cmp(&other.qclass)
+    }
+}
+
+impl<N, NN> CanonicalOrd<Question<NN>> for Question<N>
+where N: ToDname, NN: ToDname {
+    fn canonical_cmp(&self, other: &Question<NN>) -> Ordering {
+        match self.qname.lowercase_composed_cmp(&other.qname) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.qtype.cmp(&other.qtype) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.qclass.cmp(&other.qclass)
+    }
+}
+
+impl<N: ToDname> Ord for Question<N> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.qname.name_cmp(&other.qname) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.qtype.cmp(&other.qtype) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.qclass.cmp(&other.qclass)
+    }
+}
+
+
+//--- Hash
+
+impl<N: hash::Hash> hash::Hash for Question<N> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.qname.hash(state);
+        self.qtype.hash(state);
+        self.qclass.hash(state);
+    }
+}
+
+
+//--- Parse and Compose
+
+impl<Ref: OctetsRef> Parse<Ref> for Question<ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(Question::new(
-            N::parse(parser)?,
+            ParsedDname::parse(parser)?,
             Rtype::parse(parser)?,
             Class::parse(parser)?
         ))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
-        N::skip(parser)?;
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        ParsedDname::skip(parser)?;
         Rtype::skip(parser)?;
         Class::skip(parser)?;
         Ok(())
@@ -115,32 +192,34 @@ impl<N: ToDname + Parse> Parse for Question<N> {
 }
 
 impl<N: ToDname> Compose for Question<N> {
-    fn compose_len(&self) -> usize {
-        self.qname.compose_len() + self.qtype.compose_len()
-            + self.qclass.compose_len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.qname.compose(buf);
-        self.qtype.compose(buf);
-        self.qclass.compose(buf);
-    }
-}
-
-impl<N: ToDname> Compress for Question<N> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        self.qname.compress(buf)?;
-        buf.compose(&self.qtype)?;
-        buf.compose(&self.qclass)
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.qname.compose(target)?;
+            self.qtype.compose(target)?;
+            self.qclass.compose(target)
+        })
     }
 }
 
 
-//--- Display
+//--- Display and Debug
 
-impl<N: ToDname + fmt::Display> fmt::Display for Question<N> {
+impl<N: fmt::Display> fmt::Display for Question<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}.\t{}\t{}", self.qname, self.qtype, self.qclass)
+    }
+}
+
+impl<N: fmt::Debug> fmt::Debug for Question<N> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Question")
+            .field("qname", &self.qname)
+            .field("qtype", &self.qtype)
+            .field("qclass", &self.qclass)
+            .finish()
     }
 }
 

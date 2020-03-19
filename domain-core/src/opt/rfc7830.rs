@@ -1,11 +1,11 @@
 //! EDNS Options from RFC 7830
 
-use bytes::BufMut;
 use rand::random;
-use crate::compose::Compose;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
-use crate::parse::{ParseAll, Parser, ShortBuf};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 use super::CodeOptData;
 
 
@@ -26,20 +26,25 @@ pub struct Padding {
     mode: PaddingMode
 }
 
-
-#[allow(clippy::len_without_is_empty)] // It’s not that kind of len.
 impl Padding {
     pub fn new(len: u16, mode: PaddingMode) -> Self {
         Padding { len, mode }
     }
     
-    pub fn push(builder: &mut OptBuilder, len: u16, mode: PaddingMode)
-                -> Result<(), ShortBuf> {
+    pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        len: u16,
+        mode: PaddingMode
+    ) -> Result<(), ShortBuf> {
         builder.push(&Self::new(len, mode))
     }
 
     pub fn len(self) -> u16 {
         self.len
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.len == 0
     }
 
     pub fn mode(self) -> PaddingMode {
@@ -48,36 +53,42 @@ impl Padding {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl ParseAll for Padding {
-    type Err = ShortBuf;
-
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for Padding {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         // XXX Check whether there really are all zeros.
+        let len = parser.remaining();
         parser.advance(len)?;
         Ok(Padding::new(len as u16, PaddingMode::Zero))
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        parser.advance_to_end();
+        Ok(())
     }
 }
 
 impl Compose for Padding {
-    fn compose_len(&self) -> usize {
-        self.len as usize
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        match self.mode {
-            PaddingMode::Zero => {
-                for _ in 0..self.len {
-                    buf.put_u8(0)
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            match self.mode {
+                PaddingMode::Zero => {
+                    for _ in 0..self.len {
+                        0u8.compose(target)?
+                    }
+                }
+                PaddingMode::Random => {
+                    for _ in 0..self.len {
+                        random::<u8>().compose(target)?
+                    }
                 }
             }
-            PaddingMode::Random => {
-                for _ in 0..self.len {
-                    buf.put_u8(random())
-                }
-            }
-        }
+            Ok(())
+        })
     }
 }
 

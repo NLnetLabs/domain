@@ -15,6 +15,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::time::Duration;
+use smallvec::SmallVec;
 use domain_core::name::{self, Dname};
 
 
@@ -410,16 +411,23 @@ impl ResolvConf {
         &mut self,
         mut words: SplitWhitespace
     ) -> Result<(), Error> {
-        let domain = Dname::from_str(next_word(&mut words)?)?;
+        let domain = SearchSuffix::from_str(next_word(&mut words)?)?;
         self.options.search = domain.into();
         no_more_words(words)
     }
 
     fn parse_search(&mut self, words: SplitWhitespace) -> Result<(), Error> {
         let mut search = SearchList::new();
+        let mut root = false;
         for word in words {
-            let name = Dname::from_str(word)?;
-            search.push(name)
+            let name = SearchSuffix::from_str(word)?;
+            if name.is_root() {
+                root = true
+            }
+            search.push(name);
+        }
+        if !root {
+            search.push(SearchSuffix::root());
         }
         self.options.search = search;
         Ok(())
@@ -577,11 +585,16 @@ impl fmt::Display for ResolvConf {
 }
 
 
+//------------ SearchSuffix --------------------------------------------------
+
+pub type SearchSuffix = Dname<SmallVec<[u8; 24]>>;
+
+
 //------------ SearchList ----------------------------------------------------
 
 #[derive(Clone, Debug, Default)]
 pub struct SearchList {
-    search: Vec<Dname>,
+    search: Vec<SearchSuffix>,
 }
 
 impl SearchList {
@@ -589,7 +602,7 @@ impl SearchList {
         Self::default()
     }
 
-    pub fn push(&mut self, name: Dname) {
+    pub fn push(&mut self, name: SearchSuffix) {
         self.search.push(name)
     }
 
@@ -597,17 +610,17 @@ impl SearchList {
         self.search.push(Dname::root())
     }
 
-    pub fn get(&self, pos: usize) -> Option<&Dname> {
+    pub fn get(&self, pos: usize) -> Option<&SearchSuffix> {
         self.search.get(pos)
     }
 
-    pub fn as_slice(&self) -> &[Dname] {
+    pub fn as_slice(&self) -> &[SearchSuffix] {
         self.as_ref()
     }
 }
 
-impl From<Dname> for SearchList {
-    fn from(name: Dname) -> Self {
+impl From<SearchSuffix> for SearchList {
+    fn from(name: SearchSuffix) -> Self {
         let mut res = Self::new();
         res.push(name);
         res
@@ -617,14 +630,14 @@ impl From<Dname> for SearchList {
 
 //--- AsRef and Deref
 
-impl AsRef<[Dname]> for SearchList {
-    fn as_ref(&self) -> &[Dname] {
+impl AsRef<[SearchSuffix]> for SearchList {
+    fn as_ref(&self) -> &[SearchSuffix] {
         self.search.as_ref()
     }
 }
 
 impl ops::Deref for SearchList {
-    type Target = [Dname];
+    type Target = [SearchSuffix];
 
     fn deref(&self) -> &Self::Target {
         self.as_ref()
@@ -681,14 +694,7 @@ pub enum Error {
     Io(io::Error),
 }
 
-impl error::Error for Error {
-    fn description(&self) -> &str {
-        match *self {
-            Error::ParseError => "error parsing configuration",
-            Error::Io(ref e) => e.description(),
-        }
-    }
-}
+impl error::Error for Error { }
 
 impl convert::From<io::Error> for Error {
     fn from(error: io::Error) -> Error {
@@ -710,9 +716,10 @@ impl convert::From<::std::num::ParseIntError> for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use std::error::Error;
-
-        self.description().fmt(f)
+        match *self {
+            Error::ParseError => write!(f, "error parsing configuration"),
+            Error::Io(ref e) => e.fmt(f)
+        }
     }
 }
 

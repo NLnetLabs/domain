@@ -1,10 +1,10 @@
 //! EDNS Options from RFC 7314
 
-use bytes::BufMut;
-use crate::compose::Compose;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
-use crate::parse::{ParseAll, Parser, ParseAllError, ShortBuf};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 use super::CodeOptData;
 
 
@@ -14,13 +14,14 @@ use super::CodeOptData;
 pub struct Expire(Option<u32>);
 
 impl Expire {
-
     pub fn new(expire: Option<u32>) -> Self {
         Expire(expire)
     }
 
-    pub fn push(builder: &mut OptBuilder, expire: Option<u32>)
-                -> Result<(), ShortBuf> {
+    pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        expire: Option<u32>
+    ) -> Result<(), ShortBuf> {
         builder.push(&Self::new(expire))
     }
 
@@ -30,33 +31,37 @@ impl Expire {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl ParseAll for Expire {
-    type Err = ParseAllError;
-
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        if len == 0 {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for Expire {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        if parser.remaining() == 0 {
             Ok(Expire::new(None))
         }
         else {
-            u32::parse_all(parser, len).map(|res| Expire::new(Some(res)))
+            u32::parse(parser).map(|res| Expire::new(Some(res)))
+        }
+    }
+
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        if parser.remaining() == 0 {
+            Ok(())
+        }
+        else {
+            parser.advance(4)
         }
     }
 }
 
 impl Compose for Expire {
-    fn compose_len(&self) -> usize {
-        match self.0 {
-            Some(_) => 4,
-            None => 0,
-        }
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
         if let Some(value) = self.0 {
-            value.compose(buf)
+            value.compose(target)?;
         }
+        Ok(())
     }
 }
 

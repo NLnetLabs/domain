@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.4.1"
+version = "0.5.0-pre"
 edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust – Meta Crate."
@@ -19,25 +19,25 @@ validate = ["domain-validate"]
 
 [dependencies.domain-core]
 path = "../domain-core"
-version = "0.4.1"
+version = "0.5.0-pre"
 
 [dependencies.domain-resolv]
 path = "../domain-resolv"
-version = "0.4.1"
+version = "0.5.0-pre"
 optional = true
 
 [dependencies.domain-sign]
 path = "../domain-sign"
-version = "0.4.1"
+version = "0.5.0-pre"
 optional = true
 
 [dependencies.domain-tsig]
 path = "../domain-tsig"
-version = "0.4.1"
+version = "0.5.0-pre"
 optional = true
 
 [dependencies.domain-validate]
 path = "../domain-validate"
-version = "0.4.1"
+version = "0.5.0-pre"
 optional = true
 

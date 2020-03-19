@@ -5,13 +5,15 @@
 //!
 //! [`Serial`]: struct.Serial.html
 
-use std::{cmp, fmt, str};
-use bytes::BufMut;
+use core::{cmp, fmt, str};
 use chrono::{DateTime, Utc, TimeZone};
 use crate::cmp::CanonicalOrd;
-use crate::compose::Compose;
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
-use crate::parse::{Parse, ParseAll, Parser};
+#[cfg(feature = "bytes")] use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner, SyntaxError
+};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, Parser, ParseError, ShortBuf
+};
 
 
 //------------ Serial --------------------------------------------------------
@@ -86,6 +88,7 @@ impl Serial {
     /// In RRSIG records, the expiration and inception time is given as
     /// serial values. Their master file format can either be the signature
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
+    #[cfg(feature="bytes")]
     pub fn scan_rrsig<C: CharSource>(
         scanner: &mut Scanner<C>
     ) -> Result<Self, ScanError> {
@@ -201,41 +204,31 @@ impl str::FromStr for Serial {
 }
 
 
-//--- Parse, ParseAll, and Compose
+//--- Parse and Compose
 
-impl Parse for Serial {
-    type Err = <u32 as Parse>::Err;
-
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+impl<T: AsRef<[u8]>> Parse<T> for Serial {
+    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
         u32::parse(parser).map(Into::into)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
         u32::skip(parser)
     }
 }
 
-impl ParseAll for Serial {
-    type Err = <u32 as ParseAll>::Err;
-
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        u32::parse_all(parser, len).map(Into::into)
-    }
-}
-
 impl Compose for Serial {
-    fn compose_len(&self) -> usize {
-        self.0.compose_len()
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.0.compose(buf)
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        self.0.compose(target)
     }
 }
 
 
 //--- Scan and Display
 
+#[cfg(feature="bytes")]
 impl Scan for Serial {
     fn scan<C: CharSource>(scanner: &mut Scanner<C>)
                            -> Result<Self, ScanError> {
@@ -293,6 +286,7 @@ impl CanonicalOrd for Serial {
 
 //------------ Helper Functions ----------------------------------------------
 
+#[cfg(feature="bytes")]
 fn u32_from_buf(buf: &[u8]) -> u32 {
     let mut res = 0;
     for ch in buf {

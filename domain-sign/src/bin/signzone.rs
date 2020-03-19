@@ -2,9 +2,12 @@
 
 use std::io;
 use std::fs::File;
-use domain_core::{Dname, Record, Serial};
+use bytes::Bytes;
+use domain_core::name::Dname;
 use domain_core::rdata::MasterRecordData;
 use domain_core::master::reader::{Reader, ReaderItem};
+use domain_core::record::Record;
+use domain_core::serial::Serial;
 use domain_sign::ring;
 use domain_sign::sign::{FamilyName, SortedRecords};
 use ::ring::rand::SystemRandom;
@@ -31,7 +34,7 @@ fn main() {
 }
 
 
-type Records = SortedRecords<Dname, MasterRecordData<Dname>>;
+type Records = SortedRecords<Dname<Bytes>, MasterRecordData<Bytes, Dname<Bytes>>>;
 
 
 fn sign_zone(infile: String, outfile: Option<String>) -> Result<(), io::Error> {
@@ -134,7 +137,7 @@ fn load_zone(infile: String) -> Result<Records, io::Error> {
 
 fn find_apex(
     records: &Records
-) -> Result<(FamilyName<Dname>, u32), io::Error> {
+) -> Result<(FamilyName<Dname<Bytes>>, u32), io::Error> {
     let soa = match records.find_soa() {
         Some(soa) => soa,
         None => {
@@ -148,6 +151,6 @@ fn find_apex(
         MasterRecordData::Soa(ref soa) => soa.minimum(),
         _ => unreachable!()
     };
-    Ok((soa.family_name().to_name(), ttl))
+    Ok((soa.family_name().cloned(), ttl))
 }
 

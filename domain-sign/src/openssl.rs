@@ -1,36 +1,42 @@
 //! Key and Signer using OpenSSL.
 #![cfg(feature = "openssl")]
 
-use bytes::Bytes;
-use domain_core::{Compose, ToDname};
 use domain_core::iana::DigestAlg;
+use domain_core::name::ToDname;
+use domain_core::octets::Compose;
 use domain_core::rdata::{Ds, Dnskey};
 use openssl::error::ErrorStack;
 use openssl::hash::MessageDigest;
 use openssl::pkey::{PKey, Private};
 use openssl::sha::sha256;
 use openssl::sign::Signer as OpenSslSigner;
+use unwrap::unwrap;
 use crate::key::SigningKey;
 
 
 pub struct Key {
-    dnskey: Dnskey,
+    dnskey: Dnskey<Vec<u8>>,
     key: PKey<Private>,
-    digest: Option<MessageDigest>,
+    digest: MessageDigest,
 }
 
 impl SigningKey for Key {
+    type Octets = Vec<u8>;
+    type Signature = Vec<u8>;
     type Error = ErrorStack;
 
-    fn dnskey(&self) -> Result<Dnskey, Self::Error> {
+    fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
         Ok(self.dnskey.clone())
     }
 
-    fn ds<N: ToDname>(&self, owner: N) -> Result<Ds, Self::Error> {
+    fn ds<N: ToDname>(
+        &self,
+        owner: N
+    ) -> Result<Ds<Self::Octets>, Self::Error> {
         let mut buf = Vec::new();
-        owner.compose_canonical(&mut buf);
-        self.dnskey.compose_canonical(&mut buf);
-        let digest = Bytes::from(sha256(&buf).as_ref());
+        unwrap!(owner.compose_canonical(&mut buf));
+        unwrap!(self.dnskey.compose_canonical(&mut buf));
+        let digest = Vec::from(sha256(&buf).as_ref());
         Ok(Ds::new(
             self.key_tag()?,
             self.dnskey.algorithm(),
@@ -39,12 +45,12 @@ impl SigningKey for Key {
         ))
     }
 
-    fn sign(&self, data: &[u8]) -> Result<Bytes, Self::Error> {
-        let mut signer = OpenSslSigner::new_intern(
+    fn sign(&self, data: &[u8]) -> Result<Self::Signature, Self::Error> {
+        let mut signer = OpenSslSigner::new(
             self.digest, &self.key
         )?;
         signer.update(data)?;
-        signer.sign_to_vec().map(Into::into)
+        signer.sign_to_vec()
     }
 }
 

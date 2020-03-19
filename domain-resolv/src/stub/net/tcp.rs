@@ -2,18 +2,17 @@
 use std::io;
 use std::net::SocketAddr;
 use domain_core::message::Message;
-use domain_core::query::{QueryMessage, StreamQueryMessage};
 use futures::try_ready;
 use tokio::io::{read_exact, write_all, ReadExact, WriteAll};
 use tokio::net::tcp::{ConnectFuture, TcpStream};
 use tokio::prelude::{Async, Future};
-use super::super::resolver::Answer;
+use super::super::resolver::{Answer, QueryMessage};
 use super::util::DecoratedFuture;
 
 #[derive(Debug)]
 pub enum TcpQuery {
     Connect(DecoratedFuture<ConnectFuture, QueryMessage>),
-    Send(WriteAll<TcpStream, StreamQueryMessage>),
+    Send(WriteAll<TcpStream, TcpQueryMessage>),
     RecvPrelude(DecoratedFuture<ReadExact<TcpStream, [u8; 2]>, QueryMessage>),
     RecvMessage(DecoratedFuture<ReadExact<TcpStream, Vec<u8>>, QueryMessage>),
     Done
@@ -64,8 +63,8 @@ impl Future for TcpQuery {
             }
             TcpQuery::RecvMessage(ref mut fut) => {
                 let ((sock, buf), query) = try_ready!(fut.poll());
-                if let Ok(answer) = Message::from_bytes(buf.into()) {
-                    if answer.is_answer(&query) {
+                if let Ok(answer) = Message::from_octets(buf.into()) {
+                    if answer.is_answer(&query.as_message()) {
                         (TcpQuery::Done, Ok(Async::Ready(answer.into())))
                     }
                     else {
@@ -91,6 +90,30 @@ impl Future for TcpQuery {
             Ok(Async::NotReady) => self.poll(),
             _ => res
         }
+    }
+}
+
+
+//------------ TcpQueryMessage -----------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct TcpQueryMessage(QueryMessage);
+
+impl TcpQueryMessage {
+    fn unwrap(self) -> QueryMessage {
+        self.0
+    }
+}
+
+impl From<QueryMessage> for TcpQueryMessage {
+    fn from(msg: QueryMessage) -> TcpQueryMessage {
+        TcpQueryMessage(msg)
+    }
+}
+
+impl AsRef<[u8]> for TcpQueryMessage {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_target().as_dgram_slice()
     }
 }
 

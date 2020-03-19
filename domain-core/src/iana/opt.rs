@@ -1,11 +1,9 @@
 //! DNS EDNS0 Option Codes (OPT)
 
-use std::cmp;
-use std::fmt;
-use std::hash;
-use bytes::BufMut;
-use crate::compose::Compose;
-use crate::parse::{Parse, Parser, ShortBuf};
+use core::{cmp, fmt, hash};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 
 
 //------------ OptionCode ---------------------------------------------------
@@ -91,25 +89,22 @@ impl OptionCode {
 
 //--- Parse and Compose
 
-impl Parse for OptionCode {
-    type Err = ShortBuf;
-
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for OptionCode {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         u16::parse(parser).map(OptionCode::from_int)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         u16::skip(parser)
     }
 }
 
 impl Compose for OptionCode {
-    fn compose_len(&self) -> usize {
-        2
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.to_int().compose(buf)
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        self.to_int().compose(target)
     }
 }
 

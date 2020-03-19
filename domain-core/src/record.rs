@@ -40,16 +40,15 @@
 //! [`RecordHeader`]: struct.RecordHeader.html
 //! [`ParsedRecord`]: struct.ParsedRecord.html
 
-use std::{error, fmt};
-use std::cmp::Ordering;
-use bytes::{BigEndian, BufMut, ByteOrder};
-use derive_more::Display;
+use core::{fmt, hash};
+use core::cmp::Ordering;
 use crate::cmp::CanonicalOrd;
-use crate::compose::{Compose, Compress, Compressor};
 use crate::iana::{Class, Rtype};
-use crate::name::{ParsedDname, ParsedDnameError, ToDname};
-use crate::parse::{Parse, Parser, ShortBuf};
-use crate::rdata::{ParseRecordData, RecordData};
+use crate::name::{ParsedDname, ToDname};
+use crate::octets::{
+    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError, ShortBuf
+};
+use crate::rdata::{RecordData, ParseRecordData};
 
 
 //------------ Record --------------------------------------------------------
@@ -110,10 +109,10 @@ use crate::rdata::{ParseRecordData, RecordData};
 /// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
 /// [`Rtype`]: ../../iana/enum.Rtype.html
 /// [`domain::master`]: ../../master/index.html
-#[derive(Clone, Debug)]
-pub struct Record<N, D> {
+#[derive(Clone)]
+pub struct Record<Name, Data> {
     /// The owner of the record.
-    owner: N,
+    owner: Name,
 
     /// The class of the record.
     class: Class,
@@ -122,15 +121,15 @@ pub struct Record<N, D> {
     ttl: u32,
 
     /// The record data. The value also specifies the record’s type.
-    data: D
+    data: Data
 }
 
 
 /// # Creation and Element Access
 ///
-impl<N, D> Record<N, D> {
+impl<Name, Data> Record<Name, Data> {
     /// Creates a new record from its parts.
-    pub fn new(owner: N, class: Class, ttl: u32, data: D) -> Self {
+    pub fn new(owner: Name, class: Class, ttl: u32, data: Data) -> Self {
         Record { owner, class, ttl, data }
     }
 
@@ -139,7 +138,7 @@ impl<N, D> Record<N, D> {
     /// This function only exists because the equivalent `From` implementation
     /// is currently not possible,
     pub fn from_record<NN, DD>(record: Record<NN, DD>) -> Self
-    where N: From<NN>, D: From<DD> {
+    where Name: From<NN>, Data: From<DD> {
         Self::new(
             record.owner.into(),
             record.class,
@@ -152,13 +151,13 @@ impl<N, D> Record<N, D> {
     ///
     /// The owner of a record is the domain name that specifies the node in
     /// the DNS tree this record belongs to.
-    pub fn owner(&self) -> &N {
+    pub fn owner(&self) -> &Name {
         &self.owner
     }
 
     /// Returns the record type.
     pub fn rtype(&self) -> Rtype
-    where D: RecordData {
+    where Data: RecordData {
         self.data.rtype()
     }
 
@@ -183,17 +182,17 @@ impl<N, D> Record<N, D> {
     }
 
     /// Return a reference to the record data.
-    pub fn data(&self) -> &D {
+    pub fn data(&self) -> &Data {
         &self.data
     }
 
     /// Returns a mutable reference to the record data.
-    pub fn data_mut(&mut self) -> &mut D {
+    pub fn data_mut(&mut self) -> &mut Data {
         &mut self.data
     }
 
     /// Trades the record for its record data.
-    pub fn into_data(self) -> D {
+    pub fn into_data(self) -> Data {
         self.data
     }
 }
@@ -283,88 +282,87 @@ where N: ToDname, NN: ToDname, D: RecordData + CanonicalOrd<DD>, DD: RecordData 
 }
 
 
-//--- Parsable, Compose, and Compressor
+//--- Hash
 
-impl<D: ParseRecordData> Parse for Option<Record<ParsedDname, D>> {
-    type Err = RecordParseError<ParsedDnameError, D::Err>;
+impl<Name, Data> hash::Hash for Record<Name, Data>
+where Name: hash::Hash, Data: hash::Hash {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.owner.hash(state);
+        self.class.hash(state);
+        self.ttl.hash(state);
+        self.data.hash(state);
+    }
+}
+        
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
-        let header = match RecordHeader::parse(parser) {
-            Ok(header) => header,
-            Err(err) => return Err(RecordParseError::Name(err)),
-        };
-        match D::parse_data(header.rtype(), parser, header.rdlen() as usize) {
-            Ok(Some(data)) => {
-                Ok(Some(header.into_record(data)))
-            }
-            Ok(None) => {
-                parser.advance(header.rdlen() as usize)?;
-                Ok(None)
-            }
-            Err(err) => {
-                Err(RecordParseError::Data(err))
-            }
-        }
+//--- Parse and Compose
+
+impl<Ref, Data> Parse<Ref> for Option<Record<ParsedDname<Ref>, Data>>
+where Ref: OctetsRef, Data: ParseRecordData<Ref> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        let header = RecordHeader::parse(parser)?;
+        header.parse_into_record(parser)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         ParsedRecord::skip(parser)
-                     .map_err(RecordParseError::Name)
     }
 }
 
 impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
-    fn compose_len(&self) -> usize {
-        self.owner.compose_len() + self.data.compose_len() + 10
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            target.append_compressed_dname(&self.owner)?;
+            self.data.rtype().compose(target)?;
+            self.class.compose(target)?;
+            self.ttl.compose(target)?;
+            target.u16_len_prefixed(|target| self.data.compose(target))
+        })
     }
 
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        RecordHeader::new(
-            &self.owner,
-            self.data.rtype(),
-            self.class, self.ttl,
-            self.data.compose_len() as u16
-        ).compose(buf);
-        self.data.compose(buf);
-    }
-
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
-        RecordHeader::new(
-            &self.owner,
-            self.data.rtype(),
-            self.class, self.ttl,
-            self.data.compose_len() as u16
-        ).compose_canonical(buf);
-        self.data.compose_canonical(buf);
-    }
-}
-
-impl<N: ToDname, D: RecordData + Compress> Compress for Record<N, D> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        self.owner.compress(buf)?;
-        buf.compose(&self.rtype())?;
-        buf.compose(&self.class)?;
-        buf.compose(&self.ttl)?;
-        let pos = buf.len();
-        buf.compose(&0u16)?;
-        self.data.compress(buf)?;
-        let len = buf.len() - pos - 2;
-        assert!(len <= (::std::u16::MAX as usize));
-        BigEndian::write_u16(&mut buf.as_slice_mut()[pos..], len as u16);
-        Ok(())
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.owner.compose_canonical(target)?;
+            self.data.rtype().compose(target)?;
+            self.class.compose(target)?;
+            self.ttl.compose(target)?;
+            target.u16_len_prefixed(|target| {
+                self.data.compose_canonical(target)
+            })
+        })
     }
 }
 
 
-//--- Display
+//--- Display and Debug
 
-impl<N, D> fmt::Display for Record<N, D>
-where N: fmt::Display, D: RecordData + fmt::Display {
+impl<Name, Data> fmt::Display for Record<Name, Data>
+where Name: fmt::Display, Data: RecordData + fmt::Display {
    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}. {} {} {} {}",
-               self.owner, self.ttl, self.class, self.data.rtype(),
-               self.data)
+        write!(f,
+            "{}. {} {} {} {}",
+            self.owner, self.ttl, self.class, self.data.rtype(),
+            self.data
+        )
     }
+}
+
+impl<Name, Data> fmt::Debug for Record<Name, Data>
+where Name: fmt::Debug, Data: fmt::Debug {
+   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+       f.debug_struct("Record")
+           .field("owner", &self.owner)
+           .field("class", &self.class)
+           .field("ttl", &self.ttl)
+           .field("data", &self.data)
+           .finish()
+   }
 }
 
 
@@ -378,62 +376,50 @@ where N: fmt::Display, D: RecordData + fmt::Display {
 /// in a DNS message.
 ///
 /// See [`Record`] for more details about resource records.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RecordHeader<N> {
-    owner: N,
+#[derive(Clone)]
+pub struct RecordHeader<Name> {
+    owner: Name,
     rtype: Rtype,
     class: Class,
     ttl: u32,
     rdlen: u16,
 }
 
-impl<N> RecordHeader<N> {
+impl<Name> RecordHeader<Name> {
     /// Creates a new record header from its components.
-    pub fn new(owner: N, rtype: Rtype, class: Class, ttl: u32, rdlen: u16)
-               -> Self {
+    pub fn new(
+        owner: Name,
+        rtype: Rtype,
+        class: Class,
+        ttl: u32,
+        rdlen: u16
+    ) -> Self {
         RecordHeader { owner, rtype, class, ttl, rdlen }
     }
 }
 
-impl RecordHeader<ParsedDname> {
+impl<Name> RecordHeader<Name> {
     /// Parses a record header and then skips over the data.
     ///
     /// If the function succeeds, the parser will be positioned right behind
     /// the end of the record.
-    pub fn parse_and_skip(parser: &mut Parser)
-                          -> Result<Self, ParsedDnameError> {
+    pub fn parse_and_skip<Ref>(
+        parser: &mut Parser<Ref>
+    ) -> Result<Self, ParseError>
+    where Self: Parse<Ref>, Ref: OctetsRef {
         let header = Self::parse(parser)?;
         match parser.advance(header.rdlen() as usize) {
             Ok(()) => Ok(header),
             Err(_) => Err(ShortBuf.into()),
         }
     }
+}
 
-    /// Parses the remainder of the record and returns it.
-    ///
-    /// The method assumes that the parsers is currently positioned right
-    /// after the end of the record header. If the record data type `D`
-    /// feels capable of parsing a record with a header of `self`, the
-    /// method will parse the data and return a full `Record<D>`. Otherwise,
-    /// it skips over the record data.
-    #[allow(clippy::type_complexity)] // I know ...
-    pub fn parse_into_record<D: ParseRecordData>(self, parser: &mut Parser)
-                             -> Result<Option<Record<ParsedDname, D>>,
-                                       RecordParseError<ParsedDnameError,
-                                                        D::Err>> {
-        let end = parser.pos() + self.rdlen as usize;
-        match D::parse_data(self.rtype, parser, self.rdlen as usize)
-                .map_err(RecordParseError::Data)? {
-            Some(data) => Ok(Some(self.into_record(data))),
-            None => {
-                parser.seek(end)?;
-                Ok(None)
-            }
-        }
-    }
-
+impl RecordHeader<()> {
     /// Parses only the record length and skips over all the other fields.
-    fn parse_rdlen(parser: &mut Parser) -> Result<u16, ParsedDnameError> {
+    fn parse_rdlen<Ref: OctetsRef>(
+        parser: &mut Parser<Ref>
+    ) -> Result<u16, ParseError> {
         ParsedDname::skip(parser)?;
         Rtype::skip(parser)?;
         Class::skip(parser)?;
@@ -442,9 +428,38 @@ impl RecordHeader<ParsedDname> {
     }
 }
 
-impl<N: ToDname> RecordHeader<N> {
+impl<Ref: OctetsRef> RecordHeader<ParsedDname<Ref>> {
+    /// Parses the remainder of the record and returns it.
+    ///
+    /// The method assumes that the parsers is currently positioned right
+    /// after the end of the record header. If the record data type `D`
+    /// feels capable of parsing a record with a header of `self`, the
+    /// method will parse the data and return a full `Record<D>`. Otherwise,
+    /// it skips over the record data.
+    pub fn parse_into_record<Data>(
+        self,
+        parser: &mut Parser<Ref>
+    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    where Data: ParseRecordData<Ref> {
+        parser.parse_block(self.rdlen as usize, |parser| {
+            match Data::parse_data(self.rtype, parser)? {
+                Some(data) => {
+                    Ok(Some(Record::new(
+                        self.owner, self.class, self.ttl, data
+                    )))
+                }
+                None => {
+                    parser.advance_to_end();
+                    Ok(None)
+                }
+            }
+        })
+    }
+}
+
+impl<Name> RecordHeader<Name> {
     /// Returns a reference to the owner of the record.
-    pub fn owner(&self) -> &N {
+    pub fn owner(&self) -> &Name {
         &self.owner
     }
 
@@ -469,28 +484,105 @@ impl<N: ToDname> RecordHeader<N> {
     }
 
     /// Converts the header into an actual record.
-    pub fn into_record<D: RecordData>(self, data: D) -> Record<N, D> {
+    pub fn into_record<Data>(self, data: Data) -> Record<Name, Data> {
         Record::new(self.owner, self.class, self.ttl, data)
     }
 }
 
 
-//--- Parse, Compose, and Compress
+//--- PartialEq and Eq
 
-impl Parse for RecordHeader<ParsedDname> {
-    type Err = ParsedDnameError;
+impl<Name, NName> PartialEq<RecordHeader<NName>> for RecordHeader<Name>
+where Name: ToDname, NName: ToDname {
+    fn eq(&self, other: &RecordHeader<NName>) -> bool {
+        self.owner.name_eq(&other.owner)
+        && self.rtype == other.rtype
+        && self.class == other.class
+        && self.ttl == other.ttl
+        && self.rdlen == other.rdlen
+    }
+}
 
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+impl<Name: ToDname> Eq for RecordHeader<Name> { }
+
+
+//--- PartialOrd and Ord
+//
+// No CanonicalOrd because that doesn’t really make sense.
+
+impl<Name, NName> PartialOrd<RecordHeader<NName>> for RecordHeader<Name>
+where Name: ToDname, NName: ToDname {
+    fn partial_cmp(&self, other: &RecordHeader<NName>) -> Option<Ordering> {
+        match self.owner.name_cmp(&other.owner) {
+            Ordering::Equal => { }
+            other => return Some(other)
+        }
+        match self.rtype.partial_cmp(&other.rtype) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.class.partial_cmp(&other.class) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        match self.ttl.partial_cmp(&other.ttl) {
+            Some(Ordering::Equal) => { }
+            other => return other
+        }
+        self.rdlen.partial_cmp(&other.rdlen)
+    }
+}
+
+impl<Name: ToDname> Ord for RecordHeader<Name> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.owner.name_cmp(&other.owner) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.rtype.cmp(&other.rtype) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.class.cmp(&other.class) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        match self.ttl.cmp(&other.ttl) {
+            Ordering::Equal => { }
+            other => return other
+        }
+        self.rdlen.cmp(&other.rdlen)
+    }
+}
+
+
+//--- Hash
+
+impl<Name: hash::Hash> hash::Hash for RecordHeader<Name> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.owner.hash(state);
+        self.rtype.hash(state);
+        self.class.hash(state);
+        self.ttl.hash(state);
+        self.rdlen.hash(state);
+    }
+}
+
+
+//--- Parse and Compose
+
+impl<Ref: OctetsRef> Parse<Ref> for RecordHeader<ParsedDname<Ref>> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(RecordHeader::new(
-                ParsedDname::parse(parser)?,
-                Rtype::parse(parser)?,
-                Class::parse(parser)?,
-                u32::parse(parser)?,
-                parser.parse_u16()?
+            ParsedDname::parse(parser)?,
+            Rtype::parse(parser)?,
+            Class::parse(parser)?,
+            u32::parse(parser)?,
+            parser.parse_u16()?
         ))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         ParsedDname::skip(parser)?;
         Rtype::skip(parser)?;
         Class::skip(parser)?;
@@ -500,35 +592,46 @@ impl Parse for RecordHeader<ParsedDname> {
     }
 }
 
-impl<N: Compose> Compose for RecordHeader<N> {
-    fn compose_len(&self) -> usize {
-        self.owner.compose_len() + 10
+impl<Name: Compose> Compose for RecordHeader<Name> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.owner.compose(buf)?;
+            self.rtype.compose(buf)?;
+            self.class.compose(buf)?;
+            self.ttl.compose(buf)?;
+            self.rdlen.compose(buf)
+        })
     }
 
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.owner.compose(buf);
-        self.rtype.compose(buf);
-        self.class.compose(buf);
-        self.ttl.compose(buf);
-        self.rdlen.compose(buf);
-    }
-
-    fn compose_canonical<B: BufMut>(&self, buf: &mut B) {
-        self.owner.compose_canonical(buf);
-        self.rtype.compose(buf);
-        self.class.compose(buf);
-        self.ttl.compose(buf);
-        self.rdlen.compose(buf);
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|buf| {
+            self.owner.compose_canonical(buf)?;
+            self.rtype.compose(buf)?;
+            self.class.compose(buf)?;
+            self.ttl.compose(buf)?;
+            self.rdlen.compose(buf)
+        })
     }
 }
 
-impl<N: Compress> Compress for RecordHeader<N> {
-    fn compress(&self, buf: &mut Compressor) -> Result<(), ShortBuf> {
-        self.owner.compress(buf)?;
-        buf.compose(&self.rtype)?;
-        buf.compose(&self.class)?;
-        buf.compose(&self.ttl)?;
-        buf.compose(&self.rdlen)
+
+//--- Debug
+
+impl<Name: fmt::Debug> fmt::Debug for RecordHeader<Name> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("RecordHeader")
+            .field("owner", &self.owner)
+            .field("rtype", &self.rtype)
+            .field("class", &self.class)
+            .field("ttl", &self.ttl)
+            .field("rdlen", &self.rdlen)
+            .finish()
     }
 }
 
@@ -550,26 +653,29 @@ impl<N: Compress> Compress for RecordHeader<N> {
 /// [`ParseRecordData`]: trait.ParseRecordData.html
 /// [`to_record`]: #method.to_record
 /// [`into_record`]: #method.into_record
-#[derive(Clone, Debug)]
-pub struct ParsedRecord {
+#[derive(Clone)]
+pub struct ParsedRecord<Ref> {
     /// The record’s header.
-    header: RecordHeader<ParsedDname>,
+    header: RecordHeader<ParsedDname<Ref>>,
 
     /// A parser positioned at the beginning of the record’s data.
-    data: Parser,
+    data: Parser<Ref>,
 }
 
-impl ParsedRecord {
+impl<Ref> ParsedRecord<Ref> {
     /// Creates a new parsed record from a header and the record data.
     ///
     /// The record data is provided via a parser that is positioned at the
     /// first byte of the record data.
-    pub fn new(header: RecordHeader<ParsedDname>, data: Parser) -> Self {
+    pub fn new(
+        header: RecordHeader<ParsedDname<Ref>>,
+        data: Parser<Ref>
+    ) -> Self {
         ParsedRecord { header, data }
     }
 
     /// Returns a reference to the owner of the record.
-    pub fn owner(&self) -> &ParsedDname {
+    pub fn owner(&self) -> &ParsedDname<Ref> {
         self.header.owner()
     }
 
@@ -594,7 +700,7 @@ impl ParsedRecord {
     }
 }
 
-impl ParsedRecord {
+impl<Ref: OctetsRef> ParsedRecord<Ref> {
     /// Creates a real resource record from the parsed record.
     ///
     /// The method is generic over a type that knows how to parse record
@@ -606,19 +712,11 @@ impl ParsedRecord {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    #[allow(clippy::type_complexity)] // I know ...
-    pub fn to_record<D>(
+    pub fn to_record<Data>(
         &self
-    ) -> Result<Option<Record<ParsedDname, D>>,
-                RecordParseError<ParsedDnameError, D::Err>>
-    where D: ParseRecordData
-    {
-        match D::parse_data(self.header.rtype(), &mut self.data.clone(),
-                            self.header.rdlen() as usize)
-                .map_err(RecordParseError::Data)? {
-            Some(data) => Ok(Some(self.header.clone().into_record(data))),
-            None => Ok(None)
-        }
+    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    where Data: ParseRecordData<Ref> {
+        self.header.clone().parse_into_record(&mut self.data.clone())
     }
 
     /// Trades the parsed record for a real resource record.
@@ -632,39 +730,44 @@ impl ParsedRecord {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    #[allow(clippy::type_complexity)] // I know ...
-    pub fn into_record<D>(
+    pub fn into_record<Data>(
         mut self
-    ) -> Result<Option<Record<ParsedDname, D>>,
-                RecordParseError<ParsedDnameError, D::Err>>
-    where D: ParseRecordData
-    {
-        match D::parse_data(self.header.rtype(), &mut self.data,
-                            self.header.rdlen() as usize)
-                .map_err(RecordParseError::Data)? {
-            Some(data) => Ok(Some(self.header.into_record(data))),
-            None => Ok(None)
-        }
+    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    where Data: ParseRecordData<Ref> {
+        self.header.parse_into_record(&mut self.data)
     }
 }
 
 
+//--- PartialEq and Eq
+
+impl<Ref, OtherRef> PartialEq<ParsedRecord<OtherRef>> for ParsedRecord<Ref>
+where Ref: OctetsRef, OtherRef: OctetsRef {
+    fn eq(&self, other: &ParsedRecord<OtherRef>) -> bool {
+        self.header == other.header
+        && self.data.peek(self.header.rdlen() as usize).eq(
+            &other.data.peek(other.header.rdlen() as usize)
+        )
+    }
+}
+
+impl<Ref: OctetsRef> Eq for ParsedRecord<Ref> { }
+
+
 //--- Parse
 //
-//    No Compose or Compress because the data may contain compressed domain
+//    No Compose because the data may contain compressed domain
 //    names.
 
-impl Parse for ParsedRecord {
-    type Err = ParsedDnameError;
-
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+impl<Ref: OctetsRef> Parse<Ref> for ParsedRecord<Ref> {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let header = RecordHeader::parse(parser)?;
-        let data = parser.clone();
+        let data = *parser;
         parser.advance(header.rdlen() as usize)?;
         Ok(Self::new(header, data))
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         let rdlen = RecordHeader::parse_rdlen(parser)?;
         parser.advance(rdlen as usize)?;
         Ok(())
@@ -674,23 +777,31 @@ impl Parse for ParsedRecord {
 
 //------------ RecordParseError ----------------------------------------------
 
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum RecordParseError<N: error::Error, D: error::Error> {
-    #[display(fmt="{}", _0)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RecordParseError<N, D> {
     Name(N),
-
-    #[display(fmt="{}", _0)]
     Data(D),
-
-    #[display(fmt="unexpected end of buffer")]
     ShortBuf,
 }
 
-impl<N, D> error::Error for RecordParseError<N, D>
-where N: error::Error, D: error::Error { }
+impl<N, D> fmt::Display for RecordParseError<N, D>
+where N: fmt::Display, D: fmt::Display {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            RecordParseError::Name(ref name) => name.fmt(f),
+            RecordParseError::Data(ref data) => data.fmt(f),
+            RecordParseError::ShortBuf => {
+                f.write_str("unexpected end of buffer")
+            }
+        }
+    }
+}
 
-impl<N, D> From<ShortBuf> for RecordParseError<N, D>
-where N: error::Error, D: error::Error {
+#[cfg(feature = "std")]
+impl<N, D> std::error::Error for RecordParseError<N, D>
+where N: std::error::Error, D: std::error::Error { }
+
+impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
     fn from(_: ShortBuf) -> Self {
         RecordParseError::ShortBuf
     }

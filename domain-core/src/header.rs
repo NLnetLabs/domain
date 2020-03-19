@@ -18,11 +18,13 @@
 //! [`HeaderSection`]: struct.HeaderSection.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use std::mem;
-use bytes::{BigEndian, BufMut, ByteOrder};
-use crate::compose::Compose;
+use core::mem;
+use core::convert::TryInto;
+use unwrap::unwrap;
 use crate::iana::{Opcode, Rcode};
-use crate::parse::{Parse, Parser, ShortBuf};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 
 
 //------------ Header --------------------------------------------------
@@ -110,12 +112,12 @@ impl Header {
     /// and is copied into a response by a server. It allows matching
     /// incoming responses to their queries.
     pub fn id(self) -> u16 {
-        BigEndian::read_u16(&self.inner)
+        u16::from_be_bytes(unwrap!(self.inner[..2].try_into()))
     }
 
     /// Sets the value of the ID field.
     pub fn set_id(&mut self, value: u16) {
-        BigEndian::write_u16(&mut self.inner, value)
+        self.inner[..2].copy_from_slice(&value.to_be_bytes())
     }
 
     /// Sets the value of the ID field to a randomly chosen number.
@@ -373,7 +375,7 @@ impl HeaderCounts {
     /// This method panics if the count is already at its maximum.
     pub fn inc_qdcount(&mut self) {
         let count = self.qdcount();
-        assert!(count < ::std::u16::MAX);
+        assert!(count < core::u16::MAX);
         self.set_qdcount(count + 1);
     }
 
@@ -409,7 +411,7 @@ impl HeaderCounts {
     /// This method panics if the count is already at its maximum.
     pub fn inc_ancount(&mut self) {
         let count = self.ancount();
-        assert!(count < ::std::u16::MAX);
+        assert!(count < core::u16::MAX);
         self.set_ancount(count + 1);
     }
 
@@ -444,7 +446,7 @@ impl HeaderCounts {
     /// This method panics if the count is already at its maximum.
     pub fn inc_nscount(&mut self) {
         let count = self.nscount();
-        assert!(count < ::std::u16::MAX);
+        assert!(count < core::u16::MAX);
         self.set_nscount(count + 1);
     }
 
@@ -479,7 +481,7 @@ impl HeaderCounts {
     /// This method panics if the count is already at its maximum.
     pub fn inc_arcount(&mut self) {
         let count = self.arcount();
-        assert!(count < ::std::u16::MAX);
+        assert!(count < core::u16::MAX);
         self.set_arcount(count + 1);
     }
 
@@ -554,12 +556,14 @@ impl HeaderCounts {
 
     /// Returns the value of the 16 bit integer starting at a given offset.
     fn get_u16(self, offset: usize) -> u16 {
-        BigEndian::read_u16(&self.inner[offset..])
+        u16::from_be_bytes(unwrap!(
+            self.inner[offset..offset + 2].try_into()
+        ))
     }
 
     /// Sets the value of the 16 bit integer starting at a given offset.
     fn set_u16(&mut self, offset: usize, value: u16) {
-        BigEndian::write_u16(&mut self.inner[offset..], value)
+        self.inner[offset..offset + 2].copy_from_slice(&value.to_be_bytes())
     }
 }
 
@@ -638,27 +642,24 @@ impl HeaderSection {
 
 //--- Parse and Compose
 
-impl Parse for HeaderSection {
-    type Err = ShortBuf;
-
-    fn parse(parser: &mut Parser) -> Result<Self, Self::Err> {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for Header {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let mut res = Self::default();
         parser.parse_buf(&mut res.inner)?;
         Ok(res)
     }
 
-    fn skip(parser: &mut Parser) -> Result<(), Self::Err> {
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         parser.advance(12)
     }
 }
 
 impl Compose for HeaderSection {
-    fn compose_len(&self) -> usize {
-        12
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        buf.put_slice(&self.inner)
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_slice(&self.inner)
     }
 }
 
@@ -668,6 +669,7 @@ impl Compose for HeaderSection {
 #[cfg(test)]
 mod test {
     use crate::iana::{Opcode, Rcode};
+    use std::vec::Vec;
     use super::*;
 
     #[test]
@@ -802,3 +804,4 @@ mod test {
         c.inc_arcount()
     }
 }
+

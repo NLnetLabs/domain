@@ -1,6 +1,4 @@
 //! Tests the TSIG implementation.
-extern crate interop;
-extern crate ring;
 
 use std::{env, fs, io, thread};
 use std::io::{Read, Write};
@@ -9,15 +7,23 @@ use std::process::Command;
 use std::str::FromStr;
 use std::time::Duration;
 use ring::rand::SystemRandom;
+use unwrap::unwrap;
 use interop::nsd;
-use interop::domain::core::{Dname, Message, MessageBuilder, Record};
+use interop::domain::core::message::Message;
 use interop::domain::core::message_builder::{
-    AdditionalBuilder, RecordSectionBuilder, SectionBuilder
+    AdditionalBuilder, AnswerBuilder, MessageBuilder, RecordSectionBuilder,
+    StreamTarget,
 };
+use interop::domain::core::name::Dname;
 use interop::domain::core::iana::{Rcode, Rtype};
 use interop::domain::core::rdata::{A, Soa};
 use interop::domain::core::utils::base64;
 use interop::domain::tsig;
+
+type TestMessage = Message<Vec<u8>>;
+type TestBuilder = MessageBuilder<StreamTarget<Vec<u8>>>;
+type TestAnswer = AnswerBuilder<StreamTarget<Vec<u8>>>;
+type TestAdditional = AdditionalBuilder<StreamTarget<Vec<u8>>>;
 
 
 //------------ Tests --------------------------------------------------------
@@ -66,21 +72,27 @@ fn tsig_client_nsd() {
 
     let res = thread::spawn(move || {
         // Create an AXFR request and send it to NSD.
-        let request = MessageBuilder::request_axfr(
-            Dname::from_str("example.com.").unwrap()
-        ).additional();
-        let (msg, tran) = tsig::ClientTransaction::request(&key, request)
-                                                  .unwrap();
+        let request = TestBuilder::new_stream_vec();
+        let mut request = unwrap!(request.request_axfr(
+            unwrap!(Dname::<Vec<u8>>::from_str("example.com."))
+        )).additional();
+        let tran = unwrap!(
+            tsig::ClientTransaction::request(&key, &mut request)
+        );
         let sock = UdpSocket::bind("127.0.0.1:54320").unwrap();
-        sock.send_to(msg.as_ref(), "127.0.0.1:54321").unwrap();
+        unwrap!(sock.send_to(
+            request.as_target().as_dgram_slice(),
+            "127.0.0.1:54321"
+        ));
         let mut answer = loop {
             let mut buf = vec![0; 512];
             let (len, addr) = sock.recv_from(buf.as_mut()).unwrap();
             if addr != SocketAddr::from_str("127.0.0.1:54321").unwrap() {
                 continue;
             }
-            let answer = Message::from_bytes(buf[..len].into()).unwrap();
-            if answer.header().id() == msg.header().id() {
+            buf.truncate(len);
+            let answer = Message::from_octets(buf).unwrap();
+            if answer.header().id() == request.header().id() {
                 break answer;
             }
         };
@@ -91,7 +103,7 @@ fn tsig_client_nsd() {
 
     // Shut down NSD just to be sure.
     let _ = nsd.kill();
-    res.unwrap(); // Panic if the thread paniced.
+    unwrap!(res); // Panic if the thread paniced.
 }
 
 /// Tests the TSIG server implementation against drill as a client.
@@ -113,25 +125,34 @@ fn tsig_server_drill() {
         loop {
             let mut buf = vec![0; 512];
             let (len, addr) = sock.recv_from(buf.as_mut()).unwrap();
-            let mut request = match Message::from_bytes(buf[..len].into()) {
+            buf.truncate(len);
+            let mut request = match Message::from_octets(buf) {
                 Ok(request) => request,
                 Err(_) => continue,
             };
-            let mut answer = MessageBuilder::new_udp();
-            answer.start_answer(&request, Rcode::NoError);
-            let tran = match tsig::ServerTransaction::request(&&key,
-                                                              &mut request) {
+            let answer = TestBuilder::new_stream_vec();
+            let answer = unwrap!(
+                answer.start_answer(&request, Rcode::NoError)
+            );
+            let tran = match tsig::ServerTransaction::request(
+                &&key, &mut request
+            ) {
                 Ok(Some(tran)) => tran,
                 Ok(None) => {
-                    sock.send_to(answer.freeze().as_slice(), addr).unwrap();
+                    sock.send_to(answer.as_slice(), addr).unwrap();
                     continue;
                 }
                 Err(error) => {
-                    sock.send_to(error.as_slice(), addr).unwrap();
+                    let answer = unwrap!(error.build_message(
+                        &request,
+                        TestBuilder::new_stream_vec()
+                    ));
+                    sock.send_to(answer.as_slice(), addr).unwrap();
                     continue;
                 }
             };
-            let answer = tran.answer(answer.additional()).unwrap();
+            let mut answer = answer.additional();
+            unwrap!(tran.answer(&mut answer));
             sock.send_to(answer.as_slice(), addr).unwrap();
         }
     });
@@ -187,14 +208,15 @@ fn tsig_client_sequence_nsd() {
     }
 
     let res = thread::spawn(move || {
-        let mut sock = TcpStream::connect("127.0.0.1:54323").unwrap();
-        let request = MessageBuilder::request_axfr(
-            Dname::from_str("example.com.").unwrap()
-        ).additional();
-        let (msg, mut tran) = tsig::ClientSequence::request(&key, request)
-                                                   .unwrap();
-        sock.write_all(&(msg.len() as u16).to_be_bytes()).unwrap();
-        sock.write_all(msg.as_slice()).unwrap();
+        let mut sock = unwrap!(TcpStream::connect("127.0.0.1:54323"));
+        let request = TestBuilder::new_stream_vec();
+        let mut request = unwrap!(request.request_axfr(
+            unwrap!(Dname::<Vec<u8>>::from_str("example.com."))
+        )).additional();
+        let mut tran = unwrap!(
+            tsig::ClientSequence::request(&key, &mut request)
+        );
+        unwrap!(sock.write_all(request.as_target().as_stream_slice()));
         loop {
             let mut len = [0u8; 2];
             sock.read_exact(&mut len).unwrap();
@@ -202,8 +224,8 @@ fn tsig_client_sequence_nsd() {
             assert!(len != 0);
             let mut buf = vec![0; len];
             sock.read_exact(&mut buf).unwrap();
-            let mut answer = Message::from_bytes(buf.into()).unwrap();
-            tran.answer(&mut answer).unwrap();
+            let mut answer = unwrap!(Message::from_octets(buf));
+            unwrap!(tran.answer(&mut answer));
             // Last message has SOA as last record in answer section.
             // We don’t care about details.
             if answer.answer().unwrap().last().unwrap().unwrap().rtype()
@@ -211,7 +233,7 @@ fn tsig_client_sequence_nsd() {
                 break
             }
         }
-        tran.done().unwrap()
+        unwrap!(tran.done())
     }).join();
 
     // Shut down NSD just to be sure.
@@ -243,25 +265,30 @@ fn tsig_server_sequence_drill() {
             let len = u16::from_be_bytes(buf) as usize;
             let mut buf = vec![0; len];
             sock.read_exact(&mut buf).unwrap();
-            let mut request = Message::from_bytes(buf.into()).unwrap();
+            let mut request = Message::from_octets(buf).unwrap();
             let mut tran = tsig::ServerSequence::request(&&key, &mut request)
                                                 .unwrap().unwrap();
+            let mut answer = make_first_axfr(&request);
+            unwrap!(tran.answer(&mut answer));
             send_tcp(
                 &mut sock,
-                tran.answer(make_first_axfr(&request)).unwrap().as_ref()
+                answer.as_target().as_stream_slice()
             ).unwrap();
             for two in 0..10u8 {
                 for one in 0..10u8 {
+                    let mut answer = make_middle_axfr(&request, one, two);
+                    unwrap!(tran.answer(&mut answer));
                     send_tcp(
                         &mut sock,
-                        tran.answer(make_middle_axfr(&request, one, two))
-                            .unwrap().as_ref()
+                        answer.as_target().as_stream_slice()
                     ).unwrap();
                 }
             }
+            let mut answer = make_last_axfr(&request);
+            unwrap!(tran.answer(&mut answer));
             send_tcp(
                 &mut sock,
-                tran.answer(make_last_axfr(&request)).unwrap().as_ref()
+                answer.as_target().as_stream_slice()
             ).unwrap();
         }
     });
@@ -282,54 +309,60 @@ fn tsig_server_sequence_drill() {
 //------------ Helpers ------------------------------------------------------
 
 fn send_tcp(sock: &mut TcpStream, msg: &[u8]) -> Result<(), io::Error> {
-    sock.write_all(&(msg.len() as u16).to_be_bytes())?;
-    sock.write_all(msg)
+    sock.write_all(msg)?;
+    Ok(())
 }
 
-fn make_first_axfr(request: &Message) -> AdditionalBuilder {
-    let mut msg = MessageBuilder::new_tcp(1024);
-    msg.start_answer(request, Rcode::NoError);
-    let mut msg = msg.answer();
-    msg.push(make_soa()).unwrap();
-    msg.push(make_a(0, 0, 0)).unwrap();
+fn make_first_axfr(request: &TestMessage) -> TestAdditional {
+    let msg = TestBuilder::new_stream_vec();
+    let mut msg = unwrap!(msg.start_answer(request, Rcode::NoError));
+    push_soa(&mut msg);
+    push_a(&mut msg, 0, 0, 0);
+    println!("---> {:?}", msg.counts());
     msg.additional()
 }
 
-fn make_middle_axfr(request: &Message, one: u8, two: u8) -> AdditionalBuilder {
-    let mut msg = MessageBuilder::new_tcp(1024);
-    msg.start_answer(request, Rcode::NoError);
-    let mut msg = msg.answer();
-    msg.push(make_a(1, one, two)).unwrap();
+fn make_middle_axfr(
+    request: &TestMessage,
+    one: u8,
+    two: u8
+) -> TestAdditional {
+    let msg = TestBuilder::new_stream_vec();
+    let mut msg = unwrap!(msg.start_answer(request, Rcode::NoError));
+    push_a(&mut msg, 1, one, two);
     msg.additional()
 }
 
-fn make_last_axfr(request: &Message) -> AdditionalBuilder {
-    let mut msg = MessageBuilder::new_tcp(1024);
-    msg.start_answer(request, Rcode::NoError);
-    let mut msg = msg.answer();
-    msg.push(make_a(2, 0, 0)).unwrap();
-    msg.push(make_soa()).unwrap();
+fn make_last_axfr(request: &TestMessage) -> TestAdditional {
+    let msg = TestBuilder::new_stream_vec();
+    let mut msg = unwrap!(msg.start_answer(request, Rcode::NoError));
+    push_a(&mut msg, 2, 0, 0);
+    push_soa(&mut msg);
     msg.additional()
 }
 
-fn make_soa() -> Record<Dname, Soa<Dname>> {
-    (
-        Dname::from_str("example.com.").unwrap(),
-        3600,
-        Soa::new(
-            Dname::from_str("mname.example.com.").unwrap(),
-            Dname::from_str("rname.example.com.").unwrap(),
-            12.into(),
-            3600, 3600, 3600, 3600
+fn push_soa(builder: &mut TestAnswer) {
+    unwrap!(builder.push(
+        (
+            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            3600,
+            Soa::new(
+                Dname::<Vec<u8>>::from_str("mname.example.com.").unwrap(),
+                Dname::<Vec<u8>>::from_str("rname.example.com.").unwrap(),
+                12.into(),
+                3600, 3600, 3600, 3600
+            )
         )
-    ).into()
+    ))
 }
 
-fn make_a(zero: u8, one: u8, two: u8) -> Record<Dname, A> {
-    (
-        Dname::from_str("example.com.").unwrap(),
-        3600,
-        A::from_octets(10, zero, one, two)
-    ).into()
+fn push_a(builder: &mut TestAnswer, zero: u8, one: u8, two: u8) {
+    unwrap!(builder.push(
+        (
+            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            3600,
+            A::from_octets(10, zero, one, two)
+        )
+    ))
 }
 

@@ -1,10 +1,10 @@
 //! EDNS Options from RFC 7828
 
-use bytes::BufMut;
-use crate::compose::Compose;
 use crate::iana::OptionCode;
 use crate::message_builder::OptBuilder;
-use crate::parse::{ParseAll, Parser, ParseAllError, ShortBuf};
+use crate::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+};
 use super::CodeOptData;
 
 
@@ -18,8 +18,10 @@ impl TcpKeepalive {
         TcpKeepalive(timeout)
     }
 
-    pub fn push(builder: &mut OptBuilder, timeout: u16)
-                -> Result<(), ShortBuf> {
+    pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        timeout: u16
+    ) -> Result<(), ShortBuf> {
         builder.push(&Self::new(timeout))
     }
 
@@ -29,23 +31,24 @@ impl TcpKeepalive {
 }
 
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl ParseAll for TcpKeepalive {
-    type Err = ParseAllError;
+impl<Ref: AsRef<[u8]>> Parse<Ref> for TcpKeepalive {
+    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        u16::parse(parser).map(Self::new)
+    }
 
-    fn parse_all(parser: &mut Parser, len: usize) -> Result<Self, Self::Err> {
-        u16::parse_all(parser, len).map(Self::new)
+    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        u16::skip(parser)
     }
 }
 
 impl Compose for TcpKeepalive {
-    fn compose_len(&self) -> usize {
-        2
-    }
-
-    fn compose<B: BufMut>(&self, buf: &mut B) {
-        self.0.compose(buf)
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        self.0.compose(target)
     }
 }
 

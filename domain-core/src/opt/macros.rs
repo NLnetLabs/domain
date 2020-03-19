@@ -6,7 +6,7 @@
 macro_rules! opt_types {
     ( $(
         $module:ident::{
-            $( $opt:ident ),*
+            $( $opt:ident $( <$octets:ident> )* ),*
         };
     )* ) => {
 
@@ -16,12 +16,13 @@ macro_rules! opt_types {
 
         //------------ AllOptData --------------------------------------------
 
-        #[derive(Clone, Debug)]
-        pub enum AllOptData {
+        // TODO Impl Debug.
+        #[derive(Clone)]
+        pub enum AllOptData<Octets> {
             $( $(
-                $opt($module::$opt),
+                $opt($module::$opt $( <$octets> )* ),
             )* )*
-            Other(UnknownOptData),
+            Other(UnknownOptData<Octets>),
 
             #[doc(hidden)]
             __Nonexhaustive(::void::Void),
@@ -30,8 +31,8 @@ macro_rules! opt_types {
         //--- From
 
         $( $(
-            impl From<$opt> for AllOptData {
-                fn from(value: $module::$opt) -> Self {
+            impl<Octets> From<$opt $( <$octets> )*> for AllOptData<Octets> {
+                fn from(value: $module::$opt$( <$octets> )*) -> Self {
                     AllOptData::$opt(value)
                 }
             }
@@ -40,23 +41,15 @@ macro_rules! opt_types {
         
         //--- Compose
 
-        impl Compose for AllOptData {
-            fn compose_len(&self) -> usize {
+        impl<Octets: AsRef<[u8]>> Compose for AllOptData<Octets> {
+            fn compose<T: $crate::octets::OctetsBuilder>(
+                &self, target: &mut T
+            ) -> Result<(), ShortBuf> {
                 match *self {
                     $( $(
-                        AllOptData::$opt(ref inner) => inner.compose_len(),
+                        AllOptData::$opt(ref inner) => inner.compose(target),
                     )* )*
-                    AllOptData::Other(ref inner) => inner.compose_len(),
-                    AllOptData::__Nonexhaustive(_) => unreachable!(),
-                }
-            }
-
-            fn compose<B: ::bytes::BufMut>(&self, buf: &mut B) {
-                match *self {
-                    $( $(
-                        AllOptData::$opt(ref inner) => inner.compose(buf),
-                    )* )*
-                    AllOptData::Other(ref inner) => inner.compose(buf),
+                    AllOptData::Other(ref inner) => inner.compose(target),
                     AllOptData::__Nonexhaustive(_) => unreachable!()
                 }
             }
@@ -65,71 +58,37 @@ macro_rules! opt_types {
 
         //--- OptData
 
-        impl OptData for AllOptData {
-            type ParseErr = AllOptParseError;
-
+        impl<Octets: AsRef<[u8]>> OptData for AllOptData<Octets> {
             fn code(&self) -> OptionCode {
                 match *self {
                     $( $(
-                        AllOptData::$opt(_) => $opt::CODE,
+                        AllOptData::$opt(_) => OptionCode::$opt,
                     )* )*
                     AllOptData::Other(ref inner) => inner.code(),
                     AllOptData::__Nonexhaustive(_) => unreachable!()
                 }
             }
+        }
 
+        impl<Ref: OctetsRef> ParseOptData<Ref> for AllOptData<Ref::Range> {
             fn parse_option(
                 code: OptionCode,
-                parser: &mut Parser,
-                len: usize
-            ) -> Result<Option<Self>, Self::ParseErr> {
+                parser: &mut Parser<Ref>,
+            ) -> Result<Option<Self>, ParseError> {
                 match code {
                     $( $(
                         OptionCode::$opt => {
                             Ok(Some(AllOptData::$opt(
-                                $opt::parse_all(parser, len)
-                                    .map_err(AllOptParseError::$opt)?
+                                $opt::parse(parser)?
                             )))
                         }
                     )* )*
                     _ => {
                         Ok(UnknownOptData::parse_option(
-                            code, parser, len
+                            code, parser
                         )?.map(AllOptData::Other))
                     }
                 }
-            }
-        }
-
-
-        //------------ AllOptParseError --------------------------------------
-
-        #[derive(Clone, Debug, Eq, PartialEq)]
-        pub enum AllOptParseError {
-            $( $(
-                $opt(<$opt as OptData>::ParseErr),
-            )* )*
-            ShortBuf,
-        }
-
-        impl std::error::Error for AllOptParseError { }
-
-        impl std::fmt::Display for AllOptParseError {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                match *self {
-                    $( $(
-                        AllOptParseError::$opt(ref inner) => inner.fmt(f),
-                    )* )*
-                    AllOptParseError::ShortBuf => {
-                        "short buffer".fmt(f)
-                    }
-                }
-            }
-        }
-
-        impl From<$crate::parse::ShortBuf> for AllOptParseError {
-            fn from(_: $crate::parse::ShortBuf) -> Self {
-                AllOptParseError::ShortBuf
             }
         }
     }

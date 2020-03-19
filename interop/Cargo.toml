@@ -10,6 +10,7 @@ license = "BSD-3-Clause"
 domain-core   = { path = "../domain-core" }
 domain-resolv = { path = "../domain-resolv" }
 domain-tsig   = { path = "../domain-tsig" }
-bytes         = "0.4"
-ring          = "0.15.0-alpha"
+bytes         = "0.5"
+ring          = "0.16"
+unwrap        = "1.2"
 

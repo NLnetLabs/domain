@@ -1,11 +1,14 @@
 //! Character sources.
 //!
 //! This is here so we can read from things that aren’t ASCII or UTF-8.
+#![cfg(feature = "std")]
 
 use std::{char, error, io};
+use std::boxed::Box;
 use std::io::Read;
 use std::fs::File;
 use std::path::Path;
+use std::vec::Vec;
 use derive_more::Display;
 use super::scan::CharSource;
 

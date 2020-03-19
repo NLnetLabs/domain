@@ -1,12 +1,11 @@
 
 use std::io;
 use std::net::SocketAddr;
-use domain_core::query::{DgramQueryMessage, QueryMessage};
 use domain_core::message::Message;
 use futures::try_ready;
 use tokio::net::udp::{RecvDgram, SendDgram, UdpSocket};
 use tokio::prelude::{Async, Future};
-use super::super::resolver::Answer;
+use super::super::resolver::{Answer, QueryMessage};
 use super::util::DecoratedFuture;
 
 
@@ -22,7 +21,7 @@ const RETRY_RANDOM_PORT: usize = 10;
 #[allow(clippy::large_enum_variant)]
 pub enum UdpQuery {
     Send {
-        send: SendDgram<DgramQueryMessage>,
+        send: SendDgram<UdpQueryMessage>,
         addr: SocketAddr,
         recv_size: usize,
     },
@@ -51,7 +50,7 @@ impl UdpQuery {
             return UdpQuery::Error(Some(err))
         }
         UdpQuery::Send {
-            send: sock.send_dgram(DgramQueryMessage::from(query), &addr),
+            send: sock.send_dgram(UdpQueryMessage(query), &addr),
             addr,
             recv_size
         }
@@ -104,8 +103,10 @@ impl Future for UdpQuery {
                 let ((sock, mut buf, len, recv_addr), query)
                     = try_ready!(recv.poll());
                 buf.truncate(len);
-                if let Ok(answer) = Message::from_bytes(buf.into()) {
-                    if addr == recv_addr && answer.is_answer(&query) {
+                if let Ok(answer) = Message::from_octets(buf.into()) {
+                    if addr == recv_addr 
+                        && answer.is_answer(&query.as_message())
+                    {
                         (UdpQuery::Done, Ok(Async::Ready(answer.into())))
                     }
                     else {
@@ -144,6 +145,30 @@ impl Future for UdpQuery {
             Ok(Async::NotReady) => self.poll(),
             _ => res
         }
+    }
+}
+
+
+//------------ UdpQueryMessage -----------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct UdpQueryMessage(QueryMessage);
+
+impl UdpQueryMessage {
+    fn unwrap(self) -> QueryMessage {
+        self.0
+    }
+}
+
+impl From<QueryMessage> for UdpQueryMessage {
+    fn from(msg: QueryMessage) -> UdpQueryMessage {
+        UdpQueryMessage(msg)
+    }
+}
+
+impl AsRef<[u8]> for UdpQueryMessage {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_target().as_dgram_slice()
     }
 }
 
