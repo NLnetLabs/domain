@@ -1570,8 +1570,8 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 
 #[cfg(test)]
 mod test {
-    use crate::base::iana::Rtype;
     use std::vec::Vec;
+    use crate::base::iana::Rtype;
     use super::*;
 
     #[test]
@@ -1638,7 +1638,9 @@ mod test {
         let bitmap_types: Vec<_> = bitmap.iter().collect();
         assert_eq!(types, bitmap_types);
     }
+
     #[test]
+    #[cfg(feature = "bytes")]
     fn dnskey_key_tag() {
         assert_eq!(
             Dnskey::new(
@@ -1686,6 +1688,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "bytes")]
     fn dnskey_flags() {
         let dnskey = Dnskey::new(257, 3, SecAlg::RsaSha256, Bytes::new());
         assert_eq!(dnskey.is_zsk(), true);
