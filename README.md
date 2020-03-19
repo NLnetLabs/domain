@@ -31,6 +31,16 @@ name servers, recursive resolvers, and more.
 [domain-core]: https://github.com/NLnetLabs/domain-core/tree/master/domain-core
 [domain-resolv]: https://github.com/NLnetLabs/domain-core/tree/master/domain-resolv
 
+## Please Note
+
+The library is currently being refactored for the upcoming 0.5 release.
+This work happens in the branch `series-0.5`. A final release for the 0.4
+series is planned and tracked in the `series-0.4` branch.
+
+The master branch is currently stalled and will become the main branch
+again once the changes in `series-0.5` have matured enough that users can
+start migrating their code.
+
 
 ## What’s Next?
 
