@@ -15,6 +15,7 @@ The following tasks need to be done in order to reach that state:
 * [x] Make core DNS types generic over octets sequences.
 * [ ] Restructure to use features instead of sub-crates.
 * [ ] Add changes from #38.
+* [ ] Migrate to async/await and tokio 0.2.
 * [ ] Update documentation.
 
 
