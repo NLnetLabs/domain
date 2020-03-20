@@ -51,7 +51,10 @@ New
 Bug fixes
 
 * Do not compress the target of an SRV record’s data. [(#18)]
-* Fix `rdata::rfc4043::RtypeBitmapIter`. [(#XX)]
+* Fix multiple issues with `rdata::rfc4043`. ([#42] via [#38] by [@vavrusa])
+* Fix multiple issues with `base::opt`. ([#42] via [#38] by [@vavrusa])
+* Fixed infinite loops in `Message::canonical_name`. ([#42] via [#38] by
+  [@vavrusa])
 
 Dependencies
 
@@ -91,6 +94,9 @@ Bug fixes
 [#26]: https://github.com/NLnetLabs/domain/pull/26
 [(#31)]: https://github.com/NLnetLabs/domain/pull/31
 [(#33)]: https://github.com/NLnetLabs/domain/pull/33
+[#38]: https://github.com/NLnetLabs/domain/pull/38
+[#42]: https://github.com/NLnetLabs/domain/pull/42
 [@dvc94ch]: https://github.com/dvc94ch
+[@vavrusa]: https://github.com/vavrusa
 [@vendemiat]: https://github.com/vendemiat
 
