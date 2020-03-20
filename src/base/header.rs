@@ -370,13 +370,13 @@ impl HeaderCounts {
 
     /// Increases the value of the QDCOUNT field by one.
     ///
-    /// # Panics
-    ///
-    /// This method panics if the count is already at its maximum.
-    pub fn inc_qdcount(&mut self) {
-        let count = self.qdcount();
-        assert!(count < core::u16::MAX);
-        self.set_qdcount(count + 1);
+    /// If increasing the counter would result in an overflow, returns an
+    /// error.
+    pub fn inc_qdcount(&mut self) -> Result<(), ShortBuf> {
+        match self.qdcount().checked_add(1) {
+            Some(count) => Ok(self.set_qdcount(count)),
+            None => Err(ShortBuf)
+        }
     }
 
     /// Decreases the value of the QDCOUNT field by one.
@@ -406,13 +406,13 @@ impl HeaderCounts {
 
     /// Increases the value of the ANCOUNT field by one.
     ///
-    /// # Panics
-    ///
-    /// This method panics if the count is already at its maximum.
-    pub fn inc_ancount(&mut self) {
-        let count = self.ancount();
-        assert!(count < core::u16::MAX);
-        self.set_ancount(count + 1);
+    /// If increasing the counter would result in an overflow, returns an
+    /// error.
+    pub fn inc_ancount(&mut self) -> Result<(), ShortBuf> {
+        match self.ancount().checked_add(1) {
+            Some(count) => Ok(self.set_ancount(count)),
+            None => Err(ShortBuf)
+        }
     }
 
     /// Decreases the value of the ANCOUNT field by one.
@@ -441,13 +441,13 @@ impl HeaderCounts {
 
     /// Increases the value of the NSCOUNT field by one.
     ///
-    /// # Panics
-    ///
-    /// This method panics if the count is already at its maximum.
-    pub fn inc_nscount(&mut self) {
-        let count = self.nscount();
-        assert!(count < core::u16::MAX);
-        self.set_nscount(count + 1);
+    /// If increasing the counter would result in an overflow, returns an
+    /// error.
+    pub fn inc_nscount(&mut self) -> Result<(), ShortBuf>{
+        match self.nscount().checked_add(1) {
+            Some(count) => Ok(self.set_nscount(count)),
+            None => Err(ShortBuf)
+        }
     }
 
     /// Decreases the value of the NSCOUNT field by one.
@@ -476,13 +476,13 @@ impl HeaderCounts {
 
     /// Increases the value of the ARCOUNT field by one.
     ///
-    /// # Panics
-    ///
-    /// This method panics if the count is already at its maximum.
-    pub fn inc_arcount(&mut self) {
-        let count = self.arcount();
-        assert!(count < core::u16::MAX);
-        self.set_arcount(count + 1);
+    /// If increasing the counter would result in an overflow, returns an
+    /// error.
+    pub fn inc_arcount(&mut self) -> Result <(), ShortBuf> {
+        match self.arcount().checked_add(1) {
+            Some(count) => Ok(self.set_arcount(count)),
+            None => Err(ShortBuf)
+        }
     }
 
     /// Decreases the value of the ARCOUNT field by one.
@@ -742,10 +742,10 @@ mod test {
         assert_eq!(c.ancount(), 0x0304);
         assert_eq!(c.nscount(), 0x0506);
         assert_eq!(c.arcount(), 0x0708);
-        c.inc_qdcount();
-        c.inc_ancount();
-        c.inc_nscount();
-        c.inc_arcount();
+        c.inc_qdcount().unwrap();
+        c.inc_ancount().unwrap();
+        c.inc_nscount().unwrap();
+        c.inc_arcount().unwrap();
         assert_eq!(c.inner, [ 1, 3, 3, 5, 5, 7, 7, 9 ]);
         c.set_qdcount(0x0807);
         c.set_ancount(0x0605);
@@ -769,39 +769,39 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
-    fn bad_inc_qdcount() {
+    fn inc_qdcount() {
         let mut c = HeaderCounts {
-            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff ]
+            inner: [ 0xff,0xfe,0xff,0xff,0xff,0xff,0xff,0xff ]
         };
-        c.inc_qdcount()
+        assert!(c.inc_qdcount().is_ok());
+        assert!(c.inc_qdcount().is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn bad_inc_ancount() {
+    fn inc_ancount() {
         let mut c = HeaderCounts {
-            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff ]
+            inner: [ 0xff,0xff,0xff,0xfe,0xff,0xff,0xff,0xff ]
         };
-        c.inc_ancount()
+        assert!(c.inc_ancount().is_ok());
+        assert!(c.inc_ancount().is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn bad_inc_nscount() {
+    fn inc_nscount() {
         let mut c = HeaderCounts {
-            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff ]
+            inner: [ 0xff,0xff,0xff,0xff,0xff,0xfe,0xff,0xff ]
         };
-        c.inc_nscount()
+        assert!(c.inc_nscount().is_ok());
+        assert!(c.inc_nscount().is_err());
     }
 
     #[test]
-    #[should_panic]
-    fn bad_inc_arcount() {
+    fn inc_arcount() {
         let mut c = HeaderCounts {
-            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xff ]
+            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xfe ]
         };
-        c.inc_arcount()
+        assert!(c.inc_arcount().is_ok());
+        assert!(c.inc_arcount().is_err());
     }
 }
 

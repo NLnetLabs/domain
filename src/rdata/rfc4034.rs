@@ -7,6 +7,7 @@
 use core::{fmt, hash, ptr};
 use core::cmp::Ordering;
 use core::convert::TryInto;
+#[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature="master")] use bytes::{Bytes, BytesMut};
 use derive_more::Display;
 use unwrap::unwrap;
@@ -1117,6 +1118,11 @@ impl<Octets> RtypeBitmap<Octets> {
         {
             let mut data = octets.as_ref();
             while !data.is_empty() {
+                // At least bitmap number and length must be present.
+                if data.len() < 2 {
+                    return Err(RtypeBitmapError::ShortBuf)
+                }
+
                 let len = (data[1] as usize) + 2;
                 // https://tools.ietf.org/html/rfc4034#section-4.1.2:
                 //  Blocks with no types present MUST NOT be included.
@@ -1165,7 +1171,7 @@ impl<Octets: AsRef<[u8]>> RtypeBitmap<Octets> {
         while !data.is_empty() {
             let ((window_num, window), next_data) = read_window(data).unwrap();
             if window_num == block {
-                return !(window.len() < octet || window[octet] & mask == 0);
+                return !(window.len() <= octet || window[octet] & mask == 0);
             }
             data = next_data;
         }
@@ -1326,7 +1332,16 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
             buf: Builder::with_capacity(34)
         }
     }
+}
 
+#[cfg(feature = "std")]
+impl RtypeBitmapBuilder<Vec<u8>> {
+    pub fn new_vec() -> Self {
+        Self::new()
+    }
+}
+
+impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
     pub fn add(&mut self, rtype: Rtype) -> Result<(), ShortBuf> {
         let (block, octet, bit) = split_rtype(rtype);
         let block = self.get_block(block)?;
@@ -1455,7 +1470,7 @@ impl<'a> RtypeBitmapIter<'a> {
     fn advance(&mut self) {
         loop {
             self.bit += 1;
-            if self.bit == 7 {
+            if self.bit == 8 {
                 self.bit = 0;
                 self.octet += 1;
                 if self.octet == self.len {
@@ -1464,7 +1479,8 @@ impl<'a> RtypeBitmapIter<'a> {
                         return;
                     }
                     self.block = u16::from(self.data[0]) << 8;
-                    self.len = self.data[1] as usize;
+                    self.len = usize::from(self.data[1]);
+                    self.data = &self.data[2..];
                     self.octet = 0;
                 }
             }
@@ -1552,10 +1568,10 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 
 //============ Test ==========================================================
 
-/*
 #[cfg(test)]
 mod test {
-    use crate::iana::Rtype;
+    use std::vec::Vec;
+    use crate::base::iana::Rtype;
     use super::*;
 
     #[test]
@@ -1567,9 +1583,9 @@ mod test {
 
     #[test]
     fn rtype_bitmap_read_window() {
-        let mut builder = RtypeBitmapBuilder::new();
-        builder.add(Rtype::A);
-        builder.add(Rtype::Caa);
+        let mut builder = RtypeBitmapBuilder::new_vec();
+        builder.add(Rtype::A).unwrap();
+        builder.add(Rtype::Caa).unwrap();
         let bitmap = builder.finalize();
 
         let ((n, window), data) = read_window(bitmap.as_slice()).unwrap();
@@ -1582,12 +1598,12 @@ mod test {
 
     #[test]
     fn rtype_bitmap_builder() {
-        let mut builder = RtypeBitmapBuilder::new();
-        builder.add(Rtype::Int(1234)); // 0x04D2
-        builder.add(Rtype::A); // 0x0001
-        builder.add(Rtype::Mx); // 0x000F
-        builder.add(Rtype::Rrsig); // 0x002E
-        builder.add(Rtype::Nsec); // 0x002F
+        let mut builder = RtypeBitmapBuilder::new_vec();
+        builder.add(Rtype::Int(1234)).unwrap(); // 0x04D2
+        builder.add(Rtype::A).unwrap(); // 0x0001
+        builder.add(Rtype::Mx).unwrap(); // 0x000F
+        builder.add(Rtype::Rrsig).unwrap(); // 0x002E
+        builder.add(Rtype::Nsec).unwrap(); // 0x002F
         let bitmap = builder.finalize();
         assert_eq!(
             bitmap.as_slice(),
@@ -1608,6 +1624,23 @@ mod test {
     }
 
     #[test]
+    fn rtype_bitmap_iter() {
+        let mut builder = RtypeBitmapBuilder::new_vec();
+        let types = vec![
+            Rtype::Ns, Rtype::Soa, Rtype::Mx, Rtype::Txt, Rtype::Rrsig,
+            Rtype::Dnskey, Rtype::Nsec3param, Rtype::Spf, Rtype::Caa
+        ];
+        for t in types.iter()  {
+            builder.add(*t).unwrap();
+        }
+
+        let bitmap = builder.finalize();
+        let bitmap_types: Vec<_> = bitmap.iter().collect();
+        assert_eq!(types, bitmap_types);
+    }
+
+    #[test]
+    #[cfg(feature = "bytes")]
     fn dnskey_key_tag() {
         assert_eq!(
             Dnskey::new(
@@ -1655,6 +1688,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "bytes")]
     fn dnskey_flags() {
         let dnskey = Dnskey::new(257, 3, SecAlg::RsaSha256, Bytes::new());
         assert_eq!(dnskey.is_zsk(), true);
@@ -1662,4 +1696,4 @@ mod test {
         assert_eq!(dnskey.is_revoked(), false);
     }
 }
-*/
+

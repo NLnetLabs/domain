@@ -228,9 +228,12 @@ impl<Target: OctetsBuilder> QuestionBuilder<Target> {
         &mut self,
         question: Q
     ) -> Result<(), ShortBuf> {
+        let pos = self.as_target().len();
         question.into().compose(self.as_target_mut())?;
-        self.counts_mut().inc_qdcount();
-        Ok(())
+        self.counts_mut().inc_qdcount().map_err(|err| {
+            self.as_target_mut().truncate(pos);
+            err
+        })
     }
 }
 
@@ -379,9 +382,12 @@ impl<Target> RecordSectionBuilder for AnswerBuilder<Target>
 where Target: OctetsBuilder {
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
     where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        let pos = self.as_target().len();
         record.into().compose(self.as_target_mut())?;
-        self.counts_mut().inc_ancount();
-        Ok(())
+        self.counts_mut().inc_ancount().map_err(|err| {
+            self.as_target_mut().truncate(pos);
+            err
+        })
     }
 }
 
@@ -465,9 +471,12 @@ impl<Target> DerefMut for AuthorityBuilder<Target> {
 impl<Target: OctetsBuilder> RecordSectionBuilder for AuthorityBuilder<Target> {
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
     where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        let pos = self.as_target().len();
         record.into().compose(self.as_target_mut())?;
-        self.counts_mut().inc_nscount();
-        Ok(())
+        self.counts_mut().inc_nscount().map_err(|err| {
+            self.as_target_mut().truncate(pos);
+            err
+        })
     }
 }
 
@@ -552,9 +561,12 @@ impl<Target> RecordSectionBuilder for AdditionalBuilder<Target>
 where Target: OctetsBuilder {
     fn push<N, D, R>(&mut self, record: R) -> Result<(), ShortBuf>
     where N: ToDname, D: RecordData, R: Into<Record<N, D>> {
+        let pos = self.as_target().len();
         record.into().compose(self.as_target_mut())?;
-        self.counts_mut().inc_arcount();
-        Ok(())
+        self.counts_mut().inc_arcount().map_err(|err| {
+            self.as_target_mut().truncate(pos);
+            err
+        })
     }
 }
 
@@ -582,7 +594,10 @@ impl<Target: OctetsBuilder> OptBuilder<Target> {
         if err {
             return Err(additional)
         }
-        additional.counts_mut().inc_arcount();
+        if let Err(_) = additional.counts_mut().inc_arcount() {
+            additional.as_target_mut().truncate(start);
+            return Err(additional)
+        }
 
         Ok(OptBuilder {
             additional, start, arcount

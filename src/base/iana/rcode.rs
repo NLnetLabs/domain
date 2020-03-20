@@ -533,14 +533,9 @@ impl OptRcode {
 
     /// Creates an extended rcode value from its parts.
     pub fn from_parts(rcode: Rcode, ext: u8) -> OptRcode {
-        if ext == 0 {
-            rcode.into()
-        }
-        else {
-            OptRcode::from_int(
-                u16::from(ext) << 4 | u16::from(rcode.to_int())
-            )
-        }
+        OptRcode::from_int(
+            u16::from(ext) << 4 | u16::from(rcode.to_int())
+        )
     }
 
     /// Returns the two parts of an extended rcode value.
