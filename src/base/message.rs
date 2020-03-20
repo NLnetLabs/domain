@@ -239,9 +239,23 @@ where
 
     /// Resolves the canonical name of the answer.
     ///
-    /// Returns `None` if either the message doesn’t have a question or there
-    /// was a parse error. Otherwise starts with the question’s name,
-    /// follows any CNAME trail and returns the name answers should be for.
+    /// The CNAME record allows a domain name to be an alias for a different
+    /// name. Aliases may be chained. The ‘canonical name’ referred to be the
+    /// method’s name is the last name in this chain. A recursive resolver
+    /// will support a stub resolver in figuring out this canonical name by
+    /// including all necessary CNAME records in its answer. This method can
+    /// be used on such an answer to determine the canonical name. As such,
+    /// it will only consider CNAMEs present in the message’s answer section.
+    ///
+    /// It starts with the question name and follows CNAME records until there
+    /// is no next CNAME in the chain and then returns the last CNAME.
+    ///
+    /// If the message doesn’t have a question, if there is a parse error, or
+    /// if there is a CNAME loop the method returns `None`.
+    //
+    //  Loop detection is done by breaking off after ANCOUNT + 1 steps -- if
+    //  there is one more steps then there is records in the answer section
+    //  we must have a loop.
     pub fn canonical_name(&self) -> Option<ParsedDname<&Octets>> {
         let question = match self.first_question() {
             None => return None,
@@ -253,7 +267,7 @@ where
             Err(_) => return None,
         };
 
-        loop {
+        for _ in 0..self.header_counts().ancount() + 1 {
             let mut found = false;
             for record in answer.clone() {
                 let record = match record {
@@ -267,11 +281,11 @@ where
                 }
             }
             if !found {
-                break
+                return Some(name)
             }
         }
         
-        Some(name)
+        None
     }
 
     /// Get the OPT record from the message, if there is one.
@@ -740,7 +754,7 @@ mod test {
     use unwrap::unwrap;
     use crate::base::message_builder::MessageBuilder;
     use crate::base::name::Dname;
-    use crate::rdata::{Ns, AllRecordData};
+    use crate::rdata::{A, Ns, AllRecordData};
     use super::*;
 
     // Helper for test cases
@@ -802,6 +816,20 @@ mod test {
             unwrap!(Dname::vec_from_str("baz.example.com.")),
             unwrap!(msg_ref.canonical_name())
         );
+
+        // CNAME loop.
+        msg.push((
+            Dname::vec_from_str("baz.example.com").unwrap(),
+            86000,
+            Cname::new(Dname::vec_from_str("foo.example.com").unwrap())
+        )).unwrap();
+        assert!(msg.as_message().canonical_name().is_none());
+        msg.push((
+            Dname::vec_from_str("baz.example.com").unwrap(),
+            86000,
+            A::from_octets(127,0,0,1)
+        )).unwrap();
+        assert!(msg.as_message().canonical_name().is_none());
     }
 
     #[test]
