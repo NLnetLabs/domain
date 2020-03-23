@@ -8,7 +8,8 @@ use domain_resolv::StubResolver;
 
 #[tokio::main]
 async fn main()  {
-    let addr = match StubResolver::new().lookup_host(
+    let resolver = StubResolver::new();
+    let addr = match resolver.lookup_host(
         &Dname::<Vec<u8>>::from_str("www.rust-lang.org").unwrap()
     ).await {
         Ok(addr) => addr,

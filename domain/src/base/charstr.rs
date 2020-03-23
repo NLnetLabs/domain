@@ -26,8 +26,7 @@
 
 use core::{cmp, fmt, hash, ops, str};
 #[cfg(feature = "std")] use std::vec::Vec;
-#[cfg(feature = "bytes")] use bytes::BytesMut;
-#[cfg(feature = "master")] use bytes::Bytes;
+#[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 use derive_more::Display;
 #[cfg(feature="master")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
@@ -108,7 +107,7 @@ impl<T: AsRef<[u8]> + ?Sized> CharStr<T> {
     }
 }
 
-#[cfg(feature="master")]
+#[cfg(feature="bytes")]
 impl CharStr<Bytes> {
     /// Creates a new character string from a bytes value.
     ///
@@ -120,6 +119,7 @@ impl CharStr<Bytes> {
     }
 
     /// Scans a character string given as a word of hexadecimal digits.
+    #[cfg(feature="master")]
     pub fn scan_hex<C: CharSource>(
         scanner: &mut Scanner<C>
     ) -> Result<Self, ScanError> {
@@ -639,8 +639,8 @@ impl std::error::Error for PushError { }
 
 #[cfg(test)]
 mod test {
-    use unwrap::unwrap;
     use std::vec::Vec;
+    use unwrap::unwrap;
     use super::*;
 
     type CharStrRef<'a> = CharStr<&'a [u8]>;
@@ -661,12 +661,14 @@ mod test {
     fn from_bytes() {
         assert_eq!(
             unwrap!(CharStr::from_bytes(
-                Bytes::from_static(b"01234")
+                bytes::Bytes::from_static(b"01234")
             )) .as_slice(),
             b"01234"
         );
         assert_eq!(
-            unwrap!(CharStr::from_bytes(Bytes::from_static(b""))).as_slice(),
+            unwrap!(CharStr::from_bytes(
+                bytes::Bytes::from_static(b"")
+            )).as_slice(),
             b""
         );
         assert!(CharStr::from_bytes(vec![0; 255].into()).is_ok());

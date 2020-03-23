@@ -1690,7 +1690,9 @@ mod test {
     #[test]
     #[cfg(feature = "bytes")]
     fn dnskey_flags() {
-        let dnskey = Dnskey::new(257, 3, SecAlg::RsaSha256, Bytes::new());
+        let dnskey = Dnskey::new(
+            257, 3, SecAlg::RsaSha256, bytes::Bytes::new()
+        );
         assert_eq!(dnskey.is_zsk(), true);
         assert_eq!(dnskey.is_secure_entry_point(), true);
         assert_eq!(dnskey.is_revoked(), false);
