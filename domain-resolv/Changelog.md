@@ -5,10 +5,10 @@
 
 Breaking Changes
 
-New
+* Migrated to use async functions. This allowed the resolver to use
+  regular references instead of hiding behind arcs. ([#43])
 
-* Record data types for CDS and CDSKEY record types. (Provided by [@vendemiat]
-  in [#24]).
+New
 
 Bug fixes
 
@@ -20,8 +20,8 @@ Bug fixes
 Dependencies
 
 [(#14)]: https://github.com/NLnetLabs/domain/pull/14
-[#24]: https://github.com/NLnetLabs/domain/pull/24
 [#26]: https://github.com/NLnetLabs/domain/pull/26
+[#42]: https://github.com/NLnetLabs/domain/pull/42
 [@dvc94ch]: https://github.com/dvc94ch
 [@vendemiat]: https://github.com/vendemiat
 
