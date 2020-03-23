@@ -7,23 +7,27 @@
 //! [`StubResolver`]: struct.StubResolver.html
 
 use std::{io, ops};
+use std::future::Future;
+use std::net::IpAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use bytes::Bytes;
-use tokio::prelude::{Async, Future};
-use tokio::prelude::future::lazy;
-use tokio::runtime::Runtime;
-use unwrap::unwrap;
-use crate::base::iana::Rcode;
-use crate::base::message::Message;
-use crate::base::message_builder::{
+use futures::future::FutureExt;
+#[cfg(feature = "sync")] use tokio::runtime;
+use domain::base::iana::Rcode;
+use domain::base::message::Message;
+use domain::base::message_builder::{
     AdditionalBuilder, MessageBuilder, StreamTarget
 };
-use crate::base::name::ToDname;
-use crate::base::octets::Octets512;
-use crate::base::question::Question;
-use crate::resolv::resolver::{Resolver, SearchNames};
+use domain::base::name::{ToDname, ToRelativeDname};
+use domain::base::octets::Octets512;
+use domain::base::question::Question;
 use super::conf::{ResolvConf, ResolvOptions, SearchSuffix};
-use super::net::{ServerInfo, ServerList, ServerListCounter, ServerQuery};
+use super::net::{ServerInfo, ServerList, ServerListCounter};
+use crate::lookup::addr::{lookup_addr, FoundAddrs};
+use crate::lookup::host::{lookup_host, search_host, FoundHosts};
+use crate::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
+use crate::resolver::{Resolver, SearchNames};
 
 
 //------------ StubResolver --------------------------------------------------
@@ -64,22 +68,6 @@ struct ResolverInner {
 }
 
 
-impl StubResolver {
-    /// Creates a new resolver using the system’s default configuration.
-    pub fn new() -> Self {
-        Self::from_conf(ResolvConf::default())
-    }
-
-    /// Creates a new resolver using the given configuraiton.
-    pub fn from_conf(conf: ResolvConf) -> Self {
-        StubResolver(Arc::new(ResolverInner::from_conf(conf)))
-    }
-
-    pub fn options(&self) -> &ResolvOptions {
-        &self.0.options
-    }
-}
-
 impl ResolverInner {
     fn from_conf(conf: ResolvConf) -> Self {
         ResolverInner {
@@ -95,6 +83,60 @@ impl ResolverInner {
 }
 
 impl StubResolver {
+    /// Creates a new resolver using the system’s default configuration.
+    pub fn new() -> Self {
+        Self::from_conf(ResolvConf::default())
+    }
+
+    /// Creates a new resolver using the given configuraiton.
+    pub fn from_conf(conf: ResolvConf) -> Self {
+        StubResolver(Arc::new(ResolverInner::from_conf(conf)))
+    }
+
+    pub fn options(&self) -> &ResolvOptions {
+        &self.0.options
+    }
+
+    pub async fn query<N: ToDname, Q: Into<Question<N>>>(
+        &self, question: Q
+    ) -> Result<Answer, io::Error> {
+        Query::new(self.clone())?.run(
+            Query::create_message(question.into())
+        ).await
+    }
+}
+
+impl StubResolver {
+    pub async fn lookup_addr(
+        &self, addr: IpAddr
+    ) -> Result<FoundAddrs<Self>, io::Error> {
+        lookup_addr(self, addr).await
+    }
+
+    pub async fn lookup_host(
+        &self, qname: impl ToDname
+    ) -> Result<FoundHosts<Self>, io::Error> {
+        lookup_host(self, qname).await
+    }
+
+    pub async fn search_host(
+        &self, qname: impl ToRelativeDname
+    ) -> Result<FoundHosts<Self>, io::Error> {
+        search_host(self, qname).await
+    }
+
+    pub async fn lookup_srv(
+        &self,
+        service: impl ToRelativeDname,
+        name: impl ToDname,
+        fallback_port: u16
+    ) -> Result<Option<FoundSrvs>, SrvError> {
+        lookup_srv(self, service, name, fallback_port).await
+    }
+}
+
+#[cfg(feature = "sync")]
+impl StubResolver {
     /// Synchronously perform a DNS operation atop a standard resolver.
     ///
     /// This associated functions removes almost all boiler plate for the
@@ -105,11 +147,9 @@ impl StubResolver {
     /// The only argument is a closure taking a reference to a `StubResolver`
     /// and returning a future. Whatever that future resolves to will be
     /// returned.
-    pub fn run<R, F>(op: F) -> Result<R::Item, R::Error>
+    pub fn run<R, F>(op: F) -> R::Output
     where
         R: Future + Send + 'static,
-        R::Item: Send + 'static,
-        R::Error: Send + 'static,
         F: FnOnce(StubResolver) -> R + Send + 'static,
     {
         Self::run_with_conf(ResolvConf::default(), op)
@@ -124,18 +164,16 @@ impl StubResolver {
     pub fn run_with_conf<R, F>(
         conf: ResolvConf,
         op: F
-    ) -> Result<R::Item, R::Error>
+    ) -> R::Output
     where
         R: Future + Send + 'static,
-        R::Item: Send + 'static,
-        R::Error: Send + 'static,
         F: FnOnce(StubResolver) -> R + Send + 'static,
     {
         let resolver = Self::from_conf(conf);
-        let mut runtime = Runtime::new().unwrap(); // XXX unwrap
-        let res = runtime.block_on(lazy(|| op(resolver)));
-        runtime.shutdown_on_idle().wait().unwrap();
-        res
+        let mut runtime = runtime::Builder::new()
+            .basic_scheduler()
+            .build().unwrap();
+        runtime.block_on(op(resolver))
     }
 }
 
@@ -148,11 +186,15 @@ impl Default for StubResolver {
 impl Resolver for StubResolver {
     type Octets = Bytes;
     type Answer = Answer;
-    type Query = Query;
+    type Query = Pin<Box<dyn Future<Output = Result<Answer, io::Error>>>>;
 
-    fn query<N, Q>(&self, question: Q) -> Query
+    fn query<N, Q>(&self, question: Q) -> Self::Query
     where N: ToDname, Q: Into<Question<N>> {
-        Query::new(self.clone(), question)
+        let message = Query::create_message(question.into());
+        let clone = self.clone();
+        async move {
+            Query::new(clone)?.run(message).await
+        }.boxed()
     }
 }
 
@@ -184,101 +226,152 @@ pub struct Query {
     /// The index in the server list we currently trying.
     counter: ServerListCounter,
 
-    /// The server query we are currently performing.
+    /// The preferred error to return.
     ///
-    /// If this is an error, we had to bail out before ever starting a query.
-    query: Result<ServerQuery, Option<io::Error>>,
-
-    /// The message for this query.
-    ///
-    /// The message has been prepared to contain the correct header and the
-    /// question and has been positioned such that only the OPT record needs
-    /// to be added if necessary.
-    message: QueryMessage,
+    /// Every time we finish a single query, we see if we can update this with
+    /// a better one. If we finally have to fail, we return this result. This
+    /// is a result so we can return a servfail answer if that is the only
+    /// answer we get. (Remember, SERVFAIL is returned for a bogus answer, so
+    /// you might want to know.)
+    error: Result<Answer, io::Error>,
 }
 
 impl Query {
-    fn new<N, Q>(resolver: StubResolver, question: Q) -> Self
-    where N: ToDname, Q: Into<Question<N>> {
-        let mut message = unwrap!(MessageBuilder::from_target(
-            unwrap!(StreamTarget::new(Octets512::new()))
-        ));
-        message.header_mut().set_rd(true);
-        let mut message = message.question();
-        unwrap!(message.push(question));
-        let message = message.additional();
-        let (preferred, counter) = if resolver.options().use_vc {
+    pub fn new(
+        resolver: StubResolver,
+    ) -> Result<Self, io::Error> {
+        let (preferred, counter) = if
+            resolver.options().use_vc ||
+            resolver.0.preferred.is_empty()
+        {
+            if resolver.0.stream.is_empty() {
+                return Err(
+                    io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "no servers available"
+                    )
+                )
+            }
             (false, resolver.0.stream.counter(resolver.options().rotate))
         }
         else {
             (true, resolver.0.preferred.counter(resolver.options().rotate))
         };
-        let mut res = Query {
+        Ok(Query {
             resolver,
             preferred,
             attempt: 0,
             counter,
-            query: Err(None),
-            message
-        };
-        res.query = match res.start_query() {
-            Some(query) => Ok(query),
-            None => Err(Some(no_servers_error()))
-        };
-        res
+            error: Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "all timed out"
+            ))
+        })
     }
 
-    /// Starts a new query for the current server.
-    ///
-    /// Prepares the query message and then starts the server query. Returns
-    /// `None` if a query cannot be started because there are no more servers
-    /// left.
-    fn start_query(&mut self) -> Option<ServerQuery> {
-        match self.current_server() {
-            Some(info) => {
-                let message = info.prepare_message(self.message.clone());
-                Some(ServerQuery::new(message, info))
+    pub async fn run(
+        mut self,
+        mut message: QueryMessage,
+    ) -> Result<Answer, io::Error> {
+        loop {
+            match self.run_query(&mut message).await {
+                Ok(answer) => {
+                    if answer.header().rcode() == Rcode::FormErr
+                        && self.current_server().does_edns()
+                    {
+                        // FORMERR with EDNS: turn off EDNS and try again.
+                        self.current_server().disable_edns();
+                        continue
+                    }
+                    else if answer.header().rcode() == Rcode::ServFail {
+                        // SERVFAIL: go to next server.
+                        self.update_error_servfail(answer);
+                    }
+                    else if answer.header().tc() && self.preferred
+                        && !self.resolver.options().ign_tc
+                    {
+                        // Truncated. If we can, switch to stream transports
+                        // and try again. Otherwise return the truncated
+                        // answer.
+                        if self.switch_to_stream() {
+                            continue
+                        }
+                        else {
+                            return Ok(answer)
+                        }
+                    }
+                    else {
+                        // I guess we have an answer ...
+                        return Ok(answer);
+                    }
+                }
+                Err(err) => self.update_error(err),
             }
-            None => None
+            if !self.next_server() {
+                return self.error
+            }
         }
     }
 
-    /// Returns the info for the current server.
-    fn current_server(&self) -> Option<&ServerInfo> {
+    fn create_message(
+        question: Question<impl ToDname>
+    ) -> QueryMessage {
+        let mut message = MessageBuilder::from_target(
+            StreamTarget::new(Octets512::new()).unwrap()
+        ).unwrap();
+        message.header_mut().set_rd(true);
+        let mut message = message.question();
+        message.push(question).unwrap();
+        message.additional()
+    }
+
+    async fn run_query(
+        &mut self, message: &mut QueryMessage
+    ) -> Result<Answer, io::Error> {
+        let server = self.current_server();
+        server.prepare_message(message);
+        server.query(message).await
+    }
+
+    fn current_server(&self) -> &ServerInfo {
         let list = if self.preferred { &self.resolver.0.preferred }
                    else { &self.resolver.0.stream };
         self.counter.info(list)
     }
 
+    fn update_error(&mut self, err: io::Error) {
+        // We keep the last error except for timeouts or if we have a servfail
+        // answer already. Since we start with a timeout, we still get a that
+        // if everything times out.
+        if err.kind() != io::ErrorKind::TimedOut && self.error.is_err() {
+            self.error = Err(err)
+        }
+    }
+
+    fn update_error_servfail(&mut self, answer: Answer) {
+        self.error = Ok(answer)
+    }
 
     fn switch_to_stream(&mut self) -> bool {
+        if !self.preferred {
+            // We already did this.
+            return false
+        }
         self.preferred = false;
         self.attempt = 0;
         self.counter = self.resolver.0.stream.counter(
             self.resolver.options().rotate
         );
-        match self.start_query() {
-            Some(query) => {
-                self.query = Ok(query);
-                true
-            }
-            None => {
-                self.query = Err(None);
-                false
-            }
-        }
+        true
     }
 
-    fn next_server(&mut self) {
-        self.counter.next();
-        if let Some(query) = self.start_query() {
-            self.query = Ok(query);
-            return;
+    fn next_server(&mut self) -> bool {
+        if self.counter.next() {
+            return true
         }
         self.attempt += 1;
         if self.attempt >= self.resolver.options().attempts {
-            self.query = Err(Some(giving_up_error()));
-            return;
+            return false
         }
         self.counter = if self.preferred {
             self.resolver.0.preferred.counter(self.resolver.options().rotate)
@@ -286,67 +379,7 @@ impl Query {
         else {
             self.resolver.0.stream.counter(self.resolver.options().rotate)
         };
-        self.query = match self.start_query() {
-            Some(query) => Ok(query),
-            None => Err(Some(giving_up_error()))
-        }
-    }
-}
-
-impl Future for Query {
-    type Item = Answer;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-        let answer = {
-            let query = match self.query {
-                Ok(ref mut query) => query,
-                Err(ref mut err) => {
-                    let err = err.take();
-                    match err {
-                        Some(err) => return Err(err),
-                        None => panic!("polled a resolved future")
-                    }
-                }
-            };
-            match query.poll() {
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(answer)) => Some(answer),
-                Err(_) => None,
-            }
-        };
-        match answer {
-            Some(answer) => {
-                if answer.header().rcode() == Rcode::FormErr
-                    && self.current_server().unwrap().does_edns()
-                {
-                    // FORMERR with EDNS: turn off EDNS and try again.
-                    self.current_server().unwrap().disable_edns();
-                    self.query = Ok(self.start_query().unwrap());
-                }
-                else if answer.header().rcode() == Rcode::ServFail {
-                    // SERVFAIL: go to next server.
-                    self.next_server();
-                }
-                else if answer.header().tc() && self.preferred
-                    && !self.resolver.options().ign_tc
-                {
-                    // Truncated. If we can, switch to stream transports.
-                    if !self.switch_to_stream() {
-                        return Ok(Async::Ready(answer))
-                    }
-                }
-                else {
-                    // I guess we have an answer ...
-                    self.query = Err(None); // Make it panic if polled again.
-                    return Ok(Async::Ready(answer));
-                }
-            }
-            None => {
-                self.next_server();
-            }
-        }
-        self.poll()
+        true
     }
 }
 
@@ -427,19 +460,5 @@ impl Iterator for SearchIter {
             None
         }
     }
-}
-
-
-//------------ Making Errors -------------------------------------------------
-//
-// Because we want to use io::Error and creating them is tedious, we have some
-// friendly helpers for that.
-
-fn no_servers_error() -> io::Error {
-    io::Error::new(io::ErrorKind::NotFound, "no servers available")
-}
-
-fn giving_up_error() -> io::Error {
-    io::Error::new(io::ErrorKind::TimedOut, "timed out")
 }
 

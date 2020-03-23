@@ -31,12 +31,9 @@
 //! [`Resolver`]: resolver/trait.Resolver.html
 //! [`StubResolver`]: stub/struct.StubResolver.html
 
-#![cfg(feature = "resolv")]
-
 pub use self::resolver::Resolver;
 pub use self::stub::StubResolver;
 
 pub mod lookup;
 pub mod resolver;
 pub mod stub;
-

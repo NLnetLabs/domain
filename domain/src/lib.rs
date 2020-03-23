@@ -11,7 +11,6 @@
 pub mod base;
 pub mod master;
 pub mod rdata;
-pub mod resolv;
 pub mod sign;
 pub mod test;
 pub mod tsig;
