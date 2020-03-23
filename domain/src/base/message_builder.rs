@@ -523,8 +523,9 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
         self.authority
     }
 
-    pub fn opt(self) -> Result<OptBuilder<Target>, Self> {
-        OptBuilder::new(self)
+    pub fn opt<F, R>(&mut self, build: F) -> Result<R, ShortBuf>
+    where F: FnOnce(&mut OptBuilder<Target>) -> Result<R, ShortBuf> {
+        build(&mut OptBuilder::new(self)?)
     }
 
     pub fn finish(self) -> Target {
@@ -573,17 +574,17 @@ where Target: OctetsBuilder {
 
 //------------ OptBuilder ----------------------------------------------------
 
-#[derive(Clone, Debug)]
-pub struct OptBuilder<Target> {
-    additional: AdditionalBuilder<Target>,
+#[derive(Debug)]
+pub struct OptBuilder<'a, Target> {
+    additional: &'a mut AdditionalBuilder<Target>,
     start: usize,
     arcount: u16,
 }
 
-impl<Target: OctetsBuilder> OptBuilder<Target> {
+impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
     fn new(
-        mut additional: AdditionalBuilder<Target>
-    ) -> Result<Self, AdditionalBuilder<Target>> {
+        additional: &'a mut AdditionalBuilder<Target>
+    ) -> Result<Self, ShortBuf> {
         let start = additional.as_target().as_ref().len();
         let arcount = additional.counts().arcount();
 
@@ -592,23 +593,16 @@ impl<Target: OctetsBuilder> OptBuilder<Target> {
             0u16.compose(target)
         }).is_err();
         if err {
-            return Err(additional)
+            return Err(ShortBuf)
         }
         if let Err(_) = additional.counts_mut().inc_arcount() {
             additional.as_target_mut().truncate(start);
-            return Err(additional)
+            return Err(ShortBuf)
         }
 
         Ok(OptBuilder {
             additional, start, arcount
         })
-    }
-
-    pub fn rewind(self) -> AdditionalBuilder<Target> {
-        let mut res = self.additional;
-        res.as_target_mut().truncate(self.start);
-        res.counts_mut().set_arcount(self.arcount);
-        res
     }
 
     pub fn push<Opt: OptData>(&mut self, opt: &Opt) -> Result<(), ShortBuf> {
@@ -671,35 +665,6 @@ impl<Target: OctetsBuilder> OptBuilder<Target> {
         )
     }
 
-    pub fn builder(self) -> MessageBuilder<Target> {
-        self.additional().builder()
-    }
-
-    pub fn question(self) -> QuestionBuilder<Target> {
-        self.additional().question()
-    }
-
-    pub fn answer(self) -> AnswerBuilder<Target> {
-        self.additional().answer()
-    }
-
-    pub fn authority(self) -> AuthorityBuilder<Target> {
-        self.additional().authority()
-    }
-
-    pub fn additional(self) -> AdditionalBuilder<Target> {
-        self.additional
-    }
-
-    pub fn finish(self) -> Target {
-        self.additional.finish()
-    }
-
-    pub fn into_message(self) -> Message<Target::Octets>
-    where Target: IntoOctets {
-        self.additional.into_message()
-    }
-
     pub fn as_target(&self) -> &Target {
         self.additional.as_target()
     }
@@ -712,7 +677,7 @@ impl<Target: OctetsBuilder> OptBuilder<Target> {
 
 //--- Deref, DerefMut, AsRef, and AsMut
 
-impl<Target> Deref for OptBuilder<Target> {
+impl<'a, Target> Deref for OptBuilder<'a, Target> {
     type Target = MessageBuilder<Target>;
 
     fn deref(&self) -> &Self::Target {
@@ -720,7 +685,7 @@ impl<Target> Deref for OptBuilder<Target> {
     }
 }
 
-impl<Target> DerefMut for OptBuilder<Target> {
+impl<'a, Target> DerefMut for OptBuilder<'a, Target> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.additional.deref_mut()
     }

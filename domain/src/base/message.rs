@@ -3,7 +3,7 @@ use core::mem;
 use core::marker::PhantomData;
 use unwrap::unwrap;
 use super::header::{Header, HeaderCounts, HeaderSection};
-use super::iana::{Rcode, Rtype};
+use super::iana::{Class, Rcode, Rtype};
 use super::message_builder::{
     AdditionalBuilder, AnswerBuilder, RecordSectionBuilder
 };
@@ -595,7 +595,19 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
     pub fn limit_to<Data: ParseRecordData<Ref>>(
         self
     ) -> RecordIter<Ref, Data> {
-        RecordIter::new(self)
+        RecordIter::new(self, false)
+    }
+
+    /// Trades `self` in for an iterator limited to a type in IN class.
+    ///
+    /// Behaves exactly like [`limit_to`] but skips over records that are not
+    /// of class IN.
+    ///
+    /// [`limit_to`]: #method.limit_to
+    pub fn limit_to_in<Data: ParseRecordData<Ref>>(
+        self
+    ) -> RecordIter<Ref, Data> {
+        RecordIter::new(self, true)
     }
 
     /// Proceeds to the next section if there is one.
@@ -697,13 +709,14 @@ impl<Ref: OctetsRef> Iterator for MessageIter<Ref> {
 #[derive(Clone, Copy, Debug)]
 pub struct RecordIter<Ref, Data> {
     section: RecordSection<Ref>,
+    in_only: bool,
     marker: PhantomData<Data>
 }
 
 impl<Ref: OctetsRef, Data: ParseRecordData<Ref>> RecordIter<Ref, Data> {
     /// Creates a new record iterator.
-    fn new(section: RecordSection<Ref>) -> Self {
-        RecordIter { section, marker: PhantomData }
+    fn new(section: RecordSection<Ref>, in_only: bool) -> Self {
+        RecordIter { section, in_only, marker: PhantomData }
     }
 
     /// Trades the iterator for the full iterator.
@@ -736,6 +749,9 @@ where Ref: OctetsRef, Data: ParseRecordData<Ref> {
                 Some(Err(err)) => return Some(Err(err)),
                 None => return None,
             };
+            if self.in_only && record.class() != Class::In {
+                continue
+            }
             match record.into_record() {
                 Ok(Some(record)) => return Some(Ok(record)),
                 Err(err) => return Some(Err(err)),

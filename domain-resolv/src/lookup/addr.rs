@@ -3,46 +3,29 @@
 use std::io;
 use std::net::IpAddr;
 use std::str::FromStr;
-use futures::{Async, Future, Poll, try_ready};
-use unwrap::unwrap;
-use crate::base::iana::Rtype;
-use crate::base::message::RecordIter;
-use crate::base::name::{Dname, DnameBuilder, ParsedDname};
-use crate::base::octets::{Octets128, OctetsRef};
-use crate::rdata::Ptr;
-use crate::resolv::resolver::Resolver;
+use domain::base::iana::Rtype;
+use domain::base::message::RecordIter;
+use domain::base::name::{Dname, DnameBuilder, ParsedDname};
+use domain::base::octets::{Octets128, OctetsRef};
+use domain::rdata::Ptr;
+use crate::resolver::Resolver;
 
 
 //------------ lookup_addr ---------------------------------------------------
 
-/// Creates a future that resolves into the host names for an IP address. 
+/// Resolves the host names of an IP address.
 ///
-/// The future will query DNS using the resolver represented by `resolv`.
+/// The function will query DNS using the resolver represented by `resolv`.
 /// It will query DNS only and not consider any other database the system
 /// may have.
 /// 
 /// The value returned upon success can be turned into an iterator over
 /// host names via its `iter()` method. This is due to lifetime issues.
-pub fn lookup_addr<R: Resolver>(resolv: &R, addr: IpAddr) -> LookupAddr<R> {
+pub async fn lookup_addr<R: Resolver>(
+    resolv: &R, addr: IpAddr
+) -> Result<FoundAddrs<R>, io::Error> {
     let name = dname_from_addr(addr);
-    LookupAddr(resolv.query((name, Rtype::Ptr)))
-}
-
-
-//------------ LookupAddr ----------------------------------------------------
-
-/// The future for [`lookup_addr()`].
-///
-/// [`lookup_addr()`]: fn.lookup_addr.html
-pub struct LookupAddr<R: Resolver>(R::Query);
-
-impl<R: Resolver> Future for LookupAddr<R> {
-    type Item = FoundAddrs<R>;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        Ok(Async::Ready(FoundAddrs(try_ready!(self.0.poll()))))
-    }
+    resolv.query((name, Rtype::Ptr)).await.map(FoundAddrs)
 }
 
 
@@ -109,7 +92,6 @@ impl<Ref: OctetsRef> Iterator for FoundAddrsIter<Ref> {
 }
 
 
-
 //------------ Helper Functions ---------------------------------------------
 
 /// Translates an IP address into a domain name.
@@ -117,12 +99,12 @@ fn dname_from_addr(addr: IpAddr) -> Dname<Octets128> {
     match addr {
         IpAddr::V4(addr) => {
             let octets = addr.octets();
-            unwrap!(Dname::from_str(
+            Dname::from_str(
                 &format!(
                     "{}.{}.{}.{}.in-addr.arpa.", octets[3],
                     octets[2], octets[1], octets[0]
                 )
-            ))
+            ).unwrap()
         }
         IpAddr::V6(addr) => {
             let mut res = DnameBuilder::<Octets128>::new();
@@ -132,7 +114,7 @@ fn dname_from_addr(addr: IpAddr) -> Dname<Octets128> {
             }
             res.append_label(b"ip6").unwrap();
             res.append_label(b"arpa").unwrap();
-            unwrap!(res.into_dname())
+            res.into_dname().unwrap()
         }
     }
 }
@@ -157,5 +139,4 @@ fn hexdigit(nibble: u8) -> u8 {
         _ => unreachable!()
     }
 }
-
 

@@ -1,12 +1,10 @@
 //! The trait defining an abstract resolver.
 
 use std::io;
-use std::net::IpAddr;
 use futures::future::Future;
-use crate::base::name::{ToDname, ToRelativeDname};
-use crate::base::message::Message;
-use crate::base::question::Question;
-use crate::resolv::lookup::{addr, host, srv};
+use domain::base::name::ToDname;
+use domain::base::message::Message;
+use domain::base::question::Question;
 
 
 //----------- Resolver -------------------------------------------------------
@@ -28,7 +26,7 @@ pub trait Resolver {
     type Answer: AsRef<Message<Self::Octets>>;
 
     /// The future resolving into an answer.
-    type Query: Future<Item=Self::Answer, Error=io::Error>;
+    type Query: Future<Output = Result<Self::Answer, io::Error>>;
 
     /// Returns a future answering a question.
     ///
@@ -36,32 +34,6 @@ pub trait Resolver {
     /// produces a future trying to answer the question.
     fn query<N, Q>(&self, question: Q) -> Self::Query
     where N: ToDname, Q: Into<Question<N>>;
-
-    fn lookup_addr(&self, addr: IpAddr) -> addr::LookupAddr<Self>
-    where Self: Sized {
-        addr::lookup_addr(self, addr)
-    }
-
-    fn lookup_host<N: ToDname>(&self, name: &N) -> host::LookupHost<Self>
-    where Self: Sized {
-        host::lookup_host(self, name)
-    }
-
-    fn search_host<N>(self, name: N) -> host::SearchHost<Self, N>
-    where Self: Sized + SearchNames, N: ToRelativeDname {
-        host::search_host(self, name)
-    }
-
-    fn lookup_srv<S, N>(
-        self, service: S, name: N, fallback_port: u16
-    ) -> srv::LookupSrv<Self, S, N>
-    where
-        Self: Sized,
-        S: ToRelativeDname + Clone + Send + 'static,
-        N: ToDname + Send + 'static
-    {
-        srv::lookup_srv(self, service, name, fallback_port)
-    }
 }
 
 
@@ -82,3 +54,4 @@ pub trait SearchNames {
     /// Returns an iterator over the search suffixes.
     fn search_iter(&self) -> Self::Iter;
 }
+

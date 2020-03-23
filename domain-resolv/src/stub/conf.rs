@@ -17,7 +17,7 @@ use std::str::{self, FromStr, SplitWhitespace};
 use std::time::Duration;
 use std::vec::Vec;
 use smallvec::SmallVec;
-use crate::base::name::{self, Dname};
+use domain::base::name::{self, Dname};
 
 
 //------------ ResolvOptions ------------------------------------------------
