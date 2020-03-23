@@ -90,6 +90,27 @@
 //! [`Message`]: message/struct.Message.html
 //! [`MessageBuilder`]: message_builder/struct.MessageBuilder.html
 
+//--- Re-exports
+
+pub use self::charstr::CharStr;
+pub use self::cmp::CanonicalOrd;
+pub use self::header::{Header, HeaderCounts, HeaderSection};
+pub use self::message::{Message, QuestionSection, RecordSection};
+pub use self::message_builder::{
+    MessageBuilder, RecordSectionBuilder, StreamTarget
+};
+pub use self::name::{
+    Dname, DnameBuilder, ParsedDname, RelativeDname, ToDname, ToRelativeDname
+};
+pub use self::octets::{Compose, Parser, ShortBuf}; 
+#[cfg(feature = "smallvec")] pub use self::octets::OctetsVec;
+pub use self::question::Question;
+pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
+pub use self::record::{Record, RecordHeader, ParsedRecord};
+pub use self::serial::Serial;
+
+//--- Modules
+
 pub mod charstr;
 pub mod cmp;
 pub mod header;
