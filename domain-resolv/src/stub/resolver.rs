@@ -10,7 +10,6 @@ use std::{io, ops};
 use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
-use std::sync::Arc;
 use bytes::Bytes;
 use futures::future::FutureExt;
 #[cfg(feature = "sync")] use tokio::runtime;
@@ -52,11 +51,7 @@ use crate::resolver::{Resolver, SearchNames};
 /// [`run()`]: #method.run
 /// [`run_with_conf()`]: #method.run_with_conf
 #[derive(Clone, Debug)]
-pub struct StubResolver(Arc<ResolverInner>);
-
-
-#[derive(Debug)]
-struct ResolverInner {
+pub struct StubResolver {
     /// Preferred servers.
     preferred: ServerList,
 
@@ -68,9 +63,15 @@ struct ResolverInner {
 }
 
 
-impl ResolverInner {
-    fn from_conf(conf: ResolvConf) -> Self {
-        ResolverInner {
+impl StubResolver {
+    /// Creates a new resolver using the system’s default configuration.
+    pub fn new() -> Self {
+        Self::from_conf(ResolvConf::default())
+    }
+
+    /// Creates a new resolver using the given configuraiton.
+    pub fn from_conf(conf: ResolvConf) -> Self {
+        StubResolver {
             preferred: ServerList::from_conf(&conf, |s| {
                 s.transport.is_preferred()
             }),
@@ -80,49 +81,43 @@ impl ResolverInner {
             options: conf.options
         }
     }
-}
-
-impl StubResolver {
-    /// Creates a new resolver using the system’s default configuration.
-    pub fn new() -> Self {
-        Self::from_conf(ResolvConf::default())
-    }
-
-    /// Creates a new resolver using the given configuraiton.
-    pub fn from_conf(conf: ResolvConf) -> Self {
-        StubResolver(Arc::new(ResolverInner::from_conf(conf)))
-    }
 
     pub fn options(&self) -> &ResolvOptions {
-        &self.0.options
+        &self.options
     }
 
     pub async fn query<N: ToDname, Q: Into<Question<N>>>(
         &self, question: Q
     ) -> Result<Answer, io::Error> {
-        Query::new(self.clone())?.run(
+        Query::new(self)?.run(
             Query::create_message(question.into())
         ).await
+    }
+
+    async fn query_message(
+        &self, message: QueryMessage
+    ) -> Result<Answer, io::Error> {
+        Query::new(self)?.run(message).await
     }
 }
 
 impl StubResolver {
     pub async fn lookup_addr(
         &self, addr: IpAddr
-    ) -> Result<FoundAddrs<Self>, io::Error> {
-        lookup_addr(self, addr).await
+    ) -> Result<FoundAddrs<&Self>, io::Error> {
+        lookup_addr(&self, addr).await
     }
 
     pub async fn lookup_host(
         &self, qname: impl ToDname
-    ) -> Result<FoundHosts<Self>, io::Error> {
-        lookup_host(self, qname).await
+    ) -> Result<FoundHosts<&Self>, io::Error> {
+        lookup_host(&self, qname).await
     }
 
     pub async fn search_host(
         &self, qname: impl ToRelativeDname
-    ) -> Result<FoundHosts<Self>, io::Error> {
-        search_host(self, qname).await
+    ) -> Result<FoundHosts<&Self>, io::Error> {
+        search_host(&self, qname).await
     }
 
     pub async fn lookup_srv(
@@ -131,7 +126,7 @@ impl StubResolver {
         name: impl ToDname,
         fallback_port: u16
     ) -> Result<Option<FoundSrvs>, SrvError> {
-        lookup_srv(self, service, name, fallback_port).await
+        lookup_srv(&self, service, name, fallback_port).await
     }
 }
 
@@ -183,24 +178,21 @@ impl Default for StubResolver {
     }
 }
 
-impl Resolver for StubResolver {
+impl<'a> Resolver for &'a StubResolver {
     type Octets = Bytes;
     type Answer = Answer;
-    type Query = Pin<Box<dyn Future<Output = Result<Answer, io::Error>>>>;
+    type Query = Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + 'a>>;
 
     fn query<N, Q>(&self, question: Q) -> Self::Query
     where N: ToDname, Q: Into<Question<N>> {
         let message = Query::create_message(question.into());
-        let clone = self.clone();
-        async move {
-            Query::new(clone)?.run(message).await
-        }.boxed()
+        self.query_message(message).boxed()
     }
 }
 
-impl SearchNames for StubResolver {
+impl<'a> SearchNames for &'a StubResolver {
     type Name = SearchSuffix;
-    type Iter = SearchIter;
+    type Iter = SearchIter<'a>;
 
     fn search_iter(&self) -> Self::Iter {
         SearchIter {
@@ -213,9 +205,9 @@ impl SearchNames for StubResolver {
 
 //------------ Query ---------------------------------------------------------
 
-pub struct Query {
+pub struct Query<'a> {
     /// The resolver whose configuration we are using.
-    resolver: StubResolver,
+    resolver: &'a StubResolver,
 
     /// Are we still in the preferred server list or have gone streaming?
     preferred: bool,
@@ -236,15 +228,15 @@ pub struct Query {
     error: Result<Answer, io::Error>,
 }
 
-impl Query {
+impl<'a> Query<'a> {
     pub fn new(
-        resolver: StubResolver,
+        resolver: &'a StubResolver,
     ) -> Result<Self, io::Error> {
         let (preferred, counter) = if
             resolver.options().use_vc ||
-            resolver.0.preferred.is_empty()
+            resolver.preferred.is_empty()
         {
-            if resolver.0.stream.is_empty() {
+            if resolver.stream.is_empty() {
                 return Err(
                     io::Error::new(
                         io::ErrorKind::NotFound,
@@ -252,10 +244,10 @@ impl Query {
                     )
                 )
             }
-            (false, resolver.0.stream.counter(resolver.options().rotate))
+            (false, resolver.stream.counter(resolver.options().rotate))
         }
         else {
-            (true, resolver.0.preferred.counter(resolver.options().rotate))
+            (true, resolver.preferred.counter(resolver.options().rotate))
         };
         Ok(Query {
             resolver,
@@ -334,8 +326,8 @@ impl Query {
     }
 
     fn current_server(&self) -> &ServerInfo {
-        let list = if self.preferred { &self.resolver.0.preferred }
-                   else { &self.resolver.0.stream };
+        let list = if self.preferred { &self.resolver.preferred }
+                   else { &self.resolver.stream };
         self.counter.info(list)
     }
 
@@ -359,7 +351,7 @@ impl Query {
         }
         self.preferred = false;
         self.attempt = 0;
-        self.counter = self.resolver.0.stream.counter(
+        self.counter = self.resolver.stream.counter(
             self.resolver.options().rotate
         );
         true
@@ -374,10 +366,10 @@ impl Query {
             return false
         }
         self.counter = if self.preferred {
-            self.resolver.0.preferred.counter(self.resolver.options().rotate)
+            self.resolver.preferred.counter(self.resolver.options().rotate)
         }
         else {
-            self.resolver.0.stream.counter(self.resolver.options().rotate)
+            self.resolver.stream.counter(self.resolver.options().rotate)
         };
         true
     }
@@ -443,12 +435,12 @@ impl AsRef<Message<Bytes>> for Answer {
 //------------ SearchIter ----------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct SearchIter {
-    resolver: StubResolver,
+pub struct SearchIter<'a> {
+    resolver: &'a StubResolver,
     pos: usize,
 }
 
-impl Iterator for SearchIter {
+impl<'a> Iterator for SearchIter<'a> {
     type Item = SearchSuffix;
 
     fn next(&mut self) -> Option<Self::Item> {

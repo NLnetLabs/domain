@@ -13,7 +13,7 @@ mod udp;
 
 //------------ ServerInfo ----------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ServerInfo {
     /// The basic server configuration.
     conf: ServerConf,
@@ -21,7 +21,7 @@ pub struct ServerInfo {
     /// Whether this server supports EDNS.
     ///
     /// We start out with assuming it does and unset it if we get a FORMERR.
-    edns: AtomicBool,
+    edns: Arc<AtomicBool>,
 }
 
 impl ServerInfo {
@@ -88,7 +88,7 @@ impl From<ServerConf> for ServerInfo {
     fn from(conf: ServerConf) -> Self {
         ServerInfo {
             conf,
-            edns: AtomicBool::new(true)
+            edns: Arc::new(AtomicBool::new(true))
         }
     }
 }
@@ -102,7 +102,7 @@ impl<'a> From<&'a ServerConf> for ServerInfo {
 
 //------------ ServerList ----------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ServerList {
     /// The actual list of servers.
     servers: Vec<ServerInfo>,
