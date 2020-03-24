@@ -7,6 +7,7 @@ use domain::base::message::RecordIter;
 use domain::base::name::{ParsedDname, ToDname, ToRelativeDname};
 use domain::base::octets::OctetsRef;
 use domain::rdata::{A, Aaaa};
+use crate::resolver;
 use crate::resolver::{Resolver, SearchNames};
 
 
@@ -23,7 +24,7 @@ use crate::resolver::{Resolver, SearchNames};
 /// return the canonical name.
 pub async fn lookup_host<R: Resolver>(
     resolver: &R, qname: impl ToDname
-) -> Result<FoundHosts<R>, io::Error> {
+) -> Result<FoundHosts<R>, resolver::Error> {
     let (a, aaaa) = tokio::join!(
         resolver.query((&qname, Rtype::A)),
         resolver.query((&qname, Rtype::Aaaa)),
@@ -36,7 +37,7 @@ pub async fn lookup_host<R: Resolver>(
 
 pub async fn search_host<R: Resolver + SearchNames>(
     resolver: &R, qname: impl ToRelativeDname
-) -> Result<FoundHosts<R>, io::Error> {
+) -> Result<FoundHosts<R>, resolver::Error> {
     for suffix in resolver.search_iter() {
         if let Ok(name) = (&qname).chain(suffix) {
             if let Ok(answer) = lookup_host(resolver, name).await {
@@ -44,7 +45,7 @@ pub async fn search_host<R: Resolver + SearchNames>(
             }
         }
     }
-    Err(io::Error::new(io::ErrorKind::Other, "no usable search name"))
+    lookup_host(resolver, qname.chain_root()).await
 }
 
 
@@ -61,17 +62,17 @@ pub async fn search_host<R: Resolver + SearchNames>(
 #[derive(Debug)]
 pub struct FoundHosts<R: Resolver> {
     /// The answer to the AAAA query.
-    aaaa: Result<R::Answer, io::Error>,
+    aaaa: Result<R::Answer, resolver::Error>,
 
     /// The answer to the A query.
-    a: Result<R::Answer, io::Error>,
+    a: Result<R::Answer, resolver::Error>,
 }
 
 impl<R: Resolver> FoundHosts<R> {
     pub fn new(
-        aaaa: Result<R::Answer, io::Error>,
-        a: Result<R::Answer, io::Error>
-    ) -> Result<Self, io::Error> {
+        aaaa: Result<R::Answer, resolver::Error>,
+        a: Result<R::Answer, resolver::Error>
+    ) -> Result<Self, resolver::Error> {
         if aaaa.is_err() && a.is_err() {
             match aaaa {
                 Err(err) => return Err(err),

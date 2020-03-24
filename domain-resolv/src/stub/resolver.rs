@@ -26,6 +26,7 @@ use super::net::{ServerInfo, ServerList, ServerListCounter};
 use crate::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::lookup::host::{lookup_host, search_host, FoundHosts};
 use crate::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
+use crate::resolver;
 use crate::resolver::{Resolver, SearchNames};
 
 
@@ -88,7 +89,7 @@ impl StubResolver {
 
     pub async fn query<N: ToDname, Q: Into<Question<N>>>(
         &self, question: Q
-    ) -> Result<Answer, io::Error> {
+    ) -> Result<Answer, resolver::Error> {
         Query::new(self)?.run(
             Query::create_message(question.into())
         ).await
@@ -96,7 +97,7 @@ impl StubResolver {
 
     async fn query_message(
         &self, message: QueryMessage
-    ) -> Result<Answer, io::Error> {
+    ) -> Result<Answer, resolver::Error> {
         Query::new(self)?.run(message).await
     }
 }
@@ -104,19 +105,19 @@ impl StubResolver {
 impl StubResolver {
     pub async fn lookup_addr(
         &self, addr: IpAddr
-    ) -> Result<FoundAddrs<&Self>, io::Error> {
+    ) -> Result<FoundAddrs<&Self>, resolver::Error> {
         lookup_addr(&self, addr).await
     }
 
     pub async fn lookup_host(
         &self, qname: impl ToDname
-    ) -> Result<FoundHosts<&Self>, io::Error> {
+    ) -> Result<FoundHosts<&Self>, resolver::Error> {
         lookup_host(&self, qname).await
     }
 
     pub async fn search_host(
         &self, qname: impl ToRelativeDname
-    ) -> Result<FoundHosts<&Self>, io::Error> {
+    ) -> Result<FoundHosts<&Self>, resolver::Error> {
         search_host(&self, qname).await
     }
 
@@ -181,7 +182,9 @@ impl Default for StubResolver {
 impl<'a> Resolver for &'a StubResolver {
     type Octets = Bytes;
     type Answer = Answer;
-    type Query = Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + 'a>>;
+    type Query = Pin<Box<
+        dyn Future<Output = Result<Answer, resolver::Error>> + 'a
+    >>;
 
     fn query<N, Q>(&self, question: Q) -> Self::Query
     where N: ToDname, Q: Into<Question<N>> {
@@ -225,13 +228,13 @@ pub struct Query<'a> {
     /// is a result so we can return a servfail answer if that is the only
     /// answer we get. (Remember, SERVFAIL is returned for a bogus answer, so
     /// you might want to know.)
-    error: Result<Answer, io::Error>,
+    error: resolver::Error,
 }
 
 impl<'a> Query<'a> {
     pub fn new(
         resolver: &'a StubResolver,
-    ) -> Result<Self, io::Error> {
+    ) -> Result<Self, resolver::Error> {
         let (preferred, counter) = if
             resolver.options().use_vc ||
             resolver.preferred.is_empty()
@@ -241,7 +244,7 @@ impl<'a> Query<'a> {
                     io::Error::new(
                         io::ErrorKind::NotFound,
                         "no servers available"
-                    )
+                    ).into()
                 )
             }
             (false, resolver.stream.counter(resolver.options().rotate))
@@ -254,17 +257,17 @@ impl<'a> Query<'a> {
             preferred,
             attempt: 0,
             counter,
-            error: Err(io::Error::new(
+            error: io::Error::new(
                 io::ErrorKind::TimedOut,
                 "all timed out"
-            ))
+            ).into()
         })
     }
 
     pub async fn run(
         mut self,
         mut message: QueryMessage,
-    ) -> Result<Answer, io::Error> {
+    ) -> Result<Answer, resolver::Error> {
         loop {
             match self.run_query(&mut message).await {
                 Ok(answer) => {
@@ -277,7 +280,7 @@ impl<'a> Query<'a> {
                     }
                     else if answer.header().rcode() == Rcode::ServFail {
                         // SERVFAIL: go to next server.
-                        self.update_error_servfail(answer);
+                        self.update_error_servfail();
                     }
                     else if answer.header().tc() && self.preferred
                         && !self.resolver.options().ign_tc
@@ -300,7 +303,7 @@ impl<'a> Query<'a> {
                 Err(err) => self.update_error(err),
             }
             if !self.next_server() {
-                return self.error
+                return Err(self.error)
             }
         }
     }
@@ -319,7 +322,7 @@ impl<'a> Query<'a> {
 
     async fn run_query(
         &mut self, message: &mut QueryMessage
-    ) -> Result<Answer, io::Error> {
+    ) -> Result<Answer, resolver::Error> {
         let server = self.current_server();
         server.prepare_message(message);
         server.query(message).await
@@ -331,17 +334,17 @@ impl<'a> Query<'a> {
         self.counter.info(list)
     }
 
-    fn update_error(&mut self, err: io::Error) {
+    fn update_error(&mut self, err: resolver::Error) {
         // We keep the last error except for timeouts or if we have a servfail
         // answer already. Since we start with a timeout, we still get a that
         // if everything times out.
-        if err.kind() != io::ErrorKind::TimedOut && self.error.is_err() {
-            self.error = Err(err)
+        if !err.is_timeout() {
+            self.error = err
         }
     }
 
-    fn update_error_servfail(&mut self, answer: Answer) {
-        self.error = Ok(answer)
+    fn update_error_servfail(&mut self) {
+        self.error = resolver::Error::ServFail
     }
 
     fn switch_to_stream(&mut self) -> bool {

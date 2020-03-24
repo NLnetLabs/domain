@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::vec::Vec;
 use tokio::time::timeout;
 use super::conf::{ResolvConf, ServerConf, Transport};
+use crate::resolver;
 use super::resolver::{Answer, QueryMessage};
 
 mod tcp;
@@ -56,7 +57,7 @@ impl ServerInfo {
 
     pub async fn query(
         &self, query: &QueryMessage
-    ) -> Result<Answer, io::Error> {
+    ) -> Result<Answer, resolver::Error> {
         let res = match self.conf.transport {
             Transport::Udp => {
                timeout(
@@ -73,12 +74,12 @@ impl ServerInfo {
         };
         match res {
             Ok(Ok(answer)) => Ok(answer),
-            Ok(Err(err)) => Err(err),
+            Ok(Err(err)) => Err(err.into()),
             Err(_) => {
                 Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "request timed out"
-                ))
+                ).into())
             }
         }
     }
