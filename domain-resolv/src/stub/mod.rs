@@ -217,7 +217,7 @@ impl<'a> SearchNames for &'a StubResolver {
 
     fn search_iter(&self) -> Self::Iter {
         SearchIter {
-            resolver: self.clone(),
+            resolver: self,
             pos: 0
         }
     }
@@ -442,7 +442,7 @@ impl From<Message<Bytes>> for Answer {
 //------------ ServerInfo ----------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct ServerInfo {
+struct ServerInfo {
     /// The basic server configuration.
     conf: ServerConf,
 
@@ -453,10 +453,6 @@ pub struct ServerInfo {
 }
 
 impl ServerInfo {
-    pub fn conf(&self) -> &ServerConf {
-        &self.conf
-    }
-
     pub fn does_edns(&self) -> bool {
         self.edns.load(Ordering::Relaxed)
     }
@@ -600,7 +596,7 @@ impl<'a> From<&'a ServerConf> for ServerInfo {
 //------------ ServerList ----------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct ServerList {
+struct ServerList {
     /// The actual list of servers.
     servers: Vec<ServerInfo>,
 
@@ -669,7 +665,7 @@ impl ops::Deref for ServerList {
 //------------ ServerListCounter ---------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct ServerListCounter {
+struct ServerListCounter {
     cur: usize,
     end: usize,
 }
@@ -689,6 +685,7 @@ impl ServerListCounter {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> bool {
         let next = self.cur + 1;
         if next < self.end {
@@ -710,7 +707,7 @@ impl ServerListCounter {
 //------------ ServerListIter ------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct ServerListIter<'a> {
+struct ServerListIter<'a> {
     servers: &'a ServerList,
     counter: ServerListCounter,
 }

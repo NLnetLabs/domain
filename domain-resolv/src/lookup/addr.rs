@@ -78,10 +78,8 @@ impl<Ref: OctetsRef> Iterator for FoundAddrsIter<Ref> {
 
     #[allow(clippy::while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {
-        let name = if let Some(ref name) = self.name { name }
-                   else { return None };
-        let answer = if let Some(ref mut answer) = self.answer { answer }
-                     else { return None };
+        let name = self.name.as_ref()?;
+        let answer = self.answer.as_mut()?;
         while let Some(Ok(record)) = answer.next() {
             if record.owner() == name {
                 return Some(record.into_data().into_ptrdname())
