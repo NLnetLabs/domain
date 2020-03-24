@@ -43,7 +43,6 @@ use core::{hash, fmt, mem, ops};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::marker::PhantomData;
-use unwrap::unwrap;
 use super::iana::{OptionCode, OptRcode, Rtype};
 use super::header::Header;
 use super::name::ToDname;
@@ -212,9 +211,7 @@ impl OptHeader {
     }
 
     pub fn udp_payload_size(&self) -> u16 {
-        u16::from_be_bytes(unwrap!(
-            self.inner[3..5].try_into()
-        ))
+        u16::from_be_bytes(self.inner[3..5].try_into().unwrap())
     }
 
     pub fn set_udp_payload_size(&mut self, value: u16) {
@@ -546,8 +543,8 @@ mod test {
         header.set_version(0xbd);
         header.set_dnssec_ok(true);
         let mut buf = Vec::with_capacity(11);
-        unwrap!(header.compose(&mut buf));
-        unwrap!(0u16.compose(&mut buf));
+        header.compose(&mut buf).unwrap();
+        0u16.compose(&mut buf).unwrap();
         let mut buf = Parser::from_ref(buf.as_slice());
         let record = ParsedRecord::parse(&mut buf)
             .unwrap().into_record::<Opt<_>>().unwrap().unwrap();

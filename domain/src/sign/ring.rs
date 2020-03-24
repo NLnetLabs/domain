@@ -11,7 +11,6 @@ use ring::signature::{
     Signature as RingSignature,
     ECDSA_P256_SHA256_FIXED_SIGNING
 };
-use unwrap::unwrap;
 use crate::base::iana::{DigestAlg, SecAlg};
 use crate::base::name::ToDname;
 use crate::base::octets::Compose;
@@ -69,8 +68,8 @@ impl<'a> SigningKey for Key<'a> {
         owner: N
     ) -> Result<Ds<Self::Octets>, Self::Error> {
         let mut buf = Vec::new();
-        unwrap!(owner.compose_canonical(&mut buf));
-        unwrap!(self.dnskey.compose_canonical(&mut buf));
+        owner.compose_canonical(&mut buf).unwrap();
+        self.dnskey.compose_canonical(&mut buf).unwrap();
         let digest = Vec::from(digest::digest(&digest::SHA256, &buf).as_ref());
         Ok(Ds::new(
             self.key_tag()?,

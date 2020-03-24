@@ -9,7 +9,6 @@ use core::cmp::Ordering;
 use core::str::FromStr;
 #[cfg(feature="bytes")] use bytes::BytesMut;
 #[cfg(feature="master")] use bytes::Bytes;
-use unwrap::unwrap;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::charstr::{CharStr, PushError};
@@ -1531,7 +1530,7 @@ impl<'a> Iterator for TxtIter<'a> {
             None
         }
         else {
-            Some(unwrap!(CharStr::parse(&mut self.0)).into_octets())
+            Some(CharStr::parse(&mut self.0).unwrap().into_octets())
         }
     }
 }

@@ -1,7 +1,6 @@
 //! EDNS Options from RFC 8145.
 
 use core::convert::TryInto;
-use unwrap::unwrap;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
@@ -114,7 +113,7 @@ impl<'a> Iterator for KeyTagIter<'a> {
         else {
             let (item, tail) = self.0.split_at(2);
             self.0 = tail;
-            Some(u16::from_be_bytes(unwrap!(item.try_into())))
+            Some(u16::from_be_bytes(item.try_into().unwrap()))
         }
     }
 }

@@ -674,7 +674,6 @@ impl From<ParsedDnameError> for ParseError {
 #[cfg(test)]
 mod test {
     use std::vec::Vec;
-    use unwrap::unwrap;
     use crate::base::name::{Dname, RelativeDname};
     use super::*;
 
@@ -815,55 +814,53 @@ mod test {
         assert!(once_wec.starts_with(&test));
         assert!(twice_wec.starts_with(&test));
 
-        let test = unwrap!(RelativeDname::from_slice(b"\x03www"));
+        let test = RelativeDname::from_slice(b"\x03www").unwrap();
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
         
-        let test = unwrap!(RelativeDname::from_slice(b"\x03www\x07example"));
+        let test = RelativeDname::from_slice(b"\x03www\x07example").unwrap();
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
 
-        let test = unwrap!(
-            RelativeDname::from_slice(b"\x03www\x07example\x03com")
-        );
+        let test = RelativeDname::from_slice(
+            b"\x03www\x07example\x03com"
+        ).unwrap();
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
 
-        let test = unwrap!(Dname::from_slice(b"\x03www\x07example\x03com\0"));
+        let test = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
 
-        let test = unwrap!(RelativeDname::from_slice(b"\x07example\x03com"));
+        let test = RelativeDname::from_slice(b"\x07example\x03com").unwrap();
         assert!(!root.starts_with(&test));
         assert!(!flat_wec.starts_with(&test));
         assert!(!once_wec.starts_with(&test));
         assert!(!twice_wec.starts_with(&test));
 
-        let test = unwrap!(
-            unwrap!(
-                RelativeDname::from_octets(b"\x03www".as_ref())
-            ).chain(
-                unwrap!(
-                    RelativeDname::from_octets(b"\x07example".as_ref())
-                )
-            )
-        );
+        let test = RelativeDname::from_octets(
+            b"\x03www".as_ref()
+        ).unwrap().chain(
+            RelativeDname::from_octets(
+                b"\x07example".as_ref()
+            ).unwrap()
+        ).unwrap();
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
         assert!( twice_wec.starts_with(&test));
 
-        let test = unwrap!(test.chain(
-            unwrap!(RelativeDname::from_octets(b"\x03com".as_ref()))
-        ));
+        let test = test.chain(
+            RelativeDname::from_octets(b"\x03com".as_ref()).unwrap()
+        ).unwrap();
         assert!(!root.starts_with(&test));
         assert!( flat_wec.starts_with(&test));
         assert!( once_wec.starts_with(&test));
@@ -876,9 +873,9 @@ mod test {
         let flat_wec = name!(flat);
         let once_wec = name!(once);
         let twice_wec = name!(twice);
-        let wecr = unwrap!(
-            Dname::from_octets(b"\x03www\x07example\x03com\0".as_ref())
-        );
+        let wecr = Dname::from_octets(
+            b"\x03www\x07example\x03com\0".as_ref()
+        ).unwrap();
 
         for name in wecr.iter_suffixes() {
             if name.is_root() {
@@ -1081,7 +1078,7 @@ mod test {
     fn compose() {
         fn step(name: ParsedDname<&[u8]>, result: &[u8]) {
             let mut buf = Vec::new();
-            unwrap!(name.compose(&mut buf));
+            name.compose(&mut buf).unwrap();
             assert_eq!(buf.as_slice(), result);
         }
 
@@ -1122,16 +1119,16 @@ mod test {
         step(Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap());
         step(Dname::from_slice(b"\x03wWw\x07EXAMPLE\x03com\0").unwrap());
         step(
-            unwrap!(
-                RelativeDname::from_octets(b"\x03www\x07example\x03com")
-            ).chain_root()
+            RelativeDname::from_octets(
+                b"\x03www\x07example\x03com"
+            ).unwrap().chain_root()
         );
         step(
-            unwrap!(
-                unwrap!(
-                    RelativeDname::from_octets(b"\x03www\x07example")
-                ).chain(unwrap!(Dname::from_octets(b"\x03com\0")))
-            )
+            RelativeDname::from_octets(
+                b"\x03www\x07example"
+            ).unwrap().chain(
+                Dname::from_octets(b"\x03com\0").unwrap()
+            ).unwrap()
         );
 
         ne_step(Dname::from_slice(b"\x03ww4\x07EXAMPLE\x03com\0").unwrap());

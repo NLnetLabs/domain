@@ -7,7 +7,6 @@ use core::ops;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::BytesMut;
 use derive_more::Display;
-use unwrap::unwrap;
 use super::super::octets::{EmptyBuilder, OctetsBuilder, IntoOctets, ShortBuf};
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
@@ -199,7 +198,7 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
             return Err(PushNameError)
         }
         for label in name.iter_labels() {
-            unwrap!(label.build(&mut self.builder))
+            label.build(&mut self.builder).unwrap()
         }
         Ok(())
     }
@@ -292,7 +291,7 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
             return Err(PushNameError)
         }
         for label in origin.iter_labels() {
-            unwrap!(label.build(&mut self.builder))
+            label.build(&mut self.builder).unwrap()
         }
         Ok(unsafe {
             Dname::from_octets_unchecked(self.builder.into_octets())
@@ -562,7 +561,9 @@ mod test {
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
         builder.append_slice(b"com").unwrap();
-        assert_eq!(unwrap!(builder.into_dname()).as_slice(),
-                   b"\x03www\x07example\x03com\x00");
+        assert_eq!(
+            builder.into_dname().unwrap().as_slice(),
+            b"\x03www\x07example\x03com\x00"
+        );
     }
 }

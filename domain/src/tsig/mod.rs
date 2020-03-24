@@ -61,7 +61,6 @@ use std::collections::HashMap;
 use bytes::{Bytes, BytesMut};
 use derive_more::Display;
 use ring::{constant_time, hmac, rand, hkdf::KeyType};
-use unwrap::unwrap;
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
@@ -396,7 +395,7 @@ where
         &self, name: &N, algorithm: Algorithm
     ) -> Option<Self::Key> {
         // XXX This seems a bit wasteful.
-        let name = unwrap!(name.to_dname::<OctetsVec>());
+        let name = name.to_dname::<OctetsVec>().unwrap();
         self.get(&(name, algorithm)).cloned()
     }
 }

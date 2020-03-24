@@ -20,7 +20,6 @@
 
 use core::mem;
 use core::convert::TryInto;
-use unwrap::unwrap;
 use super::iana::{Opcode, Rcode};
 use super::octets::{
     Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
@@ -112,7 +111,7 @@ impl Header {
     /// and is copied into a response by a server. It allows matching
     /// incoming responses to their queries.
     pub fn id(self) -> u16 {
-        u16::from_be_bytes(unwrap!(self.inner[..2].try_into()))
+        u16::from_be_bytes(self.inner[..2].try_into().unwrap())
     }
 
     /// Sets the value of the ID field.
@@ -568,9 +567,9 @@ impl HeaderCounts {
 
     /// Returns the value of the 16 bit integer starting at a given offset.
     fn get_u16(self, offset: usize) -> u16 {
-        u16::from_be_bytes(unwrap!(
-            self.inner[offset..offset + 2].try_into()
-        ))
+        u16::from_be_bytes(
+            self.inner[offset..offset + 2].try_into().unwrap()
+        )
     }
 
     /// Sets the value of the 16 bit integer starting at a given offset.

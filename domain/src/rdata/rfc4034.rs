@@ -10,7 +10,6 @@ use core::convert::TryInto;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature="master")] use bytes::{Bytes, BytesMut};
 use derive_more::Display;
-use unwrap::unwrap;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{ParsedDname, ToDname};
@@ -125,9 +124,10 @@ impl<Octets> Dnskey<Octets> {
             // key, we return 0.
             let len = self.public_key.as_ref().len();
             if len > 2 {
-                u16::from_be_bytes(unwrap!(
-                    self.public_key.as_ref()[len - 3..len - 1].try_into()
-                ))
+                u16::from_be_bytes(
+                    self.public_key.as_ref()[len - 3..len - 1]
+                        .try_into().unwrap()
+                )
             }
             else {
                 0
@@ -1278,7 +1278,7 @@ impl Scan for RtypeBitmap<Bytes> {
     ) -> Result<Self, ScanError> {
         let mut builder = RtypeBitmapBuilder::<BytesMut>::new();
         while let Ok(rtype) = Rtype::scan(scanner) {
-            unwrap!(builder.add(rtype))
+            builder.add(rtype).unwrap()
         }
         Ok(builder.finalize())
     }
@@ -1647,7 +1647,7 @@ mod test {
         assert_eq!(
             Dnskey::new(
                 256, 3, SecAlg::RsaSha256,
-                unwrap!(base64::decode(
+                base64::decode(
                     "AwEAAcTQyaIe6nt3xSPOG2L/YfwBkOVTJN6mlnZ249O5Rtt3ZSRQHxQS\
                      W61AODYw6bvgxrrGq8eeOuenFjcSYgNAMcBYoEYYmKDW6e9EryW4ZaT/\
                      MCq+8Am06oR40xAA3fClOM6QjRcT85tP41Go946AicBGP8XOP/Aj1aI/\
@@ -1655,14 +1655,14 @@ mod test {
                      bmuD3Py0IyjlBxzZUXbqLsRL9gYFkCqeTY29Ik7usuzMTa+JRSLz6KGS\
                      5RSJ7CTSMjZg8aNaUbN2dvGhakJPh92HnLvMA3TefFgbKJphFNPA3BWS\
                      KLZ02cRWXqM="
-                ))
+                ).unwrap()
             ).key_tag(),
             59944
         );
         assert_eq!(
             Dnskey::new(
                 257, 3, SecAlg::RsaSha256,
-                unwrap!(base64::decode(
+                base64::decode(
                     "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO\
                     iW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN\
                     7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5\
@@ -1671,19 +1671,19 @@ mod test {
                     pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLY\
                     A4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws\
                     9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU="
-                ))
+                ).unwrap()
             ).key_tag(),
             20326
         );
         assert_eq!(
             Dnskey::new(
                 257, 3, SecAlg::RsaMd5,
-                unwrap!(base64::decode(
+                base64::decode(
                     "AwEAAcVaA4jSBIGRrSzpecoJELvKE9+OMuFnL8mmUBsY\
                     lB6epN1CqX7NzwjDpi6VySiEXr0C4uTYkU/L1uMv2mHE\
                     AljThFDJ1GuozJ6gA7jf3lnaGppRg2IoVQ9IVmLORmjw\
                     C+7Eoi12SqybMTicD3Ezwa9XbG1iPjmjhbMrLh7MSQpX"
-                ))
+                ).unwrap()
             ).key_tag(),
             18698
         );

@@ -1,7 +1,6 @@
 
 use core::mem;
 use core::marker::PhantomData;
-use unwrap::unwrap;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, Rcode, Rtype};
 use super::message_builder::{
@@ -371,7 +370,7 @@ where
             }
         }
 
-        let mut source = unwrap!(source.next_section()?);
+        let mut source = source.next_section()?.unwrap();
         let mut target = target.authority();
         while let Some(rr) = source.next() {
             let rr = rr?;
@@ -380,7 +379,7 @@ where
             }
         }
 
-        let source = unwrap!(source.next_section()?);
+        let source = source.next_section()?.unwrap();
         let mut target = target.additional();
         for rr in source {
             let rr = rr?;
@@ -426,7 +425,7 @@ impl<Ref: OctetsRef> QuestionSection<Ref> {
     /// Creates a new question section from the message octets.
     fn new(octets: Ref) -> Self {
         let mut parser = Parser::from_ref(octets);
-        unwrap!(parser.advance(mem::size_of::<HeaderSection>()));
+        parser.advance(mem::size_of::<HeaderSection>()).unwrap();
         QuestionSection {
             count: Ok(HeaderCounts::for_message_slice(
                 parser.as_slice()).qdcount()
@@ -767,7 +766,6 @@ where Ref: OctetsRef, Data: ParseRecordData<Ref> {
 #[cfg(test)]
 mod test {
     use std::vec::Vec;
-    use unwrap::unwrap;
     use crate::base::message_builder::MessageBuilder;
     use crate::base::name::Dname;
     use crate::rdata::{A, Ns, AllRecordData};
@@ -777,17 +775,17 @@ mod test {
     fn get_test_message() -> Message<Vec<u8>> {
         let msg = MessageBuilder::new_vec();
         let mut msg = msg.answer();
-        unwrap!(msg.push((
-            unwrap!(Dname::vec_from_str("foo.example.com.")),
+        msg.push((
+            Dname::vec_from_str("foo.example.com.").unwrap(),
             86000,
-            Cname::new(unwrap!(Dname::vec_from_str("baz.example.com.")))
-        )));
+            Cname::new(Dname::vec_from_str("baz.example.com.").unwrap())
+        )).unwrap();
         let mut msg = msg.authority();
-        unwrap!(msg.push((
-            unwrap!(Dname::vec_from_str("bar.example.com.")),
+        msg.push((
+            Dname::vec_from_str("bar.example.com.").unwrap(),
             86000,
-            Ns::new(unwrap!(Dname::vec_from_str("baz.example.com.")))
-        )));
+            Ns::new(Dname::vec_from_str("baz.example.com.").unwrap())
+        )).unwrap();
         msg.into_message()
     }
 
@@ -801,36 +799,36 @@ mod test {
     fn canonical_name() {
         // Message without CNAMEs.
         let mut msg = MessageBuilder::new_vec().question();
-        unwrap!(
-            msg.push((unwrap!(Dname::vec_from_str("example.com.")), Rtype::A))
-        );
+        msg.push(
+            (Dname::vec_from_str("example.com.").unwrap(), Rtype::A)
+        ).unwrap();
         let msg_ref = msg.as_message();
         assert_eq!(
-            unwrap!(Dname::vec_from_str("example.com.")),
-            unwrap!(msg_ref.canonical_name())
+            Dname::vec_from_str("example.com.").unwrap(),
+            msg_ref.canonical_name().unwrap()
         );
 
         // Message with CNAMEs.
         let mut msg = msg.answer();
-        unwrap!(msg.push((
-            unwrap!(Dname::vec_from_str("bar.example.com.")),
+        msg.push((
+            Dname::vec_from_str("bar.example.com.").unwrap(),
             86000,
-            Cname::new(unwrap!(Dname::vec_from_str("baz.example.com.")))
-        )));
-        unwrap!(msg.push((
-            unwrap!(Dname::vec_from_str("example.com.")),
+            Cname::new(Dname::vec_from_str("baz.example.com.").unwrap())
+        )).unwrap();
+        msg.push((
+            Dname::vec_from_str("example.com.").unwrap(),
             86000,
-            Cname::new(unwrap!(Dname::vec_from_str("foo.example.com.")))
-        )));
-        unwrap!(msg.push((
-            unwrap!(Dname::vec_from_str("foo.example.com.")),
+            Cname::new(Dname::vec_from_str("foo.example.com.").unwrap())
+        )).unwrap();
+        msg.push((
+            Dname::vec_from_str("foo.example.com.").unwrap(),
             86000,
-            Cname::new(unwrap!(Dname::vec_from_str("bar.example.com.")))
-        )));
+            Cname::new(Dname::vec_from_str("bar.example.com.").unwrap())
+        )).unwrap();
         let msg_ref = msg.as_message();
         assert_eq!(
-            unwrap!(Dname::vec_from_str("baz.example.com.")),
-            unwrap!(msg_ref.canonical_name())
+            Dname::vec_from_str("baz.example.com.").unwrap(),
+            msg_ref.canonical_name().unwrap()
         );
 
         // CNAME loop.
@@ -854,11 +852,11 @@ mod test {
         let mut iter = msg.iter();
 
         // Check that it returns a record from first section
-        let (_rr, section) = unwrap!(unwrap!(iter.next()));
+        let (_rr, section) = iter.next().unwrap().unwrap();
         assert_eq!(Section::Answer, section);
 
         // Check that it advances to next section
-        let (_rr, section) = unwrap!(unwrap!(iter.next()));
+        let (_rr, section) = iter.next().unwrap().unwrap();
         assert_eq!(Section::Authority, section);
     }
 

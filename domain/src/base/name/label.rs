@@ -646,7 +646,6 @@ impl From<SplitLabelError> for ParseError {
 #[cfg(test)]
 mod test {
     use std::vec::Vec;
-    use unwrap::unwrap;
     use super::*;
 
     #[test]
@@ -702,12 +701,12 @@ mod test {
     #[test]
     fn compose() {
         let mut buf = Vec::new();
-        unwrap!(Label::root().compose(&mut buf));
+        Label::root().compose(&mut buf).unwrap();
         assert_eq!(buf, &b"\0"[..]);
 
         let mut buf = Vec::new();
         let label = Label::from_slice(b"123").unwrap();
-        unwrap!(label.compose(&mut buf));
+        label.compose(&mut buf).unwrap();
         assert_eq!(buf, &b"\x03123"[..]);
     }
 
