@@ -9,6 +9,7 @@
 //! Both parts are modeled along the lines of glibc’s resolver.
 
 use std::{convert, error, fmt, fs, io, ops};
+use std::cmp::Ordering;
 use std::default::Default;
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -520,15 +521,18 @@ impl fmt::Display for ResolvConf {
             else { server.fmt(f)?; }
             "\n".fmt(f)?;
         }
-        if self.options.search.len() == 1 {
-            writeln!(f, "domain {}", self.options.search[0])?;
-        }
-        else if self.options.search.len() > 1 {
-            "search".fmt(f)?;
-            for name in self.options.search.as_slice() {
-                write!(f, " {}", name)?;
+        match self.options.search.len().cmp(&1) {
+            Ordering::Equal => {
+                writeln!(f, "domain {}", self.options.search[0])?;
             }
-            "\n".fmt(f)?;
+            Ordering::Greater => {
+                "search".fmt(f)?;
+                for name in self.options.search.as_slice() {
+                    write!(f, " {}", name)?;
+                }
+                "\n".fmt(f)?;
+            }
+            Ordering::Less => { }
         }
 
         // Collect options so we only print them if there are any non-default

@@ -164,7 +164,7 @@ impl FoundSrvs {
         let additional = answer.additional()?;
         for item in items {
             let mut addrs = Vec::new();
-            for record in additional.clone() {
+            for record in additional {
                 let record = match record {
                     Ok(record) => record,
                     Err(_) => continue
