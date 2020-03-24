@@ -1,14 +1,16 @@
 #![cfg(feature = "validate")]
 
 use std::error;
+use std::vec::Vec;
 use ring::{digest, signature};
 use derive_more::Display;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
 use crate::base::octets::{Compose, OctetsBuilder, ShortBuf};
 use crate::base::name::ToDname;
+use crate::base::rdata::RecordData;
 use crate::base::record::Record;
-use crate::rdata::{Dnskey, Rrsig, RecordData};
+use crate::rdata::{Dnskey, Rrsig};
 
 //------------ AlgorithmError ------------------------------------------------
 
@@ -241,7 +243,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                 };
 
                 // Check for minimum supported key size
-                if self.signature().len() < min_bytes {
+                if self.signature().as_ref().len() < min_bytes {
                     return Err(AlgorithmError::Unsupported);
                 }
 
@@ -318,19 +320,19 @@ fn rsa_exponent_modulus(
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
     use bytes::Bytes;
     use crate::base::iana::{Class, Rtype, SecAlg};
-    use crate::base::rdata::*;
     use crate::base::utils::base64;
-    use crate::base::master::scan::Scanner;
     use crate::base::serial::Serial;
-    use std::str::FromStr;
+    use crate::master::scan::Scanner;
+    use crate::rdata::{MasterRecordData, Mx};
     use super::*;
 
     type Dname = crate::base::name::Dname<Bytes>;
-    type Ds = crate::base::rdata::Ds<Bytes>;
-    type Dnskey = crate::base::rdata::Dnskey<Bytes>;
-    type Rrsig = crate::base::rdata::Rrsig<Bytes, Dname>;
+    type Ds = crate::rdata::Ds<Bytes>;
+    type Dnskey = crate::rdata::Dnskey<Bytes>;
+    type Rrsig = crate::rdata::Rrsig<Bytes, Dname>;
 
     // Returns current root KSK/ZSK for testing.
     fn root_pubkey() -> (Dnskey, Dnskey) {
