@@ -7,7 +7,8 @@
 
 use core::{cmp, fmt, str};
 use core::cmp::Ordering;
-use chrono::{DateTime, Utc, TimeZone};
+#[cfg(feature = "std")] use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(feature = "chrono")] use chrono::{DateTime, Utc, TimeZone};
 #[cfg(feature = "master")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner, SyntaxError
 };
@@ -45,7 +46,17 @@ pub struct Serial(pub u32);
 impl Serial {
     /// Returns a serial number for the current Unix time.
     pub fn now() -> Self {
-        Utc::now().into()
+        Self::from_timestamp(
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+        )
+    }
+
+    /// Returns a serial number based on a Unix timestamp.
+    pub fn from_timestamp(mut value: u64) -> Self {
+        while value > std::i32::MAX as u64 {
+            value -= std::i32::MAX as u64
+        }
+        Self(value as u32)
     }
 
     /// Returns the serial number as a raw integer.
@@ -183,6 +194,7 @@ impl From<Serial> for u32 {
     }
 }
 
+#[cfg(feature = "chrono")]
 impl<T: TimeZone> From<DateTime<T>> for Serial {
     fn from(value: DateTime<T>) -> Self {
         let mut value = value.timestamp();
