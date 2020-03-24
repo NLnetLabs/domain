@@ -14,4 +14,5 @@ pub mod rdata;
 pub mod sign;
 pub mod test;
 pub mod tsig;
+pub mod validate;
 
