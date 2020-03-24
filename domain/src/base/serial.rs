@@ -6,6 +6,7 @@
 //! [`Serial`]: struct.Serial.html
 
 use core::{cmp, fmt, str};
+use core::cmp::Ordering;
 use chrono::{DateTime, Utc, TimeZone};
 #[cfg(feature = "master")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner, SyntaxError
@@ -247,31 +248,23 @@ impl fmt::Display for Serial {
 
 impl cmp::PartialOrd for Serial {
     fn partial_cmp(&self, other: &Serial) -> Option<cmp::Ordering> {
-        if self.0 == other.0 {
-            Some(cmp::Ordering::Equal)
-        }
-        else if self.0 < other.0 {
-            let sub = other.0 - self.0;
-            if sub < 0x8000_0000 {
-                Some(cmp::Ordering::Less)
+        match self.0.cmp(&other.0) {
+            Ordering::Equal => Some(Ordering::Equal),
+            Ordering::Less => {
+                let sub = other.0 - self.0;
+                match sub.cmp(&0x8000_0000) {
+                    Ordering::Less => Some(Ordering::Less),
+                    Ordering::Greater => Some(Ordering::Greater),
+                    Ordering::Equal => None
+                }
             }
-            else if sub > 0x8000_0000 {
-                Some(cmp::Ordering::Greater)
-            }
-            else {
-                None
-            }
-        }
-        else {
-            let sub = self.0 - other.0;
-            if sub < 0x8000_0000 {
-                Some(cmp::Ordering::Greater)
-            }
-            else if sub > 0x8000_0000 {
-                Some(cmp::Ordering::Less)
-            }
-            else {
-                None
+            Ordering::Greater => {
+                let sub = self.0 - other.0;
+                match sub.cmp(&0x8000_0000) {
+                    Ordering::Less => Some(Ordering::Greater),
+                    Ordering::Greater => Some(Ordering::Less),
+                    Ordering::Equal => None
+                }
             }
         }
     }

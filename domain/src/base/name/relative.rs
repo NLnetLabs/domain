@@ -3,6 +3,7 @@
 /// This is a private module. Its public types are re-exported by the parent.
 
 use core::{cmp, fmt, hash, ops};
+use core::cmp::Ordering;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::Bytes;
 use derive_more::Display;
@@ -291,11 +292,10 @@ impl<Octets: AsRef<[u8]> + ?Sized> RelativeDname<Octets> {
         while !tmp.is_empty() {
             let (label, tail) = Label::split_from(tmp).unwrap();
             let len = label.len() + 1;
-            if index < len {
-                return false
-            }
-            else if index == len {
-                return true
+            match index.cmp(&len) {
+                Ordering::Less => return false,
+                Ordering::Equal => return true,
+                _ => { }
             }
             index -= len;
             tmp = tail;

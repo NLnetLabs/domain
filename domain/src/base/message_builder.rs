@@ -595,7 +595,7 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
         if err {
             return Err(ShortBuf)
         }
-        if let Err(_) = additional.counts_mut().inc_arcount() {
+        if additional.counts_mut().inc_arcount().is_err() {
             additional.as_target_mut().truncate(start);
             return Err(ShortBuf)
         }

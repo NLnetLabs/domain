@@ -25,7 +25,7 @@ pub struct Key<'a> {
     rng: &'a dyn SecureRandom,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::large_enum_variant)]
 enum RingKey {
     Ecdsa(EcdsaKeyPair),
     Ed25519(Ed25519KeyPair),
