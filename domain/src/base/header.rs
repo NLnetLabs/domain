@@ -374,7 +374,10 @@ impl HeaderCounts {
     /// error.
     pub fn inc_qdcount(&mut self) -> Result<(), ShortBuf> {
         match self.qdcount().checked_add(1) {
-            Some(count) => Ok(self.set_qdcount(count)),
+            Some(count) => {
+                self.set_qdcount(count);
+                Ok(())
+            }
             None => Err(ShortBuf)
         }
     }
@@ -410,7 +413,10 @@ impl HeaderCounts {
     /// error.
     pub fn inc_ancount(&mut self) -> Result<(), ShortBuf> {
         match self.ancount().checked_add(1) {
-            Some(count) => Ok(self.set_ancount(count)),
+            Some(count) => {
+                self.set_ancount(count);
+                Ok(())
+            }
             None => Err(ShortBuf)
         }
     }
@@ -445,7 +451,10 @@ impl HeaderCounts {
     /// error.
     pub fn inc_nscount(&mut self) -> Result<(), ShortBuf>{
         match self.nscount().checked_add(1) {
-            Some(count) => Ok(self.set_nscount(count)),
+            Some(count) => {
+                self.set_nscount(count);
+                Ok(())
+            }
             None => Err(ShortBuf)
         }
     }
@@ -480,7 +489,10 @@ impl HeaderCounts {
     /// error.
     pub fn inc_arcount(&mut self) -> Result <(), ShortBuf> {
         match self.arcount().checked_add(1) {
-            Some(count) => Ok(self.set_arcount(count)),
+            Some(count) => {
+                self.set_arcount(count);
+                Ok(())
+            }
             None => Err(ShortBuf)
         }
     }

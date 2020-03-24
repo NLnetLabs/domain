@@ -1355,30 +1355,32 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
     fn get_block(&mut self, block: u8) -> Result<&mut [u8], ShortBuf> {
         let mut pos = 0;
         while pos < self.buf.as_ref().len() {
-            if self.buf.as_ref()[pos] == block {
-                return Ok(&mut self.buf.as_mut()[pos..pos + 34])
-            }
-            else if self.buf.as_ref()[pos] > block {
-                let len = self.buf.as_ref().len() - pos;
-                self.buf.append_slice(&[0; 34])?;
-                let buf = self.buf.as_mut();
-                unsafe {
-                    ptr::copy(
-                        buf.as_ptr().add(pos),
-                        buf.as_mut_ptr().add(pos + 34),
-                        len
-                    );
-                    ptr::write_bytes(
-                        buf.as_mut_ptr().add(pos),
-                        0,
-                        34
-                    );
+            match self.buf.as_ref()[pos].cmp(&block) {
+                Ordering::Equal => {
+                    return Ok(&mut self.buf.as_mut()[pos..pos + 34])
                 }
-                buf[pos] = block;
-                return Ok(&mut buf[pos..pos + 34])
-            }
-            else {
-                pos += 34
+                Ordering::Greater => {
+                    let len = self.buf.as_ref().len() - pos;
+                    self.buf.append_slice(&[0; 34])?;
+                    let buf = self.buf.as_mut();
+                    unsafe {
+                        ptr::copy(
+                            buf.as_ptr().add(pos),
+                            buf.as_mut_ptr().add(pos + 34),
+                            len
+                        );
+                        ptr::write_bytes(
+                            buf.as_mut_ptr().add(pos),
+                            0,
+                            34
+                        );
+                    }
+                    buf[pos] = block;
+                    return Ok(&mut buf[pos..pos + 34])
+                }
+                Ordering::Less => {
+                    pos += 34
+                }
             }
         }
 

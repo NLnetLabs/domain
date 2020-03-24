@@ -189,7 +189,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
             if rrsig_labels < fqdn_labels {
                 // name = "*." | the rightmost rrsig_label labels of the fqdn
                 buf.append_slice(b"\x01*")?;
-                match fqdn.to_dname_cow().iter_suffixes().skip(fqdn_labels - rrsig_labels).next() {
+                match fqdn.to_dname_cow().iter_suffixes().nth(fqdn_labels - rrsig_labels) {
                     Some(name) => name.compose_canonical(buf),
                     None => fqdn.compose_canonical(buf),
                 }?;
@@ -285,7 +285,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                     AlgorithmError::BadSig
                 )
             }
-            _ => return Err(AlgorithmError::Unsupported),
+            _ => Err(AlgorithmError::Unsupported),
         }
     }
 }

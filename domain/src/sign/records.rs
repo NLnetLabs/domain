@@ -64,6 +64,7 @@ impl<N, D> SortedRecords<N, D> {
         None
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn sign<Octets, Key, ApexName>(
         &self,
         apex: &FamilyName<ApexName>,
