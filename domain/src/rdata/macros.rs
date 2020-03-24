@@ -32,14 +32,12 @@ macro_rules! rdata_types {
         //------------- MasterRecordData -------------------------------------
 
         #[derive(Clone)]
+        #[non_exhaustive]
         pub enum MasterRecordData<O, N> {
             $( $( $(
                 $mtype($mtype $( < $( $mn ),* > )*),
             )* )* )*
             Other($crate::base::rdata::UnknownRecordData<O>),
-
-            #[doc(hidden)]
-            __Nonexhaustive(::void::Void),
         }
 
         impl<O, N> MasterRecordData<O, N> {
@@ -52,7 +50,6 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     MasterRecordData::Other(ref inner) => inner.rtype(),
-                    MasterRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
@@ -102,10 +99,6 @@ macro_rules! rdata_types {
                     ) => {
                         self_inner.eq(other_inner)
                     }
-                    (_, &MasterRecordData::__Nonexhaustive(_))
-                        => unreachable!(),
-                    (&MasterRecordData::__Nonexhaustive(_), _)
-                        => unreachable!(),
                     _ => false
                 }
             }
@@ -143,10 +136,6 @@ macro_rules! rdata_types {
                     ) => {
                         self_inner.partial_cmp(other_inner)
                     }
-                    (_, &MasterRecordData::__Nonexhaustive(_))
-                        => unreachable!(),
-                    (&MasterRecordData::__Nonexhaustive(_), _)
-                        => unreachable!(),
                     _ => self.rtype().partial_cmp(&other.rtype())
                 }
             }
@@ -179,10 +168,6 @@ macro_rules! rdata_types {
                     ) => {
                         self_inner.canonical_cmp(other_inner)
                     }
-                    (_, &MasterRecordData::__Nonexhaustive(_))
-                        => unreachable!(),
-                    (&MasterRecordData::__Nonexhaustive(_), _)
-                        => unreachable!(),
                     _ => self.rtype().cmp(&other.rtype())
                 }
             }
@@ -204,7 +189,6 @@ macro_rules! rdata_types {
                         inner.rtype().hash(state);
                         inner.data().as_ref().hash(state);
                     }
-                    MasterRecordData::__Nonexhaustive(_) => unreachable!()
                 }
             }
         }
@@ -230,7 +214,6 @@ macro_rules! rdata_types {
                     MasterRecordData::Other(ref inner) => {
                         inner.compose(target)
                     }
-                    MasterRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
 
@@ -247,7 +230,6 @@ macro_rules! rdata_types {
                     MasterRecordData::Other(ref inner) => {
                         inner.compose_canonical(target)
                     }
-                    MasterRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
@@ -331,7 +313,6 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     MasterRecordData::Other(ref inner) => inner.fmt(f),
-                    MasterRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
@@ -364,7 +345,6 @@ macro_rules! rdata_types {
                         core::fmt::Debug::fmt(inner, f)?;
                         f.write_str(")")
                     }
-                    MasterRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
@@ -374,6 +354,7 @@ macro_rules! rdata_types {
         //------------- AllRecordData ----------------------------------------
 
         #[derive(Clone)]
+        #[non_exhaustive]
         pub enum AllRecordData<O, N> {
             $( $( $(
                 $mtype($mtype $( < $( $mn ),* > )*),
@@ -383,9 +364,6 @@ macro_rules! rdata_types {
             )* )* )*
             Opt($crate::base::opt::Opt<O>),
             Other($crate::base::rdata::UnknownRecordData<O>),
-
-            #[doc(hidden)]
-            __Nonexhaustive(::void::Void),
         }
 
         impl<O, N> AllRecordData<O, N> {
@@ -406,7 +384,6 @@ macro_rules! rdata_types {
 
                     AllRecordData::Opt(_) => $crate::base::iana::Rtype::Opt,
                     AllRecordData::Other(ref inner) => inner.rtype(),
-                    AllRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
@@ -489,10 +466,6 @@ macro_rules! rdata_types {
                             left.eq(right)
                         }
                     )* )* )*
-                    (_, &AllRecordData::__Nonexhaustive(_))
-                        => unreachable!(),
-                    (&AllRecordData::__Nonexhaustive(_), _)
-                        => unreachable!(),
                     (_, _) => false
                 }
             }
@@ -525,7 +498,6 @@ macro_rules! rdata_types {
                     AllRecordData::Other(ref inner) => {
                         inner.data().as_ref().hash(state);
                     }
-                    AllRecordData::__Nonexhaustive(_) => unreachable!()
                 }
             }
         }
@@ -556,7 +528,6 @@ macro_rules! rdata_types {
                     )* )* )*
                     AllRecordData::Opt(ref inner) => inner.compose(buf),
                     AllRecordData::Other(ref inner) => inner.compose(buf),
-                    AllRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
 
@@ -581,7 +552,6 @@ macro_rules! rdata_types {
                     AllRecordData::Other(ref inner) => {
                         inner.compose_canonical(buf)
                     }
-                    AllRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
@@ -605,7 +575,6 @@ macro_rules! rdata_types {
                     )* )* )*
                     AllRecordData::Opt(ref inner) => inner.rtype(),
                     AllRecordData::Other(ref inner) => inner.rtype(),
-                    AllRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
@@ -669,7 +638,6 @@ macro_rules! rdata_types {
                     )* )* )*
                     AllRecordData::Opt(ref inner) => inner.fmt(f),
                     AllRecordData::Other(ref inner) => inner.fmt(f),
-                    AllRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
@@ -719,7 +687,6 @@ macro_rules! rdata_types {
                         core::fmt::Debug::fmt(inner, f)?;
                         f.write_str(")")
                     }
-                    AllRecordData::__Nonexhaustive(_) => unreachable!(),
                 }
             }
         }
