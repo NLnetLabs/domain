@@ -37,4 +37,3 @@ pub use self::stub::StubResolver;
 pub mod lookup;
 pub mod resolver;
 pub mod stub;
-

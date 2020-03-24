@@ -53,6 +53,7 @@ please open an issue.
 
 ## Licensing
 
-`domain-core` is distributed under the terms of the BSD-3-clause license.
+`domain-resolv` is distributed under the terms of the BSD-3-clause license.
 See LICENSE for details.
+
 

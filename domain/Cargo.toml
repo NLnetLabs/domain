@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.4.1"
+version = "0.5.0-pre"
 edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust – Meta Crate."
@@ -8,36 +8,35 @@ documentation = "https://docs.rs/domain"
 homepage = "https://github.com/nlnetlabs/domain/"
 repository = "https://github.com/nlnetlabs/domain/"
 readme = "README.md"
-keywords = ["DNS", "domain", "resolver", "futures"]
+keywords = ["DNS", "domain"]
 license = "BSD-3-Clause"
 
+[lib]
+name = "domain"
+path = "src/lib.rs"
+
+[dependencies]
+chrono         = "0.4"
+derive_more    = "0.99.1"
+rand           = "0.7"
+unwrap         = "1.2"
+void           = "1.0"
+
+bytes          = { version = "0.5.4", optional = true }
+openssl	       = { version = "0.10", optional = true }
+ring           = { version = "0.16.11", optional = true }
+smallvec       = { version = "1.2", optional = true }
+
 [features]
-resolv   = ["domain-resolv"]
-sign     = ["domain-sign"]
-tsig     = ["domain-tsig"]
-validate = ["domain-validate"]
+default  = ["std"]
+interop  = ["bytes", "ring"]
+master   = ["std", "bytes"]
+sign     = ["std"]
+std      = []
+tsig     = ["bytes", "ring", "smallvec"]
+validate = ["std", "ring"]
 
-[dependencies.domain-core]
-path = "../domain-core"
-version = "0.4.1"
 
-[dependencies.domain-resolv]
-path = "../domain-resolv"
-version = "0.4.1"
-optional = true
-
-[dependencies.domain-sign]
-path = "../domain-sign"
-version = "0.4.1"
-optional = true
-
-[dependencies.domain-tsig]
-path = "../domain-tsig"
-version = "0.4.1"
-optional = true
-
-[dependencies.domain-validate]
-path = "../domain-validate"
-version = "0.4.1"
-optional = true
-
+[[example]]
+name = "readzone"
+required-features = ["master"]

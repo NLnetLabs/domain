@@ -1,95 +1,31 @@
-
 use std::io;
 use std::net::SocketAddr;
-use domain_core::message::Message;
-use domain_core::query::{QueryMessage, StreamQueryMessage};
-use futures::try_ready;
-use tokio::io::{read_exact, write_all, ReadExact, WriteAll};
-use tokio::net::tcp::{ConnectFuture, TcpStream};
-use tokio::prelude::{Async, Future};
-use super::super::resolver::Answer;
-use super::util::DecoratedFuture;
+use domain::base::message::Message;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+use crate::stub::resolver::{Answer, QueryMessage};
 
-#[derive(Debug)]
-pub enum TcpQuery {
-    Connect(DecoratedFuture<ConnectFuture, QueryMessage>),
-    Send(WriteAll<TcpStream, StreamQueryMessage>),
-    RecvPrelude(DecoratedFuture<ReadExact<TcpStream, [u8; 2]>, QueryMessage>),
-    RecvMessage(DecoratedFuture<ReadExact<TcpStream, Vec<u8>>, QueryMessage>),
-    Done
-}
 
-impl TcpQuery {
-    pub fn new(
-        query: QueryMessage,
-        addr: SocketAddr,
-    ) -> Self {
-        TcpQuery::Connect(DecoratedFuture::new(
-            TcpStream::connect(&addr), query
-        ))
-    }
-}
+pub async fn query(
+    query: &QueryMessage, addr: SocketAddr
+) -> Result<Answer, io::Error> {
+    let mut sock = TcpStream::connect(&addr).await?;
+    sock.write_all(query.as_target().as_stream_slice()).await?;
 
-impl Future for TcpQuery {
-    type Item = Answer;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-        let (next, res) = match *self {
-            TcpQuery::Connect(ref mut fut) =>  {
-                let (sock, query) = try_ready!(fut.poll());
-                (
-                    TcpQuery::Send(write_all(sock, query.into())),
-                    Ok(Async::NotReady)
-                )
+    // This loop can be infinite because we have a timeout on this whole
+    // thing, anyway.
+    loop {
+        let mut buf = Vec::new();
+        let len = sock.read_u16().await? as u64;
+        AsyncReadExt::take(&mut sock, len).read_to_end(&mut buf).await?;
+        if let Ok(answer) = Message::from_octets(buf.into()) {
+            if answer.is_answer(&query.as_message()) {
+                return Ok(answer.into())
             }
-            TcpQuery::Send(ref mut write) => {
-                let (sock, query) = try_ready!(write.poll());
-                (
-                    TcpQuery::RecvPrelude(DecoratedFuture::new(
-                        read_exact(sock, [0u8; 2]), query.unwrap()
-                    )),
-                    Ok(Async::NotReady)
-                )
-            }
-            TcpQuery::RecvPrelude(ref mut fut) => {
-                let ((sock, buf), query) = try_ready!(fut.poll());
-                let len = (buf[0] as usize) << 8 | buf[1] as usize;
-                (
-                    TcpQuery::RecvMessage(DecoratedFuture::new(
-                        read_exact(sock, vec![0; len]), query
-                    )),
-                    Ok(Async::NotReady)
-                )
-            }
-            TcpQuery::RecvMessage(ref mut fut) => {
-                let ((sock, buf), query) = try_ready!(fut.poll());
-                if let Ok(answer) = Message::from_bytes(buf.into()) {
-                    if answer.is_answer(&query) {
-                        (TcpQuery::Done, Ok(Async::Ready(answer.into())))
-                    }
-                    else {
-                        (
-                            TcpQuery::RecvPrelude(DecoratedFuture::new(
-                                read_exact(sock, [0; 2]), query
-                            )),
-                            Ok(Async::NotReady)
-                        )
-                    }
-                }
-                else {
-                    (
-                        TcpQuery::Done,
-                        Err(io::Error::new(io::ErrorKind::Other, "short buf"))
-                    )
-                }
-            }
-            TcpQuery::Done => panic!("polled resolved future"),
-        };
-        *self = next;
-        match res {
-            Ok(Async::NotReady) => self.poll(),
-            _ => res
+            // else try with the next message.
+        }
+        else {
+            return Err(io::Error::new(io::ErrorKind::Other, "short buf"))
         }
     }
 }

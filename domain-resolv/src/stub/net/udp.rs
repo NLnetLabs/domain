@@ -1,14 +1,8 @@
-
 use std::io;
 use std::net::SocketAddr;
-use domain_core::query::{DgramQueryMessage, QueryMessage};
-use domain_core::message::Message;
-use futures::try_ready;
-use tokio::net::udp::{RecvDgram, SendDgram, UdpSocket};
-use tokio::prelude::{Async, Future};
-use super::super::resolver::Answer;
-use super::util::DecoratedFuture;
-
+use domain::base::message::Message;
+use tokio::net::UdpSocket;
+use crate::stub::resolver::{Answer, QueryMessage};
 
 //------------ Module Configuration ------------------------------------------
 
@@ -16,133 +10,47 @@ use super::util::DecoratedFuture;
 const RETRY_RANDOM_PORT: usize = 10;
 
 
-//------------ UdpQuery ------------------------------------------------------
-
-#[derive(Debug)]
-#[allow(clippy::large_enum_variant)]
-pub enum UdpQuery {
-    Send {
-        send: SendDgram<DgramQueryMessage>,
-        addr: SocketAddr,
-        recv_size: usize,
-    },
-    Recv {
-        recv: DecoratedFuture<RecvDgram<Vec<u8>>, QueryMessage>,
-        addr: SocketAddr,
-        recv_size: usize,
-    },
-    Error(Option<io::Error>),
-    Done
+pub async fn query(
+    query: &QueryMessage, addr: SocketAddr, recv_size: usize
+) -> Result<Answer, io::Error> {
+    let mut sock = bind(addr.is_ipv4()).await?;
+    sock.connect(addr).await?;
+    let sent = sock.send(query.as_target().as_dgram_slice()).await?;
+    if sent != query.as_target().as_dgram_slice().len() {
+        return Err(io::Error::new(io::ErrorKind::Other, "short UDP send"))
+    }
+    loop {
+        let mut buf = vec![0; recv_size]; // XXX use uninitialized memore here.
+        let len = sock.recv(&mut buf).await?;
+        buf.truncate(len);
+        
+        // We ignore garbage since there is a timer on this whole thing.
+        let answer = match Message::from_octets(buf.into()) {
+            Ok(answer) => answer,
+            Err(_) => continue,
+        };
+        if !answer.is_answer(&query.as_message()) {
+            continue
+        }
+        return Ok(answer.into())
+    }
 }
 
-impl UdpQuery {
-    pub fn new(
-        query: QueryMessage,
-        addr: SocketAddr,
-        recv_size: usize,
-    ) -> Self {
-        let sock = match Self::bind(addr.is_ipv4()) {
-            Ok(sock) => sock,
+async fn bind(v4: bool) -> Result<UdpSocket, io::Error> {
+    let mut i = 0;
+    loop {
+        let local: SocketAddr = if v4 { ([0u8; 4], 0).into() }
+                    else { ([0u16; 8], 0).into() };
+        match UdpSocket::bind(&local).await {
+            Ok(sock) => return Ok(sock),
             Err(err) => {
-                return UdpQuery::Error(Some(err))
-            }
-        };
-        if let Err(err) = sock.connect(&addr) {
-            return UdpQuery::Error(Some(err))
-        }
-        UdpQuery::Send {
-            send: sock.send_dgram(DgramQueryMessage::from(query), &addr),
-            addr,
-            recv_size
-        }
-    }
-
-    /// Creates a bound UDP socket.
-    ///
-    /// We are supposed to pick a random local port for socket for extra
-    /// protection. So we try just that here.
-    fn bind(v4: bool) -> Result<UdpSocket, io::Error> {
-        let mut i = 0;
-        loop {
-            let local = if v4 { ([0u8; 4], 0).into() }
-                        else { ([0u16; 8], 0).into() };
-            match UdpSocket::bind(&local) {
-                Ok(sock) => return Ok(sock),
-                Err(err) => {
-                    if i == RETRY_RANDOM_PORT {
-                        return Err(err);
-                    }
-                    else {
-                        i += 1
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl Future for UdpQuery {
-    type Item = Answer;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Result<Async<Self::Item>, io::Error> {
-        let (next, res) = match *self {
-            UdpQuery::Send { ref mut send, addr, recv_size } => {
-                let (sock, query) = try_ready!(send.poll());
-                (
-                    UdpQuery::Recv {
-                        recv: DecoratedFuture::new(
-                            sock.recv_dgram(vec![0; recv_size]),
-                            query.unwrap()
-                        ),
-                        addr, recv_size
-                    },
-                    Ok(Async::NotReady)
-                )
-            }
-            UdpQuery::Recv { ref mut recv, addr, recv_size } => {
-                let ((sock, mut buf, len, recv_addr), query)
-                    = try_ready!(recv.poll());
-                buf.truncate(len);
-                if let Ok(answer) = Message::from_bytes(buf.into()) {
-                    if addr == recv_addr && answer.is_answer(&query) {
-                        (UdpQuery::Done, Ok(Async::Ready(answer.into())))
-                    }
-                    else {
-                        (
-                            UdpQuery::Recv {
-                                // XXX We should reuse the buffer.
-                                recv: DecoratedFuture::new(
-                                    sock.recv_dgram(vec![0; recv_size]),
-                                    query
-                                ),
-                                addr, recv_size
-                            },
-                            Ok(Async::NotReady)
-                        )
-                    }
+                if i == RETRY_RANDOM_PORT {
+                    return Err(err);
                 }
                 else {
-                    (
-                        UdpQuery::Done,
-                        Err(io::Error::new(io::ErrorKind::Other, "short buf"))
-                    )
+                    i += 1
                 }
             }
-            UdpQuery::Error(ref mut err) => {
-                if let Some(err) = err.take() {
-                    (UdpQuery::Done, Err(err))
-                }
-                else {
-                    panic!("polled resolved future")
-                }
-            }
-            UdpQuery::Done => panic!("polling a resolved future"),
-        };
-        *self = next;
-        match res {
-            Ok(Async::NotReady) => self.poll(),
-            _ => res
         }
     }
 }

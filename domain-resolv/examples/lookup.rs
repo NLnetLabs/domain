@@ -1,100 +1,84 @@
-extern crate futures;
-extern crate domain_core;
-extern crate domain_resolv;
-extern crate tokio;
-
 use std::env;
 use std::net::IpAddr;
 use std::str::FromStr;
-use domain_core::name::UncertainDname;
-use domain_resolv::{Resolver, StubResolver};
-use futures::{future, stream};
-use futures::future::{Either, Future};
-use futures::stream::Stream;
-use tokio::runtime::Runtime;
+use domain::base::name::UncertainDname;
+use domain_resolv::StubResolver;
 
 
-fn forward(
+async fn forward(
     resolver: &StubResolver,
-    name: UncertainDname
-) -> impl Future<Item=(), Error=()> {
-    match name {
-        UncertainDname::Absolute(name) => {
-            Either::A(resolver.lookup_host(&name))
+    name: UncertainDname<Vec<u8>>,
+)  {
+    let answer = match name {
+        UncertainDname::Absolute(ref name) => {
+            resolver.lookup_host(name).await
         }
-        UncertainDname::Relative(name) => {
-            Either::B(resolver.clone().search_host(name))
+        UncertainDname::Relative(ref name) => {
+            resolver.search_host(name).await
+        }
+    };
+    match answer {
+        Ok(answer) => {
+            if let UncertainDname::Relative(_) = name {
+                println!("Found answer for {}", answer.qname());
+            }
+            let canon = answer.canonical_name();
+            if canon != answer.qname() {
+                println!(
+                    "{} is an alias for {}",
+                    answer.qname(),
+                    canon
+                );
+            }
+            for addr in answer.iter() {
+                println!(
+                    "{} has address {}",
+                    canon,
+                    addr
+                );
+            }
+        }
+        Err(err) => {
+            println!("Query failed: {}", err);
         }
     }
-    .then(move |answer| {
-        match answer {
-            Ok(answer) => {
-                if answer.canonical_name() != answer.qname() {
-                    println!(
-                        "{} is an alias for {}",
-                        answer.qname(),
-                        answer.canonical_name()
-                    );
-                }
-                for addr in answer.iter() {
-                    println!(
-                        "{} has address {}",
-                        answer.canonical_name(),
-                        addr
-                    );
-                }
-                Ok(())
-            }
-            Err(err) => {
-                println!("Query failed: {}", err);
-                Ok(())
-            }
-        }
-    })
 }
 
 
-fn reverse(
+async fn reverse(
     resolver: &StubResolver,
     addr: IpAddr
-) -> impl Future<Item=(), Error=()> {
-    resolver.lookup_addr(addr)
-    .map_err(|err| {
-        println!("Query failed: {}", err);
-        ()
-    })
-    .and_then(move |answer| {
-        for name in answer.iter() {
-            println!("Host {} has domain name pointer {}", addr, name);
+) {
+    match resolver.lookup_addr(addr).await {
+        Ok(answer) => {
+            for name in answer.iter() {
+                println!("Host {} has domain name pointer {}", addr, name);
+            }
         }
-        Ok(())
-    })
+        Err(err) => println!("Query failed: {}", err),
+    }
 }
 
 
-fn main() -> Result<(), Box<std::error::Error>> {
+#[tokio::main]
+async fn main() {
     let names: Vec<_> = env::args().skip(1).collect();
     if names.is_empty() {
-        Err("Usage: lookup <hostname_or_addr> [...]")?;
+        println!("Usage: lookup <hostname_or_addr> [...]");
+        return
     }
 
     let resolver = StubResolver::new();
-    let mut runtime = Runtime::new()?;
-
-    let _ = runtime.block_on(
-        stream::iter_ok(names).and_then(move |name| {
-            if let Ok(addr) = IpAddr::from_str(&name) {
-                Either::A(reverse(&resolver, addr))
-            }
-            else if let Ok(name) = UncertainDname::from_str(&name) {
-                Either::B(Either::A(forward(&resolver, name)))
-            }
-            else {
-                println!("Not a domain name: {}", name);
-                Either::B(Either::B(future::ok(())))
-            }
-        }).for_each(|_| Ok(()))
-    );
-    Ok(())
+    for name in names {
+        if let Ok(addr) = IpAddr::from_str(&name) {
+            reverse(&resolver, addr).await;
+        }
+        else if let Ok(name) = UncertainDname::from_str(&name) {
+            forward(&resolver, name).await;
+        }
+        else {
+            println!("Not a domain name: {}", name);
+        }
+    }
 }
 

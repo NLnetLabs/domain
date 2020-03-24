@@ -4,6 +4,23 @@
 [![AppVeyor Build
 Status](https://ci.appveyor.com/api/projects/status/github/NLnetLabs/domain-core?svg=true)](https://ci.appveyor.com/project/partim/domain-core)
 
+# Branch series-0.5
+
+This branch tracks the changes for the upcoming 0.5 release of the domain
+crate until they are stable enough for users to start migrating their
+code.
+
+The following tasks need to be done in order to reach that state:
+
+* [x] Make core DNS types generic over octets sequences.
+* [x] Restructure to use features instead of sub-crates.
+* [x] Add changes from #38.
+* [ ] Migrate to async/await and tokio 0.2.
+* [ ] Update documentation.
+
+
+# Original README.
+
 A family of crates (eventually) providing a comprehensive DNS library for
 Rust. Currently, it consists of the following individual crates:
 

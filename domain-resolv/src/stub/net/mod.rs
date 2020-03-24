@@ -2,20 +2,18 @@ use std::{io, ops};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use domain_core::query::{QueryBuilder, QueryMessage};
-use tokio::prelude::{Async, Future};
-use tokio::timer::Timeout;
+use std::vec::Vec;
+use tokio::time::timeout;
 use super::conf::{ResolvConf, ServerConf, Transport};
-use super::resolver::Answer;
+use super::resolver::{Answer, QueryMessage};
 
 mod tcp;
 mod udp;
-mod util;
 
 
 //------------ ServerInfo ----------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ServerInfo {
     /// The basic server configuration.
     conf: ServerConf,
@@ -23,7 +21,7 @@ pub struct ServerInfo {
     /// Whether this server supports EDNS.
     ///
     /// We start out with assuming it does and unset it if we get a FORMERR.
-    edns: AtomicBool,
+    edns: Arc<AtomicBool>,
 }
 
 impl ServerInfo {
@@ -39,19 +37,49 @@ impl ServerInfo {
         self.edns.store(false, Ordering::Relaxed);
     }
 
-    pub fn prepare_message(&self, query: &mut QueryBuilder) {
-        query.revert_additional();
+    pub fn prepare_message(&self, query: &mut QueryMessage) {
+        query.rewind();
         if self.does_edns() {
-            query.add_opt(|opt| {
+            query.opt(|opt| {
                 // These are the values that Unbound uses.
                 // XXX Perhaps this should be configurable.
-                opt.header_mut().set_udp_payload_size(
+                opt.set_udp_payload_size(
                     match self.conf.addr {
                         SocketAddr::V4(_) => 1472,
                         SocketAddr::V6(_) => 1232
                     }
-                )
-            })
+                );
+                Ok(())
+            }).unwrap();
+        }
+    }
+
+    pub async fn query(
+        &self, query: &QueryMessage
+    ) -> Result<Answer, io::Error> {
+        let res = match self.conf.transport {
+            Transport::Udp => {
+               timeout(
+                   self.conf.request_timeout,
+                   udp::query(query, self.conf.addr, self.conf.recv_size)
+                ).await
+            }
+            Transport::Tcp => {
+               timeout(
+                   self.conf.request_timeout,
+                   tcp::query(query, self.conf.addr)
+                ).await
+            }
+        };
+        match res {
+            Ok(Ok(answer)) => Ok(answer),
+            Ok(Err(err)) => Err(err),
+            Err(_) => {
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "request timed out"
+                ))
+            }
         }
     }
 }
@@ -60,7 +88,7 @@ impl From<ServerConf> for ServerInfo {
     fn from(conf: ServerConf) -> Self {
         ServerInfo {
             conf,
-            edns: AtomicBool::new(true)
+            edns: Arc::new(AtomicBool::new(true))
         }
     }
 }
@@ -72,57 +100,9 @@ impl<'a> From<&'a ServerConf> for ServerInfo {
 }
 
 
-//------------ ServerQuery ---------------------------------------------------
-
-#[derive(Debug)]
-pub enum ServerQuery {
-    Tcp(Timeout<tcp::TcpQuery>),
-    Udp(Timeout<udp::UdpQuery>),
-}
-
-impl ServerQuery {
-    pub fn new(query: QueryMessage, server: &ServerInfo) -> Self {
-        match server.conf.transport {
-            Transport::Udp => {
-                ServerQuery::Udp(Timeout::new(
-                    udp::UdpQuery::new(
-                        query,
-                        server.conf.addr,
-                        server.conf.recv_size,
-                    ),
-                    server.conf.request_timeout
-                ))
-            }
-            Transport::Tcp => {
-                ServerQuery::Tcp(Timeout::new(
-                    tcp::TcpQuery::new(query, server.conf.addr),
-                    server.conf.request_timeout
-                ))
-            }
-        }
-    }
-}
-
-impl Future for ServerQuery {
-    type Item = Answer;
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Result<Async<Self::Item>, Self::Error> {
-        match *self {
-            ServerQuery::Tcp(ref mut tcp) => tcp.poll(),
-            ServerQuery::Udp(ref mut udp) => udp.poll(),
-        }.map_err(|err| {
-            err.into_inner().unwrap_or_else(||
-                io::Error::new(io::ErrorKind::TimedOut, "timed out")
-            )
-        })
-    }
-}
-
-
 //------------ ServerList ----------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ServerList {
     /// The actual list of servers.
     servers: Vec<ServerInfo>,
@@ -148,6 +128,10 @@ impl ServerList {
             },
             start: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.servers.is_empty()
     }
 
     pub fn counter(&self, rotate: bool) -> ServerListCounter {
@@ -208,19 +192,19 @@ impl ServerListCounter {
         }
     }
 
-    pub fn next(&mut self) {
-        if self.cur < self.end {
-            self.cur += 1
+    pub fn next(&mut self) -> bool {
+        let next = self.cur + 1;
+        if next < self.end {
+            self.cur = next;
+            true
+        }
+        else {
+            false
         }
     }
 
-    pub fn info<'a>(&self, list: &'a ServerList) -> Option<&'a ServerInfo> {
-        if self.cur == self.end {
-            None
-        }
-        else {
-            Some(&list[self.cur % list.servers.len()])
-        }
+    pub fn info<'a>(&self, list: &'a ServerList) -> &'a ServerInfo {
+        &list[self.cur % list.servers.len()]
     }
 }
 
@@ -247,8 +231,12 @@ impl<'a> Iterator for ServerListIter<'a> {
     type Item = &'a ServerInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.counter.next();
-        self.counter.info(self.servers)
+        if self.counter.next() {
+            Some(self.counter.info(self.servers))
+        }
+        else {
+            None
+        }
     }
 }
 
