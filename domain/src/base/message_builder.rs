@@ -6,7 +6,6 @@ use core::ops::{Deref, DerefMut};
 #[cfg(feature = "std")] use std::collections::HashMap;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::BytesMut;
-use unwrap::unwrap;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{OptionCode, OptRcode, Rcode, Rtype};
 use super::message::Message;
@@ -40,32 +39,32 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
 #[cfg(feature = "std")]
 impl MessageBuilder<Vec<u8>> {
     pub fn new_vec() -> Self {
-        unwrap!(Self::from_target(Vec::new()))
+        Self::from_target(Vec::new()).unwrap()
     }
 }
 
 #[cfg(feature = "std")]
 impl MessageBuilder<StreamTarget<Vec<u8>>> {
     pub fn new_stream_vec() -> Self {
-        unwrap!(Self::from_target(
-            unwrap!(StreamTarget::new(Vec::new()))
-        ))
+        Self::from_target(
+            StreamTarget::new(Vec::new()).unwrap()
+        ).unwrap()
     }
 }
 
 #[cfg(feature="bytes")]
 impl MessageBuilder<BytesMut> {
     pub fn new_bytes() -> Self {
-        unwrap!(Self::from_target(BytesMut::new()))
+        Self::from_target(BytesMut::new()).unwrap()
     }
 }
 
 #[cfg(feature="bytes")]
 impl MessageBuilder<StreamTarget<BytesMut>> {
     pub fn new_stream_bytes() -> Self {
-        unwrap!(Self::from_target(
-            unwrap!(StreamTarget::new(BytesMut::new()))
-        ))
+        Self::from_target(
+            StreamTarget::new(BytesMut::new()).unwrap()
+        ).unwrap()
     }
 }
 
@@ -880,7 +879,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
             // Advance to the parent. If the parent is root, just write that
             // and return. Because we do that, there will always be a label
             // left here.
-            let label = unwrap!(name.next());
+            let label = name.next().unwrap();
             label.compose(self)?;
             if label.is_root() {
                 return Ok(())
@@ -974,7 +973,7 @@ impl<Target> TreeCompressor<Target> {
                 break
             }
             node = node.parents.entry(
-                unwrap!(label.as_ref().try_into())
+                label.as_ref().try_into().unwrap()
             ).or_default();
         }
         true
@@ -1032,7 +1031,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
             // Advance to the parent. If the parent is root, just write that
             // and return. Because we do that, there will always be a label
             // left here.
-            let label = unwrap!(name.next());
+            let label = name.next().unwrap();
             label.compose(self)?;
             if label.is_root() {
                 return Ok(())

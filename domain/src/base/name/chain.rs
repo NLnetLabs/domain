@@ -302,7 +302,6 @@ impl std::error::Error for LongChainError { }
 #[cfg(test)]
 mod test {
     use std::vec::Vec;
-    use unwrap::unwrap;
     use crate::base::name::{Dname, DnameBuilder, RelativeDname, ToLabelIter};
     use super::*;
 
@@ -320,13 +319,9 @@ mod test {
             &RelativeDname::empty_ref().chain(Dname::root_ref()).unwrap()
         );
         assert_to_dname(
-            &unwrap!(
-                unwrap!(
-                    RelativeDname::empty_ref().chain(
-                        RelativeDname::empty_ref()
-                    )
-                ).chain(Dname::root_ref())
-            )
+            &RelativeDname::empty_ref().chain(
+                RelativeDname::empty_ref()
+            ).unwrap().chain(Dname::root_ref()).unwrap()
         );
         assert_to_dname(&rel.clone().chain(Dname::root_ref()).unwrap());
         assert_to_relative_dname(
@@ -346,55 +341,55 @@ mod test {
         let mut builder = DnameBuilder::new_vec();
         for _ in 0..25 {
             // 9 bytes label is 10 bytes in total 
-            unwrap!(builder.append_label(b"123456789"));
+            builder.append_label(b"123456789").unwrap();
         }
         let left = builder.finish();
         assert_eq!(left.len(), 250);
 
         let mut builder = DnameBuilder::new_vec();
-        unwrap!(builder.append_slice(b"123"));
-        let five_abs = unwrap!(builder.clone().into_dname());
+        builder.append_slice(b"123").unwrap();
+        let five_abs = builder.clone().into_dname().unwrap();
         assert_eq!(five_abs.len(), 5);
-        unwrap!(builder.push(b'4'));
+        builder.push(b'4').unwrap();
         let five_rel = builder.clone().finish();
         assert_eq!(five_rel.len(), 5);
-        let six_abs = unwrap!(builder.clone().into_dname());
+        let six_abs = builder.clone().into_dname().unwrap();
         assert_eq!(six_abs.len(), 6);
-        unwrap!(builder.push(b'5'));
+        builder.push(b'5').unwrap();
         let six_rel = builder.finish();
         assert_eq!(six_rel.len(), 6);
 
         assert_eq!(
-            unwrap!(left.clone().chain(five_abs.clone())).len(),
+            left.clone().chain(five_abs.clone()).unwrap().len(),
             255
         );
         assert_eq!(
-            unwrap!(left.clone().chain(five_rel.clone())).len(),
+            left.clone().chain(five_rel.clone()).unwrap().len(),
             255
         );
         assert!(left.clone().chain(six_abs.clone()).is_err());
         assert!(left.clone().chain(six_rel.clone()).is_err());
         assert!(
-            unwrap!(
-                left.clone().chain(five_rel.clone())
-            ).chain(five_abs.clone()).is_err()
+            left.clone().chain(
+                five_rel.clone()
+            ).unwrap().chain(five_abs.clone()).is_err()
         );
         assert!(
-            unwrap!(
-                left.clone().chain(five_rel.clone())
-            ).chain(five_rel.clone()).is_err()
+            left.clone().chain(
+                five_rel.clone()
+            ).unwrap().chain(five_rel.clone()).is_err()
         );
 
         let left = UncertainDname::from(left);
         assert_eq!(
-            unwrap!(left.clone().chain(five_abs.clone())).len(),
+            left.clone().chain(five_abs.clone()).unwrap().len(),
             255
         );
         assert!(left.clone().chain(six_abs.clone()).is_err());
 
-        let left = UncertainDname::from(unwrap!(left.into_absolute()));
+        let left = UncertainDname::from(left.into_absolute().unwrap());
         assert_eq!(
-            unwrap!(left.clone().chain(six_abs.clone())).len(),
+            left.clone().chain(six_abs.clone()).unwrap().len(),
             251
         );
     }
@@ -409,42 +404,42 @@ mod test {
             assert!(iter.eq(labels))
         }
 
-        let w = unwrap!(RelativeDname::from_octets(b"\x03www".as_ref()));
-        let ec = unwrap!(
-            RelativeDname::from_octets(b"\x07example\x03com".as_ref())
-        );
-        let ecr = unwrap!(
-            Dname::from_octets(b"\x07example\x03com\x00".as_ref())
-        );
-        let fbr = unwrap!(
-            Dname::from_octets(b"\x03foo\x03bar\x00".as_ref())
-        );
+        let w = RelativeDname::from_octets(b"\x03www".as_ref()).unwrap();
+        let ec = RelativeDname::from_octets(
+            b"\x07example\x03com".as_ref()
+        ).unwrap();
+        let ecr = Dname::from_octets(
+            b"\x07example\x03com\x00".as_ref()
+        ).unwrap();
+        let fbr = Dname::from_octets(
+            b"\x03foo\x03bar\x00".as_ref()
+        ).unwrap();
 
         cmp_iter(
-            unwrap!(w.clone().chain(ec.clone())).iter_labels(), 
+            w.clone().chain(ec.clone()).unwrap().iter_labels(), 
             &[b"www", b"example", b"com"]
         );
         cmp_iter(
-            unwrap!(w.clone().chain(ecr.clone())).iter_labels(),
+            w.clone().chain(ecr.clone()).unwrap().iter_labels(),
             &[b"www", b"example", b"com", b""]
         );
         cmp_iter(
-            unwrap!(
-                unwrap!(w.clone().chain(ec.clone())).chain(Dname::root_ref())
-            ).iter_labels(),
+            w.clone().chain(ec.clone()).unwrap().chain(
+                Dname::root_ref()
+            ).unwrap().iter_labels(),
             &[b"www", b"example", b"com", b""]
         );
         
         cmp_iter(
-            unwrap!(
-                UncertainDname::from(w.clone()).chain(ecr.clone())
-            ).iter_labels(),
+            UncertainDname::from(w.clone()).chain(
+                ecr.clone()
+            ).unwrap().iter_labels(),
             &[b"www", b"example", b"com", b""]
         );
         cmp_iter(
-            unwrap!(
-                UncertainDname::from(ecr.clone()).chain(fbr.clone())
-            ).iter_labels(),
+            UncertainDname::from(ecr.clone()).chain(
+                fbr.clone()
+            ).unwrap().iter_labels(),
             &[b"example", b"com", b""]
         );
     }
@@ -452,47 +447,39 @@ mod test {
     /// Tests that composing works as expected.
     #[test]
     fn compose() {
-        let w = unwrap!(RelativeDname::from_octets(b"\x03www".as_ref()));
-        let ec = unwrap!(
-            RelativeDname::from_octets(b"\x07example\x03com".as_ref())
-        );
-        let ecr = unwrap!(
-            Dname::from_octets(b"\x07example\x03com\x00".as_ref())
-        );
-        let fbr = unwrap!(
-            Dname::from_octets(b"\x03foo\x03bar\x00".as_ref())
-        );
+        let w = RelativeDname::from_octets(b"\x03www".as_ref()).unwrap();
+        let ec = RelativeDname::from_octets(
+            b"\x07example\x03com".as_ref()
+        ).unwrap();
+        let ecr = Dname::from_octets(
+            b"\x07example\x03com\x00".as_ref()
+        ).unwrap();
+        let fbr = Dname::from_octets(b"\x03foo\x03bar\x00".as_ref()).unwrap();
 
         let mut buf = Vec::new();
-        unwrap!(unwrap!(w.clone().chain(ec.clone())).compose(&mut buf));
+        w.clone().chain(ec.clone()).unwrap().compose(&mut buf).unwrap();
         assert_eq!(buf, b"\x03www\x07example\x03com".as_ref());
 
         let mut buf = Vec::new();
-        unwrap!(unwrap!(w.clone().chain(ecr.clone())).compose(&mut buf));
+        w.clone().chain(ecr.clone()).unwrap().compose(&mut buf).unwrap();
         assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
         let mut buf = Vec::new();
-        unwrap!(
-            unwrap!(
-                unwrap!(w.clone().chain(ec.clone())).chain(Dname::root_ref())
-            ).compose(&mut buf)
-        );
+        w.clone().chain(ec.clone()).unwrap().chain(
+            Dname::root_ref()
+        ).unwrap().compose(&mut buf).unwrap();
         assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
         let mut buf = Vec::new();
-        unwrap!(
-            unwrap!(
-                UncertainDname::from(w.clone()).chain(ecr.clone())
-            ).compose(&mut buf)
-        );
+        UncertainDname::from(w.clone()).chain(
+            ecr.clone()
+        ).unwrap().compose(&mut buf).unwrap();
         assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
         let mut buf = Vec::new();
-        unwrap!(
-            unwrap!(
-                UncertainDname::from(ecr.clone()).chain(fbr.clone())
-            ).compose(&mut buf)
-        );
+        UncertainDname::from(ecr.clone()).chain(
+            fbr.clone()
+        ).unwrap().compose(&mut buf).unwrap();
         assert_eq!(buf, b"\x07example\x03com\x00");
     }
 }

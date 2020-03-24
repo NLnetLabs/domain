@@ -640,7 +640,6 @@ impl std::error::Error for PushError { }
 #[cfg(test)]
 mod test {
     use std::vec::Vec;
-    use unwrap::unwrap;
     use super::*;
 
     type CharStrRef<'a> = CharStr<&'a [u8]>;
@@ -648,10 +647,10 @@ mod test {
     #[test]
     fn from_slice() {
         assert_eq!(
-            unwrap!(CharStr::from_slice(b"01234")).as_slice(),
+            CharStr::from_slice(b"01234").unwrap().as_slice(),
             b"01234"
         );
-        assert_eq!(unwrap!(CharStr::from_slice(b"")).as_slice(), b"");
+        assert_eq!(CharStr::from_slice(b"").unwrap().as_slice(), b"");
         assert!(CharStr::from_slice(&vec![0; 255]).is_ok());
         assert!(CharStr::from_slice(&vec![0; 256]).is_err());
     }
@@ -660,15 +659,15 @@ mod test {
     #[cfg(feature="bytes")]
     fn from_bytes() {
         assert_eq!(
-            unwrap!(CharStr::from_bytes(
+            CharStr::from_bytes(
                 bytes::Bytes::from_static(b"01234")
-            )) .as_slice(),
+            ).unwrap().as_slice(),
             b"01234"
         );
         assert_eq!(
-            unwrap!(CharStr::from_bytes(
+            CharStr::from_bytes(
                 bytes::Bytes::from_static(b"")
-            )).as_slice(),
+            ).unwrap().as_slice(),
             b""
         );
         assert!(CharStr::from_bytes(vec![0; 255].into()).is_ok());
@@ -705,9 +704,9 @@ mod test {
     #[test]
     fn parse() {
         let mut parser = Parser::from_static(b"12\x03foo\x02bartail");
-        unwrap!(parser.advance(2));
-        let foo = unwrap!(CharStrRef::parse(&mut parser));
-        let bar = unwrap!(CharStrRef::parse(&mut parser));
+        parser.advance(2).unwrap();
+        let foo = CharStrRef::parse(&mut parser).unwrap();
+        let bar = CharStrRef::parse(&mut parser).unwrap();
         assert_eq!(foo.as_slice(), b"foo");
         assert_eq!(bar.as_slice(), b"ba");
         assert_eq!(parser.peek_all(), b"rtail");
@@ -723,18 +722,18 @@ mod test {
         use crate::base::octets::Compose;
 
         let mut target = Vec::new();
-        let val = unwrap!(CharStr::from_slice(b"foo"));
-        unwrap!(val.compose(&mut target));
+        let val = CharStr::from_slice(b"foo").unwrap();
+        val.compose(&mut target).unwrap();
         assert_eq!(target, b"\x03foo".as_ref());
 
         let mut target = Vec::new();
-        let val = unwrap!(CharStr::from_slice(b""));
-        unwrap!(val.compose(&mut target));
+        let val = CharStr::from_slice(b"").unwrap();
+        val.compose(&mut target).unwrap();
         assert_eq!(target, &b"\x00"[..]);
     }
 
     fn are_eq(l: &[u8], r: &[u8]) -> bool {
-        unwrap!(CharStr::from_slice(l)) == unwrap!(CharStr::from_slice(r))
+        CharStr::from_slice(l).unwrap() == CharStr::from_slice(r).unwrap()
     }
 
     #[test]
@@ -753,8 +752,8 @@ mod test {
 
     fn is_ord(l: &[u8], r: &[u8], order: cmp::Ordering) {
         assert_eq!(
-            unwrap!(CharStr::from_slice(l)).cmp(
-                &unwrap!(CharStr::from_slice(r))
+            CharStr::from_slice(l).unwrap().cmp(
+                &CharStr::from_slice(r).unwrap()
             ),
             order
         )
@@ -773,26 +772,26 @@ mod test {
     #[test]
     fn push() {
         let mut o = CharStrBuilder::new_vec();
-        unwrap!(o.push(b'f'));
-        unwrap!(o.push(b'o'));
-        unwrap!(o.push(b'o'));
+        o.push(b'f').unwrap();
+        o.push(b'o').unwrap();
+        o.push(b'o').unwrap();
         assert_eq!(o.finish().as_slice(), b"foo");
 
-        let mut o = unwrap!(CharStrBuilder::from_builder(vec![0; 254]));
-        unwrap!(o.push(b'f'));
+        let mut o = CharStrBuilder::from_builder(vec![0; 254]).unwrap();
+        o.push(b'f').unwrap();
         assert_eq!(o.len(), 255);
         assert!(o.push(b'f').is_err());
     }
 
     #[test]
     fn extend_from_slice() {
-        let mut o = unwrap!(
-            CharStrBuilder::from_builder(vec![b'f', b'o', b'o'])
-        );
-        unwrap!(o.extend_from_slice(b"bar"));
+        let mut o = CharStrBuilder::from_builder(
+            vec![b'f', b'o', b'o']
+        ).unwrap();
+        o.extend_from_slice(b"bar").unwrap();
         assert_eq!(o.as_ref(), b"foobar");
         assert!(o.extend_from_slice(&[0u8; 250][..]).is_err());
-        unwrap!(o.extend_from_slice(&[0u8; 249][..]));
+        o.extend_from_slice(&[0u8; 249][..]).unwrap();
         assert_eq!(o.len(), 255);
     }
 }

@@ -5,7 +5,6 @@
 use core::cmp;
 #[cfg(feature = "std")] use std::borrow::Cow;
 #[cfg(feature = "bytes")] use bytes::Bytes;
-use unwrap::unwrap;
 use super::super::octets::{Compose, EmptyBuilder, FromBuilder, IntoOctets};
 use super::builder::PushError;
 use super::chain::{Chain, LongChainError};
@@ -124,12 +123,12 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
 
     #[cfg(feature = "std")]
     fn to_dname_vec(&self) -> Dname<std::vec::Vec<u8>> {
-        unwrap!(self.to_dname())
+        self.to_dname().unwrap()
     }
 
     #[cfg(feature="bytes")] 
     fn to_dname_bytes(&self) -> Dname<Bytes> {
-        unwrap!(self.to_dname())
+        self.to_dname().unwrap()
     }
 
     /// Returns a byte slice of the content if possible.
@@ -253,7 +252,7 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     /// or a possible initial asterisk label.
     fn rrsig_label_count(&self) -> u8 {
         let mut labels = self.iter_labels();
-        if unwrap!(labels.next()).is_wildcard() {
+        if labels.next().unwrap().is_wildcard() {
             (labels.count() - 1) as u8
         }
         else {

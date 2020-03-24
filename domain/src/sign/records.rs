@@ -3,7 +3,6 @@
 use std::{fmt, io, slice};
 use std::iter::FromIterator;
 use std::vec::Vec;
-use unwrap::unwrap;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::name::ToDname;
 use crate::base::octets::{Compose, EmptyBuilder, FromBuilder};
@@ -147,9 +146,9 @@ impl<N, D> SortedRecords<N, D> {
                     key.key_tag()?,
                     apex.owner().clone(),
                 );
-                unwrap!(rrsig.compose_canonical(&mut buf));
+                rrsig.compose_canonical(&mut buf).unwrap();
                 for record in rrset.iter() {
-                    unwrap!(record.compose_canonical(&mut buf));
+                    record.compose_canonical(&mut buf).unwrap();
                 }
 
                 // Create and push the RRSIG record.
@@ -233,9 +232,9 @@ impl<N, D> SortedRecords<N, D> {
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
             // Assume there’s gonna be an RRSIG.
-            unwrap!(bitmap.add(Rtype::Rrsig));
+            bitmap.add(Rtype::Rrsig).unwrap();
             for rrset in family.rrsets() {
-                unwrap!(bitmap.add(rrset.rtype()))
+                bitmap.add(rrset.rtype()).unwrap()
             }
 
             prev = Some((name, bitmap.finalize()));
