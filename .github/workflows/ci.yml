@@ -20,5 +20,10 @@ jobs:
     - if: matrix.rust != 'nightly'
       run: cargo clippy --all-features -- -D warnings
     - run: cargo build --all-features --verbose
-    - run: cargo test --features "master sign tsig validate" --verbose
+    - run: |
+        cd domain
+        cargo test --features "master sign tsig validate" --verbose
+    - run: |
+        cd domain-resolv
+        cargo test --verbose
 
