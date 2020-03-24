@@ -1,6 +1,5 @@
 //! Looking up host names for addresses.
 
-use std::io;
 use std::net::IpAddr;
 use std::str::FromStr;
 use domain::base::iana::Rtype;
@@ -8,6 +7,7 @@ use domain::base::message::RecordIter;
 use domain::base::name::{Dname, DnameBuilder, ParsedDname};
 use domain::base::octets::{Octets128, OctetsRef};
 use domain::rdata::Ptr;
+use crate::resolver;
 use crate::resolver::Resolver;
 
 
@@ -23,7 +23,7 @@ use crate::resolver::Resolver;
 /// host names via its `iter()` method. This is due to lifetime issues.
 pub async fn lookup_addr<R: Resolver>(
     resolv: &R, addr: IpAddr
-) -> Result<FoundAddrs<R>, io::Error> {
+) -> Result<FoundAddrs<R>, resolver::Error> {
     let name = dname_from_addr(addr);
     resolv.query((name, Rtype::Ptr)).await.map(FoundAddrs)
 }

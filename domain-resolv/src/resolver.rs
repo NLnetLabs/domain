@@ -1,6 +1,6 @@
 //! The trait defining an abstract resolver.
 
-use std::io;
+use std::{error, fmt, io};
 use futures::future::Future;
 use domain::base::name::ToDname;
 use domain::base::message::Message;
@@ -26,7 +26,7 @@ pub trait Resolver {
     type Answer: AsRef<Message<Self::Octets>>;
 
     /// The future resolving into an answer.
-    type Query: Future<Output = Result<Self::Answer, io::Error>>;
+    type Query: Future<Output = Result<Self::Answer, Error>>;
 
     /// Returns a future answering a question.
     ///
@@ -55,3 +55,39 @@ pub trait SearchNames {
     fn search_iter(&self) -> Self::Iter;
 }
 
+
+//------------ Error ---------------------------------------------------------
+
+/// A resolver query failed.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Error {
+    ServFail,
+    Io(io::Error)
+}
+
+impl Error {
+    pub fn is_timeout(&self) -> bool {
+        match *self {
+            Error::Io(ref err) => err.kind() == io::ErrorKind::TimedOut,
+            _ => false
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from (err: io::Error) -> Self {
+        Error::Io(err)
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::ServFail => write!(f, "server failure"),
+            Error::Io(ref err) => err.fmt(f)
+        }
+    }
+}
+
+impl error::Error for Error { }

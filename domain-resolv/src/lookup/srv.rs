@@ -1,6 +1,6 @@
 //! Looking up SRV records.
 
-use std::{io, mem, ops};
+use std::{mem, ops};
 use std::net::{IpAddr, SocketAddr};
 use domain::base::message::Message;
 use domain::base::name::{Dname, ToDname, ToRelativeDname};
@@ -10,6 +10,7 @@ use domain::rdata::{A, Aaaa, Srv};
 use futures::stream;
 use futures::stream::{Stream, StreamExt};
 use rand::distributions::{Distribution, Uniform};
+use crate::resolver;
 use crate::resolver::Resolver;
 use super::host::lookup_host;
 
@@ -82,7 +83,7 @@ impl FoundSrvs {
     pub fn into_stream<'r, R: Resolver>(
         self,
         resolver: &'r R,
-    ) -> impl Stream<Item = Result<ResolvedSrvItem, io::Error>> + 'r
+    ) -> impl Stream<Item = Result<ResolvedSrvItem, resolver::Error>> + 'r
     where R::Octets: OctetsRef {
         // Let’s make a somewhat elaborate single iterator from self.items
         // that we can use as the base for the stream: We turn the result into
@@ -263,7 +264,7 @@ impl SrvItem {
     // Resolves the target.
     pub async fn resolve<R: Resolver>(
         self, resolver: &R
-    ) -> Result<ResolvedSrvItem, io::Error>
+    ) -> Result<ResolvedSrvItem, resolver::Error>
     where for<'a> &'a R::Octets: OctetsRef {
         let port = self.port();
         if let Some(resolved) = self.resolved {
@@ -338,11 +339,11 @@ impl ops::Deref for ResolvedSrvItem {
 pub enum SrvError {
     LongName,
     MalformedAnswer,
-    Query(io::Error),
+    Query(resolver::Error),
 }
 
-impl From<io::Error> for SrvError {
-    fn from(err: io::Error) -> SrvError {
+impl From<resolver::Error> for SrvError {
+    fn from(err: resolver::Error) -> SrvError {
         SrvError::Query(err)
     }
 }
