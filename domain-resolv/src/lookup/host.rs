@@ -40,11 +40,13 @@ pub async fn search_host<R: Resolver + SearchNames>(
     for suffix in resolver.search_iter() {
         if let Ok(name) = (&qname).chain(suffix) {
             if let Ok(answer) = lookup_host(resolver, name).await {
-                return Ok(answer)
+                if !answer.is_empty() {
+                    return Ok(answer)
+                }
             }
         }
     }
-    Err(io::Error::new(io::ErrorKind::Other, "no usable search name"))
+    lookup_host(resolver, qname.chain_root()).await
 }
 
 
