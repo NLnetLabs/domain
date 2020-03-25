@@ -6,7 +6,6 @@ use core::{cmp, fmt, hash, ops, str};
 use core::str::FromStr;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::Bytes;
-use derive_more::Display;
 #[cfg(feature="master")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
@@ -639,7 +638,7 @@ fn name_len<Source: AsRef<[u8]>>(
         let mut tmp = parser.peek_all();
         loop {
             if tmp.is_empty() {
-                return Err(ShortBuf.into())
+                return Err(ParseError::ShortInput)
             }
             let (label, tail) = Label::split_from(tmp)?;
             tmp = tail;
@@ -763,33 +762,23 @@ impl<Ref: OctetsRef> Iterator for SuffixIter<Ref> {
 }
 
 
+//============ Error Types ===================================================
+
 //------------ DnameError ----------------------------------------------------
 
 /// A domain name wasn’t encoded correctly.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DnameError {
-    #[display(fmt="{}", _0)]
     BadLabel(LabelTypeError),
-
-    #[display(fmt="compressed domain name")]
     CompressedName,
-
-    #[display(fmt="long domain name")]
     LongName,
-
-    #[display(fmt="relative name")]
     RelativeName,
-
-    #[display(fmt="trailing data")]
     TrailingData,
-
-    #[display(fmt="unexpected end of buffer")]
-    ShortBuf,
-
+    ShortInput,
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for DnameError { }
+
+//--- From
 
 impl From<LabelTypeError> for DnameError {
     fn from(err: LabelTypeError) -> DnameError {
@@ -802,7 +791,7 @@ impl From<SplitLabelError> for DnameError {
         match err {
             SplitLabelError::Pointer(_) => DnameError::CompressedName,
             SplitLabelError::BadType(t) => DnameError::BadLabel(t),
-            SplitLabelError::ShortBuf => DnameError::ShortBuf,
+            SplitLabelError::ShortInput => DnameError::ShortInput,
         }
     }
 }
@@ -816,7 +805,7 @@ impl From<DnameError> for FormError {
                 DnameError::LongName => "long domain name",
                 DnameError::RelativeName => "relative domain name",
                 DnameError::TrailingData => "trailing data in buffer",
-                DnameError::ShortBuf => "unexpected end of buffer",
+                DnameError::ShortInput => "unexpected end of buffer",
             }
         )
     }
@@ -825,11 +814,36 @@ impl From<DnameError> for FormError {
 impl From<DnameError> for ParseError {
     fn from(err: DnameError) -> ParseError {
         match err {
-            DnameError::ShortBuf => ParseError::ShortBuf,
+            DnameError::ShortInput => ParseError::ShortInput,
             other => ParseError::Form(other.into())
         }
     }
 }
+
+
+//--- Display and Error
+
+impl fmt::Display for DnameError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DnameError::BadLabel(ref err)
+                => err.fmt(f),
+            DnameError::CompressedName
+                => f.write_str("compressed domain name"),
+            DnameError::LongName
+                => f.write_str("long domain name"),
+            DnameError::RelativeName
+                => f.write_str("relative name"),
+            DnameError::TrailingData
+                => f.write_str("trailing data"),
+            DnameError::ShortInput
+                => ParseError::ShortInput.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for DnameError { }
 
 
 //============ Testing =======================================================
@@ -910,7 +924,7 @@ pub(crate) mod test {
         // bytes shorter than what label length says.
         assert_eq!(
             Dname::from_slice(b"\x03www\x07exa"),
-            Err(DnameError::ShortBuf)
+            Err(DnameError::ShortInput)
         );
 
         // label 63 long ok, 64 bad.
@@ -945,7 +959,7 @@ pub(crate) mod test {
                    Err(DnameError::CompressedName.into()));
 
         // empty input
-        assert_eq!(Dname::from_slice(b""), Err(DnameError::ShortBuf));
+        assert_eq!(Dname::from_slice(b""), Err(DnameError::ShortInput));
     }
 
     // `Dname::from_chars` is covered in the `FromStr` test.
@@ -1412,11 +1426,11 @@ pub(crate) mod test {
 
         // Short buffer in middle of label.
         let mut p = Parser::from_static(b"\x03www\x07exam");
-        assert_eq!(Dname::parse(&mut p), Err(ShortBuf.into()));
+        assert_eq!(Dname::parse(&mut p), Err(ParseError::ShortInput));
 
         // Short buffer at end of label.
         let mut p = Parser::from_static(b"\x03www\x07example");
-        assert_eq!(Dname::parse(&mut p), Err(ShortBuf.into()));
+        assert_eq!(Dname::parse(&mut p), Err(ParseError::ShortInput));
 
         // Compressed name.
         let mut p = Parser::from_static(b"\x03com\x03www\x07example\xc0\0");

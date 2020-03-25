@@ -410,7 +410,7 @@ impl<Name> RecordHeader<Name> {
         let header = Self::parse(parser)?;
         match parser.advance(header.rdlen() as usize) {
             Ok(()) => Ok(header),
-            Err(_) => Err(ShortBuf.into()),
+            Err(_) => Err(ParseError::ShortInput),
         }
     }
 }

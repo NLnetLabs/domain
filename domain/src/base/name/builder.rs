@@ -3,10 +3,9 @@
 //! This is a private module for tidiness. `DnameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
-use core::ops;
+use core::{fmt, ops};
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::BytesMut;
-use derive_more::Display;
 use super::super::octets::{EmptyBuilder, OctetsBuilder, IntoOctets, ShortBuf};
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
@@ -195,10 +194,10 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
         self.end_label();
         if self.len() + name.len() > 254 {
             self.head = head;
-            return Err(PushNameError)
+            return Err(PushNameError::LongName)
         }
         for label in name.iter_labels() {
-            label.build(&mut self.builder).unwrap()
+            label.build(&mut self.builder)?
         }
         Ok(())
     }
@@ -288,10 +287,10 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     where Builder: IntoOctets {
         self.end_label();
         if self.len() + origin.len() > 255 {
-            return Err(PushNameError)
+            return Err(PushNameError::LongName)
         }
         for label in origin.iter_labels() {
-            label.build(&mut self.builder).unwrap()
+            label.build(&mut self.builder)?
         }
         Ok(unsafe {
             Dname::from_octets_unchecked(self.builder.into_octets())
@@ -322,110 +321,6 @@ impl<Builder: OctetsBuilder> ops::Deref for DnameBuilder<Builder> {
 impl<Builder: OctetsBuilder> AsRef<[u8]> for DnameBuilder<Builder> {
     fn as_ref(&self) -> &[u8] {
         self.builder.as_ref()
-    }
-}
-
-
-//------------ PushError -----------------------------------------------------
-
-/// An error happened while trying to push data to a domain name builder.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum PushError {
-    /// The current label would exceed the limit of 63 bytes.
-    #[display(fmt="long label")]
-    LongLabel,
-
-    /// The name would exceed the limit of 255 bytes.
-    #[display(fmt="long domain name")]
-    LongName,
-
-    /// The buffer is too short to contain the name.
-    #[display(fmt="short buffer")]
-    ShortBuf,
-}
-
-impl From<ShortBuf> for PushError {
-    fn from(_: ShortBuf) -> PushError {
-        PushError::ShortBuf
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for PushError { }
-
-
-//------------ PushNameError -------------------------------------------------
-
-/// An error happened while trying to push a name to a domain name builder.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-#[display(fmt="long domain name")]
-pub struct PushNameError;
-
-#[cfg(feature = "std")]
-impl std::error::Error for PushNameError { }
-
-
-//------------ FromStrError --------------------------------------------------
-
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-pub enum FromStrError {
-    /// The string ended when there should have been more characters.
-    ///
-    /// This most likely happens inside escape sequences and quoting.
-    #[display(fmt="unexpected end of input")]
-    UnexpectedEnd,
-
-    /// An empty label was encountered.
-    #[display(fmt="an empty label was encountered")]
-    EmptyLabel,
-
-    /// A binary label was encountered.
-    #[display(fmt="a binary label was encountered")]
-    BinaryLabel,
-
-    /// A domain name label has more than 63 octets.
-    #[display(fmt="label length limit exceeded")]
-    LongLabel,
-
-    /// An illegal escape sequence was encountered.
-    ///
-    /// Escape sequences are a backslash character followed by either a
-    /// three decimal digit sequence encoding a byte value or a single
-    /// other printable ASCII character.
-    #[display(fmt="illegal escape sequence")]
-    IllegalEscape,
-
-    /// An illegal character was encountered.
-    ///
-    /// Only printable ASCII characters are allowed.
-    #[display(fmt="illegal character '{}'", _0)]
-    IllegalCharacter(char),
-
-    /// The name has more than 255 characters.
-    #[display(fmt="long domain name")]
-    LongName,
-
-    /// The buffer is too short to contain the name.
-    #[display(fmt="short buffer")]
-    ShortBuf,
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for FromStrError { }
-
-impl From<PushError> for FromStrError {
-    fn from(err: PushError) -> FromStrError {
-        match err {
-            PushError::LongLabel => FromStrError::LongLabel,
-            PushError::LongName => FromStrError::LongName,
-            PushError::ShortBuf => FromStrError::ShortBuf,
-        }
-    }
-}
-
-impl From<PushNameError> for FromStrError {
-    fn from(_: PushNameError) -> FromStrError {
-        FromStrError::LongName
     }
 }
 
@@ -464,6 +359,180 @@ fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
     }
     else { Ok(ch as u8) }
 }
+
+
+//============ Error Types ===================================================
+
+//------------ PushError -----------------------------------------------------
+
+/// An error happened while trying to push data to a domain name builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PushError {
+    /// The current label would exceed the limit of 63 bytes.
+    LongLabel,
+
+    /// The name would exceed the limit of 255 bytes.
+    LongName,
+
+    /// The buffer is too short to contain the name.
+    ShortBuf,
+}
+
+
+//--- From
+
+impl From<ShortBuf> for PushError {
+    fn from(_: ShortBuf) -> PushError {
+        PushError::ShortBuf
+    }
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for PushError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PushError::LongLabel
+                => f.write_str("long label"),
+            PushError::LongName
+                => f.write_str("long domain name"),
+            PushError::ShortBuf
+                => ShortBuf.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PushError { }
+
+
+//------------ PushNameError -------------------------------------------------
+
+/// An error happened while trying to push a name to a domain name builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PushNameError {
+    /// The name would exceed the limit of 255 bytes.
+    LongName,
+
+    /// The buffer is too short to contain the name.
+    ShortBuf,
+}
+
+//--- From
+
+impl From<ShortBuf> for PushNameError {
+    fn from(_: ShortBuf) -> Self {
+        PushNameError::ShortBuf
+    }
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for PushNameError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            PushNameError::LongName
+                => f.write_str("long domain name"),
+            PushNameError::ShortBuf
+                => ShortBuf.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PushNameError { }
+
+
+//------------ FromStrError --------------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum FromStrError {
+    /// The string ended when there should have been more characters.
+    ///
+    /// This most likely happens inside escape sequences and quoting.
+    UnexpectedEnd,
+
+    /// An empty label was encountered.
+    EmptyLabel,
+
+    /// A binary label was encountered.
+    BinaryLabel,
+
+    /// A domain name label has more than 63 octets.
+    LongLabel,
+
+    /// An illegal escape sequence was encountered.
+    ///
+    /// Escape sequences are a backslash character followed by either a
+    /// three decimal digit sequence encoding a byte value or a single
+    /// other printable ASCII character.
+    IllegalEscape,
+
+    /// An illegal character was encountered.
+    ///
+    /// Only printable ASCII characters are allowed.
+    IllegalCharacter(char),
+
+    /// The name has more than 255 characters.
+    LongName,
+
+    /// The buffer is too short to contain the name.
+    ShortBuf,
+}
+
+
+//--- From
+
+impl From<PushError> for FromStrError {
+    fn from(err: PushError) -> FromStrError {
+        match err {
+            PushError::LongLabel => FromStrError::LongLabel,
+            PushError::LongName => FromStrError::LongName,
+            PushError::ShortBuf => FromStrError::ShortBuf,
+        }
+    }
+}
+
+impl From<PushNameError> for FromStrError {
+    fn from(err: PushNameError) -> FromStrError {
+        match err {
+            PushNameError::LongName => FromStrError::LongName,
+            PushNameError::ShortBuf => FromStrError::ShortBuf,
+        }
+    }
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for FromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FromStrError::UnexpectedEnd
+                => f.write_str("unexpected end of input"),
+            FromStrError::EmptyLabel
+                => f.write_str("an empty label was encountered"),
+            FromStrError::BinaryLabel
+                => f.write_str("a binary label was encountered"),
+            FromStrError::LongLabel
+                => f.write_str("label length limit exceeded"),
+            FromStrError::IllegalEscape
+                => f.write_str("illegal escape sequence"),
+            FromStrError::IllegalCharacter(char)
+                => write!(f, "illegal character '{}'", char),
+            FromStrError::LongName
+                => f.write_str("long domain name"),
+            FromStrError::ShortBuf
+                => ShortBuf.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for FromStrError { }
 
 
 //============ Testing =======================================================

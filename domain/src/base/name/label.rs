@@ -4,7 +4,6 @@
 //! module.
 
 use core::{borrow, cmp, fmt, hash, ops};
-use derive_more::Display;
 use super::super::octets::{
     Compose, FormError, OctetsBuilder, ParseError, ShortBuf
 };
@@ -85,7 +84,7 @@ impl Label {
                       -> Result<(&Self, &[u8]), SplitLabelError> {
         let head = match slice.get(0) {
             Some(ch) => *ch,
-            None => return Err(SplitLabelError::ShortBuf)
+            None => return Err(SplitLabelError::ShortInput)
         };
         let end = match head {
             0 ..= 0x3F => (head as usize) + 1,
@@ -97,7 +96,7 @@ impl Label {
             0xC0 ..= 0xFF => {
                 let res = match slice.get(1) {
                     Some(ch) => u16::from(*ch),
-                    None => return Err(SplitLabelError::ShortBuf)
+                    None => return Err(SplitLabelError::ShortInput)
                 };
                 let res = res | ((u16::from(head) & 0x3F) << 8);
                 return Err(SplitLabelError::Pointer(res))
@@ -109,7 +108,7 @@ impl Label {
             }
         };
         if slice.len() < end {
-            return Err(SplitLabelError::ShortBuf)
+            return Err(SplitLabelError::ShortInput)
         }
         Ok((unsafe { Self::from_slice_unchecked(&slice[1..end]) },
             &slice[end..]))
@@ -567,21 +566,35 @@ impl<'a> Iterator for SliceLabelsIter<'a> {
 }
 
 
+//============ Error Types ===================================================
+
 //------------ LabelTypeError ------------------------------------------------
 
 /// A bad label type was encountered.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LabelTypeError {
     /// The label was of the undefined type `0b10`.
-    #[display(fmt="undefined label type")]
     Undefined,
 
     /// The label was of extended label type given.
     /// 
     /// The type value will be in the range `0x40` to `0x7F`, that is, it
     /// includes the original label type bits `0b01`.
-    #[display(fmt="unknown extended label 0x{:02x}", _0)]
     Extended(u8),
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for LabelTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            LabelTypeError::Undefined
+                => f.write_str("undefined label type"),
+            LabelTypeError::Extended(value)
+                => write!(f, "unknown extended label 0x{:02x}", value)
+        }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -591,9 +604,17 @@ impl std::error::Error for LabelTypeError { }
 //------------ LongLabelError ------------------------------------------------
 
 /// A label was longer than the allowed 63 bytes.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-#[display(fmt="long label")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LongLabelError;
+
+
+//--- Display and Error
+
+impl fmt::Display for LongLabelError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("long label")
+    }
+}
 
 #[cfg(feature = "std")]
 impl std::error::Error for LongLabelError { }
@@ -602,23 +623,19 @@ impl std::error::Error for LongLabelError { }
 //------------ SplitLabelError -----------------------------------------------
 
 /// An error happened while splitting a label from a bytes slice.
-#[derive(Clone, Copy, Debug, Display, Eq,  PartialEq)]
+#[derive(Clone, Copy, Debug, Eq,  PartialEq)]
 pub enum SplitLabelError {
     /// The label was a pointer to the given position.
-    #[display(fmt="compressed domain name")]
     Pointer(u16),
 
     /// The label type was invalid.
-    #[display(fmt="{}", _0)]
     BadType(LabelTypeError),
 
     /// The bytes slice was too short.
-    #[display(fmt="unexpected end of input")]
-    ShortBuf,
+    ShortInput,
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for SplitLabelError { }
+//--- From
 
 impl From<LabelTypeError> for SplitLabelError {
     fn from(err: LabelTypeError) -> SplitLabelError {
@@ -635,10 +652,29 @@ impl From<SplitLabelError> for ParseError {
             SplitLabelError::BadType(_) => {
                 ParseError::Form(FormError::new("invalid label type"))
             }
-            SplitLabelError::ShortBuf => ParseError::ShortBuf
+            SplitLabelError::ShortInput => ParseError::ShortInput
         }
     }
 }
+
+
+//--- Display and Error
+
+impl fmt::Display for SplitLabelError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SplitLabelError::Pointer(_)
+                => f.write_str("compressed domain name"),
+            SplitLabelError::BadType(ltype)
+                => ltype.fmt(f),
+            SplitLabelError::ShortInput
+                => ParseError::ShortInput.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for SplitLabelError { }
 
 
 //============ Testing =======================================================
@@ -679,11 +715,11 @@ mod test {
 
         // short slice
         assert_eq!(Label::split_from(b"\x03ww"),
-                   Err(SplitLabelError::ShortBuf));
+                   Err(SplitLabelError::ShortInput));
 
         // empty slice
         assert_eq!(Label::split_from(b""),
-                   Err(SplitLabelError::ShortBuf));
+                   Err(SplitLabelError::ShortInput));
 
         // compressed label
         assert_eq!(Label::split_from(b"\xc0\x05foo"),

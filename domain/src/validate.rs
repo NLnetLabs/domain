@@ -1,9 +1,8 @@
 #![cfg(feature = "validate")]
 
-use std::error;
+use std::{error, fmt};
 use std::vec::Vec;
 use ring::{digest, signature};
-use derive_more::Display;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
 use crate::base::octets::{Compose, OctetsBuilder, ShortBuf};
@@ -11,21 +10,6 @@ use crate::base::name::ToDname;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::rdata::{Dnskey, Rrsig};
-
-//------------ AlgorithmError ------------------------------------------------
-
-/// An algorithm error during verification.
-#[derive(Clone, Debug, Display, PartialEq)]
-pub enum AlgorithmError {
-    #[display(fmt = "unsupported algorithm")]
-    Unsupported,
-    #[display(fmt = "bad signature")]
-    BadSig,
-    #[display(fmt = "invalid data")]
-    InvalidData,
-}
-
-impl error::Error for AlgorithmError {}
 
 
 //------------ Dnskey --------------------------------------------------------
@@ -316,6 +300,39 @@ fn rsa_exponent_modulus(
     Ok(public_key[pos..].split_at(exp_len))
 }
 
+
+//============ Error Types ===================================================
+
+//------------ AlgorithmError ------------------------------------------------
+
+/// An algorithm error during verification.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AlgorithmError {
+    Unsupported,
+    BadSig,
+    InvalidData,
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for AlgorithmError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            AlgorithmError::Unsupported
+                => f.write_str("unsupported algorithm"),
+            AlgorithmError::BadSig
+                => f.write_str("bad signature"),
+            AlgorithmError::InvalidData
+                => f.write_str("invalid data"),
+        }
+    }
+}
+
+impl error::Error for AlgorithmError {}
+
+
+
 //============ Test ==========================================================
 
 #[cfg(test)]
@@ -336,8 +353,22 @@ mod test {
 
     // Returns current root KSK/ZSK for testing.
     fn root_pubkey() -> (Dnskey, Dnskey) {
-        let ksk = base64::decode("AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwVN8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU=").unwrap().into();
-        let zsk = base64::decode("AwEAAeVDC34GZILwsQJy97K2Fst4P3XYZrXLyrkausYzSqEjSUulgh+iLgHg0y7FIF890+sIjXsk7KLJUmCOWfYWPorNKEOKLk5Zx/4M6D3IHZE3O3m/Eahrc28qQzmTLxiMZAW65MvR2UO3LxVtYOPBEBiDgAQD47x2JLsJYtavCzNL5WiUk59OgvHmDqmcC7VXYBhK8V8Tic089XJgExGeplKWUt9yyc31ra1swJX51XsOaQz17+vyLVH8AZP26KvKFiZeoRbaq6vl+hc8HQnI2ug5rA2zoz3MsSQBvP1f/HvqsWxLqwXXKyDD1QM639U+XzVB8CYigyscRP22QCnwKIU=").unwrap().into();
+        let ksk = base64::decode("\
+            AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/\
+            4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMt\
+            NROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwV\
+            N8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+eoZG+SrDK\
+            6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+c\
+            n8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU="
+        ).unwrap().into();
+        let zsk = base64::decode("\
+            AwEAAeVDC34GZILwsQJy97K2Fst4P3XYZrXLyrkausYzSqEjSUulgh+iLgH\
+            g0y7FIF890+sIjXsk7KLJUmCOWfYWPorNKEOKLk5Zx/4M6D3IHZE3O3m/Ea\
+            hrc28qQzmTLxiMZAW65MvR2UO3LxVtYOPBEBiDgAQD47x2JLsJYtavCzNL5\
+            WiUk59OgvHmDqmcC7VXYBhK8V8Tic089XJgExGeplKWUt9yyc31ra1swJX5\
+            1XsOaQz17+vyLVH8AZP26KvKFiZeoRbaq6vl+hc8HQnI2ug5rA2zoz3MsSQ\
+            BvP1f/HvqsWxLqwXXKyDD1QM639U+XzVB8CYigyscRP22QCnwKIU="
+        ).unwrap().into();
         (
             Dnskey::new(257, 3, SecAlg::RsaSha256, ksk),
             Dnskey::new(256, 3, SecAlg::RsaSha256, zsk),
@@ -393,19 +424,49 @@ mod test {
     #[test]
     fn rrsig_verify_rsa_sha256() {
         let (ksk, zsk) = root_pubkey();
-        let rrsig = Rrsig::new(Rtype::Dnskey, SecAlg::RsaSha256, 0, 172800, 1560211200.into(), 1558396800.into(), 20326, Dname::root(), base64::decode("otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==").unwrap().into());
+        let rrsig = Rrsig::new(
+            Rtype::Dnskey, SecAlg::RsaSha256, 0, 172800, 1560211200.into(),
+            1558396800.into(), 20326, Dname::root(),
+            base64::decode(
+                "otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXk\
+                ZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3\
+                Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7Xgzz\
+                ooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0\
+                SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM786\
+                1CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ=="
+            ).unwrap().into()
+        );
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
 
     #[test]
     fn rrsig_verify_ecdsap256_sha256() {
         let (ksk, zsk) = (
-            Dnskey::new(257, 3, SecAlg::EcdsaP256Sha256, base64::decode("mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAeF+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==").unwrap().into()),
-            Dnskey::new(256, 3, SecAlg::EcdsaP256Sha256, base64::decode("oJMRESz5E4gYzS/q6XDrvU1qMPYIjCWzJaOau8XNEZeqCYKD5ar0IRd8KqXXFJkqmVfRvMGPmM1x8fGAa2XhSA==").unwrap().into()),
+            Dnskey::new(
+                257, 3, SecAlg::EcdsaP256Sha256,
+                base64::decode(
+                    "mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAe\
+                    F+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ=="
+                ).unwrap().into()
+            ),
+            Dnskey::new(
+                256, 3, SecAlg::EcdsaP256Sha256,
+                base64::decode(
+                    "oJMRESz5E4gYzS/q6XDrvU1qMPYIjCWzJaOau8XNEZeqCYKD5ar0IR\
+                    d8KqXXFJkqmVfRvMGPmM1x8fGAa2XhSA=="
+                ).unwrap().into()
+            ),
         );
 
         let owner = Dname::from_str("cloudflare.com.").unwrap();
-        let rrsig = Rrsig::new(Rtype::Dnskey, SecAlg::EcdsaP256Sha256, 2, 3600, 1560314494.into(), 1555130494.into(), 2371, owner.clone(), base64::decode("8jnAGhG7O52wmL065je10XQztRX1vK8P8KBSyo71Z6h5wAT9+GFxKBaEzcJBLvRmofYFDAhju21p1uTfLaYHrg==").unwrap().into());
+        let rrsig = Rrsig::new(
+            Rtype::Dnskey, SecAlg::EcdsaP256Sha256, 2, 3600,
+            1560314494.into(), 1555130494.into(), 2371, owner.clone(),
+            base64::decode(
+                "8jnAGhG7O52wmL065je10XQztRX1vK8P8KBSyo71Z6h5wAT9+GFxKBaE\
+                zcJBLvRmofYFDAhju21p1uTfLaYHrg=="
+            ).unwrap().into()
+        );
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
 
@@ -433,16 +494,36 @@ mod test {
         let owner = Dname::from_octets(
             Bytes::from(b"\x07ED25519\x02nl\x00".as_ref())
         ).unwrap();
-        let rrsig = Rrsig::new(Rtype::Dnskey, SecAlg::Ed25519, 2, 3600, 1559174400.into(), 1557360000.into(), 45515, owner.clone(), base64::decode("hvPSS3E9Mx7lMARqtv6IGiw0NE0uz0mZewndJCHTkhwSYqlasUq7KfO5QdtgPXja7YkTaqzrYUbYk01J8ICsAA==").unwrap().into());
+        let rrsig = Rrsig::new(
+            Rtype::Dnskey, SecAlg::Ed25519, 2, 3600, 1559174400.into(),
+            1557360000.into(), 45515, owner.clone(),
+            base64::decode(
+                "hvPSS3E9Mx7lMARqtv6IGiw0NE0uz0mZewndJCHTkhwSYqlasUq7KfO5\
+                QdtgPXja7YkTaqzrYUbYk01J8ICsAA=="
+            ).unwrap().into()
+        );
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
 
     #[test]
     fn rrsig_verify_generic_type() {
         let (ksk, zsk) = root_pubkey();
-        let rrsig = Rrsig::new(Rtype::Dnskey, SecAlg::RsaSha256, 0, 172800, 1560211200.into(), 1558396800.into(), 20326, Dname::root(), base64::decode("otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==").unwrap().into());
+        let rrsig = Rrsig::new(
+            Rtype::Dnskey, SecAlg::RsaSha256, 0, 172800, 1560211200.into(),
+            1558396800.into(), 20326, Dname::root(),
+            base64::decode(
+                "otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZ\
+                OdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gq\
+                xthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooE\
+                b7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0SBD4\
+                /yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQ\
+                dg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ=="
+            ).unwrap().into()
+        );
 
-        let mut records: Vec<Record<Dname, MasterRecordData<Bytes, Dname>>> = [&ksk, &zsk]
+        let mut records: Vec<
+            Record<Dname, MasterRecordData<Bytes, Dname>>
+        > = [&ksk, &zsk]
             .iter()
             .cloned()
             .map(|x| {
@@ -468,9 +549,29 @@ mod test {
 
     #[test]
     fn rrsig_verify_wildcard() {
-        let key = Dnskey::new(256, 3, SecAlg::RsaSha1, base64::decode("AQOy1bZVvpPqhg4j7EJoM9rI3ZmyEx2OzDBVrZy/lvI5CQePxXHZS4i8dANH4DX3tbHol61ek8EFMcsGXxKciJFHyhl94C+NwILQdzsUlSFovBZsyl/NX6yEbtw/xN9ZNcrbYvgjjZ/UVPZIySFNsgEYvh0z2542lzMKR4Dh8uZffQ==").unwrap().into());
-        let rrsig = Rrsig::new(Rtype::Mx, SecAlg::RsaSha1, 2, 3600, rrsig_serial("20040509183619"), rrsig_serial("20040409183619"), 38519, Dname::from_str("example.").unwrap(), base64::decode("OMK8rAZlepfzLWW75Dxd63jy2wswESzxDKG2f9AMN1CytCd10cYISAxfAdvXSZ7xujKAtPbctvOQ2ofO7AZJ+d01EeeQTVBPq4/6KCWhqe2XTjnkVLNvvhnc0u28aoSsG0+4InvkkOHknKxw4kX18MMR34i8lC36SR5xBni8vHI=").unwrap().into());
-        let record = Record::new(Dname::from_str("a.z.w.example.").unwrap(), Class::In, 3600, Mx::new(1, Dname::from_str("ai.example.").unwrap()));
+        let key = Dnskey::new(
+            256, 3, SecAlg::RsaSha1,
+            base64::decode(
+                "AQOy1bZVvpPqhg4j7EJoM9rI3ZmyEx2OzDBVrZy/lvI5CQePxX\
+                HZS4i8dANH4DX3tbHol61ek8EFMcsGXxKciJFHyhl94C+NwILQd\
+                zsUlSFovBZsyl/NX6yEbtw/xN9ZNcrbYvgjjZ/UVPZIySFNsgEY\
+                vh0z2542lzMKR4Dh8uZffQ=="
+        ).unwrap().into());
+        let rrsig = Rrsig::new(
+            Rtype::Mx, SecAlg::RsaSha1, 2, 3600,
+            rrsig_serial("20040509183619"), rrsig_serial("20040409183619"),
+            38519, Dname::from_str("example.").unwrap(),
+            base64::decode(
+                 "OMK8rAZlepfzLWW75Dxd63jy2wswESzxDKG2f9AMN1CytCd10cYI\
+                 SAxfAdvXSZ7xujKAtPbctvOQ2ofO7AZJ+d01EeeQTVBPq4/6KCWhq\
+                 e2XTjnkVLNvvhnc0u28aoSsG0+4InvkkOHknKxw4kX18MMR34i8lC\
+                 36SR5xBni8vHI="
+            ).unwrap().into()
+        );
+        let record = Record::new(
+            Dname::from_str("a.z.w.example.").unwrap(), Class::In, 3600,
+            Mx::new(1, Dname::from_str("ai.example.").unwrap())
+        );
         let signed_data = {
             let mut buf = Vec::new();
             rrsig.signed_data(&mut buf, &mut [record]).unwrap();

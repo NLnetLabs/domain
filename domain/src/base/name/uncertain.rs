@@ -6,7 +6,6 @@ use core::{fmt, hash, str};
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::Bytes;
 #[cfg(feature = "master")] use bytes::BytesMut;
-use derive_more::From;
 #[cfg(feature="master")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError
 };
@@ -29,7 +28,7 @@ use super::traits::{ToEitherDname, ToLabelIter};
 ///
 /// This type is helpful when reading a domain name from some source where it
 /// may end up being absolute or not.
-#[derive(Clone, From)]
+#[derive(Clone)]
 pub enum UncertainDname<Octets> {
     Absolute(Dname<Octets>),
     Relative(RelativeDname<Octets>),
@@ -226,6 +225,22 @@ impl<Octets> UncertainDname<Octets> {
         Chain::new_uncertain(self, suffix)
     }
 }
+
+
+//--- From
+
+impl<Octets> From<Dname<Octets>> for UncertainDname<Octets> {
+    fn from(src: Dname<Octets>) -> Self {
+        UncertainDname::Absolute(src)
+    }
+}
+
+impl<Octets> From<RelativeDname<Octets>> for UncertainDname<Octets> {
+    fn from(src: RelativeDname<Octets>) -> Self {
+        UncertainDname::Relative(src)
+    }
+}
+
 
 //--- FromStr
 

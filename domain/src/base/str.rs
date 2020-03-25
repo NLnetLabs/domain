@@ -2,8 +2,9 @@
 
 use core::fmt;
 #[cfg(feature = "bytes")] use bytes::{BufMut, BytesMut};
-use derive_more::Display;
 #[cfg(feature = "master")] use crate::master::scan::SyntaxError;
+use super::octets::ParseError;
+
 
 //------------ Symbol --------------------------------------------------------
 
@@ -176,16 +177,29 @@ impl fmt::Display for Symbol {
 }
 
 
+//============ Error Types ===================================================
+
 //------------ SymbolError ---------------------------------------------------
 
 /// An error happened when reading a symbol.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SymbolError {
-    #[display(fmt="illegal escape sequence")]
     BadEscape,
-
-    #[display(fmt="unexpected end of input")]
     ShortInput
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for SymbolError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SymbolError::BadEscape
+                => f.write_str("illegal escape sequence"),
+            SymbolError::ShortInput
+                => ParseError::ShortInput.fmt(f)
+        }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -195,9 +209,17 @@ impl std::error::Error for SymbolError { }
 //------------ BadSymbol -----------------------------------------------------
 
 /// A symbol of unexepected value was encountered. 
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-#[display(fmt="bad symbol '{}'", _0)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BadSymbol(pub Symbol);
+
+
+//--- Display and Error
+
+impl fmt::Display for BadSymbol {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "bad symbol '{}'", self.0)
+    }
+}
 
 #[cfg(feature = "std")]
 impl std::error::Error for BadSymbol { }

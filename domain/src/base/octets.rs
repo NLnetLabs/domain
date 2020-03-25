@@ -130,7 +130,6 @@ use core::convert::TryFrom;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 #[cfg(feature = "smallvec")] use smallvec::{Array, SmallVec};
-use derive_more::Display;
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
 
@@ -751,7 +750,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// returned.
     pub fn seek(&mut self, pos: usize) -> Result<(), ParseError> {
         if pos > self.len {
-            Err(ParseError::ShortBuf)
+            Err(ParseError::ShortInput)
         }
         else {
             self.pos = pos;
@@ -764,7 +763,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// If this would take the parser beyond its end, an error is returned.
     pub fn advance(&mut self, len: usize) -> Result<(), ParseError> {
         if len > self.remaining() {
-            Err(ParseError::ShortBuf)
+            Err(ParseError::ShortInput)
         }
         else {
             self.pos += len;
@@ -782,7 +781,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// If there aren’t, returns an error.
     pub fn check_len(&self, len: usize) -> Result<(), ParseError> {
         if self.remaining() < len {
-            Err(ParseError::ShortBuf)
+            Err(ParseError::ShortInput)
         }
         else {
             Ok(())
@@ -802,7 +801,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     where Ref: OctetsRef {
         let end = self.pos + len;
         if end > self.len {
-            return Err(ParseError::ShortBuf)
+            return Err(ParseError::ShortInput)
         }
         let res = self.octets.range(self.pos, end);
         self.pos = end;
@@ -896,7 +895,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// returns a form error. If it returns successfully with less than
     /// `limit` octets parsed, returns a form error indicating trailing data.
     /// If the limit is larger than the remaining number of octets, returns a
-    /// `ParseError::ShortBuf`.
+    /// `ParseError::ShortInput`.
     ///
     //  XXX NEEDS TESTS!!!
     pub fn parse_block<F, U>(
@@ -907,7 +906,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     {
         let end = self.pos + limit;
         if end > self.len {
-            return Err(ParseError::ShortBuf);
+            return Err(ParseError::ShortInput);
         }
         let len = self.len;
         self.len = end;
@@ -916,7 +915,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
         if self.pos != end {
             Err(ParseError::Form(FormError::new("trailing data in field")))
         }
-        else if let Err(ParseError::ShortBuf) = res {
+        else if let Err(ParseError::ShortInput) = res {
             Err(ParseError::Form(FormError::new("short field")))
         }
         else {
@@ -1389,12 +1388,22 @@ octets_array!(pub Octets4096 => 4096);
 pub type OctetsVec = SmallVec<[u8; 24]>;
 
 
+//============ Error Types ===================================================
+
 //------------ ShortBuf ------------------------------------------------------
 
 /// An attempt was made to go beyond the end of a buffer.
-#[derive(Clone, Debug, Display, Eq, PartialEq)]
-#[display(fmt="unexpected end of buffer")]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShortBuf;
+
+
+//--- Display and Error
+
+impl fmt::Display for ShortBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("buffer size exceeded")
+    }
+}
 
 #[cfg(feature = "std")]
 impl std::error::Error for ShortBuf { }
@@ -1403,31 +1412,40 @@ impl std::error::Error for ShortBuf { }
 //--------- ParseError -------------------------------------------------------
 
 /// An error happened while parsing data.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParseError {
     /// An attempt was made to go beyond the end of the parser.
-    #[display(fmt="unexpected end of buffer")]
-    ShortBuf,
+    ShortInput,
 
     /// A formatting error occurred.
-    #[display(fmt="{}", _0)]
     Form(FormError)
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for ParseError { }
 
-impl From<ShortBuf> for ParseError {
-    fn from(_: ShortBuf) -> Self {
-        ParseError::ShortBuf
-    }
-}
+//--- From
 
 impl From<FormError> for ParseError {
     fn from(err: FormError) -> Self {
         ParseError::Form(err)
     }
 }
+
+
+//--- Display and Error
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ParseError::ShortInput
+                => f.write_str("unexpected end of input"),
+            ParseError::Form(ref err)
+                => err.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ParseError { }
 
 
 //------------ FormError -----------------------------------------------------
@@ -1441,6 +1459,9 @@ impl FormError {
         FormError(msg)
     }
 }
+
+
+//--- Display and Error
 
 impl fmt::Display for FormError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1472,7 +1493,7 @@ mod test {
         assert_eq!(parser.pos(), 10);
         assert_eq!(parser.remaining(), 0);
         assert_eq!(parser.peek_all(), b"");
-        assert_eq!(parser.seek(11), Err(ParseError::ShortBuf));
+        assert_eq!(parser.seek(11), Err(ParseError::ShortInput));
         assert_eq!(parser.pos(), 10);
         assert_eq!(parser.remaining(), 0);
     }
@@ -1484,15 +1505,15 @@ mod test {
         assert_eq!(parser.check_len(2), Ok(()));
         assert_eq!(parser.peek(10), Ok(b"0123456789".as_ref()));
         assert_eq!(parser.check_len(10), Ok(()));
-        assert_eq!(parser.peek(11), Err(ParseError::ShortBuf));
-        assert_eq!(parser.check_len(11), Err(ParseError::ShortBuf));
+        assert_eq!(parser.peek(11), Err(ParseError::ShortInput));
+        assert_eq!(parser.check_len(11), Err(ParseError::ShortInput));
         parser.advance(2).unwrap();
         assert_eq!(parser.peek(2), Ok(b"23".as_ref()));
         assert_eq!(parser.check_len(2), Ok(()));
         assert_eq!(parser.peek(8), Ok(b"23456789".as_ref()));
         assert_eq!(parser.check_len(8), Ok(()));
-        assert_eq!(parser.peek(9), Err(ParseError::ShortBuf));
-        assert_eq!(parser.check_len(9), Err(ParseError::ShortBuf));
+        assert_eq!(parser.peek(9), Err(ParseError::ShortInput));
+        assert_eq!(parser.check_len(9), Err(ParseError::ShortInput));
     }
 
     #[test]
@@ -1511,7 +1532,7 @@ mod test {
         assert_eq!(parser.advance(2), Ok(()));
         assert_eq!(parser.pos(), 2);
         assert_eq!(parser.peek(1).unwrap(), b"2");
-        assert_eq!(parser.advance(9), Err(ParseError::ShortBuf));
+        assert_eq!(parser.advance(9), Err(ParseError::ShortInput));
         assert_eq!(parser.advance(8), Ok(()));
         assert_eq!(parser.pos(), 10);
         assert_eq!(parser.peek_all(), b"");
@@ -1522,7 +1543,7 @@ mod test {
         let mut parser = Parser::from_static(b"0123456789");
         assert_eq!(parser.parse_octets(2).unwrap(), b"01");
         assert_eq!(parser.parse_octets(2).unwrap(), b"23");
-        assert_eq!(parser.parse_octets(7), Err(ParseError::ShortBuf));
+        assert_eq!(parser.parse_octets(7), Err(ParseError::ShortInput));
         assert_eq!(parser.parse_octets(6).unwrap(), b"456789");
     }
 
@@ -1535,7 +1556,7 @@ mod test {
         assert_eq!(parser.parse_buf(&mut buf), Ok(()));
         assert_eq!(&buf, b"23");
         let mut buf = [0u8; 7];
-        assert_eq!(parser.parse_buf(&mut buf), Err(ParseError::ShortBuf));
+        assert_eq!(parser.parse_buf(&mut buf), Err(ParseError::ShortInput));
         let mut buf = [0u8; 6];
         assert_eq!(parser.parse_buf(&mut buf), Ok(()));
         assert_eq!(&buf, b"456789");
@@ -1546,7 +1567,7 @@ mod test {
         let mut parser = Parser::from_static(b"\x12\xd6");
         assert_eq!(parser.parse_i8(), Ok(0x12));
         assert_eq!(parser.parse_i8(), Ok(-42));
-        assert_eq!(parser.parse_i8(), Err(ParseError::ShortBuf));
+        assert_eq!(parser.parse_i8(), Err(ParseError::ShortInput));
     }
 
     #[test]
@@ -1554,7 +1575,7 @@ mod test {
         let mut parser = Parser::from_static(b"\x12\xd6");
         assert_eq!(parser.parse_u8(), Ok(0x12));
         assert_eq!(parser.parse_u8(), Ok(0xd6));
-        assert_eq!(parser.parse_u8(), Err(ParseError::ShortBuf));
+        assert_eq!(parser.parse_u8(), Err(ParseError::ShortInput));
     }
 
     #[test]
@@ -1562,7 +1583,7 @@ mod test {
         let mut parser = Parser::from_static(b"\x12\x34\xef\x6e\0");
         assert_eq!(parser.parse_i16(), Ok(0x1234));
         assert_eq!(parser.parse_i16(), Ok(-4242));
-        assert_eq!(parser.parse_i16(), Err(ParseError::ShortBuf));
+        assert_eq!(parser.parse_i16(), Err(ParseError::ShortInput));
     }
 
     #[test]
@@ -1570,7 +1591,7 @@ mod test {
         let mut parser = Parser::from_static(b"\x12\x34\xef\x6e\0");
         assert_eq!(parser.parse_u16(), Ok(0x1234));
         assert_eq!(parser.parse_u16(), Ok(0xef6e));
-        assert_eq!(parser.parse_u16(), Err(ParseError::ShortBuf));
+        assert_eq!(parser.parse_u16(), Err(ParseError::ShortInput));
     }
 
     #[test]
@@ -1579,7 +1600,7 @@ mod test {
             b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
         assert_eq!(parser.parse_i32(), Ok(0x12345678));
         assert_eq!(parser.parse_i32(), Ok(-42424242));
-        assert_eq!(parser.parse_i32(), Err(ParseError::ShortBuf));
+        assert_eq!(parser.parse_i32(), Err(ParseError::ShortInput));
     }
 
     #[test]
@@ -1588,7 +1609,7 @@ mod test {
             b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
         assert_eq!(parser.parse_u32(), Ok(0x12345678));
         assert_eq!(parser.parse_u32(), Ok(0xfd78a84e));
-        assert_eq!(parser.parse_u32(), Err(ParseError::ShortBuf));
+        assert_eq!(parser.parse_u32(), Err(ParseError::ShortInput));
     }
 }
 

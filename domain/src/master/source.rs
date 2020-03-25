@@ -3,13 +3,12 @@
 //! This is here so we can read from things that aren’t ASCII or UTF-8.
 #![cfg(feature = "std")]
 
-use std::{char, error, io};
+use std::{char, error, fmt, io};
 use std::boxed::Box;
 use std::io::Read;
 use std::fs::File;
 use std::path::Path;
 use std::vec::Vec;
-use derive_more::Display;
 use super::scan::CharSource;
 
 
@@ -95,16 +94,6 @@ impl CharSource for AsciiFile {
         err
     }
 }
-
-
-//------------ AsciiError ----------------------------------------------------
-
-/// An error happened while reading an ASCII-only file.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-#[display(fmt="invalid ASCII character '{}'", _0)]
-pub struct AsciiError(u8);
-
-impl error::Error for AsciiError { }
 
 
 //------------ Utf8File ------------------------------------------------------
@@ -193,16 +182,6 @@ impl CharSource for Utf8File {
     }
 }
 
-
-//------------ Utf8Error -----------------------------------------------------
-
-/// An error happened while reading an ASCII-only file.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-#[display(fmt="invalid UTF-8 sequence")]
-pub struct Utf8Error;
-
-impl error::Error for Utf8Error { }
-
 impl From<Utf8Error> for io::Error {
     fn from(err: Utf8Error) -> Self {
         io::Error::new(io::ErrorKind::Other, err)
@@ -272,3 +251,43 @@ impl OctetFile {
         err
     }
 }
+
+
+//=========== Error Types ===================================================
+
+
+//------------ AsciiError ----------------------------------------------------
+
+/// An error happened while reading an ASCII-only file.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AsciiError(u8);
+
+
+//--- Display and Error
+
+impl fmt::Display for AsciiError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "invalid ASCII character '{}'", self.0)
+    }
+}
+
+impl error::Error for AsciiError { }
+
+
+//------------ Utf8Error -----------------------------------------------------
+
+/// An error happened while reading a file encoded with UTF-8.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Utf8Error;
+
+
+//--- Display and Error
+
+impl fmt::Display for Utf8Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("invalid UTF-8 sequence")
+    }
+}
+
+impl error::Error for Utf8Error { }
+

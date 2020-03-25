@@ -16,7 +16,6 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-derive_more    = "0.99.1"
 rand           = "0.7"
 
 bytes          = { version = "0.5.4", optional = true }

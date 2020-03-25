@@ -1007,21 +1007,21 @@ mod test {
         // Short buffer in the middle of a label.
         let mut parser = p(b"\x03www\x07exam", 0);
         assert_eq!(ParsedDname::parse(&mut parser.clone()),
-                   Err(ShortBuf.into()));
+                   Err(ParseError::ShortInput));
         assert_eq!(ParsedDname::skip(&mut parser),
-                   Err(ShortBuf.into()));
+                   Err(ParseError::ShortInput));
 
         // Short buffer at end of label.
         let mut parser = p(b"\x03www\x07example", 0);
         assert_eq!(ParsedDname::parse(&mut parser.clone()),
-                   Err(ShortBuf.into()));
+                   Err(ParseError::ShortInput));
         assert_eq!(ParsedDname::skip(&mut parser),
-                   Err(ShortBuf.into()));
+                   Err(ParseError::ShortInput));
 
         // Compression pointer beyond the end of buffer.
         let mut parser = p(b"\x03www\xc0\xee12", 0);
         assert_eq!(ParsedDname::parse(&mut parser.clone()),
-                   Err(ShortBuf.into()));
+                   Err(ParseError::ShortInput));
         assert_eq!(ParsedDname::skip(&mut parser), Ok(()));
         assert_eq!(parser.remaining(), 2);
 
