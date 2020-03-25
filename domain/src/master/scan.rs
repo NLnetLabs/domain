@@ -1,11 +1,10 @@
 //! Scanning master file tokens.
 
-use std::{error, io};
+use std::{error, fmt, io};
 use std::boxed::Box;
 use std::vec::Vec;
 use std::string::String;
 use bytes::{BufMut, Bytes, BytesMut};
-use derive_more::Display;
 use crate::base::name;
 use crate::base::name::Dname;
 use crate::base::net::AddrParseError;
@@ -1119,141 +1118,10 @@ enum NewlineMode {
 }
 
 
-//------------ SyntaxError ---------------------------------------------------
-
-/// A syntax error happened while scanning master data.
-#[derive(Debug, Display)]
-pub enum SyntaxError {
-    #[display(fmt="expected '{}'", _0)]
-    Expected(String),
-
-    #[display(fmt="expected a new line")]
-    ExpectedNewline,
-
-    #[display(fmt="expected white space")]
-    ExpectedSpace,
-
-    #[display(fmt="invalid escape sequence")]
-    IllegalEscape,
-
-    #[display(fmt="invalid integer value")]
-    IllegalInteger, // TODO Add kind
-
-    #[display(fmt="invalid address: {}", _0)]
-    IllegalAddr(AddrParseError),
-
-    #[display(fmt="illegal domain name: {}", _0)]
-    IllegalName(name::FromStrError),
-
-    #[display(fmt="character string too long")]
-    LongCharStr,
-
-    #[display(fmt="hex string with an odd number of characters")]
-    UnevenHexString,
-
-    #[display(fmt="more data given than in the length byte")]
-    LongGenericData,
-
-    #[display(fmt="nested parentheses")]
-    NestedParentheses,
-
-    #[display(fmt="omitted TTL but no default TTL given")]
-    NoDefaultTtl,
-
-    #[display(fmt="omitted class but no previous class given")]
-    NoLastClass,
-
-    #[display(fmt="omitted owner but no previous owner given")]
-    NoLastOwner,
-
-    #[display(fmt="owner @ without preceding $ORIGIN")]
-    NoOrigin,
-
-    #[display(fmt="relative domain name")]
-    RelativeName,
-
-    #[display(fmt="unexpected '{}'", _0)]
-    Unexpected(Symbol),
-
-    #[display(fmt="unexpected newline")]
-    UnexpectedNewline,
-
-    #[display(fmt="unexpected end of file")]
-    UnexpectedEof,
-
-    #[display(fmt="unknown mnemonic")]
-    UnknownMnemonic,
-
-    /// Used when converting some other content fails.
-    #[display(fmt="{}", _0)]
-    Content(Box<dyn error::Error>),
-}
-
-impl SyntaxError {
-    pub fn content<E: error::Error + 'static>(err: E) -> Self {
-        SyntaxError::Content(Box::new(err))
-    }
-}
-
-impl error::Error for SyntaxError { }
-
-impl From<BadSymbol> for SyntaxError {
-    fn from(err: BadSymbol) -> SyntaxError {
-        SyntaxError::Unexpected(err.0)
-    }
-}
-
-impl From<AddrParseError> for SyntaxError {
-    fn from(err: AddrParseError) -> SyntaxError {
-        SyntaxError::IllegalAddr(err)
-    }
-}
-
-impl From<name::FromStrError> for SyntaxError {
-    fn from(err: name::FromStrError) -> SyntaxError {
-        SyntaxError::IllegalName(err)
-    }
-}
-
-impl From<name::PushNameError> for SyntaxError {
-    fn from(err: name::PushNameError) -> SyntaxError {
-        SyntaxError::from(name::FromStrError::from(err))
-    }
-}
-
-
-//------------ ScanError -----------------------------------------------------
-
-/// An error happened while scanning master data.
-#[derive(Debug, Display)]
-pub enum ScanError {
-    #[display(fmt="{}: {}", _0, _1)]
-    Source(io::Error, Pos),
-
-    #[display(fmt="{}: {}", _0, _1)]
-    Syntax(SyntaxError, Pos),
-}
-
-impl error::Error for ScanError { }
-
-impl From<(io::Error, Pos)> for ScanError {
-    fn from(err: (io::Error, Pos)) -> ScanError {
-        ScanError::Source(err.0, err.1)
-    }
-}
-
-impl From<(SyntaxError, Pos)> for ScanError {
-    fn from(err: (SyntaxError, Pos)) -> ScanError {
-        ScanError::Syntax(err.0, err.1)
-    }
-}
-
-
 //------------ Pos -----------------------------------------------------------
 
 /// The human-friendly position in a reader.
-#[derive(Clone, Copy, Debug, Default, Display, Eq, PartialEq)]
-#[display(fmt="{}:{}", line, col)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Pos {
     line: usize,
     col: usize
@@ -1294,6 +1162,174 @@ impl PartialEq<(usize, usize)> for Pos {
         self.line == other.0 && self.col == other.1
     }
 }
+
+impl fmt::Display for Pos {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}:{}", self.line, self.col)
+    }
+}
+
+
+//============ Error Types ===================================================
+
+//------------ SyntaxError ---------------------------------------------------
+
+/// A syntax error happened while scanning master data.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum SyntaxError {
+    Expected(String),
+    ExpectedNewline,
+    ExpectedSpace,
+    IllegalEscape,
+    IllegalInteger, // TODO Add kind
+    IllegalAddr(AddrParseError),
+    IllegalName(name::FromStrError),
+    LongCharStr,
+    UnevenHexString,
+    LongGenericData,
+    NestedParentheses,
+    NoDefaultTtl,
+    NoLastClass,
+    NoLastOwner,
+    NoOrigin,
+    RelativeName,
+    Unexpected(Symbol),
+    UnexpectedNewline,
+    UnexpectedEof,
+    UnknownMnemonic,
+    ///
+    /// Used when converting some other content fails.
+    Content(Box<dyn error::Error>),
+}
+
+impl SyntaxError {
+    pub fn content<E: error::Error + 'static>(err: E) -> Self {
+        SyntaxError::Content(Box::new(err))
+    }
+}
+
+
+//--- From
+
+impl From<BadSymbol> for SyntaxError {
+    fn from(err: BadSymbol) -> SyntaxError {
+        SyntaxError::Unexpected(err.0)
+    }
+}
+
+impl From<AddrParseError> for SyntaxError {
+    fn from(err: AddrParseError) -> SyntaxError {
+        SyntaxError::IllegalAddr(err)
+    }
+}
+
+impl From<name::FromStrError> for SyntaxError {
+    fn from(err: name::FromStrError) -> SyntaxError {
+        SyntaxError::IllegalName(err)
+    }
+}
+
+impl From<name::PushNameError> for SyntaxError {
+    fn from(err: name::PushNameError) -> SyntaxError {
+        SyntaxError::from(name::FromStrError::from(err))
+    }
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for SyntaxError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SyntaxError::Expected(ref s)
+                => write!(f, "expected '{}'", s),
+            SyntaxError::ExpectedNewline
+                => f.write_str("expected a new line"),
+            SyntaxError::ExpectedSpace
+                => f.write_str("expected white space"),
+            SyntaxError::IllegalEscape
+                => f.write_str("invalid escape sequence"),
+            SyntaxError::IllegalInteger
+                => f.write_str("illegal integer"),
+            SyntaxError::IllegalAddr(ref err)
+                => write!(f, "illegal address: {}", err),
+            SyntaxError::IllegalName(ref err)
+                => write!(f, "illegal domain name: {}", err),
+            SyntaxError::LongCharStr
+                => f.write_str("character string too long"),
+            SyntaxError::UnevenHexString
+                => f.write_str("hex string with an odd number of characters"),
+            SyntaxError::LongGenericData
+                => f.write_str("more data given than in the length byte"),
+            SyntaxError::NestedParentheses
+                => f.write_str("nested parentheses"),
+            SyntaxError::NoDefaultTtl
+                => f.write_str("omitted TTL but no default TTL given"),
+            SyntaxError::NoLastClass
+                => f.write_str("omitted class but no previous class given"),
+            SyntaxError::NoLastOwner
+                => f.write_str("omitted owner but no previous owner given"),
+            SyntaxError::NoOrigin
+                => f.write_str("owner @ without preceding $ORIGIN"),
+            SyntaxError::RelativeName
+                => f.write_str("relative domain name"),
+            SyntaxError::Unexpected(sym)
+                => write!(f, "unexpected '{}'", sym),
+            SyntaxError::UnexpectedNewline
+                => f.write_str("unexpected newline"),
+            SyntaxError::UnexpectedEof
+                => f.write_str("unexpected end of file"),
+            SyntaxError::UnknownMnemonic
+                => f.write_str("unexpected mnemomic"),
+            SyntaxError::Content(ref content)
+                => content.fmt(f)
+        }
+    }
+}
+
+impl error::Error for SyntaxError { }
+
+
+//------------ ScanError -----------------------------------------------------
+
+/// An error happened while scanning master data.
+#[derive(Debug)]
+pub enum ScanError {
+    Source(io::Error, Pos),
+    Syntax(SyntaxError, Pos),
+}
+
+
+//--- From
+
+impl From<(io::Error, Pos)> for ScanError {
+    fn from(err: (io::Error, Pos)) -> ScanError {
+        ScanError::Source(err.0, err.1)
+    }
+}
+
+impl From<(SyntaxError, Pos)> for ScanError {
+    fn from(err: (SyntaxError, Pos)) -> ScanError {
+        ScanError::Syntax(err.0, err.1)
+    }
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for ScanError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ScanError::Source(ref err, pos)
+                => write!(f, "{}: {}", pos, err),
+            ScanError::Syntax(ref err, pos)
+                => write!(f, "{}: {}", pos, err),
+        }
+    }
+}
+
+impl error::Error for ScanError { }
 
 
 //============ Test ==========================================================

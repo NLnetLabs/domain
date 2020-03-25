@@ -6,10 +6,9 @@ use core::{cmp, fmt, hash, ops};
 use core::cmp::Ordering;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::Bytes;
-use derive_more::Display;
 use super::super::octets::{
     Compose, IntoBuilder, IntoOctets, OctetsBuilder, OctetsExt, OctetsRef,
-    ShortBuf
+    ParseError, ShortBuf
 };
 use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
@@ -673,34 +672,31 @@ impl<'a> DoubleEndedIterator for DnameIter<'a> {
 }
 
 
+//============ Error Types ===================================================
+
 //------------ RelativeDnameError --------------------------------------------
 
 /// An error happened while creating a domain name from octets.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RelativeDnameError {
     /// A bad label was encountered.
-    #[display(fmt="{}", _0)]
     BadLabel(LabelTypeError),
 
     /// A compressed name was encountered.
-    #[display(fmt="compressed domain name")]
     CompressedName,
 
     /// The data ended before the end of a label.
-    #[display(fmt="unexpected end of input")]
-    ShortData,
+    ShortInput,
 
     /// The domain name was longer than 255 octets.
-    #[display(fmt="long domain name")]
     LongName,
 
     /// The root label was encountered.
-    #[display(fmt="absolute domain name")]
     AbsoluteName,
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for RelativeDnameError { }
+
+//--- From
 
 impl From<LabelTypeError> for RelativeDnameError {
     fn from(err: LabelTypeError) -> Self {
@@ -713,18 +709,49 @@ impl From<SplitLabelError> for RelativeDnameError {
         match err {
             SplitLabelError::Pointer(_) => RelativeDnameError::CompressedName,
             SplitLabelError::BadType(t) => RelativeDnameError::BadLabel(t),
-            SplitLabelError::ShortBuf => RelativeDnameError::ShortData,
+            SplitLabelError::ShortInput => RelativeDnameError::ShortInput,
         }
     }
 }
 
 
+//--- Display and Error
+
+impl fmt::Display for RelativeDnameError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            RelativeDnameError::BadLabel(err)
+                => err.fmt(f),
+            RelativeDnameError::CompressedName
+                => f.write_str("compressed domain name"),
+            RelativeDnameError::ShortInput
+                => ParseError::ShortBuf.fmt(f),
+            RelativeDnameError::LongName
+                => f.write_str("long domain name"),
+            RelativeDnameError::AbsoluteName
+                => f.write_str("absolute domain name"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RelativeDnameError { }
+
+
 //------------ StripSuffixError ----------------------------------------------
 
 /// An attempt was made to strip a suffix that wasn’t actually a suffix.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-#[display(fmt="suffix not found")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct StripSuffixError;
+
+
+//--- Display and Error
+
+impl fmt::Display for StripSuffixError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("suffix not found")
+    }
+}
 
 #[cfg(feature = "std")]
 impl std::error::Error for StripSuffixError { }
@@ -816,7 +843,7 @@ mod test {
 
         // bytes shorter than what label length says.
         assert_eq!(RelativeDname::from_slice(b"\x03www\x07exa"),
-                   Err(RelativeDnameError::ShortData));
+                   Err(RelativeDnameError::ShortInput));
 
         // label 63 long ok, 64 bad.
         let mut slice = [0u8; 64];

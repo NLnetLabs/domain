@@ -9,7 +9,6 @@ use core::cmp::Ordering;
 use core::convert::TryInto;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature="master")] use bytes::{Bytes, BytesMut};
-use derive_more::Display;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{ParsedDname, ToDname};
@@ -1120,7 +1119,7 @@ impl<Octets> RtypeBitmap<Octets> {
             while !data.is_empty() {
                 // At least bitmap number and length must be present.
                 if data.len() < 2 {
-                    return Err(RtypeBitmapError::ShortBuf)
+                    return Err(RtypeBitmapError::ShortInput)
                 }
 
                 let len = (data[1] as usize) + 2;
@@ -1133,7 +1132,7 @@ impl<Octets> RtypeBitmap<Octets> {
                     return Err(RtypeBitmapError::BadRtypeBitmap)
                 }
                 if data.len() < len {
-                    return Err(RtypeBitmapError::ShortBuf)
+                    return Err(RtypeBitmapError::ShortInput)
                 }
                 data = &data[len..];
             }
@@ -1511,34 +1510,42 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
 
 //------------ RtypeBitmapError ----------------------------------------------
 
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RtypeBitmapError {
-    #[display(fmt="short field")]
-    ShortBuf,
-
-    #[display(fmt="invalid record type bitmap")]
+    ShortInput,
     BadRtypeBitmap,
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for RtypeBitmapError { }
 
-impl From<ShortBuf> for RtypeBitmapError {
-    fn from(_: ShortBuf) -> Self {
-        RtypeBitmapError::ShortBuf
-    }
-}
+//--- From
 
 impl From<RtypeBitmapError> for ParseError {
     fn from(err: RtypeBitmapError) -> ParseError {
         match err {
-            RtypeBitmapError::ShortBuf => ParseError::ShortBuf,
+            RtypeBitmapError::ShortInput => ParseError::ShortBuf,
             RtypeBitmapError::BadRtypeBitmap => {
                 FormError::new("invalid NSEC bitmap").into()
             }
         }
     }
 }
+
+
+//--- Display and Error
+
+impl fmt::Display for RtypeBitmapError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            RtypeBitmapError::ShortInput
+                => ParseError::ShortBuf.fmt(f),
+            RtypeBitmapError::BadRtypeBitmap
+                => f.write_str("invalid record type bitmap")
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RtypeBitmapError { }
 
 
 //------------ Friendly Helper Functions -------------------------------------

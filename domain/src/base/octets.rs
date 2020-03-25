@@ -130,7 +130,6 @@ use core::convert::TryFrom;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
 #[cfg(feature = "smallvec")] use smallvec::{Array, SmallVec};
-use derive_more::Display;
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
 
@@ -1389,12 +1388,22 @@ octets_array!(pub Octets4096 => 4096);
 pub type OctetsVec = SmallVec<[u8; 24]>;
 
 
+//============ Error Types ===================================================
+
 //------------ ShortBuf ------------------------------------------------------
 
 /// An attempt was made to go beyond the end of a buffer.
-#[derive(Clone, Debug, Display, Eq, PartialEq)]
-#[display(fmt="unexpected end of buffer")]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShortBuf;
+
+
+//--- Display and Error
+
+impl fmt::Display for ShortBuf {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("buffer size exceeded")
+    }
+}
 
 #[cfg(feature = "std")]
 impl std::error::Error for ShortBuf { }
@@ -1403,31 +1412,40 @@ impl std::error::Error for ShortBuf { }
 //--------- ParseError -------------------------------------------------------
 
 /// An error happened while parsing data.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParseError {
     /// An attempt was made to go beyond the end of the parser.
-    #[display(fmt="unexpected end of buffer")]
     ShortBuf,
 
     /// A formatting error occurred.
-    #[display(fmt="{}", _0)]
     Form(FormError)
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for ParseError { }
 
-impl From<ShortBuf> for ParseError {
-    fn from(_: ShortBuf) -> Self {
-        ParseError::ShortBuf
-    }
-}
+//--- From
 
 impl From<FormError> for ParseError {
     fn from(err: FormError) -> Self {
         ParseError::Form(err)
     }
 }
+
+
+//--- Display and Error
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ParseError::ShortBuf
+                => f.write_str("unexpected end of input"),
+            ParseError::Form(ref err)
+                => err.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ParseError { }
 
 
 //------------ FormError -----------------------------------------------------
@@ -1441,6 +1459,9 @@ impl FormError {
         FormError(msg)
     }
 }
+
+
+//--- Display and Error
 
 impl fmt::Display for FormError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

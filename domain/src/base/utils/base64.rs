@@ -3,7 +3,6 @@
 use core::fmt;
 #[cfg(feature = "std")] use std::string::String;
 #[cfg(feature= "bytes" )] use bytes::{BufMut, Bytes, BytesMut};
-use derive_more::Display;
 
 
 //------------ Convenience Functions -----------------------------------------
@@ -163,26 +162,40 @@ impl Default for Decoder {
     }
 }
 
+
+//============ Error Types ===================================================
+
 //------------ DecodeError ---------------------------------------------------
 
 /// An error happened while decoding a Base64 string.
-#[derive(Debug, Display, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum DecodeError {
-    #[display(fmt="incomplete input")]
     IncompleteInput,
-
-    #[display(fmt="trailing input")]
     TrailingInput,
-
-    #[display(fmt="illegal character '{}'", _0)]
     IllegalChar(char),
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DecodeError::IncompleteInput
+                => f.write_str("incomplete input"),
+            DecodeError::TrailingInput
+                => f.write_str("trailing input"),
+            DecodeError::IllegalChar(ch)
+                => write!(f, "illegal character '{}'", ch)
+        }
+    }
 }
 
 #[cfg(feature = "std")]
 impl std::error::Error for DecodeError { }
 
 
-//------------ Constants -----------------------------------------------------
+//============ Constants =====================================================
 
 /// The alphabet used by the decoder.
 ///

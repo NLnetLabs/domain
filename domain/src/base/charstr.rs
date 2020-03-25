@@ -27,7 +27,6 @@
 use core::{cmp, fmt, hash, ops, str};
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
-use derive_more::Display;
 #[cfg(feature="master")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
@@ -542,14 +541,22 @@ impl<'a> Iterator for Iter<'a> {
 }
 
 
+
+//============ Error Types ===================================================
+
 //------------ CharStrError --------------------------------------------------
 
 /// A byte sequence does not represent a valid character string.
 ///
 /// This can only mean that the sequence is longer than 255 bytes.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-#[display(fmt="illegal character string")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CharStrError;
+
+impl fmt::Display for CharStrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("illegal character string")
+    }
+}
 
 #[cfg(feature = "std")]
 impl std::error::Error for CharStrError { }
@@ -558,16 +565,15 @@ impl std::error::Error for CharStrError { }
 //------------ FromStrError --------------------------------------------
 
 /// An error happened when converting a Rust string to a DNS character string.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum FromStrError {
     /// The string ended when there should have been more characters.
     ///
     /// This most likely happens inside escape sequences and quoting.
-    #[display(fmt="unexpected end of input")]
     ShortInput,
 
     /// A character string has more than 255 octets.
-    #[display(fmt="character string with more than 255 octets")]
     LongString,
 
     /// An illegal escape sequence was encountered.
@@ -575,18 +581,13 @@ pub enum FromStrError {
     /// Escape sequences are a backslash character followed by either a
     /// three decimal digit sequence encoding a byte value or a single
     /// other printable ASCII character.
-    #[display(fmt="illegal escape sequence")]
     BadEscape,
 
     /// An illegal character was encountered.
     ///
     /// Only printable ASCII characters are allowed.
-    #[display(fmt="illegal character '{}'", _0)]
     BadSymbol(Symbol),
 }
-
-#[cfg(feature = "std")]
-impl std::error::Error for FromStrError { }
 
 
 //--- From
@@ -613,6 +614,27 @@ impl From<PushError> for FromStrError {
 }
 
 
+//--- Display and Error
+
+impl fmt::Display for FromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FromStrError::ShortInput
+                => f.write_str("unexpected end of input"),
+            FromStrError::LongString
+                => f.write_str("character string with more than 255 octets"),
+            FromStrError::BadEscape
+                => f.write_str("illegal escape sequence"),
+            FromStrError::BadSymbol(symbol)
+                => write!(f, "illegal character '{}'", symbol),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for FromStrError { }
+
+
 //------------ PushError -----------------------------------------------------
 
 /// An error happened while adding data to a [`CharStrMut`].
@@ -621,13 +643,24 @@ impl From<PushError> for FromStrError {
 /// exceeded the length limit of 255 octets.
 ///
 /// [`CharStrMut`]: ../struct.CharStrMut.html
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-#[display(fmt="adding bytes would exceed the size limit")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PushError;
+
+
+//--- From
 
 impl From<ShortBuf> for PushError {
     fn from(_: ShortBuf) -> PushError {
         PushError
+    }
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for PushError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("adding bytes would exceed the size limit")
     }
 }
 

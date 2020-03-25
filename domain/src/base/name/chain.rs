@@ -4,7 +4,6 @@
 //! crate.
 
 use core::{fmt, iter};
-use derive_more::Display;
 use super::label::Label;
 use super::super::octets::{Compose, OctetsBuilder, ShortBuf};
 use super::relative::DnameIter;
@@ -286,12 +285,22 @@ where Octets: AsRef<[u8]>, R: ToLabelIter<'a>
 }
 
 
+//============ Error Types ===================================================
+
 //------------ LongChainError ------------------------------------------------
 
 /// Chaining domain names would exceed the size limit.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
-#[display(fmt="long domain name")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LongChainError;
+
+
+//--- Display and Error
+
+impl fmt::Display for LongChainError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("long domain name")
+    }
+}
 
 #[cfg(feature = "std")]
 impl std::error::Error for LongChainError { }

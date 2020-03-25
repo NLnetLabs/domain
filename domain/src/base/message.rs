@@ -1,5 +1,5 @@
 
-use core::mem;
+use core::{fmt, mem};
 use core::marker::PhantomData;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, Rcode, Rtype};
@@ -342,7 +342,7 @@ where
         HeaderCounts::for_message_slice_mut(self.octets.as_mut()).dec_arcount();
     }
 
-    /// Copy records from message into the target message builder.
+    /// Copy records from a message into the target message builder.
     ///
     /// The method uses `op` to process records from all record sections
     /// before inserting, caller can use this closure to filter or manipulate
@@ -351,7 +351,7 @@ where
         &'s self,
         target: T,
         mut op: F
-    ) -> Result<AdditionalBuilder<O>, ParseError>
+    ) -> Result<AdditionalBuilder<O>, CopyRecordsError>
     where
         for <'a> &'a Octets: OctetsRef,
         N: ToDname + 's,
@@ -761,7 +761,51 @@ where Ref: OctetsRef, Data: ParseRecordData<Ref> {
 }
 
 
-//============ Testing ======================================================
+//============ Error Types ===================================================
+
+//------------ CopyRecordsError ----------------------------------------------
+
+#[derive(Clone, Copy, Debug)]
+pub enum CopyRecordsError {
+    /// Parsing the source message failed.
+    Parse(ParseError),
+
+    /// Not enough space in the target.
+    ShortBuf,
+}
+
+
+//--- From
+
+impl From<ParseError> for CopyRecordsError {
+    fn from(err: ParseError) -> Self {
+        CopyRecordsError::Parse(err)
+    }
+}
+
+impl From<ShortBuf> for CopyRecordsError {
+    fn from(_: ShortBuf) -> Self {
+        CopyRecordsError::ShortBuf
+    }
+}
+
+
+//--- Display and Error
+
+impl fmt::Display for CopyRecordsError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            CopyRecordsError::Parse(ref err) => err.fmt(f),
+            CopyRecordsError::ShortBuf => ShortBuf.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for CopyRecordsError { }
+
+
+//============ Testing =======================================================
 
 #[cfg(test)]
 mod test {

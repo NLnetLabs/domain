@@ -56,10 +56,9 @@
 mod interop;
 
 
-use std::{cmp, fmt, hash, mem, str};
+use std::{cmp, error, fmt, hash, mem, str};
 use std::collections::HashMap;
 use bytes::{Bytes, BytesMut};
-use derive_more::Display;
 use ring::{constant_time, hmac, rand, hkdf::KeyType};
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
@@ -1571,16 +1570,18 @@ where
 }
 
 
+//============ Error Types ===================================================
+
 //------------ ServerError ---------------------------------------------------
 
 /// A TSIG record of a received request couldn’t be validated.
 ///
 /// A value of this type carries all information necessary to produce the
 /// error response to be send back to the client.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ServerError<K>(ServerErrorInner<K>);
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 enum ServerErrorInner<K> {
     /// Return an unsigned error message.
     ///
@@ -1597,7 +1598,7 @@ enum ServerErrorInner<K> {
     }
 }
 
-impl<K: AsRef<Key>> ServerError<K> {
+impl<K> ServerError<K> {
     fn unsigned(error: TsigRcode) -> Self {
         ServerError(ServerErrorInner::Unsigned { error })
     }
@@ -1606,6 +1607,15 @@ impl<K: AsRef<Key>> ServerError<K> {
         ServerError(ServerErrorInner::Signed { context, variables })
     }
 
+    pub fn error(&self) -> TsigRcode {
+        match self.0 {
+            ServerErrorInner::Unsigned { error } => error,
+            ServerErrorInner::Signed { ref variables, .. } => variables.error,
+        }
+    }
+}
+
+impl<K: AsRef<Key>> ServerError<K> {
     pub fn build_message<Octets: AsRef<[u8]>, Target: OctetsBuilder>(
         self,
         msg: &Message<Octets>,
@@ -1647,33 +1657,75 @@ impl<K: AsRef<Key>> ServerError<K> {
 }
 
 
+//--- Debug, Display, and Error
+
+impl<K> fmt::Debug for ServerError<K> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_tuple("ServerError").field(&self.0).finish()
+    }
+}
+
+impl<K> fmt::Debug for ServerErrorInner<K> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ServerErrorInner::Unsigned { error } => {
+                f.debug_struct("Unsigned").field("error", &error).finish()
+            }
+            ServerErrorInner::Signed { ref variables, .. } => {
+                f.debug_struct("Signed")
+                    .field("variables", variables)
+                    .finish()
+            }
+        }
+    }
+}
+
+impl<K> fmt::Display for ServerError<K> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.error().fmt(f)
+    }
+}
+
+impl<K> error::Error for ServerError<K> { }
+
 //------------ NewKeyError ---------------------------------------------------
 
 /// A key couldn’t be created.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NewKeyError {
-    #[display(fmt="minimum signature length out of bounds")]
     BadMinMacLen,
-
-    #[display(fmt="created signature length out of bounds")]
     BadSigningLen,
 }
+
+
+//--- Display and Error
+
+impl fmt::Display for NewKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            NewKeyError::BadMinMacLen
+                => f.write_str("minimum signature length out of bounds"),
+            NewKeyError::BadSigningLen
+                => f.write_str("created signature length out of bounds"),
+        }
+    }
+}
+
+impl error::Error for NewKeyError { }
 
 
 //------------ GenerateKeyError ----------------------------------------------
 
 /// A key couldn’t be created.
-#[derive(Clone, Copy, Debug, Display, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GenerateKeyError {
-    #[display(fmt="minimum signature length out of bounds")]
     BadMinMacLen,
-
-    #[display(fmt="created signature length out of bounds")]
     BadSigningLen,
-
-    #[display(fmt="generating key failed")]
     GenerationFailed,
 }
+
+
+//--- From
 
 impl From<NewKeyError> for GenerateKeyError {
     fn from(err: NewKeyError) -> Self {
@@ -1691,62 +1743,106 @@ impl From<ring::error::Unspecified> for GenerateKeyError {
 }
 
 
+//--- Display and Error
+
+impl fmt::Display for GenerateKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            GenerateKeyError::BadMinMacLen
+                => f.write_str("minimum signature length out of bounds"),
+            GenerateKeyError::BadSigningLen
+                => f.write_str("created signature length out of bounds"),
+            GenerateKeyError::GenerationFailed
+                => f.write_str("generating key failed"),
+        }
+    }
+}
+
+impl error::Error for GenerateKeyError { }
+
+
 //------------ AlgorithmError ------------------------------------------------
 
 /// An invalid algorithm was provided.
-#[derive(Clone, Copy, Debug, Display)]
-#[display(fmt="invalid algorithm")]
+#[derive(Clone, Copy, Debug)]
 pub struct AlgorithmError;
+
+
+//--- Display and Error
+
+impl fmt::Display for AlgorithmError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("invalid algorithm")
+    }
+}
+
+impl error::Error for AlgorithmError { }
 
 
 //------------ ValidationError -----------------------------------------------
 
 /// An error happened while validating a TSIG-signed message.
-#[derive(Clone, Debug, Display)]
+#[derive(Clone, Copy, Debug)]
 pub enum ValidationError {
-    #[display(fmt="unknown algorithm")]
     BadAlg,
-
-    #[display(fmt="bad content of other")]
     BadOther,
-
-    #[display(fmt="bad signatures")]
     BadSig,
-
-    #[display(fmt="short signature")]
     BadTrunc,
-
-    #[display(fmt="unknown key")]
     BadKey,
-
-    #[display(fmt="bad time")]
     BadTime,
-
-    #[display(fmt="format error")]
     FormErr,
-
-    #[display(fmt="unsigned answer")]
     ServerUnsigned,
-
-    #[display(fmt="unknown key on server")]
     ServerBadKey,
-
-    #[display(fmt="server failed to verify MAC")]
     ServerBadSig,
-
-    #[display(fmt="server reported bad time")]
     ServerBadTime {
         client: Time48,
         server: Time48
     },
-
-    #[display(fmt="too many unsigned messages")]
     TooManyUnsigned,
 }
+
+
+//--- From
 
 impl From<ParseError> for ValidationError {
     fn from(_: ParseError) -> Self {
         ValidationError::FormErr
     }
 }
+
+
+//--- Display and Error
+
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ValidationError::BadAlg
+                => f.write_str("unknown algorithm"),
+            ValidationError::BadOther
+                => f.write_str("bad content of 'other' field"),
+            ValidationError::BadSig
+                => f.write_str("bad signature"),
+            ValidationError::BadTrunc
+                => f.write_str("short signature"),
+            ValidationError::BadKey
+                => f.write_str("unknown key"),
+            ValidationError::BadTime
+                => f.write_str("bad time"),
+            ValidationError::FormErr
+                => f.write_str("format error"),
+            ValidationError::ServerUnsigned
+                => f.write_str("unsigned answer"),
+            ValidationError::ServerBadKey
+                => f.write_str("unknown key on server"),
+            ValidationError::ServerBadSig
+                => f.write_str("server failed to verify MAC"),
+            ValidationError::ServerBadTime { .. }
+                => f.write_str("server reported bad time"),
+            ValidationError::TooManyUnsigned
+                => f.write_str("too many unsigned messages"),
+        }
+    }
+}
+
+impl error::Error for ValidationError { }
 
