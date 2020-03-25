@@ -197,7 +197,7 @@ impl fmt::Display for SymbolError {
             SymbolError::BadEscape
                 => f.write_str("illegal escape sequence"),
             SymbolError::ShortInput
-                => ParseError::ShortBuf.fmt(f)
+                => ParseError::ShortInput.fmt(f)
         }
     }
 }

@@ -725,7 +725,7 @@ impl fmt::Display for RelativeDnameError {
             RelativeDnameError::CompressedName
                 => f.write_str("compressed domain name"),
             RelativeDnameError::ShortInput
-                => ParseError::ShortBuf.fmt(f),
+                => ParseError::ShortInput.fmt(f),
             RelativeDnameError::LongName
                 => f.write_str("long domain name"),
             RelativeDnameError::AbsoluteName

@@ -746,7 +746,7 @@ mod test {
 
         assert_eq!(
             CharStrRef::parse(&mut Parser::from_static(b"\x04foo")),
-            Err(ParseError::ShortBuf)
+            Err(ParseError::ShortInput)
         )
     }
 

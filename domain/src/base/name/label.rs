@@ -652,7 +652,7 @@ impl From<SplitLabelError> for ParseError {
             SplitLabelError::BadType(_) => {
                 ParseError::Form(FormError::new("invalid label type"))
             }
-            SplitLabelError::ShortInput => ParseError::ShortBuf
+            SplitLabelError::ShortInput => ParseError::ShortInput
         }
     }
 }
@@ -668,7 +668,7 @@ impl fmt::Display for SplitLabelError {
             SplitLabelError::BadType(ltype)
                 => ltype.fmt(f),
             SplitLabelError::ShortInput
-                => ParseError::ShortBuf.fmt(f)
+                => ParseError::ShortInput.fmt(f)
         }
     }
 }

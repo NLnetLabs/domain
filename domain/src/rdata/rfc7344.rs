@@ -124,7 +124,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
-            None => return Err(ParseError::ShortBuf)
+            None => return Err(ParseError::ShortInput)
         };
         Ok(Self::new(
             u16::parse(parser)?,
@@ -136,7 +136,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
 
     fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
-            return Err(ParseError::ShortBuf)
+            return Err(ParseError::ShortInput)
         }
         parser.advance_to_end();
         Ok(())
@@ -325,7 +325,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
-            None => return Err(ParseError::ShortBuf)
+            None => return Err(ParseError::ShortInput)
         };
         Ok(Self::new(
             u16::parse(parser)?,
@@ -337,7 +337,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
 
     fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
-            return Err(ParseError::ShortBuf);
+            return Err(ParseError::ShortInput);
         }
         parser.advance_to_end();
         Ok(())

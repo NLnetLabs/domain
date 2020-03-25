@@ -638,7 +638,7 @@ fn name_len<Source: AsRef<[u8]>>(
         let mut tmp = parser.peek_all();
         loop {
             if tmp.is_empty() {
-                return Err(ParseError::ShortBuf)
+                return Err(ParseError::ShortInput)
             }
             let (label, tail) = Label::split_from(tmp)?;
             tmp = tail;
@@ -814,7 +814,7 @@ impl From<DnameError> for FormError {
 impl From<DnameError> for ParseError {
     fn from(err: DnameError) -> ParseError {
         match err {
-            DnameError::ShortInput => ParseError::ShortBuf,
+            DnameError::ShortInput => ParseError::ShortInput,
             other => ParseError::Form(other.into())
         }
     }
@@ -837,7 +837,7 @@ impl fmt::Display for DnameError {
             DnameError::TrailingData
                 => f.write_str("trailing data"),
             DnameError::ShortInput
-                => ParseError::ShortBuf.fmt(f)
+                => ParseError::ShortInput.fmt(f)
         }
     }
 }
@@ -1426,11 +1426,11 @@ pub(crate) mod test {
 
         // Short buffer in middle of label.
         let mut p = Parser::from_static(b"\x03www\x07exam");
-        assert_eq!(Dname::parse(&mut p), Err(ParseError::ShortBuf));
+        assert_eq!(Dname::parse(&mut p), Err(ParseError::ShortInput));
 
         // Short buffer at end of label.
         let mut p = Parser::from_static(b"\x03www\x07example");
-        assert_eq!(Dname::parse(&mut p), Err(ParseError::ShortBuf));
+        assert_eq!(Dname::parse(&mut p), Err(ParseError::ShortInput));
 
         // Compressed name.
         let mut p = Parser::from_static(b"\x03com\x03www\x07example\xc0\0");

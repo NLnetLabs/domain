@@ -225,7 +225,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
-            None => return Err(ParseError::ShortBuf)
+            None => return Err(ParseError::ShortInput)
         };
         Ok(Self::new(
             u16::parse(parser)?,
@@ -237,7 +237,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
 
     fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
-            return Err(ParseError::ShortBuf)
+            return Err(ParseError::ShortInput)
         }
         parser.advance_to_end();
         Ok(())
@@ -1023,7 +1023,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
-            None => return Err(ParseError::ShortBuf)
+            None => return Err(ParseError::ShortInput)
         };
         Ok(Self::new(
             u16::parse(parser)?,
@@ -1035,7 +1035,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
 
     fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
-            return Err(ParseError::ShortBuf);
+            return Err(ParseError::ShortInput);
         }
         parser.advance_to_end();
         Ok(())
@@ -1522,7 +1522,7 @@ pub enum RtypeBitmapError {
 impl From<RtypeBitmapError> for ParseError {
     fn from(err: RtypeBitmapError) -> ParseError {
         match err {
-            RtypeBitmapError::ShortInput => ParseError::ShortBuf,
+            RtypeBitmapError::ShortInput => ParseError::ShortInput,
             RtypeBitmapError::BadRtypeBitmap => {
                 FormError::new("invalid NSEC bitmap").into()
             }
@@ -1537,7 +1537,7 @@ impl fmt::Display for RtypeBitmapError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             RtypeBitmapError::ShortInput
-                => ParseError::ShortBuf.fmt(f),
+                => ParseError::ShortInput.fmt(f),
             RtypeBitmapError::BadRtypeBitmap
                 => f.write_str("invalid record type bitmap")
         }
