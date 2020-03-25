@@ -28,7 +28,7 @@ smallvec       = { version = "1.2", optional = true }
 [features]
 default  = ["std"]
 interop  = ["bytes", "ring"]
-master   = ["std", "bytes"]
+master   = ["std", "bytes", "chrono"]
 sign     = ["std"]
 std      = []
 tsig     = ["bytes", "ring", "smallvec"]
