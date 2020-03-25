@@ -18,14 +18,12 @@ macro_rules! opt_types {
 
         // TODO Impl Debug.
         #[derive(Clone)]
+        #[non_exhaustive]
         pub enum AllOptData<Octets> {
             $( $(
                 $opt($module::$opt $( <$octets> )* ),
             )* )*
             Other(UnknownOptData<Octets>),
-
-            #[doc(hidden)]
-            __Nonexhaustive(::void::Void),
         }
 
         //--- From
@@ -50,7 +48,6 @@ macro_rules! opt_types {
                         AllOptData::$opt(ref inner) => inner.compose(target),
                     )* )*
                     AllOptData::Other(ref inner) => inner.compose(target),
-                    AllOptData::__Nonexhaustive(_) => unreachable!()
                 }
             }
         }
@@ -65,7 +62,6 @@ macro_rules! opt_types {
                         AllOptData::$opt(_) => OptionCode::$opt,
                     )* )*
                     AllOptData::Other(ref inner) => inner.code(),
-                    AllOptData::__Nonexhaustive(_) => unreachable!()
                 }
             }
         }

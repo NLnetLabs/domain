@@ -16,12 +16,11 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-chrono         = "0.4"
 derive_more    = "0.99.1"
 rand           = "0.7"
-void           = "1.0"
 
 bytes          = { version = "0.5.4", optional = true }
+chrono         = { version = "0.4", optional = true }
 #openssl       = { version = "0.10", optional = true }
 ring           = { version = "0.16.11", optional = true }
 smallvec       = { version = "1.2", optional = true }
@@ -29,7 +28,7 @@ smallvec       = { version = "1.2", optional = true }
 [features]
 default  = ["std"]
 interop  = ["bytes", "ring"]
-master   = ["std", "bytes"]
+master   = ["std", "bytes", "chrono"]
 sign     = ["std"]
 std      = []
 tsig     = ["bytes", "ring", "smallvec"]
