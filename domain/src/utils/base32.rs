@@ -1,4 +1,30 @@
-//! Decoding and encoding of Base32.
+//! Decoding and encoding of base 32.
+//!
+//! The base 32 encoding is defined in [RFC 4648]. It is essentially a
+//! case-insensitive version of [base64] which is necessary when encoding
+//! binary data in domain names. The RFC defines two separate encodings,
+//! called *base32* and *base32hex*. The DNS uses the latter version,
+//! particularly in [NSEC3], for encoding binary data in domain names, as it
+//! has the property that the encoding maintains the order of the original
+//! data.
+//!
+//! This module currently only implements *base32hex* but is prepared for
+//! adding the other option by using the prefix `_hex` wherever distinction
+//! is necessary.
+//!
+//! The module defines the type [`Decoder`] which keeps the state necessary
+//! for decoding. The convenince functions `decode_hex` and `display_hex`
+//! decode and encode octets using the *base32hex* encoding, respectively.
+//!
+//! Decoding currently requires the `bytes` feature as it is intended for
+//! use by the master file parser. This will change when the parser will be
+//! converted to work with any octets builder.
+//!
+//! [RFC 4648]: https://tools.ietf.org/html/rfc4648
+//! [NSEC3]: ../../rdata/rfc5155/index.html
+//! [`Decoder`]: struct.Decoder.html
+//! [`decode_hex`]: fn.decode_hex.html
+//! [`display_hex`]: fn.display_hex.html
 
 use core::fmt;
 #[cfg(feature="bytes")] use bytes::{BufMut, Bytes, BytesMut};
@@ -7,6 +33,10 @@ use core::fmt;
 
 //------------ Convenience Functions -----------------------------------------
 
+/// Decodes a string with *base32hex* encoded data.
+///
+/// The function attempts to decode the entire string and returns the result
+/// as a `Bytes` value.
 #[cfg(feature="bytes")]
 pub fn decode_hex(s: &str) -> Result<Bytes, DecodeError> {
     let mut decoder = Decoder::new_hex();
@@ -17,6 +47,23 @@ pub fn decode_hex(s: &str) -> Result<Bytes, DecodeError> {
 }
 
 
+/// Encodes binary data in *base32hex* and writes it into a format stream.
+///
+/// This function is intended to be used in implementations of formatting
+/// traits:
+///
+/// ```
+/// use core::fmt;
+/// use domain::utils::base32;
+/// 
+/// struct Foo<'a>(&'a [u8]);
+///
+/// impl<'a> fmt::Display for Foo<'a> {
+///     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+///         base32::display_hex(&self.0, f)
+///     }
+/// }
+/// ```
 pub fn display_hex<B, W>(bytes: &B, f: &mut W) -> fmt::Result
 where B: AsRef<[u8]> + ?Sized, W: fmt::Write {
     fn ch(i: u8) -> char {
@@ -55,9 +102,15 @@ where B: AsRef<[u8]> + ?Sized, W: fmt::Write {
 
 //------------ Decoder -------------------------------------------------------
 
-/// A base32 decoder.
+/// A base 32 decoder.
 ///
-/// This doesn’t do padding.
+/// This type keeps all the state for decoding a sequence of characters
+/// representing data encoded in base 32. Upon success, the decoder returns
+/// the decoded data in a `bytes::Bytes` value.
+///
+/// # Limitations
+///
+/// The decoder does not support padding.
 #[cfg(feature="bytes")]
 pub struct Decoder {
     /// The alphabet we are using.
@@ -78,6 +131,7 @@ pub struct Decoder {
 
 #[cfg(feature="bytes")]
 impl Decoder {
+    /// Creates a new, empty decoder using the *base32hex* variant.
     pub fn new_hex() -> Self {
         Decoder {
             alphabet: &DECODE_HEX_ALPHABET,
@@ -87,6 +141,7 @@ impl Decoder {
         }
     }
 
+    /// Finalizes decoding and returns the decoded data.
     pub fn finalize(mut self) -> Result<Bytes, DecodeError> {
         if let Err(err) = self.target {
             return Err(err)
@@ -94,7 +149,7 @@ impl Decoder {
 
         match self.next {
             0 => { }
-            1 | 3 | 6 => return Err(DecodeError::IncompleteInput),
+            1 | 3 | 6 => return Err(DecodeError::ShortInput),
             2 => {
                 self.reserve(1);
                 self.octet_0();
@@ -122,6 +177,11 @@ impl Decoder {
         self.target.map(BytesMut::freeze)
     }
 
+    /// Decodes one more character of data.
+    ///
+    /// Returns an error as soon as the encoded data is determined to be
+    /// illegal. It is okay to push more data after the first error. The
+    /// method will just keep returned errors.
     pub fn push(&mut self, ch: char) -> Result<(), DecodeError> {
         if ch > (127 as char) {
             return Err(DecodeError::IllegalChar(ch))
@@ -144,39 +204,43 @@ impl Decoder {
         }
         Ok(())
     }
-}
 
-#[cfg(feature="bytes")]
-impl Decoder {
+    /// Decodes the zeroth octet in a base 32 sequence.
     fn octet_0(&mut self) {
         let ch = self.buf[0] << 3 | self.buf[1] >> 2;
         self.append(ch)
     }
 
+    /// Decodes the first octet in a base 32 sequence.
     fn octet_1(&mut self) {
         let ch = self.buf[1] << 6 | self.buf[2] << 1 | self.buf[3] >> 4;
         self.append(ch)
     }
 
+    /// Decodes the second octet in a base 32 sequence.
     fn octet_2(&mut self) {
         let ch = self.buf[3] << 4 | self.buf[4] >> 1;
         self.append(ch)
     }
 
+    /// Decodes the third octet in a base 32 sequence.
     fn octet_3(&mut self) {
         let ch = self.buf[4] << 7 | self.buf[5] << 2 | self.buf[6] >> 3;
         self.append(ch)
     }
 
+    /// Decodes the forth octet in a base 32 sequence.
     fn octet_4(&mut self) {
         let ch = self.buf[6] << 5 | self.buf[7];
         self.append(ch)
     }
 
+    /// Appends a decoded octet to the target.
     fn append(&mut self, value: u8) {
         self.target.as_mut().unwrap().put_u8(value);
     }
 
+    /// Reserves `len` octets of space in the target.
     fn reserve(&mut self, len: usize) {
         let target = self.target.as_mut().unwrap();
         if target.remaining_mut() < len {
@@ -188,7 +252,7 @@ impl Decoder {
 
 //------------ Constants -----------------------------------------------------
 
-/// The alphabet used for decoding “base32hex.”
+/// The alphabet used for decoding *base32hex.*
 ///
 /// This maps encoding characters into their values. A value of 0xFF stands in
 /// for illegal characters. We only provide the first 128 characters since the
@@ -221,6 +285,7 @@ const DECODE_HEX_ALPHABET: [u8; 128] = [
 ];
 
 
+/// The alphabet used for encoding *base32hex.*
 const ENCODE_HEX_ALPHABET: [char; 32] = [
     '0', '1', '2', '3',   '4', '5', '6', '7',   // 0x00 .. 0x07
     '8', '9', 'A', 'B',   'C', 'D', 'E', 'F',   // 0x08 .. 0x0F

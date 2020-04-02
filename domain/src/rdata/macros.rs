@@ -31,6 +31,11 @@ macro_rules! rdata_types {
 
         //------------- MasterRecordData -------------------------------------
 
+        /// Record data for all record types allowed in master files.
+        ///
+        /// This enum collects the record data types for all currently 
+        /// implemented record types that are allowed to be included in master
+        /// files.
         #[derive(Clone)]
         #[non_exhaustive]
         pub enum MasterRecordData<O, N> {
@@ -353,6 +358,10 @@ macro_rules! rdata_types {
 
         //------------- AllRecordData ----------------------------------------
 
+        /// Record data for all record types.
+        ///
+        /// This enum collects the record data types for all currently 
+        /// implemented record types.
         #[derive(Clone)]
         #[non_exhaustive]
         pub enum AllRecordData<O, N> {

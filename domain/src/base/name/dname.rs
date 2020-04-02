@@ -25,24 +25,25 @@ use super::traits::{ToLabelIter, ToDname};
 
 /// An uncompressed, absolute domain name.
 ///
-/// The type wraps a [`Bytes`] value and guarantees that it always contains
-/// a correctly encoded, absolute domain name. It derefs to [`Bytes`] and
-/// therefore to `[u8]` allowing you direct access to the underlying byte
-/// slice. It does overide all applicable methods providing access to parts
-/// of the byte slice, though, returning either `Dname` or [`RelativeDname`]s
-/// instead.
+/// The type wraps an octets sequence and guarantees that it always contains
+/// a correctly encoded, absolute domain name. It provides an interface
+/// similar to a slice of the labels of the name, i.e., you can iterate over
+/// the labels, split them off, etc.
 ///
 /// You can construct a domain name from a string via the `FromStr` trait or
 /// manually via a [`DnameBuilder`]. In addition, you can also parse it from
 /// a message. This will, however, require the name to be uncompressed.
+/// Otherwise, you would receive a [`ParsedDname`] which can be converted into
+/// `Dname` via [`ToDname::to_dname`].
 ///
-/// [`Bytes`]: ../../../bytes/struct.Bytes.html
 /// [`DnameBuilder`]: struct.DnameBuilder.html
+/// [`ParsedDname`]: struct.ParsedDname.html
 /// [`RelativeDname`]: struct.RelativeDname.html
+/// [`ToDname::to_dname`]: trait.ToDname.html#method.to_dname
 #[derive(Clone)]
 pub struct Dname<Octets: ?Sized>(Octets);
 
-/// # Creation and Conversion
+/// # Creating Values
 ///
 impl<Octets> Dname<Octets> {
     /// Creates a domain name from the underlying octets without any check.
@@ -53,8 +54,8 @@ impl<Octets> Dname<Octets> {
     /// # Safety
     ///
     /// The octets sequence passed in `octets` must contain a correctly
-    /// encoded absolute domain name. It must _not_ contain a relative
-    /// domain name.
+    /// encoded absolute domain name. It must be at most 255 octets long.
+    /// It must contain the root label exactly once as its last label.
     pub const unsafe fn from_octets_unchecked(octets: Octets) -> Self {
         Dname(octets)
     }
@@ -97,39 +98,18 @@ impl<Octets> Dname<Octets> {
     }
 
     /// Returns a domain name consisting of the root label only.
+    ///
+    /// This function will work for any kind octets sequence that can be
+    /// created from an octets slice. Since this will require providing the
+    /// type parameter in some cases, there are shortcuts methods for specific
+    /// octets types: [`root_ref`], [`root_vec`], and [`root_bytes`].
+    ///
+    /// [`root_ref`]: #method.root_ref
+    /// [`root_vec`]: #method.root_vec
+    /// [`root_bytes`]: #method.root_bytes
     pub fn root() -> Self
     where Octets: From<&'static [u8]> {
         unsafe { Self::from_octets_unchecked(b"\0".as_ref().into()) }
-    }
-
-    /// Returns a reference to the underlying octets.
-    pub fn as_octets(&self) -> &Octets {
-        &self.0
-    }
-
-    /// Converts the domain name into the underlying octets.
-    pub fn into_octets(self) -> Octets {
-        self.0
-    }
-
-    /// Returns a domain name using a reference to the octets.
-    pub fn ref_octets(&self) -> Dname<&Octets> {
-        Dname(&self.0)
-    }
- 
-    /// Converts the name into a relative name by dropping the root label.
-    pub fn into_relative(mut self) -> RelativeDname<Octets>
-    where Octets: OctetsExt {
-        let len = self.0.as_ref().len() - 1;
-        self.0.truncate(len);
-        unsafe { RelativeDname::from_octets_unchecked(self.0) }
-    }
-}
-
-impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
-    /// Returns a reference to the underlying byte slice.
-    pub fn as_slice(&self) -> &[u8] {
-        self.0.as_ref()
     }
 }
 
@@ -139,7 +119,7 @@ impl Dname<[u8]> {
         &*(slice as *const [u8] as *const Dname<[u8]>)
     }
 
-    /// Creates a domain name from an octet slice.
+    /// Creates a domain name from an octets slice.
     ///
     /// This will only succeed if `slice` contains a properly encoded
     /// absolute domain name. 
@@ -148,6 +128,7 @@ impl Dname<[u8]> {
         Ok(unsafe { Self::from_slice_unchecked(slice) })
     }
 
+    /// Creates a domain name for the root label only atop an octets slice.
     pub fn root_slice() -> &'static Self {
         unsafe { Self::from_slice_unchecked("\0".as_ref()) }
     }
@@ -177,6 +158,7 @@ impl Dname<[u8]> {
 }
 
 impl Dname<&'static [u8]> {
+    /// Creates a domain name for the root label only atop a slice reference.
     pub fn root_ref() -> Self {
         Self::root()
     }
@@ -184,10 +166,12 @@ impl Dname<&'static [u8]> {
 
 #[cfg(feature = "std")]
 impl Dname<Vec<u8>> {
+    /// Creates a domain name for the root label only atop a `Vec<u8>`.
     pub fn root_vec() -> Self {
         Self::root()
     }
 
+    /// Creates a domain name atop a `Vec<u8>` from its string representation.
     pub fn vec_from_str(s: &str) -> Result<Self, FromStrError> {
         FromStr::from_str(s)
     }
@@ -195,20 +179,63 @@ impl Dname<Vec<u8>> {
 
 #[cfg(feature="bytes")] 
 impl Dname<Bytes> {
+    /// Creates a domain name for the root label only atop a bytes values.
     pub fn root_bytes() -> Self {
         Self::root()
     }
 
+    /// Creates a domain name atop a Bytes from its string representation.
     pub fn bytes_from_str(s: &str) -> Result<Self, FromStrError> {
         FromStr::from_str(s)
     }
 }
 
+
+/// # Conversions
+///
+impl<Octets: ?Sized> Dname<Octets> {
+    /// Returns a reference to the underlying octets sequence.
+    pub fn as_octets(&self) -> &Octets {
+        &self.0
+    }
+
+    /// Converts the domain name into the underlying octets sequence.
+    pub fn into_octets(self) -> Octets
+    where Octets: Sized {
+        self.0
+    }
+ 
+    /// Converts the name into a relative name by dropping the root label.
+    pub fn into_relative(mut self) -> RelativeDname<Octets>
+    where Octets: Sized + OctetsExt {
+        let len = self.0.as_ref().len() - 1;
+        self.0.truncate(len);
+        unsafe { RelativeDname::from_octets_unchecked(self.0) }
+    }
+
+    /// Returns a domain name using a reference to the octets.
+    pub fn for_ref(&self) -> Dname<&Octets> {
+        unsafe { Dname::from_octets_unchecked(&self.0) }
+    }
+
+    /// Returns a reference to the underlying octets slice.
+    pub fn as_slice(&self) -> &[u8]
+    where Octets: AsRef<[u8]> {
+        self.0.as_ref()
+    }
+
+    /// Returns a domain name for the octets slice of the content.
+    pub fn for_slice(&self) -> Dname<&[u8]>
+    where Octets: AsRef<[u8]> {
+        unsafe { Dname::from_octets_unchecked(self.0.as_ref()) }
+    }
+}
+
+
 /// # Properties
 ///
-/// More of the usual methods on byte sequences, such as
-/// [`len`](#method.len), are available via
-/// [deref](#deref-methods).
+/// More of the usual methods on octets sequences, such as `len`, are
+/// available via the implementation of `Deref<Target = Octets>`.
 impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
     /// Returns whether the name is the root label only.
     pub fn is_root(&self) -> bool {
@@ -219,10 +246,22 @@ impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
 
 /// # Working with Labels
 ///
+/// All methods that split the name or cut off parts on the left side are
+/// only available on octets sequences that are their only range, e.g.,
+/// `&[u8]` or `Bytes`, as these are the only types that can be split.
 impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
     /// Returns an iterator over the labels of the domain name.
     pub fn iter(&self) -> DnameIter {
         DnameIter::new(self.0.as_ref())
+    }
+
+    /// Returns an iterator over the suffixes of the name.
+    ///
+    /// The returned iterator starts with the full name and then for each
+    /// additional step returns a name with the left-most label stripped off
+    /// until it reaches the root label.
+    pub fn iter_suffixes(&self) -> SuffixIter<&Octets> {
+        SuffixIter::new(self.for_ref())
     }
 
     /// Returns the number of labels in the domain name.
@@ -289,7 +328,12 @@ impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
     /// Returns the part of the name indicated by start and end positions.
     ///
     /// The returned name will start at position `begin` and end right before
-    /// position `end`. Both positions must point to the begining of a label.
+    /// position `end`. Both positions are given as indexes into the
+    /// underlying octets sequence and must point to the begining of a label.
+    ///
+    /// The method returns a reference to an unsized relative domain name and
+    /// is thus best suited for temporary referencing. If you want to keep the
+    /// part of the name around, [`range`] is likely a better choice.
     ///
     /// # Panics
     ///
@@ -301,6 +345,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
     /// want to slice the entire end of the name including the final root
     /// label, you can use [`slice_from()`] instead.
     ///
+    /// [`range`]: #method.range
     /// [`slice_from()`]: #method.slice_from
     pub fn slice(&self, begin: usize, end: usize) -> &RelativeDname<[u8]> {
         self.check_index(begin);
@@ -312,10 +357,21 @@ impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
 
     /// Returns the part of the name starting at the given position.
     ///
+    /// The returned name will start at the given postion and cover the
+    /// remainder of the name. The position `begin` is provided as an index
+    /// into the underlying octets sequence and must point to the beginning
+    /// of a label.
+    ///
+    /// The method returns a reference to an unsized domain name and
+    /// is thus best suited for temporary referencing. If you want to keep the
+    /// part of the name around, [`range_from`] is likely a better choice.
+    ///
     /// # Panics
     ///
     /// The method panics if `begin` isn’t the index of the beginning of a
     /// label or is out of bounds.
+    ///
+    /// [`range_from`]: #method.range_from
     pub fn slice_from(&self, begin: usize) -> &Dname<[u8]> {
         self.check_index(begin);
         unsafe {
@@ -325,29 +381,46 @@ impl<Octets: AsRef<[u8]> + ?Sized> Dname<Octets> {
 
     /// Returns the part of the name ending at the given position.
     ///
+    /// The returned name will start at beginning of the name and continue
+    /// until just before the given postion. The position `end` is considered
+    /// as an index into the underlying octets sequence and must point to the
+    /// beginning of a label.
+    ///
+    /// The method returns a reference to an unsized domain name and
+    /// is thus best suited for temporary referencing. If you want to keep the
+    /// part of the name around, [`range_to`] is likely a better choice.
+    ///
     /// # Panics
     ///
     /// The method panics if `end` is not the beginning of a label or is out
     /// of bounds. Because the returned domain name is relative, the method
     /// will also panic if the end is equal to the length of the name.
+    ///
+    /// [`range_to`]: #method.range_to
     pub fn slice_to(&self, end: usize) -> &RelativeDname<[u8]> {
         self.check_index(end);
         unsafe {
             RelativeDname::from_slice_unchecked(&self.0.as_ref()[..end])
         }
     }
-}
 
-impl<Octets: AsRef<[u8]>> Dname<Octets> {
-    /// Returns an iterator over the suffixes of the name.
+    /// Returns the part of the name indicated by start and end positions.
     ///
-    /// The returned iterator starts with the full name and then for each
-    /// additional step returns a name with the left-most label stripped off
-    /// until it reaches the root label.
-    pub fn iter_suffixes(&self) -> SuffixIter<&Octets> {
-        SuffixIter::new(self.ref_octets())
-    }
-
+    /// The returned name will start at position `begin` and end right before
+    /// position `end`. Both positions are given as indexes into the
+    /// underlying octets sequence and must point to the begining of a label.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if either position is not the start of a label or
+    /// is out of bounds.
+    ///
+    /// Because the returned domain name is relative, the method will also
+    /// panic if the end is equal to the length of the name. If you
+    /// want to slice the entire end of the name including the final root
+    /// label, you can use [`range_from()`] instead.
+    ///
+    /// [`range_from()`]: #method.range_from
     pub fn range<'a>(
         &'a self, begin: usize, end: usize
     ) -> RelativeDname<<&'a Octets as OctetsRef>::Range>
@@ -358,7 +431,18 @@ impl<Octets: AsRef<[u8]>> Dname<Octets> {
             RelativeDname::from_octets_unchecked(self.0.range(begin, end))
         }
     }
- 
+
+    /// Returns the part of the name starting at the given position.
+    ///
+    /// The returned name will start at the given postion and cover the
+    /// remainder of the name. The position `begin` is provided as an index
+    /// into the underlying octets sequence and must point to the beginning
+    /// of a label.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if `begin` isn’t the index of the beginning of a
+    /// label or is out of bounds.
     pub fn range_from<'a>(
         &'a self, begin: usize
     ) -> Dname<<&'a Octets as OctetsRef>::Range>
@@ -369,6 +453,18 @@ impl<Octets: AsRef<[u8]>> Dname<Octets> {
         }
     }
 
+    /// Returns the part of the name ending at the given position.
+    ///
+    /// The returned name will start at beginning of the name and continue
+    /// until just before the given postion. The position `end` is considered
+    /// as an index into the underlying octets sequence and must point to the
+    /// beginning of a label.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if `end` is not the beginning of a label or is out
+    /// of bounds. Because the returned domain name is relative, the method
+    /// will also panic if the end is equal to the length of the name.
     pub fn range_to<'a>(
         &'a self,
         end: usize
@@ -379,16 +475,17 @@ impl<Octets: AsRef<[u8]>> Dname<Octets> {
             RelativeDname::from_octets_unchecked(self.0.range_to(end))
         }
     }
+}
 
+impl<Octets: AsRef<[u8]>> Dname<Octets> {
     /// Splits the name into two at the given position.
+    ///
+    /// Returns a pair of the left and right part of the split name.
     ///
     /// # Panics
     ///
     /// The method will panic if `mid` is not the index of the beginning of
     /// a label or if it is out of bounds.
-    ///
-    /// [`Bytes`]: ../../../bytes/struct.Bytes.html#method.split_off
-    /// [`RelativeDname`]: struct.RelativeDname.html
     pub fn split_at(mut self, mid: usize) -> (RelativeDname<Octets>, Self)
     where for<'a> &'a Octets: OctetsRef<Range = Octets> {
         let left = self.split_to(mid);
@@ -769,11 +866,22 @@ impl<Ref: OctetsRef> Iterator for SuffixIter<Ref> {
 /// A domain name wasn’t encoded correctly.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DnameError {
+    /// The encoding contained an unknown or disallowed label type.
     BadLabel(LabelTypeError),
+
+    /// The encoding contained a compression pointer.
     CompressedName,
+
+    /// The name was longer than 255 octets.
     LongName,
+
+    /// The name did not end with the root label.
     RelativeName,
+
+    /// There was more data after the root label was encountered.
     TrailingData,
+
+    /// The input ended in the middle of a label.
     ShortInput,
 }
 

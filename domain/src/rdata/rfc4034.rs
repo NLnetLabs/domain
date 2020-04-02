@@ -1,4 +1,4 @@
-//! Record data from [RFC 4034].
+//! Record data from [RFC 4034]: DS, DNSKEY, RRSIG, and NSEC records.
 //!
 //! This RFC defines the record types for DNSSEC.
 //!
@@ -18,11 +18,11 @@ use crate::base::octets::{
 };
 use crate::base::rdata::{RtypeRecordData};
 use crate::base::serial::Serial;
-use crate::base::utils::base64;
 #[cfg(feature="master")] use crate::base::name::Dname;
 #[cfg(feature="master")] use crate::master::scan::{ 
     CharSource, ScanError, Scan, Scanner
 };
+use crate::utils::base64;
 
 
 //------------ Dnskey --------------------------------------------------------

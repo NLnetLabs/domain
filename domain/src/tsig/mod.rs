@@ -63,9 +63,7 @@ use ring::{constant_time, hmac, rand, hkdf::KeyType};
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
-use crate::base::message_builder::{
-    AdditionalBuilder, MessageBuilder, RecordSectionBuilder
-};
+use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
 use crate::base::name::{
     Dname, Label, ParsedDname, ToDname, ToLabelIter
 };

@@ -36,6 +36,7 @@ pub trait ToLabelIter<'a> {
     /// Returns an iterator over the labels.
     fn iter_labels(&'a self) -> Self::LabelIter;
 
+    /// Returns the length in octets of the encoded name.
     fn len(&'a self) -> usize {
         self.iter_labels().map(Label::compose_len).sum()
     }
@@ -101,6 +102,14 @@ impl<'a, 'b, N: ToLabelIter<'b> + ?Sized> ToLabelIter<'b> for &'a N {
 /// [`Dname`]: struct.Dname.html
 /// [`ParsedDname`]: struct.ParsedDname.html
 pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
+    /// Converts the name into a single, uncompressed name.
+    ///
+    /// The canonical implementation provided by the trait iterates over the
+    /// labels of the name and adds them one by one to [`Dname`]. This will
+    /// work for any name but an optimized implementation can be provided for
+    /// some types of names.
+    ///
+    /// [`Dname`]: struct.Dname.html
     fn to_dname<Octets>(&self) -> Result<Dname<Octets>, PushError>
     where
         Octets: FromBuilder,
@@ -113,27 +122,9 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
         Ok(unsafe { Dname::from_octets_unchecked(builder.into_octets()) })
     }
 
-    #[cfg(feature = "std")]
-    fn to_dname_cow(&self) -> Dname<std::borrow::Cow<[u8]>> {
-        let octets = self.as_flat_slice().map(Cow::Borrowed).unwrap_or_else(|| {
-            Cow::Owned(self.to_dname_vec().into_octets())
-        });
-        unsafe { Dname::from_octets_unchecked(octets) }
-    }
-
-    #[cfg(feature = "std")]
-    fn to_dname_vec(&self) -> Dname<std::vec::Vec<u8>> {
-        self.to_dname().unwrap()
-    }
-
-    #[cfg(feature="bytes")] 
-    fn to_dname_bytes(&self) -> Dname<Bytes> {
-        self.to_dname().unwrap()
-    }
-
-    /// Returns a byte slice of the content if possible.
+    /// Returns an octets slice of the content if possible.
     ///
-    /// If a value stores the domain name as one single byte sequence, it
+    /// If a value stores the domain name as one single octets sequence, it
     /// should return a reference to this sequence here. If the name is
     /// composed from multiple such sequences, it should return `None`.
     ///
@@ -141,6 +132,34 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     /// two values that are indeed flat names.
     fn as_flat_slice(&self) -> Option<&[u8]> {
         None
+    }
+
+    /// Returns a cow of the domain name.
+    ///
+    /// If the name is available as one single slice – i.e.,
+    /// [`as_flat_slice`] returns ‘some,’ creates the borrowed variant from
+    /// that slice. Otherwise assembles an owned variant via [`to_dname`].
+    ///
+    /// [`as_flat_slice`]: #method.as_flat_slice
+    /// [`to_dname`]: #method.to_dname
+    #[cfg(feature = "std")]
+    fn to_cow(&self) -> Dname<std::borrow::Cow<[u8]>> {
+        let octets = self.as_flat_slice().map(Cow::Borrowed).unwrap_or_else(|| {
+            Cow::Owned(self.to_vec().into_octets())
+        });
+        unsafe { Dname::from_octets_unchecked(octets) }
+    }
+
+    /// Returns the domain name assembled into a `Vec<u8>`.
+    #[cfg(feature = "std")]
+    fn to_vec(&self) -> Dname<std::vec::Vec<u8>> {
+        self.to_dname().unwrap()
+    }
+
+    /// Returns the domain name assembled into a bytes value.
+    #[cfg(feature="bytes")] 
+    fn to_bytes(&self) -> Dname<Bytes> {
+        self.to_dname().unwrap()
     }
 
     /// Tests whether `self` and `other` are equal.
@@ -191,7 +210,6 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     }
 
     /// Returns the composed name ordering.
-    /// 
     fn composed_cmp<N: ToDname + ?Sized>(&self, other: &N) -> cmp::Ordering {
         if let (Some(left), Some(right)) =
                                (self.as_flat_slice(), other.as_flat_slice()) {
@@ -282,6 +300,15 @@ impl<'a, N: ToDname + ?Sized + 'a> ToDname for &'a N { }
 /// [`Chain<L, R>`]: struct.Chain.html
 /// [`RelativeDname`]: struct.RelativeDname.html
 pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
+    /// Converts the name into a single, continous name.
+    ///
+    /// The canonical implementation provided by the trait iterates over the
+    /// labels of the name and adds them one by one to [`RelativeDname`].
+    /// This will work for any name but an optimized implementation can be
+    /// provided for
+    /// some types of names.
+    ///
+    /// [`RelativeDname`]: struct.RelativeDname.html
     fn to_relative_dname<Octets>(
         &self
     ) -> Result<RelativeDname<Octets>, PushError>
@@ -306,6 +333,35 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
         None
     }
 
+    /// Returns a cow of the relative domain name.
+    ///
+    /// If the name is available as one single slice – i.e.,
+    /// [`as_flat_slice`] returns ‘some,’ creates the borrowed variant from
+    /// that slice. Otherwise assembles an owned variant via [`to_dname`].
+    ///
+    /// [`as_flat_slice`]: #method.as_flat_slice
+    /// [`to_dname`]: #method.to_dname
+    #[cfg(feature = "std")]
+    fn to_cow(&self) -> RelativeDname<std::borrow::Cow<[u8]>> {
+        let octets = self.as_flat_slice().map(Cow::Borrowed).unwrap_or_else(|| {
+            Cow::Owned(self.to_vec().into_octets())
+        });
+        unsafe { RelativeDname::from_octets_unchecked(octets) }
+    }
+
+    /// Returns the domain name assembled into a `Vec<u8>`.
+    #[cfg(feature = "std")]
+    fn to_vec(&self) -> RelativeDname<std::vec::Vec<u8>> {
+        self.to_relative_dname().unwrap()
+    }
+
+    /// Returns the domain name assembled into a bytes value.
+    #[cfg(feature="bytes")] 
+    fn to_bytes(&self) -> RelativeDname<Bytes> {
+        self.to_relative_dname().unwrap()
+    }
+
+    /// Returns whether the name is empty.
     fn is_empty(&self) -> bool {
         self.iter_labels().next().is_none()
     }
@@ -382,6 +438,17 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
 impl<'a, N: ToRelativeDname + ?Sized + 'a> ToRelativeDname for &'a N { }
 
 
+//------------ ToEitherDname -------------------------------------------------
+
+/// A name that is either absolute or relative.
+///
+/// This is anything that can iterate over labels.
+///
+/// The trait only exists to avoid the somewhat clumsy trait bounds necessary
+/// for [`ToLabelIter`].
+///
+/// [`ToLabelIter`]: trait.ToLabelIter.html
 pub trait ToEitherDname: Compose + for<'a> ToLabelIter<'a> { }
 
 impl<N: Compose + for<'a> ToLabelIter<'a>> ToEitherDname for N { }
+

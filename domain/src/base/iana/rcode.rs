@@ -1,15 +1,15 @@
 //! DNS response codes and extended response codes.
 //!
 //! The original DNS specification in [RFC 1035] specified four bits of the
-//! message header as response code. The type [Rcode] defined herein
+//! message header as response code. The type [`Rcode`] defined herein
 //! represents these codes. Later, [RFC 2671][] (now [RFC 6891]) added eight
 //! bits to the response code to be transmitted as part of the OPT
 //! pseudo-resource record. To make matters even worse, the TSIG and TKEY
 //! records defined by [RFC 2845] and [RFC 2930] use a 16 bit error code.
-//! All of these codes share the same defition space. Even so, we have
+//! All of these codes share the same definition space. Even so, we have
 //! separate types for each of these.
 //!
-//! [Rcode]: enum.Rcode.html
+//! [`Rcode`]: enum.Rcode.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 //! [RFC 2671]: https://tools.ietf.org/html/rfc2671
 //! [RFC 2845]: https://tools.ietf.org/html/rfc2845

@@ -3,7 +3,7 @@
 
 //------------ Class ---------------------------------------------------------
 
-int_enum!{
+int_enum! {
     /// DNS CLASSes.
     ///
     /// The domain name space is partitioned into separate classes for different

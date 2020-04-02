@@ -1,4 +1,4 @@
-//! Basics.
+//! Handling of DNS data.
 //!
 //! This module provides types and traits for working with DNS data. The types
 //! allow creating such data from scratch and processing it. Crucially, the
@@ -95,10 +95,12 @@
 pub use self::charstr::CharStr;
 pub use self::cmp::CanonicalOrd;
 pub use self::header::{Header, HeaderCounts, HeaderSection};
+pub use self::iana::Rtype;
 pub use self::message::{Message, QuestionSection, RecordSection};
 pub use self::message_builder::{
-    MessageBuilder, RecordSectionBuilder, StreamTarget
+    MessageBuilder, RecordSectionBuilder, StaticCompressor, StreamTarget
 };
+#[cfg(feature = "std")] pub use self::message_builder::TreeCompressor;
 pub use self::name::{
     Dname, DnameBuilder, ParsedDname, RelativeDname, ToDname, ToRelativeDname
 };
@@ -126,5 +128,4 @@ pub mod record;
 pub mod question;
 pub mod serial;
 pub mod str;
-pub mod utils;
 

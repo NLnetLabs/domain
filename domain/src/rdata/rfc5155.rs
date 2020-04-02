@@ -1,4 +1,4 @@
-//! Record data from [RFC 5155].
+//! Record data from [RFC 5155]: NSEC3 and NSEC3PARAM records.
 //!
 //! This RFC defines the NSEC3 and NSEC3PARAM resource records.
 //!
@@ -14,10 +14,10 @@ use crate::base::octets::{
     Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
-use crate::base::utils::base32;
 #[cfg(feature="master")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
+use crate::utils::base32;
 use super::rfc4034::RtypeBitmap;
 
 
@@ -252,9 +252,10 @@ fn scan_hash<C: CharSource>(
 
 impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {} ", self.hash_algorithm, self.flags,
-               self.iterations)?;
-        self.salt.display_hex(f)?;
+        write!(
+            f, "{} {} {} {:X} ",
+            self.hash_algorithm, self.flags, self.iterations, self.salt
+        )?;
         base32::display_hex(&self.next_owner, f)?;
         write!(f, " {}", self.types)
     }
@@ -457,9 +458,10 @@ impl Scan for Nsec3param<Bytes> {
 
 impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3param<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {} ", self.hash_algorithm, self.flags,
-               self.iterations)?;
-        self.salt.display_hex(f)
+        write!(
+            f, "{} {} {} {:X}",
+            self.hash_algorithm, self.flags, self.iterations, self.salt
+        )
     }
 }
 

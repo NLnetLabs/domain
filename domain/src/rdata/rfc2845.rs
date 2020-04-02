@@ -1,4 +1,4 @@
-//! Record data from [RFC 2845].
+//! Record data from [RFC 2845]: TSIG records.
 //!
 //! This RFC defines the TSIG record type used for signing DNS messages.
 //!
@@ -15,7 +15,7 @@ use crate::base::octets::{
     ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
-use crate::base::utils::base64;
+use crate::utils::base64;
 
 
 //------------ Tsig ----------------------------------------------------------

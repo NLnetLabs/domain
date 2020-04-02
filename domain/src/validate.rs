@@ -1,3 +1,6 @@
+//! DNSSEC validation.
+//!
+//! **This module is experimental and likely to change significantly.**
 #![cfg(feature = "validate")]
 
 use std::{error, fmt};
@@ -173,7 +176,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
             if rrsig_labels < fqdn_labels {
                 // name = "*." | the rightmost rrsig_label labels of the fqdn
                 buf.append_slice(b"\x01*")?;
-                match fqdn.to_dname_cow().iter_suffixes().nth(fqdn_labels - rrsig_labels) {
+                match fqdn.to_cow().iter_suffixes().nth(fqdn_labels - rrsig_labels) {
                     Some(name) => name.compose_canonical(buf),
                     None => fqdn.compose_canonical(buf),
                 }?;
@@ -340,10 +343,10 @@ mod test {
     use std::str::FromStr;
     use bytes::Bytes;
     use crate::base::iana::{Class, Rtype, SecAlg};
-    use crate::base::utils::base64;
     use crate::base::serial::Serial;
     use crate::master::scan::Scanner;
     use crate::rdata::{MasterRecordData, Mx};
+    use crate::utils::base64;
     use super::*;
 
     type Dname = crate::base::name::Dname<Bytes>;

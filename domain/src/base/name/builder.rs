@@ -17,7 +17,7 @@ use super::traits::{ToDname, ToRelativeDname};
 /// Builds a domain name step by step by appending data.
 /// 
 /// The domain name builder is the most fundamental way to construct a new
-/// domain name. It wraps an octet sequence and allows adding single octets,
+/// domain name. It wraps an octets builder and allows adding single octets,
 /// octet slices, or entire labels.
 #[derive(Clone)]
 pub struct DnameBuilder<Builder> {
@@ -31,7 +31,7 @@ pub struct DnameBuilder<Builder> {
 }
 
 impl<Builder> DnameBuilder<Builder> {
-    /// Creates a new domain name builder from an existing bytes buffer.
+    /// Creates a new domain name builder from an octets builder.
     ///
     /// Whatever is in the buffer already is considered to be a relative
     /// domain name. Since that may not be the case, this function is
@@ -57,6 +57,9 @@ impl<Builder> DnameBuilder<Builder> {
     }
 
     /// Creates a new domain name builder atop an existing octets builder.
+    ///
+    /// The function checks that whatever is in the builder already
+    /// consititutes a correctly encoded relative domain name.
     pub fn from_builder(builder: Builder) -> Result<Self, RelativeDnameError>
     where Builder: OctetsBuilder {
         RelativeDname::check_slice(builder.as_ref())?;
@@ -66,10 +69,15 @@ impl<Builder> DnameBuilder<Builder> {
 
 #[cfg(feature = "std")]
 impl DnameBuilder<Vec<u8>> {
+    /// Creates an empty domain name builder atop a `Vec<u8>`.
     pub fn new_vec() -> Self {
         Self::new()
     }
 
+    /// Creates an empty builder atop a `Vec<u8>` with given capacity.
+    ///
+    /// Names are limited to a length of 255 octets, but you can provide any
+    /// capacity you like here.
     pub fn vec_with_capacity(capacity: usize) -> Self {
         Self::with_capacity(capacity)
     }
@@ -77,10 +85,15 @@ impl DnameBuilder<Vec<u8>> {
 
 #[cfg(feature="bytes")] 
 impl DnameBuilder<BytesMut> {
+    /// Creates an empty domain name bulider atop a bytes value.
     pub fn new_bytes() -> Self {
         Self::new()
     }
 
+    /// Creates an empty bulider atop a bytes value with given capacity.
+    ///
+    /// Names are limited to a length of 255 octets, but you can provide any
+    /// capacity you like here.
     pub fn bytes_with_capacity(capacity: usize) -> Self {
         Self::with_capacity(capacity)
     }
@@ -99,8 +112,8 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
 
     /// Pushes an octet to the end of the domain name.
     ///
-    /// Starts a new label if necessary. Returns an error if pushing the byte
-    /// would exceed the size limits for labels or domain names.
+    /// Starts a new label if necessary. Returns an error if pushing the
+    /// octet would exceed the size limits for labels or domain names.
     pub fn push(&mut self, ch: u8) -> Result<(), PushError> {
         let len = self.len();
         if len >= 254 {
@@ -119,12 +132,12 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
         Ok(())
     }
 
-    /// Appends a byte slice to the end of the domain name.
+    /// Appends the content of an octets slice to the end of the domain name.
     ///
     /// Starts a new label if necessary. Returns an error if pushing
     /// would exceed the size limits for labels or domain names.
     ///
-    /// If bytes is empty, does absolutely nothing.
+    /// If `slice` is empty, does absolutely nothing.
     pub fn append_slice(&mut self, slice: &[u8]) -> Result<(), PushError> {
         if slice.is_empty() {
             return Ok(())
@@ -159,7 +172,7 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
         }
     }
 
-    /// Appends a byte slice as a complete label.
+    /// Appends an octets slice as a complete label.
     ///
     /// If there currently is a label under construction, it will be ended
     /// before appending `label`.
@@ -215,7 +228,9 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// three digit decimal value.
     ///
     /// The last label will only be ended if the last character was a dot.
-    /// Thus, you can determine if that was the case via `in_label`.
+    /// Thus, you can determine if that was the case via [`in_label`].
+    ///
+    /// [`in_label`] #method.in_label
     pub fn append_chars<C: IntoIterator<Item = char>>(
         &mut self,
         chars: C
@@ -242,13 +257,18 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
         Ok(())
     }
 
-    /// Finishes building the name and returns the resulting domain name.
+    /// Finishes building the name and returns the resulting relative name.
     /// 
     /// If there currently is a label being built, ends the label first
     /// before returning the name. I.e., you don’t have to call [`end_label`]
     /// explicitely.
     ///
+    /// This method converts the builder into a relative name. If you would
+    /// like to turn it into an absolute name, use [`into_dname`] which
+    /// appends the root label before finishing.
+    ///
     /// [`end_label`]: #method.end_label
+    /// [`into_dname`]: #method.into_dname
     pub fn finish(
         mut self
     ) -> RelativeDname<Builder::Octets>

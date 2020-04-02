@@ -12,14 +12,13 @@ use ring::rand::SystemRandom;
 use crate::test::nsd;
 use crate::base::message::Message;
 use crate::base::message_builder::{
-    AdditionalBuilder, AnswerBuilder, MessageBuilder, RecordSectionBuilder,
-    StreamTarget,
+    AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
 use crate::base::name::Dname;
 use crate::base::iana::{Rcode, Rtype};
-use crate::base::utils::base64;
 use crate::rdata::{A, Soa};
 use crate::tsig;
+use crate::utils::base64;
 
 type TestMessage = Message<Vec<u8>>;
 type TestBuilder = MessageBuilder<StreamTarget<Vec<u8>>>;
