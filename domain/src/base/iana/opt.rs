@@ -1,216 +1,165 @@
-//! DNS EDNS0 Option Codes (OPT)
+//! DNS EDNS0 pption codes.
 
-use core::{cmp, fmt, hash};
-use super::super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
-};
+//------------ OptionCode ----------------------------------------------------
 
+int_enum! {
+    /// DNS EDNS0 option codes.
+    ///
+    /// The record data of [OPT] records is a sequence of options. The type of
+    /// each of these options is given through a 16 bit value called *option
+    /// code.*
+    ///
+    /// The currently assigned option codes can be found in the
+    /// [IANA registry]. The type is complete as of 2019-12-23.
+    ///
+    /// [OPT]: ../../opt/index.html
+    /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-11
+    =>
+    OptionCode, u16;
 
-//------------ OptionCode ---------------------------------------------------
+    /// Long-Lived Queries (LLQ, 1).
+    ///
+    /// Long-Lived Queries is a protocol developed by Apple for change
+    /// notifications. It is now being replaced by DNS Push Notifications.
+    /// The LLQ options is used in LLQ messages.
+    ///
+    /// This option code and the LLQ option are defined in a upcoming RFC,
+    /// currently [draft-sekar-dns-llq].
+    ///
+    /// [draft-sekar-dns-llq]: https://datatracker.ietf.org/doc/draft-sekar-dns-llq/
+    (Llq => 1, b"LLQ")
 
-/// DNS EDNS0 Option Codes (OPT).
-///
-/// The record data of OPT records is a sequence of options. The type of each
-/// of these options is given through an option code, a 16 bit value.
-///
-/// The currently assigned option codes can be found in the [IANA registry].
-/// The type is complete as of 2019-01-28.
-///
-/// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-11
-#[derive(Clone, Copy, Debug)]
-pub enum OptionCode {
-    Llq,
-    Ul,
-    Nsid,
-    Dau,
-    Dhu,
-    N3u,
-    ClientSubnet,
-    Expire,
-    Cookie,
-    TcpKeepalive,
-    Padding,
-    Chain,
-    KeyTag,
-    DeviceId,
+    /// Update lease (UL, 2).
+    ///
+    /// This option was proposed in a draft as a way to state lease times for
+    /// registrations made via DNS UPDATE. Its draft, [draft-sekar-dns-ul],
+    /// has since expired. The code is considered ‘on hold.’
+    ///
+    /// [draft-sekar-dns-ul]: http://files.dns-sd.org/draft-sekar-dns-ul.txt
+    (Ul => 2, b"UL")
 
-    /// A raw class value given through its integer. 
-    Int(u16),
+    /// Name server identifier (NSID, 3).
+    ///
+    /// The NSID option allows a name server to include an indentifier in an
+    /// answer for diagnostic purposes. The options in defined in [RFC 5001].
+    ///
+    /// [RFC 5001]: https://tools.ietf.org/html/rfc5001
+    (Nsid => 3, b"NSID")
+
+    /// DNSSEC algorithm understood (DAU, 5).
+    ///
+    /// The DAU option allows a validating resolver to signal a queried server
+    /// which DNSSEC signing algorithms it understands. The option is defined
+    /// in [RFC 6975].
+    ///
+    /// [RFC 6075]: https://tools.ietf.org/html/rfc6975
+    (Dau => 5, b"DAU")
+
+    /// DS hash understood (DHU, 6).
+    ///
+    /// The DHU option allows a validating resolver to signal a queried server
+    /// which DS hash algorithms it understands. The option is defined
+    /// in [RFC 6975].
+    ///
+    /// [RFC 6075]: https://tools.ietf.org/html/rfc6975
+    (Dhu => 6, b"DHU")
+
+    /// NSEC3 hash understood (N3U, 7).
+    ///
+    /// The DHU option allows a validating resolver to signal a queried server
+    /// which NSEC3 hash algorithms it understands. The option is defined
+    /// in [RFC 6975].
+    ///
+    /// [RFC 6075]: https://tools.ietf.org/html/rfc6975
+    (N3u => 7, b"N3U")
+
+    /// EDNS client subnet (8),
+    ///
+    /// The EDSN client subnet option allows a resolver to identify the IP
+    /// address subnet it queries from so that a server can determine the best
+    /// answer. This option is defined in [RFC 7871].
+    ///
+    /// [RFC 7871]: https://tools.ietf.org/html/rfc7871
+    (ClientSubnet => 8, b"edns-client-subnet")
+
+    /// Expire (9).
+    ///
+    /// The expire option allows a secondary to maintain the correct expiry
+    /// time for a zone when transferring from a server other than the
+    /// primary. The option is defined in [RFC 7314].
+    ///
+    /// [RFC 7314]: https://tools.ietf.org/html/rfc7314
+    (Expire => 9, b"EDNS EXPIRE")
+
+    /// DNS Cookie (10).
+    ///
+    /// The cookie option allows clients and server to exchange session
+    /// cookies as a mechanism for protecting agains denial-of-service and
+    /// amplification attacks. The option is defined in [RFC 7873].
+    ///
+    /// [RFC 7873]: https://tools.ietf.org/html/rfc7873
+    (Cookie => 10, b"COOKIE")
+
+    /// edns-tcp-keepalive (11).
+    ///
+    /// This option allows DNS servers to signal to a client for how long they
+    /// may hold open a TCP connection. The option is defined in [RFC 7828].
+    ///
+    /// [RFC 7828]: https://tools.ietf.org/html/rfc7828
+    (TcpKeepalive => 11, b"edns-tcp-keepalive")
+
+    /// Padding (12).
+    ///
+    /// The padding option allows clients and servers to pad their messages
+    /// with extra data to make it harder to guess content based on length.
+    /// The option is defined in [RFC 7830].
+    ///
+    /// [RFC 7830]: https://tools.ietf.org/html/rfc7830
+    (Padding => 12, b"Padding")
+
+    /// CHAIN query requests (13).
+    ///
+    /// The CHAIN query requests option allows a security-aware resolver to
+    /// all ask a server to include records necessary for DNSSEC validation of
+    /// the answer. The option is defined in [RFC 7901].
+    ///
+    /// [RFC 7901]: https://tools.ietf.org/html/rfc7901
+    (Chain => 13, b"CHAIN")
+
+    /// EDNS key tag (14).
+    ///
+    /// The key tag option allows a client to signal to a server which DNSSEC
+    /// key they would use to validate an asnwer. The option is defined in
+    /// [RFC 8145].
+    ///
+    /// [RFC 8145]: https://tools.ietf.org/html/rfc8145
+    (KeyTag => 14, b"edns-key-tag")
+
+    /// EDNS client tag (16).
+    ///
+    /// The client tag option allows a client to send arbitrary additional
+    /// data to a server. The option is defined in the now expired
+    /// [draft-bellis-dnsop-edns-tags].
+    ///
+    /// [draft-bellis-dnsop-edns-tags]: https://datatracker.ietf.org/doc/draft-bellis-dnsop-edns-tags/
+    (ClientTag => 16, b"EDNS-Client-Tag")
+
+    /// EDNS server tag (16).
+    ///
+    /// The client tag option allows a server to send arbitrary additional
+    /// data to a client. The option is defined in the now expired
+    /// [draft-bellis-dnsop-edns-tags].
+    ///
+    /// [draft-bellis-dnsop-edns-tags]: https://datatracker.ietf.org/doc/draft-bellis-dnsop-edns-tags/
+    (ServerTag => 17, b"EDNS-Server-Tag")
+
+    /// DeviceID (26946).
+    ///
+    /// Ths option is used by the [Cisco Umbrella network device API].
+    ///
+    /// [Cisco Umbrella network device API]: https://docs.umbrella.com/developer/networkdevices-api/identifying-dns-traffic2
+    (DeviceId => 26946, b"DeviceId")
 }
 
-impl OptionCode {
-    /// Returns the option code for the given raw integer value.
-    pub fn from_int(value: u16) -> Self {
-        use self::OptionCode::*;
-
-        match value {
-            1 => Llq,
-            2 => Ul,
-            3 => Nsid,
-            5 => Dau,
-            6 => Dhu,
-            7 => N3u,
-            8 => ClientSubnet,
-            9 => Expire,
-            10 => Cookie,
-            11 => TcpKeepalive,
-            12 => Padding,
-            13 => Chain,
-            14 => KeyTag,
-            26946 => DeviceId,
-            _ => Int(value)
-        }
-    }
-
-    /// Returns the raw integer value for this option code.
-    pub fn to_int(self) -> u16 {
-        use self::OptionCode::*;
-
-        match self {
-            Llq => 1,
-            Ul => 2,
-            Nsid => 3,
-            Dau => 5,
-            Dhu => 6,
-            N3u => 7,
-            ClientSubnet => 8,
-            Expire => 9,
-            Cookie => 10,
-            TcpKeepalive => 11,
-            Padding => 12,
-            Chain => 13,
-            KeyTag => 14,
-            DeviceId => 26946,
-            Int(v) => v
-        }
-    }
-}
-
-
-//--- Parse and Compose
-
-impl<Ref: AsRef<[u8]>> Parse<Ref> for OptionCode {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        u16::parse(parser).map(OptionCode::from_int)
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        u16::skip(parser)
-    }
-}
-
-impl Compose for OptionCode {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
-        self.to_int().compose(target)
-    }
-}
-
-
-//--- From
-
-impl From<u16> for OptionCode {
-    fn from(value: u16) -> Self {
-        OptionCode::from_int(value)
-    }
-}
-
-impl From<OptionCode> for u16 {
-    fn from(value: OptionCode) -> Self {
-        value.to_int()
-    }
-}
-
-
-//--- Display
-
-impl fmt::Display for OptionCode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::OptionCode::*;
-
-        match *self {
-            Llq => "LLQ".fmt(f),
-            Ul => "UL".fmt(f),
-            Nsid => "NSID".fmt(f),
-            Dau => "DAU".fmt(f),
-            Dhu => "DHU".fmt(f),
-            N3u => "N3U".fmt(f),
-            ClientSubnet => "edns-client-subnet".fmt(f),
-            Expire => "EDNS EXPIRE".fmt(f),
-            Cookie => "COOKIE".fmt(f),
-            TcpKeepalive => "edns-tcp-keepalive".fmt(f),
-            Padding => "Padding".fmt(f),
-            Chain => "CHAIN".fmt(f),
-            KeyTag => "edns-key-tag".fmt(f),
-            DeviceId => "DeviceID".fmt(f),
-            Int(value) => {
-                match OptionCode::from_int(value) {
-                    Int(value) => value.fmt(f),
-                    value => value.fmt(f),
-                }
-            }
-        }
-    }
-}
-
-
-//--- PartialEq and Eq
-
-impl PartialEq for OptionCode {
-    fn eq(&self, other: &Self) -> bool {
-        self.to_int() == other.to_int()
-    }
-}
-
-impl PartialEq<u16> for OptionCode {
-    fn eq(&self, other: &u16) -> bool {
-        self.to_int() == *other
-    }
-}
-
-impl PartialEq<OptionCode> for u16 {
-    fn eq(&self, other: &OptionCode) -> bool {
-        *self == other.to_int()
-    }
-}
-
-impl Eq for OptionCode { }
-
-
-//--- PartialOrd and Ord
-
-impl PartialOrd for OptionCode {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.to_int().partial_cmp(&other.to_int())
-    }
-}
-
-impl PartialOrd<u16> for OptionCode {
-    fn partial_cmp(&self, other: &u16) -> Option<cmp::Ordering> {
-        self.to_int().partial_cmp(other)
-    }
-}
-
-impl PartialOrd<OptionCode> for u16 {
-    fn partial_cmp(&self, other: &OptionCode) -> Option<cmp::Ordering> {
-        self.partial_cmp(&other.to_int())
-    }
-}
-
-impl Ord for OptionCode {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.to_int().cmp(&other.to_int())
-    }
-}
-
-
-//--- Hash
-
-impl hash::Hash for OptionCode {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.to_int().hash(state)
-    }
-}
+int_enum_str_with_decimal!(OptionCode, u16, "unknown option code");
 

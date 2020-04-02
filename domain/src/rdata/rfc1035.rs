@@ -1,4 +1,4 @@
-//! Record data from [RFC 1035].
+//! Record data from [RFC 1035]: initial record types.
 //!
 //! This RFC defines the initial set of record types.
 //!
@@ -11,7 +11,7 @@ use core::str::FromStr;
 #[cfg(feature="master")] use bytes::Bytes;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::charstr::{CharStr, PushError};
+use crate::base::charstr::CharStr;
 use crate::base::str::Symbol;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::net::Ipv4Addr;
@@ -1319,7 +1319,7 @@ pub struct Txt<Octets>(Octets);
 
 impl<Octets: FromBuilder> Txt<Octets> {
     /// Creates a new Txt record from a single character string.
-    pub fn from_slice(text: &[u8]) -> Result<Self, PushError>
+    pub fn from_slice(text: &[u8]) -> Result<Self, ShortBuf>
     where <Octets as FromBuilder>::Builder: EmptyBuilder {
         let mut builder = TxtBuilder::<Octets::Builder>::new();
         builder.append_slice(text)?;
@@ -1490,7 +1490,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Txt<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for slice in self.iter() {
             for ch in slice.iter() {
-                fmt::Display::fmt(&Symbol::from_byte(*ch), f)?
+                fmt::Display::fmt(&Symbol::from_octet(*ch), f)?
             }
         }
         Ok(())
@@ -1565,7 +1565,7 @@ impl TxtBuilder<BytesMut> {
 }
 
 impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
-    pub fn append_slice(&mut self, mut slice: &[u8]) -> Result<(), PushError> {
+    pub fn append_slice(&mut self, mut slice: &[u8]) -> Result<(), ShortBuf> {
         if let Some(start) = self.start {
             let left = 255 - (self.builder.len() - (start + 1));
             if slice.len() < left {
@@ -1579,7 +1579,7 @@ impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
         }
         for chunk in slice.chunks(255) {
             if self.builder.len() >= 0xFFFF {
-                return Err(PushError);
+                return Err(ShortBuf);
             }
             self.start = if chunk.len() == 255 {
                 None

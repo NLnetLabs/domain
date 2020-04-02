@@ -96,6 +96,7 @@ impl UncertainDname<&'static [u8]> {
         Self::empty()
     }
 
+    /// Creates an absolute name that is the root label atop a slice reference.
     pub fn root_ref() -> Self {
         Self::root()
     }
@@ -103,11 +104,12 @@ impl UncertainDname<&'static [u8]> {
 
 #[cfg(feature = "std")]
 impl UncertainDname<Vec<u8>> {
-    /// Creates an empty relative name atop a vec.
+    /// Creates an empty relative name atop a `Vec<u8>`.
     pub fn empty_vec() -> Self {
         Self::empty()
     }
 
+    /// Creates an absolute name from the root label atop a `Vec<u8>`.
     pub fn root_vec() -> Self {
         Self::root()
     }
@@ -120,6 +122,7 @@ impl UncertainDname<Bytes> {
         Self::empty()
     }
 
+    /// Creates an absolute name from the root label atop a bytes value.
     pub fn root_bytes() -> Self {
         Self::root()
     }
@@ -202,7 +205,15 @@ impl<Octets> UncertainDname<Octets> {
         }
     }
 
-    /// Returns a byte slice with the raw content of the name.
+    /// Returns a reference to the underlying octets sequence.
+    pub fn as_octets(&self) -> &Octets {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.as_octets(),
+            UncertainDname::Relative(ref name) => name.as_octets()
+        }
+    }
+
+    /// Returns an octets slice with the raw content of the name.
     pub fn as_slice(&self) -> &[u8]
     where Octets: AsRef<[u8]> {
         match *self {

@@ -28,7 +28,7 @@ impl<Octets> KeyTag<Octets> {
     ) -> Result<(), ShortBuf> {
         let len = tags.len() * 2;
         assert!(len <= ::std::u16::MAX as usize);
-        builder.append_raw_option(OptionCode::KeyTag, |target| {
+        builder.push_raw_option(OptionCode::KeyTag, |target| {
             target.append_all(|target| {
                 for tag in tags {
                     tag.compose(target)?;

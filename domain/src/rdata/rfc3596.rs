@@ -1,4 +1,4 @@
-//! Record data from [RFC 3596].
+//! Record data from [RFC 3596]: AAAA records.
 //!
 //! This RFC defines the Aaaa record type.
 //!

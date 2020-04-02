@@ -1,24 +1,28 @@
-//! Resource data implementations.
-//!
-//!
-//! # Record Data of Well-defined Record Types
+//! Record Data of Well-defined Record Types
 //!
 //! This module will eventually contain implementations for the record data
-//! for all defined resource record types.
+//! of all defined resource record types.
 //!
-//! The types are named identically to the [`iana::Rtype`] variant they
+//! The types are named identically to the [`base::iana::Rtype`] variant they
 //! implement. They are grouped into submodules for the RFCs they are defined
 //! in. All types are also re-exported at the top level here. Ie., for the
-//! AAAA record type, you can simple `use domain_core::rdata::Aaaa` instead of
-//! `use domain_core::rdata::rfc3596::Aaaa` which nobody could possibly
+//! AAAA record type, you can simple `use domain::rdata::Aaaa` instead of
+//! `use domain::rdata::rfc3596::Aaaa` which nobody could possibly
 //! remember. There are, however, some helper data types defined here and
 //! there which are not re-exported to keep things somewhat tidy.
 //!
 //! See the [`iana::Rtype`] enum for the complete set of record types and,
 //! consequently, those types that are still missing.
 //!
+//! In additiona, the module provides two enums combining the known types.
+//! [`AllRecordData`] indeed contains all record data types known plus
+//! [`UnknownRecordData`] for the rest, while [`MasterRecordData`] only
+//! contains those types that can appear in master files plus, again,
+//! [`UnknownRecordData`] for everything else.
 //!
-//! [`iana::Rtype`]: ../iana/enum.Rtype.html
+//! [`AllRecordData`]: enum.AllRecordData.html
+//! [`MasterRecordData`]: enum.MasterRecordData.html
+//! [`base::iana::Rtype`]: ../base/iana/enum.Rtype.html
 
 pub mod rfc1035;
 pub mod rfc2782;

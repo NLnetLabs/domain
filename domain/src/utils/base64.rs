@@ -1,4 +1,23 @@
-//! Decoding and encoding of Base64.
+//! Decoding and encoding of base 64.
+//!
+//! The base 64 encoding is defined in [RFC 4648]. There are two variants
+//! defined in the RFC, dubbed *base64* and *base64url* which are
+//! differenciated by the last two characters in the alphabet. The DNS uses
+//! only the original *base64* variant, so this is what is implemented by the
+//! module for now.
+//!
+//! The module defines the type [`Decoder`] which keeps the state necessary
+//! for decoding. The convenince functions `decode` and `display`
+//! decode and encode octets, respectively.
+//!
+//! Decoding currently requires the `bytes` feature as it is intended for
+//! use by the master file parser. This will change when the parser will be
+//! converted to work with any octets builder.
+//!
+//! [RFC 4648]: https://tools.ietf.org/html/rfc4648
+//! [`Decoder`]: struct.Decoder.html
+//! [`decode`]: fn.decode.html
+//! [`display`]: fn.display.html
 
 use core::fmt;
 #[cfg(feature = "std")] use std::string::String;
@@ -7,6 +26,10 @@ use core::fmt;
 
 //------------ Convenience Functions -----------------------------------------
 
+/// Decodes a string with *base64* encoded data.
+///
+/// The function attempts to decode the entire string and returns the result
+/// as a `Bytes` value.
 #[cfg(feature="bytes")]
 pub fn decode(s: &str) -> Result<Bytes, DecodeError> {
     let mut decoder = Decoder::new();
@@ -17,6 +40,23 @@ pub fn decode(s: &str) -> Result<Bytes, DecodeError> {
 }
 
 
+/// Encodes binary data in *base64* and writes it into a format stream.
+///
+/// This function is intended to be used in implementations of formatting
+/// traits:
+///
+/// ```
+/// use core::fmt;
+/// use domain::utils::base64;
+/// 
+/// struct Foo<'a>(&'a [u8]);
+///
+/// impl<'a> fmt::Display for Foo<'a> {
+///     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+///         base64::display(&self.0, f)
+///     }
+/// }
+/// ```
 pub fn display<B, W>(bytes: &B, f: &mut W) -> fmt::Result
 where B: AsRef<[u8]> + ?Sized, W: fmt::Write { 
     fn ch(i: u8) -> char {
@@ -49,6 +89,7 @@ where B: AsRef<[u8]> + ?Sized, W: fmt::Write {
     Ok(())
 }
 
+/// Encodes binary data in *base64* and returns the encoded data as a string.
 #[cfg(feature = "std")]
 pub fn encode_string<B: AsRef<[u8]> + ?Sized>(
     bytes: &B
@@ -61,7 +102,11 @@ pub fn encode_string<B: AsRef<[u8]> + ?Sized>(
 
 //------------ Decoder -------------------------------------------------------
 
-/// A Base64 decoder.
+/// A base 64 decoder.
+///
+/// This type keeps all the state for decoding a sequence of characters
+/// representing data encoded in base 32. Upon success, the decoder returns
+/// the decoded data in a `bytes::Bytes` value.
 #[cfg(feature="bytes")]
 pub struct Decoder {
     /// A buffer for up to four characters.
@@ -82,6 +127,7 @@ pub struct Decoder {
 
 #[cfg(feature="bytes")]
 impl Decoder {
+    /// Creates a new empty decoder.
     pub fn new() -> Self {
         Decoder {
             buf: [0; 4],
@@ -90,12 +136,13 @@ impl Decoder {
         }
     }
 
+    /// Finalizes decoding and returns the decoded data.
     pub fn finalize(self) -> Result<Bytes, DecodeError> {
         let (target, next) = (self.target, self.next);
         target.and_then(|bytes| {
             // next is either 0 or 0xF0 for a completed group.
             if next & 0x0F != 0 {
-                Err(DecodeError::IncompleteInput)
+                Err(DecodeError::ShortInput)
             }
             else {
                 Ok(bytes.freeze())
@@ -103,6 +150,11 @@ impl Decoder {
         })
     }
 
+    /// Decodes one more character of data.
+    ///
+    /// Returns an error as soon as the encoded data is determined to be
+    /// illegal. It is okay to push more data after the first error. The
+    /// method will just keep returned errors.
     pub fn push(&mut self, ch: char) -> Result<(), DecodeError> {
         if self.next == 0xF0 {
             self.target = Err(DecodeError::TrailingInput);
@@ -167,12 +219,17 @@ impl Default for Decoder {
 
 //------------ DecodeError ---------------------------------------------------
 
-/// An error happened while decoding a Base64 string.
+/// An error happened while decoding a base 64 or base 32 encoded string.
 #[derive(Debug, Eq, PartialEq)]
 pub enum DecodeError {
-    IncompleteInput,
-    TrailingInput,
+    /// A character was pushed that isn’t allowed in the encoding.
     IllegalChar(char),
+
+    /// There was trailing data after a padding sequence.
+    TrailingInput,
+
+    /// The input ended with an incomplete sequence.
+    ShortInput,
 }
 
 
@@ -181,12 +238,12 @@ pub enum DecodeError {
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DecodeError::IncompleteInput
-                => f.write_str("incomplete input"),
             DecodeError::TrailingInput
                 => f.write_str("trailing input"),
             DecodeError::IllegalChar(ch)
-                => write!(f, "illegal character '{}'", ch)
+                => write!(f, "illegal character '{}'", ch),
+            DecodeError::ShortInput
+                => f.write_str("incomplete input"),
         }
     }
 }
@@ -266,11 +323,11 @@ mod test {
         assert_eq!(decode("Zm9vYmFy").unwrap().as_ref(), b"foobar");
 
         assert_eq!(decode("FPucA").unwrap_err(),
-                   DecodeError::IncompleteInput);
+                   DecodeError::ShortInput);
         assert_eq!(decode("FPucA=").unwrap_err(),
                    DecodeError::IllegalChar('='));
         assert_eq!(decode("FPucAw=").unwrap_err(),
-                   DecodeError::IncompleteInput);
+                   DecodeError::ShortInput);
         assert_eq!(decode("FPucAw=a").unwrap_err(),
                    DecodeError::TrailingInput);
         assert_eq!(decode("FPucAw==a").unwrap_err(),

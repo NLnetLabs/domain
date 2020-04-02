@@ -1,195 +1,86 @@
-//! DNS OpCodes
-
-use core::{cmp, convert, fmt, hash};
+//! DNS OpCodes.
 
 
-/// DNS OpCodes.
-///
-/// The opcode specifies the kind of query to be performed.
-///
-/// The opcode is initially defined in RFC 1035. All currently assigned
-/// values can be found in the [IANA registry]. This type is complete as of
-/// 2019-01-28.
-///
-/// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
-#[derive(Clone, Copy, Debug)]
-pub enum Opcode {
-    /// A standard query.
+//------------ Opcode --------------------------------------------------------
+
+int_enum!{
+    /// DNS OpCodes.
+    ///
+    /// The opcode specifies the kind of query to be performed.
+    ///
+    /// The opcode and its initial set of values are defined in [RFC 1035].
+    /// Additional values have been defined over time. All currently assigned
+    /// values can be found in the [IANA registry]. This type is complete as
+    /// of 2019-12-23.
+    ///
+    /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+    /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-5
+    =>
+    Opcode, u8;
+
+    /// A standard query (0).
     ///
     /// This query requests all records matching the name, class, and record
     /// type given in the query’s question section.
     ///
-    /// This value is defined in RFC 1035.
-    Query,
+    /// This value is defined in [RFC 1035].
+    ///
+    /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+    (Query => 0, b"QUERY")
 
-    /// An inverse query (IQUERY) (obsolete).
+    /// An inverse query (IQUERY) (1, obsolete).
     ///
     /// The idea behind inverse queries was to provide a single answer and
     /// ask the DNS for all the questions that would lead to this answer.
     /// This kind of query has always been optional, was never widely
     /// supported, and has therefore been declared obsolete.
     ///
-    /// This value was defined in RFC 1035 and obsoleted by RFC 3425.
-    IQuery,
-
-    /// A server status request.
+    /// This value was defined in [RFC 1035] and obsoleted by [RFC 3425].
     ///
-    /// This value is defined in RFC 1035. The status request itself was
-    /// defined as experimental and ‘to be defined’ in RFC 1034 and seems
+    /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+    /// [RFC 3425]: https://tools.ietf.org/html/rfc3425
+    (IQuery => 1, b"IQUERY")
+
+    /// A server status request (2).
+    ///
+    /// This value is defined in [RFC 1035]. The status request itself was
+    /// defined as experimental and ‘to be defined’ in [RFC 1034] and seems
     /// to never have been mentioned ever again.
-    Status,
-
-    /// A NOTIFY query.
     ///
-    /// NOTIFY queries allow master servers to inform slave servers when a
-    /// zone has changed.
+    /// [RFC 1034]: https://tools.ietf.org/html/rfc1034
+    /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
+    (Status => 2, b"STATUS")
+
+    /// A NOTIFY query (4).
     ///
-    /// This value and the NOTIFY query are defined in RFC 1996.
-    Notify,
-
-    /// An UPDATE query.
+    /// NOTIFY queries allow primary servers to inform secondary servers when
+    /// a zone has changed.
     ///
-    /// The UPDATE query can be used to alter zone content managed by a
-    /// master server.
+    /// This value and the NOTIFY query are defined in [RFC 1996].
     ///
-    /// This value and the UPDATE query are defined in RFC 2136.
-    Update,
+    /// [RFC 1996]: https://tools.ietf.org/html/rfc1996
+    (Notify => 4, b"NOTIFY")
 
-    /// DNS Stateful operations (DSO).
+    /// An UPDATE query (5).
     ///
-    /// This value is defined in draft-ietf-dnsop-session-signal.
-    Dso,
-
-    /// A raw integer opcode value.
+    /// The UPDATE query can be used to alter zone content managed by an
+    /// authoritative server.
     ///
-    /// When converting to an `u8`, only the lower four bits are used.
-    Int(u8)
-}
-
-impl Opcode {
-    /// Creates an Opcode value from an integer value.
+    /// This value and the UPDATE query are defined in [RFC 2136].
     ///
-    /// Only considers the lower four bits of `value`.
-    pub fn from_int(value: u8) -> Opcode {
-        use self::Opcode::*;
+    /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
+    (Update => 5, b"UPDATE")
 
-        match value & 0x0F {
-            0 => Query,
-            1 => IQuery,
-            2 => Status,
-            4 => Notify,
-            5 => Update,
-            6 => Dso,
-            value => Int(value)
-        }
-    }
-
-    /// Returns the integer value for this opcode.
-    pub fn to_int(self) -> u8 {
-        use self::Opcode::*;
-
-        match self {
-            Query => 0,
-            IQuery => 1,
-            Status => 2,
-            Notify => 4,
-            Update => 5,
-            Dso => 6,
-            Int(value) => value & 0x0F
-        }
-    }
+    /// DNS Stateful operations (DSO) (6).
+    ///
+    /// The DSO query can be used to manage stateful sessions between two
+    /// DNS endpoints.
+    ///
+    /// This value and the DOS query are defined in [RFC 8490].
+    ///
+    /// [RFC 8490]: https://tools.ietf.org/html/rfc8490
+    (Dso => 6, b"DSO")
 }
 
+int_enum_str_with_decimal!(Opcode, u8, "unknown opcode");
 
-//--- From
-
-impl convert::From<u8> for Opcode {
-    fn from(value: u8) -> Opcode { Opcode::from_int(value) }
-}
-
-impl convert::From<Opcode> for u8 {
-    fn from(value: Opcode) -> u8 { Opcode::to_int(value) }
-}
-
-
-//--- Display
-
-impl fmt::Display for Opcode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::Opcode::*;
-
-        match *self {
-            Query => "QUERY".fmt(f),
-            IQuery => "IQUERY".fmt(f),
-            Status => "STATUS".fmt(f),
-            Notify => "NOTIFY".fmt(f),
-            Update => "UPDATE".fmt(f),
-            Dso => "DSO".fmt(f),
-            Int(value) => {
-                match Opcode::from_int(value) {
-                    Int(value) => value.fmt(f),
-                    value => value.fmt(f)
-                }
-            }
-        }
-    }
-}
-
-
-//--- PartialEq and Eq
-
-impl cmp::PartialEq for Opcode {
-    fn eq(&self, other: &Opcode) -> bool {
-        self.to_int() == other.to_int()
-    }
-}
-
-impl cmp::PartialEq<u8> for Opcode {
-    fn eq(&self, other: &u8) -> bool {
-        self.to_int() == *other
-    }
-}
-
-impl cmp::PartialEq<Opcode> for u8 {
-    fn eq(&self, other: &Opcode) -> bool {
-        *self == other.to_int()
-    }
-}
-
-impl cmp::Eq for Opcode { }
-
-
-//--- PartialCmp and Cmp
-
-impl cmp::PartialOrd for Opcode {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.to_int().partial_cmp(&other.to_int())
-    }
-}
-
-impl cmp::PartialOrd<u8> for Opcode {
-    fn partial_cmp(&self, other: &u8) -> Option<cmp::Ordering> {
-        self.to_int().partial_cmp(other)
-    }
-}
-
-impl cmp::PartialOrd<Opcode> for u8 {
-    fn partial_cmp(&self, other: &Opcode) -> Option<cmp::Ordering> {
-        self.partial_cmp(&other.to_int())
-    }
-}
-
-impl cmp::Ord for Opcode {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.to_int().cmp(&other.to_int())
-    }
-}
-
-
-//--- Hash
-
-impl hash::Hash for Opcode {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.to_int().hash(state)
-    }
-}

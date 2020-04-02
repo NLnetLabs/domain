@@ -1,3 +1,6 @@
+//! Record data from [RFC 7344]: CDS and CDNSKEY records.
+//!
+//! [RFC 7344]: https://tools.ietf.org/html/rfc7344
 use core::{fmt, hash};
 use core::cmp::Ordering;
 #[cfg(feature="master")] use bytes::Bytes;
@@ -7,10 +10,10 @@ use crate::base::octets::{
     Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
-use crate::base::utils::base64;
 #[cfg(feature="master")] use crate::master::scan::{
     CharSource, Scan, ScanError, Scanner
 };
+use crate::utils::base64;
 
 
 //------------ Cdnskey --------------------------------------------------------

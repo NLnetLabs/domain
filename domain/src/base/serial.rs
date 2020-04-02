@@ -1,7 +1,9 @@
 //! Serial numbers.
 //!
-//! This module define a type [`Serial`] that wraps a `u32` to provide
-//! serial number arithmetics.
+//! DNS uses 32 bit serial numbers in various places that are conceptionally
+//! viewed as the 32 bit modulus of a larger number space. Because of that,
+//! special rules apply when processing these values. This module provides
+//! the type [`Serial`] that implements these rules.
 //!
 //! [`Serial`]: struct.Serial.html
 
@@ -29,11 +31,13 @@ use super::octets::{
 /// face of these wrap-arounds. This type implements these semantics atop a
 /// native `u32`.
 ///
-/// The RFC defines addition and comparison. Addition, however, is only
-/// defined for values up to `2^31 - 1`, so we decided to not implement the
+/// The RFC defines two operations: addition and comparison.
+///
+/// For addition, the amount added can only be a positive number of up to
+/// `2^31 - 1`. Because of this, we decided to not implement the
 /// `Add` trait but rather have a dedicated method `add` so as to not cause
 /// surprise panics.
-/// 
+///
 /// Serial numbers only implement a partial ordering. That is, there are
 /// pairs of values that are not equal but there still isn’t one value larger
 /// than the other. Since this is neatly implemented by the `PartialOrd`
@@ -46,17 +50,12 @@ pub struct Serial(pub u32);
 impl Serial {
     /// Returns a serial number for the current Unix time.
     pub fn now() -> Self {
-        Self::from_timestamp(
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-        )
-    }
-
-    /// Returns a serial number based on a Unix timestamp.
-    pub fn from_timestamp(mut value: u64) -> Self {
-        while value > std::i32::MAX as u64 {
-            value -= std::i32::MAX as u64
-        }
-        Self(value as u32)
+        let now = SystemTime::now();
+        let value = match now.duration_since(UNIX_EPOCH) {
+            Ok(value) => value,
+            Err(_) => UNIX_EPOCH.duration_since(now).unwrap()
+        };
+        Self(value.as_secs() as u32)
     }
 
     /// Returns the serial number as a raw integer.
@@ -80,26 +79,13 @@ impl Serial {
         Serial(self.0.wrapping_add(other))
     }
 
-    /// Subtract `other` from `self`.
-    ///
-    /// This operation is not defined in RFC 1982 but it seems to be
-    /// reasonable to provide it for values of `other` of less than `2^31 -1`.
+    /// Scan a serial represention signature time value.
     /// 
-    ///
-    /// # Panics
-    ///
-    /// This method panics if `other` is greater than `2^31 - 1`.
-    #[allow(clippy::should_implement_trait)]
-    pub fn sub(self, other: u32) -> Self {
-        assert!(other <= 0x7FFF_FFFF);
-        Serial(self.0.wrapping_sub(other))
-    }
-
-    /// Scan a serial represention signature time values.
-    /// 
-    /// In RRSIG records, the expiration and inception time is given as
+    /// In [RRSIG] records, the expiration and inception times are given as
     /// serial values. Their master file format can either be the signature
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
+    ///
+    /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
     #[cfg(feature="master")]
     pub fn scan_rrsig<C: CharSource>(
         scanner: &mut Scanner<C>
@@ -197,14 +183,7 @@ impl From<Serial> for u32 {
 #[cfg(feature = "chrono")]
 impl<T: TimeZone> From<DateTime<T>> for Serial {
     fn from(value: DateTime<T>) -> Self {
-        let mut value = value.timestamp();
-        while value < 0 {
-            value += i64::from(std::i32::MAX);
-        }
-        while value > i64::from(std::i32::MAX) {
-            value -= i64::from(std::i32::MAX)
-        }
-        Self(value as u32)
+        Self(value.timestamp() as u32)
     }
 }
 

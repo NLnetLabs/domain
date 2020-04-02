@@ -1,5 +1,26 @@
-//! Resource data.
+//! Resource record data.
 //!
+//! Each resource record type has it’s own definition of the content and
+//! formatting of its data. This module provides the basics for implementing
+//! specific types for this record data. The concrete implementations for
+//! well-known record types live in the top-level [domain::rdata] module.
+//!
+//! There are three traits herein: Any type that represents record data 
+//! implements [`RecordData`]. Such a type can be added to a message. If
+//! the data can also be parsed from an existing message, the type in addition
+//! implements [`ParseRecordData`]. Because most types are implementations
+//! for exactly one record type, the [`RtypeRecordData`] trait simplifies
+//! implementations for such types.
+//!
+//! The module also provides a type, [`UnknownRecordData`], that can be used
+//! to deal with record types whose specification is not known (or has not
+//! been implemented yet).
+//!
+//! [`RecordData`]: trait.RecordData.html
+//! [`ParseRecordData`]: trait.ParseRecordData.html
+//! [`RtypeRecordData`]: trait.RtypeRecordData.html
+//! [`UnknownRecorddata`]: struct.UnknownRecordData.html
+//! [domain::rdata]: ../../rdata/index.html
 
 use core::fmt;
 use core::cmp::Ordering;
@@ -43,7 +64,7 @@ pub trait RecordData: Compose + Sized {
 /// data to be used when constructing the message.
 ///
 /// To reflect this asymmetry, parsing of record data has its own trait.
-pub trait ParseRecordData<Octets>: RecordData {
+pub trait ParseRecordData<Ref>: RecordData {
     /// Parses the record data.
     ///
     /// The record data is for a record of type `rtype`. The function may
@@ -59,7 +80,7 @@ pub trait ParseRecordData<Octets>: RecordData {
     /// the parser. In particual, it must not advance it.
     fn parse_data(
         rtype: Rtype,
-        parser: &mut Parser<Octets>,
+        parser: &mut Parser<Ref>,
     ) -> Result<Option<Self>, ParseError>;
 }
 
@@ -71,16 +92,16 @@ pub trait ParseRecordData<Octets>: RecordData {
 /// If a record data type only ever processes one single record type, things
 /// can be a lot simpler. The type can be given as an associated constant
 /// which can be used to implement [`RecordData`]. In addition, parsing can
-/// be done atop an implementation of the [`ParseAll`] trait.
+/// be done atop an implementation of the [`Parse`] trait.
 ///
 /// This trait provides such a simplification by providing [`RecordData`]
 /// for all types implementing it and the other requirements for
-/// [`RecordData`]. If the type additionally implements [`ParseAll`], it will
+/// [`RecordData`]. If the type additionally implements [`Parse`], it will
 /// also receive a [`ParseRecordData`] implementation.
 ///
 /// [`RecordData`]: trait.RecordData.html
 /// [`ParseRecordData`]: trait.ParseRecordData.html
-/// [`ParseAll`]: ../parse/trait.ParseAll.html
+/// [`Parse`]: ../parse/trait.Parse.html
 pub trait RtypeRecordData {
     /// The record type of a value of this type.
     const RTYPE: Rtype;
@@ -110,20 +131,24 @@ where T: RtypeRecordData + Parse<Octets> + Compose + Sized {
 
 /// A type for parsing any type of record data.
 ///
-/// This type accepts any record type and stores a reference to the plain
-/// binary record data in the message.
+/// This type accepts any record type and stores the plain, unparsed record
+/// data as an octets sequence.
 ///
 /// Because some record types allow compressed domain names in their record
-/// data yet values only contain the data’s own bytes, this type cannot be
-/// used safely with these record types.
+/// data, this type cannot be used safely with these record types. For these
+/// record types, the structure of the content needs to be known.
 ///
 /// [RFC 3597] limits the types for which compressed names are allowed in the
 /// record data to those defined in [RFC 1035] itself. Specific types for all
 /// these record types exist in [`domain::rdata::rfc1035`].
 ///
 /// Ultimately, you should only use this type for record types for which there
-/// is no implementation available in this crate.
+/// is no implementation available in this crate. The two types
+/// [`AllRecordData`] and [`MasterRecordData`] provide a convenient way to
+/// always use the correct record data type.
 ///
+/// [`AllRecordData`]: ../../rdata/enum.AllRecordData.html
+/// [`MasterRecordData`]: ../../rdata/enum.MasterRecordData.html
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 3597]: https://tools.ietf.org/html/rfc3597
 /// [`domain::rdata::rfc1035]: ../../rdata/rfc1035/index.html

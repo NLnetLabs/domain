@@ -1,41 +1,16 @@
-//! Resource Records and resource record data handling.
+//! Resource Records.
 //!
-//! This module defines types related to DNS resource records. The most
-//! complete one is [`Record`] which contains a complete record for a certain
-//! record type. [`RecordHeader`] contains the data from a record’s header,
-//! the first couple of octets common to all records. Finally,
+//! This module defines types and traits related to DNS resource records. The
+//! most complete type is [`Record`] which contains a complete record for a
+//! certain record type. [`RecordHeader`] contains the data from a record’s
+//! header, the first couple of octets common to all records. Finally,
 //! [`ParsedRecord`] is similar to [`Record`] but contains the record data
 //! in its raw, encoded form.
 //!
-//! DNS resource records consist of some common data defining the domain
-//! name they pertain to, their type and class, and finally record data
-//! the format of which depends on the specific record type. As there are
-//! currently more than eighty record types, having a giant enum for record
-//! data seemed like a bad idea. Instead, resource records are generic over
-//! two traits defined by this module. All types representimg resource record
-//! data implement [`RecordData`]. Types that can be parsed out of messages
-//! also implement [`ParseRecordData`]. This distinction is only relevant for
-//! types that contain and are generic over domain names: for these, parsing
-//! is only available if the names use [`ParsedDname`].
+//! The [`AsRecord`] trait is used by the message builder to consider
+//! different representations of records.
 //!
-//! While [`RecordData`] allows types to provide different record types for
-//! different values, most types actually implement one specific record type.
-//! For these types, implementing [`RtypeRecordData`] provides a shortcut to
-//! implementin both [`RecordData`] and [`ParseRecordDate`] with a constant
-//! record type.
-//!
-//! All such implementations for a specific record type shipped with the
-//! domain crate are collected in the [`domain::rdata`] module.
-//!
-//! A type implementing the traits for any record type is available in here
-//! too: [`UnknownRecordData`]. It stores the actual record data in its
-//! encoded form in a bytes value.
-//!
-//! [`RecordData`]: trait.RecordData.html
-//! [`ParseRecordData`]: trait.ParseRecordData.html
-//! [`RtypeRecordData`]: trait.RtypeRecordData.html
-//! [`domain::rdata`]: ../../rdata/index.html
-//! [`UnknownRecordData`]: struct.UnknownRecordData.html
+//! [`AsRecord`]: trait.AsRecord.html
 //! [`Record`]: struct.Record.html
 //! [`RecordHeader`]: struct.RecordHeader.html
 //! [`ParsedRecord`]: struct.ParsedRecord.html
@@ -66,7 +41,7 @@ use super::rdata::{RecordData, ParseRecordData};
 ///
 /// The record type describes the kind of data the record holds, such as IP
 /// addresses. The class, finally, describes which sort of network the
-/// information is for since DNS was originally intended to be used for
+/// information is for. The DNS was originally intended to be used for
 /// networks other than the Internet as well. In practice, the only relevant
 /// class is IN, the Internet. Note that each class has its own tree of nodes.
 ///
@@ -97,12 +72,6 @@ use super::rdata::{RecordData, ParseRecordData};
 /// do that; see there for all the details. Finally, you can scan a record
 /// from master data (aka zonefiles). See the [`domain::master`] module for
 /// that.
-///
-/// Records can be place into DNS messages by using a [`MessageBuilder`]. In
-/// order to make adding records easier, `Record` implements the `From` trait
-/// for two kinds of tuples: A four-tuple of owner, class, time-to-live value,
-/// and record data and a triple leaving out the class and assuming it to be
-/// `Class::In`.
 ///
 /// [`new`]: #method.new
 /// [`Message`]: ../message/struct.Message.html
@@ -147,7 +116,7 @@ impl<Name, Data> Record<Name, Data> {
         )
     }
 
-    /// Returns a reference to owner domain name.
+    /// Returns a reference to the owner domain name.
     ///
     /// The owner of a record is the domain name that specifies the node in
     /// the DNS tree this record belongs to.
@@ -363,6 +332,113 @@ where Name: fmt::Debug, Data: fmt::Debug {
            .field("data", &self.data)
            .finish()
    }
+}
+
+
+//------------ AsRecord ------------------------------------------------------
+
+/// A helper trait allowing construction of records on the fly.
+///
+/// The trait’s primary users arer the three record section buider type of
+/// the [message builder] system. Their `push` methods accept anything that
+/// implements this trait.
+///
+/// Implementations are provided for [`Record`] values and references. In
+/// addition, a tuple of a domain name, class, TTL, and record data can be
+/// used as this trait, saving the detour of constructing a record first.
+/// Since the class is pretty much always `Class::In`, it can be left out in
+/// this case.
+///
+/// [`Class::In`]: ../iana/class/enum.Class.html#variant.In
+/// [`Record`]: struct.Record.html
+pub trait AsRecord {
+    /// The type of the record’s owner domain name.
+    type Name: ToDname;
+
+    /// The type of the record data.
+    type Data: RecordData;
+
+    /// Returns a reference to the owner domain name.
+    fn owner(&self) -> &Self::Name;
+
+    /// Returns the record’s class.
+    fn class(&self) -> Class;
+
+    /// Returns the record’s TTL:
+    fn ttl(&self) -> u32;
+
+    /// Returns a reference to the record data.
+    fn data(&self) -> &Self::Data;
+
+    /// Produces the encoded record.
+    fn compose_record<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            target.append_compressed_dname(self.owner())?;
+            self.data().rtype().compose(target)?;
+            self.class().compose(target)?;
+            self.ttl().compose(target)?;
+            target.u16_len_prefixed(|target| self.data().compose(target))
+        })
+    }
+
+    /// Produces the canonically encoded record.
+    fn compose_record_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T
+    ) -> Result<(), ShortBuf> {
+        target.append_all(|target| {
+            self.owner().compose_canonical(target)?;
+            self.data().rtype().compose(target)?;
+            self.class().compose(target)?;
+            self.ttl().compose(target)?;
+            target.u16_len_prefixed(|target| {
+                self.data().compose_canonical(target)
+            })
+        })
+    }
+}
+
+impl<'a, T: AsRecord> AsRecord for &'a T {
+    type Name = T::Name;
+    type Data = T::Data;
+
+    fn owner(&self) -> &Self::Name { (*self).owner() }
+    fn class(&self) -> Class { (*self).class() }
+    fn ttl(&self) -> u32 { (*self).ttl() }
+    fn data(&self) -> &Self::Data { (*self).data() }
+}
+
+impl<Name: ToDname, Data: RecordData> AsRecord for Record<Name, Data> {
+    type Name = Name;
+    type Data = Data;
+
+    fn owner(&self) -> &Self::Name { Self::owner(self) }
+    fn class(&self) -> Class { Self::class(self) }
+    fn ttl(&self) -> u32 { Self::ttl(self) }
+    fn data(&self) -> &Self::Data { Self::data(self) }
+}
+
+impl<Name: ToDname, Data: RecordData> AsRecord for (Name, Class, u32, Data) {
+    type Name = Name;
+    type Data = Data;
+
+    fn owner(&self) -> &Self::Name { &self.0 }
+    fn class(&self) -> Class { self.1 }
+    fn ttl(&self) -> u32 { self.2 }
+    fn data(&self) -> &Self::Data { &self.3 }
+}
+
+impl<Name: ToDname, Data: RecordData> AsRecord for (Name, u32, Data) {
+    type Name = Name;
+    type Data = Data;
+
+    fn owner(&self) -> &Self::Name { &self.0 }
+    fn class(&self) -> Class { Class::In }
+    fn ttl(&self) -> u32 { self.1 }
+    fn data(&self) -> &Self::Data { &self.2 }
 }
 
 

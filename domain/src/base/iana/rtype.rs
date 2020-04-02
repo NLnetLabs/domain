@@ -415,6 +415,7 @@ int_enum!{
     (Dlv => 32769, b"DLV")
 }
 
-int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16,
-                          "unknown record type");
+int_enum_str_with_prefix!(
+    Rtype, "TYPE", b"TYPE", u16, "unknown record type"
+);
 

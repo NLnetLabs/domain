@@ -30,11 +30,10 @@ use super::octets::{
 
 /// The first part of the header of a DNS message.
 ///
-/// This type represents the information contained in the first four bytes of
-/// the header: the message ID, opcode, rcode, and the various flags.
-///
-/// The type’s data contains such a header in its wire format which is layed
-/// out like this:
+/// This type represents the information contained in the first four octets
+/// of the header: the message ID, opcode, rcode, and the various flags. It
+/// keeps those four octets in wire representation, i.e., in network byte
+/// order. The data is layed out like this:
 ///
 /// ```text
 ///                                 1  1  1  1  1  1
@@ -46,13 +45,23 @@ use super::octets::{
 /// +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 /// ```
 ///
-/// Methods are available for accessing each of these fields.
-/// See [Field Access] below.
+/// Methods are available for accessing each of these fields. For more
+/// information on the fields, see these methods in the section
+/// [Field Access] below.
+///
+/// You can create owned values via the [`new`] methods or `Default` trait.
+/// However, more often the type will
+/// be used via a reference into the octets of an actual message. The
+/// functions [`for_message_slice`] and [`for_message_slice_mut`] create such
+/// references from an octets slice.
 ///
 /// The basic structure and most of the fields re defined in [RFC 1035],
 /// except for the AD and CD flags, which are defined in [RFC 4035].
 ///
 /// [Field Access]: #field-access 
+/// [`for_message_slice`]: #method.for_message_slice
+/// [`for_message_slice_mut`]: #method.for_message_slice_mut
+/// [`new`]: #method.new
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 4035]: https://tools.ietf.org/html/rfc4035
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -69,33 +78,36 @@ impl Header {
     /// Creates a new header.
     ///
     /// The new header has all fields as either zero or false. Thus, the
-    /// opcode will be `Opcode::Query` and the response code will be
-    /// `Rcode::NoError`.
+    /// opcode will be [`Opcode::Query`] and the response code will be
+    /// [`Rcode::NoError`].
+    ///
+    /// [`Opcode::Query`]: ../iana/opcode/enum.Opcode.html#variant.Query
+    /// [`Rcode::NoError`]: ../iana/rcode/enum.Rcode.html#variant.NoError
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Creates a header reference from a byte slice of a message.
+    /// Creates a header reference from an octets slice of a message.
     ///
     /// # Panics
     ///
-    /// This function panics if the byte slice is too short.
+    /// This function panics if the slice is less than four octets long.
     pub fn for_message_slice(s: &[u8]) -> &Header {
         assert!(s.len() >= mem::size_of::<Header>());
         unsafe { &*(s.as_ptr() as *const Header) }
     }
 
-    /// Creates a mutable header reference from a byte slice of a message.
+    /// Creates a mutable header reference from an octets slice of a message.
     ///
     /// # Panics
     ///
-    /// This function panics if the byte slice is too short.
+    /// This function panics if the slice is less than four octets long.
     pub fn for_message_slice_mut(s: &mut [u8]) -> &mut Header {
         assert!(s.len() >= mem::size_of::<Header>());
         unsafe { &mut *(s.as_ptr() as *mut Header) }
     }
 
-    /// Returns a reference to the underlying bytes slice.
+    /// Returns a reference to the underlying octets slice.
     pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
@@ -110,6 +122,12 @@ impl Header {
     /// The ID field is an identifier chosen by whoever created a query
     /// and is copied into a response by a server. It allows matching
     /// incoming responses to their queries.
+    ///
+    /// When choosing an ID for an outgoing message, make sure it is random
+    /// to avoid spoofing through guessing the message ID. The method
+    /// [`set_random_id`] can be used for this purpose.
+    ///
+    /// [`set_random_id`]: #method.set_random_id
     pub fn id(self) -> u16 {
         u16::from_be_bytes(self.inner[..2].try_into().unwrap())
     }
@@ -120,13 +138,11 @@ impl Header {
     }
 
     /// Sets the value of the ID field to a randomly chosen number.
-    ///
-    /// This uses [`rand::random`] which may not be good enough.
     pub fn set_random_id(&mut self) { self.set_id(::rand::random()) }
 
     /// Returns whether the QR bit is set.
     ///
-    /// The QR bit specifies whether this message is a query (`false`) or
+    /// The QR bit specifies whether a message is a query (`false`) or
     /// a response (`true`). In other words, this bit is actually stating
     /// whether the message is *not* a query. So, perhaps it might be good
     /// to read ‘QR’ as ‘query response.’
@@ -138,10 +154,10 @@ impl Header {
 
     /// Returns the value of the Opcode field.
     ///
-    /// This field specifies the kind of query this message contains. See
+    /// This field specifies the kind of query a message contains. See
     /// the [`Opcode`] type for more information on the possible values and
     /// their meaning. Normal queries have the variant [`Opcode::Query`]
-    /// which is also the value set when creating a new header.
+    /// which is also the default value when creating a new header.
     ///
     /// [`Opcode`]: ../../iana/opcode/enum.Opcode.html
     /// [`Opcode::Query`]: ../../iana/opcode/enum.Opcode.html#variant.Query
@@ -169,7 +185,8 @@ impl Header {
     ///
     /// The *truncation* bit is set if there was more data available then
     /// fit into the message. This is typically used when employing
-    /// datagram transports such as UDP to signal to try again using a
+    /// datagram transports such as UDP to signal that the answer didn’t
+    /// fit into a response and the query should be tried again using a
     /// stream transport such as TCP.
     pub fn tc(self) -> bool { self.get_bit(2, 1) }
 
@@ -208,8 +225,8 @@ impl Header {
     /// Returns whether the AD bit is set.
     ///
     /// The *authentic data* bit is used by security-aware recursive name
-    /// servers to indicate that it considers all RRsets in its response to
-    /// be authentic.
+    /// servers to indicate that it considers all RRsets in its response are
+    /// authentic, i.e., have successfully passed DNSSEC validation.
     pub fn ad(self) -> bool { self.get_bit(3, 5) }
 
     /// Sets the value of the AD bit.
@@ -266,12 +283,21 @@ impl Header {
 /// The section count part of the header section of a DNS message.
 ///
 /// This part consists of four 16 bit counters for the number of entries in
-/// the four sections of a DNS message.
+/// the four sections of a DNS message. The type contains the sequence of
+/// these for values in wire format, i.e., in network byte order.
 ///
 /// The counters are arranged in the same order as the sections themselves:
 /// QDCOUNT for the question section, ANCOUNT for the answer section,
 /// NSCOUNT for the authority section, and ARCOUNT for the additional section.
 /// These are defined in [RFC 1035].
+///
+/// Like with the other header part, you can create an owned value via the
+/// [`new`] method or the `Default` trait or can get a reference to the
+/// value atop a message slice via [`for_message_slice`] or
+/// [`for_message_slice_mut`].
+///
+/// For each field there are three methods for getting, setting, and
+/// incrementing.
 ///
 /// [RFC 2136] defines the UPDATE method and reuses the four section for
 /// different purposes. Here the counters are ZOCOUNT for the zone section,
@@ -279,9 +305,9 @@ impl Header {
 /// and ADCOUNT for the additional section. The type has convenience methods
 /// for these fields as well so you don’t have to remember which is which.
 ///
-/// For each field there are three methods for getting, setting, and
-/// incrementing.
-///
+/// [`for_message_slice`]: #method.for_message_slice
+/// [`for_message_slice_mut`]: #method.for_message_slice_mut
+/// [`new`]: #method.new
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -300,14 +326,14 @@ impl HeaderCounts {
         Self::default()
     }
 
-    /// Creates a header reference from a byte slice of a message.
+    /// Creates a header counts reference from the octets slice of a message.
     ///
     /// The slice `message` mut be the whole message, i.e., start with the
     /// bytes of the [`Header`](struct.Header.html).
     /// 
     /// # Panics
     ///
-    /// This function panics if the bytes slice is too short.
+    /// This function panics if the octets slice is shorter than 24 octets.
     pub fn for_message_slice(message: &[u8]) -> &Self {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
         unsafe {
@@ -316,14 +342,14 @@ impl HeaderCounts {
         }
     }
 
-    /// Creates a mutable header reference from a bytes slice of a message.
+    /// Creates a mutable counts reference from the octets slice of a message.
     ///
     /// The slice `message` mut be the whole message, i.e., start with the
     /// bytes of the [`Header`](struct.Header.html).
     ///
     /// # Panics
     ///
-    /// This function panics if the bytes slice is too short.
+    /// This function panics if the octets slice is shorter than 24 octets.
     pub fn for_message_slice_mut(message: &mut [u8]) -> &mut Self {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
         unsafe {
@@ -332,12 +358,12 @@ impl HeaderCounts {
         }
     }
 
-    /// Returns a reference to the raw byte slice of the header counts.
+    /// Returns a reference to the raw octets slice of the header counts.
     pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
 
-    /// Returns a mutable reference to the raw byte slice of the header counts.
+    /// Returns a mutable reference to the octets slice of the header counts.
     pub fn as_slice_mut(&mut self) -> &mut [u8] {
         &mut self.inner
     }
@@ -583,7 +609,18 @@ impl HeaderCounts {
 
 /// The complete header section of a DNS message.
 ///
-/// Consists of a `Header` and a `HeaderCounts`.
+/// Consists of a [`Header`] directly followed by a [`HeaderCounts`].
+///
+/// You can create an owned value via the [`new`] function or `Default` trait
+/// or acquire a pointer referring the the header section of an existing DNS
+/// message via the [`for_message_slice`] or [`for_message_slice_mut`]
+/// functions.
+///
+/// [`Header`]: struct.Header.html
+/// [`HeaderCounts`]: struct.HeaderCounts.html
+/// [`for_message_slice`]: #method.for_message_slice
+/// [`for_message_slice_mut`]: #method.for_message_slice_mut
+/// [`new`]: #method.new
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HeaderSection {
     inner: [u8; 12]
@@ -592,34 +629,37 @@ pub struct HeaderSection {
 /// # Creation and Conversion
 ///
 impl HeaderSection {
-    /// Creates a new empty header section.
+    /// Creates a new header section.
+    ///
+    /// The value will have all header and header counts fields set to zero
+    /// or false.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Creates a reference from the bytes slice of a message.
+    /// Creates a reference from the octets slice of a message.
     ///
     /// # Panics
     ///
-    /// This function panics if the size of the bytes slice is smaller than
-    /// the header section.
+    /// This function panics if the the octets slice is shorter than 24
+    /// octets.
     pub fn for_message_slice(s: &[u8]) -> &HeaderSection {
         assert!(s.len() >= mem::size_of::<HeaderSection>());
         unsafe { &*(s.as_ptr() as *const HeaderSection) }
     }
 
-    /// Creates a mutable reference from the bytes slice of a message.
+    /// Creates a mutable reference from the ocetets slice of a message.
     ///
     /// # Panics
     ///
-    /// This function panics if the size of the bytes slice is smaller than
-    /// the header section.
+    /// This function panics if the the octets slice is shorter than 24
+    /// octets.
     pub fn for_message_slice_mut(s: &mut [u8]) -> &mut HeaderSection {
         assert!(s.len() >= mem::size_of::<HeaderSection>());
         unsafe { &mut *(s.as_ptr() as *mut HeaderSection) }
     }
 
-    /// Returns a reference to the underlying bytes slice.
+    /// Returns a reference to the underlying octets slice.
     pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
@@ -651,9 +691,36 @@ impl HeaderSection {
 }
 
 
+//--- AsRef and AsMut
+
+impl AsRef<Header> for HeaderSection {
+    fn as_ref(&self) -> &Header {
+        self.header()
+    }
+}
+
+impl AsMut<Header> for HeaderSection {
+    fn as_mut(&mut self) -> &mut Header {
+        self.header_mut()
+    }
+}
+
+impl AsRef<HeaderCounts> for HeaderSection {
+    fn as_ref(&self) -> &HeaderCounts {
+        self.counts()
+    }
+}
+
+impl AsMut<HeaderCounts> for HeaderSection {
+    fn as_mut(&mut self) -> &mut HeaderCounts {
+        self.counts_mut()
+    }
+}
+
+
 //--- Parse and Compose
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for Header {
+impl<Ref: AsRef<[u8]>> Parse<Ref> for HeaderSection {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let mut res = Self::default();
         parser.parse_buf(&mut res.inner)?;

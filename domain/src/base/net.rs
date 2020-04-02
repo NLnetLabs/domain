@@ -1,4 +1,11 @@
 //! Networking-related types not available in core.
+//!
+//! This module either re-exports or re-defines a number of types related to
+//! networking that are not available in a `no_std` environment but are used
+//! in DNS data. Currently, these are types for IP addresses.
+//!
+//! The `no_std` version currently is only the bare minimum implementation
+//! and doesn’t provide all the features the `std` version has.
 
 #[cfg(feature = "std")]
 pub use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, AddrParseError};
@@ -10,7 +17,6 @@ pub use self::nostd::*;
 #[cfg(not(feature = "std"))]
 mod nostd {
     use core::fmt;
-    use derive_more::From;
 
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub struct Ipv4Addr([u8; 4]);
@@ -153,7 +159,7 @@ mod nostd {
     }
 
 
-    #[derive(Clone, Copy, Debug, Eq, From, Hash, Ord, PartialEq, PartialOrd)]
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub enum IpAddr {
         V4(Ipv4Addr),
         V6(Ipv6Addr),
@@ -170,6 +176,19 @@ mod nostd {
             IpAddr::V6(src.into())
         }
     }
+
+    impl From<Ipv4Addr> for IpAddr {
+        fn from(addr: Ipv4Addr) -> Self {
+            IpAddr::V4(addr)
+        }
+    }
+
+    impl From<Ipv6Addr> for IpAddr {
+        fn from(addr: Ipv6Addr) -> Self {
+            IpAddr::V6(addr)
+        }
+    }
+
 
     #[derive(Clone, Copy, Debug)]
     pub struct AddrParseError;

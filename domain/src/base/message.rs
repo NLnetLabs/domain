@@ -1,24 +1,156 @@
+//! Accessing existing DNS messages.
+//!
+//! This module defines a number of types for processing the content of a DNS
+//! message in wire format. Because many components of the message are of
+//! varying length, this can only be done iteratively. The type [`Message`]
+//! wraps an octets sequence containing a complete message. It provides access
+//! to the four sections of the message via additional types.
+//!
+//! For details, see the [`Message`] type.
+//!
+//! [`Message`]: struct.Message.html
 
 use core::{fmt, mem};
 use core::marker::PhantomData;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, Rcode, Rtype};
-use super::message_builder::{
-    AdditionalBuilder, AnswerBuilder, RecordSectionBuilder
-};
-use super::name::{ParsedDname, ToDname};
+use super::message_builder::{AdditionalBuilder, AnswerBuilder};
+use super::name::ParsedDname;
 use super::octets::{
     OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
-use super::rdata::{ParseRecordData, RecordData};
-use super::record::{ParsedRecord, Record};
+use super::rdata::ParseRecordData;
+use super::record::{AsRecord, ParsedRecord, Record};
 use crate::rdata::rfc1035::Cname;
 
 
 //------------ Message -------------------------------------------------------
 
+/// A DNS message.
+///
+/// This type wraps an octets sequence containing the complete wire-format DNS
+/// message and allows access to the various components of the message.
+///
+/// You create a message by passing an octets sequence to the [`from_octets`]
+/// associate function which does some basic sanity checks and, if they
+/// succeed, returns a message for the sequence. All further parsing happens
+/// lazily when you access more of the message. This means that a message is
+/// not necessarily well-formatted and further parsing may fail later on.
+///
+/// Section 4 of [RFC 1035] defines DNS messages as being divded into five
+/// sections named header, question, answer, authority, and additional.
+///
+/// The header section is of a fixed sized and can be accessed at any time
+/// through the methods given under [Header Section]. Most likely, you will
+/// be interested in the first part of the header which is 
+/// returned by the [`header`] method.  The second part of the header
+/// section contains the number of entries in the following four sections
+/// and is of less interest as there are more sophisticated ways of accessing
+/// these sections. If you do care, you can get access through
+/// [`header_counts`].
+///
+/// The meaning of the next four sections depends on the type of message as
+/// described by the [opcode] field of the header. Since the most common
+/// type is a query, the sections are named after their function in this type
+/// and the following description will focus on it.
+///
+/// The question section contains what was asked of the DNS by a query. It
+/// contains a number of questions that consist of a domain name, a record
+/// type, and class. A query asks for all records of the given record type
+/// that are owned by the domain name within the class. In queries, there will
+/// be exactly one question. With other opcodes, there may be multiple
+/// questions.
+///
+/// You can acquire an iterator over the questions through the [`question`]
+/// method. It returns a [`QuestionSection`] value that is an iterator over
+/// questions. Since a single question is such a common case, there is a 
+/// convenience method [`first_question`] that returns the first question
+/// only.
+///
+/// The following three section all contain DNS resource records. In 
+/// queries, they are empty in a request and may or may not contain records
+/// in a response. The *answer* section contains all the records that answer
+/// the given question. The *authority* section contains records declaring
+/// which name server provided authoritative information for the question,
+/// and the *additional* section can contain records that the name server
+/// thought might be useful for processing the question. For instance, if you
+/// trying to find out the mail server of a domain by asking for MX records,
+/// you likely also want the IP addresses for the server, so the name server
+/// may include these right away and free of charge.
+///
+/// There are functions to access all three sections directly: [`answer`],
+/// [`authority`], and [`additional`]. Each method returns a value of type 
+/// [RecordSection] which acts as an iterator over the records in the
+/// section. Since there are no pointers to where the later sections start,
+/// accessing them directly means iterating over the previous sections. This
+/// is why it is more efficitent to call [`RecordSection::next_section`] to
+/// progress to a later section. Alternatively, you can use the message’s
+/// [`sections`] method that gives you all four sections at once with the
+/// minimal amount of iterating necessary.
+///
+/// When iterating over the record section, you will receive values of type
+/// [`ParsedRecord`], an intermediary type that only parsed the parts common
+/// to all records. In order to access the data of the record, you will want
+/// to convert it into a [`Record`] which is generic over the actual record
+/// type data. This can be done via [`ParsedRecord::into_record`].
+///
+/// Alternatively, you can trade the record section for one that only returns
+/// the types you are interested in via the [`RecordSection::limit_to`]
+/// method. The iterator returned by that method will quietly skip over all
+/// records that aren’t of the type you are interested in.
+///
+/// So, if you want to iterate over the MX records in the answer section, you
+/// would do something like this:
+///
+/// ```
+/// use domain::base::Message;
+/// use domain::rdata::Mx;
+///
+/// # let octets = vec![0; 12];
+/// let msg = Message::from_octets(octets).unwrap();
+/// for record in msg.answer().unwrap().limit_to::<Mx<_>>() {
+///     if let Ok(record) = record {
+///         // Do something with the record ...
+///     }
+/// }
+/// ```
+///
+/// The `limit_to` method takes the record type as a type argument. Many
+/// record types, like [`Mx`], are generic over octet sequences but the
+/// compiler generally can figure out the concrete type itself, so in most
+/// cases you get away with the underscore there.
+///
+/// Note how the iterator doesn’t actually return records but results of
+/// records and parse errors. This is because only now can it check whether
+/// the record is actually properly formatted. An error signals that something
+/// went wrong while parsing. If only the record data is broken, the message
+/// remains useful and parsing can continue with the next record. If the
+/// message is fully broken, the next iteration will return `None` to signal
+/// that.
+///
+/// [`additional`]: #method.additional
+/// [`answer`]: #method.answer
+/// [`authority`]: #method.authority
+/// [`first_question`]: #method.first_question
+/// [`from_octets`]: #method.from_octets
+/// [`header`]: #method.header
+/// [`header_counts`]: #method.header_counts
+/// [`question`]: #method.question
+/// [`sections`]: #method.sections
+/// [`Mx`]: ../../rdata/rfc1035/struct.Mx.html
+/// [`ParsedRecord`]: ../record/struct.ParsedRecord.html
+/// [`ParsedRecord::into_record`]: ../record/struct.ParsedRecord.html#method.into_record
+/// [`QuestionSection`]: struct.QuestionSection.html
+/// [`Record`]: ../record/struct.Record.html
+/// [`RecordSection`]: struct.RecordSection.html
+/// [`RecordSection::limit_to`]: ../struct.RecordSection.html#method.limit_to
+/// [`RecordSection::next_section`]: ../struct.RecordSection.html#method.next_section
+/// [Header Section]: #header-section
+/// [rdata]: ../../rdata/index.html
+/// [opcode]: ../iana/opcode/enum.Opcode.html
+/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone, Copy)]
 pub struct Message<Octets> {
     octets: Octets
@@ -27,12 +159,12 @@ pub struct Message<Octets> {
 /// # Creation and Conversion
 ///
 impl<Octets> Message<Octets> {
-    /// Creates a message from a bytes value.
+    /// Creates a message from an octets sequence.
     ///
     /// This fails if the slice is too short to even contain a complete
     /// header section.  No further checks are done, though, so if this
-    /// function returns `Ok`, the message may still be broken with other
-    /// methods returning `Err(_)`.
+    /// function returns ok, the message may still be broken with other
+    /// methods returning errors later one.
     pub fn from_octets(octets: Octets) -> Result<Self, ShortBuf>
     where Octets: AsRef<[u8]> {
         if octets.as_ref().len() < mem::size_of::<HeaderSection>() {
@@ -44,11 +176,14 @@ impl<Octets> Message<Octets> {
     }
 
     /// Creates a message from a bytes value without checking.
+    ///
+    /// The methods for header access rely on the octets being at least as
+    /// long as a header, so this is unsafe.
     pub(super) unsafe fn from_octets_unchecked(octets: Octets) -> Self {
         Message { octets }
     }
 
-    /// Returns a reference to the underlying bytes value.
+    /// Returns a reference to the underlying octets sequence.
     pub fn as_octets(&self) -> &Octets {
         &self.octets
     }
@@ -58,13 +193,13 @@ impl<Octets> Message<Octets> {
         self.octets
     }
 
-    /// Returns a reference to the underlying byte slice.
+    /// Returns a slice to the underlying octets sequence.
     pub fn as_slice(&self) -> &[u8]
     where Octets: AsRef<[u8]> {
         self.octets.as_ref()
     }
 
-    /// Returns a mutable reference to the underlying octets.
+    /// Returns a mutable slice to the underlying octets sequence.
     ///
     /// Because it is possible to utterly break the message using this slice,
     /// the method is private.
@@ -73,7 +208,8 @@ impl<Octets> Message<Octets> {
         self.octets.as_mut()
     }
 
-    pub fn as_ref_message(&self) -> Message<&[u8]>
+    /// Returns a message for a slice of the octets sequence.
+    pub fn for_slice(&self) -> Message<&[u8]>
     where Octets: AsRef<[u8]> {
         unsafe { Message::from_octets_unchecked(self.octets.as_ref()) }
     }
@@ -83,7 +219,7 @@ impl<Octets> Message<Octets> {
 /// # Header Section
 ///
 impl<Octets: AsRef<[u8]>> Message<Octets> {
-    /// Returns a the message header.
+    /// Returns the message header.
     pub fn header(&self) -> Header {
         *Header::for_message_slice(self.as_slice())
     }
@@ -104,12 +240,12 @@ impl<Octets: AsRef<[u8]>> Message<Octets> {
         *HeaderSection::for_message_slice(&self.as_slice())
     }
 
-    /// Returns whether the rcode is NoError.
+    /// Returns whether the rcode of the header is NoError.
     pub fn no_error(&self) -> bool {
         self.header().rcode() == Rcode::NoError
     }
 
-    /// Returns whether the rcode is one of the error values.
+    /// Returns whether the rcode of the header is one of the error values.
     pub fn is_error(&self) -> bool {
         self.header().rcode() != Rcode::NoError
     }
@@ -132,6 +268,12 @@ where for<'a> &'a Octets: OctetsRef {
     }
 
     /// Returns the answer section.
+    ///
+    /// Iterates over the question section in order to access the answer
+    /// section. If you are accessing the question section anyway, using
+    /// its [`next_section`] method may be more efficient.
+    ///
+    /// [`next_section`]: ../struct.QuestionSection.html#method.next_section
     pub fn answer(&self) -> Result<RecordSection<&Octets>, ParseError> {
         Ok(self.question().next_section()?)
     }
@@ -144,6 +286,12 @@ where for<'a> &'a Octets: OctetsRef {
     }
 
     /// Returns the authority section.
+    ///
+    /// Iterates over both the question and the answer sections to determine
+    /// the start of the authority section. If you are already accessing the
+    /// answer section, using [`next_section`] on it is more efficient.
+    ///
+    /// [`next_section`]: ../struct.RecordSection.html#method.next_section
     pub fn authority(&self) -> Result<RecordSection<&Octets>, ParseError> {
         Ok(self.answer()?.next_section()?.unwrap())
     }
@@ -156,6 +304,12 @@ where for<'a> &'a Octets: OctetsRef {
     }
 
     /// Returns the additional section.
+    ///
+    /// Iterates over all three previous sections to determine the start of
+    /// the additional section. If you are already accessing the
+    /// authority section, using [`next_section`] on it is more efficient.
+    ///
+    /// [`next_section`]: ../struct.RecordSection.html#method.next_section
     pub fn additional(&self) -> Result<RecordSection<&Octets>, ParseError> {
         Ok(self.authority()?.next_section()?.unwrap())
     }
@@ -178,6 +332,16 @@ where for<'a> &'a Octets: OctetsRef {
         Ok((question, answer, authority, additional))
     }
 
+    /// Returns an iterator over the records in the message.
+    ///
+    /// The iterator’s item is a pair of a [`ParsedRecord`] and the
+    /// [`Section`] it was found in.
+    ///
+    /// As is customary, this iterator is also accessible via the
+    /// `IntoIterator` trait on a reference to the message.
+    ///
+    /// [`ParsedRecord`]: ../record/struct.ParsedRecord.html
+    /// [`Section`]: enum.Section.html
     pub fn iter(&self) -> MessageIter<&Octets> {
         self.into_iter()
     }
@@ -185,6 +349,7 @@ where for<'a> &'a Octets: OctetsRef {
 
 
 /// # Helpers for Common Tasks
+///
 impl<Octets> Message<Octets>
 where
     Octets: AsRef<[u8]>,
@@ -221,6 +386,24 @@ where
         }
     }
 
+    /// Returns the sole question of the message.
+    ///
+    /// This is like [`first_question`] but returns an error if there isn’t
+    /// exactly one question or there is a parse error.
+    ///
+    /// [`first_question`]: #method.first_question
+    pub fn sole_question(
+        &self
+    ) -> Result<Question<ParsedDname<&Octets>>, ParseError> {
+        match self.header_counts().qdcount() {
+            0 => return Err(ParseError::form_error("no question")),
+            1 => { }
+            _ => return Err(ParseError::form_error("multiple questions")),
+        }
+        self.question().next().unwrap()
+    }
+
+
     /// Returns the query type of the first question, if any.
     pub fn qtype(&self) -> Option<Rtype> {
         self.first_question().map(|x| x.qtype())
@@ -253,8 +436,10 @@ where
     /// if there is a CNAME loop the method returns `None`.
     //
     //  Loop detection is done by breaking off after ANCOUNT + 1 steps -- if
-    //  there is one more steps then there is records in the answer section
-    //  we must have a loop.
+    //  there is more steps then there is records in the answer section we
+    //  must have a loop. While the ANCOUNT could be unreasonably large, the
+    //  iterator would break off in this case and we break out with a None
+    //  right away.
     pub fn canonical_name(&self) -> Option<ParsedDname<&Octets>> {
         let question = match self.first_question() {
             None => return None,
@@ -287,7 +472,7 @@ where
         None
     }
 
-    /// Get the OPT record from the message, if there is one.
+    /// Returns the OPT record from the message, if there is one.
     pub fn opt(&self) -> Option<OptRecord<<&Octets as OctetsRef>::Range>> {
         match self.additional() {
             Ok(section) => match section.limit_to::<Opt<_>>().next() {
@@ -302,10 +487,10 @@ where
     ///
     /// The method tries to parse the last record of the additional section
     /// as the provided record type. If that succeeds, it returns that
-    /// parsed record and removes it from the message.
+    /// parsed record.
     ///
     /// If the last record is of the wrong type or parsing fails, returns
-    /// `None` and leaves the message untouched.
+    /// `None`.
     pub fn get_last_additional<'s, Data: ParseRecordData<&'s Octets>>(
         &'s self
     ) -> Option<Record<ParsedDname<&'s Octets>, Data>> {
@@ -337,9 +522,15 @@ where
     ///
     /// Does so by decreasing the ’arcount.’ Does, however, not change the
     /// underlying octet sequence.
+    ///
+    /// # Panics
+    ///
+    /// The method panics if the additional section is empty.
     pub fn remove_last_additional(&mut self)
     where Octets: AsMut<[u8]> {
-        HeaderCounts::for_message_slice_mut(self.octets.as_mut()).dec_arcount();
+        HeaderCounts::for_message_slice_mut(
+            self.octets.as_mut()
+        ).dec_arcount();
     }
 
     /// Copy records from a message into the target message builder.
@@ -347,16 +538,14 @@ where
     /// The method uses `op` to process records from all record sections
     /// before inserting, caller can use this closure to filter or manipulate
     /// records before inserting.
-    pub fn copy_records<'s, N, D, R, F, T, O>(
+    pub fn copy_records<'s, R, F, T, O>(
         &'s self,
         target: T,
         mut op: F
     ) -> Result<AdditionalBuilder<O>, CopyRecordsError>
     where
         for <'a> &'a Octets: OctetsRef,
-        N: ToDname + 's,
-        D: RecordData + 's,
-        R: Into<Record<N, D>> + 's,
+        R: AsRecord + 's,
         F: FnMut(ParsedRecord<&'s Octets>) -> Option<R>,
         T: Into<AnswerBuilder<O>>,
         O: OctetsBuilder
@@ -393,6 +582,21 @@ where
 }
 
 
+//--- AsRef
+
+impl<Octets> AsRef<Octets> for Message<Octets> {
+    fn as_ref(&self) -> &Octets {
+        &self.octets
+    }
+}
+
+impl<Octets: AsRef<[u8]>> AsRef<[u8]> for Message<Octets> {
+    fn as_ref(&self) -> &[u8] {
+        self.octets.as_ref()
+    }
+}
+
+
 //--- IntoIterator
 
 impl<'a, Octets> IntoIterator for &'a Message<Octets>
@@ -408,6 +612,18 @@ where for<'s> &'s Octets: OctetsRef {
 
 //------------ QuestionSection ----------------------------------------------
 
+/// An iterator over the question section of a DNS message.
+///
+/// The iterator’s item is the result of trying to parse the question. In case
+/// of a parse error, `next` will return an error once and `None` after that.
+///
+/// You can create a value of this type through [`Message::question`]. Use the
+/// [`answer`] or [`next_section`] methods on a question section to proceed
+/// to an iterator over the answer section.
+///
+/// [`Message::question`]: struct.Message.html#method.question
+/// [`answer`]: #method.answer
+/// [`next_section`]: #method.next_section
 #[derive(Clone, Copy, Debug)]
 pub struct QuestionSection<Ref> {
     /// The parser for generating the questions.
@@ -422,7 +638,7 @@ pub struct QuestionSection<Ref> {
 }
 
 impl<Ref: OctetsRef> QuestionSection<Ref> {
-    /// Creates a new question section from the message octets.
+    /// Creates a new question section from a reference to the message octets.
     fn new(octets: Ref) -> Self {
         let mut parser = Parser::from_ref(octets);
         parser.advance(mem::size_of::<HeaderSection>()).unwrap();
@@ -451,6 +667,9 @@ impl<Ref: OctetsRef> QuestionSection<Ref> {
         Ok(RecordSection::new(self.parser, Section::first()))
     }
 
+    /// Proceeds to the answer section.
+    ///
+    /// This is identical to [`answer`] and is here for consistency.
     pub fn next_section(self) -> Result<RecordSection<Ref>, ParseError> {
         self.answer()
     }
@@ -506,7 +725,11 @@ where Ref: OctetsRef, Other: OctetsRef {
 
 //------------ Section -------------------------------------------------------
 
-/// A helper type enumerating which section a `RecordSection` is currently in.
+/// A helper type enumerating the three kinds of record sections.
+///
+/// See the documentation of [`Message`] for what the three sections are.
+///
+/// [`Message`]: struct.Message.html
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd)]
 pub enum Section {
     Answer,
@@ -541,6 +764,31 @@ impl Section {
 
 //------------ RecordSection -----------------------------------------------
 
+/// An iterator over the records in one of the three record sections.
+///
+/// The iterator’s item is the result of parsing a raw record represented by
+/// [`ParsedRecord`]. This type will allow access to an unparsed record. It
+/// can be converted into a concrete [`Record`] via its [`into_record`]
+/// method. If parsing the raw record fails, the iterator will return an
+/// error once and `None` after that.
+///
+/// Alternatively, you can trade in a value of this type into a
+/// [`RecordIter`] that iterates over [`Record`]s of a specific type by
+/// calling the [`limit_to`] method. In particular, you can use this together
+/// with [`AllRecordData`] to acquire an iterator that parses all known
+/// record types.
+///
+/// `RecordSection` values cannot be created directly. You can get one either
+/// by calling the method for the section in question of a [`Message`] value
+/// or by proceeding from another section via its `next_section` method.
+///
+/// [`limit_to`]: #method.limit_to
+/// [`AllRecordData`]: ../../rdata/enum.AllRecordData.html
+/// [`Message`]: struct.Message.html
+/// [`ParseRecord`]: ../record/struct.ParsedRecord.html
+/// [`Record`]: ../record/struct.Record.html
+/// [`RecordIter`]: struct.RecordIter.html
+/// [`into_record`]: ../record/struct.ParsedRecord.html#method.into_record
 #[derive(Clone, Copy, Debug)]
 pub struct RecordSection<Ref> {
     /// The parser for generating the records.
@@ -611,7 +859,7 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
 
     /// Proceeds to the next section if there is one.
     ///
-    /// Returns an error if parsing has failed and the message is unsable
+    /// Returns an error if parsing has failed and the message is unusable
     /// now.
     pub fn next_section(mut self) -> Result<Option<Self>, ParseError> {
         let section = match self.section.next_section() {
@@ -671,6 +919,7 @@ impl<Ref: OctetsRef> Iterator for RecordSection<Ref> {
 
 //------------ MessageIter ---------------------------------------------------
 
+/// An iterator over the records of a message.
 pub struct MessageIter<Ref> {
     inner: Option<RecordSection<Ref>>,
 }
@@ -705,6 +954,21 @@ impl<Ref: OctetsRef> Iterator for MessageIter<Ref> {
 
 //------------ RecordIter ----------------------------------------------------
 
+/// An iterator over specific records of a record section of a DNS message.
+///
+/// The iterator’s item type is the result of trying to parse a record.
+/// It silently skips over all records that `Data` cannot or does not want to
+/// parse. If parsing the record data fails, the iterator will return an
+/// error but can continue with the next record. If parsing the entire record
+/// fails the item will be an error and subsequent attempts to continue will
+/// also produce errors. This case can be distinguished from an error while
+/// parsing the record data by [`next_section`] returning an error, too.
+///
+/// You can create a value of this type through the
+/// [`RecordSection::limit_to`] method.
+///
+/// [`next_section`]: #method.next_section
+/// [`RecordSection::limit_to`]: struct.RecordSection.html#method.limit_to
 #[derive(Clone, Copy, Debug)]
 pub struct RecordIter<Ref, Data> {
     section: RecordSection<Ref>,
@@ -718,7 +982,7 @@ impl<Ref: OctetsRef, Data: ParseRecordData<Ref>> RecordIter<Ref, Data> {
         RecordIter { section, in_only, marker: PhantomData }
     }
 
-    /// Trades the iterator for the full iterator.
+    /// Trades the limited iterator for the full iterator.
     ///
     /// The returned iterator will continue right after the last record
     /// previously returned.
@@ -727,6 +991,9 @@ impl<Ref: OctetsRef, Data: ParseRecordData<Ref>> RecordIter<Ref, Data> {
     }
 
     /// Proceeds to the next section if there is one.
+    ///
+    /// Returns an error if parsing the message has failed. Returns
+    /// `Ok(None)` if this iterator was already on the additional section.
     pub fn next_section(
         self
     ) -> Result<Option<RecordSection<Ref>>, ParseError> {
@@ -765,6 +1032,7 @@ where Ref: OctetsRef, Data: ParseRecordData<Ref> {
 
 //------------ CopyRecordsError ----------------------------------------------
 
+/// An error occurrd while copying records.
 #[derive(Clone, Copy, Debug)]
 pub enum CopyRecordsError {
     /// Parsing the source message failed.
@@ -907,7 +1175,7 @@ mod test {
     #[test]
     fn copy_records() {
         let msg = get_test_message();
-        let msg = msg.as_ref_message();
+        let msg = msg.for_slice();
         let target = MessageBuilder::new_vec().question();
         let res = msg.copy_records(target.answer(), |rr| {
             if let Ok(Some(rr)) =

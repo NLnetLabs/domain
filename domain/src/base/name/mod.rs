@@ -3,18 +3,18 @@
 //! This module provides various types for working with domain names.
 //!
 //! Main types: [`Dname`], [`RelativeDname`], [`ParsedDname`],
-//! [`UncertainDname`].<br/>
+//! [`UncertainDname`], [`DnameBuilder`].<br/>
 //! Main traits: [`ToDname`], [`ToRelativeDname`].
 //! 
 //! Domain names are a sequence of *labels* which are in turn a sequence of
 //! up to 63 octets. While they are limited to a subset of ASCII by
-//! convention, all values are allowed. In their wire-format representation
-//! labels are prefixed with an octet containing the the number of octets in
-//! the label. The labels in a domain name are nominally arranged backwards.
-//! That is, the ‘most significant’ label is the last one. In an *absolute*
-//! domain name, this last label is an empty label, called the *root label*
-//! and indicating the root of the domain name tree. Only absolute names can
-//! appear inside DNS messages.
+//! convention, all octet values are allowed. In their wire-format
+//! representation labels are prefixed with an octet containing the the number
+//! of octets in the label. The labels in a domain name are nominally arranged
+//! backwards. That is, the ‘most significant’ label is the last one. In an
+//! *absolute* domain name, this last label is an empty label, called the
+//! *root label* and indicating the root of the domain name tree. Only
+//! absolute names can appear inside DNS messages.
 //!
 //! In order to save space in DNS messages (which were originally limited to
 //! 512 bytes for most cases), a name can end in a pointer to another name
@@ -24,15 +24,11 @@
 //!
 //! As a consequence, this module provides three different basic types for
 //! domain names: A self-contained, absolute domain name is represented by
-//! [`Dname`], a self-contained, relative domain is [`RelativeDname`], and
-//! a possibly compressed absolute domain name taken from a message becomes
-//! a [`ParsedDname`]. Each of these types internally contains a [`Bytes`]
-//! value, which means that it is an owned value that may refer to a shared
-//! underlying byte slice and can be copied cheaply.
-//!
-//! All these types allow iterating over the labels of their domain names.
-//! In addition, the self-contained types provide methods similar to 
-//! [`Bytes`] that allow access to parts of the name.
+//! [`Dname`], a self-contained, relative domain is [`RelativeDname`]. These
+//! are generic over an underlying octets sequence. Additionally, a possibly
+//! compressed absolute domain name taken from a message becomes a
+//! [`ParsedDname`]. This type is generic over an octets reference which makes
+//! it a little more unwieldy.
 //!
 //! Sometimes, it isn’t quite clear if a domain name is absolute or relative.
 //! This often happens because in a name’s string representation, which
@@ -40,10 +36,16 @@
 //! empty root label is omitted. For instance, instead of the strictly
 //! correct `www.example.com.` the slightly shorter `www.example.com` is
 //! accepted as an absolute name if it is clear from context that the name
-//! is absolute.
+//! is absolute. The [`UncertainDname`] type provides a means to keep such
+//! a name that may be absolute or relative.
 //!
-//! TODO: Explain [`DnameBuilder`] and building from strings via
-//!       [`UncertainDname`].
+//! In order to make it cheap to combine names, a mechanism exists to chain
+//! names together and treat them as a single name. The two traits [`ToDname`]
+//! and [`ToRelativeDname`] allow writing code that is generic over any kind
+//! of either absolute or relative domain name.
+//!
+//! Alternatively, you can use [`DnameBuilder`] to construct a name manually
+//! from individual labels.
 //!
 //! [`Bytes`]: ../../../bytes/struct.Bytes.html
 //! [`Dname`]: struct.Dname.html

@@ -1,4 +1,4 @@
-//! Record data from [RFC 2782].
+//! Record data from [RFC 2782]: SRV records.
 //!
 //! This RFC defines the Srv record type.
 //!

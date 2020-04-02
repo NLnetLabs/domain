@@ -19,7 +19,7 @@
 //!
 //! There is no special trait for octets, we simply use `AsRef<[u8]>` for
 //! imutable octets or `AsMut<[u8]>` if the octets of the sequence can be
-//! manupilated (but the length is still fixed). This way, any type
+//! manipulated (but the length is still fixed). This way, any type
 //! implementing these traits can be used already. The trait [`OctetsExt`]
 //! has been defined to collect additional methods that aren’t available via
 //! plain `AsRef<[u8]>`.
@@ -29,7 +29,17 @@
 //! out of the octets. For most types, ranges will be octet slices `&[u8]` but
 //! some shareable types (most notably `bytes::Bytes`) allow ranges to be 
 //! owned values, thus avoiding the lifetime limitations a slice would
-//! bring.
+//! bring. 
+//!
+//! One type is special in that it is its own octets reference: `&[u8]`,
+//! referred to as an octets slice in the documentation. This means that you
+//! always use an octets slice irregardless whether a type is generic over
+//! an octets sequence or an octets reference. Because an octets slice is
+//! also a useful basis when only looking at some value without planning on
+//! keeping any ranges from it, most generic types provide a method
+//! `for_slice` that converts the value from whatever octets type it is
+//! currently generic over into an identical value atop a octets slice of
+//! that sequence.
 //!
 //! The trait is separate because of limitations of lifetimes in traits. It
 //! has an associated type `OctetsRef::Range` that defines the type of a
@@ -112,6 +122,15 @@
 //! implemented by types that can decode values from octets.
 //!
 //!
+//! # Octet Sequences for `no_std` Use
+//!
+//! When using the crate without an allocator, creating octets sequences can
+//! be difficult. However, since DNS data is often limited in size, you can in
+//! many cases get away with using a octets array as the basis for an octets
+//! sequence. The crate provides a macro [`octets_array!`] to define such a
+//! type for specific array length. The octets module also contains a number
+//! of types defined via that module for typical array sizes.
+//!
 //!
 //! [`Compose`]: trait.Compose.html
 //! [`EmptyBuilder`]: trait.EmptyBuilder.html
@@ -133,6 +152,8 @@ use core::convert::TryFrom;
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
 
+
+//============ Octets and Octet Builders =====================================
 
 //------------ OctetsExt -----------------------------------------------------
 
@@ -168,6 +189,7 @@ impl<'a> OctetsExt for Cow<'a, [u8]> {
     }
 }
 
+#[cfg(feature = "std")]
 impl OctetsExt for Vec<u8> {
     fn truncate(&mut self, len: usize) {
         self.truncate(len)
@@ -222,15 +244,17 @@ pub trait OctetsRef: AsRef<[u8]> + Copy + Sized {
     /// Returns a sub-sequence or ‘range’ of the sequence.
     fn range(self, start: usize, end: usize) -> Self::Range;
 
-    /// Returns a range starting 
+    /// Returns a range starting at index `start` and going to the end.
     fn range_from(self, start: usize) -> Self::Range {
         self.range(start, self.as_ref().len())
     }
 
+    /// Returns a range from the start to before index `end`.
     fn range_to(self, end: usize) -> Self::Range {
         self.range(0, end)
     }
 
+    /// Returns a range that covers the entire sequence.
     fn range_all(self) -> Self::Range {
         self.range(0, self.as_ref().len())
     }
@@ -261,6 +285,7 @@ impl<'a, 's> OctetsRef for &'a Cow<'s, [u8]> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a> OctetsRef for &'a Vec<u8> {
     type Range = &'a [u8];
 
@@ -297,7 +322,8 @@ impl<'a, A: Array<Item = u8>> OctetsRef for &'a SmallVec<A> {
 /// may consist of a predefined amount of space or grow as needed.
 ///
 /// Octet builders provide access to the already assembled data through
-/// octet slices via their implementations of `AsRef<[u8]>` and `AsMut<[u8]>`.
+/// octet slices via their implementations of `AsRef<[u8]>` and
+/// `AsMut<[u8]>`.
 pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     /// Appends the content of a slice to the builder.
     ///
@@ -406,6 +432,16 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
                 Err(ShortBuf)
             }
         }
+    }
+}
+
+impl<'a, T: OctetsBuilder> OctetsBuilder for &'a mut T {
+    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
+        (*self).append_slice(slice)
+    }
+
+    fn truncate(&mut self, len: usize) {
+        (*self).truncate(len)
     }
 }
 
@@ -652,19 +688,30 @@ impl<A: Array<Item = u8>> FromBuilder for SmallVec<A> {
 }
 
 
+//============ Parsing =======================================================
+
 //------------ Parser --------------------------------------------------------
 
 /// A parser for sequentially extracting data from an octets sequence. 
 ///
 /// The parser wraps an [octets reference] and remembers the read position on
-/// the referenced octets sequence. Methods allow reading out data and
-/// progressing the position past the read data.
+/// the referenced sequence. Methods allow reading out data and progressing
+/// the position beyond processed data.
 ///
 /// [octets reference]: trait.OctetsRef.html
 #[derive(Clone, Copy, Debug)]
 pub struct Parser<Ref> {
+    /// The underlying octets reference.
     octets: Ref,
+
+    /// The current position of the parser from the beginning of `octets`.
     pos: usize,
+
+    /// The length of the octets sequence.
+    ///
+    /// This starts out as the length of the underlying sequence and is kept
+    /// here to be able to temporarily limit the allowed length for
+    /// `parse_blocks`.
     len: usize,
 }
 
@@ -714,25 +761,32 @@ impl Parser<&'static [u8]> {
 }
 
 impl<Ref: AsRef<[u8]>> Parser<Ref> {
-    /// Returns a reference to the underlying octets sequence.
+    /// Returns an octets slice of the underlying sequence.
+    ///
+    /// The slice covers the entire sequence, not just the remaining data. You
+    /// can use [`peek`] for that.
+    ///
+    /// [`peek`]: #method.peek
     pub fn as_slice(&self) -> &[u8] {
-        self.octets.as_ref()
+        &self.octets.as_ref()[..self.len]
     }
 
-    /// Returns a mutable reference to the underlying octets sequence.
+    /// Returns a mutable octets slice of the underlying sequence.
+    ///
+    /// The slice covers the entire sequence, not just the remaining data.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
     where Ref: AsMut<[u8]> {
-        self.octets.as_mut()
+        &mut self.octets.as_mut()[..self.len]
     }
 
-    /// Returns the number of remaining bytes to parse.
+    /// Returns the number of remaining octets to parse.
     pub fn remaining(&self) -> usize {
         self.len - self.pos
     }
 
-    /// Returns a slice containing the next `len` octets.
+    /// Returns a slice for the next `len` octets.
     ///
-    /// If less than `len` bytes are left, returns an error.
+    /// If less than `len` octets are left, returns an error.
     pub fn peek(&self, len: usize) -> Result<&[u8], ParseError> {
         self.check_len(len)?;
         Ok(&self.peek_all()[..len])
@@ -793,7 +847,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// Takes and returns the next `len` octets.
     ///
     /// Advances the parser by `len` octets. If there aren’t enough octats
-    /// left, leaves the parser untouched and returns an error, instead.
+    /// left, leaves the parser untouched and returns an error instead.
     pub fn parse_octets(
         &mut self,
         len: usize
@@ -810,8 +864,11 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
 
     /// Fills the provided buffer by taking octets from the parser.
     ///
+    /// Copies as many octets as the buffer is long from the parser into the
+    /// buffer and advances the parser by that many octets.
+    ///
     /// If there aren’t enough octets left in the parser to fill the buffer
-    /// completely, returns an error.
+    /// completely, returns an error and leaves the parser untouched.
     pub fn parse_buf(&mut self, buf: &mut [u8]) -> Result<(), ParseError> {
         let pos = self.pos;
         self.advance(buf.len())?;
@@ -822,7 +879,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// Takes an `i8` from the beginning of the parser.
     ///
     /// Advances the parser by one octet. If there aren’t enough octets left,
-    /// leaves the parser untouched and returns an error, instead.
+    /// leaves the parser untouched and returns an error instead.
     pub fn parse_i8(&mut self) -> Result<i8, ParseError> {
         let res = self.peek(1)?[0] as i8;
         self.pos += 1;
@@ -832,7 +889,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// Takes a `u8` from the beginning of the parser.
     ///
     /// Advances the parser by one octet. If there aren’t enough octets left,
-    /// leaves the parser untouched and returns an error, instead.
+    /// leaves the parser untouched and returns an error instead.
     pub fn parse_u8(&mut self) -> Result<u8, ParseError> {
         let res = self.peek(1)?[0];
         self.pos += 1;
@@ -844,7 +901,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// The value is converted from network byte order into the system’s own
     /// byte order if necessary. The parser is advanced by two octets. If
     /// there aren’t enough octets left, leaves the parser untouched and
-    /// returns an error, instead.
+    /// returns an error instead.
     pub fn parse_i16(&mut self) -> Result<i16, ParseError> {
         let mut res = [0; 2];
         self.parse_buf(&mut res)?;
@@ -856,7 +913,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// The value is converted from network byte order into the system’s own
     /// byte order if necessary. The parser is advanced by two ocetets. If
     /// there aren’t enough octets left, leaves the parser untouched and
-    /// returns an error, instead.
+    /// returns an error instead.
     pub fn parse_u16(&mut self) -> Result<u16, ParseError> {
         let mut res = [0; 2];
         self.parse_buf(&mut res)?;
@@ -868,7 +925,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// The value is converted from network byte order into the system’s own
     /// byte order if necessary. The parser is advanced by four octets. If
     /// there aren’t enough octets left, leaves the parser untouched and
-    /// returns an error, instead.
+    /// returns an error instead.
     pub fn parse_i32(&mut self) -> Result<i32, ParseError> {
         let mut res = [0; 4];
         self.parse_buf(&mut res)?;
@@ -880,14 +937,18 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// The value is converted from network byte order into the system’s own
     /// byte order if necessary. The parser is advanced by four octets. If
     /// there aren’t enough octets left, leaves the parser untouched and
-    /// returns an error, instead.
+    /// returns an error instead.
     pub fn parse_u32(&mut self) -> Result<u32, ParseError> {
         let mut res = [0; 4];
         self.parse_buf(&mut res)?;
         Ok(u32::from_be_bytes(res))
     }
 
-    /// Parses the next octets through a closure.
+    /// Parses a given amount of octets through a closure.
+    ///
+    /// Parses a block of `limit` octets and moves the parser to the end of
+    /// that block or, if less than `limit` octets are still available, to
+    /// the end of the parser.
     ///
     /// The closure `op` will be allowed to parse up to `limit` octets. If it
     /// does so successfully or returns with a form error, the method returns
@@ -906,13 +967,14 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     {
         let end = self.pos + limit;
         if end > self.len {
+            self.advance_to_end();
             return Err(ParseError::ShortInput);
         }
         let len = self.len;
         self.len = end;
         let res = op(self);
         self.len = len;
-        if self.pos != end {
+        let res = if self.pos != end {
             Err(ParseError::Form(FormError::new("trailing data in field")))
         }
         else if let Err(ParseError::ShortInput) = res {
@@ -920,9 +982,10 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
         }
         else {
             res
-        }
+        };
+        self.pos = end;
+        res
     }
-
 }
 
 
@@ -1054,6 +1117,8 @@ impl<T: AsRef<[u8]>> Parse<T> for Ipv6Addr {
 }
 
 
+//============ Composing =====================================================
+
 //------------ Compose -------------------------------------------------------
 
 /// A type that knows how to compose itself into an octets builder.
@@ -1067,9 +1132,11 @@ impl<T: AsRef<[u8]>> Parse<T> for Ipv6Addr {
 /// value. For instance, it reflects the capitalisation of strings. The
 /// canonical representation is used when calculating digests or ordering
 /// values. Typically, it ignores capitalization and never compresses domain
-/// names.
+/// names. See the documentation of [`CanonicalOrd`] for more details on
+/// canonical representation.
 ///
 /// [octets builder]: trait.OctetsBuilder.html
+/// [`CanonicalOrd`]: ../cmp/trait.CanonicalOrd.html
 pub trait Compose {
     /// Appends the concrete representation of the value to the target.
     ///
@@ -1392,7 +1459,13 @@ pub type OctetsVec = SmallVec<[u8; 24]>;
 
 //------------ ShortBuf ------------------------------------------------------
 
-/// An attempt was made to go beyond the end of a buffer.
+/// An attempt was made to write beyond the end of a buffer.
+///
+/// This type is returned as an error by all functions and methods that append
+/// data to an [octets builder] when the buffer size of the builder is not
+/// sufficient to append the data.
+///
+/// [octets builder]: trait.OctetsBuilder.html
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShortBuf;
 
@@ -1419,6 +1492,13 @@ pub enum ParseError {
 
     /// A formatting error occurred.
     Form(FormError)
+}
+
+impl ParseError {
+    /// Creates a new parse error as a form error with the given message.
+    pub fn form_error(msg: &'static str) -> Self {
+        FormError::new(msg).into()
+    }
 }
 
 
@@ -1451,10 +1531,15 @@ impl std::error::Error for ParseError { }
 //------------ FormError -----------------------------------------------------
 
 /// A formatting error occured.
+///
+/// This is a generic error for all kinds of error cases that result in data
+/// not being accepted. For diagnostics, the error is being given a static
+/// string describing the error.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FormError(&'static str);
 
 impl FormError {
+    /// Creates a new form error value with the given diagnostics string.
     pub fn new(msg: &'static str) -> Self {
         FormError(msg)
     }

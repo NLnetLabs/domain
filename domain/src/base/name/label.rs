@@ -11,41 +11,49 @@ use super::super::octets::{
 
 //------------ Label ---------------------------------------------------------
 
-/// A slice with the content of a domain name label.
+/// An octets slice with the content of a domain name label.
 ///
 /// This is an unsized type wrapping the content of a valid label.
 ///
 /// There are two types of such labels: normal labels and binary labels.
-/// Normal labels consist of up to 63 bytes of data. Binary labels are a
+/// Normal labels consist of up to 63 octets of data. Binary labels are a
 /// sequence of up to 256 one-bit labels. They have been invented for reverse
 /// pointer records for IPv6 but have quickly been found to be rather
-/// unwieldly and were never widely implemented. Subsequently they have been
+/// unwieldy and were never widely implemented. Subsequently they have been
 /// declared historic and are forbidden to be supported. So we don’t.
 ///
 /// In theory there can be even more types of labels, but based on the
 /// experience with binary labels, it is very unlikely that there ever will
 /// be any.
 ///
-/// Consequently, `Label` will only ever contain a byte slice of up to 63
-/// bytes. It only contains the label’s content, not the length octet it is
-/// preceded by in wire format. The type derefs to `[u8]`, providing access
-/// to all of a byte slice’s methods. As an usized type, it needs to be used
-/// behind some kind of pointer, most likely a reference.
+/// Consequently, `Label` will only ever contain an octets slice of up to 63
+/// octets. It only contains the label’s content, not the length octet it is
+/// preceded by in wire format. The type `Deref`s to `[u8]`, providing access
+/// to all of an octets slice’s methods. As an unsized type, it needs to be
+/// used behind some kind of pointer, most likely a reference.
 ///
-/// `Label` differs from a byte slice in how it compares: as labels are to be
-/// case-insensititve, all the comparision traits as well as `Hash` are
-/// implemented igoring ASCII-case.
+/// `Label` differs from an octets slice in how it compares: as labels are to
+/// be case-insensitive, all the comparison traits as well as `Hash` are
+/// implemented ignoring ASCII-case.
 pub struct Label([u8]);
 
 /// # Creation
 ///
 impl Label {
-    /// Creates a label from the underlying byte slice without any checking.
+    /// Creates a label from the underlying slice without any checking.
+    ///
+    /// # Safety
+    ///
+    /// The `slice` must be at most 63 octets long.
     pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         &*(slice as *const [u8] as *const Self)
     }
 
-    /// Creates a label from the underlying byte slice without any checking.
+    /// Creates a mutable label from the underlying slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The `slice` must be at most 63 octets long.
     pub(super) unsafe fn from_slice_mut_unchecked(
         slice: &mut [u8]
     ) -> &mut Self {
@@ -64,9 +72,9 @@ impl Label {
         unsafe { Self::from_slice_unchecked(b"*") }
     }
 
-    /// Converts a byte slice into a label.
+    /// Converts an octets slice into a label.
     ///
-    /// This will fail if the slice is longer than 63 bytes.
+    /// This will fail if the slice is longer than 63 octets.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, LongLabelError> {
         if slice.len() > 63 {
             Err(LongLabelError)
@@ -76,9 +84,23 @@ impl Label {
         }
     }
 
-    /// Splits a label from the beginning of a byte slice.
+    /// Converts a mutable octets slice into a label.
     ///
-    /// On success, the functon returns a label and the remainder of
+    /// This will fail of the slice is longer than 63 octets.
+    pub fn from_slice_mut(
+        slice: &mut [u8]
+    ) -> Result<&mut Self, LongLabelError> {
+        if slice.len() > 63 {
+            Err(LongLabelError)
+        }
+        else {
+            Ok(unsafe { Self::from_slice_mut_unchecked(slice) })
+        }
+    }
+
+    /// Splits a label from the beginning of an octets slice.
+    ///
+    /// On success, the function returns a label and the remainder of
     /// the slice.
     pub fn split_from(slice: &[u8])
                       -> Result<(&Self, &[u8]), SplitLabelError> {
@@ -114,7 +136,7 @@ impl Label {
             &slice[end..]))
     }
 
-    /// Iterates over the labels in a message slice.
+    /// Iterates over the labels in some part of an octets slice.
     ///
     /// The first label is assumed to start at index `start`.
     ///
@@ -128,14 +150,14 @@ impl Label {
         SliceLabelsIter { slice, start }
     }
 
-    /// Returns a reference to the underlying byte slice.
+    /// Returns a reference to the underlying octets slice.
     pub fn as_slice(&self) -> &[u8] {
-        self.as_ref()
+        unsafe { &*(self as *const Self as *const [u8]) }
     }
 
-    /// Returns a mutable reference to the underlying byte slice.
+    /// Returns a mutable reference to the underlying octets slice.
     pub fn as_slice_mut(&mut self) -> &mut [u8] {
-        self.as_mut()
+        unsafe { &mut *(self as *mut Label as *mut [u8]) }
     }
 
     /// Returns the label in canonical form.
@@ -165,6 +187,10 @@ impl Label {
         self.cmp(other)
     }
 
+    /// Appends the label to an octets builder.
+    ///
+    /// The method builds the encoded form of the label that starts with a
+    /// one octet length indicator.
     pub fn build<Builder: OctetsBuilder>(
         &self, target: &mut Builder
     ) -> Result<(), ShortBuf> {
@@ -174,6 +200,11 @@ impl Label {
         })
     }
 
+    /// Appends the lowercased label to an octets builder.
+    ///
+    /// The method builds the encoded form of the label that starts with a
+    /// one octet length indicator. It also converts all ASCII letters into
+    /// their lowercase form.
     pub fn build_lowercase<Builder: OctetsBuilder>(
         &self, target: &mut Builder
     ) -> Result<(), ShortBuf> {
@@ -186,6 +217,7 @@ impl Label {
         })
     }
 }
+
 
 /// # Properties
 ///
@@ -201,6 +233,9 @@ impl Label {
     }
 
     /// Returns the length of the composed version of the label.
+    ///
+    /// This length is one more than the length of the label as their is a
+    /// leading length octet.
     pub fn compose_len(&self) -> usize {
         self.len() + 1
     }
@@ -241,25 +276,25 @@ impl ops::Deref for Label {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        self.as_ref()
+        self.as_slice()
     }
 }
 
 impl ops::DerefMut for Label {
     fn deref_mut(&mut self) -> &mut [u8] {
-        self.as_mut()
+        self.as_slice_mut()
     }
 }
 
 impl AsRef<[u8]> for Label {
     fn as_ref(&self) -> &[u8] {
-        unsafe { &*(self as *const Self as *const [u8]) }
+        self.as_slice()
     }
 }
 
 impl AsMut<[u8]> for Label {
     fn as_mut(&mut self) -> &mut [u8] {
-        unsafe { &mut *(self as *mut Label as *mut [u8]) }
+        self.as_slice_mut()
     }
 }
 
@@ -374,7 +409,7 @@ impl fmt::Debug for Label {
 /// An owned label.
 ///
 /// Since labels are relatively short, this type doesn’t actually allocate any
-/// memory but is a 64 byte array.
+/// memory but is a 64 octet array.
 //
 //  This keeps the label in wire format, so the first octet is the length
 //  octet, the remainder is the content.
@@ -389,6 +424,10 @@ impl OwnedLabel {
         OwnedLabel(res)
     }
 
+    /// Converts the label into the canonical form.
+    ///
+    /// This form has all octets representing ASCII letters converted to their
+    /// lower case form.
     pub fn make_canonical(&mut self) {
         self.0[1..].make_ascii_lowercase()
     }
@@ -410,7 +449,7 @@ impl OwnedLabel {
         }
     }
 
-    /// Returns a slice that is the wire-represenation of the label.
+    /// Returns a slice that is the wire-representation of the label.
     pub fn as_wire_slice(&self) -> &[u8] {
         let len = self.0[0] as usize;
         &self.0[..=len]
@@ -517,6 +556,13 @@ impl hash::Hash for OwnedLabel {
 
 //------------ SliceLabelsIter -----------------------------------------------
 
+/// An iterator over the labels in an octets slice.
+///
+/// This keeps returning [`Label`]s until it encounters the root label. If
+/// the slice ends before a root label is seen, returns the last label seen
+/// and then stops.
+///
+/// [`Label`]: struct.Label.html
 pub struct SliceLabelsIter<'a> {
     /// The message slice to work on.
     slice: &'a [u8],
@@ -576,7 +622,7 @@ pub enum LabelTypeError {
     /// The label was of the undefined type `0b10`.
     Undefined,
 
-    /// The label was of extended label type given.
+    /// The label was of the extended label type given.
     /// 
     /// The type value will be in the range `0x40` to `0x7F`, that is, it
     /// includes the original label type bits `0b01`.
@@ -603,7 +649,7 @@ impl std::error::Error for LabelTypeError { }
 
 //------------ LongLabelError ------------------------------------------------
 
-/// A label was longer than the allowed 63 bytes.
+/// A label was longer than the allowed 63 octets.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LongLabelError;
 
@@ -622,7 +668,7 @@ impl std::error::Error for LongLabelError { }
 
 //------------ SplitLabelError -----------------------------------------------
 
-/// An error happened while splitting a label from a bytes slice.
+/// An error happened while splitting a label from an octets slice.
 #[derive(Clone, Copy, Debug, Eq,  PartialEq)]
 pub enum SplitLabelError {
     /// The label was a pointer to the given position.
@@ -631,7 +677,7 @@ pub enum SplitLabelError {
     /// The label type was invalid.
     BadType(LabelTypeError),
 
-    /// The bytes slice was too short.
+    /// The octets slice was shorter than indicated by the label length.
     ShortInput,
 }
 

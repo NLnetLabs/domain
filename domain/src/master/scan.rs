@@ -9,7 +9,7 @@ use crate::base::name;
 use crate::base::name::Dname;
 use crate::base::net::AddrParseError;
 use crate::base::str::{BadSymbol, Symbol};
-use crate::base::utils::{base32, base64};
+use crate::utils::{base32, base64};
 
 
 //------------ CharSource ----------------------------------------------------
@@ -285,7 +285,14 @@ impl<C: CharSource> Scanner<C> {
                             where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
         self.scan_phrase(
             BytesMut::new(),
-            |buf, symbol| symbol.push_to_buf(buf).map_err(Into::into),
+            |buf, symbol| {
+                symbol.into_octet().map(|ch| {
+                    if buf.remaining_mut() == 0 {
+                        buf.reserve(1);
+                    }
+                    buf.put_u8(ch)
+                }).map_err(Into::into)
+            },
             |buf| finalop(buf.freeze())
         )
     }

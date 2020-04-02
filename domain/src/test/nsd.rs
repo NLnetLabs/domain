@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::string::String;
 use std::vec::Vec;
 use bytes::Bytes;
-use crate::base::utils::base64;
+use crate::utils::base64;
 
 
 //------------ Config --------------------------------------------------------

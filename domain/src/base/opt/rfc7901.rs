@@ -27,7 +27,7 @@ impl<Octets> Chain<Octets> {
         builder: &mut OptBuilder<Target>,
         start: &N
     ) -> Result<(), ShortBuf> {
-        builder.append_raw_option(OptionCode::Chain, |target| {
+        builder.push_raw_option(OptionCode::Chain, |target| {
             target.append_all(|target| {
                 for label in start.iter_labels() {
                     label.compose(target)?

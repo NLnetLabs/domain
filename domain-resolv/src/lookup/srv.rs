@@ -62,7 +62,7 @@ pub async fn lookup_srv(
         Err(_) => return Err(SrvError::LongName)
     };
     let answer = resolver.query((full_name, Rtype::Srv)).await?;
-    FoundSrvs::new(&answer.as_ref().as_ref_message(), name, fallback_port)
+    FoundSrvs::new(&answer.as_ref().for_slice(), name, fallback_port)
 }
 
 

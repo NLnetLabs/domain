@@ -1,23 +1,30 @@
-//! Converting from and to strings.
+//! Support for converting from and to strings.
+//!
+//! This module contains helper types for converting from and to string
+//! representation of types.
 
 use core::fmt;
-#[cfg(feature = "bytes")] use bytes::{BufMut, BytesMut};
-#[cfg(feature = "master")] use crate::master::scan::SyntaxError;
 use super::octets::ParseError;
 
 
 //------------ Symbol --------------------------------------------------------
 
 /// The master file representation of a single character.
+///
+/// This is either a regular character or an escape sequence. See the variants
+/// for more details.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Symbol {
     /// An unescaped Unicode character.
     Char(char),
 
-    /// An escape character by simply being backslashed.
+    /// A character escaped via a preceding backslash.
     SimpleEscape(char),
 
-    /// An escaped character using the decimal escape sequence.
+    /// A raw octet escaped using the decimal escape sequence.
+    ///
+    /// This escape sequence consists of a backslash followed by exactly three
+    /// decimal digits with the value of the octets.
     DecimalEscape(u8),
 }
 
@@ -64,12 +71,13 @@ impl Symbol {
         }
     }
 
-    /// Provides the best symbol for a byte.
+    /// Provides the best symbol for an octet.
     ///
-    /// The function will use simple escape sequences for spaces, quotes,
-    /// backslashs, and semicolons. It will leave all other printable ASCII
-    /// characters unescaped and decimal escape all remaining byte value.
-    pub fn from_byte(ch: u8) -> Self {
+    /// The function will use the simple escape sequence for octet values that
+    /// represent ASCII spaces, quotes, backslashes, and semicolons and the
+    /// plain ASCII value for all other printable ASCII characters. Any other
+    /// value is escaped using the decimal escape sequence.
+    pub fn from_octet(ch: u8) -> Self {
         if ch == b' ' || ch == b'"' || ch == b'\\' || ch == b';' {
             Symbol::SimpleEscape(ch as char)
         }
@@ -81,17 +89,18 @@ impl Symbol {
         }
     }
 
-    /// Converts the symbol into a byte if it represents one.
+    /// Converts the symbol into an octet if it represents one.
     ///
     /// Both domain names and character strings operate on bytes instead of
     /// (Unicode) characters. These bytes can be represented by printable
     /// ASCII characters (that is, U+0020 to U+007E), both plain or through
     /// a simple escape, or by a decimal escape.
     ///
-    /// This method returns such a byte or an error otherwise. Note that it
-    /// will succeed for an ASCII space character U+0020 which may be used
-    /// as a word separator in some cases.
-    pub fn into_byte(self) -> Result<u8, BadSymbol> {
+    /// This method returns such an octet or an error if the symbol doesn’t
+    /// have value representing an octet. Note that it will succeed for an
+    /// ASCII space character U+0020 which may be used as a word separator
+    /// in some cases.
+    pub fn into_octet(self) -> Result<u8, BadSymbol> {
         match self {
             Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
                 if ch.is_ascii() && ch >= '\u{20}' && ch <= '\u{7E}' {
@@ -106,6 +115,9 @@ impl Symbol {
     }
 
     /// Converts the symbol into a `char`.
+    ///
+    /// This will fail for a decimal escape sequence which doesn’t actually
+    /// represent a character.
     pub fn into_char(self) -> Result<char, BadSymbol> {
         match self {
             Symbol::Char(ch) | Symbol::SimpleEscape(ch) => Ok(ch),
@@ -114,35 +126,22 @@ impl Symbol {
     }
 
     /// Converts the symbol representing a digit into its integer value.
-    #[cfg(feature = "master")]
-    pub fn into_digit(self, base: u32) -> Result<u32, SyntaxError> {
+    pub fn into_digit(self, base: u32) -> Result<u32, BadSymbol> {
         if let Symbol::Char(ch) = self {
             match ch.to_digit(base) {
                 Some(ch) => Ok(ch),
-                None => Err(SyntaxError::Unexpected(self))
+                None => Err(BadSymbol(self))
             }
         }
         else {
-            Err(SyntaxError::Unexpected(self))
+            Err(BadSymbol(self))
         }
     }
 
-    /// Pushes a symbol that is a byte to the end of a byte buffer.
-    ///
-    /// If the symbol is a byte as per the rules described in `into_byte`,
-    /// it will be pushed to the end of `buf`, reserving additional space
-    /// if there isn’t enough space remaining.
-    #[cfg(feature="bytes")]
-    pub fn push_to_buf(self, buf: &mut BytesMut) -> Result<(), BadSymbol> {
-        self.into_byte().map(|ch| {
-            if buf.remaining_mut() == 0 {
-                buf.reserve(1);
-            }
-            buf.put_u8(ch)
-        })
-    }
-
     /// Returns whether the symbol can occur as part of a word.
+    ///
+    /// This is true apart for unescaped ASCII space and horizontal tabs,
+    /// opening and closing parantheses, the semicolon, and double quote.
     pub fn is_word_char(self) -> bool {
         match self {
             Symbol::Char(ch) => {
@@ -184,7 +183,12 @@ impl fmt::Display for Symbol {
 /// An error happened when reading a symbol.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SymbolError {
+    /// An illegal escape sequence was encountered.
     BadEscape,
+
+    /// Unexpected end of input.
+    ///
+    /// This can only happen in a decimal escape sequence.
     ShortInput
 }
 
@@ -208,7 +212,7 @@ impl std::error::Error for SymbolError { }
 
 //------------ BadSymbol -----------------------------------------------------
 
-/// A symbol of unexepected value was encountered. 
+/// A symbol with an unexpected value was encountered. 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BadSymbol(pub Symbol);
 
@@ -217,7 +221,7 @@ pub struct BadSymbol(pub Symbol);
 
 impl fmt::Display for BadSymbol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "bad symbol '{}'", self.0)
+        write!(f, "unexpected symbol '{}'", self.0)
     }
 }
 

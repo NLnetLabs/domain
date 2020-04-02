@@ -32,7 +32,7 @@ impl Nsid<()> {
     ) -> Result<(), ShortBuf> {
         let data = data.as_ref();
         assert!(data.len() <= ::std::u16::MAX as usize);
-        builder.append_raw_option(OptionCode::Nsid, |target| {
+        builder.push_raw_option(OptionCode::Nsid, |target| {
             target.append_slice(data)
         })
     }
