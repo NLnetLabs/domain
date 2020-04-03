@@ -1,15 +1,15 @@
 # Change Log
 
-## Future 0.5.0
+## 0.5.0
 
 This release contains a major restructuring and refactoring of the entire
 library. The previous set of crates has been merged into a single crate
 yet again with various modules being optional and available via features.
 
-The following notes list the changes relative to the previous individual
-crates.
 
-### `domain_core`
+### Changes to former *domain-core*
+
+The following notes list the changes relative to the *domain-core* crate.
 
 Reorganization
 
@@ -58,23 +58,8 @@ Bug fixes
 
 Dependencies
 
-* The `std` and `bytes` crates are now optional and can be enabled via
-  features.
-
-
-### `domain-resolv``
-
-Reorganization
-
-* The contents of the `domain_resolv` crate has moved to `domain::resolv`.
-  It is only available if the `"resolv"` feature is enabled.
-
-Bug fixes
-
-* Fix a panic if the end of the server list is reached during a query.
-  Reported by [@dvc94ch]. [(#14)]
-* Fix a panic when a server list is empty to begin with. (Fix by
-  [@vendemiat] in [#26])
+* The `std`, `bytes`, and `chrono` crates are now optional and can be enabled
+  via features.
 
 
 ### New
