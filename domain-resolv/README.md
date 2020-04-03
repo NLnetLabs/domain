@@ -6,6 +6,9 @@
 This crate provides a modern stub resolver using
 [Tokio](https://tokio.rs/).
 
+Please note that this crate will be merged as a module into the
+[domain][https://crates.io/crates/domain] crate very soon.
+
 ## Features
 
 Eventually, the stub resolver will provide the following functionality:
