@@ -1,14 +1,11 @@
 # Change Log
 
-
-## Unreleased next version
+## 0.5.0
 
 Breaking Changes
 
 * Migrated to use async functions. This allowed the resolver to use
   regular references instead of hiding behind arcs. ([#43])
-
-New
 
 Bug fixes
 
@@ -18,6 +15,8 @@ Bug fixes
   [@vendemiat] in [#26])
 
 Dependencies
+
+* The crate now requires tokio 0.2 and futures 0.3.
 
 [(#14)]: https://github.com/NLnetLabs/domain/pull/14
 [#26]: https://github.com/NLnetLabs/domain/pull/26

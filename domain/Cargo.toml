@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.5.0-pre"
+version = "0.5.0"
 edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust."
@@ -33,7 +33,7 @@ std      = []
 tsig     = ["bytes", "ring", "smallvec"]
 validate = ["std", "ring"]
 
-
 [[example]]
 name = "readzone"
 required-features = ["master"]
+
