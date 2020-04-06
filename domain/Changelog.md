@@ -1,5 +1,22 @@
 # Change Log
 
+
+## Unreleased next version
+
+Breaking Changes
+
+New
+
+Bug Fixes
+
+* Fix calculation of block lengths in `TxtBuilder`. ([#57], by [@vavrusa])
+
+Dependencies
+
+[#57]: https://github.com/NLnetLabs/domain/pull/57
+[@vavrusa]: https://github.com/vavrusa
+
+
 ## 0.5.0
 
 This release contains a major restructuring and refactoring of the entire
