@@ -1578,13 +1578,13 @@ impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
             slice = left;
         }
         for chunk in slice.chunks(255) {
-            if self.builder.len() >= 0xFFFF {
+            if self.builder.len() + chunk.len() + 1 >= 0xFFFF {
                 return Err(ShortBuf);
             }
+            // Remember offset of this incomplete chunk
             self.start = if chunk.len() == 255 {
                 None
-            }
-            else {
+            } else {
                 Some(self.builder.len())
             };
             self.builder.append_slice(&[chunk.len() as u8])?;
@@ -1594,15 +1594,16 @@ impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
     }
 
     pub fn finish(mut self) -> Txt<Builder::Octets>
-    where Builder: IntoOctets {
+    where
+        Builder: IntoOctets,
+    {
         if let Some(start) = self.start {
-            self.builder.as_mut()[start] = 
-                (255 - (self.builder.len() - (start + 1))) as u8;
+            let last_slice_len = self.builder.len() - (start + 1);
+            self.builder.as_mut()[start] = last_slice_len as u8;
         }
         Txt(self.builder.into_octets())
     }
 }
-
 
 impl<Builder: OctetsBuilder + EmptyBuilder> Default for TxtBuilder<Builder> {
     fn default() -> Self {
@@ -1610,3 +1611,51 @@ impl<Builder: OctetsBuilder + EmptyBuilder> Default for TxtBuilder<Builder> {
     }
 }
 
+//============ Testing ======================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::vec::Vec;
+
+    #[test]
+    fn txt_from_slice() {
+        let short = b"01234";
+        let txt: Txt<Vec<u8>> = Txt::from_slice(short).unwrap();
+        assert_eq!(Some(&short[..]), txt.as_flat_slice());
+        assert_eq!(Ok(short.to_vec()), txt.text::<Vec<u8>>());
+
+        // One full slice
+        let full = short.repeat(51);
+        let txt: Txt<Vec<u8>> = Txt::from_slice(&full).unwrap();
+        assert_eq!(Some(&full[..]), txt.as_flat_slice());
+        assert_eq!(Ok(full.to_vec()), txt.text::<Vec<u8>>());
+
+        // Two slices: 255, 5
+        let long = short.repeat(52);
+        let txt: Txt<Vec<u8>> = Txt::from_slice(&long).unwrap();
+        assert_eq!(None, txt.as_flat_slice());
+        assert_eq!(Ok(long.to_vec()), txt.text::<Vec<u8>>());
+
+        // Partial
+        let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
+        for chunk in long.chunks(9) {
+            builder.append_slice(chunk).unwrap();
+        }
+        let txt = builder.finish();
+        assert_eq!(None, txt.as_flat_slice());
+        assert_eq!(Ok(long.to_vec()), txt.text::<Vec<u8>>());
+
+        // Too long
+        let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
+        assert!(builder
+            .append_slice(&b"\x00".repeat(std::u16::MAX as usize))
+            .is_err());
+        let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
+        // Incremental, reserve space for offsets
+        assert!(builder
+            .append_slice(&b"\x00".repeat(std::u16::MAX as usize - 512))
+            .is_ok());
+        assert!(builder.append_slice(&b"\x00".repeat(512)).is_err());
+    }
+}
