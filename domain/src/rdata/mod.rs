@@ -24,16 +24,17 @@
 //! [`MasterRecordData`]: enum.MasterRecordData.html
 //! [`base::iana::Rtype`]: ../base/iana/enum.Rtype.html
 
+#[macro_use]
+mod macros;
+
 pub mod rfc1035;
 pub mod rfc2782;
 pub mod rfc2845;
 pub mod rfc3596;
 pub mod rfc4034;
+pub mod rfc6672;
 pub mod rfc5155;
 pub mod rfc7344;
-
-#[macro_use]
-mod macros;
 
 // The rdata_types! macro (defined in self::macros) reexports the record data
 // types here and creates the MasterRecordData and AllRecordData enums
@@ -93,6 +94,11 @@ rdata_types! {
             Rrsig<O, N>,
             Nsec<O, N>,
             Ds<O>,
+        }
+    }
+    rfc6672::{
+        master {
+            Dname<N>,
         }
     }
     rfc5155::{
