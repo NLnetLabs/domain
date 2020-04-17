@@ -7,6 +7,8 @@ Breaking Changes
 
 New
 
+* Support for the DNAME record type. ([#58], by [@vavrusa])
+
 Bug Fixes
 
 * Fix calculation of block lengths in `TxtBuilder`. ([#57], by [@vavrusa])
@@ -14,6 +16,7 @@ Bug Fixes
 Dependencies
 
 [#57]: https://github.com/NLnetLabs/domain/pull/57
+[#58]: https://github.com/NLnetLabs/domain/pull/58
 [@vavrusa]: https://github.com/vavrusa
 
 
