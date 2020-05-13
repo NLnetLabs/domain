@@ -1462,7 +1462,7 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
         let pos = self.as_target().as_ref().len();
         self.as_target_mut().append_all(|target| {
             code.compose(target)?;
-            op(target)
+            target.u16_len_prefixed(|target| op(target))
         })?;
 
         // Update the length. If the option is too long, truncate and return
@@ -1998,3 +1998,93 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
     }
 }
 
+//============ Testing =======================================================
+
+#[cfg(test)]
+mod test {
+    use crate::base::{iana::Rtype, Dname, opt};
+    use crate::rdata::{A, Ns};
+    use std::str::FromStr;
+    use super::*;
+
+    #[test]
+    fn message_builder() {
+        // Make a domain name we can use later on.
+        let name = Dname::<Vec<u8>>::from_str("example.com").unwrap();
+
+        // Create a message builder wrapping a compressor wrapping a stream
+        // target.
+        let mut msg = MessageBuilder::from_target(
+            StaticCompressor::new(
+                StreamTarget::new_vec()
+            )
+        ).unwrap();
+
+        // Set the RD bit in the header and proceed to the question section.
+        msg.header_mut().set_rd(true);
+        let mut msg = msg.question();
+
+        // Add a question and proceed to the answer section.
+        msg.push((&name, Rtype::A)).unwrap();
+        let mut msg = msg.answer();
+
+        // Add two answer and proceed to the additional sections
+        msg.push((&name, 86400, A::from_octets(192, 0, 2, 1))).unwrap();
+        msg.push((&name, 86400, A::from_octets(192, 0, 2, 2))).unwrap();
+
+        // Add an authority
+        let mut msg = msg.authority();
+        msg.push((&name, 0, Ns::from(name.clone()))).unwrap();
+
+        // Add additional
+        let mut msg = msg.additional();
+        msg.push((&name, 86400, A::from_octets(192, 0, 2, 1))).unwrap();
+        
+        // Convert the builder into the actual message.
+        let target = msg.finish().into_target();
+
+        // Reparse message and check contents
+        let msg = Message::from_octets(target.as_dgram_slice()).unwrap();
+        let q = msg.first_question().unwrap();
+        assert_eq!(q.qname(), &name);
+        assert_eq!(q.qtype(), Rtype::A);
+
+        let section = msg.answer().unwrap();
+        let mut records = section.limit_to::<A>();
+        assert_eq!(records.next().unwrap().unwrap().data(), &A::from_octets(192, 0, 2, 1));
+        assert_eq!(records.next().unwrap().unwrap().data(), &A::from_octets(192, 0, 2, 2));
+
+        let section = msg.authority().unwrap();
+        let mut records = section.limit_to::<Ns<_>>();
+        let rr = records.next().unwrap().unwrap();
+        assert_eq!(rr.owner(), &name);
+        assert_eq!(rr.data().nsdname(), &name);
+
+        let section = msg.additional().unwrap();
+        let mut records = section.limit_to::<A>();
+        let rr = records.next().unwrap().unwrap();
+        assert_eq!(rr.owner(), &name);
+        assert_eq!(rr.data(), &A::from_octets(192, 0, 2, 1));
+    }
+
+    #[test]
+    fn opt_builder() {
+        let mut msg = MessageBuilder::new_vec().additional();
+
+        // Add an OPT record.
+        let nsid = opt::rfc5001::Nsid::from_octets(&b"example"[..]);
+        msg.opt(|o| {
+            o.set_udp_payload_size(4096);
+            o.push(&nsid)?;
+            Ok(())
+        }).unwrap();
+
+        let msg = Message::from_octets(msg.finish()).unwrap();
+        let opt = msg.opt().unwrap();
+
+        // Check options
+        assert_eq!(opt.udp_payload_size(), 4096);
+        let mut opts = opt.as_opt().iter::<opt::rfc5001::Nsid<_>>();
+        assert_eq!(opts.next(), Some(Ok(nsid)));
+    }
+}
