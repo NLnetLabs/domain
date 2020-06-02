@@ -1,6 +1,6 @@
 [package]
 name = "domain-resolv"
-version = "0.5.1-pre"
+version = "0.5.0-bis"
 edition = "2018"
 authors = ["Martin Hoffmann <hn@nvnc.de>"]
 description = "An asynchronous DNS stub resolver."
@@ -28,7 +28,7 @@ tokio-tls = "^0.3.0"
 
 [dependencies.domain]
 path = "../domain"
-version = "0.5.1-pre"
+version = "0.5.1-bis"
 features = ["bytes", "smallvec", "std"]
 
 [features]
