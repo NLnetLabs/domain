@@ -1,9 +1,6 @@
 # Change Log
 
-
-## Unreleased next version
-
-Breaking Changes
+## 0.5.1
 
 New
 
@@ -13,8 +10,6 @@ Bug Fixes
 
 * Fix calculation of block lengths in `TxtBuilder`. ([#57], by [@vavrusa])
 * Fix construction of options in OPT records. ([#59], by [@vavrusa])
-
-Dependencies
 
 [#57]: https://github.com/NLnetLabs/domain/pull/57
 [#58]: https://github.com/NLnetLabs/domain/pull/58
