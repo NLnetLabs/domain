@@ -720,7 +720,7 @@ macro_rules! dname_type {
 
         impl<N> $target<N> {
             pub fn new($field: N) -> Self {
-                $target { $field: $field }
+                $target { $field }
             }
 
             pub fn $field(&self) -> &N {
