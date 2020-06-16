@@ -6,7 +6,7 @@
 //! work your way step by step through the sections by trading the builder in
 //! for on of another type representing the following section. The sequence
 //! is [`MessageBuilder`], [`QuestionBuilder`], [`AnswerBuilder`],
-//! [`AuthorityBulider`], and finally [`AdditionalBuilder`].
+//! [`AuthorityBuilder`], and finally [`AdditionalBuilder`].
 //!
 //! You can skip forward over unwanted sections. You can also go backwards,
 //! but then you’ll loose anything you built before. The naming of the
@@ -1508,6 +1508,35 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
     pub fn set_rcode(&mut self, rcode: OptRcode) {
         self.additional.header_mut().set_rcode(rcode.rcode());
         self.opt_header_mut().set_rcode(rcode)
+    }
+
+    /// Returns the EDNS version of the OPT header.
+    ///
+    /// Only EDNS version 0 is currently defined.
+    pub fn version(&self) -> u8 {
+        self.opt_header().version()
+    }
+
+    /// Sets the EDNS version of the OPT header.
+    pub fn set_version(&mut self, version: u8) {
+        self.opt_header_mut().set_version(version)
+    }
+
+    /// Returns the value of the DNSSEC OK (DO) bit.
+    ///
+    /// By setting this bit, a resolver indicates that it is interested in
+    /// also receiving the DNSSEC-related resource records necessary to
+    /// validate an answer. The bit and the related procedures are defined in
+    /// [RFC 3225].
+    ///
+    /// [RFC 3225]: https://tools.ietf.org/html/rfc3225
+    pub fn dnssec_ok(&self) -> bool {
+        self.opt_header().dnssec_ok()
+    }
+
+    /// Sets the DNSSEC OK (DO) bit to the given value.
+    pub fn set_dnssec_ok(&mut self, value: bool) {
+        self.opt_header_mut().set_dnssec_ok(value)
     }
 
     /// Returns a reference the full OPT header.
