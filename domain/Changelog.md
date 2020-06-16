@@ -6,8 +6,13 @@ Breaking Changes
 
 New
 
+* Additional methods to manipulate an OPT record’s header in `OptBuilder`.
+  ([#61], by [@vavrusa])
+
 Bug Fixes
 
+[#61]: https://github.com/NLnetLabs/domain/pull/61
+[@vavrusa]: https://github.com/vavrusa
 
 
 ## 0.5.1
