@@ -21,7 +21,7 @@ rand           = "0.7"
 bytes          = { version = "0.5.4", optional = true }
 chrono         = { version = "0.4", optional = true }
 #openssl       = { version = "0.10", optional = true }
-ring           = { version = "0.16.11", optional = true }
+ring           = { version = "0.16.14", optional = true }
 smallvec       = { version = "1.2", optional = true }
 
 [features]
