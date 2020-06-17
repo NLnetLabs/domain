@@ -28,7 +28,7 @@ tokio-tls = "^0.3.0"
 
 [dependencies.domain]
 path = "../domain"
-version = "0.5.1-bis"
+version = "0.5.2"
 features = ["bytes", "smallvec", "std"]
 
 [features]
