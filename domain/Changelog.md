@@ -1,17 +1,18 @@
 # Change Log
 
-## Unreleased Next Version
-
-Breaking Changes
+## 0.5.2
 
 New
 
 * Additional methods to manipulate an OPT record’s header in `OptBuilder`.
   ([#61], by [@vavrusa])
 
-Bug Fixes
+Dependencies
+
+* Upgraded *ring* to 0.6.14 for fixes to 1024 bit RSASHA512. ([#62])
 
 [#61]: https://github.com/NLnetLabs/domain/pull/61
+[#62]: https://github.com/NLnetLabs/domain/pull/62
 [@vavrusa]: https://github.com/vavrusa
 
 
