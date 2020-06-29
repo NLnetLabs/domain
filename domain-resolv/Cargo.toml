@@ -34,3 +34,7 @@ features = ["bytes", "smallvec", "std"]
 [features]
 sync = [ "tokio/rt-core" ]
 
+[[example]]
+name = "sync"
+required-features = ["sync"]
+
