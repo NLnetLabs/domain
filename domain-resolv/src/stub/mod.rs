@@ -166,6 +166,7 @@ impl StubResolver {
     pub fn run<R, F>(op: F) -> R::Output
     where
         R: Future + Send + 'static,
+        R::Output: Send + 'static,
         F: FnOnce(StubResolver) -> R + Send + 'static,
     {
         Self::run_with_conf(ResolvConf::default(), op)
@@ -183,11 +184,13 @@ impl StubResolver {
     ) -> R::Output
     where
         R: Future + Send + 'static,
+        R::Output: Send + 'static,
         F: FnOnce(StubResolver) -> R + Send + 'static,
     {
         let resolver = Self::from_conf(conf);
         let mut runtime = runtime::Builder::new()
             .basic_scheduler()
+            .enable_all()
             .build().unwrap();
         runtime.block_on(op(resolver))
     }
