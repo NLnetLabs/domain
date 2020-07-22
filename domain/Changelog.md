@@ -6,10 +6,15 @@ Breaking Changes
 
 New
 
+* `validate`: enable 1024 bit RSASHA512 as supported algorithm.
+  ([#67], by [@vavrusa])
+
 Bug Fixes
 
 Other Changes
 
+[#67]: https://github.com/NLnetLabs/domain/pull/67
+[@vavrusa]: https://github.com/vavrusa
 
 
 ## 0.5.2
