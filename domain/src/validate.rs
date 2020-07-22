@@ -222,8 +222,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                     }
                     SecAlg::RsaSha512 => {
                         (
-                            &signature::RSA_PKCS1_2048_8192_SHA512,
-                            2048 / 8
+                            &signature::
+                                RSA_PKCS1_1024_8192_SHA512_FOR_LEGACY_USE_ONLY,
+                            1024 / 8
                         )
                     }
                     _ => unreachable!(),
