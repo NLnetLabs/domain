@@ -10,7 +10,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError,
+    Compose, Convert, OctetsBuilder, OctetsRef, Parse, Parser, ParseError,
     ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
@@ -131,7 +131,17 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
 }
 
 
-//--- Parse, ParseAll, Compose and Compress
+//--- Convert
+
+impl<N, Other> Convert<Srv<Other>> for Srv<N>
+where N: Convert<Other> {
+    fn convert(&self) -> Result<Srv<Other>, ShortBuf> {
+        Ok(Srv::new(self.priority, self.weight, self.port, self.target.convert()?))
+    }
+}
+
+
+//--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Srv<ParsedDname<Ref>> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {

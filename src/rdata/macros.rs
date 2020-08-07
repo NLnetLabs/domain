@@ -199,6 +199,25 @@ macro_rules! rdata_types {
         }
 
 
+        //--- Convert
+
+        impl<O, OO, N, NN> $crate::base::octets::Convert<MasterRecordData<OO, NN>> for MasterRecordData<O, N>
+        where O: AsRef<[u8]> + $crate::base::octets::Convert<OO>, N: $crate::base::octets::Convert<NN> {
+            fn convert(&self) -> Result<MasterRecordData<OO, NN>, $crate::base::octets::ShortBuf> {
+                match *self {
+                    $( $( $(
+                        MasterRecordData::$mtype(ref inner) => {
+                            Ok(MasterRecordData::$mtype(inner.convert()?))
+                        }
+                    )* )* )*
+                    MasterRecordData::Other(ref inner) => {
+                        Ok(MasterRecordData::Other(inner.convert()?))
+                    }
+                }
+            }
+        }
+
+
         //--- Compose
         //
         //    No Parse or ParseAll because Other variant needs to know the
@@ -512,6 +531,33 @@ macro_rules! rdata_types {
         }
 
 
+        //--- Convert
+
+        impl<O, OO, N, NN> $crate::base::octets::Convert<AllRecordData<OO, NN>> for AllRecordData<O, N>
+        where O: AsRef<[u8]> + $crate::base::octets::Convert<OO>, N: $crate::base::octets::Convert<NN> {
+            fn convert(&self) -> Result<AllRecordData<OO, NN>, $crate::base::octets::ShortBuf> {
+                match *self {
+                    $( $( $(
+                        AllRecordData::$mtype(ref inner) => {
+                            Ok(AllRecordData::$mtype(inner.convert()?))
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(ref inner) => {
+                            Ok(AllRecordData::$ptype(inner.convert()?))
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(ref inner) => {
+                        Ok(AllRecordData::Opt(inner.convert()?))
+                    }
+                    AllRecordData::Other(ref inner) => {
+                        Ok(AllRecordData::Other(inner.convert()?))
+                    }
+                }
+            }
+        }
+
+
         //--- Compose
         //
         //    No Parse or ParseAll because Other variant needs to know the
@@ -725,6 +771,16 @@ macro_rules! dname_type {
 
             pub fn $field(&self) -> &N {
                 &self.$field
+            }
+        }
+
+
+        //--- Convert
+
+        impl<N, Other> $crate::base::octets::Convert<$target<Other>> for $target<N>
+        where N: $crate::base::octets::Convert<Other> {
+            fn convert(&self) -> Result<$target<Other>, ShortBuf> {
+                Ok($target::new(self.$field.convert()?))
             }
         }
 

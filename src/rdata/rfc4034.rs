@@ -13,7 +13,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsRef,
+    Compose, Convert, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsRef,
     Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::{RtypeRecordData};
@@ -70,7 +70,8 @@ impl<Octets> Dnskey<Octets> {
         self.public_key
     }
 
-    pub fn convert<Other: From<Octets>>(
+    /// See [`Convert`](../base/trait.Convert.html) for generic conversion method.
+    pub fn into_dnskey<Other: From<Octets>>(
         self
     ) -> Dnskey<Other> {
         Dnskey {
@@ -219,6 +220,21 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Dnskey<Octets> {
 }
 
 
+//--- Convert
+
+impl<O, Other> Convert<Dnskey<Other>> for Dnskey<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<Dnskey<Other>, ShortBuf> {
+        Ok(Dnskey::new(
+            self.flags,
+            self.protocol,
+            self.algorithm,
+            self.public_key.convert()?
+        ))
+    }
+}
+
+
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
@@ -354,6 +370,26 @@ impl<Name> ProtoRrsig<Name> {
         )
     }
 }
+
+
+//--- Convert
+
+impl<N, Other> Convert<ProtoRrsig<Other>> for ProtoRrsig<N>
+where N: Convert<Other> {
+    fn convert(&self) -> Result<ProtoRrsig<Other>, ShortBuf> {
+        Ok(ProtoRrsig::new(
+            self.type_covered,
+            self.algorithm,
+            self.labels,
+            self.original_ttl,
+            self.expiration,
+            self.inception,
+            self.key_tag,
+            self.signer_name.convert()?,
+        ))
+    }
+}
+
 
 //--- Compose
 
@@ -601,6 +637,26 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
 }
 
 
+//--- Convert
+
+impl<O, OO, N, NN> Convert<Rrsig<OO, NN>> for Rrsig<O, N>
+where O: Convert<OO>, N: Convert<NN> {
+    fn convert(&self) -> Result<Rrsig<OO, NN>, ShortBuf> {
+        Ok(Rrsig::new(
+            self.type_covered,
+            self.algorithm,
+            self.labels,
+            self.original_ttl,
+            self.expiration,
+            self.inception,
+            self.key_tag,
+            self.signer_name.convert()?,
+            self.signature.convert()?,
+        ))
+    }
+}
+
+
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
@@ -758,7 +814,6 @@ impl<Octets, Name> Nsec<Octets, Name> {
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<O, OO, N, NN> PartialEq<Nsec<OO, NN>> for Nsec<O, N>
@@ -826,6 +881,17 @@ impl<Octets: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octets, Name> {
         self.types.hash(state);
     }
 }
+
+
+//--- Convert
+
+impl<O, OO, N, NN> Convert<Nsec<OO, NN>> for Nsec<O, N>
+where O: Convert<OO>, N: Convert<NN> {
+    fn convert(&self) -> Result<Nsec<OO, NN>, ShortBuf> {
+        Ok(Nsec::new(self.next_name.convert()?, self.types.convert()?))
+    }
+}
+
 
 
 //--- ParseAll and Compose
@@ -1013,6 +1079,16 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Ds<Octets> {
         self.algorithm.hash(state);
         self.digest_type.hash(state);
         self.digest.as_ref().hash(state);
+    }
+}
+
+
+//--- Convert
+
+impl<O, Other> Convert<Ds<Other>> for Ds<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<Ds<Other>, ShortBuf> {
+        Ok(Ds::new(self.key_tag, self.algorithm, self.digest_type, self.digest.convert()?))
     }
 }
 
@@ -1240,6 +1316,16 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octets> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+
+//--- Convert
+
+impl<O, Other> Convert<RtypeBitmap<Other>> for RtypeBitmap<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<RtypeBitmap<Other>, ShortBuf> {
+        Ok(RtypeBitmap(self.0.convert()?))
     }
 }
 

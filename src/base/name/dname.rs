@@ -9,12 +9,13 @@ use core::str::FromStr;
 #[cfg(feature="master")] use crate::master::scan::{
     CharSource, Scan, Scanner, ScanError, SyntaxError
 };
+use super::parsed::ParsedDname;
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsExt,
+    Compose, Convert, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsExt,
     OctetsRef, Parse, Parser, ParseError, ShortBuf
 };
-use super::builder::{DnameBuilder, FromStrError};
+use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{RelativeDname, DnameIter};
 use super::traits::{ToLabelIter, ToDname};
@@ -571,6 +572,16 @@ impl<Octets: AsRef<[u8]>> Dname<Octets> {
 }
 
 
+//--- Convert
+
+impl<Octets, Other> Convert<Dname<Other>> for Dname<Octets>
+where Octets: AsRef<[u8]> + Convert<Other> {
+    fn convert(&self) -> Result<Dname<Other>, ShortBuf> {
+        unsafe { Ok(Dname::from_octets_unchecked(self.0.convert()?)) }
+    }
+}
+
+
 //--- Deref and AsRef
 
 impl<Octets: ?Sized> ops::Deref for Dname<Octets> {
@@ -584,6 +595,20 @@ impl<Octets: ?Sized> ops::Deref for Dname<Octets> {
 impl<Octets: AsRef<T> + ?Sized, T: ?Sized> AsRef<T> for Dname<Octets> {
     fn as_ref(&self) -> &T {
         self.0.as_ref()
+    }
+}
+
+//--- TryFrom
+
+impl<Octets, Ref> std::convert::TryFrom<ParsedDname<Ref>> for Dname<Octets>
+where
+    Octets: FromBuilder, Ref: AsRef<[u8]>,
+    <Octets as FromBuilder>::Builder: EmptyBuilder,
+{
+    type Error = PushError;
+
+    fn try_from(value: ParsedDname<Ref>) -> Result<Self, Self::Error> {
+        value.to_dname()
     }
 }
 

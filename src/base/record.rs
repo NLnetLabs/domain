@@ -21,7 +21,7 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError, ShortBuf
+    Compose, Convert, OctetsBuilder, OctetsRef, Parse, Parser, ParseError, ShortBuf
 };
 use super::rdata::{RecordData, ParseRecordData};
 
@@ -263,6 +263,21 @@ where Name: hash::Hash, Data: hash::Hash {
     }
 }
         
+
+//--- Convert
+
+impl<N, D, NN, DD> Convert<Record<NN, DD>> for Record<N, D>
+where N: Convert<NN>, D: Convert<DD> {
+    fn convert(&self) -> Result<Record<NN, DD>, ShortBuf> {
+        Ok(Record::new(
+            self.owner.convert()?,
+            self.class,
+            self.ttl,
+            self.data.convert()?
+        ))
+    }
+}
+
 
 //--- Parse and Compose
 

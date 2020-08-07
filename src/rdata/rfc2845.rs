@@ -11,7 +11,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser,
+    Compose, Convert, OctetsBuilder, OctetsRef, Parse, ParseError, Parser,
     ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
@@ -301,7 +301,25 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
 }
 
 
-//--- Parse, ParseAll, Compose, and Compress
+//--- Convert
+
+impl<O, OO, N, NN> Convert<Tsig<OO, NN>> for Tsig<O, N>
+where O: Convert<OO>, N: Convert<NN> {
+    fn convert(&self) -> Result<Tsig<OO, NN>, ShortBuf> {
+        Ok(Tsig::new(
+            self.algorithm.convert()?,
+            self.time_signed,
+            self.fudge,
+            self.mac.convert()?,
+            self.original_id,
+            self.error,
+            self.other.convert()?
+        ))
+    }
+}
+
+
+//--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Tsig<Ref::Range, ParsedDname<Ref>> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {

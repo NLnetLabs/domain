@@ -167,6 +167,21 @@ pub trait OctetsExt: AsRef<[u8]> {
     ///
     /// If `len` is larger than the length of the sequence, nothing happens.
     fn truncate(&mut self, len: usize);
+
+    /// Convert to another octets type.
+    ///
+    /// The target octet type must have a builder implemented.
+    /// There are specialized conversions available in some cases (e.g. `BytesMut` to `Bytes`),
+    /// which might be cheaper than a generic conversion.
+    fn to_octets<O>(&self) -> Result<O, ShortBuf>
+    where
+        O: FromBuilder,
+        <O as FromBuilder>::Builder: EmptyBuilder
+    {
+        let mut builder = O::Builder::with_capacity(self.as_ref().len());
+        builder.append_slice(self.as_ref())?;
+        Ok(builder.freeze())
+    }
 }
 
 impl<'a> OctetsExt for &'a [u8] {
@@ -661,6 +676,25 @@ impl<A: Array<Item = u8>> FromBuilder for SmallVec<A> {
     }
 }
 
+//------------ Convert -------------------------------------------------------
+
+/// An octets type that can be converted into another octet type.
+pub trait Convert<Target> {
+    /// Converts the record into different octets.
+    fn convert(&self) -> Result<Target, ShortBuf>;
+}
+
+impl<Octets, Target> Convert<Target> for Octets
+where
+    Octets: AsRef<[u8]>,
+    Target: FromBuilder,
+    <Target as FromBuilder>::Builder: EmptyBuilder
+{
+    fn convert(&self) -> Result<Target, ShortBuf> {
+        self.as_ref().to_octets()
+    }
+}
+
 
 //============ Parsing =======================================================
 
@@ -1089,7 +1123,6 @@ impl<T: AsRef<[u8]>> Parse<T> for Ipv6Addr {
         parser.advance(16).map_err(Into::into)
     }
 }
-
 
 //============ Composing =====================================================
 

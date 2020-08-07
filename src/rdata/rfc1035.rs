@@ -16,7 +16,7 @@ use crate::base::str::Symbol;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsRef, Parse,
+    Compose, Convert, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsRef, Parse,
     ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
@@ -84,6 +84,15 @@ impl FromStr for A {
 impl CanonicalOrd for A {
     fn canonical_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
+    }
+}
+
+
+//--- Convert
+
+impl Convert<A> for A {
+    fn convert(&self) -> Result<A, ShortBuf> {
+        Ok(self.clone())
     }
 }
 
@@ -268,6 +277,16 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Hinfo<Octets> {
 }
 
 
+//--- Convert
+
+impl<Octets, Other> Convert<Hinfo<Other>> for Hinfo<Octets>
+where Octets: AsRef<[u8]> + Convert<Other> {
+    fn convert(&self) -> Result<Hinfo<Other>, ShortBuf> {
+        Ok(Hinfo::new(self.cpu.convert()?, self.os.convert()?))
+    }
+}
+
+
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Hinfo<Ref::Range> {
@@ -434,6 +453,16 @@ impl<N> Minfo<N> {
 }
 
 
+//--- Convert
+
+impl<N, Other> Convert<Minfo<Other>> for Minfo<N>
+where N: Convert<Other> {
+    fn convert(&self) -> Result<Minfo<Other>, ShortBuf> {
+        Ok(Minfo::new(self.rmailbx.convert()?, self.emailbx.convert()?))
+    }
+}
+
+
 //--- PartialEq and Eq
 
 impl<N, NN> PartialEq<Minfo<NN>> for Minfo<N>
@@ -591,6 +620,16 @@ impl<N> Mx<N> {
     /// The name of the host that is the exchange.
     pub fn exchange(&self) -> &N {
         &self.exchange
+    }
+}
+
+
+//--- Convert
+
+impl<N, Other> Convert<Mx<Other>> for Mx<N>
+where N: Convert<Other> {
+    fn convert(&self) -> Result<Mx<Other>, ShortBuf> {
+        Ok(Mx::new(self.preference, self.exchange.convert()?))
     }
 }
 
@@ -803,7 +842,17 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Null<Octets> {
 }
 
 
-//--- ParseAll and Compose
+//--- Convert
+
+impl<O, Other> Convert<Null<Other>> for Null<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<Null<Other>, ShortBuf> {
+        Ok(Null::new(self.data.convert()?))
+    }
+}
+
+
+//--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Null<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
@@ -1067,6 +1116,24 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
 }
 
 
+//--- Convert
+
+impl<N, Other> Convert<Soa<Other>> for Soa<N>
+where N: Convert<Other> {
+    fn convert(&self) -> Result<Soa<Other>, ShortBuf> {
+        Ok(Soa::new(
+            self.mname.convert()?,
+            self.rname.convert()?,
+            self.serial,
+            self.refresh,
+            self.retry,
+            self.expire,
+            self.minimum
+        ))
+    }
+}
+
+
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Soa<ParsedDname<Ref>> {
@@ -1287,7 +1354,17 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Txt<Octets> {
 }
 
 
-//--- ParseAll and Compose
+//--- Convert
+
+impl<O, Other> Convert<Txt<Other>> for Txt<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<Txt<Other>, ShortBuf> {
+        Ok(Txt(self.0.convert()?))
+    }
+}
+
+
+//--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Txt<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
@@ -1504,5 +1581,21 @@ mod test {
             .append_slice(&b"\x00".repeat(std::u16::MAX as usize - 512))
             .is_ok());
         assert!(builder.append_slice(&b"\x00".repeat(512)).is_err());
+    }
+
+    #[test]
+    #[cfg(feature="bytes")]
+    fn rdata_convert() {
+        use crate::base::Dname;
+
+        let hinfo: Hinfo<Vec<u8>> = Hinfo::new("1234".parse().unwrap(), "abcd".parse().unwrap());
+        let hinfo_bytes: Hinfo<bytes::Bytes> = hinfo.convert().unwrap();
+        assert_eq!(hinfo.cpu(), hinfo_bytes.cpu());
+        assert_eq!(hinfo.os(), hinfo_bytes.os());
+
+        let minfo: Minfo<Dname<Vec<u8>>> = Minfo::new("a.example".parse().unwrap(), "b.example".parse().unwrap());
+        let minfo_bytes: Minfo<Dname<bytes::Bytes>> = minfo.convert().unwrap();
+        assert_eq!(minfo.rmailbx(), minfo_bytes.rmailbx());
+        assert_eq!(minfo.emailbx(), minfo_bytes.emailbx());
     }
 }

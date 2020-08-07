@@ -7,7 +7,7 @@ use core::cmp::Ordering;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, Convert, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature="master")] use crate::master::scan::{
@@ -121,7 +121,22 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cdnskey<Octets> {
 }
 
 
-//--- ParseAll and Compose
+//--- Convert
+
+impl<O, Other> Convert<Cdnskey<Other>> for Cdnskey<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<Cdnskey<Other>, ShortBuf> {
+        Ok(Cdnskey::new(
+            self.flags,
+            self.protocol,
+            self.algorithm,
+            self.public_key.convert()?,
+        ))
+    }
+}
+
+
+//--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
@@ -318,6 +333,21 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cds<Octets> {
         self.algorithm.hash(state);
         self.digest_type.hash(state);
         self.digest.as_ref().hash(state);
+    }
+}
+
+
+//--- Convert
+
+impl<O, Other> Convert<Cds<Other>> for Cds<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<Cds<Other>, ShortBuf> {
+        Ok(Cds::new(
+            self.key_tag,
+            self.algorithm,
+            self.digest_type,
+            self.digest.convert()?,
+        ))
     }
 }
 

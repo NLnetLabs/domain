@@ -372,7 +372,7 @@ impl<N> FamilyName<N> {
     ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
     where N: Clone {
         key.dnskey().map(|dnskey| {
-            self.clone().into_record(ttl, dnskey.convert())
+            self.clone().into_record(ttl, dnskey.into_dnskey())
         })
     }
 

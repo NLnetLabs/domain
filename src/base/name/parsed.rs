@@ -6,8 +6,8 @@
 use core::{cmp, fmt, hash};
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
-    Compose, FormError, OctetsBuilder, OctetsRef, Parse, Parser, ParseError,
-    ShortBuf
+    Compose, Convert, EmptyBuilder, FromBuilder, FormError, OctetsBuilder,
+    OctetsRef, Parse, Parser, ParseError, ShortBuf
 };
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError};
@@ -288,6 +288,16 @@ impl<'a, Ref: AsRef<[u8]>> IntoIterator for &'a ParsedDname<Ref> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+
+//--- Convert
+
+impl<Octets, Other> Convert<Dname<Other>> for ParsedDname<Octets>
+where Octets: AsRef<[u8]>, Other: FromBuilder, <Other as FromBuilder>::Builder: EmptyBuilder {
+    fn convert(&self) -> Result<Dname<Other>, ShortBuf> {
+        self.to_dname().map_err(|_| ShortBuf)
     }
 }
 
@@ -1094,6 +1104,22 @@ mod test {
         step(name!(flat), WECR);
         step(name!(once), WECR);
         step(name!(twice), WECR);
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn convert() {
+        use std::vec::Vec;
+
+        fn step(name: ParsedDname<&[u8]>) {
+            let c1: Dname<Vec<u8>> = name.convert().unwrap();
+            assert_eq!(name, c1);
+        }
+
+        step(name!(root));
+        step(name!(flat));
+        step(name!(once));
+        step(name!(twice));
     }
 
     // XXX TODO compose_canonical

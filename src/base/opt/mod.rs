@@ -47,7 +47,7 @@ use super::iana::{OptionCode, OptRcode, Rtype};
 use super::header::Header;
 use super::name::ToDname;
 use super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, Convert, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use super::rdata::RtypeRecordData;
 use super::record::Record;
@@ -137,6 +137,16 @@ impl<Octets: AsRef<[u8]>> Ord for Opt<Octets> {
 impl<Octets: AsRef<[u8]>> hash::Hash for Opt<Octets> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.octets.as_ref().hash(state)
+    }
+}
+
+
+//--- Convert
+
+impl<O, Other> Convert<Opt<Other>> for Opt<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<Opt<Other>, ShortBuf> {
+        Ok(Opt { octets: self.octets.convert()? })
     }
 }
 
@@ -423,6 +433,22 @@ impl<Octets> ops::Deref for OptRecord<Octets> {
 impl<Octets> AsRef<Opt<Octets>> for OptRecord<Octets> {
     fn as_ref(&self) -> &Opt<Octets> {
         &self.data
+    }
+}
+
+
+//--- Convert
+
+impl<O, Other> Convert<OptRecord<Other>> for OptRecord<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<OptRecord<Other>, ShortBuf> {
+        Ok(OptRecord {
+            udp_payload_size: self.udp_payload_size,
+            ext_rcode: self.ext_rcode,
+            version: self.version,
+            flags: self.flags,
+            data: self.data.convert()?
+        })
     }
 }
 

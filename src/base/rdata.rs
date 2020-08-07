@@ -31,7 +31,7 @@ use core::cmp::Ordering;
 use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, Convert, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 
 
@@ -261,7 +261,17 @@ impl<Octets: AsRef<[u8]>> Ord for UnknownRecordData<Octets> {
 }
 
 
-//--- Compose, and Compress
+//--- Convert
+
+impl<O, Other> Convert<UnknownRecordData<Other>> for UnknownRecordData<O>
+where O: Convert<Other> {
+    fn convert(&self) -> Result<UnknownRecordData<Other>, ShortBuf> {
+        Ok(UnknownRecordData::from_octets(self.rtype, self.data.convert()?))
+    }
+}
+
+
+//--- Compose
 
 impl<Octets: AsRef<[u8]>> Compose for UnknownRecordData<Octets> {
     fn compose<T: OctetsBuilder>(

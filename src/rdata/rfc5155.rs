@@ -11,7 +11,7 @@ use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Nsec3HashAlg, Rtype};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, Convert, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature="master")] use crate::master::scan::{
@@ -169,7 +169,24 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3<Octets> {
 }
 
 
-//--- ParseAll and Compose
+//--- Convert
+
+impl<O, Other> Convert<Nsec3<Other>> for Nsec3<O>
+where O: AsRef<[u8]> + Convert<Other> {
+    fn convert(&self) -> Result<Nsec3<Other>, ShortBuf> {
+        Ok(Nsec3::new(
+            self.hash_algorithm,
+            self.flags,
+            self.iterations,
+            self.salt.convert()?,
+            self.next_owner.convert()?,
+            self.types.convert()?,
+        ))
+    }
+}
+
+
+//--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Nsec3<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
@@ -407,7 +424,22 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3param<Octets> {
 }
 
 
-//--- Parse, ParseAll, and Compose
+//--- Convert
+
+impl<O, Other> Convert<Nsec3param<Other>> for Nsec3param<O>
+where O: AsRef<[u8]> + Convert<Other> {
+    fn convert(&self) -> Result<Nsec3param<Other>, ShortBuf> {
+        Ok(Nsec3param::new(
+            self.hash_algorithm,
+            self.flags,
+            self.iterations,
+            self.salt.convert()?,
+        ))
+    }
+}
+
+
+//--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Nsec3param<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
