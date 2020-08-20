@@ -261,14 +261,12 @@ impl ServerConf {
             addr,
             transport,
             request_timeout: Duration::from_secs(2),
-            // Maximum non-fragmenting payload sizes from RFC 6891, 6.2.3.
-            // 
-            // XXX We use those only for now, even though RFC 6891, 6.2.5.
-            //     recommends to start with 4096 and decrease on failure.
-            //     We’ll add a mechanism to scale down, later.
+            // XXX These values are what Unbound does. RFC 6891, 6.2.5.
+            //     recommends to start with 4096 and decrease on failure,
+            //     but there are issues with that.
             recv_size: match addr {
-                SocketAddr::V4(_) => 1280,
-                SocketAddr::V6(_) => 1410,
+                SocketAddr::V4(_) => 1472,
+                SocketAddr::V6(_) => 1232,
             }
         }
     }

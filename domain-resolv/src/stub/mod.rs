@@ -13,6 +13,7 @@ use std::{io, ops};
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
+use std::convert::TryFrom;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::vec::Vec;
@@ -468,13 +469,8 @@ impl ServerInfo {
         query.rewind();
         if self.does_edns() {
             query.opt(|opt| {
-                // These are the values that Unbound uses.
-                // XXX Perhaps this should be configurable.
                 opt.set_udp_payload_size(
-                    match self.conf.addr {
-                        SocketAddr::V4(_) => 1472,
-                        SocketAddr::V6(_) => 1232
-                    }
+                    u16::try_from(self.conf.recv_size).unwrap()
                 );
                 Ok(())
             }).unwrap();
