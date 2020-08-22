@@ -16,7 +16,7 @@ use crate::base::str::Symbol;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::octets::{
-    Compose, Convert, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsRef, Parse,
+    Compose, ConvertOctets, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsRef, Parse,
     ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
@@ -88,9 +88,9 @@ impl CanonicalOrd for A {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl Convert<A> for A {
+impl ConvertOctets<A> for A {
     fn convert(&self) -> Result<A, ShortBuf> {
         Ok(self.clone())
     }
@@ -277,10 +277,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Hinfo<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<Octets, Other> Convert<Hinfo<Other>> for Hinfo<Octets>
-where Octets: AsRef<[u8]> + Convert<Other> {
+impl<Octets, Other> ConvertOctets<Hinfo<Other>> for Hinfo<Octets>
+where Octets: AsRef<[u8]> + ConvertOctets<Other> {
     fn convert(&self) -> Result<Hinfo<Other>, ShortBuf> {
         Ok(Hinfo::new(self.cpu.convert()?, self.os.convert()?))
     }
@@ -453,10 +453,10 @@ impl<N> Minfo<N> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<N, Other> Convert<Minfo<Other>> for Minfo<N>
-where N: Convert<Other> {
+impl<N, Other> ConvertOctets<Minfo<Other>> for Minfo<N>
+where N: ConvertOctets<Other> {
     fn convert(&self) -> Result<Minfo<Other>, ShortBuf> {
         Ok(Minfo::new(self.rmailbx.convert()?, self.emailbx.convert()?))
     }
@@ -624,10 +624,10 @@ impl<N> Mx<N> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<N, Other> Convert<Mx<Other>> for Mx<N>
-where N: Convert<Other> {
+impl<N, Other> ConvertOctets<Mx<Other>> for Mx<N>
+where N: ConvertOctets<Other> {
     fn convert(&self) -> Result<Mx<Other>, ShortBuf> {
         Ok(Mx::new(self.preference, self.exchange.convert()?))
     }
@@ -842,10 +842,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Null<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<Null<Other>> for Null<O>
-where O: Convert<Other> {
+impl<O, Other> ConvertOctets<Null<Other>> for Null<O>
+where O: ConvertOctets<Other> {
     fn convert(&self) -> Result<Null<Other>, ShortBuf> {
         Ok(Null::new(self.data.convert()?))
     }
@@ -1116,10 +1116,10 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<N, Other> Convert<Soa<Other>> for Soa<N>
-where N: Convert<Other> {
+impl<N, Other> ConvertOctets<Soa<Other>> for Soa<N>
+where N: ConvertOctets<Other> {
     fn convert(&self) -> Result<Soa<Other>, ShortBuf> {
         Ok(Soa::new(
             self.mname.convert()?,
@@ -1354,10 +1354,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Txt<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<Txt<Other>> for Txt<O>
-where O: Convert<Other> {
+impl<O, Other> ConvertOctets<Txt<Other>> for Txt<O>
+where O: ConvertOctets<Other> {
     fn convert(&self) -> Result<Txt<Other>, ShortBuf> {
         Ok(Txt(self.0.convert()?))
     }

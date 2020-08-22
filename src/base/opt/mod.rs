@@ -47,7 +47,7 @@ use super::iana::{OptionCode, OptRcode, Rtype};
 use super::header::Header;
 use super::name::ToDname;
 use super::octets::{
-    Compose, Convert, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, ConvertOctets, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use super::rdata::RtypeRecordData;
 use super::record::Record;
@@ -141,10 +141,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Opt<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<Opt<Other>> for Opt<O>
-where O: Convert<Other> {
+impl<O, Other> ConvertOctets<Opt<Other>> for Opt<O>
+where O: ConvertOctets<Other> {
     fn convert(&self) -> Result<Opt<Other>, ShortBuf> {
         Ok(Opt { octets: self.octets.convert()? })
     }
@@ -437,10 +437,10 @@ impl<Octets> AsRef<Opt<Octets>> for OptRecord<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<OptRecord<Other>> for OptRecord<O>
-where O: Convert<Other> {
+impl<O, Other> ConvertOctets<OptRecord<Other>> for OptRecord<O>
+where O: ConvertOctets<Other> {
     fn convert(&self) -> Result<OptRecord<Other>, ShortBuf> {
         Ok(OptRecord {
             udp_payload_size: self.udp_payload_size,

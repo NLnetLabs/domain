@@ -10,7 +10,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::net::Ipv6Addr;
 use crate::base::octets::{
-    Compose, Convert, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+    Compose, ConvertOctets, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature="master")] use crate::master::scan::{
@@ -68,9 +68,9 @@ impl CanonicalOrd for Aaaa {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl Convert<Aaaa> for Aaaa {
+impl ConvertOctets<Aaaa> for Aaaa {
     fn convert(&self) -> Result<Aaaa, ShortBuf> {
         Ok(self.clone())
     }

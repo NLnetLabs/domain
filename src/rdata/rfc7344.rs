@@ -7,7 +7,7 @@ use core::cmp::Ordering;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::octets::{
-    Compose, Convert, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, ConvertOctets, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature="master")] use crate::master::scan::{
@@ -121,10 +121,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cdnskey<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<Cdnskey<Other>> for Cdnskey<O>
-where O: Convert<Other> {
+impl<O, Other> ConvertOctets<Cdnskey<Other>> for Cdnskey<O>
+where O: ConvertOctets<Other> {
     fn convert(&self) -> Result<Cdnskey<Other>, ShortBuf> {
         Ok(Cdnskey::new(
             self.flags,
@@ -337,10 +337,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cds<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<Cds<Other>> for Cds<O>
-where O: Convert<Other> {
+impl<O, Other> ConvertOctets<Cds<Other>> for Cds<O>
+where O: ConvertOctets<Other> {
     fn convert(&self) -> Result<Cds<Other>, ShortBuf> {
         Ok(Cds::new(
             self.key_tag,

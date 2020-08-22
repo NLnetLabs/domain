@@ -11,7 +11,7 @@ use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Nsec3HashAlg, Rtype};
 use crate::base::octets::{
-    Compose, Convert, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, ConvertOctets, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature="master")] use crate::master::scan::{
@@ -169,10 +169,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<Nsec3<Other>> for Nsec3<O>
-where O: AsRef<[u8]> + Convert<Other> {
+impl<O, Other> ConvertOctets<Nsec3<Other>> for Nsec3<O>
+where O: AsRef<[u8]> + ConvertOctets<Other> {
     fn convert(&self) -> Result<Nsec3<Other>, ShortBuf> {
         Ok(Nsec3::new(
             self.hash_algorithm,
@@ -424,10 +424,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3param<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<Nsec3param<Other>> for Nsec3param<O>
-where O: AsRef<[u8]> + Convert<Other> {
+impl<O, Other> ConvertOctets<Nsec3param<Other>> for Nsec3param<O>
+where O: AsRef<[u8]> + ConvertOctets<Other> {
     fn convert(&self) -> Result<Nsec3param<Other>, ShortBuf> {
         Ok(Nsec3param::new(
             self.hash_algorithm,

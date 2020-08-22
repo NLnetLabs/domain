@@ -6,7 +6,7 @@
 use core::{cmp, fmt, hash};
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
-    Compose, Convert, EmptyBuilder, FromBuilder, FormError, OctetsBuilder,
+    Compose, ConvertOctets, EmptyBuilder, FromBuilder, FormError, OctetsBuilder,
     OctetsRef, Parse, Parser, ParseError, ShortBuf
 };
 use super::dname::Dname;
@@ -292,9 +292,9 @@ impl<'a, Ref: AsRef<[u8]>> IntoIterator for &'a ParsedDname<Ref> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<Octets, Other> Convert<Dname<Other>> for ParsedDname<Octets>
+impl<Octets, Other> ConvertOctets<Dname<Other>> for ParsedDname<Octets>
 where Octets: AsRef<[u8]>, Other: FromBuilder, <Other as FromBuilder>::Builder: EmptyBuilder {
     fn convert(&self) -> Result<Dname<Other>, ShortBuf> {
         self.to_dname().map_err(|_| ShortBuf)

@@ -199,10 +199,10 @@ macro_rules! rdata_types {
         }
 
 
-        //--- Convert
+        //--- ConvertOctets
 
-        impl<O, OO, N, NN> $crate::base::octets::Convert<MasterRecordData<OO, NN>> for MasterRecordData<O, N>
-        where O: AsRef<[u8]> + $crate::base::octets::Convert<OO>, N: $crate::base::octets::Convert<NN> {
+        impl<O, OO, N, NN> $crate::base::octets::ConvertOctets<MasterRecordData<OO, NN>> for MasterRecordData<O, N>
+        where O: AsRef<[u8]> + $crate::base::octets::ConvertOctets<OO>, N: $crate::base::octets::ConvertOctets<NN> {
             fn convert(&self) -> Result<MasterRecordData<OO, NN>, $crate::base::octets::ShortBuf> {
                 match *self {
                     $( $( $(
@@ -531,10 +531,10 @@ macro_rules! rdata_types {
         }
 
 
-        //--- Convert
+        //--- ConvertOctets
 
-        impl<O, OO, N, NN> $crate::base::octets::Convert<AllRecordData<OO, NN>> for AllRecordData<O, N>
-        where O: AsRef<[u8]> + $crate::base::octets::Convert<OO>, N: $crate::base::octets::Convert<NN> {
+        impl<O, OO, N, NN> $crate::base::octets::ConvertOctets<AllRecordData<OO, NN>> for AllRecordData<O, N>
+        where O: AsRef<[u8]> + $crate::base::octets::ConvertOctets<OO>, N: $crate::base::octets::ConvertOctets<NN> {
             fn convert(&self) -> Result<AllRecordData<OO, NN>, $crate::base::octets::ShortBuf> {
                 match *self {
                     $( $( $(
@@ -775,10 +775,10 @@ macro_rules! dname_type {
         }
 
 
-        //--- Convert
+        //--- ConvertOctets
 
-        impl<N, Other> $crate::base::octets::Convert<$target<Other>> for $target<N>
-        where N: $crate::base::octets::Convert<Other> {
+        impl<N, Other> $crate::base::octets::ConvertOctets<$target<Other>> for $target<N>
+        where N: $crate::base::octets::ConvertOctets<Other> {
             fn convert(&self) -> Result<$target<Other>, ShortBuf> {
                 Ok($target::new(self.$field.convert()?))
             }

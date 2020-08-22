@@ -11,7 +11,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, Convert, OctetsBuilder, OctetsRef, Parse, ParseError, Parser,
+    Compose, ConvertOctets, OctetsBuilder, OctetsRef, Parse, ParseError, Parser,
     ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
@@ -301,10 +301,10 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, OO, N, NN> Convert<Tsig<OO, NN>> for Tsig<O, N>
-where O: Convert<OO>, N: Convert<NN> {
+impl<O, OO, N, NN> ConvertOctets<Tsig<OO, NN>> for Tsig<O, N>
+where O: ConvertOctets<OO>, N: ConvertOctets<NN> {
     fn convert(&self) -> Result<Tsig<OO, NN>, ShortBuf> {
         Ok(Tsig::new(
             self.algorithm.convert()?,

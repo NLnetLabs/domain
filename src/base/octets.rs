@@ -676,22 +676,45 @@ impl<A: Array<Item = u8>> FromBuilder for SmallVec<A> {
     }
 }
 
-//------------ Convert -------------------------------------------------------
+//------------ ConvertOctets -------------------------------------------------------
 
-/// An octets type that can be converted into another octet type.
-pub trait Convert<Target> {
+/// An octets type that can be converted from another octet type.
+pub trait ConvertOctets<Target>: Sized {
     /// Converts the record into different octets.
     fn convert(&self) -> Result<Target, ShortBuf>;
 }
 
-impl<Octets, Target> Convert<Target> for Octets
-where
-    Octets: AsRef<[u8]>,
-    Target: FromBuilder,
-    <Target as FromBuilder>::Builder: EmptyBuilder
+
+#[cfg(feature = "std")]
+impl<Octets: AsRef<[u8]>> ConvertOctets<Vec<u8>> for Octets
 {
-    fn convert(&self) -> Result<Target, ShortBuf> {
-        self.as_ref().to_octets()
+    fn convert(&self) -> Result<Vec<u8>, ShortBuf> {
+        Ok(self.as_ref().to_vec())
+    }
+}
+
+#[cfg(feature="bytes")]
+impl<Octets: AsRef<[u8]>> ConvertOctets<Bytes> for Octets
+{
+    fn convert(&self) -> Result<Bytes, ShortBuf> {
+        Ok(Bytes::copy_from_slice(self.as_ref()))
+    }
+}
+
+#[cfg(feature="bytes")]
+impl<Octets: AsRef<[u8]>> ConvertOctets<BytesMut> for Octets
+{
+    fn convert(&self) -> Result<BytesMut, ShortBuf> {
+        Ok(self.as_ref().into())
+    }
+}
+
+#[cfg(feature = "smallvec")]
+impl<Octets: AsRef<[u8]>, A: Array<Item = u8>> ConvertOctets<SmallVec<A>> for Octets
+{
+    fn convert(&self) -> Result<SmallVec<A>, ShortBuf> {
+        use smallvec::ToSmallVec;
+        Ok(self.as_ref().to_smallvec())
     }
 }
 

@@ -13,7 +13,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, Convert, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsRef,
+    Compose, ConvertOctets, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsRef,
     Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::{RtypeRecordData};
@@ -220,10 +220,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Dnskey<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<Dnskey<Other>> for Dnskey<O>
-where O: Convert<Other> {
+impl<O, Other> ConvertOctets<Dnskey<Other>> for Dnskey<O>
+where O: ConvertOctets<Other> {
     fn convert(&self) -> Result<Dnskey<Other>, ShortBuf> {
         Ok(Dnskey::new(
             self.flags,
@@ -372,10 +372,10 @@ impl<Name> ProtoRrsig<Name> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<N, Other> Convert<ProtoRrsig<Other>> for ProtoRrsig<N>
-where N: Convert<Other> {
+impl<N, Other> ConvertOctets<ProtoRrsig<Other>> for ProtoRrsig<N>
+where N: ConvertOctets<Other> {
     fn convert(&self) -> Result<ProtoRrsig<Other>, ShortBuf> {
         Ok(ProtoRrsig::new(
             self.type_covered,
@@ -637,10 +637,10 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, OO, N, NN> Convert<Rrsig<OO, NN>> for Rrsig<O, N>
-where O: Convert<OO>, N: Convert<NN> {
+impl<O, OO, N, NN> ConvertOctets<Rrsig<OO, NN>> for Rrsig<O, N>
+where O: ConvertOctets<OO>, N: ConvertOctets<NN> {
     fn convert(&self) -> Result<Rrsig<OO, NN>, ShortBuf> {
         Ok(Rrsig::new(
             self.type_covered,
@@ -883,10 +883,10 @@ impl<Octets: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octets, Name> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, OO, N, NN> Convert<Nsec<OO, NN>> for Nsec<O, N>
-where O: Convert<OO>, N: Convert<NN> {
+impl<O, OO, N, NN> ConvertOctets<Nsec<OO, NN>> for Nsec<O, N>
+where O: ConvertOctets<OO>, N: ConvertOctets<NN> {
     fn convert(&self) -> Result<Nsec<OO, NN>, ShortBuf> {
         Ok(Nsec::new(self.next_name.convert()?, self.types.convert()?))
     }
@@ -1083,10 +1083,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Ds<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<Ds<Other>> for Ds<O>
-where O: Convert<Other> {
+impl<O, Other> ConvertOctets<Ds<Other>> for Ds<O>
+where O: ConvertOctets<Other> {
     fn convert(&self) -> Result<Ds<Other>, ShortBuf> {
         Ok(Ds::new(self.key_tag, self.algorithm, self.digest_type, self.digest.convert()?))
     }
@@ -1320,10 +1320,10 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octets> {
 }
 
 
-//--- Convert
+//--- ConvertOctets
 
-impl<O, Other> Convert<RtypeBitmap<Other>> for RtypeBitmap<O>
-where O: Convert<Other> {
+impl<O, Other> ConvertOctets<RtypeBitmap<Other>> for RtypeBitmap<O>
+where O: ConvertOctets<Other> {
     fn convert(&self) -> Result<RtypeBitmap<Other>, ShortBuf> {
         Ok(RtypeBitmap(self.0.convert()?))
     }
