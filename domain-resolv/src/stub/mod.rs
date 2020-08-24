@@ -13,7 +13,6 @@ use std::{io, ops};
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
-use std::convert::TryFrom;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::vec::Vec;
@@ -469,9 +468,7 @@ impl ServerInfo {
         query.rewind();
         if self.does_edns() {
             query.opt(|opt| {
-                opt.set_udp_payload_size(
-                    u16::try_from(self.conf.recv_size).unwrap()
-                );
+                opt.set_udp_payload_size(self.conf.udp_payload_size);
                 Ok(())
             }).unwrap();
         }
