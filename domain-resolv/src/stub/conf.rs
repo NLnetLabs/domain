@@ -246,30 +246,42 @@ pub struct ServerConf {
     pub transport: Transport,
 
     /// How long to wait for a response before returning a timeout error.
+    ///
+    /// This field defaults to 2 seconds.
     pub request_timeout: Duration,
 
     /// Size of the message receive buffer in bytes.
     ///
-    /// This is used for datagram transports only.
+    /// This is used for datagram transports only. It defaults to 1232 bytes
+    /// for both IPv6 and IPv4.
+    ///
+    /// (Note: While 1372 bytes works for IPv4 in most scenarios, there has
+    /// been [research] indicating that sometimes 1232 bytes is the limit here,
+    /// sometimes too.)
+    ///
+    /// [research]: https://rp.delaat.net/2019-2020/p78/report.pdf
     pub recv_size: usize,
+
+    /// Advertised UDP payload size.
+    ///
+    /// This values will be announced in request if EDNS is supported by the
+    /// server. It will be included both for datagram and streaming transport
+    /// but really only matters for UDP.
+    pub udp_payload_size: u16,
 }
 
 impl ServerConf {
-    /// Returns a new default server config for the given address.
+    /// Returns a new default server config for a given address and transport.
+    ///
+    /// The function sets default values as described in the field
+    /// descriptions above.
     pub fn new(addr: SocketAddr, transport: Transport) -> Self {
         ServerConf {
             addr,
             transport,
             request_timeout: Duration::from_secs(2),
-            // Maximum non-fragmenting payload sizes from RFC 6891, 6.2.3.
-            // 
-            // XXX We use those only for now, even though RFC 6891, 6.2.5.
-            //     recommends to start with 4096 and decrease on failure.
-            //     We’ll add a mechanism to scale down, later.
-            recv_size: match addr {
-                SocketAddr::V4(_) => 1280,
-                SocketAddr::V6(_) => 1410,
-            }
+            recv_size: 1232,
+            udp_payload_size: 1232,
         }
     }
 }

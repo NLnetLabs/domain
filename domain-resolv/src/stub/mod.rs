@@ -468,14 +468,7 @@ impl ServerInfo {
         query.rewind();
         if self.does_edns() {
             query.opt(|opt| {
-                // These are the values that Unbound uses.
-                // XXX Perhaps this should be configurable.
-                opt.set_udp_payload_size(
-                    match self.conf.addr {
-                        SocketAddr::V4(_) => 1472,
-                        SocketAddr::V6(_) => 1232
-                    }
-                );
+                opt.set_udp_payload_size(self.conf.udp_payload_size);
                 Ok(())
             }).unwrap();
         }
