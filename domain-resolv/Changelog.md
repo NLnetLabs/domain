@@ -1,16 +1,19 @@
 # Change Log
 
 
-## Unreleased next version
-
-Breaking Changes
+## Unreleased Next Version
 
 New
 
+* The UDP payload size announced in a request can now be set as part of the
+  server config. It defaults to 1232 octets for both IPv4 and IPv6. ([#71])
+
 Bug Fixes
 
-Dependencies
+* The receiver buffer size was smaller than the size advertised in a request,
+  resulting to very long UDP responses being cut off. ([#71])
 
+[#71]: https://github.com/NLnetLabs/domain/pull/71
 
 
 ## 0.5.0
