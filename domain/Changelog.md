@@ -11,9 +11,12 @@ New
 
 Bug Fixes
 
+* Various minor fixes for building in no-std mode. ([#72])
+
 Other Changes
 
 [#67]: https://github.com/NLnetLabs/domain/pull/67
+[#72]: https://github.com/NLnetLabs/domain/pull/72
 [@vavrusa]: https://github.com/vavrusa
 
 
