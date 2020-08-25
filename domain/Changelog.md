@@ -2,8 +2,6 @@
 
 ## 0.5.3
 
-Breaking Changes
-
 New
 
 * `validate`: enable 1024 bit RSASHA512 as supported algorithm.
