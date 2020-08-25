@@ -34,7 +34,7 @@ macro_rules! option_type {
                 builder: &mut OptBuilder<Target>,
                 algs: &[SecAlg]
             ) -> Result<(), ShortBuf> {
-                assert!(algs.len() <= ::std::u16::MAX as usize);
+                assert!(algs.len() <= core::u16::MAX as usize);
                 builder.push_raw_option(OptionCode::$name, |target| {
                     target.append_all(|target| {
                         for alg in algs {
