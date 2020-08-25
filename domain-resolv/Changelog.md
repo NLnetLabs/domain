@@ -1,7 +1,6 @@
 # Change Log
 
-
-## Unreleased Next Version
+## 0.5.1
 
 New
 
@@ -10,7 +9,7 @@ New
 
 Bug Fixes
 
-* The receiver buffer size was smaller than the size advertised in a request,
+* The receive buffer size was smaller than the size advertised in a request,
   resulting to very long UDP responses being cut off. ([#71])
 
 [#71]: https://github.com/NLnetLabs/domain/pull/71
