@@ -129,7 +129,7 @@
 //! [octets builder]: ../octets/trait.OctetsBuilder.html
 
 use core::mem;
-use core::convert::TryInto;
+#[cfg(feature = "std")] use core::convert::TryInto;
 use core::ops::{Deref, DerefMut};
 #[cfg(feature = "std")] use std::collections::HashMap;
 #[cfg(feature = "std")] use std::vec::Vec;
@@ -138,9 +138,8 @@ use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{OptionCode, OptRcode, Rcode, Rtype};
 use super::message::Message;
 use super::name::{ToDname, Label};
-use super::octets::{
-    Compose, IntoOctets, Octets64, OctetsBuilder, OctetsRef, ShortBuf
-};
+use super::octets::{Compose, IntoOctets, OctetsBuilder, OctetsRef, ShortBuf};
+#[cfg(feature = "std")] use super::octets::Octets64;
 use super::opt::{OptHeader, OptData};
 use super::question::AsQuestion;
 use super::record::AsRecord;

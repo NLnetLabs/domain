@@ -49,6 +49,7 @@ pub struct Serial(pub u32);
 
 impl Serial {
     /// Returns a serial number for the current Unix time.
+    #[cfg(feature = "std")]
     pub fn now() -> Self {
         let now = SystemTime::now();
         let value = match now.duration_since(UNIX_EPOCH) {
