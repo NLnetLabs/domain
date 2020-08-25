@@ -1,8 +1,6 @@
 # Change Log
 
-## Unreleased next version
-
-Breaking Changes
+## 0.5.3
 
 New
 

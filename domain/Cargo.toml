@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.5.2-bis"
+version = "0.5.3"
 edition = "2018"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust."
