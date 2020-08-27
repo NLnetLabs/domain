@@ -1,5 +1,27 @@
 # Change Log
 
+## Unreleased 0.6.0
+
+Breaking
+
+* The crate `domain-resolv` has been merged into this crate as the
+  `domain::resolv` crate. It requires the `resolv` feature to be enabled.
+  The `sync` feature from `domain-resolv` has been renamed to
+  `resolv-sync`. ([#74])
+* The trait `domain::base::octets::IntoOctets` has been merged into
+  `domain::base::octets::OctetsBuilder`. It’s method `into_octets` is now
+  available as `freeze` on `OctetsBuilder. ([#75])
+
+Bug Fixes
+
+New
+
+Other Changes
+
+[#74]: https://github.com/NLnetLabs/domain/pull/74
+[#75]: https://github.com/NLnetLabs/domain/pull/75
+
+
 ## 0.5.3
 
 New
@@ -10,8 +32,6 @@ New
 Bug Fixes
 
 * Various minor fixes for building in no-std mode. ([#72])
-
-Other Changes
 
 [#67]: https://github.com/NLnetLabs/domain/pull/67
 [#72]: https://github.com/NLnetLabs/domain/pull/72
