@@ -325,6 +325,14 @@ impl<'a, A: Array<Item = u8>> OctetsRef for &'a SmallVec<A> {
 /// octet slices via their implementations of `AsRef<[u8]>` and
 /// `AsMut<[u8]>`.
 pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
+    /// The type of the octets the builder can be converted into.
+    ///
+    /// If `Octets` implements [`IntoBuilder`], the `Builder` associated
+    /// type of that trait must be `Self`.
+    ///
+    /// [`IntoBuilder`]: trait.IntoBuilder.html
+    type Octets: AsRef<[u8]>;
+
     /// Appends the content of a slice to the builder.
     ///
     /// If there isn’t enough space available for appending the slice,
@@ -333,6 +341,9 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
 
     /// Truncates the builder back to a length of `len` octets.
     fn truncate(&mut self, len: usize);
+
+    /// Converts the builder into immutable octets.
+    fn freeze(self) -> Self::Octets;
 
     /// Returns the length of the already assembled data.
     ///
@@ -435,18 +446,10 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     }
 }
 
-impl<'a, T: OctetsBuilder> OctetsBuilder for &'a mut T {
-    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
-        (*self).append_slice(slice)
-    }
-
-    fn truncate(&mut self, len: usize) {
-        (*self).truncate(len)
-    }
-}
-
 #[cfg(feature = "std")]
 impl OctetsBuilder for Vec<u8> {
+    type Octets = Self;
+
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
         self.extend_from_slice(slice);
         Ok(())
@@ -455,10 +458,16 @@ impl OctetsBuilder for Vec<u8> {
     fn truncate(&mut self, len: usize) {
         Vec::truncate(self, len)
     }
+
+    fn freeze(self) -> Self::Octets {
+        self
+    }
 }
 
 #[cfg(feature="bytes")]
 impl OctetsBuilder for BytesMut {
+    type Octets = Bytes;
+
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
         self.extend_from_slice(slice);
         Ok(())
@@ -468,10 +477,15 @@ impl OctetsBuilder for BytesMut {
         BytesMut::truncate(self, len)
     }
 
+    fn freeze(self) -> Self::Octets {
+        self.freeze()
+    }
 }
 
 #[cfg(feature = "smallvec")]
 impl<A: Array<Item = u8>> OctetsBuilder for SmallVec<A> {
+    type Octets = Self;
+
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
         self.extend_from_slice(slice);
         Ok(())
@@ -479,6 +493,10 @@ impl<A: Array<Item = u8>> OctetsBuilder for SmallVec<A> {
 
     fn truncate(&mut self, len: usize) {
         SmallVec::truncate(self, len)
+    }
+
+    fn freeze(self) -> Self::Octets {
+        self
     }
 }
 
@@ -530,50 +548,6 @@ impl<A: Array<Item = u8>> EmptyBuilder for SmallVec<A> {
 
     fn with_capacity(capacity: usize) -> Self {
         SmallVec::with_capacity(capacity)
-    }
-}
-
-
-//------------ IntoOctets ----------------------------------------------------
-
-/// An octets builder that can be converted into octets.
-pub trait IntoOctets {
-    /// The type of the octets the builder can be converted into.
-    ///
-    /// If `Octets` implements [`IntoBuilder`], the `Builder` associated
-    /// type of that trait must be `Self`.
-    ///
-    /// [`IntoBuilder`]: trait.IntoBuilder.html
-    type Octets: AsRef<[u8]>;
-
-    /// Converts the builder into the octets.
-    fn into_octets(self) -> Self::Octets;
-}
-
-#[cfg(feature = "std")]
-impl IntoOctets for Vec<u8> {
-    type Octets = Self;
-
-    fn into_octets(self) -> Self::Octets {
-        self
-    }
-}
-
-#[cfg(feature="bytes")]
-impl IntoOctets for BytesMut {
-    type Octets = Bytes;
-
-    fn into_octets(self) -> Self::Octets {
-        self.freeze()
-    }
-}
-
-#[cfg(feature = "smallvec")]
-impl<A: Array<Item = u8>> IntoOctets for SmallVec<A> {
-    type Octets = Self;
-
-    fn into_octets(self) -> Self::Octets {
-        self
     }
 }
 
@@ -654,7 +628,7 @@ impl<A: Array<Item = u8>> IntoBuilder for SmallVec<A> {
 /// [`IntoOctets`]: trait.IntoOctets.html
 pub trait FromBuilder: AsRef<[u8]> + Sized {
     /// The type of builder this octets type can be created from.
-    type Builder: OctetsBuilder + IntoOctets<Octets = Self>;
+    type Builder: OctetsBuilder<Octets = Self>;
 
     /// Creates an octets value from an octets builder.
     fn from_builder(builder: Self::Builder) -> Self;
@@ -1346,6 +1320,8 @@ macro_rules! octets_array {
         }
 
         impl $crate::base::octets::OctetsBuilder for $name {
+            type Octets = Self;
+
             fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
                 if slice.len() > $len - self.len {
                     Err(ShortBuf)
@@ -1362,6 +1338,10 @@ macro_rules! octets_array {
                 if len < self.len {
                     self.len = len
                 }
+            }
+
+            fn freeze(self) -> Self::Octets {
+                self
             }
         }
 
@@ -1391,14 +1371,6 @@ macro_rules! octets_array {
 
             fn from_builder(builder: Self::Builder) -> Self {
                 builder
-            }
-        }
-
-        impl $crate::base::octets::IntoOctets for $name {
-            type Octets = Self;
-
-            fn into_octets(self) -> Self::Octets {
-                self
             }
         }
 

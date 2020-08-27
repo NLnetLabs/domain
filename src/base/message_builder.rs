@@ -138,7 +138,7 @@ use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{OptionCode, OptRcode, Rcode, Rtype};
 use super::message::Message;
 use super::name::{ToDname, Label};
-use super::octets::{Compose, IntoOctets, OctetsBuilder, OctetsRef, ShortBuf};
+use super::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
 #[cfg(feature = "std")] use super::octets::Octets64;
 use super::opt::{OptHeader, OptData};
 use super::question::AsQuestion;
@@ -337,9 +337,8 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<Target::Octets>
-    where Target: IntoOctets {
-        unsafe { Message::from_octets_unchecked(self.target.into_octets()) }
+    pub fn into_message(self) -> Message<Target::Octets> {
+        unsafe { Message::from_octets_unchecked(self.target.freeze()) }
     }
 }
 
@@ -548,8 +547,7 @@ impl<Target: OctetsBuilder> QuestionBuilder<Target> {
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<Target::Octets>
-    where Target: IntoOctets {
+    pub fn into_message(self) -> Message<Target::Octets> {
         self.builder.into_message()
     }
 }
@@ -779,8 +777,7 @@ impl<Target: OctetsBuilder> AnswerBuilder<Target> {
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<Target::Octets>
-    where Target: IntoOctets {
+    pub fn into_message(self) -> Message<Target::Octets> {
         self.builder.into_message()
     }
 }
@@ -1011,8 +1008,7 @@ impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<Target::Octets>
-    where Target: IntoOctets {
+    pub fn into_message(self) -> Message<Target::Octets> {
         self.answer.into_message()
     }
 }
@@ -1264,8 +1260,7 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<Target::Octets>
-    where Target: IntoOctets {
+    pub fn into_message(self) -> Message<Target::Octets> {
         self.authority.into_message()
     }
 }
@@ -1661,6 +1656,8 @@ impl<Target: AsMut<[u8]>> AsMut<[u8]> for StreamTarget<Target> {
 //--- OctetsBuilder
 
 impl<Target: OctetsBuilder> OctetsBuilder for StreamTarget<Target> {
+    type Octets = Target::Octets;
+
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
         match self.target.append_slice(slice) {
             Ok(()) => {
@@ -1674,6 +1671,10 @@ impl<Target: OctetsBuilder> OctetsBuilder for StreamTarget<Target> {
     fn truncate(&mut self, len: usize) {
         self.target.truncate(len + 2);
         self.update_shim();
+    }
+
+    fn freeze(self) -> Self::Octets {
+        self.target.freeze()
     }
 }
 
@@ -1789,6 +1790,8 @@ impl<Target: AsMut<[u8]>> AsMut<[u8]> for StaticCompressor<Target> {
 //--- OctetsBuilder
 
 impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
+    type Octets = Target::Octets;
+
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
         self.target.append_slice(slice)
     }
@@ -1836,6 +1839,10 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
                 return Ok(())
             }
         }
+    }
+
+    fn freeze(self) -> Self::Octets {
+        self.target.freeze()
     }
 }
 
@@ -1982,6 +1989,8 @@ impl<Target: AsMut<[u8]>> AsMut<[u8]> for TreeCompressor<Target> {
 
 #[cfg(feature = "std")]
 impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
+    type Octets = Target::Octets;
+
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
         self.target.append_slice(slice)
     }
@@ -2023,6 +2032,10 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
                 return Ok(())
             }
         }
+    }
+
+    fn freeze(self) -> Self::Octets {
+        self.target.freeze()
     }
 }
 

@@ -33,8 +33,8 @@ use core::{cmp, fmt, hash, ops, str};
 };
 use super::cmp::CanonicalOrd;
 use super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, IntoOctets,
-    OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, OctetsRef,
+    Parse, ParseError, Parser, ShortBuf
 };
 use super::str::{BadSymbol, Symbol, SymbolError};
 
@@ -169,7 +169,7 @@ impl<Octets> str::FromStr for CharStr<Octets>
 where
     Octets: FromBuilder,
     <Octets as FromBuilder>::Builder:
-        OctetsBuilder + EmptyBuilder + IntoOctets<Octets = Octets>,
+        OctetsBuilder<Octets = Octets> + EmptyBuilder,
 {
     type Err = FromStrError;
 
@@ -456,9 +456,8 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     }
 
     /// Converts the builder into an imutable character string.
-    pub fn finish(self) -> CharStr<Builder::Octets>
-    where Builder: IntoOctets {
-        unsafe { CharStr::from_octets_unchecked(self.0.into_octets()) }
+    pub fn finish(self) -> CharStr<Builder::Octets> {
+        unsafe { CharStr::from_octets_unchecked(self.0.freeze()) }
     }
 }
 
@@ -475,6 +474,8 @@ impl<Builder: EmptyBuilder> Default for CharStrBuilder<Builder> {
 //--- OctetsBuilder
 
 impl<Builder: OctetsBuilder> OctetsBuilder for CharStrBuilder<Builder> {
+    type Octets = Builder::Octets;
+
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
         if self.0.len() + slice.len() > 255 {
             return Err(ShortBuf)
@@ -484,6 +485,10 @@ impl<Builder: OctetsBuilder> OctetsBuilder for CharStrBuilder<Builder> {
 
     fn truncate(&mut self, len: usize) {
         self.0.truncate(len)
+    }
+
+    fn freeze(self) -> Self::Octets {
+        self.0.freeze()
     }
 }
 

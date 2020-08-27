@@ -7,8 +7,8 @@ use core::cmp::Ordering;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::Bytes;
 use super::super::octets::{
-    Compose, IntoBuilder, IntoOctets, OctetsBuilder, OctetsExt, OctetsRef,
-    ParseError, ShortBuf
+    Compose, IntoBuilder, OctetsBuilder, OctetsExt, OctetsRef, ParseError,
+    ShortBuf
 };
 use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
@@ -222,12 +222,11 @@ impl<Octets> RelativeDname<Octets> {
     pub fn into_absolute(
         self
     ) -> Result<
-        Dname<<<Octets as IntoBuilder>::Builder as IntoOctets>::Octets>,
+        Dname<<<Octets as IntoBuilder>::Builder as OctetsBuilder>::Octets>,
         PushError
     >
     where
         Octets: IntoBuilder,
-        <Octets as IntoBuilder>::Builder: IntoOctets,
     {
         self.into_builder().into_dname()
     }
