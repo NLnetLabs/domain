@@ -72,40 +72,31 @@ pub trait CanonicalOrd<Rhs: ?Sized = Self> {
     #[inline]
     #[must_use]
     fn canonical_lt(&self, other: &Rhs) -> bool {
-        match self.canonical_cmp(other) {
-            Ordering::Less => true,
-            _ => false,
-        }
+        matches!(self.canonical_cmp(other), Ordering::Less)
     }
 
     /// Returns whether `self` is canonically less than or equal to `other`.
     #[inline]
     #[must_use]
     fn canonical_le(&self, other: &Rhs) -> bool {
-        match self.canonical_cmp(other) {
-            Ordering::Less | Ordering::Equal => true,
-            _ => false,
-        }
+        matches!(self.canonical_cmp(other), Ordering::Less | Ordering::Equal)
     }
 
     /// Returns whether `self` is canonically greater than `other`.
     #[inline]
     #[must_use]
     fn canonical_gt(&self, other: &Rhs) -> bool {
-        match self.canonical_cmp(other) {
-            Ordering::Greater => true,
-            _ => false,
-        }
+        matches!(self.canonical_cmp(other), Ordering::Greater)
     }
 
     /// Returns whether `self` is canonically greater than or equal to `other`.
     #[inline]
     #[must_use]
     fn canonical_ge(&self, other: &Rhs) -> bool {
-        match self.canonical_cmp(other) {
-            Ordering::Greater | Ordering::Equal => true,
-            _ => false,
-        }
+        matches!(
+            self.canonical_cmp(other),
+            Ordering::Greater | Ordering::Equal
+        )
     }
 }
 
