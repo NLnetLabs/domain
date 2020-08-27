@@ -20,5 +20,5 @@ jobs:
     - if: matrix.rust != 'nightly'
       run: cargo clippy --all-features -- -D warnings
     - run: cargo build --no-default-features --verbose
-    - run: cargo test --all-features --verbose
+    - run: cargo test --features="master resolv resolv-sync sign tsig validate" --verbose
 

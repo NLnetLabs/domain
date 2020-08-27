@@ -27,6 +27,8 @@ smallvec       = { version = "1.2", optional = true }
 tokio          = { version = "0.2.13", optional = true, features = ["io-util", "macros", "tcp", "time", "udp"] }
 
 [features]
+# If you add a feature here, also add it to .github/workflows/ci.yml for the
+# cargo test run. Only interop must not be present.
 default     = ["std"]
 interop     = ["bytes", "ring"]
 master      = ["std", "bytes", "chrono"]
