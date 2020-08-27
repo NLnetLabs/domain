@@ -124,10 +124,7 @@ impl<C: CharSource> Scanner<C> {
 impl<C: CharSource> Scanner<C> {
     /// Returns whether the scanner has reached the end of data.
     pub fn eof_reached(&mut self) -> bool {
-        match self.peek() {
-            Ok(Some(_)) => false,
-            _ => true
-        }
+        !matches!(self.peek(), Ok(Some(_)))
     }
 
     /// Returns the current position of the scanner.
@@ -1084,10 +1081,7 @@ impl Token {
 
     /// Returns whether the token is a newline.
     fn is_newline(self) -> bool {
-        match self {
-            Token::Newline => true,
-            _ => false,
-        }
+        matches!(self, Token::Newline)
     }
 
     /// Returns whether the token starts a newline sequence.
