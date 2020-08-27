@@ -6,7 +6,7 @@
 use core::{fmt, ops};
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::BytesMut;
-use super::super::octets::{EmptyBuilder, OctetsBuilder, IntoOctets, ShortBuf};
+use super::super::octets::{EmptyBuilder, OctetsBuilder, ShortBuf};
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
@@ -271,11 +271,10 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// [`into_dname`]: #method.into_dname
     pub fn finish(
         mut self
-    ) -> RelativeDname<Builder::Octets>
-    where Builder: IntoOctets {
+    ) -> RelativeDname<Builder::Octets> {
         self.end_label();
         unsafe {
-            RelativeDname::from_octets_unchecked(self.builder.into_octets())
+            RelativeDname::from_octets_unchecked(self.builder.freeze())
         }
     }
 
@@ -286,12 +285,11 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// `Dname`.
     pub fn into_dname(
         mut self
-    ) -> Result<Dname<Builder::Octets>, PushError>
-    where Builder: IntoOctets {
+    ) -> Result<Dname<Builder::Octets>, PushError> {
         self.end_label();
         self.builder.append_slice(&[0])?;
         Ok(unsafe {
-            Dname::from_octets_unchecked(self.builder.into_octets())
+            Dname::from_octets_unchecked(self.builder.freeze())
         })
     }
 
@@ -303,8 +301,7 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     //  XXX NEEDS TESTS
     pub fn append_origin<N: ToDname>(
         mut self, origin: &N
-    ) -> Result<Dname<Builder::Octets>, PushNameError>
-    where Builder: IntoOctets {
+    ) -> Result<Dname<Builder::Octets>, PushNameError> {
         self.end_label();
         if self.len() + origin.len() > 255 {
             return Err(PushNameError::LongName)
@@ -313,7 +310,7 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
             label.build(&mut self.builder)?
         }
         Ok(unsafe {
-            Dname::from_octets_unchecked(self.builder.into_octets())
+            Dname::from_octets_unchecked(self.builder.freeze())
         })
     }
 }

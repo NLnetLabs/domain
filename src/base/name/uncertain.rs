@@ -10,8 +10,7 @@ use core::{fmt, hash, str};
     CharSource, Scan, Scanner, ScanError
 };
 use super::super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, IntoOctets,
-    OctetsBuilder, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, ShortBuf
 };
 #[cfg(feature = "master")] use super::super::str::Symbol;
 use super::builder::{DnameBuilder, FromStrError, PushError};
@@ -168,12 +167,12 @@ impl<Octets> UncertainDname<Octets> {
     pub fn into_absolute(
         self
     ) -> Result<
-        Dname<<<Octets as IntoBuilder>::Builder as IntoOctets>::Octets>,
+        Dname<<<Octets as IntoBuilder>::Builder as OctetsBuilder>::Octets>,
         PushError
     >
     where
         Octets: AsRef<[u8]> + IntoBuilder,
-        <Octets as IntoBuilder>::Builder: IntoOctets<Octets = Octets>,
+        <Octets as IntoBuilder>::Builder: OctetsBuilder<Octets = Octets>,
     {
         match self {
             UncertainDname::Absolute(name) => Ok(name),

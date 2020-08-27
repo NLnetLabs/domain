@@ -16,8 +16,8 @@ use crate::base::str::Symbol;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoOctets, OctetsBuilder,
-    OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsRef, Parse,
+    ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
@@ -1218,7 +1218,7 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
         for item in self.iter() {
             res.append_slice(item)?;
         }
-        Ok(res.into_octets())
+        Ok(res.freeze())
     }
 }
 
@@ -1442,15 +1442,12 @@ impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Txt<Builder::Octets>
-    where
-        Builder: IntoOctets,
-    {
+    pub fn finish(mut self) -> Txt<Builder::Octets> {
         if let Some(start) = self.start {
             let last_slice_len = self.builder.len() - (start + 1);
             self.builder.as_mut()[start] = last_slice_len as u8;
         }
-        Txt(self.builder.into_octets())
+        Txt(self.builder.freeze())
     }
 }
 

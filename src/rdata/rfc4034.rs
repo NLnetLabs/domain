@@ -13,8 +13,8 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, IntoOctets, OctetsBuilder,
-    OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsRef,
+    Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::{RtypeRecordData};
 use crate::base::serial::Serial;
@@ -1388,8 +1388,7 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
         Ok(&mut self.buf.as_mut()[pos..pos + 34])
     }
 
-    pub fn finalize(mut self) -> RtypeBitmap<Builder::Octets>
-    where Builder: IntoOctets {
+    pub fn finalize(mut self) -> RtypeBitmap<Builder::Octets> {
         let mut src_pos = 0;
         let mut dst_pos = 0;
         while src_pos < self.buf.as_ref().len() {
@@ -1408,7 +1407,7 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
             src_pos += 34;
         }
         self.buf.truncate(dst_pos);
-        RtypeBitmap(self.buf.into_octets())
+        RtypeBitmap(self.buf.freeze())
     }
 }
 

@@ -5,7 +5,7 @@
 use core::cmp;
 #[cfg(feature = "std")] use std::borrow::Cow;
 #[cfg(feature = "bytes")] use bytes::Bytes;
-use super::super::octets::{Compose, EmptyBuilder, FromBuilder, IntoOctets};
+use super::super::octets::{Compose, EmptyBuilder, FromBuilder, OctetsBuilder};
 use super::builder::PushError;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -113,13 +113,13 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     fn to_dname<Octets>(&self) -> Result<Dname<Octets>, PushError>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder
+        <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder
     {
         let mut builder = Octets::Builder::with_capacity(self.len());
         for label in self.iter_labels() {
             label.build(&mut builder)?;
         }
-        Ok(unsafe { Dname::from_octets_unchecked(builder.into_octets()) })
+        Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
     }
 
     /// Returns an octets slice of the content if possible.
@@ -321,7 +321,7 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
             label.build(&mut builder)?;
         }
         Ok(unsafe {
-            RelativeDname::from_octets_unchecked(builder.into_octets()) 
+            RelativeDname::from_octets_unchecked(builder.freeze()) 
         })
     }
 
