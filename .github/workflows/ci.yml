@@ -7,7 +7,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
-        rust: [1.42.0, stable, beta, nightly]
+        rust: [1.45.0, stable, beta, nightly]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v1
@@ -19,11 +19,6 @@ jobs:
       run: rustup component add clippy
     - if: matrix.rust != 'nightly'
       run: cargo clippy --all-features -- -D warnings
-    - run: cargo build --all-features --verbose
-    - run: |
-        cd domain
-        cargo test --features "master sign tsig validate" --verbose
-    - run: |
-        cd domain-resolv
-        cargo test --verbose
+    - run: cargo build --no-default-features --verbose
+    - run: cargo test --features="master resolv resolv-sync sign tsig validate" --verbose
 
