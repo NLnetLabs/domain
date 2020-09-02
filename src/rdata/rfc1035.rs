@@ -1262,9 +1262,16 @@ where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
 impl<Octets, Other> CanonicalOrd<Txt<Other>> for Txt<Octets>
 where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
     fn canonical_cmp(&self, other: &Txt<Other>) -> Ordering {
-        self.iter().flat_map(|s| s.iter().copied()).cmp(
-            other.iter().flat_map(|s| s.iter().copied())
-        )
+        // Canonical comparison requires TXT RDATA to be canonically sorted in the wire format.
+        // The TXT has each label prefixed by length, which must be taken into account.
+        for (a, b) in self.iter().zip(other.iter()) {
+            match (a.len(), a).cmp(&(b.len(), b)) {
+                Ordering::Equal => continue,
+                r => return r,
+            }
+        }
+
+        Ordering::Equal
     }
 }
 
@@ -1504,5 +1511,32 @@ mod test {
             .append_slice(&b"\x00".repeat(std::u16::MAX as usize - 512))
             .is_ok());
         assert!(builder.append_slice(&b"\x00".repeat(512)).is_err());
+    }
+
+    #[test]
+    fn txt_canonical_compare() {
+        let data = [
+            "mailru-verification: 14505c6eb222c847",
+            "yandex-verification: 6059b187e78de544",
+            "v=spf1 include:_spf.protonmail.ch ~all",
+            "swisssign-check=CF0JHMTlTDNoES3rrknIRggocffSwqmzMb9X8YbjzK",
+            "google-site-verification=aq9zJnp3H3bNE0Y4D4rH5I5Dhj8VMaLYx0uQ7Rozfgg",
+            "ahrefs-site-verification_4bdac6bbaa81e0d591d7c0f3ef238905c0521b69bf3d74e64d3775bcb2743afd",
+            "brave-ledger-verification=66a7f27fb99949cc0c564ab98efcc58ea1bac3e97eb557c782ab2d44b49aefd7",
+        ];
+
+        let records = data.iter().map(|e| {
+            let mut builder = TxtBuilder::<Vec<u8>>::new();
+            builder.append_slice(e.as_bytes()).unwrap();
+            builder.finish()
+        }).collect::<Vec<_>>();
+
+        // The canonical sort must sort by TXT labels which are prefixed by length byte first.
+        let mut sorted = records.clone();
+        sorted.sort_by(|a, b| a.canonical_cmp(b));
+
+        for (a, b) in records.iter().zip(sorted.iter()) {
+            assert_eq!(a, b);
+        }
     }
 }
