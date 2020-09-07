@@ -1813,8 +1813,18 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
         &mut self,
         name: &N
     ) -> Result<(), ShortBuf> {
-        let mut name = name.iter_labels();
+        let mut name = name.iter_labels().peekable();
+
         loop {
+            // If the parent is root, just write that and return.
+            // Because we do that, there will always be a label left here.
+            if let Some(label) = name.peek() {
+                if label.is_root() {
+                    label.compose(self)?;
+                    return Ok(())
+                }
+            }
+
             // If we already know this name, append it as a compressed label.
             if let Some(pos) = self.get(name.clone()) {
                 return (pos | 0xC000).compose(self)
@@ -1830,14 +1840,9 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
                 return Ok(())
             }
 
-            // Advance to the parent. If the parent is root, just write that
-            // and return. Because we do that, there will always be a label
-            // left here.
+            // Advance to the parent.
             let label = name.next().unwrap();
             label.compose(self)?;
-            if label.is_root() {
-                return Ok(())
-            }
         }
     }
 
@@ -2006,8 +2011,18 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
         &mut self,
         name: &N
     ) -> Result<(), ShortBuf> {
-        let mut name = name.iter_labels();
+        let mut name = name.iter_labels().peekable();
+
         loop {
+            // If the parent is root, just write that and return.
+            // Because we do that, there will always be a label left here.
+            if let Some(label) = name.peek() {
+                if label.is_root() {
+                    label.compose(self)?;
+                    return Ok(())
+                }
+            }
+
             // If we already know this name, append it as a compressed label.
             if let Some(pos) = self.get(name.clone()) {
                 return (pos | 0xC000).compose(self)
@@ -2028,9 +2043,6 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
             // left here.
             let label = name.next().unwrap();
             label.compose(self)?;
-            if label.is_root() {
-                return Ok(())
-            }
         }
     }
 
@@ -2046,7 +2058,8 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
 mod test {
     use std::vec::Vec;
     use crate::base::{iana::Rtype, Dname, opt};
-    use crate::rdata::{A, Ns};
+    use crate::rdata::{A, Ns, Soa};
+    use crate::base::Serial;
     use core::str::FromStr;
     use super::*;
 
@@ -2129,5 +2142,39 @@ mod test {
         assert_eq!(opt.udp_payload_size(), 4096);
         let mut opts = opt.as_opt().iter::<opt::rfc5001::Nsid<_>>();
         assert_eq!(opts.next(), Some(Ok(nsid)));
+    }
+
+    fn create_compressed<T: OctetsBuilder + AsRef<[u8]>>(target: T) -> T {
+        let mut msg = MessageBuilder::from_target(target).unwrap().question();
+        msg.header_mut().set_rcode(Rcode::NXDomain);
+        msg.header_mut().set_rd(true);
+        msg.header_mut().set_ra(true);
+        msg.header_mut().set_qr(true);
+
+        msg.push((&"example".parse::<Dname<Vec<u8>>>().unwrap(), Rtype::Ns)).unwrap();
+        let mut msg = msg.authority();
+
+        let mname: Dname<Vec<u8>> = "a.root-servers.net".parse().unwrap();
+        let rname = "nstld.verisign-grs.com".parse().unwrap();
+        msg.push((Dname::root_slice(), 86390, Soa::new(mname, rname, Serial(2020081701), 1800, 900, 604800, 86400))).unwrap();
+        msg.finish()
+    }
+
+    #[test]
+    fn compressor() {
+        // An example negative response to `example. NS` with an SOA to test various compressed name situations.
+        let expect = &[0x00,0x00,0x81,0x83,0x00,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x07,0x65,0x78,0x61,
+        0x6d,0x70,0x6c,0x65,0x00,0x00,0x02,0x00,0x01,0x00,0x00,0x06,0x00,0x01,0x00,0x01,
+        0x51,0x76,0x00,0x40,0x01,0x61,0x0c,0x72,0x6f,0x6f,0x74,0x2d,0x73,0x65,0x72,0x76,
+        0x65,0x72,0x73,0x03,0x6e,0x65,0x74,0x00,0x05,0x6e,0x73,0x74,0x6c,0x64,0x0c,0x76,
+        0x65,0x72,0x69,0x73,0x69,0x67,0x6e,0x2d,0x67,0x72,0x73,0x03,0x63,0x6f,0x6d,0x00,
+        0x78,0x68,0x00,0x25,0x00,0x00,0x07,0x08,0x00,0x00,0x03,0x84,0x00,0x09,0x3a,0x80,
+        0x00,0x01,0x51,0x80];
+
+        let msg = create_compressed(StaticCompressor::new(Vec::new()));
+        assert_eq!(&expect[..], msg.as_ref());
+
+        let msg = create_compressed(TreeCompressor::new(Vec::new()));
+        assert_eq!(&expect[..], msg.as_ref());
     }
 }
