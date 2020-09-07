@@ -14,12 +14,21 @@ Breaking
 
 Bug Fixes
 
+* Fix domain name compressors when giving a root label only. ([#76]
+  by [@vavrusa])
+* Fix OptIter not skipping over other options correctly. ([#76]
+  by [@vavrusa])
+* Fix canonical comparison of TXT RDATA by taking the length labels into
+  account. ([#76] by [@vavrusa])
+
 New
 
 Other Changes
 
 [#74]: https://github.com/NLnetLabs/domain/pull/74
 [#75]: https://github.com/NLnetLabs/domain/pull/75
+[#76]: https://github.com/NLnetLabs/domain/pull/76
+[@vavrusa]: https://github.com/vavrusa
 
 
 ## 0.5.3
