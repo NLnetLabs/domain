@@ -10,7 +10,8 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError, ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, Parser, ParseError,
+    ShortBuf
 };
 
 
@@ -42,7 +43,7 @@ pub struct Question<N> {
 
 /// # Creation and Conversion
 ///
-impl<N: ToDname> Question<N> {
+impl<N> Question<N> {
     /// Creates a new question from its three componets.
     pub fn new(qname: N, qtype: Rtype, qclass: Class) -> Self {
         Question { qname, qtype, qclass }
@@ -91,6 +92,19 @@ impl<N: ToDname> From<(N, Rtype, Class)> for Question<N> {
 impl<N: ToDname> From<(N, Rtype)> for Question<N> {
     fn from((name, rtype): (N, Rtype)) -> Self {
         Question::new(name, rtype, Class::In)
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Name, SrcName> OctetsFrom<Question<SrcName>> for Question<Name>
+where Name: OctetsFrom<SrcName> {
+    fn octets_from(source: Question<SrcName>) -> Result<Self, ShortBuf> {
+        Ok(Question::new(
+            Name::octets_from(source.qname)?,
+            source.qtype, source.qclass
+        ))
     }
 }
 

@@ -16,8 +16,8 @@ use crate::base::str::Symbol;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsRef, Parse,
-    ParseError, Parser, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef,
+    Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
@@ -52,6 +52,15 @@ impl A {
 
     pub fn addr(&self) -> Ipv4Addr { self.addr }
     pub fn set_addr(&mut self, addr: Ipv4Addr) { self.addr = addr }
+}
+
+
+//--- OctetsFrom
+
+impl OctetsFrom<A> for A {
+    fn octets_from(source: A) -> Result<Self, ShortBuf> {
+        Ok(source)
+    }
 }
 
 
@@ -207,6 +216,19 @@ impl<Octets> Hinfo<Octets> {
     /// The operating system type of the host.
     pub fn os(&self) -> &CharStr<Octets> {
         &self.os
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Hinfo<SrcOctets>> for Hinfo<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Hinfo<SrcOctets>) -> Result<Self, ShortBuf> {
+        Ok(Hinfo::new(
+            CharStr::octets_from(source.cpu)?,
+            CharStr::octets_from(source.os)?
+        ))
     }
 }
 
@@ -434,6 +456,19 @@ impl<N> Minfo<N> {
 }
 
 
+//--- OctetsFrom
+
+impl<Name, SrcName> OctetsFrom<Minfo<SrcName>> for Minfo<Name>
+where Name: OctetsFrom<SrcName> {
+    fn octets_from(source: Minfo<SrcName>) -> Result<Self, ShortBuf> {
+        Ok(Minfo::new(
+            Name::octets_from(source.rmailbx)?,
+            Name::octets_from(source.emailbx)?
+        ))
+    }
+}
+
+
 //--- PartialEq and Eq
 
 impl<N, NN> PartialEq<Minfo<NN>> for Minfo<N>
@@ -591,6 +626,19 @@ impl<N> Mx<N> {
     /// The name of the host that is the exchange.
     pub fn exchange(&self) -> &N {
         &self.exchange
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Name, SrcName> OctetsFrom<Mx<SrcName>> for Mx<Name>
+where Name: OctetsFrom<SrcName> {
+    fn octets_from(source: Mx<SrcName>) -> Result<Self, ShortBuf> {
+        Ok(Mx::new(
+            source.preference,
+            Name::octets_from(source.exchange)?
+        ))
     }
 }
 
@@ -755,6 +803,18 @@ impl<Octets: AsRef<[u8]>> Null<Octets> {
 impl<Octets> From<Octets> for Null<Octets> {
     fn from(data: Octets) -> Self {
         Self::new(data)
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Null<SrcOctets>> for Null<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Null<SrcOctets>) -> Result<Self, ShortBuf> {
+        Octets::octets_from(source.data).map(|octets| {
+            Self::new(octets)
+        })
     }
 }
 
@@ -953,6 +1013,24 @@ impl<N> Soa<N> {
     /// The minimum TTL to be exported with any RR from this zone.
     pub fn minimum(&self) -> u32 {
         self.minimum
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Name, SrcName> OctetsFrom<Soa<SrcName>> for Soa<Name>
+where Name: OctetsFrom<SrcName> {
+    fn octets_from(source: Soa<SrcName>) -> Result<Self, ShortBuf> {
+        Ok(Soa::new(
+            Name::octets_from(source.mname)?,
+            Name::octets_from(source.rname)?,
+            source.serial,
+            source.refresh,
+            source.retry,
+            source.expire,
+            source.minimum
+        ))
     }
 }
 
@@ -1219,6 +1297,16 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
             res.append_slice(item)?;
         }
         Ok(res.freeze())
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Txt<SrcOctets>> for Txt<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Txt<SrcOctets>) -> Result<Self, ShortBuf> {
+        Octets::octets_from(source.0).map(Self)
     }
 }
 

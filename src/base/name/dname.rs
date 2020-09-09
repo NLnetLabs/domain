@@ -12,7 +12,7 @@ use core::str::FromStr;
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
     Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsExt,
-    OctetsRef, Parse, Parser, ParseError, ShortBuf
+    OctetsFrom, OctetsRef, Parse, Parser, ParseError, ShortBuf
 };
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
@@ -584,6 +584,20 @@ impl<Octets: ?Sized> ops::Deref for Dname<Octets> {
 impl<Octets: AsRef<T> + ?Sized, T: ?Sized> AsRef<T> for Dname<Octets> {
     fn as_ref(&self) -> &T {
         self.0.as_ref()
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Dname<SrcOctets>> for Dname<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Dname<SrcOctets>) -> Result<Self, ShortBuf> {
+        Octets::octets_from(source.0).map(|octets| {
+            unsafe {
+                Self::from_octets_unchecked(octets)
+            }
+        })
     }
 }
 

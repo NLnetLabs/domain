@@ -60,6 +60,39 @@ macro_rules! rdata_types {
         }
 
 
+        //--- OctetsFrom
+
+        impl<Octets, SrcOctets, Name, SrcName>
+            $crate::base::octets::OctetsFrom<
+                MasterRecordData<SrcOctets, SrcName>
+            >
+            for MasterRecordData<Octets, Name>
+        where
+            Octets: $crate::base::octets::OctetsFrom<SrcOctets>,
+            Name: $crate::base::octets::OctetsFrom<SrcName>
+        {
+            fn octets_from(
+                source: MasterRecordData<SrcOctets, SrcName>
+            ) -> Result<Self, $crate::base::octets::ShortBuf> {
+                match source {
+                    $( $( $(
+                        MasterRecordData::$mtype(inner) => {
+                            $mtype::octets_from(inner).map(
+                                MasterRecordData::$mtype
+                            )
+                        }
+                    )* )* )*
+                    MasterRecordData::Other(inner) => {
+                        $crate::base::rdata::
+                        UnknownRecordData::octets_from(inner).map(
+                            MasterRecordData::Other
+                        )
+                    }
+                }
+            }
+        }
+
+
         //--- From
 
         $( $( $(
@@ -449,6 +482,51 @@ macro_rules! rdata_types {
         }
 
 
+        //--- OctetsFrom
+
+        impl<Octets, SrcOctets, Name, SrcName>
+            $crate::base::octets::OctetsFrom<
+                AllRecordData<SrcOctets, SrcName>
+            >
+            for AllRecordData<Octets, Name>
+        where
+            Octets: $crate::base::octets::OctetsFrom<SrcOctets>,
+            Name: $crate::base::octets::OctetsFrom<SrcName>
+        {
+            fn octets_from(
+                source: AllRecordData<SrcOctets, SrcName>
+            ) -> Result<Self, $crate::base::octets::ShortBuf> {
+                match source {
+                    $( $( $(
+                        AllRecordData::$mtype(inner) => {
+                            $mtype::octets_from(inner).map(
+                                AllRecordData::$mtype
+                            )
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(inner) => {
+                            $ptype::octets_from(inner).map(
+                                AllRecordData::$ptype
+                            )
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(inner) => {
+                        $crate::base::opt::Opt::octets_from(inner).map(
+                            AllRecordData::Opt
+                        )
+                    }
+                    AllRecordData::Other(inner) => {
+                        $crate::base::rdata::
+                        UnknownRecordData::octets_from(inner).map(
+                            AllRecordData::Other
+                        )
+                    }
+                }
+            }
+        }
+
+
         //--- PartialEq and Eq
 
         impl<O, OO, N, NN> PartialEq<AllRecordData<OO, NN>>
@@ -741,6 +819,18 @@ macro_rules! dname_type {
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 N::from_str(s).map(Self::new)
+            }
+        }
+
+
+        //--- OctetsFrom
+
+        impl<Name, SrcName> OctetsFrom<$target<SrcName>> for $target<Name>
+        where Name: OctetsFrom<SrcName> {
+            fn octets_from(source: $target<SrcName>) -> Result<Self, ShortBuf> {
+                Name::octets_from(source.$field).map(|name| {
+                    Self::new(name)
+                })
             }
         }
 

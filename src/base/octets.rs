@@ -313,6 +313,86 @@ impl<'a, A: Array<Item = u8>> OctetsRef for &'a SmallVec<A> {
 }
 
 
+//------------ OctetsFrom ----------------------------------------------------
+
+/// Convert a type from one octets type to another.
+///
+/// This trait allows creating a value of a type that is generic over an
+/// octets sequence from an identical value using a different type of octets
+/// sequence.
+///
+/// This is different from just `From` in that the conversion may fail if the
+/// source sequence is longer than the space available for the target type.
+pub trait OctetsFrom<Source>: Sized {
+    /// Performs the conversion.
+    fn octets_from(source: Source) -> Result<Self, ShortBuf>;
+}
+
+
+impl<'a, Source: AsRef<[u8]> + 'a> OctetsFrom<&'a Source> for &'a [u8] {
+    fn octets_from(source: &'a Source) -> Result<Self, ShortBuf> {
+        Ok(source.as_ref())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<Source> OctetsFrom<Source> for Vec<u8>
+where Self: From<Source> {
+    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
+        Ok(From::from(source))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<Source> OctetsFrom<Source> for Bytes
+where Self: From<Source> {
+    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
+        Ok(From::from(source))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<Source> OctetsFrom<Source> for BytesMut
+where Self: From<Source> {
+    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
+        Ok(From::from(source))
+    }
+}
+
+#[cfg(features = "smallvec")]
+impl<Source, A> OctetsFrom<Source> for SmallVec<A>
+where Source: AsRef<u8>, A: Array<Item = u8> {
+    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
+        Ok(smallvec::ToSmallVec::to_smallvec(source.as_ref()))
+    }
+}
+
+
+//------------ OctetsInto ----------------------------------------------------
+
+/// Convert a type from one octets type to another.
+///
+/// This trait allows trading in a value of a type that is generic over an
+/// octets sequence for an identical value using a different type of octets
+/// sequence.
+///
+/// This is different from just `Into` in that the conversion may fail if the
+/// source sequence is longer than the space available for the target type.
+///
+/// This trait has a blanket implementation for all pairs of types where 
+/// `OctetsFrom` has been implemented.
+pub trait OctetsInto<Target> {
+    /// Performs the conversion.
+    fn octets_into(self) -> Result<Target, ShortBuf>;
+}
+
+impl<Source, Target: OctetsFrom<Source>> OctetsInto<Target> for Source {
+    fn octets_into(self) -> Result<Target, ShortBuf> {
+        Target::octets_from(self)
+    }
+}
+
+
 //------------ OctetsBuilder -------------------------------------------------
 
 /// A buffer to construct an octet sequence.
@@ -557,11 +637,6 @@ impl<A: Array<Item = u8>> EmptyBuilder for SmallVec<A> {
 /// An octets type that can be converted into an octets builder.
 pub trait IntoBuilder {
     /// The type of octets builder this octets type can be converted into.
-    ///
-    /// If `Builder` implements [`IntoOctets`], the `Octets` associated
-    /// type of that trait must be `Self`.
-    ///
-    /// [`IntoOctets`]: trait.IntoOctets.html
     type Builder: OctetsBuilder;
 
     /// Converts an octets value into an octets builder.
@@ -620,12 +695,6 @@ impl<A: Array<Item = u8>> IntoBuilder for SmallVec<A> {
 //------------ FromBuilder ---------------------------------------------------
 
 /// An octets type that can be created from an octets builder.
-///
-/// This trait is a mirror of [`IntoOctets`] and only exists because otherwise
-/// trait bounds become ridiculously complex. The implementations of the two
-/// traits must behave identically.
-///
-/// [`IntoOctets`]: trait.IntoOctets.html
 pub trait FromBuilder: AsRef<[u8]> + Sized {
     /// The type of builder this octets type can be created from.
     type Builder: OctetsBuilder<Octets = Self>;

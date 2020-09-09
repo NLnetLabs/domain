@@ -21,7 +21,8 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError, ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, Parser, ParseError,
+    ShortBuf
 };
 use super::rdata::{RecordData, ParseRecordData};
 
@@ -178,6 +179,27 @@ impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
 impl<N, D> From<(N, u32, D)> for Record<N, D> {
     fn from((owner, ttl, data): (N, u32, D)) -> Self {
         Self::new(owner, Class::In, ttl, data)
+    }
+}
+
+
+//--- OctetsFrom
+//
+// XXX We don’t have blanket FromOctets for a type T into itself, so this may
+//     not always work as expected. Not sure what we can do about it?
+
+impl<Name, Data, SrcName, SrcData>
+OctetsFrom<Record<SrcName, SrcData>> for Record<Name, Data>
+where Name: OctetsFrom<SrcName>, Data: OctetsFrom<SrcData> {
+    fn octets_from(
+        source: Record<SrcName, SrcData>
+    ) -> Result<Self, ShortBuf> {
+        Ok(Record {
+            owner: Name::octets_from(source.owner)?,
+            class: source.class,
+            ttl: source.ttl,
+            data: Data::octets_from(source.data)?
+        })
     }
 }
 

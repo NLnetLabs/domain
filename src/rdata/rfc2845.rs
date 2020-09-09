@@ -11,7 +11,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
     ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
@@ -162,6 +162,27 @@ impl<O, N> Tsig<O, N> {
     #[cfg(feature = "std")]
     pub fn is_valid_now(&self) -> bool {
         Time48::now().eq_fudged(self.time_signed, self.fudge.into())
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets, Name, SrcName>
+    OctetsFrom<Tsig<SrcOctets, SrcName>> for Tsig<Octets, Name>
+where Octets: OctetsFrom<SrcOctets>, Name: OctetsFrom<SrcName> {
+    fn octets_from(
+        source: Tsig<SrcOctets, SrcName>
+    ) -> Result<Self, ShortBuf> {
+        Ok(Tsig::new(
+            Name::octets_from(source.algorithm)?,
+            source.time_signed,
+            source.fudge,
+            Octets::octets_from(source.mac)?,
+            source.original_id,
+            source.error,
+            Octets::octets_from(source.other)?,
+        ))
     }
 }
 

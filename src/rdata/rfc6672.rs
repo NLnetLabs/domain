@@ -1,7 +1,10 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{ParsedDname, ToDname};
-use crate::base::octets::{Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf};
+use crate::base::octets::{
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf
+};
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "master")]
 use crate::master::scan::{CharSource, Scan, ScanError, Scanner};

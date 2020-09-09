@@ -13,8 +13,8 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsRef,
-    Parse, ParseError, Parser, ShortBuf
+    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom,
+    OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::{RtypeRecordData};
 use crate::base::serial::Serial;
@@ -153,6 +153,19 @@ impl<Octets> Dnskey<Octets> {
             res += (res >> 16) & 0xFFFF;
             (res & 0xFFFF) as u16
         }
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Dnskey<SrcOctets>> for Dnskey<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Dnskey<SrcOctets>) -> Result<Self, ShortBuf> {
+        Ok(Dnskey::new(
+            source.flags, source.protocol, source.algorithm,
+            Octets::octets_from(source.public_key)?,
+        ))
     }
 }
 
@@ -355,6 +368,22 @@ impl<Name> ProtoRrsig<Name> {
     }
 }
 
+
+//--- OctetsFrom
+
+impl<Name, SrcName> OctetsFrom<ProtoRrsig<SrcName>> for ProtoRrsig<Name>
+where Name: OctetsFrom<SrcName> {
+    fn octets_from(source: ProtoRrsig<SrcName>) -> Result<Self, ShortBuf> {
+        Ok(ProtoRrsig::new(
+            source.type_covered, source.algorithm, source.labels,
+            source.original_ttl, source.expiration, source.inception,
+            source.key_tag,
+            Name::octets_from(source.signer_name)?
+        ))
+    }
+}
+
+
 //--- Compose
 
 impl<Name: Compose> Compose for ProtoRrsig<Name> {
@@ -472,6 +501,25 @@ impl<Octets, Name> Rrsig<Octets, Name> {
 
     pub fn set_signature(&mut self, signature: Octets) {
         self.signature = signature
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets, Name, SrcName>
+    OctetsFrom<Rrsig<SrcOctets, SrcName>> for Rrsig<Octets, Name>
+where Octets: OctetsFrom<SrcOctets>, Name: OctetsFrom<SrcName> {
+    fn octets_from(
+        source: Rrsig<SrcOctets, SrcName>
+    ) -> Result<Self, ShortBuf> {
+        Ok(Rrsig::new(
+            source.type_covered, source.algorithm, source.labels,
+            source.original_ttl, source.expiration, source.inception,
+            source.key_tag,
+            Name::octets_from(source.signer_name)?,
+            Octets::octets_from(source.signature)?,
+        ))
     }
 }
 
@@ -759,6 +807,22 @@ impl<Octets, Name> Nsec<Octets, Name> {
 }
 
 
+//--- OctetsFrom
+
+impl<Octets, SrcOctets, Name, SrcName>
+    OctetsFrom<Nsec<SrcOctets, SrcName>> for Nsec<Octets, Name>
+where Octets: OctetsFrom<SrcOctets>, Name: OctetsFrom<SrcName> {
+    fn octets_from(
+        source: Nsec<SrcOctets, SrcName>
+    ) -> Result<Self, ShortBuf> {
+        Ok(Nsec::new(
+            Name::octets_from(source.next_name)?,
+            RtypeBitmap::octets_from(source.types)?,
+        ))
+    }
+}
+
+
 //--- PartialEq and Eq
 
 impl<O, OO, N, NN> PartialEq<Nsec<OO, NN>> for Nsec<O, N>
@@ -939,6 +1003,19 @@ impl<Octets> Ds<Octets> {
 
     pub fn into_digest(self) -> Octets {
         self.digest
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Ds<SrcOctets>> for Ds<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Ds<SrcOctets>) -> Result<Self, ShortBuf> {
+        Ok(Ds::new(
+            source.key_tag, source.algorithm, source.digest_type,
+            Octets::octets_from(source.digest)?,
+        ))
     }
 }
 
@@ -1184,6 +1261,17 @@ impl<Octets: AsRef<[u8]>> RtypeBitmap<Octets> {
 impl<T, Octets: AsRef<T>> AsRef<T> for RtypeBitmap<Octets> {
     fn as_ref(&self) -> &T {
         self.0.as_ref()
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets>
+    OctetsFrom<RtypeBitmap<SrcOctets>> for RtypeBitmap<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: RtypeBitmap<SrcOctets>) -> Result<Self, ShortBuf> {
+        Octets::octets_from(source.0).map(RtypeBitmap)
     }
 }
 
