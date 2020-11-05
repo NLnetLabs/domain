@@ -34,6 +34,7 @@ opt_types!{
     rfc7873::{Cookie};
     rfc7901::{Chain<Octets>};
     rfc8145::{KeyTag<Octets>};
+    rfc8914::{ExtendedError<Octets>};
 }
 
 

@@ -27,6 +27,7 @@
 
 pub use self::class::Class;
 pub use self::digestalg::DigestAlg;
+pub use self::exterr::ExtendedErrorCode;
 pub use self::nsec3::Nsec3HashAlg;
 pub use self::opcode::Opcode;
 pub use self::opt::OptionCode;
@@ -39,6 +40,7 @@ pub use self::secalg::SecAlg;
 
 pub mod class;
 pub mod digestalg;
+pub mod exterr;
 pub mod nsec3;
 pub mod opcode;
 pub mod opt;
