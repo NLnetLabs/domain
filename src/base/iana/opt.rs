@@ -135,6 +135,15 @@ int_enum! {
     /// [RFC 8145]: https://tools.ietf.org/html/rfc8145
     (KeyTag => 14, b"edns-key-tag")
 
+    /// Extended DNS Error (15).
+    ///
+    /// This option allows the server to return additional information
+    /// about the cause of DNS errors. It does not change the
+    /// processing of RCODEs. The option is defined in [RFC 8914].
+    ///
+    /// [RFC 8914]: https://tools.ietf.org/html/rfc8914
+    (ExtendedError => 15, b"Extended DNS Error")
+
     /// EDNS client tag (16).
     ///
     /// The client tag option allows a client to send arbitrary additional
