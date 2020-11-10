@@ -23,12 +23,17 @@ Bug Fixes
 
 New
 
+* Supprt for extended errors defined in [RFC 8914]. ([#79] by [@xofyarg]).
+
 Other Changes
 
 [#74]: https://github.com/NLnetLabs/domain/pull/74
 [#75]: https://github.com/NLnetLabs/domain/pull/75
 [#76]: https://github.com/NLnetLabs/domain/pull/76
+[#79]: https://github.com/NLnetLabs/domain/pull/79
 [@vavrusa]: https://github.com/vavrusa
+[@xofyarg]: https://github.com/xofyarg
+[RFC 8914]: https://tools.ietf.org/html/rfc8914
 
 
 ## 0.5.3
