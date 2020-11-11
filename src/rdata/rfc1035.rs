@@ -1199,7 +1199,7 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
     }
 
     pub fn is_empty(&self) -> bool {
-        false
+        self.0.as_ref().is_empty()
     }
 
     /// Returns the text content.
@@ -1301,7 +1301,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Txt<Ref::Range> {
         let len = parser.remaining();
         let text = parser.parse_octets(len)?;
         let mut tmp = Parser::from_ref(text.as_ref());
-        while parser.remaining() != 0 {
+        while tmp.remaining() != 0 {
             CharStr::skip(&mut tmp)?
         }
         Ok(Txt(text))
@@ -1500,13 +1500,27 @@ mod test {
         assert_eq!(None, txt.as_flat_slice());
         assert_eq!(Ok(long.to_vec()), txt.text::<Vec<u8>>());
 
+        // Empty
+        let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
+        assert!(builder
+            .append_slice(&[])
+            .is_ok());
+        let empty = builder.finish();
+        assert!(empty.is_empty());
+        assert_eq!(0, empty.iter().count());
+
+        // Invalid
+        let mut parser = Parser::from_static(b"\x01");
+        assert!(Txt::parse(&mut parser).is_err());
+
         // Too long
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
         assert!(builder
             .append_slice(&b"\x00".repeat(std::u16::MAX as usize))
             .is_err());
-        let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
+
         // Incremental, reserve space for offsets
+        let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
         assert!(builder
             .append_slice(&b"\x00".repeat(std::u16::MAX as usize - 512))
             .is_ok());
