@@ -20,10 +20,11 @@ Bug Fixes
   by [@vavrusa])
 * Fix canonical comparison of TXT RDATA by taking the length labels into
   account. ([#76] by [@vavrusa])
+* Fix parsed not rejecting of malformed TXT RDATA. ([#80] by [@vavrusa])
 
 New
 
-* Supprt for extended errors defined in [RFC 8914]. ([#79] by [@xofyarg]).
+* Supprt for extended errors defined in [RFC 8914]. ([#79] by [@xofyarg])
 
 Other Changes
 
@@ -31,6 +32,7 @@ Other Changes
 [#75]: https://github.com/NLnetLabs/domain/pull/75
 [#76]: https://github.com/NLnetLabs/domain/pull/76
 [#79]: https://github.com/NLnetLabs/domain/pull/79
+[#80]: https://github.com/NLnetLabs/domain/pull/80
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
 [RFC 8914]: https://tools.ietf.org/html/rfc8914
