@@ -7,7 +7,8 @@ use core::cmp::Ordering;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature="master")] use crate::master::scan::{
@@ -55,6 +56,19 @@ impl<Octets> Cdnskey<Octets> {
 
     pub fn public_key(&self) -> &Octets {
         &self.public_key
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Cdnskey<SrcOctets>> for Cdnskey<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Cdnskey<SrcOctets>) -> Result<Self, ShortBuf> {
+        Ok(Cdnskey::new(
+            source.flags, source.protocol, source.algorithm,
+            Octets::octets_from(source.public_key)?,
+        ))
     }
 }
 
@@ -244,6 +258,19 @@ impl<Octets> Cds<Octets> {
 
     pub fn into_digest(self) -> Octets {
         self.digest
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Cds<SrcOctets>> for Cds<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Cds<SrcOctets>) -> Result<Self, ShortBuf> {
+        Ok(Cds::new(
+            source.key_tag, source.algorithm, source.digest_type,
+            Octets::octets_from(source.digest)?,
+        ))
     }
 }
 

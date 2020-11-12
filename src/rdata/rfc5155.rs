@@ -11,7 +11,8 @@ use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Nsec3HashAlg, Rtype};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature="master")] use crate::master::scan::{
@@ -71,6 +72,21 @@ impl<Octets> Nsec3<Octets> {
 
     pub fn types(&self) -> &RtypeBitmap<Octets> {
         &self.types
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Nsec3<SrcOctets>> for Nsec3<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Nsec3<SrcOctets>) -> Result<Self, ShortBuf> {
+        Ok(Nsec3::new(
+            source.hash_algorithm, source.flags, source.iterations,
+            CharStr::octets_from(source.salt)?,
+            CharStr::octets_from(source.next_owner)?,
+            RtypeBitmap::octets_from(source.types)?,
+        ))
     }
 }
 
@@ -317,6 +333,20 @@ impl<Octets> Nsec3param<Octets> {
 
     pub fn salt(&self) -> &CharStr<Octets> {
         &self.salt
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets>
+    OctetsFrom<Nsec3param<SrcOctets>> for Nsec3param<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Nsec3param<SrcOctets>) -> Result<Self, ShortBuf> {
+        Ok(Nsec3param::new(
+            source.hash_algorithm, source.flags, source.iterations,
+            CharStr::octets_from(source.salt)?,
+        ))
     }
 }
 

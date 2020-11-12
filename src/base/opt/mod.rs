@@ -48,7 +48,8 @@ use super::iana::{OptionCode, OptRcode, Rtype};
 use super::header::Header;
 use super::name::ToDname;
 use super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf
 };
 use super::rdata::RtypeRecordData;
 use super::record::Record;
@@ -101,6 +102,16 @@ impl<Octets: AsRef<[u8]>> Opt<Octets> {
         Data: for<'a> ParseOptData<&'a Octets>
     {
         OptIter::new(&self.octets)
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Opt<SrcOctets>> for Opt<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Opt<SrcOctets>) -> Result<Self, ShortBuf> {
+        Octets::octets_from(source.octets).map(|octets| Opt { octets })
     }
 }
 
@@ -407,6 +418,22 @@ impl<Octets> OptRecord<Octets> {
 impl<Octets, N: ToDname> From<Record<N, Opt<Octets>>> for OptRecord<Octets> {
     fn from(record: Record<N, Opt<Octets>>) -> Self {
         Self::from_record(record)
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<OptRecord<SrcOctets>> for OptRecord<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: OptRecord<SrcOctets>) -> Result<Self, ShortBuf> {
+        Ok(OptRecord {
+            udp_payload_size: source.udp_payload_size,
+            ext_rcode: source.ext_rcode,
+            version: source.version,
+            flags: source.flags,
+            data: Opt::octets_from(source.data)?,
+        })
     }
 }
 

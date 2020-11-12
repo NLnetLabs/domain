@@ -7,8 +7,8 @@ use core::cmp::Ordering;
 #[cfg(feature = "std")] use std::vec::Vec;
 #[cfg(feature = "bytes")] use bytes::Bytes;
 use super::super::octets::{
-    Compose, IntoBuilder, OctetsBuilder, OctetsExt, OctetsRef, ParseError,
-    ShortBuf
+    Compose, IntoBuilder, OctetsBuilder, OctetsExt, OctetsFrom, OctetsRef,
+    ParseError, ShortBuf
 };
 use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
@@ -565,6 +565,21 @@ impl<Octets: ?Sized> ops::Deref for RelativeDname<Octets> {
 impl<Octets: AsRef<T> + ?Sized, T: ?Sized> AsRef<T> for RelativeDname<Octets> {
     fn as_ref(&self) -> &T {
         self.0.as_ref()
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets>
+OctetsFrom<RelativeDname<SrcOctets>> for RelativeDname<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: RelativeDname<SrcOctets>) -> Result<Self, ShortBuf> {
+        Octets::octets_from(source.0).map(|octets| {
+            unsafe {
+                Self::from_octets_unchecked(octets)
+            }
+        })
     }
 }
 

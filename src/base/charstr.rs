@@ -33,8 +33,8 @@ use core::{cmp, fmt, hash, ops, str};
 };
 use super::cmp::CanonicalOrd;
 use super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, OctetsRef,
-    Parse, ParseError, Parser, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, OctetsFrom,
+    OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use super::str::{BadSymbol, Symbol, SymbolError};
 
@@ -159,6 +159,20 @@ impl CharStr<[u8]> {
                 &*(slice as *const [u8] as *const CharStr<[u8]>)
             })
         }
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<CharStr<SrcOctets>> for CharStr<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: CharStr<SrcOctets>) -> Result<Self, ShortBuf> {
+        Octets::octets_from(source.0).map(|octets| {
+            unsafe {
+                Self::from_octets_unchecked(octets)
+            }
+        })
     }
 }
 

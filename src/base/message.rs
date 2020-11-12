@@ -17,7 +17,7 @@ use super::iana::{Class, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder};
 use super::name::ParsedDname;
 use super::octets::{
-    OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf
 };
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
@@ -593,6 +593,20 @@ impl<Octets> AsRef<Octets> for Message<Octets> {
 impl<Octets: AsRef<[u8]>> AsRef<[u8]> for Message<Octets> {
     fn as_ref(&self) -> &[u8] {
         self.octets.as_ref()
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets> OctetsFrom<Message<SrcOctets>> for Message<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(source: Message<SrcOctets>) -> Result<Self, ShortBuf> {
+        Octets::octets_from(source.octets).map(|octets| {
+            unsafe {
+                Self::from_octets_unchecked(octets)
+            }
+        })
     }
 }
 

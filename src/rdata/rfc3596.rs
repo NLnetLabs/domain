@@ -10,7 +10,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::net::Ipv6Addr;
 use crate::base::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature="master")] use crate::master::scan::{
@@ -55,6 +55,15 @@ impl core::str::FromStr for Aaaa {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ipv6Addr::from_str(s).map(Aaaa::new)
+    }
+}
+
+
+//--- OctetsFrom
+
+impl OctetsFrom<Aaaa> for Aaaa {
+    fn octets_from(source: Aaaa) -> Result<Self, ShortBuf> {
+        Ok(source)
     }
 }
 

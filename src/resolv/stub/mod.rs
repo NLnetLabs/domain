@@ -56,7 +56,7 @@ const RETRY_RANDOM_PORT: usize = 10;
 /// A DNS stub resolver.
 ///
 /// This type collects all information making it possible to start DNS
-/// queries. You can create a new resoler using the system’s configuration
+/// queries. You can create a new resolver using the system’s configuration
 /// using the [`new()`] associate function or using your own configuration
 /// with [`from_conf()`].
 ///

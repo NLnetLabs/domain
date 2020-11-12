@@ -10,7 +10,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, Parser, ParseError,
     ShortBuf
 };
 use crate::base::rdata::RtypeRecordData;
@@ -54,6 +54,19 @@ impl<N> Srv<N> {
 
     pub fn target(&self) -> &N {
         &self.target
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Name, SrcName> OctetsFrom<Srv<SrcName>> for Srv<Name>
+where Name: OctetsFrom<SrcName> {
+    fn octets_from(source: Srv<SrcName>) -> Result<Self, ShortBuf> {
+        Ok(Srv::new(
+            source.priority, source.weight, source.port,
+            Name::octets_from(source.target)?
+        ))
     }
 }
 

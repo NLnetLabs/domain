@@ -21,7 +21,8 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, Parser, ParseError, ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, Parser, ParseError,
+    ShortBuf
 };
 use super::rdata::{RecordData, ParseRecordData};
 
@@ -178,6 +179,27 @@ impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
 impl<N, D> From<(N, u32, D)> for Record<N, D> {
     fn from((owner, ttl, data): (N, u32, D)) -> Self {
         Self::new(owner, Class::In, ttl, data)
+    }
+}
+
+
+//--- OctetsFrom
+//
+// XXX We don’t have blanket FromOctets for a type T into itself, so this may
+//     not always work as expected. Not sure what we can do about it?
+
+impl<Name, Data, SrcName, SrcData>
+OctetsFrom<Record<SrcName, SrcData>> for Record<Name, Data>
+where Name: OctetsFrom<SrcName>, Data: OctetsFrom<SrcData> {
+    fn octets_from(
+        source: Record<SrcName, SrcData>
+    ) -> Result<Self, ShortBuf> {
+        Ok(Record {
+            owner: Name::octets_from(source.owner)?,
+            class: source.class,
+            ttl: source.ttl,
+            data: Data::octets_from(source.data)?
+        })
     }
 }
 
@@ -880,6 +902,31 @@ where N: std::error::Error, D: std::error::Error { }
 impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
     fn from(_: ShortBuf) -> Self {
         RecordParseError::ShortBuf
+    }
+}
+
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    #[cfg(features = "bytes")]
+    fn ds_octets_into() {
+        use crate::name::Dname;
+        use crate::octets::OctetsInto;
+        use crate::base::iana::{DigestAlg, Rtype, SecAlg};
+        use crate::rdata::Ds;
+
+        let ds: Record<Dname<&[u8]>, Ds<&[u8]>> = Record::new(
+            "a.example".parse().unwrap(), Class::In, 86400,
+            Ds::new(12, SecAlg::RsaSha256, b"something")
+        );
+        let ds_bytes: Record<Dname<Bytes>, Ds<Bytes>>
+            = ds.octets_into().unwrap();
+        assert_eq!(ds.owner(), ds_bytes.owner());
+        asswer_eq!(ds.data().digest(), ds_bytes.data().digest());
     }
 }
 

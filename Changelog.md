@@ -12,6 +12,11 @@ Breaking
   `domain::base::octets::OctetsBuilder`. It’s method `into_octets` is now
   available as `freeze` on `OctetsBuilder. ([#75])
 
+* Supprt for extended errors defined in [RFC 8914]. ([#79] by [@xofyarg])
+* New traits `domain::base::octets::OctetsFrom` and `OctetsInto` to
+  convert types that are generic over octets sequences between different
+  octets sequences. ([#77])
+
 Bug Fixes
 
 * Fix domain name compressors when giving a root label only. ([#76]
@@ -20,15 +25,22 @@ Bug Fixes
   by [@vavrusa])
 * Fix canonical comparison of TXT RDATA by taking the length labels into
   account. ([#76] by [@vavrusa])
+* Fix parsed not rejecting of malformed TXT RDATA. ([#80] by [@vavrusa])
 
 New
+
 
 Other Changes
 
 [#74]: https://github.com/NLnetLabs/domain/pull/74
 [#75]: https://github.com/NLnetLabs/domain/pull/75
 [#76]: https://github.com/NLnetLabs/domain/pull/76
+[#77]: https://github.com/NLnetLabs/domain/pull/77
+[#79]: https://github.com/NLnetLabs/domain/pull/79
+[#80]: https://github.com/NLnetLabs/domain/pull/80
 [@vavrusa]: https://github.com/vavrusa
+[@xofyarg]: https://github.com/xofyarg
+[RFC 8914]: https://tools.ietf.org/html/rfc8914
 
 
 ## 0.5.3

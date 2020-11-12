@@ -31,7 +31,8 @@ use core::cmp::Ordering;
 use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf
 };
 
 
@@ -216,6 +217,22 @@ impl UnknownRecordData<Bytes> {
             )?
         }
         Ok(UnknownRecordData::from_octets(rtype, res.freeze()))
+    }
+}
+
+
+//--- OctetsFrom
+
+impl<Octets, SrcOctets>
+OctetsFrom<UnknownRecordData<SrcOctets>> for UnknownRecordData<Octets>
+where Octets: OctetsFrom<SrcOctets> {
+    fn octets_from(
+        source: UnknownRecordData<SrcOctets>
+    ) -> Result<Self, ShortBuf> {
+        Ok(UnknownRecordData {
+            rtype: source.rtype,
+            data: Octets::octets_from(source.data)?
+        })
     }
 }
 
