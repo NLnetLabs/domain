@@ -300,6 +300,16 @@ int_enum!{
     /// See draft-wessels-dns-zone-digest.
     (Zonemd => 63, b"ZONEMD")
 
+    /// General Purpose Service Endpoints.
+    ///
+    /// See draft-ietf-dnsop-svcb-https.
+    (Svcb => 64, b"SVCB")
+
+    /// HTTPS Specific Service Endpoints.
+    ///
+    /// See draft-ietf-dnsop-svcb-https.
+    (Https => 65, b"HTTPS")
+
     /// SPF.
     ///
     /// RFC 7208.
