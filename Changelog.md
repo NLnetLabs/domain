@@ -17,6 +17,8 @@ Breaking
   convert types that are generic over octets sequences between different
   octets sequences. ([#77])
 
+* Upgrade to tokio 1.0, bytes 1.0, and latest of other dependencies ([#84] by [@koivunej])
+
 Bug Fixes
 
 * Fix domain name compressors when giving a root label only. ([#76]
@@ -38,8 +40,10 @@ Other Changes
 [#77]: https://github.com/NLnetLabs/domain/pull/77
 [#79]: https://github.com/NLnetLabs/domain/pull/79
 [#80]: https://github.com/NLnetLabs/domain/pull/80
+[#84]: https://github.com/NLnetLabs/domain/pull/84
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
+[@koivunej]: https://github.com/koivunej
 [RFC 8914]: https://tools.ietf.org/html/rfc8914
 
 
