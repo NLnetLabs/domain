@@ -392,14 +392,14 @@ impl ResolvConf {
                                   line.starts_with('#') {
                 continue
             }
-            
+
             let mut words = line.split_whitespace();
             let keyword = words.next();
             match keyword {
                 Some("nameserver") => self.parse_nameserver(words)?,
                 Some("domain") => self.parse_domain(words)?,
                 Some("search") => self.parse_search(words)?,
-                Some("sortlist") => self.parse_sortlist(words)?,
+                Some("sortlist") => { /* TODO: self.parse_sortlist(words)? */ },
                 Some("options") => self.parse_options(words)?,
                 _ => return Err(Error::ParseError)
             }
@@ -447,15 +447,15 @@ impl ResolvConf {
         Ok(())
     }
 
+    /*
     fn parse_sortlist(
         &mut self,
-        words: SplitWhitespace
+        _words: SplitWhitespace
     ) -> Result<(), Error> {
         // XXX TODO
-        let _ = words; 
-        Ok(())
     }
- 
+    */
+
     #[allow(clippy::match_same_arms)]
     fn parse_options(&mut self, words: SplitWhitespace) -> Result<(), Error> {
         for word in words {
