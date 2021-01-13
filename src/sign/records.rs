@@ -1,19 +1,18 @@
 //! Actual signing.
 
-use std::{fmt, io, slice};
-use std::iter::FromIterator;
-use std::vec::Vec;
+use super::key::SigningKey;
 use crate::base::cmp::CanonicalOrd;
+use crate::base::iana::{Class, Rtype};
 use crate::base::name::ToDname;
 use crate::base::octets::{Compose, EmptyBuilder, FromBuilder};
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::base::serial::Serial;
-use crate::base::iana::{Class, Rtype};
-use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
 use crate::rdata::rfc4034::{ProtoRrsig, RtypeBitmap};
-use super::key::SigningKey;
-
+use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
+use std::iter::FromIterator;
+use std::vec::Vec;
+use std::{fmt, io, slice};
 
 //------------ SortedRecords -------------------------------------------------
 
@@ -25,17 +24,19 @@ pub struct SortedRecords<N, D> {
 
 impl<N, D> SortedRecords<N, D> {
     pub fn new() -> Self {
-        SortedRecords { records: Vec::new() }
+        SortedRecords {
+            records: Vec::new(),
+        }
     }
 
-    pub fn insert(
-        &mut self,
-        record: Record<N, D>
-    ) -> Result<(), Record<N, D>>
-    where N: ToDname, D: RecordData + CanonicalOrd {
-        let idx = self.records.binary_search_by(|stored| {
-            stored.canonical_cmp(&record)
-        });
+    pub fn insert(&mut self, record: Record<N, D>) -> Result<(), Record<N, D>>
+    where
+        N: ToDname,
+        D: RecordData + CanonicalOrd,
+    {
+        let idx = self
+            .records
+            .binary_search_by(|stored| stored.canonical_cmp(&record));
         match idx {
             Ok(_) => Err(record),
             Err(idx) => {
@@ -54,10 +55,13 @@ impl<N, D> SortedRecords<N, D> {
     }
 
     pub fn find_soa(&self) -> Option<Rrset<N, D>>
-    where N: ToDname, D: RecordData {
+    where
+        N: ToDname,
+        D: RecordData,
+    {
         for rrset in self.rrsets() {
             if rrset.rtype() == Rtype::Soa {
-                return Some(rrset)
+                return Some(rrset);
             }
         }
         None
@@ -69,7 +73,7 @@ impl<N, D> SortedRecords<N, D> {
         apex: &FamilyName<ApexName>,
         expiration: Serial,
         inception: Serial,
-        key: Key
+        key: Key,
     ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
     where
         N: ToDname + Clone,
@@ -89,18 +93,18 @@ impl<N, D> SortedRecords<N, D> {
         // Since the records are ordered, the first family is the apex --
         // we can skip everything before that.
         families.skip_before(apex);
-        
+
         for family in families {
             // If the owner is out of zone, we have moved out of our zone and
             // are done.
             if !family.is_in_zone(apex) {
-                break
+                break;
             }
 
             // If the family is below a zone cut, we must ignore it.
             if let Some(ref cut) = cut {
                 if family.owner().ends_with(cut.owner()) {
-                    continue
+                    continue;
                 }
             }
 
@@ -112,8 +116,7 @@ impl<N, D> SortedRecords<N, D> {
             // `cut.is_some()` we are at the parent side of a zone.
             cut = if family.is_zone_cut(apex) {
                 Some(name.clone())
-            }
-            else {
+            } else {
                 None
             };
 
@@ -122,15 +125,13 @@ impl<N, D> SortedRecords<N, D> {
                     // If we are at a zone cut, we only sign DS and NSEC
                     // records. NS records we must not sign and everything
                     // else shouldn’t be here, really.
-                    if rrset.rtype() != Rtype::Ds
-                                             && rrset.rtype() != Rtype::Nsec {
-                        continue
+                    if rrset.rtype() != Rtype::Ds && rrset.rtype() != Rtype::Nsec {
+                        continue;
                     }
-                }
-                else {
+                } else {
                     // Otherwise we only ignore RRSIGs.
                     if rrset.rtype() == Rtype::Rrsig {
-                        continue
+                        continue;
                     }
                 }
 
@@ -156,7 +157,7 @@ impl<N, D> SortedRecords<N, D> {
                     name.owner().clone(),
                     name.class(),
                     rrset.ttl(),
-                    rrsig.into_rrsig(key.sign(&buf)?.into())
+                    rrsig.into_rrsig(key.sign(&buf)?.into()),
                 ));
             }
         }
@@ -166,7 +167,7 @@ impl<N, D> SortedRecords<N, D> {
     pub fn nsecs<Octets, ApexName>(
         &self,
         apex: &FamilyName<ApexName>,
-        ttl: u32
+        ttl: u32,
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
         N: ToDname + Clone,
@@ -188,10 +189,7 @@ impl<N, D> SortedRecords<N, D> {
 
         // Because of the next name thing, we need to keep the last NSEC
         // around.
-        let mut prev: Option<(
-            FamilyName<N>,
-            RtypeBitmap<Octets>
-        )> = None;
+        let mut prev: Option<(FamilyName<N>, RtypeBitmap<Octets>)> = None;
 
         // We also need the apex for the last NSEC.
         let apex_owner = families.first_owner().clone();
@@ -200,13 +198,13 @@ impl<N, D> SortedRecords<N, D> {
             // If the owner is out of zone, we have moved out of our zone and
             // are done.
             if !family.is_in_zone(apex) {
-                break
+                break;
             }
 
             // If the family is below a zone cut, we must ignore it.
             if let Some(ref cut) = cut {
                 if family.owner().ends_with(cut.owner()) {
-                    continue
+                    continue;
                 }
             }
 
@@ -218,16 +216,12 @@ impl<N, D> SortedRecords<N, D> {
             // `cut.is_some()` we are at the parent side of a zone.
             cut = if family.is_zone_cut(apex) {
                 Some(name.clone())
-            }
-            else {
+            } else {
                 None
             };
 
             if let Some((prev_name, bitmap)) = prev.take() {
-                res.push(prev_name.into_record(
-                    ttl,
-                    Nsec::new(name.owner().clone(), bitmap)
-                ));
+                res.push(prev_name.into_record(ttl, Nsec::new(name.owner().clone(), bitmap)));
             }
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
@@ -240,16 +234,17 @@ impl<N, D> SortedRecords<N, D> {
             prev = Some((name, bitmap.finalize()));
         }
         if let Some((prev_name, bitmap)) = prev {
-            res.push(prev_name.into_record(
-                ttl,
-                Nsec::new(apex_owner, bitmap)
-            ));
+            res.push(prev_name.into_record(ttl, Nsec::new(apex_owner, bitmap)));
         }
         res
     }
 
     pub fn write<W>(&self, target: &mut W) -> Result<(), io::Error>
-    where N: fmt::Display, D: RecordData + fmt::Display, W: io::Write {
+    where
+        N: fmt::Display,
+        D: RecordData + fmt::Display,
+        W: io::Write,
+    {
         for record in &self.records {
             writeln!(target, "{}", record)?;
         }
@@ -263,17 +258,22 @@ impl<N, D> Default for SortedRecords<N, D> {
     }
 }
 
-
 impl<N, D> From<Vec<Record<N, D>>> for SortedRecords<N, D>
-where N: ToDname, D: RecordData + CanonicalOrd {
+where
+    N: ToDname,
+    D: RecordData + CanonicalOrd,
+{
     fn from(mut src: Vec<Record<N, D>>) -> Self {
         src.sort_by(CanonicalOrd::canonical_cmp);
-            SortedRecords { records: src }
+        SortedRecords { records: src }
     }
 }
 
 impl<N, D> FromIterator<Record<N, D>> for SortedRecords<N, D>
-where N: ToDname, D: RecordData + CanonicalOrd {
+where
+    N: ToDname,
+    D: RecordData + CanonicalOrd,
+{
     fn from_iter<T: IntoIterator<Item = Record<N, D>>>(iter: T) -> Self {
         let mut res = Self::new();
         for item in iter {
@@ -284,14 +284,16 @@ where N: ToDname, D: RecordData + CanonicalOrd {
 }
 
 impl<N, D> Extend<Record<N, D>> for SortedRecords<N, D>
-where N: ToDname, D: RecordData + CanonicalOrd {
+where
+    N: ToDname,
+    D: RecordData + CanonicalOrd,
+{
     fn extend<T: IntoIterator<Item = Record<N, D>>>(&mut self, iter: T) {
         for item in iter {
             let _ = self.insert(item);
         }
     }
 }
-
 
 //------------ Family --------------------------------------------------------
 
@@ -326,17 +328,21 @@ impl<'a, N, D> Family<'a, N, D> {
     }
 
     pub fn is_zone_cut<NN>(&self, apex: &FamilyName<NN>) -> bool
-    where N: ToDname, NN: ToDname, D: RecordData {
-        self.family_name().ne(apex)
-        && self.records().any(|record| record.rtype() == Rtype::Ns)
+    where
+        N: ToDname,
+        NN: ToDname,
+        D: RecordData,
+    {
+        self.family_name().ne(apex) && self.records().any(|record| record.rtype() == Rtype::Ns)
     }
 
     pub fn is_in_zone<NN: ToDname>(&self, apex: &FamilyName<NN>) -> bool
-    where N: ToDname {
+    where
+        N: ToDname,
+    {
         self.owner().ends_with(&apex.owner) && self.class() == apex.class
     }
 }
-
 
 //------------ FamilyName ----------------------------------------------------
 
@@ -344,7 +350,7 @@ impl<'a, N, D> Family<'a, N, D> {
 #[derive(Clone)]
 pub struct FamilyName<N> {
     owner: N,
-    class: Class
+    class: Class,
 }
 
 impl<N> FamilyName<N> {
@@ -361,28 +367,30 @@ impl<N> FamilyName<N> {
     }
 
     pub fn into_record<D>(self, ttl: u32, data: D) -> Record<N, D>
-    where N: Clone {
+    where
+        N: Clone,
+    {
         Record::new(self.owner.clone(), self.class, ttl, data)
     }
 
     pub fn dnskey<K: SigningKey, Octets: From<K::Octets>>(
         &self,
         ttl: u32,
-        key: K
+        key: K,
     ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
-    where N: Clone {
-        key.dnskey().map(|dnskey| {
-            self.clone().into_record(ttl, dnskey.convert())
-        })
+    where
+        N: Clone,
+    {
+        key.dnskey()
+            .map(|dnskey| self.clone().into_record(ttl, dnskey.convert()))
     }
 
-    pub fn ds<K: SigningKey>(
-        &self,
-        ttl: u32,
-        key: K
-    ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
-    where N: ToDname + Clone {
-        key.ds(&self.owner).map(|ds| self.clone().into_record(ttl, ds))
+    pub fn ds<K: SigningKey>(&self, ttl: u32, key: K) -> Result<Record<N, Ds<K::Octets>>, K::Error>
+    where
+        N: ToDname + Clone,
+    {
+        key.ds(&self.owner)
+            .map(|ds| self.clone().into_record(ttl, ds))
     }
 }
 
@@ -390,7 +398,7 @@ impl<'a, N: Clone> FamilyName<&'a N> {
     pub fn cloned(&self) -> FamilyName<N> {
         FamilyName {
             owner: (*self.owner).clone(),
-            class: self.class
+            class: self.class,
         }
     }
 }
@@ -406,7 +414,6 @@ impl<N: ToDname, NN: ToDname, D> PartialEq<Record<NN, D>> for FamilyName<N> {
         self.owner.name_eq(other.owner()) && self.class == other.class()
     }
 }
-
 
 //------------ Rrset ---------------------------------------------------------
 
@@ -433,7 +440,9 @@ impl<'a, N, D> Rrset<'a, N, D> {
     }
 
     pub fn rtype(&self) -> Rtype
-    where D: RecordData {
+    where
+        D: RecordData,
+    {
         self.slice[0].rtype()
     }
 
@@ -449,7 +458,6 @@ impl<'a, N, D> Rrset<'a, N, D> {
         self.slice.iter()
     }
 }
-
 
 //------------ RecordsIter ---------------------------------------------------
 
@@ -468,7 +476,9 @@ impl<'a, N, D> RecordsIter<'a, N, D> {
     }
 
     pub fn skip_before<NN: ToDname>(&mut self, apex: &FamilyName<NN>)
-    where N: ToDname {
+    where
+        N: ToDname,
+    {
         while let Some(first) = self.slice.first() {
             if apex == first {
                 break;
@@ -477,7 +487,6 @@ impl<'a, N, D> RecordsIter<'a, N, D> {
         }
     }
 }
-
 
 impl<'a, N, D> Iterator for RecordsIter<'a, N, D>
 where
@@ -493,10 +502,8 @@ where
         };
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
-            if !record.owner().name_eq(first.owner())
-                || record.class() != first.class()
-            {
-                break
+            if !record.owner().name_eq(first.owner()) || record.class() != first.class() {
+                break;
             }
             end += 1;
         }
@@ -505,7 +512,6 @@ where
         Some(Family::new(res))
     }
 }
-
 
 //------------ RrsetIter -----------------------------------------------------
 
@@ -538,7 +544,7 @@ where
                 || record.rtype() != first.rtype()
                 || record.class() != first.class()
             {
-                break
+                break;
             }
             end += 1;
         }
@@ -547,7 +553,6 @@ where
         Some(Rrset::new(res))
     }
 }
-
 
 //------------ FamilyIter ----------------------------------------------------
 
@@ -577,7 +582,7 @@ where
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
             if record.rtype() != first.rtype() {
-                break
+                break;
             }
             end += 1;
         }
@@ -586,5 +591,3 @@ where
         Some(Rrset::new(res))
     }
 }
-
-

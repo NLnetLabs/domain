@@ -49,7 +49,7 @@
 //!   enables the `bytes`, `chrono`, and `std` features.
 //! * `ring`: enables crypto functionality via the [ring] crate.
 //! * `sign`: basic DNSSEC signing support. This will enable the [sign]
-//!   module and requires the `std` feature. Note that this will not directly 
+//!   module and requires the `std` feature. Note that this will not directly
 //!   enable actually signing. For that you will also need to pick a crypto
 //!   module via an additional feature. Currently we only support the `ring`
 //!   module, but support for OpenSSL is coming soon.
@@ -80,9 +80,11 @@
 
 #[cfg(any(feature = "std"))]
 #[allow(unused_imports)] // Import macros even if unused.
-#[macro_use] extern crate std;
+#[macro_use]
+extern crate std;
 
-#[macro_use] extern crate core;
+#[macro_use]
+extern crate core;
 
 pub mod base;
 pub mod master;
@@ -91,5 +93,5 @@ pub mod resolv;
 pub mod sign;
 pub mod test;
 pub mod tsig;
-pub mod validate;
 pub mod utils;
+pub mod validate;

@@ -1,3 +1,23 @@
+use self::conf::{ResolvConf, ResolvOptions, SearchSuffix, ServerConf, Transport};
+use crate::base::iana::Rcode;
+use crate::base::message::Message;
+use crate::base::message_builder::{AdditionalBuilder, MessageBuilder, StreamTarget};
+use crate::base::name::{ToDname, ToRelativeDname};
+use crate::base::octets::Octets512;
+use crate::base::question::Question;
+use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
+use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
+use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
+use crate::resolv::resolver::{Resolver, SearchNames};
+use bytes::Bytes;
+use futures::future::FutureExt;
+use std::boxed::Box;
+use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::vec::Vec;
 /// A stub resolver.
 ///
 /// The most simple resolver possible simply relays all messages to one of a
@@ -8,48 +28,21 @@
 ///
 /// The main type is [`StubResolver`] that implements the [`Resolver`] trait
 /// and thus can be used with the various lookup functions.
-
 use std::{io, ops};
-use std::boxed::Box;
-use std::future::Future;
-use std::net::{IpAddr, SocketAddr};
-use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::vec::Vec;
-use bytes::Bytes;
-use futures::future::FutureExt;
-#[cfg(feature = "resolv-sync")] use tokio::runtime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
+#[cfg(feature = "resolv-sync")]
+use tokio::runtime;
 use tokio::time::timeout;
-use crate::base::iana::Rcode;
-use crate::base::message::Message;
-use crate::base::message_builder::{
-    AdditionalBuilder, MessageBuilder, StreamTarget
-};
-use crate::base::name::{ToDname, ToRelativeDname};
-use crate::base::octets::Octets512;
-use crate::base::question::Question;
-use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
-use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
-use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
-use crate::resolv::resolver::{Resolver, SearchNames};
-use self::conf::{
-    ResolvConf, ResolvOptions, SearchSuffix, ServerConf, Transport
-};
-
 
 //------------ Sub-modules ---------------------------------------------------
 
 pub mod conf;
 
-
 //------------ Module Configuration ------------------------------------------
 
 /// How many times do we try a new random port if we get ‘address in use.’
 const RETRY_RANDOM_PORT: usize = 10;
-
 
 //------------ StubResolver --------------------------------------------------
 
@@ -84,7 +77,6 @@ pub struct StubResolver {
     options: ResolvOptions,
 }
 
-
 impl StubResolver {
     /// Creates a new resolver using the system’s default configuration.
     pub fn new() -> Self {
@@ -94,13 +86,9 @@ impl StubResolver {
     /// Creates a new resolver using the given configuraiton.
     pub fn from_conf(conf: ResolvConf) -> Self {
         StubResolver {
-            preferred: ServerList::from_conf(&conf, |s| {
-                s.transport.is_preferred()
-            }),
-            stream: ServerList::from_conf(&conf, |s| {
-                s.transport.is_stream()
-            }),
-            options: conf.options
+            preferred: ServerList::from_conf(&conf, |s| s.transport.is_preferred()),
+            stream: ServerList::from_conf(&conf, |s| s.transport.is_stream()),
+            options: conf.options,
         }
     }
 
@@ -109,35 +97,31 @@ impl StubResolver {
     }
 
     pub async fn query<N: ToDname, Q: Into<Question<N>>>(
-        &self, question: Q
+        &self,
+        question: Q,
     ) -> Result<Answer, io::Error> {
-        Query::new(self)?.run(
-            Query::create_message(question.into())
-        ).await
+        Query::new(self)?
+            .run(Query::create_message(question.into()))
+            .await
     }
 
-    async fn query_message(
-        &self, message: QueryMessage
-    ) -> Result<Answer, io::Error> {
+    async fn query_message(&self, message: QueryMessage) -> Result<Answer, io::Error> {
         Query::new(self)?.run(message).await
     }
 }
 
 impl StubResolver {
-    pub async fn lookup_addr(
-        &self, addr: IpAddr
-    ) -> Result<FoundAddrs<&Self>, io::Error> {
+    pub async fn lookup_addr(&self, addr: IpAddr) -> Result<FoundAddrs<&Self>, io::Error> {
         lookup_addr(&self, addr).await
     }
 
-    pub async fn lookup_host(
-        &self, qname: impl ToDname
-    ) -> Result<FoundHosts<&Self>, io::Error> {
+    pub async fn lookup_host(&self, qname: impl ToDname) -> Result<FoundHosts<&Self>, io::Error> {
         lookup_host(&self, qname).await
     }
 
     pub async fn search_host(
-        &self, qname: impl ToRelativeDname
+        &self,
+        qname: impl ToRelativeDname,
     ) -> Result<FoundHosts<&Self>, io::Error> {
         search_host(&self, qname).await
     }
@@ -146,7 +130,7 @@ impl StubResolver {
         &self,
         service: impl ToRelativeDname,
         name: impl ToDname,
-        fallback_port: u16
+        fallback_port: u16,
     ) -> Result<Option<FoundSrvs>, SrvError> {
         lookup_srv(&self, service, name, fallback_port).await
     }
@@ -179,10 +163,7 @@ impl StubResolver {
     /// tailor-making your own resolver.
     ///
     /// [`run()`]: #method.run
-    pub fn run_with_conf<R, F>(
-        conf: ResolvConf,
-        op: F
-    ) -> R::Output
+    pub fn run_with_conf<R, F>(conf: ResolvConf, op: F) -> R::Output
     where
         R: Future + Send + 'static,
         R::Output: Send + 'static,
@@ -209,7 +190,10 @@ impl<'a> Resolver for &'a StubResolver {
     type Query = Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + 'a>>;
 
     fn query<N, Q>(&self, question: Q) -> Self::Query
-    where N: ToDname, Q: Into<Question<N>> {
+    where
+        N: ToDname,
+        Q: Into<Question<N>>,
+    {
         let message = Query::create_message(question.into());
         self.query_message(message).boxed()
     }
@@ -222,11 +206,10 @@ impl<'a> SearchNames for &'a StubResolver {
     fn search_iter(&self) -> Self::Iter {
         SearchIter {
             resolver: self,
-            pos: 0
+            pos: 0,
         }
     }
 }
-
 
 //------------ Query ---------------------------------------------------------
 
@@ -254,24 +237,16 @@ pub struct Query<'a> {
 }
 
 impl<'a> Query<'a> {
-    pub fn new(
-        resolver: &'a StubResolver,
-    ) -> Result<Self, io::Error> {
-        let (preferred, counter) = if
-            resolver.options().use_vc ||
-            resolver.preferred.is_empty()
-        {
+    pub fn new(resolver: &'a StubResolver) -> Result<Self, io::Error> {
+        let (preferred, counter) = if resolver.options().use_vc || resolver.preferred.is_empty() {
             if resolver.stream.is_empty() {
-                return Err(
-                    io::Error::new(
-                        io::ErrorKind::NotFound,
-                        "no servers available"
-                    )
-                )
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "no servers available",
+                ));
             }
             (false, resolver.stream.counter(resolver.options().rotate))
-        }
-        else {
+        } else {
             (true, resolver.preferred.counter(resolver.options().rotate))
         };
         Ok(Query {
@@ -279,17 +254,11 @@ impl<'a> Query<'a> {
             preferred,
             attempt: 0,
             counter,
-            error: Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "all timed out"
-            ))
+            error: Err(io::Error::new(io::ErrorKind::TimedOut, "all timed out")),
         })
     }
 
-    pub async fn run(
-        mut self,
-        mut message: QueryMessage,
-    ) -> Result<Answer, io::Error> {
+    pub async fn run(mut self, mut message: QueryMessage) -> Result<Answer, io::Error> {
         loop {
             match self.run_query(&mut message).await {
                 Ok(answer) => {
@@ -298,26 +267,23 @@ impl<'a> Query<'a> {
                     {
                         // FORMERR with EDNS: turn off EDNS and try again.
                         self.current_server().disable_edns();
-                        continue
-                    }
-                    else if answer.header().rcode() == Rcode::ServFail {
+                        continue;
+                    } else if answer.header().rcode() == Rcode::ServFail {
                         // SERVFAIL: go to next server.
                         self.update_error_servfail(answer);
-                    }
-                    else if answer.header().tc() && self.preferred
+                    } else if answer.header().tc()
+                        && self.preferred
                         && !self.resolver.options().ign_tc
                     {
                         // Truncated. If we can, switch to stream transports
                         // and try again. Otherwise return the truncated
                         // answer.
                         if self.switch_to_stream() {
-                            continue
+                            continue;
+                        } else {
+                            return Ok(answer);
                         }
-                        else {
-                            return Ok(answer)
-                        }
-                    }
-                    else {
+                    } else {
                         // I guess we have an answer ...
                         return Ok(answer);
                     }
@@ -325,34 +291,32 @@ impl<'a> Query<'a> {
                 Err(err) => self.update_error(err),
             }
             if !self.next_server() {
-                return self.error
+                return self.error;
             }
         }
     }
 
-    fn create_message(
-        question: Question<impl ToDname>
-    ) -> QueryMessage {
-        let mut message = MessageBuilder::from_target(
-            StreamTarget::new(Octets512::new()).unwrap()
-        ).unwrap();
+    fn create_message(question: Question<impl ToDname>) -> QueryMessage {
+        let mut message =
+            MessageBuilder::from_target(StreamTarget::new(Octets512::new()).unwrap()).unwrap();
         message.header_mut().set_rd(true);
         let mut message = message.question();
         message.push(question).unwrap();
         message.additional()
     }
 
-    async fn run_query(
-        &mut self, message: &mut QueryMessage
-    ) -> Result<Answer, io::Error> {
+    async fn run_query(&mut self, message: &mut QueryMessage) -> Result<Answer, io::Error> {
         let server = self.current_server();
         server.prepare_message(message);
         server.query(message).await
     }
 
     fn current_server(&self) -> &ServerInfo {
-        let list = if self.preferred { &self.resolver.preferred }
-                   else { &self.resolver.stream };
+        let list = if self.preferred {
+            &self.resolver.preferred
+        } else {
+            &self.resolver.stream
+        };
         self.counter.info(list)
     }
 
@@ -372,40 +336,37 @@ impl<'a> Query<'a> {
     fn switch_to_stream(&mut self) -> bool {
         if !self.preferred {
             // We already did this.
-            return false
+            return false;
         }
         self.preferred = false;
         self.attempt = 0;
-        self.counter = self.resolver.stream.counter(
-            self.resolver.options().rotate
-        );
+        self.counter = self.resolver.stream.counter(self.resolver.options().rotate);
         true
     }
 
     fn next_server(&mut self) -> bool {
         if self.counter.next() {
-            return true
+            return true;
         }
         self.attempt += 1;
         if self.attempt >= self.resolver.options().attempts {
-            return false
+            return false;
         }
         self.counter = if self.preferred {
-            self.resolver.preferred.counter(self.resolver.options().rotate)
-        }
-        else {
+            self.resolver
+                .preferred
+                .counter(self.resolver.options().rotate)
+        } else {
             self.resolver.stream.counter(self.resolver.options().rotate)
         };
         true
     }
 }
 
-
 //------------ QueryMessage --------------------------------------------------
 
 // XXX This needs to be re-evaluated if we start adding OPTtions to the query.
 pub(super) type QueryMessage = AdditionalBuilder<StreamTarget<Octets512>>;
-
 
 //------------ Answer --------------------------------------------------------
 
@@ -423,7 +384,7 @@ impl Answer {
     pub fn is_final(&self) -> bool {
         (self.message.header().rcode() == Rcode::NoError
             || self.message.header().rcode() == Rcode::NXDomain)
-        && !self.message.header().tc()
+            && !self.message.header().tc()
     }
 
     /// Returns whether the answer is truncated.
@@ -442,7 +403,6 @@ impl From<Message<Bytes>> for Answer {
     }
 }
 
-
 //------------ ServerInfo ----------------------------------------------------
 
 #[derive(Clone, Debug)]
@@ -460,7 +420,7 @@ impl ServerInfo {
     pub fn does_edns(&self) -> bool {
         self.edns.load(Ordering::Relaxed)
     }
-        
+
     pub fn disable_edns(&self) {
         self.edns.store(false, Ordering::Relaxed);
     }
@@ -468,45 +428,40 @@ impl ServerInfo {
     pub fn prepare_message(&self, query: &mut QueryMessage) {
         query.rewind();
         if self.does_edns() {
-            query.opt(|opt| {
-                opt.set_udp_payload_size(self.conf.udp_payload_size);
-                Ok(())
-            }).unwrap();
+            query
+                .opt(|opt| {
+                    opt.set_udp_payload_size(self.conf.udp_payload_size);
+                    Ok(())
+                })
+                .unwrap();
         }
     }
 
-    pub async fn query(
-        &self, query: &QueryMessage
-    ) -> Result<Answer, io::Error> {
+    pub async fn query(&self, query: &QueryMessage) -> Result<Answer, io::Error> {
         let res = match self.conf.transport {
             Transport::Udp => {
-               timeout(
-                   self.conf.request_timeout,
-                   Self::udp_query(query, self.conf.addr, self.conf.recv_size)
-                ).await
+                timeout(
+                    self.conf.request_timeout,
+                    Self::udp_query(query, self.conf.addr, self.conf.recv_size),
+                )
+                .await
             }
             Transport::Tcp => {
-               timeout(
-                   self.conf.request_timeout,
-                   Self::tcp_query(query, self.conf.addr)
-                ).await
+                timeout(
+                    self.conf.request_timeout,
+                    Self::tcp_query(query, self.conf.addr),
+                )
+                .await
             }
         };
         match res {
             Ok(Ok(answer)) => Ok(answer),
             Ok(Err(err)) => Err(err),
-            Err(_) => {
-                Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "request timed out"
-                ))
-            }
+            Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "request timed out")),
         }
     }
 
-    pub async fn tcp_query(
-        query: &QueryMessage, addr: SocketAddr
-    ) -> Result<Answer, io::Error> {
+    pub async fn tcp_query(query: &QueryMessage, addr: SocketAddr) -> Result<Answer, io::Error> {
         let mut sock = TcpStream::connect(&addr).await?;
         sock.write_all(query.as_target().as_stream_slice()).await?;
 
@@ -515,57 +470,62 @@ impl ServerInfo {
         loop {
             let mut buf = Vec::new();
             let len = sock.read_u16().await? as u64;
-            AsyncReadExt::take(&mut sock, len).read_to_end(&mut buf).await?;
+            AsyncReadExt::take(&mut sock, len)
+                .read_to_end(&mut buf)
+                .await?;
             if let Ok(answer) = Message::from_octets(buf.into()) {
                 if answer.is_answer(&query.as_message()) {
-                    return Ok(answer.into())
+                    return Ok(answer.into());
                 }
-                // else try with the next message.
-            }
-            else {
-                return Err(io::Error::new(io::ErrorKind::Other, "short buf"))
+            // else try with the next message.
+            } else {
+                return Err(io::Error::new(io::ErrorKind::Other, "short buf"));
             }
         }
     }
 
     pub async fn udp_query(
-        query: &QueryMessage, addr: SocketAddr, recv_size: usize
+        query: &QueryMessage,
+        addr: SocketAddr,
+        recv_size: usize,
     ) -> Result<Answer, io::Error> {
         let sock = Self::udp_bind(addr.is_ipv4()).await?;
         sock.connect(addr).await?;
         let sent = sock.send(query.as_target().as_dgram_slice()).await?;
         if sent != query.as_target().as_dgram_slice().len() {
-            return Err(io::Error::new(io::ErrorKind::Other, "short UDP send"))
+            return Err(io::Error::new(io::ErrorKind::Other, "short UDP send"));
         }
         loop {
             let mut buf = vec![0; recv_size]; // XXX use uninit'ed mem here.
             let len = sock.recv(&mut buf).await?;
             buf.truncate(len);
-            
+
             // We ignore garbage since there is a timer on this whole thing.
             let answer = match Message::from_octets(buf.into()) {
                 Ok(answer) => answer,
                 Err(_) => continue,
             };
             if !answer.is_answer(&query.as_message()) {
-                continue
+                continue;
             }
-            return Ok(answer.into())
+            return Ok(answer.into());
         }
     }
 
     async fn udp_bind(v4: bool) -> Result<UdpSocket, io::Error> {
         let mut i = 0;
         loop {
-            let local: SocketAddr = if v4 { ([0u8; 4], 0).into() }
-                        else { ([0u16; 8], 0).into() };
+            let local: SocketAddr = if v4 {
+                ([0u8; 4], 0).into()
+            } else {
+                ([0u16; 8], 0).into()
+            };
             match UdpSocket::bind(&local).await {
                 Ok(sock) => return Ok(sock),
                 Err(err) => {
                     if i == RETRY_RANDOM_PORT {
                         return Err(err);
-                    }
-                    else {
+                    } else {
                         i += 1
                     }
                 }
@@ -578,7 +538,7 @@ impl From<ServerConf> for ServerInfo {
     fn from(conf: ServerConf) -> Self {
         ServerInfo {
             conf,
-            edns: Arc::new(AtomicBool::new(true))
+            edns: Arc::new(AtomicBool::new(true)),
         }
     }
 }
@@ -588,7 +548,6 @@ impl<'a> From<&'a ServerConf> for ServerInfo {
         conf.clone().into()
     }
 }
-
 
 //------------ ServerList ----------------------------------------------------
 
@@ -610,11 +569,16 @@ struct ServerList {
 
 impl ServerList {
     pub fn from_conf<F>(conf: &ResolvConf, filter: F) -> Self
-    where F: Fn(&ServerConf) -> bool {
+    where
+        F: Fn(&ServerConf) -> bool,
+    {
         ServerList {
             servers: {
-                conf.servers.iter().filter(|f| filter(*f))
-                    .map(Into::into).collect()
+                conf.servers
+                    .iter()
+                    .filter(|f| filter(*f))
+                    .map(Into::into)
+                    .collect()
             },
             start: Arc::new(AtomicUsize::new(0)),
         }
@@ -658,7 +622,6 @@ impl ops::Deref for ServerList {
     }
 }
 
-
 //------------ ServerListCounter ---------------------------------------------
 
 #[derive(Clone, Debug)]
@@ -688,8 +651,7 @@ impl ServerListCounter {
         if next < self.end {
             self.cur = next;
             true
-        }
-        else {
+        } else {
             false
         }
     }
@@ -698,8 +660,6 @@ impl ServerListCounter {
         &list[self.cur % list.servers.len()]
     }
 }
-
-
 
 //------------ ServerListIter ------------------------------------------------
 
@@ -713,7 +673,7 @@ impl<'a> ServerListIter<'a> {
     fn new(list: &'a ServerList) -> Self {
         ServerListIter {
             servers: list,
-            counter: ServerListCounter::new(list)
+            counter: ServerListCounter::new(list),
         }
     }
 }
@@ -724,13 +684,11 @@ impl<'a> Iterator for ServerListIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.counter.next() {
             Some(self.counter.info(self.servers))
-        }
-        else {
+        } else {
             None
         }
     }
 }
-
 
 impl ops::Deref for Answer {
     type Target = Message<Bytes>;
@@ -745,7 +703,6 @@ impl AsRef<Message<Bytes>> for Answer {
         &self.message
     }
 }
-
 
 //------------ SearchIter ----------------------------------------------------
 
@@ -762,11 +719,8 @@ impl<'a> Iterator for SearchIter<'a> {
         if let Some(res) = self.resolver.options().search.get(self.pos) {
             self.pos += 1;
             Some(res.clone())
-        }
-        else {
+        } else {
             None
         }
     }
 }
-
-

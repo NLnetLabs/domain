@@ -2,27 +2,28 @@ use std::str::FromStr;
 
 use domain::base::name::Dname;
 use domain::resolv::StubResolver;
-use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tokio_native_tls::native_tls::TlsConnector;
 
 #[tokio::main]
 async fn main() {
     let resolver = StubResolver::new();
-    let addr = match resolver.lookup_host(
-        &Dname::<Vec<u8>>::from_str("www.rust-lang.org").unwrap()
-    ).await {
+    let addr = match resolver
+        .lookup_host(&Dname::<Vec<u8>>::from_str("www.rust-lang.org").unwrap())
+        .await
+    {
         Ok(addr) => addr,
         Err(err) => {
             eprintln!("DNS query failed: {}", err);
-            return
+            return;
         }
     };
     let addr = match addr.port_iter(443).next() {
         Some(addr) => addr,
         None => {
             eprintln!("Failed to resolve www.rust-lang.org");
-            return
+            return;
         }
     };
     let socket = match TcpStream::connect(&addr).await {
@@ -46,15 +47,19 @@ async fn main() {
             return;
         }
     };
-    if let Err(err) = socket.write_all(
-        "\
+    if let Err(err) = socket
+        .write_all(
+            "\
             GET / HTTP/1.0\r\n\
             Host: www.rust-lang.org\r\n\
             \r\n\
-        ".as_bytes()
-    ).await {
+        "
+            .as_bytes(),
+        )
+        .await
+    {
         eprintln!("Failed to send request: {}", err);
-        return
+        return;
     };
     let mut response = Vec::new();
     if let Err(err) = socket.read_to_end(&mut response).await {

@@ -171,4 +171,3 @@ int_enum! {
 }
 
 int_enum_str_with_decimal!(OptionCode, u16, "unknown option code");
-

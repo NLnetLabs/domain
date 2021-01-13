@@ -1,16 +1,15 @@
 //! Scanning master file tokens.
 
-use std::{error, fmt, io};
-use std::boxed::Box;
-use std::vec::Vec;
-use std::string::String;
-use bytes::{BufMut, Bytes, BytesMut};
 use crate::base::name;
 use crate::base::name::Dname;
 use crate::base::net::AddrParseError;
 use crate::base::str::{BadSymbol, Symbol};
 use crate::utils::{base32, base64};
-
+use bytes::{BufMut, Bytes, BytesMut};
+use std::boxed::Box;
+use std::string::String;
+use std::vec::Vec;
+use std::{error, fmt, io};
 
 //------------ CharSource ----------------------------------------------------
 
@@ -25,14 +24,13 @@ pub trait CharSource {
     fn next(&mut self) -> Result<Option<char>, io::Error>;
 }
 
-
 //------------ Scanner -------------------------------------------------------
 
 /// Reader of master file tokens.
 ///
 /// A scanner reads characters from a source and converts them into tokens or
 /// errors.
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 #[derive(Clone, Debug)]
 pub struct Scanner<C: CharSource> {
     /// The underlying character source.
@@ -66,10 +64,9 @@ pub struct Scanner<C: CharSource> {
     origin: Option<Dname<Bytes>>,
 }
 
-
 /// # Creation
 ///
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl<C: CharSource> Scanner<C> {
     /// Creates a new scanner.
     pub fn new(chars: C) -> Self {
@@ -104,7 +101,7 @@ impl<C: CharSource> Scanner<C> {
 /// Since domain names can appear all over the place and we don’t want to
 /// have to pass around the origin all the time, it is part of the scanner
 /// and can be set and retrieved any time.
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl<C: CharSource> Scanner<C> {
     /// Returns the current origin if any.
     pub fn origin(&self) -> &Option<Dname<Bytes>> {
@@ -117,10 +114,9 @@ impl<C: CharSource> Scanner<C> {
     }
 }
 
-
 /// # Fundamental Scanning
 ///
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl<C: CharSource> Scanner<C> {
     /// Returns whether the scanner has reached the end of data.
     pub fn eof_reached(&mut self) -> bool {
@@ -147,30 +143,33 @@ impl<C: CharSource> Scanner<C> {
     /// second closure is called to convert the target into the final result.
     /// Both can error out at any time stopping processing and leading the
     /// scanner to revert to the beginning of the token.
-    pub fn scan_word<T, U, F, G>(&mut self, mut target: T, mut symbolop: F,
-                                 finalop: G) -> Result<U, ScanError>
-                     where F: FnMut(&mut T, Symbol)
-                                    -> Result<(), SyntaxError>,
-                           G: FnOnce(T) -> Result<U, SyntaxError> {
+    pub fn scan_word<T, U, F, G>(
+        &mut self,
+        mut target: T,
+        mut symbolop: F,
+        finalop: G,
+    ) -> Result<U, ScanError>
+    where
+        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
+        G: FnOnce(T) -> Result<U, SyntaxError>,
+    {
         match self.peek()? {
             Some(Token::Symbol(ch)) => {
                 if !ch.is_word_char() {
-                    return self.err(SyntaxError::Unexpected(ch))
+                    return self.err(SyntaxError::Unexpected(ch));
                 }
             }
-            Some(Token::Newline) => {
-                return self.err(SyntaxError::UnexpectedNewline)
-            }
-            None => return self.err(SyntaxError::UnexpectedEof)
+            Some(Token::Newline) => return self.err(SyntaxError::UnexpectedNewline),
+            None => return self.err(SyntaxError::UnexpectedEof),
         };
         while let Some(ch) = self.cond_read_symbol(Symbol::is_word_char)? {
             if let Err(err) = symbolop(&mut target, ch) {
-                return self.err_cur(err)
+                return self.err_cur(err);
             }
         }
         let res = match finalop(target) {
             Ok(res) => res,
-            Err(err) => return self.err(err)
+            Err(err) => return self.err(err),
         };
         self.skip_delimiter()?;
         Ok(res)
@@ -183,9 +182,10 @@ impl<C: CharSource> Scanner<C> {
     /// to convert the value into something else via the closure `finalop`.
     /// This closure can fail, resulting in an error and back-tracking to
     /// the beginning of the phrase.
-    pub fn scan_string_word<U, G>(&mut self, finalop: G)
-           -> Result<U, ScanError>
-    where G: FnOnce(String) -> Result<U, SyntaxError> {
+    pub fn scan_string_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(String) -> Result<U, SyntaxError>,
+    {
         self.scan_word(
             String::new(),
             |res, ch| {
@@ -196,7 +196,7 @@ impl<C: CharSource> Scanner<C> {
                 res.push(ch);
                 Ok(())
             },
-            finalop
+            finalop,
         )
     }
 
@@ -215,38 +215,37 @@ impl<C: CharSource> Scanner<C> {
     /// second closure is called to convert the target into the final result.
     /// Both can error out at any time stopping processing and leading the
     /// scanner to revert to the beginning of the token.
-    pub fn scan_quoted<T, U, F, G>(&mut self, mut target: T, mut symbolop: F,
-                                   finalop: G) -> Result<U, ScanError>
-                       where F: FnMut(&mut T, Symbol)
-                                    -> Result<(), SyntaxError>,
-                             G: FnOnce(T) -> Result<U, SyntaxError> {
+    pub fn scan_quoted<T, U, F, G>(
+        &mut self,
+        mut target: T,
+        mut symbolop: F,
+        finalop: G,
+    ) -> Result<U, ScanError>
+    where
+        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
+        G: FnOnce(T) -> Result<U, SyntaxError>,
+    {
         match self.read()? {
-            Some(Token::Symbol(Symbol::Char('"'))) => { }
-            Some(Token::Symbol(ch)) => {
-                return self.err(SyntaxError::Unexpected(ch))
-            }
-            Some(Token::Newline) => {
-                return self.err(SyntaxError::UnexpectedNewline)
-            }
-            None => return self.err(SyntaxError::UnexpectedEof)
+            Some(Token::Symbol(Symbol::Char('"'))) => {}
+            Some(Token::Symbol(ch)) => return self.err(SyntaxError::Unexpected(ch)),
+            Some(Token::Newline) => return self.err(SyntaxError::UnexpectedNewline),
+            None => return self.err(SyntaxError::UnexpectedEof),
         }
         loop {
             match self.read()? {
                 Some(Token::Symbol(Symbol::Char('"'))) => break,
                 Some(Token::Symbol(ch)) => {
                     if let Err(err) = symbolop(&mut target, ch) {
-                        return self.err(err)
+                        return self.err(err);
                     }
                 }
-                Some(Token::Newline) => {
-                    return self.err(SyntaxError::UnexpectedNewline)
-                }
+                Some(Token::Newline) => return self.err(SyntaxError::UnexpectedNewline),
                 None => return self.err(SyntaxError::UnexpectedEof),
             }
         }
         let res = match finalop(target) {
             Ok(res) => res,
-            Err(err) => return self.err(err)
+            Err(err) => return self.err(err),
         };
         self.skip_delimiter()?;
         Ok(res)
@@ -257,15 +256,19 @@ impl<C: CharSource> Scanner<C> {
     /// This method behaves like [scan_quoted()](#method.scan_quoted) if
     /// the next character is a double quote or like
     /// [scan_word()](#method.scan_word) otherwise.
-    pub fn scan_phrase<T, U, F, G>(&mut self, target: T, symbolop: F,
-                                   finalop: G) -> Result<U, ScanError>
-                       where F: FnMut(&mut T, Symbol)
-                                    -> Result<(), SyntaxError>,
-                             G: FnOnce(T) -> Result<U, SyntaxError> {
+    pub fn scan_phrase<T, U, F, G>(
+        &mut self,
+        target: T,
+        symbolop: F,
+        finalop: G,
+    ) -> Result<U, ScanError>
+    where
+        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
+        G: FnOnce(T) -> Result<U, SyntaxError>,
+    {
         if let Some(Token::Symbol(Symbol::Char('"'))) = self.peek()? {
             self.scan_quoted(target, symbolop, finalop)
-        }
-        else {
+        } else {
             self.scan_word(target, symbolop, finalop)
         }
     }
@@ -277,20 +280,24 @@ impl<C: CharSource> Scanner<C> {
     /// a chance to convert the value into something else via the closure
     /// `finalop`. This closure can fail, resulting in an error and
     /// back-tracking to the beginning of the phrase.
-    pub fn scan_byte_phrase<U, G>(&mut self, finalop: G)
-                                  -> Result<U, ScanError>
-                            where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
+    pub fn scan_byte_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
         self.scan_phrase(
             BytesMut::new(),
             |buf, symbol| {
-                symbol.into_octet().map(|ch| {
-                    if buf.remaining_mut() == 0 {
-                        buf.reserve(1);
-                    }
-                    buf.put_u8(ch)
-                }).map_err(Into::into)
+                symbol
+                    .into_octet()
+                    .map(|ch| {
+                        if buf.remaining_mut() == 0 {
+                            buf.reserve(1);
+                        }
+                        buf.put_u8(ch)
+                    })
+                    .map_err(Into::into)
             },
-            |buf| finalop(buf.freeze())
+            |buf| finalop(buf.freeze()),
         )
     }
 
@@ -301,10 +308,10 @@ impl<C: CharSource> Scanner<C> {
     /// a chance to convert the value into something else via the closure
     /// `finalop`. This closure can fail, resulting in an error and
     /// back-tracking to the beginning of the phrase.
-    pub fn scan_string_phrase<U, G>(&mut self, finalop: G)
-                                    -> Result<U, ScanError>
-                              where G: FnOnce(String)
-                                              -> Result<U, SyntaxError> {
+    pub fn scan_string_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(String) -> Result<U, SyntaxError>,
+    {
         self.scan_phrase(
             String::new(),
             |res, ch| {
@@ -315,7 +322,7 @@ impl<C: CharSource> Scanner<C> {
                 res.push(ch);
                 Ok(())
             },
-            finalop
+            finalop,
         )
     }
 
@@ -329,12 +336,12 @@ impl<C: CharSource> Scanner<C> {
             Some(Token::Symbol(Symbol::Char(';'))) => {
                 while let Some(ch) = self.read()? {
                     if ch.is_newline() {
-                        break
+                        break;
                     }
                 }
             }
-            Some(Token::Newline) | None => {},
-            _ => return self.err(SyntaxError::ExpectedNewline)
+            Some(Token::Newline) | None => {}
+            _ => return self.err(SyntaxError::ExpectedNewline),
         }
 
         self.ok();
@@ -352,8 +359,7 @@ impl<C: CharSource> Scanner<C> {
         if self.skip_space()? {
             self.ok();
             Ok(())
-        }
-        else {
+        } else {
             self.err(SyntaxError::ExpectedSpace)
         }
     }
@@ -376,14 +382,14 @@ impl<C: CharSource> Scanner<C> {
                 None => break,
                 Some(Token::Newline) => {
                     if !quote && !self.paren {
-                        break
+                        break;
                     }
                 }
                 Some(Token::Symbol(Symbol::Char('"'))) => quote = !quote,
                 Some(Token::Symbol(Symbol::Char('('))) => {
                     if !quote {
                         if self.paren {
-                            return self.err(SyntaxError::NestedParentheses)
+                            return self.err(SyntaxError::NestedParentheses);
                         }
                         self.paren = true
                     }
@@ -391,12 +397,12 @@ impl<C: CharSource> Scanner<C> {
                 Some(Token::Symbol(Symbol::Char(')'))) => {
                     if !quote {
                         if !self.paren {
-                            return self.err(SyntaxError::Unexpected(')'.into()))
+                            return self.err(SyntaxError::Unexpected(')'.into()));
                         }
                         self.paren = false
                     }
                 }
-                _ => { }
+                _ => {}
             }
         }
         self.ok();
@@ -413,88 +419,82 @@ impl<C: CharSource> Scanner<C> {
             |left, symbol| {
                 let first = match left.chars().next() {
                     Some(ch) => ch,
-                    None => return Err(SyntaxError::Expected(literal.into()))
+                    None => return Err(SyntaxError::Expected(literal.into())),
                 };
                 match symbol {
                     Symbol::Char(ch) if ch == first => {
                         *left = &left[ch.len_utf8()..];
                         Ok(())
                     }
-                    _ => Err(SyntaxError::Expected(literal.into()))
+                    _ => Err(SyntaxError::Expected(literal.into())),
                 }
             },
             |left| {
                 if left.is_empty() {
                     Ok(())
-                }
-                else {
+                } else {
                     Err(SyntaxError::Expected(literal.into()))
                 }
-            }
+            },
         )
     }
 }
 
 /// # Complex Scanning
 ///
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl<C: CharSource> Scanner<C> {
     /// Scans a word containing a sequence of pairs of hex digits.
     ///
     /// The word is returned as a `Bytes` value with each byte representing
     /// the decoded value of one hex digit pair.
     pub fn scan_hex_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
-                         where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
         self.scan_word(
             (BytesMut::new(), None), // result and optional first char.
-            |&mut (ref mut res, ref mut first), symbol | {
-                hex_symbolop(res, first, symbol)
-            },
+            |&mut (ref mut res, ref mut first), symbol| hex_symbolop(res, first, symbol),
             |(res, first)| {
                 if let Some(ch) = first {
-                    Err(SyntaxError::Unexpected(
-                            Symbol::Char(::std::char::from_digit(ch, 16)
-                                                                 .unwrap())))
-                }
-                else {
+                    Err(SyntaxError::Unexpected(Symbol::Char(
+                        ::std::char::from_digit(ch, 16).unwrap(),
+                    )))
+                } else {
                     finalop(res.freeze())
                 }
-            }
+            },
         )
     }
 
     pub fn scan_hex_words<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
-    where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
         let start_pos = self.pos();
         let mut buf = BytesMut::new();
         let mut first = true;
         loop {
             let res = self.scan_word(
                 (&mut buf, None),
-                |&mut (ref mut buf, ref mut first), symbol| {
-                    hex_symbolop(buf, first, symbol)
-                },
+                |&mut (ref mut buf, ref mut first), symbol| hex_symbolop(buf, first, symbol),
                 |(_, first)| {
                     if let Some(ch) = first {
-                        Err(SyntaxError::Unexpected(
-                            Symbol::Char(
-                                ::std::char::from_digit(ch, 16).unwrap()
-                            )
-                        ))
-                    }
-                    else {
+                        Err(SyntaxError::Unexpected(Symbol::Char(
+                            ::std::char::from_digit(ch, 16).unwrap(),
+                        )))
+                    } else {
                         Ok(())
                     }
-                }
+                },
             );
             if first {
                 if let Err(err) = res {
-                    return Err(err)
+                    return Err(err);
                 }
                 first = false;
-            }
-            else if res.is_err() {
-                break
+            } else if res.is_err() {
+                break;
             }
         }
         finalop(buf.freeze()).map_err(|err| (err, start_pos).into())
@@ -504,89 +504,82 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// In particular, this decodes the “base32hex” decoding definied in
     /// RFC 4648 without padding.
-    pub fn scan_base32hex_phrase<U, G>(
-        &mut self,
-        finalop: G
-    ) -> Result<U, ScanError>
-    where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
+    pub fn scan_base32hex_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
         self.scan_phrase(
             base32::Decoder::new_hex(),
             |decoder, symbol| {
-                decoder.push(symbol.into_char()?)
-                       .map_err(SyntaxError::content)
+                decoder
+                    .push(symbol.into_char()?)
+                    .map_err(SyntaxError::content)
             },
-            |decoder| {
-                finalop(decoder.finalize().map_err(SyntaxError::content)?)
-            }
+            |decoder| finalop(decoder.finalize().map_err(SyntaxError::content)?),
         )
     }
 
     /// Scans a sequence of phrases containing base64 encoded data.
-    pub fn scan_base64_phrases<U, G>(
-        &mut self,
-        finalop: G
-    ) -> Result<U, ScanError>
-    where G: FnOnce(Bytes) -> Result<U, SyntaxError> {
+    pub fn scan_base64_phrases<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
         let start_pos = self.pos();
         let mut decoder = base64::Decoder::new();
         let mut first = true;
         loop {
             let res = self.scan_phrase(
-                &mut decoder, 
+                &mut decoder,
                 |decoder, symbol| {
-                    decoder.push(symbol.into_char()?)
-                           .map_err(SyntaxError::content)
+                    decoder
+                        .push(symbol.into_char()?)
+                        .map_err(SyntaxError::content)
                 },
-                Ok
+                Ok,
             );
             if first {
                 if let Err(err) = res {
-                    return Err(err)
+                    return Err(err);
                 }
                 first = false;
-            }
-            else if res.is_err() {
-                break
+            } else if res.is_err() {
+                break;
             }
         }
-        let bytes = decoder.finalize().map_err(|err| {
-            (SyntaxError::content(err), self.pos())
-        })?;
+        let bytes = decoder
+            .finalize()
+            .map_err(|err| (SyntaxError::content(err), self.pos()))?;
         finalop(bytes).map_err(|err| (err, start_pos).into())
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 fn hex_symbolop(
     buf: &mut BytesMut,
     first: &mut Option<u32>,
-    symbol: Symbol
+    symbol: Symbol,
 ) -> Result<(), SyntaxError> {
     let ch = match symbol {
-        Symbol::Char(ch) => {
-            match ch.to_digit(16) {
-                Some(ch) => ch,
-                _ => return Err(SyntaxError::Unexpected(symbol))
-            }
-        }
-        _ => return Err(SyntaxError::Unexpected(symbol))
+        Symbol::Char(ch) => match ch.to_digit(16) {
+            Some(ch) => ch,
+            _ => return Err(SyntaxError::Unexpected(symbol)),
+        },
+        _ => return Err(SyntaxError::Unexpected(symbol)),
     };
     if let Some(ch1) = first.take() {
         if buf.remaining_mut() == 0 {
             buf.reserve(1)
         }
         buf.put_u8((ch1 as u8) << 4 | (ch as u8));
-    }
-    else {
+    } else {
         *first = Some(ch)
     }
     Ok(())
 }
 
-
 /// # Fundamental Reading, Processing, and Back-tracking
 ///
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl<C: CharSource> Scanner<C> {
     /// Reads a char from the source.
     ///
@@ -612,8 +605,7 @@ impl<C: CharSource> Scanner<C> {
         };
         if ch == '\\' {
             self.source_escape()
-        }
-        else {
+        } else {
             self.source_normal(ch)
         }
     }
@@ -626,37 +618,26 @@ impl<C: CharSource> Scanner<C> {
                 let ch2 = match self.chars_next()? {
                     Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch * 10,
-                        None => {
-                            return self.err_cur(SyntaxError::IllegalEscape)
-                        }
-                    }
-                    None => {
-                        return self.err_cur(SyntaxError::UnexpectedEof)
-                    }
+                        None => return self.err_cur(SyntaxError::IllegalEscape),
+                    },
+                    None => return self.err_cur(SyntaxError::UnexpectedEof),
                 };
                 let ch3 = match self.chars_next()? {
-                    Some(ch)  => match ch.to_digit(10) {
+                    Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch,
-                        None => {
-                            return self.err_cur(SyntaxError::IllegalEscape)
-                        }
-                    }
-                    None => {
-                        return self.err_cur(SyntaxError::UnexpectedEof)
-                    }
+                        None => return self.err_cur(SyntaxError::IllegalEscape),
+                    },
+                    None => return self.err_cur(SyntaxError::UnexpectedEof),
                 };
                 let res = ch + ch2 + ch3;
                 if res > 255 {
-                    return self.err_cur(SyntaxError::IllegalEscape)
-                }
-                else {
+                    return self.err_cur(SyntaxError::IllegalEscape);
+                } else {
                     Symbol::DecimalEscape(res as u8)
                 }
             }
             Some(ch) => Symbol::SimpleEscape(ch),
-            None => {
-                return self.err_cur(SyntaxError::UnexpectedEof)
-            }
+            None => return self.err_cur(SyntaxError::UnexpectedEof),
         };
         self.buf.push(Token::Symbol(ch));
         Ok(true)
@@ -668,8 +649,7 @@ impl<C: CharSource> Scanner<C> {
             NewlineMode::Single(sep) => {
                 if ch == sep {
                     self.buf.push(Token::Newline)
-                }
-                else {
+                } else {
                     self.buf.push(Token::Symbol(Symbol::Char(ch)))
                 }
                 Ok(true)
@@ -678,8 +658,7 @@ impl<C: CharSource> Scanner<C> {
                 if ch != first {
                     self.buf.push(Token::Symbol(Symbol::Char(ch)));
                     Ok(true)
-                }
-                else {
+                } else {
                     match self.chars_next()? {
                         Some(ch) if ch == second => {
                             self.buf.push(Token::Newline);
@@ -701,14 +680,13 @@ impl<C: CharSource> Scanner<C> {
                 if ch != '\r' && ch != '\n' {
                     self.buf.push(Token::Symbol(Symbol::Char(ch)));
                     Ok(true)
-                }
-                else if let Some(second) = self.chars_next()? {
+                } else if let Some(second) = self.chars_next()? {
                     match (ch, second) {
                         ('\r', '\n') | ('\n', '\r') => {
                             self.newline = NewlineMode::Double(ch, second);
                             self.buf.push(Token::Newline);
                         }
-                        ('\r', '\r') | ('\n', '\n')  => {
+                        ('\r', '\r') | ('\n', '\n') => {
                             self.newline = NewlineMode::Single(ch);
                             self.buf.push(Token::Newline);
                             self.buf.push(Token::Newline);
@@ -724,12 +702,10 @@ impl<C: CharSource> Scanner<C> {
                         }
                     }
                     Ok(true)
-                }
-                else {
+                } else {
                     if ch == '\r' || ch == '\n' {
                         self.buf.push(Token::Newline);
-                    }
-                    else {
+                    } else {
                         self.buf.push(Token::Symbol(Symbol::Char(ch)))
                     }
                     Ok(true)
@@ -737,7 +713,7 @@ impl<C: CharSource> Scanner<C> {
             }
         }
     }
-    
+
     /// Tries to peek at the next symbol.
     ///
     /// On success, returns the symbol. It the end of the
@@ -745,7 +721,7 @@ impl<C: CharSource> Scanner<C> {
     /// underlying source results in an error, returns that.
     fn peek(&mut self) -> Result<Option<Token>, ScanError> {
         if self.buf.len() == self.cur && !self.source_token()? {
-            return Ok(None)
+            return Ok(None);
         }
         Ok(Some(self.buf[self.cur]))
     }
@@ -762,7 +738,7 @@ impl<C: CharSource> Scanner<C> {
                 self.cur_pos.update(ch);
                 Some(ch)
             }
-            None => None
+            None => None,
         })
     }
 
@@ -776,7 +752,6 @@ impl<C: CharSource> Scanner<C> {
         self.cur += 1;
         self.cur_pos.update(ch)
     }
-
 
     /// Progresses the scanner to the current position and returns `t`.
     fn ok(&mut self) {
@@ -808,8 +783,7 @@ impl<C: CharSource> Scanner<C> {
     }
 
     /// Reports an error at current position and then backtracks.
-    fn err_at<T>(&mut self, err: SyntaxError, pos: Pos)
-                 -> Result<T, ScanError> {
+    fn err_at<T>(&mut self, err: SyntaxError, pos: Pos) -> Result<T, ScanError> {
         self.cur = self.start;
         self.cur_pos = self.start_pos;
         Err(ScanError::Syntax(err, pos))
@@ -818,7 +792,7 @@ impl<C: CharSource> Scanner<C> {
 
 /// # More Complex Internal Reading
 ///
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl<C: CharSource> Scanner<C> {
     /// Reads a symbol if it is accepted by a closure.
     ///
@@ -828,24 +802,26 @@ impl<C: CharSource> Scanner<C> {
     /// is returned.
     ///
     /// The method does not progress or backtrack.
-    fn cond_read<F>(&mut self, f: F)
-                         -> Result<Option<Token>, ScanError>
-                      where F: FnOnce(Token) -> bool {
+    fn cond_read<F>(&mut self, f: F) -> Result<Option<Token>, ScanError>
+    where
+        F: FnOnce(Token) -> bool,
+    {
         match self.peek()? {
             Some(ch) if f(ch) => self.read(),
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
-    fn cond_read_symbol<F>(&mut self, f: F)
-                           -> Result<Option<Symbol>, ScanError>
-                        where F: FnOnce(Symbol) -> bool {
+    fn cond_read_symbol<F>(&mut self, f: F) -> Result<Option<Symbol>, ScanError>
+    where
+        F: FnOnce(Symbol) -> bool,
+    {
         match self.peek()? {
             Some(Token::Symbol(ch)) if f(ch) => {
                 self.skip(Token::Symbol(ch));
                 Ok(Some(ch))
             }
-            _ => Ok(None)
+            _ => Ok(None),
         }
     }
 
@@ -861,9 +837,9 @@ impl<C: CharSource> Scanner<C> {
     fn skip_delimiter(&mut self) -> Result<(), ScanError> {
         if !self.skip_space()? {
             match self.peek()? {
-                Some(ch) if ch.is_newline_ahead() => {},
-                None => {},
-                _ => return self.err(SyntaxError::ExpectedSpace)
+                Some(ch) if ch.is_newline_ahead() => {}
+                None => {}
+                _ => return self.err(SyntaxError::ExpectedSpace),
             }
         }
 
@@ -888,8 +864,7 @@ impl<C: CharSource> Scanner<C> {
                     None => break,
                     Some(Token::Symbol(Symbol::Char('('))) => {
                         let pos = self.cur_pos.prev();
-                        return self.err_at(SyntaxError::NestedParentheses,
-                                           pos)
+                        return self.err_at(SyntaxError::NestedParentheses, pos);
                     }
                     Some(Token::Symbol(Symbol::Char(')'))) => {
                         self.paren = false;
@@ -897,14 +872,13 @@ impl<C: CharSource> Scanner<C> {
                     Some(Token::Symbol(Symbol::Char(';'))) => {
                         while let Some(ch) = self.read()? {
                             if ch.is_newline() {
-                                break
+                                break;
                             }
                         }
                     }
-                    _ => { }
+                    _ => {}
                 }
-            }
-            else {
+            } else {
                 match self.cond_read(Token::is_non_paren_space)? {
                     None => break,
                     Some(Token::Symbol(Symbol::Char('('))) => {
@@ -912,10 +886,9 @@ impl<C: CharSource> Scanner<C> {
                     }
                     Some(Token::Symbol(Symbol::Char(')'))) => {
                         let pos = self.cur_pos.prev();
-                        return self.err_at(SyntaxError::Unexpected(
-                                                             ')'.into()), pos)
+                        return self.err_at(SyntaxError::Unexpected(')'.into()), pos);
                     }
-                    _ => { }
+                    _ => {}
                 }
             }
             res = true;
@@ -924,21 +897,18 @@ impl<C: CharSource> Scanner<C> {
     }
 }
 
-
 //------------ Scan ----------------------------------------------------------
 
 /// A type that can by scanned from a master file.
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 pub trait Scan: Sized {
     /// Scans a value from a master file.
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError>;
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError>;
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl Scan for u32 {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             0u32,
             |res, symbol| {
@@ -946,32 +916,30 @@ impl Scan for u32 {
                     Symbol::Char(ch) => {
                         if let Some(value) = ch.to_digit(10) {
                             value
-                        }
-                        else {
-                            return Err(SyntaxError::Unexpected(symbol))
+                        } else {
+                            return Err(SyntaxError::Unexpected(symbol));
                         }
                     }
-                    _ => return Err(SyntaxError::Unexpected(symbol))
+                    _ => return Err(SyntaxError::Unexpected(symbol)),
                 };
                 *res = match res.checked_mul(10) {
                     Some(res) => res,
-                    None => return Err(SyntaxError::IllegalInteger)
+                    None => return Err(SyntaxError::IllegalInteger),
                 };
                 *res = match res.checked_add(ch) {
                     Some(res) => res,
-                    None => return Err(SyntaxError::IllegalInteger)
+                    None => return Err(SyntaxError::IllegalInteger),
                 };
                 Ok(())
             },
-            Ok
+            Ok,
         )
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl Scan for u16 {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             0u16,
             |res, symbol| {
@@ -979,33 +947,30 @@ impl Scan for u16 {
                     Symbol::Char(ch) => {
                         if let Some(value) = ch.to_digit(10) {
                             value as u16
-                        }
-                        else {
-                            return Err(SyntaxError::Unexpected(symbol))
+                        } else {
+                            return Err(SyntaxError::Unexpected(symbol));
                         }
                     }
-                    _ => return Err(SyntaxError::Unexpected(symbol))
+                    _ => return Err(SyntaxError::Unexpected(symbol)),
                 };
                 *res = match res.checked_mul(10) {
                     Some(res) => res,
-                    None => return Err(SyntaxError::IllegalInteger)
+                    None => return Err(SyntaxError::IllegalInteger),
                 };
                 *res = match res.checked_add(ch) {
                     Some(res) => res,
-                    None => return Err(SyntaxError::IllegalInteger)
+                    None => return Err(SyntaxError::IllegalInteger),
                 };
                 Ok(())
             },
-            Ok
+            Ok,
         )
     }
 }
 
-
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl Scan for u8 {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             0u8,
             |res, symbol| {
@@ -1013,28 +978,26 @@ impl Scan for u8 {
                     Symbol::Char(ch) => {
                         if let Some(value) = ch.to_digit(10) {
                             value as u8
-                        }
-                        else {
-                            return Err(SyntaxError::Unexpected(symbol))
+                        } else {
+                            return Err(SyntaxError::Unexpected(symbol));
                         }
                     }
-                    _ => return Err(SyntaxError::Unexpected(symbol))
+                    _ => return Err(SyntaxError::Unexpected(symbol)),
                 };
                 *res = match res.checked_mul(10) {
                     Some(res) => res,
-                    None => return Err(SyntaxError::IllegalInteger)
+                    None => return Err(SyntaxError::IllegalInteger),
                 };
                 *res = match res.checked_add(ch) {
                     Some(res) => res,
-                    None => return Err(SyntaxError::IllegalInteger)
+                    None => return Err(SyntaxError::IllegalInteger),
                 };
                 Ok(())
             },
-            Ok
+            Ok,
         )
     }
 }
-
 
 //------------ Token ---------------------------------------------------------
 
@@ -1059,10 +1022,8 @@ impl Token {
     /// which need special treatment.
     fn is_non_paren_space(self) -> bool {
         match self {
-            Token::Symbol(Symbol::Char(ch)) => {
-                ch == ' ' || ch == '\t' || ch == '(' || ch == ')'
-            }
-            _ => false
+            Token::Symbol(Symbol::Char(ch)) => ch == ' ' || ch == '\t' || ch == '(' || ch == ')',
+            _ => false,
         }
     }
 
@@ -1073,11 +1034,10 @@ impl Token {
     fn is_paren_space(self) -> bool {
         match self {
             Token::Symbol(Symbol::Char(ch)) => {
-                ch == ' ' || ch == '\t' || ch == '(' || ch == ')' ||
-                ch == ';'
+                ch == ' ' || ch == '\t' || ch == '(' || ch == ')' || ch == ';'
             }
             Token::Newline => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -1094,7 +1054,6 @@ impl Token {
         matches!(self, Token::Symbol(Symbol::Char(';')) | Token::Newline)
     }
 }
-
 
 //------------ NewlineMode ---------------------------------------------------
 
@@ -1116,14 +1075,13 @@ enum NewlineMode {
     Unknown,
 }
 
-
 //------------ Pos -----------------------------------------------------------
 
 /// The human-friendly position in a reader.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Pos {
     line: usize,
-    col: usize
+    col: usize,
 }
 
 impl Pos {
@@ -1131,28 +1089,39 @@ impl Pos {
         Pos { line: 1, col: 1 }
     }
 
-    pub fn line(&self) -> usize { self.line }
-    pub fn col(&self) -> usize { self.col }
+    pub fn line(&self) -> usize {
+        self.line
+    }
+    pub fn col(&self) -> usize {
+        self.col
+    }
 
     pub fn update(&mut self, ch: Token) {
         match ch {
             Token::Symbol(Symbol::Char(_)) => self.col += 1,
             Token::Symbol(Symbol::SimpleEscape(_)) => self.col += 2,
             Token::Symbol(Symbol::DecimalEscape(_)) => self.col += 4,
-            Token::Newline => { self.line += 1; self.col = 1 }
+            Token::Newline => {
+                self.line += 1;
+                self.col = 1
+            }
         }
     }
 
     pub fn prev(&self) -> Pos {
-        Pos { line: self.line,
-              col: if self.col <= 1 { 1 } else { self.col - 1 }
+        Pos {
+            line: self.line,
+            col: if self.col <= 1 { 1 } else { self.col - 1 },
         }
     }
 }
 
 impl From<(usize, usize)> for Pos {
     fn from(src: (usize, usize)) -> Pos {
-        Pos { line: src.0, col: src.1 }
+        Pos {
+            line: src.0,
+            col: src.1,
+        }
     }
 }
 
@@ -1167,7 +1136,6 @@ impl fmt::Display for Pos {
         write!(f, "{}:{}", self.line, self.col)
     }
 }
-
 
 //============ Error Types ===================================================
 
@@ -1208,7 +1176,6 @@ impl SyntaxError {
     }
 }
 
-
 //--- From
 
 impl From<BadSymbol> for SyntaxError {
@@ -1235,60 +1202,39 @@ impl From<name::PushNameError> for SyntaxError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for SyntaxError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SyntaxError::Expected(ref s)
-                => write!(f, "expected '{}'", s),
-            SyntaxError::ExpectedNewline
-                => f.write_str("expected a new line"),
-            SyntaxError::ExpectedSpace
-                => f.write_str("expected white space"),
-            SyntaxError::IllegalEscape
-                => f.write_str("invalid escape sequence"),
-            SyntaxError::IllegalInteger
-                => f.write_str("illegal integer"),
-            SyntaxError::IllegalAddr(ref err)
-                => write!(f, "illegal address: {}", err),
-            SyntaxError::IllegalName(ref err)
-                => write!(f, "illegal domain name: {}", err),
-            SyntaxError::LongCharStr
-                => f.write_str("character string too long"),
-            SyntaxError::UnevenHexString
-                => f.write_str("hex string with an odd number of characters"),
-            SyntaxError::LongGenericData
-                => f.write_str("more data given than in the length byte"),
-            SyntaxError::NestedParentheses
-                => f.write_str("nested parentheses"),
-            SyntaxError::NoDefaultTtl
-                => f.write_str("omitted TTL but no default TTL given"),
-            SyntaxError::NoLastClass
-                => f.write_str("omitted class but no previous class given"),
-            SyntaxError::NoLastOwner
-                => f.write_str("omitted owner but no previous owner given"),
-            SyntaxError::NoOrigin
-                => f.write_str("owner @ without preceding $ORIGIN"),
-            SyntaxError::RelativeName
-                => f.write_str("relative domain name"),
-            SyntaxError::Unexpected(sym)
-                => write!(f, "unexpected '{}'", sym),
-            SyntaxError::UnexpectedNewline
-                => f.write_str("unexpected newline"),
-            SyntaxError::UnexpectedEof
-                => f.write_str("unexpected end of file"),
-            SyntaxError::UnknownMnemonic
-                => f.write_str("unexpected mnemomic"),
-            SyntaxError::Content(ref content)
-                => content.fmt(f)
+            SyntaxError::Expected(ref s) => write!(f, "expected '{}'", s),
+            SyntaxError::ExpectedNewline => f.write_str("expected a new line"),
+            SyntaxError::ExpectedSpace => f.write_str("expected white space"),
+            SyntaxError::IllegalEscape => f.write_str("invalid escape sequence"),
+            SyntaxError::IllegalInteger => f.write_str("illegal integer"),
+            SyntaxError::IllegalAddr(ref err) => write!(f, "illegal address: {}", err),
+            SyntaxError::IllegalName(ref err) => write!(f, "illegal domain name: {}", err),
+            SyntaxError::LongCharStr => f.write_str("character string too long"),
+            SyntaxError::UnevenHexString => {
+                f.write_str("hex string with an odd number of characters")
+            }
+            SyntaxError::LongGenericData => f.write_str("more data given than in the length byte"),
+            SyntaxError::NestedParentheses => f.write_str("nested parentheses"),
+            SyntaxError::NoDefaultTtl => f.write_str("omitted TTL but no default TTL given"),
+            SyntaxError::NoLastClass => f.write_str("omitted class but no previous class given"),
+            SyntaxError::NoLastOwner => f.write_str("omitted owner but no previous owner given"),
+            SyntaxError::NoOrigin => f.write_str("owner @ without preceding $ORIGIN"),
+            SyntaxError::RelativeName => f.write_str("relative domain name"),
+            SyntaxError::Unexpected(sym) => write!(f, "unexpected '{}'", sym),
+            SyntaxError::UnexpectedNewline => f.write_str("unexpected newline"),
+            SyntaxError::UnexpectedEof => f.write_str("unexpected end of file"),
+            SyntaxError::UnknownMnemonic => f.write_str("unexpected mnemomic"),
+            SyntaxError::Content(ref content) => content.fmt(f),
         }
     }
 }
 
-impl error::Error for SyntaxError { }
-
+impl error::Error for SyntaxError {}
 
 //------------ ScanError -----------------------------------------------------
 
@@ -1298,7 +1244,6 @@ pub enum ScanError {
     Source(io::Error, Pos),
     Syntax(SyntaxError, Pos),
 }
-
 
 //--- From
 
@@ -1314,22 +1259,18 @@ impl From<(SyntaxError, Pos)> for ScanError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for ScanError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ScanError::Source(ref err, pos)
-                => write!(f, "{}: {}", pos, err),
-            ScanError::Syntax(ref err, pos)
-                => write!(f, "{}: {}", pos, err),
+            ScanError::Source(ref err, pos) => write!(f, "{}: {}", pos, err),
+            ScanError::Syntax(ref err, pos) => write!(f, "{}: {}", pos, err),
         }
     }
 }
 
-impl error::Error for ScanError { }
-
+impl error::Error for ScanError {}
 
 //============ Test ==========================================================
 
@@ -1343,4 +1284,3 @@ mod test {
         assert_eq!(scanner.scan_string_word(Ok).unwrap(), "one");
     }
 }
-

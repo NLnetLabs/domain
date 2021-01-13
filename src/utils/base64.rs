@@ -19,10 +19,11 @@
 //! [`decode`]: fn.decode.html
 //! [`display`]: fn.display.html
 
+#[cfg(feature = "bytes")]
+use bytes::{BufMut, Bytes, BytesMut};
 use core::fmt;
-#[cfg(feature = "std")] use std::string::String;
-#[cfg(feature= "bytes" )] use bytes::{BufMut, Bytes, BytesMut};
-
+#[cfg(feature = "std")]
+use std::string::String;
 
 //------------ Convenience Functions -----------------------------------------
 
@@ -30,7 +31,7 @@ use core::fmt;
 ///
 /// The function attempts to decode the entire string and returns the result
 /// as a `Bytes` value.
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 pub fn decode(s: &str) -> Result<Bytes, DecodeError> {
     let mut decoder = Decoder::new();
     for ch in s.chars() {
@@ -38,7 +39,6 @@ pub fn decode(s: &str) -> Result<Bytes, DecodeError> {
     }
     decoder.finalize()
 }
-
 
 /// Encodes binary data in *base64* and writes it into a format stream.
 ///
@@ -48,7 +48,7 @@ pub fn decode(s: &str) -> Result<Bytes, DecodeError> {
 /// ```
 /// use core::fmt;
 /// use domain::utils::base64;
-/// 
+///
 /// struct Foo<'a>(&'a [u8]);
 ///
 /// impl<'a> fmt::Display for Foo<'a> {
@@ -58,7 +58,10 @@ pub fn decode(s: &str) -> Result<Bytes, DecodeError> {
 /// }
 /// ```
 pub fn display<B, W>(bytes: &B, f: &mut W) -> fmt::Result
-where B: AsRef<[u8]> + ?Sized, W: fmt::Write { 
+where
+    B: AsRef<[u8]> + ?Sized,
+    W: fmt::Write,
+{
     fn ch(i: u8) -> char {
         ENCODE_ALPHABET[i as usize]
     }
@@ -83,7 +86,7 @@ where B: AsRef<[u8]> + ?Sized, W: fmt::Write {
                 f.write_char(ch((chunk[1] & 0x0F) << 2 | chunk[2] >> 6))?;
                 f.write_char(ch(chunk[2] & 0x3F))?;
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
     Ok(())
@@ -91,14 +94,11 @@ where B: AsRef<[u8]> + ?Sized, W: fmt::Write {
 
 /// Encodes binary data in *base64* and returns the encoded data as a string.
 #[cfg(feature = "std")]
-pub fn encode_string<B: AsRef<[u8]> + ?Sized>(
-    bytes: &B
-) -> String {
+pub fn encode_string<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> String {
     let mut res = String::with_capacity((bytes.as_ref().len() / 3 + 1) * 4);
     display(bytes, &mut res).unwrap();
     res
 }
-
 
 //------------ Decoder -------------------------------------------------------
 
@@ -107,7 +107,7 @@ pub fn encode_string<B: AsRef<[u8]> + ?Sized>(
 /// This type keeps all the state for decoding a sequence of characters
 /// representing data encoded in base 32. Upon success, the decoder returns
 /// the decoded data in a `bytes::Bytes` value.
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 pub struct Decoder {
     /// A buffer for up to four characters.
     ///
@@ -125,7 +125,7 @@ pub struct Decoder {
     target: Result<BytesMut, DecodeError>,
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl Decoder {
     /// Creates a new empty decoder.
     pub fn new() -> Self {
@@ -143,8 +143,7 @@ impl Decoder {
             // next is either 0 or 0xF0 for a completed group.
             if next & 0x0F != 0 {
                 Err(DecodeError::ShortInput)
-            }
-            else {
+            } else {
                 Ok(bytes.freeze())
             }
         })
@@ -158,23 +157,22 @@ impl Decoder {
     pub fn push(&mut self, ch: char) -> Result<(), DecodeError> {
         if self.next == 0xF0 {
             self.target = Err(DecodeError::TrailingInput);
-            return Err(DecodeError::TrailingInput)
+            return Err(DecodeError::TrailingInput);
         }
 
         let val = if ch == PAD {
             // Only up to two padding characters possible.
             if self.next < 2 {
-                return Err(DecodeError::IllegalChar(ch))
+                return Err(DecodeError::IllegalChar(ch));
             }
             0x80 // Acts as a marker later on.
-        }
-        else {
+        } else {
             if ch > (127 as char) {
-                return Err(DecodeError::IllegalChar(ch))
+                return Err(DecodeError::IllegalChar(ch));
             }
             let val = DECODE_ALPHABET[ch as usize];
             if val == 0xFF {
-                return Err(DecodeError::IllegalChar(ch))
+                return Err(DecodeError::IllegalChar(ch));
             }
             val
         };
@@ -190,12 +188,11 @@ impl Decoder {
             }
             if self.buf[3] != 0x80 {
                 if self.buf[2] == 0x80 {
-                    return Err(DecodeError::TrailingInput)
+                    return Err(DecodeError::TrailingInput);
                 }
                 target.put_u8((self.buf[2] << 6) | self.buf[3]);
                 self.next = 0
-            }
-            else {
+            } else {
                 self.next = 0xF0
             }
         }
@@ -204,16 +201,14 @@ impl Decoder {
     }
 }
 
-
 //--- Default
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl Default for Decoder {
     fn default() -> Self {
         Self::new()
     }
 }
-
 
 //============ Error Types ===================================================
 
@@ -232,25 +227,20 @@ pub enum DecodeError {
     ShortInput,
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DecodeError::TrailingInput
-                => f.write_str("trailing input"),
-            DecodeError::IllegalChar(ch)
-                => write!(f, "illegal character '{}'", ch),
-            DecodeError::ShortInput
-                => f.write_str("incomplete input"),
+            DecodeError::TrailingInput => f.write_str("trailing input"),
+            DecodeError::IllegalChar(ch) => write!(f, "illegal character '{}'", ch),
+            DecodeError::ShortInput => f.write_str("incomplete input"),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for DecodeError { }
-
+impl std::error::Error for DecodeError {}
 
 //============ Constants =====================================================
 
@@ -259,57 +249,46 @@ impl std::error::Error for DecodeError { }
 /// This maps encoding characters into their values. A value of 0xFF stands in
 /// for illegal characters. We only provide the first 128 characters since the
 /// alphabet will only use ASCII characters.
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 const DECODE_ALPHABET: [u8; 128] = [
-    0xFF, 0xFF, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x00 .. 0x07
-    0xFF, 0xFF, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x08 .. 0x0F
-
-    0xFF, 0xFF, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x10 .. 0x17
-    0xFF, 0xFF, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x18 .. 0x1F
-
-    0xFF, 0xFF, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x20 .. 0x27
-    0xFF, 0xFF, 0xFF, 0x3E,   0xFF, 0xFF, 0xFF, 0x3F,  // 0x28 .. 0x2F
-
-    0x34, 0x35, 0x36, 0x37,   0x38, 0x39, 0x3A, 0x3B,  // 0x30 .. 0x37
-    0x3C, 0x3D, 0xFF, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x38 .. 0x3F
-
-    0xFF, 0x00, 0x01, 0x02,   0x03, 0x04, 0x05, 0x06,  // 0x40 .. 0x47
-    0x07, 0x08, 0x09, 0x0A,   0x0B, 0x0C, 0x0D, 0x0E,  // 0x48 .. 0x4F
-
-    0x0F, 0x10, 0x11, 0x12,   0x13, 0x14, 0x15, 0x16,  // 0x50 .. 0x57
-    0x17, 0x18, 0x19, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x58 .. 0x5F
-
-    0xFF, 0x1A, 0x1B, 0x1C,   0x1D, 0x1E, 0x1F, 0x20,  // 0x60 .. 0x67
-    0x21, 0x22, 0x23, 0x24,   0x25, 0x26, 0x27, 0x28,  // 0x68 .. 0x6F
-
-    0x29, 0x2A, 0x2B, 0x2C,   0x2D, 0x2E, 0x2F, 0x30,  // 0x70 .. 0x77
-    0x31, 0x32, 0x33, 0xFF,   0xFF, 0xFF, 0xFF, 0xFF,  // 0x78 .. 0x7F
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x00 .. 0x07
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x08 .. 0x0F
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x10 .. 0x17
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x18 .. 0x1F
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x20 .. 0x27
+    0xFF, 0xFF, 0xFF, 0x3E, 0xFF, 0xFF, 0xFF, 0x3F, // 0x28 .. 0x2F
+    0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, // 0x30 .. 0x37
+    0x3C, 0x3D, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x38 .. 0x3F
+    0xFF, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, // 0x40 .. 0x47
+    0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, // 0x48 .. 0x4F
+    0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, // 0x50 .. 0x57
+    0x17, 0x18, 0x19, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x58 .. 0x5F
+    0xFF, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, // 0x60 .. 0x67
+    0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, // 0x68 .. 0x6F
+    0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, // 0x70 .. 0x77
+    0x31, 0x32, 0x33, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x78 .. 0x7F
 ];
 
 const ENCODE_ALPHABET: [char; 64] = [
-    'A', 'B', 'C', 'D',   'E', 'F', 'G', 'H',   // 0x00 .. 0x07
-    'I', 'J', 'K', 'L',   'M', 'N', 'O', 'P',   // 0x08 .. 0x0F
-
-    'Q', 'R', 'S', 'T',   'U', 'V', 'W', 'X',   // 0x10 .. 0x17
-    'Y', 'Z', 'a', 'b',   'c', 'd', 'e', 'f',   // 0x18 .. 0x1F
-
-    'g', 'h', 'i', 'j',   'k', 'l', 'm', 'n',   // 0x20 .. 0x27
-    'o', 'p', 'q', 'r',   's', 't', 'u', 'v',   // 0x28 .. 0x2F
-
-    'w', 'x', 'y', 'z',   '0', '1', '2', '3',   // 0x30 .. 0x37
-    '4', '5', '6', '7',   '8', '9', '+', '/',   // 0x38 .. 0x3F
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', // 0x00 .. 0x07
+    'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', // 0x08 .. 0x0F
+    'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', // 0x10 .. 0x17
+    'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', // 0x18 .. 0x1F
+    'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', // 0x20 .. 0x27
+    'o', 'p', 'q', 'r', 's', 't', 'u', 'v', // 0x28 .. 0x2F
+    'w', 'x', 'y', 'z', '0', '1', '2', '3', // 0x30 .. 0x37
+    '4', '5', '6', '7', '8', '9', '+', '/', // 0x38 .. 0x3F
 ];
 
 /// The padding character
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 const PAD: char = '=';
-
 
 //============ Test ==========================================================
 
 #[cfg(test)]
 mod test {
-    #[cfg(feature="bytes")]
+    #[cfg(feature = "bytes")]
     #[test]
     fn decode_str() {
         use super::*;
@@ -322,16 +301,11 @@ mod test {
         assert_eq!(decode("Zm9vYmE=").unwrap().as_ref(), b"fooba");
         assert_eq!(decode("Zm9vYmFy").unwrap().as_ref(), b"foobar");
 
-        assert_eq!(decode("FPucA").unwrap_err(),
-                   DecodeError::ShortInput);
-        assert_eq!(decode("FPucA=").unwrap_err(),
-                   DecodeError::IllegalChar('='));
-        assert_eq!(decode("FPucAw=").unwrap_err(),
-                   DecodeError::ShortInput);
-        assert_eq!(decode("FPucAw=a").unwrap_err(),
-                   DecodeError::TrailingInput);
-        assert_eq!(decode("FPucAw==a").unwrap_err(),
-                   DecodeError::TrailingInput);
+        assert_eq!(decode("FPucA").unwrap_err(), DecodeError::ShortInput);
+        assert_eq!(decode("FPucA=").unwrap_err(), DecodeError::IllegalChar('='));
+        assert_eq!(decode("FPucAw=").unwrap_err(), DecodeError::ShortInput);
+        assert_eq!(decode("FPucAw=a").unwrap_err(), DecodeError::TrailingInput);
+        assert_eq!(decode("FPucAw==a").unwrap_err(), DecodeError::TrailingInput);
     }
 
     #[test]
@@ -354,4 +328,3 @@ mod test {
         assert_eq!(fmt(b"foobar"), "Zm9vYmFy");
     }
 }
-

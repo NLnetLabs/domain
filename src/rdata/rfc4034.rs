@@ -4,26 +4,27 @@
 //!
 //! [RFC 4034]: https://tools.ietf.org/html/rfc4034
 
-use core::{fmt, hash, ptr};
-use core::cmp::Ordering;
-use core::convert::TryInto;
-#[cfg(feature = "std")] use std::vec::Vec;
-#[cfg(feature="master")] use bytes::{Bytes, BytesMut};
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
+#[cfg(feature = "master")]
+use crate::base::name::Dname;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom,
-    OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef, Parse,
+    ParseError, Parser, ShortBuf,
 };
-use crate::base::rdata::{RtypeRecordData};
+use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
-#[cfg(feature="master")] use crate::base::name::Dname;
-#[cfg(feature="master")] use crate::master::scan::{ 
-    CharSource, ScanError, Scan, Scanner
-};
+#[cfg(feature = "master")]
+use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
 use crate::utils::base64;
-
+#[cfg(feature = "master")]
+use bytes::{Bytes, BytesMut};
+use core::cmp::Ordering;
+use core::convert::TryInto;
+use core::{fmt, hash, ptr};
+#[cfg(feature = "std")]
+use std::vec::Vec;
 
 //------------ Dnskey --------------------------------------------------------
 
@@ -36,12 +37,7 @@ pub struct Dnskey<Octets> {
 }
 
 impl<Octets> Dnskey<Octets> {
-    pub fn new(
-        flags: u16,
-        protocol: u8,
-        algorithm: SecAlg,
-        public_key: Octets)
-    -> Self {
+    pub fn new(flags: u16, protocol: u8, algorithm: SecAlg, public_key: Octets) -> Self {
         Dnskey {
             flags,
             protocol,
@@ -70,14 +66,12 @@ impl<Octets> Dnskey<Octets> {
         self.public_key
     }
 
-    pub fn convert<Other: From<Octets>>(
-        self
-    ) -> Dnskey<Other> {
+    pub fn convert<Other: From<Octets>>(self) -> Dnskey<Other> {
         Dnskey {
             flags: self.flags,
             protocol: self.protocol,
             algorithm: self.algorithm,
-            public_key: self.public_key.into()
+            public_key: self.public_key.into(),
         }
     }
 
@@ -104,7 +98,7 @@ impl<Octets> Dnskey<Octets> {
         self.flags() & 0b0000_0000_0000_0001 != 0
     }
 
-    /// Returns whether the Zone Key flag is set. 
+    /// Returns whether the Zone Key flag is set.
     ///
     /// If the flag is not set, the key MUST NOT be used to verify RRSIGs that
     /// cover RRSETs. See [RFC 4034, Section 2.1.1].
@@ -116,7 +110,9 @@ impl<Octets> Dnskey<Octets> {
 
     /// Returns the key tag for this DNSKEY data.
     pub fn key_tag(&self) -> u16
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         if self.algorithm == SecAlg::RsaMd5 {
             // The key tag is third-to-last and second-to-last octets of the
             // key as a big-endian u16. If we don’t have enough octets in the
@@ -125,14 +121,13 @@ impl<Octets> Dnskey<Octets> {
             if len > 2 {
                 u16::from_be_bytes(
                     self.public_key.as_ref()[len - 3..len - 1]
-                        .try_into().unwrap()
+                        .try_into()
+                        .unwrap(),
                 )
-            }
-            else {
+            } else {
                 0
             }
-        }
-        else {
+        } else {
             // Treat record data as a octet sequence. Add octets at odd
             // indexes as they are, add octets at even indexes shifted left
             // by 8 bits.
@@ -143,11 +138,11 @@ impl<Octets> Dnskey<Octets> {
             loop {
                 match iter.next() {
                     Some(&x) => res += u32::from(x) << 8,
-                    None => break
+                    None => break,
                 }
                 match iter.next() {
                     Some(&x) => res += u32::from(x),
-                    None => break
+                    None => break,
                 }
             }
             res += (res >> 16) & 0xFFFF;
@@ -156,58 +151,68 @@ impl<Octets> Dnskey<Octets> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Octets, SrcOctets> OctetsFrom<Dnskey<SrcOctets>> for Dnskey<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: Dnskey<SrcOctets>) -> Result<Self, ShortBuf> {
         Ok(Dnskey::new(
-            source.flags, source.protocol, source.algorithm,
+            source.flags,
+            source.protocol,
+            source.algorithm,
             Octets::octets_from(source.public_key)?,
         ))
     }
 }
 
-
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Dnskey<Other>> for Dnskey<Octets> 
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+impl<Octets, Other> PartialEq<Dnskey<Other>> for Dnskey<Octets>
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn eq(&self, other: &Dnskey<Other>) -> bool {
         self.flags == other.flags
-        && self.protocol == other.protocol
-        && self.algorithm == other.algorithm
-        && self.public_key.as_ref() == other.public_key.as_ref()
+            && self.protocol == other.protocol
+            && self.algorithm == other.algorithm
+            && self.public_key.as_ref() == other.public_key.as_ref()
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Dnskey<Octets> { }
-
+impl<Octets: AsRef<[u8]>> Eq for Dnskey<Octets> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Dnskey<Other>> for Dnskey<Octets> 
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+impl<Octets, Other> PartialOrd<Dnskey<Other>> for Dnskey<Octets>
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn partial_cmp(&self, other: &Dnskey<Other>) -> Option<Ordering> {
         Some(self.canonical_cmp(other))
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Dnskey<Other>> for Dnskey<Octets> 
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+impl<Octets, Other> CanonicalOrd<Dnskey<Other>> for Dnskey<Octets>
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn canonical_cmp(&self, other: &Dnskey<Other>) -> Ordering {
         match self.flags.cmp(&other.flags) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.protocol.cmp(&other.protocol) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.algorithm.cmp(&other.algorithm) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.public_key.as_ref().cmp(other.public_key.as_ref())
     }
@@ -218,7 +223,6 @@ impl<Octets: AsRef<[u8]>> Ord for Dnskey<Octets> {
         self.canonical_cmp(other)
     }
 }
-
 
 //--- Hash
 
@@ -231,26 +235,25 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Dnskey<Octets> {
     }
 }
 
-
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
-            None => return Err(ParseError::ShortInput)
+            None => return Err(ParseError::ShortInput),
         };
         Ok(Self::new(
             u16::parse(parser)?,
             u8::parse(parser)?,
             SecAlg::parse(parser)?,
-            parser.parse_octets(len)?
+            parser.parse_octets(len)?,
         ))
     }
 
     fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
-            return Err(ParseError::ShortInput)
+            return Err(ParseError::ShortInput);
         }
         parser.advance_to_end();
         Ok(())
@@ -258,10 +261,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.flags.compose(buf)?;
             self.protocol.compose(buf)?;
@@ -271,19 +271,16 @@ impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for Dnskey<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>
-    ) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
-            scanner.scan_base64_phrases(Ok)?
+            scanner.scan_base64_phrases(Ok)?,
         ))
     }
 }
@@ -294,7 +291,6 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Dnskey<Octets> {
         base64::display(&self.public_key, f)
     }
 }
-
 
 //--- Debug
 
@@ -309,13 +305,11 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Dnskey<Octets> {
     }
 }
 
-
 //--- RtypeRecordData
 
 impl<Octets> RtypeRecordData for Dnskey<Octets> {
     const RTYPE: Rtype = Rtype::Dnskey;
 }
-
 
 //------------ ProtoRrsig ----------------------------------------------------
 
@@ -356,41 +350,45 @@ impl<Name> ProtoRrsig<Name> {
         }
     }
 
-    pub fn into_rrsig<Octets>(
-        self,
-        signature: Octets
-    ) -> Rrsig<Octets, Name> {
+    pub fn into_rrsig<Octets>(self, signature: Octets) -> Rrsig<Octets, Name> {
         Rrsig::new(
-            self.type_covered, self.algorithm, self.labels,
-            self.original_ttl, self.expiration, self.inception,
-            self.key_tag, self.signer_name, signature
+            self.type_covered,
+            self.algorithm,
+            self.labels,
+            self.original_ttl,
+            self.expiration,
+            self.inception,
+            self.key_tag,
+            self.signer_name,
+            signature,
         )
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<ProtoRrsig<SrcName>> for ProtoRrsig<Name>
-where Name: OctetsFrom<SrcName> {
+where
+    Name: OctetsFrom<SrcName>,
+{
     fn octets_from(source: ProtoRrsig<SrcName>) -> Result<Self, ShortBuf> {
         Ok(ProtoRrsig::new(
-            source.type_covered, source.algorithm, source.labels,
-            source.original_ttl, source.expiration, source.inception,
+            source.type_covered,
+            source.algorithm,
+            source.labels,
+            source.original_ttl,
+            source.expiration,
+            source.inception,
             source.key_tag,
-            Name::octets_from(source.signer_name)?
+            Name::octets_from(source.signer_name)?,
         ))
     }
 }
 
-
 //--- Compose
 
 impl<Name: Compose> Compose for ProtoRrsig<Name> {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.type_covered.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -403,10 +401,7 @@ impl<Name: Compose> Compose for ProtoRrsig<Name> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.type_covered.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -419,8 +414,6 @@ impl<Name: Compose> Compose for ProtoRrsig<Name> {
         })
     }
 }
-
-
 
 //------------ Rrsig ---------------------------------------------------------
 
@@ -448,7 +441,7 @@ impl<Octets, Name> Rrsig<Octets, Name> {
         inception: Serial,
         key_tag: u16,
         signer_name: Name,
-        signature: Octets
+        signature: Octets,
     ) -> Self {
         Rrsig {
             type_covered,
@@ -459,7 +452,7 @@ impl<Octets, Name> Rrsig<Octets, Name> {
             inception,
             key_tag,
             signer_name,
-            signature
+            signature,
         }
     }
 
@@ -504,18 +497,21 @@ impl<Octets, Name> Rrsig<Octets, Name> {
     }
 }
 
-
 //--- OctetsFrom
 
-impl<Octets, SrcOctets, Name, SrcName>
-    OctetsFrom<Rrsig<SrcOctets, SrcName>> for Rrsig<Octets, Name>
-where Octets: OctetsFrom<SrcOctets>, Name: OctetsFrom<SrcName> {
-    fn octets_from(
-        source: Rrsig<SrcOctets, SrcName>
-    ) -> Result<Self, ShortBuf> {
+impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Rrsig<SrcOctets, SrcName>> for Rrsig<Octets, Name>
+where
+    Octets: OctetsFrom<SrcOctets>,
+    Name: OctetsFrom<SrcName>,
+{
+    fn octets_from(source: Rrsig<SrcOctets, SrcName>) -> Result<Self, ShortBuf> {
         Ok(Rrsig::new(
-            source.type_covered, source.algorithm, source.labels,
-            source.original_ttl, source.expiration, source.inception,
+            source.type_covered,
+            source.algorithm,
+            source.labels,
+            source.original_ttl,
+            source.expiration,
+            source.inception,
             source.key_tag,
             Name::octets_from(source.signer_name)?,
             Octets::octets_from(source.signature)?,
@@ -523,103 +519,122 @@ where Octets: OctetsFrom<SrcOctets>, Name: OctetsFrom<SrcName> {
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<N, NN, O, OO> PartialEq<Rrsig<OO, NN>> for Rrsig<O, N>
-where N: ToDname, NN: ToDname, O: AsRef<[u8]>, OO: AsRef<[u8]> {
+where
+    N: ToDname,
+    NN: ToDname,
+    O: AsRef<[u8]>,
+    OO: AsRef<[u8]>,
+{
     fn eq(&self, other: &Rrsig<OO, NN>) -> bool {
         self.type_covered == other.type_covered
-        && self.algorithm == other.algorithm
-        && self.labels == other.labels
-        && self.original_ttl == other.original_ttl
-        && self.expiration.into_int() == other.expiration.into_int()
-        && self.inception.into_int() == other.inception.into_int()
-        && self.key_tag == other.key_tag
-        && self.signer_name.name_eq(&other.signer_name)
-        && self.signature.as_ref() == other.signature.as_ref()
+            && self.algorithm == other.algorithm
+            && self.labels == other.labels
+            && self.original_ttl == other.original_ttl
+            && self.expiration.into_int() == other.expiration.into_int()
+            && self.inception.into_int() == other.inception.into_int()
+            && self.key_tag == other.key_tag
+            && self.signer_name.name_eq(&other.signer_name)
+            && self.signature.as_ref() == other.signature.as_ref()
     }
 }
 
 impl<Octets, Name> Eq for Rrsig<Octets, Name>
-where Octets: AsRef<[u8]>, Name: ToDname { }
-
+where
+    Octets: AsRef<[u8]>,
+    Name: ToDname,
+{
+}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<N, NN, O, OO> PartialOrd<Rrsig<OO, NN>> for Rrsig<O, N>
-where N: ToDname, NN: ToDname, O: AsRef<[u8]>, OO: AsRef<[u8]> {
+where
+    N: ToDname,
+    NN: ToDname,
+    O: AsRef<[u8]>,
+    OO: AsRef<[u8]>,
+{
     fn partial_cmp(&self, other: &Rrsig<OO, NN>) -> Option<Ordering> {
         match self.type_covered.partial_cmp(&other.type_covered) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.algorithm.partial_cmp(&other.algorithm) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.labels.partial_cmp(&other.labels) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.original_ttl.partial_cmp(&other.original_ttl) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.expiration.partial_cmp(&other.expiration) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.inception.partial_cmp(&other.inception) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.key_tag.partial_cmp(&other.key_tag) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.signer_name.name_cmp(&other.signer_name) {
-            Ordering::Equal => { }
-            other => return Some(other)
+            Ordering::Equal => {}
+            other => return Some(other),
         }
-        self.signature.as_ref().partial_cmp(other.signature.as_ref())
+        self.signature
+            .as_ref()
+            .partial_cmp(other.signature.as_ref())
     }
 }
 
 impl<N, NN, O, OO> CanonicalOrd<Rrsig<OO, NN>> for Rrsig<O, N>
-where N: ToDname, NN: ToDname, O: AsRef<[u8]>, OO: AsRef<[u8]> {
+where
+    N: ToDname,
+    NN: ToDname,
+    O: AsRef<[u8]>,
+    OO: AsRef<[u8]>,
+{
     fn canonical_cmp(&self, other: &Rrsig<OO, NN>) -> Ordering {
         match self.type_covered.cmp(&other.type_covered) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.algorithm.cmp(&other.algorithm) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.labels.cmp(&other.labels) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.original_ttl.cmp(&other.original_ttl) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.expiration.canonical_cmp(&other.expiration) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.inception.canonical_cmp(&other.inception) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.key_tag.cmp(&other.key_tag) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.signer_name.lowercase_composed_cmp(&other.signer_name) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.signature.as_ref().cmp(other.signature.as_ref())
     }
@@ -630,7 +645,6 @@ impl<O: AsRef<[u8]>, N: ToDname> Ord for Rrsig<O, N> {
         self.canonical_cmp(other)
     }
 }
-
 
 //--- Hash
 
@@ -648,7 +662,6 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
     }
 }
 
-
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
@@ -664,8 +677,15 @@ impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
         let len = parser.remaining();
         let signature = parser.parse_octets(len)?;
         Ok(Self::new(
-            type_covered, algorithm, labels, original_ttl, expiration,
-            inception, key_tag, signer_name, signature
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name,
+            signature,
         ))
     }
 
@@ -684,10 +704,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
 }
 
 impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.type_covered.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -701,10 +718,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.type_covered.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -719,14 +733,11 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for Rrsig<Bytes, Dname<Bytes>> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>
-    ) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         Ok(Self::new(
             Rtype::scan(scanner)?,
             SecAlg::scan(scanner)?,
@@ -736,27 +747,40 @@ impl Scan for Rrsig<Bytes, Dname<Bytes>> {
             Serial::scan_rrsig(scanner)?,
             u16::scan(scanner)?,
             Dname::scan(scanner)?,
-            scanner.scan_base64_phrases(Ok)?
+            scanner.scan_base64_phrases(Ok)?,
         ))
     }
 }
 
 impl<Octets, Name> fmt::Display for Rrsig<Octets, Name>
-where Octets: AsRef<[u8]>, Name: fmt::Display {
+where
+    Octets: AsRef<[u8]>,
+    Name: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {} {} {} {} {} {}. ",
-               self.type_covered, self.algorithm, self.labels,
-               self.original_ttl, self.expiration, self.inception,
-               self.key_tag, self.signer_name)?;
+        write!(
+            f,
+            "{} {} {} {} {} {} {} {}. ",
+            self.type_covered,
+            self.algorithm,
+            self.labels,
+            self.original_ttl,
+            self.expiration,
+            self.inception,
+            self.key_tag,
+            self.signer_name
+        )?;
         base64::display(&self.signature, f)
     }
 }
 
-
 //--- Debug
 
 impl<Octets, Name> fmt::Debug for Rrsig<Octets, Name>
-where Octets: AsRef<[u8]>, Name: fmt::Debug {
+where
+    Octets: AsRef<[u8]>,
+    Name: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Rrsig")
             .field("type_covered", &self.type_covered)
@@ -772,13 +796,11 @@ where Octets: AsRef<[u8]>, Name: fmt::Debug {
     }
 }
 
-
 //--- RtypeRecordData
 
 impl<Octets, Name> RtypeRecordData for Rrsig<Octets, Name> {
     const RTYPE: Rtype = Rtype::Rrsig;
 }
-
 
 //------------ Nsec ----------------------------------------------------------
 
@@ -806,15 +828,14 @@ impl<Octets, Name> Nsec<Octets, Name> {
     }
 }
 
-
 //--- OctetsFrom
 
-impl<Octets, SrcOctets, Name, SrcName>
-    OctetsFrom<Nsec<SrcOctets, SrcName>> for Nsec<Octets, Name>
-where Octets: OctetsFrom<SrcOctets>, Name: OctetsFrom<SrcName> {
-    fn octets_from(
-        source: Nsec<SrcOctets, SrcName>
-    ) -> Result<Self, ShortBuf> {
+impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Nsec<SrcOctets, SrcName>> for Nsec<Octets, Name>
+where
+    Octets: OctetsFrom<SrcOctets>,
+    Name: OctetsFrom<SrcName>,
+{
+    fn octets_from(source: Nsec<SrcOctets, SrcName>) -> Result<Self, ShortBuf> {
         Ok(Nsec::new(
             Name::octets_from(source.next_name)?,
             RtypeBitmap::octets_from(source.types)?,
@@ -822,34 +843,35 @@ where Octets: OctetsFrom<SrcOctets>, Name: OctetsFrom<SrcName> {
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<O, OO, N, NN> PartialEq<Nsec<OO, NN>> for Nsec<O, N>
 where
-    O: AsRef<[u8]>, OO: AsRef<[u8]>,
-    N: ToDname, NN: ToDname,
+    O: AsRef<[u8]>,
+    OO: AsRef<[u8]>,
+    N: ToDname,
+    NN: ToDname,
 {
     fn eq(&self, other: &Nsec<OO, NN>) -> bool {
-        self.next_name.name_eq(&other.next_name)
-        && self.types == other.types
+        self.next_name.name_eq(&other.next_name) && self.types == other.types
     }
 }
 
-impl<O: AsRef<[u8]>, N: ToDname> Eq for Nsec<O, N> { }
-
+impl<O: AsRef<[u8]>, N: ToDname> Eq for Nsec<O, N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<O, OO, N, NN> PartialOrd<Nsec<OO, NN>> for Nsec<O, N>
 where
-    O: AsRef<[u8]>, OO: AsRef<[u8]>,
-    N: ToDname, NN: ToDname,
+    O: AsRef<[u8]>,
+    OO: AsRef<[u8]>,
+    N: ToDname,
+    NN: ToDname,
 {
     fn partial_cmp(&self, other: &Nsec<OO, NN>) -> Option<Ordering> {
         match self.next_name.name_cmp(&other.next_name) {
-            Ordering::Equal => { }
-            other => return Some(other)
+            Ordering::Equal => {}
+            other => return Some(other),
         }
         self.types.partial_cmp(&self.types)
     }
@@ -857,30 +879,34 @@ where
 
 impl<O, OO, N, NN> CanonicalOrd<Nsec<OO, NN>> for Nsec<O, N>
 where
-    O: AsRef<[u8]>, OO: AsRef<[u8]>,
-    N: ToDname, NN: ToDname,
+    O: AsRef<[u8]>,
+    OO: AsRef<[u8]>,
+    N: ToDname,
+    NN: ToDname,
 {
     fn canonical_cmp(&self, other: &Nsec<OO, NN>) -> Ordering {
         // RFC 6840 says that Nsec::next_name is not converted to lower case.
         match self.next_name.composed_cmp(&other.next_name) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.types.cmp(&self.types)
     }
 }
 
 impl<O, N> Ord for Nsec<O, N>
-where O: AsRef<[u8]>, N: ToDname {
+where
+    O: AsRef<[u8]>,
+    N: ToDname,
+{
     fn cmp(&self, other: &Self) -> Ordering {
         match self.next_name.name_cmp(&other.next_name) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.types.cmp(&self.types)
     }
 }
-
 
 //--- Hash
 
@@ -891,14 +917,13 @@ impl<Octets: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octets, Name> {
     }
 }
 
-
 //--- ParseAll and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Nsec<Ref::Range, ParsedDname<Ref>> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(Nsec::new(
             ParsedDname::parse(parser)?,
-            RtypeBitmap::parse(parser)?
+            RtypeBitmap::parse(parser)?,
         ))
     }
 
@@ -909,10 +934,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Nsec<Ref::Range, ParsedDname<Ref>> {
 }
 
 impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.next_name.compose(target)?;
             self.types.compose(target)
@@ -922,33 +944,32 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
     // Default compose_canonical is correct as we keep the case.
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl<N: Scan> Scan for Nsec<Bytes, N> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            N::scan(scanner)?,
-            RtypeBitmap::scan(scanner)?,
-        ))
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+        Ok(Self::new(N::scan(scanner)?, RtypeBitmap::scan(scanner)?))
     }
 }
 
 impl<Octets, Name> fmt::Display for Nsec<Octets, Name>
-where Octets: AsRef<[u8]>, Name: fmt::Display {
+where
+    Octets: AsRef<[u8]>,
+    Name: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}. {}", self.next_name, self.types)
     }
 }
 
-
 //--- Debug
 
 impl<Octets, Name> fmt::Debug for Nsec<Octets, Name>
-where Octets: AsRef<[u8]>, Name: fmt::Debug {
+where
+    Octets: AsRef<[u8]>,
+    Name: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Nsec")
             .field("next_name", &self.next_name)
@@ -957,13 +978,11 @@ where Octets: AsRef<[u8]>, Name: fmt::Debug {
     }
 }
 
-
 //--- RtypeRecordData
 
 impl<Octets, Name> RtypeRecordData for Nsec<Octets, Name> {
     const RTYPE: Rtype = Rtype::Nsec;
 }
-
 
 //------------ Ds -----------------------------------------------------------
 
@@ -976,13 +995,13 @@ pub struct Ds<Octets> {
 }
 
 impl<Octets> Ds<Octets> {
-    pub fn new(
-        key_tag: u16,
-        algorithm: SecAlg,
-        digest_type: DigestAlg,
-        digest: Octets
-    ) -> Self {
-        Ds { key_tag, algorithm, digest_type, digest }
+    pub fn new(key_tag: u16, algorithm: SecAlg, digest_type: DigestAlg, digest: Octets) -> Self {
+        Ds {
+            key_tag,
+            algorithm,
+            digest_type,
+            digest,
+        }
     }
 
     pub fn key_tag(&self) -> u16 {
@@ -1006,70 +1025,80 @@ impl<Octets> Ds<Octets> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Octets, SrcOctets> OctetsFrom<Ds<SrcOctets>> for Ds<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: Ds<SrcOctets>) -> Result<Self, ShortBuf> {
         Ok(Ds::new(
-            source.key_tag, source.algorithm, source.digest_type,
+            source.key_tag,
+            source.algorithm,
+            source.digest_type,
             Octets::octets_from(source.digest)?,
         ))
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<Octets, Other> PartialEq<Ds<Other>> for Ds<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn eq(&self, other: &Ds<Other>) -> bool {
         self.key_tag == other.key_tag
-        && self.algorithm == other.algorithm
-        && self.digest_type == other.digest_type
-        && self.digest.as_ref().eq(other.digest.as_ref())
+            && self.algorithm == other.algorithm
+            && self.digest_type == other.digest_type
+            && self.digest.as_ref().eq(other.digest.as_ref())
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Ds<Octets> { }
-
+impl<Octets: AsRef<[u8]>> Eq for Ds<Octets> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<Octets, Other> PartialOrd<Ds<Other>> for Ds<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn partial_cmp(&self, other: &Ds<Other>) -> Option<Ordering> {
         match self.key_tag.partial_cmp(&other.key_tag) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.algorithm.partial_cmp(&other.algorithm) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.digest_type.partial_cmp(&other.digest_type) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         self.digest.as_ref().partial_cmp(other.digest.as_ref())
     }
 }
 
 impl<Octets, Other> CanonicalOrd<Ds<Other>> for Ds<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn canonical_cmp(&self, other: &Ds<Other>) -> Ordering {
         match self.key_tag.cmp(&other.key_tag) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.algorithm.cmp(&other.algorithm) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.digest_type.cmp(&other.digest_type) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.digest.as_ref().cmp(other.digest.as_ref())
     }
@@ -1080,7 +1109,6 @@ impl<Octets: AsRef<[u8]>> Ord for Ds<Octets> {
         self.canonical_cmp(other)
     }
 }
-
 
 //--- Hash
 
@@ -1093,20 +1121,19 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Ds<Octets> {
     }
 }
 
-
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
-            None => return Err(ParseError::ShortInput)
+            None => return Err(ParseError::ShortInput),
         };
         Ok(Self::new(
             u16::parse(parser)?,
             SecAlg::parse(parser)?,
             DigestAlg::parse(parser)?,
-            parser.parse_octets(len)?
+            parser.parse_octets(len)?,
         ))
     }
 
@@ -1120,10 +1147,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.key_tag.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -1133,14 +1157,11 @@ impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for Ds<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>
-    ) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
@@ -1152,15 +1173,17 @@ impl Scan for Ds<Bytes> {
 
 impl<Octets: AsRef<[u8]>> fmt::Display for Ds<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {} ", self.key_tag, self.algorithm,
-               self.digest_type)?;
+        write!(
+            f,
+            "{} {} {} ",
+            self.key_tag, self.algorithm, self.digest_type
+        )?;
         for ch in self.digest.as_ref() {
             write!(f, "{:02x}", ch)?
         }
         Ok(())
     }
 }
-
 
 //--- Debug
 
@@ -1175,13 +1198,11 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Ds<Octets> {
     }
 }
 
-
 //--- RtypeRecordData
 
 impl<Octets> RtypeRecordData for Ds<Octets> {
     const RTYPE: Rtype = Rtype::Ds;
 }
-
 
 //------------ RtypeBitmap ---------------------------------------------------
 
@@ -1190,13 +1211,15 @@ pub struct RtypeBitmap<Octets>(Octets);
 
 impl<Octets> RtypeBitmap<Octets> {
     pub fn from_octets(octets: Octets) -> Result<Self, RtypeBitmapError>
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         {
             let mut data = octets.as_ref();
             while !data.is_empty() {
                 // At least bitmap number and length must be present.
                 if data.len() < 2 {
-                    return Err(RtypeBitmapError::ShortInput)
+                    return Err(RtypeBitmapError::ShortInput);
                 }
 
                 let len = (data[1] as usize) + 2;
@@ -1206,10 +1229,10 @@ impl<Octets> RtypeBitmap<Octets> {
                     return Err(RtypeBitmapError::BadRtypeBitmap);
                 }
                 if len > 34 {
-                    return Err(RtypeBitmapError::BadRtypeBitmap)
+                    return Err(RtypeBitmapError::BadRtypeBitmap);
                 }
                 if data.len() < len {
-                    return Err(RtypeBitmapError::ShortInput)
+                    return Err(RtypeBitmapError::ShortInput);
                 }
                 data = &data[len..];
             }
@@ -1220,7 +1243,7 @@ impl<Octets> RtypeBitmap<Octets> {
     pub fn builder() -> RtypeBitmapBuilder<Octets::Builder>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
         RtypeBitmapBuilder::new()
     }
@@ -1232,7 +1255,9 @@ impl<Octets> RtypeBitmap<Octets> {
 
 impl<Octets: AsRef<[u8]>> RtypeBitmap<Octets> {
     pub fn as_slice(&self) -> &[u8]
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         self.0.as_ref()
     }
 
@@ -1241,7 +1266,9 @@ impl<Octets: AsRef<[u8]>> RtypeBitmap<Octets> {
     }
 
     pub fn contains(&self, rtype: Rtype) -> bool
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         let (block, octet, mask) = split_rtype(rtype);
         let mut data = self.0.as_ref();
         while !data.is_empty() {
@@ -1255,7 +1282,6 @@ impl<Octets: AsRef<[u8]>> RtypeBitmap<Octets> {
     }
 }
 
-
 //--- AsRef
 
 impl<T, Octets: AsRef<T>> AsRef<T> for RtypeBitmap<Octets> {
@@ -1264,41 +1290,48 @@ impl<T, Octets: AsRef<T>> AsRef<T> for RtypeBitmap<Octets> {
     }
 }
 
-
 //--- OctetsFrom
 
-impl<Octets, SrcOctets>
-    OctetsFrom<RtypeBitmap<SrcOctets>> for RtypeBitmap<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+impl<Octets, SrcOctets> OctetsFrom<RtypeBitmap<SrcOctets>> for RtypeBitmap<Octets>
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: RtypeBitmap<SrcOctets>) -> Result<Self, ShortBuf> {
         Octets::octets_from(source.0).map(RtypeBitmap)
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<O, OO> PartialEq<RtypeBitmap<OO>> for RtypeBitmap<O>
-where O: AsRef<[u8]>, OO: AsRef<[u8]> {
+where
+    O: AsRef<[u8]>,
+    OO: AsRef<[u8]>,
+{
     fn eq(&self, other: &RtypeBitmap<OO>) -> bool {
         self.0.as_ref().eq(other.0.as_ref())
     }
 }
 
-impl<O: AsRef<[u8]>> Eq for RtypeBitmap<O> { }
-
+impl<O: AsRef<[u8]>> Eq for RtypeBitmap<O> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<O, OO> PartialOrd<RtypeBitmap<OO>> for RtypeBitmap<O>
-where O: AsRef<[u8]>, OO: AsRef<[u8]> {
+where
+    O: AsRef<[u8]>,
+    OO: AsRef<[u8]>,
+{
     fn partial_cmp(&self, other: &RtypeBitmap<OO>) -> Option<Ordering> {
         self.0.as_ref().partial_cmp(other.0.as_ref())
     }
 }
 
 impl<O, OO> CanonicalOrd<RtypeBitmap<OO>> for RtypeBitmap<O>
-where O: AsRef<[u8]>, OO: AsRef<[u8]> {
+where
+    O: AsRef<[u8]>,
+    OO: AsRef<[u8]>,
+{
     fn canonical_cmp(&self, other: &RtypeBitmap<OO>) -> Ordering {
         self.0.as_ref().cmp(other.0.as_ref())
     }
@@ -1310,7 +1343,6 @@ impl<O: AsRef<[u8]>> Ord for RtypeBitmap<O> {
     }
 }
 
-
 //--- Hash
 
 impl<O: AsRef<[u8]>> hash::Hash for RtypeBitmap<O> {
@@ -1318,7 +1350,6 @@ impl<O: AsRef<[u8]>> hash::Hash for RtypeBitmap<O> {
         self.0.as_ref().hash(state)
     }
 }
-
 
 //--- IntoIterator
 
@@ -1330,7 +1361,6 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octets> {
         self.iter()
     }
 }
-
 
 //--- Parse and Compose
 
@@ -1347,22 +1377,16 @@ impl<Ref: OctetsRef> Parse<Ref> for RtypeBitmap<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for RtypeBitmap<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>
-    ) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         let mut builder = RtypeBitmapBuilder::<BytesMut>::new();
         while let Ok(rtype) = Rtype::scan(scanner) {
             builder.add(rtype).unwrap()
@@ -1394,7 +1418,6 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for RtypeBitmap<Octets> {
     }
 }
 
-
 //------------ RtypeBitmapBuilder --------------------------------------------
 
 /// A builder for a record type bitmap.
@@ -1413,10 +1436,12 @@ pub struct RtypeBitmapBuilder<Builder> {
 
 impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
     pub fn new() -> Self
-    where Builder: EmptyBuilder {
+    where
+        Builder: EmptyBuilder,
+    {
         RtypeBitmapBuilder {
             // Start out with the capacity for one block.
-            buf: Builder::with_capacity(34)
+            buf: Builder::with_capacity(34),
         }
     }
 }
@@ -1443,31 +1468,19 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
         let mut pos = 0;
         while pos < self.buf.as_ref().len() {
             match self.buf.as_ref()[pos].cmp(&block) {
-                Ordering::Equal => {
-                    return Ok(&mut self.buf.as_mut()[pos..pos + 34])
-                }
+                Ordering::Equal => return Ok(&mut self.buf.as_mut()[pos..pos + 34]),
                 Ordering::Greater => {
                     let len = self.buf.as_ref().len() - pos;
                     self.buf.append_slice(&[0; 34])?;
                     let buf = self.buf.as_mut();
                     unsafe {
-                        ptr::copy(
-                            buf.as_ptr().add(pos),
-                            buf.as_mut_ptr().add(pos + 34),
-                            len
-                        );
-                        ptr::write_bytes(
-                            buf.as_mut_ptr().add(pos),
-                            0,
-                            34
-                        );
+                        ptr::copy(buf.as_ptr().add(pos), buf.as_mut_ptr().add(pos + 34), len);
+                        ptr::write_bytes(buf.as_mut_ptr().add(pos), 0, 34);
                     }
                     buf[pos] = block;
-                    return Ok(&mut buf[pos..pos + 34])
+                    return Ok(&mut buf[pos..pos + 34]);
                 }
-                Ordering::Less => {
-                    pos += 34
-                }
+                Ordering::Less => pos += 34,
             }
         }
 
@@ -1487,7 +1500,7 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
                     ptr::copy(
                         buf.as_ptr().add(src_pos),
                         buf.as_mut_ptr().add(dst_pos),
-                        len
+                        len,
                     )
                 }
             }
@@ -1499,16 +1512,16 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
     }
 }
 
-
 //--- Default
 
 impl<Builder> Default for RtypeBitmapBuilder<Builder>
-where Builder: OctetsBuilder + EmptyBuilder {
+where
+    Builder: OctetsBuilder + EmptyBuilder,
+{
     fn default() -> Self {
         Self::new()
     }
 }
-
 
 //------------ RtypeBitmapIter -----------------------------------------------
 
@@ -1529,7 +1542,7 @@ pub struct RtypeBitmapIter<'a> {
     octet: usize,
 
     /// Index of the next set bit in the current octet in the current block.
-    bit: u16
+    bit: u16,
 }
 
 impl<'a> RtypeBitmapIter<'a> {
@@ -1537,16 +1550,18 @@ impl<'a> RtypeBitmapIter<'a> {
         if data.is_empty() {
             RtypeBitmapIter {
                 data,
-                block: 0, len: 0, octet: 0, bit: 0
+                block: 0,
+                len: 0,
+                octet: 0,
+                bit: 0,
             }
-        }
-        else {
+        } else {
             let mut res = RtypeBitmapIter {
                 data: &data[2..],
                 block: u16::from(data[0]) << 8,
                 len: usize::from(data[1]),
                 octet: 0,
-                bit: 0
+                bit: 0,
             };
             if res.data[0] & 0x80 == 0 {
                 res.advance()
@@ -1573,7 +1588,7 @@ impl<'a> RtypeBitmapIter<'a> {
                 }
             }
             if self.data[self.octet] & (0x80 >> self.bit) != 0 {
-                return
+                return;
             }
         }
     }
@@ -1584,16 +1599,13 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.data.is_empty() {
-            return None
+            return None;
         }
-        let res = Rtype::from_int(
-            self.block | (self.octet as u16) << 3 | self.bit
-        );
+        let res = Rtype::from_int(self.block | (self.octet as u16) << 3 | self.bit);
         self.advance();
         Some(res)
     }
 }
-
 
 //------------ RtypeBitmapError ----------------------------------------------
 
@@ -1603,37 +1615,30 @@ pub enum RtypeBitmapError {
     BadRtypeBitmap,
 }
 
-
 //--- From
 
 impl From<RtypeBitmapError> for ParseError {
     fn from(err: RtypeBitmapError) -> ParseError {
         match err {
             RtypeBitmapError::ShortInput => ParseError::ShortInput,
-            RtypeBitmapError::BadRtypeBitmap => {
-                FormError::new("invalid NSEC bitmap").into()
-            }
+            RtypeBitmapError::BadRtypeBitmap => FormError::new("invalid NSEC bitmap").into(),
         }
     }
 }
-
 
 //--- Display and Error
 
 impl fmt::Display for RtypeBitmapError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            RtypeBitmapError::ShortInput
-                => ParseError::ShortInput.fmt(f),
-            RtypeBitmapError::BadRtypeBitmap
-                => f.write_str("invalid record type bitmap")
+            RtypeBitmapError::ShortInput => ParseError::ShortInput.fmt(f),
+            RtypeBitmapError::BadRtypeBitmap => f.write_str("invalid record type bitmap"),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for RtypeBitmapError { }
-
+impl std::error::Error for RtypeBitmapError {}
 
 //------------ Friendly Helper Functions -------------------------------------
 
@@ -1643,36 +1648,36 @@ fn split_rtype(rtype: Rtype) -> (u8, usize, u8) {
     (
         (rtype >> 8) as u8,
         ((rtype & 0xFF) >> 3) as usize,
-        0b1000_0000 >> (rtype & 0x07)
+        0b1000_0000 >> (rtype & 0x07),
     )
 }
 
 /// Splits the next bitmap window from the bitmap and returns None when there's no next window.
 #[allow(clippy::type_complexity)]
 fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
-    data.split_first()
-        .and_then(|(n, data)| {
-            data.split_first()
-                .and_then(|(l, data)| if data.len() >= usize::from(*l) {
-                    let (window, data) = data.split_at(usize::from(*l));
-                    Some(((*n, window), data))
-                } else {
-                    None
-                })
+    data.split_first().and_then(|(n, data)| {
+        data.split_first().and_then(|(l, data)| {
+            if data.len() >= usize::from(*l) {
+                let (window, data) = data.split_at(usize::from(*l));
+                Some(((*n, window), data))
+            } else {
+                None
+            }
         })
+    })
 }
 
 //============ Test ==========================================================
 
 #[cfg(test)]
 mod test {
-    use crate::base::iana::Rtype;
     use super::*;
+    use crate::base::iana::Rtype;
 
     #[test]
     fn rtype_split() {
-        assert_eq!(split_rtype(Rtype::A),   (0, 0, 0b01000000));
-        assert_eq!(split_rtype(Rtype::Ns),  (0, 0, 0b00100000));
+        assert_eq!(split_rtype(Rtype::A), (0, 0, 0b01000000));
+        assert_eq!(split_rtype(Rtype::Ns), (0, 0, 0b00100000));
         assert_eq!(split_rtype(Rtype::Caa), (1, 0, 0b01000000));
     }
 
@@ -1727,10 +1732,17 @@ mod test {
 
         let mut builder = RtypeBitmapBuilder::new_vec();
         let types = vec![
-            Rtype::Ns, Rtype::Soa, Rtype::Mx, Rtype::Txt, Rtype::Rrsig,
-            Rtype::Dnskey, Rtype::Nsec3param, Rtype::Spf, Rtype::Caa
+            Rtype::Ns,
+            Rtype::Soa,
+            Rtype::Mx,
+            Rtype::Txt,
+            Rtype::Rrsig,
+            Rtype::Dnskey,
+            Rtype::Nsec3param,
+            Rtype::Spf,
+            Rtype::Caa,
         ];
-        for t in types.iter()  {
+        for t in types.iter() {
             builder.add(*t).unwrap();
         }
 
@@ -1744,7 +1756,9 @@ mod test {
     fn dnskey_key_tag() {
         assert_eq!(
             Dnskey::new(
-                256, 3, SecAlg::RsaSha256,
+                256,
+                3,
+                SecAlg::RsaSha256,
                 base64::decode(
                     "AwEAAcTQyaIe6nt3xSPOG2L/YfwBkOVTJN6mlnZ249O5Rtt3ZSRQHxQS\
                      W61AODYw6bvgxrrGq8eeOuenFjcSYgNAMcBYoEYYmKDW6e9EryW4ZaT/\
@@ -1753,13 +1767,17 @@ mod test {
                      bmuD3Py0IyjlBxzZUXbqLsRL9gYFkCqeTY29Ik7usuzMTa+JRSLz6KGS\
                      5RSJ7CTSMjZg8aNaUbN2dvGhakJPh92HnLvMA3TefFgbKJphFNPA3BWS\
                      KLZ02cRWXqM="
-                ).unwrap()
-            ).key_tag(),
+                )
+                .unwrap()
+            )
+            .key_tag(),
             59944
         );
         assert_eq!(
             Dnskey::new(
-                257, 3, SecAlg::RsaSha256,
+                257,
+                3,
+                SecAlg::RsaSha256,
                 base64::decode(
                     "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO\
                     iW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN\
@@ -1769,20 +1787,26 @@ mod test {
                     pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLY\
                     A4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws\
                     9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU="
-                ).unwrap()
-            ).key_tag(),
+                )
+                .unwrap()
+            )
+            .key_tag(),
             20326
         );
         assert_eq!(
             Dnskey::new(
-                257, 3, SecAlg::RsaMd5,
+                257,
+                3,
+                SecAlg::RsaMd5,
                 base64::decode(
                     "AwEAAcVaA4jSBIGRrSzpecoJELvKE9+OMuFnL8mmUBsY\
                     lB6epN1CqX7NzwjDpi6VySiEXr0C4uTYkU/L1uMv2mHE\
                     AljThFDJ1GuozJ6gA7jf3lnaGppRg2IoVQ9IVmLORmjw\
                     C+7Eoi12SqybMTicD3Ezwa9XbG1iPjmjhbMrLh7MSQpX"
-                ).unwrap()
-            ).key_tag(),
+                )
+                .unwrap()
+            )
+            .key_tag(),
             18698
         );
     }
@@ -1790,12 +1814,9 @@ mod test {
     #[test]
     #[cfg(feature = "bytes")]
     fn dnskey_flags() {
-        let dnskey = Dnskey::new(
-            257, 3, SecAlg::RsaSha256, bytes::Bytes::new()
-        );
+        let dnskey = Dnskey::new(257, 3, SecAlg::RsaSha256, bytes::Bytes::new());
         assert_eq!(dnskey.is_zsk(), true);
         assert_eq!(dnskey.is_secure_entry_point(), true);
         assert_eq!(dnskey.is_revoked(), false);
     }
 }
-

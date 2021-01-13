@@ -15,17 +15,15 @@
 //! [`RecordHeader`]: struct.RecordHeader.html
 //! [`ParsedRecord`]: struct.ParsedRecord.html
 
-use core::{fmt, hash};
-use core::cmp::Ordering;
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, Parser, ParseError,
-    ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
-use super::rdata::{RecordData, ParseRecordData};
-
+use super::rdata::{ParseRecordData, RecordData};
+use core::cmp::Ordering;
+use core::{fmt, hash};
 
 //------------ Record --------------------------------------------------------
 
@@ -64,7 +62,7 @@ use super::rdata::{RecordData, ParseRecordData};
 /// inseparably entwined.
 ///
 /// Because a record’s owner is a domain name, the `Record` type is
-/// additionally generic over the domain name type is for it. 
+/// additionally generic over the domain name type is for it.
 ///
 /// There is three ways to create a record value. First, you can make one
 /// yourself using the [`new`] function. It will neatly take care of all
@@ -91,16 +89,20 @@ pub struct Record<Name, Data> {
     ttl: u32,
 
     /// The record data. The value also specifies the record’s type.
-    data: Data
+    data: Data,
 }
-
 
 /// # Creation and Element Access
 ///
 impl<Name, Data> Record<Name, Data> {
     /// Creates a new record from its parts.
     pub fn new(owner: Name, class: Class, ttl: u32, data: Data) -> Self {
-        Record { owner, class, ttl, data }
+        Record {
+            owner,
+            class,
+            ttl,
+            data,
+        }
     }
 
     /// Creates a new record from a compatible record.
@@ -108,12 +110,15 @@ impl<Name, Data> Record<Name, Data> {
     /// This function only exists because the equivalent `From` implementation
     /// is currently not possible,
     pub fn from_record<NN, DD>(record: Record<NN, DD>) -> Self
-    where Name: From<NN>, Data: From<DD> {
+    where
+        Name: From<NN>,
+        Data: From<DD>,
+    {
         Self::new(
             record.owner.into(),
             record.class,
             record.ttl,
-            record.data.into()
+            record.data.into(),
         )
     }
 
@@ -127,7 +132,9 @@ impl<Name, Data> Record<Name, Data> {
 
     /// Returns the record type.
     pub fn rtype(&self) -> Rtype
-    where Data: RecordData {
+    where
+        Data: RecordData,
+    {
         self.data.rtype()
     }
 
@@ -167,7 +174,6 @@ impl<Name, Data> Record<Name, Data> {
     }
 }
 
-
 //--- From
 
 impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
@@ -182,101 +188,114 @@ impl<N, D> From<(N, u32, D)> for Record<N, D> {
     }
 }
 
-
 //--- OctetsFrom
 //
 // XXX We don’t have blanket FromOctets for a type T into itself, so this may
 //     not always work as expected. Not sure what we can do about it?
 
-impl<Name, Data, SrcName, SrcData>
-OctetsFrom<Record<SrcName, SrcData>> for Record<Name, Data>
-where Name: OctetsFrom<SrcName>, Data: OctetsFrom<SrcData> {
-    fn octets_from(
-        source: Record<SrcName, SrcData>
-    ) -> Result<Self, ShortBuf> {
+impl<Name, Data, SrcName, SrcData> OctetsFrom<Record<SrcName, SrcData>> for Record<Name, Data>
+where
+    Name: OctetsFrom<SrcName>,
+    Data: OctetsFrom<SrcData>,
+{
+    fn octets_from(source: Record<SrcName, SrcData>) -> Result<Self, ShortBuf> {
         Ok(Record {
             owner: Name::octets_from(source.owner)?,
             class: source.class,
             ttl: source.ttl,
-            data: Data::octets_from(source.data)?
+            data: Data::octets_from(source.data)?,
         })
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<N, NN, D, DD> PartialEq<Record<NN, DD>> for Record<N, D>
-where N: PartialEq<NN>, D: RecordData + PartialEq<DD>, DD: RecordData {
+where
+    N: PartialEq<NN>,
+    D: RecordData + PartialEq<DD>,
+    DD: RecordData,
+{
     fn eq(&self, other: &Record<NN, DD>) -> bool {
-        self.owner == other.owner
-        && self.class == other.class
-        && self.data == other.data
+        self.owner == other.owner && self.class == other.class && self.data == other.data
     }
 }
 
-impl<N: Eq, D: RecordData + Eq> Eq for Record<N, D> { }
-
+impl<N: Eq, D: RecordData + Eq> Eq for Record<N, D> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N, NN, D, DD> PartialOrd<Record<NN, DD>> for Record<N, D>
-where N: PartialOrd<NN>, D: RecordData + PartialOrd<DD>, DD: RecordData {
+where
+    N: PartialOrd<NN>,
+    D: RecordData + PartialOrd<DD>,
+    DD: RecordData,
+{
     fn partial_cmp(&self, other: &Record<NN, DD>) -> Option<Ordering> {
         match self.owner.partial_cmp(&other.owner) {
-            Some(Ordering::Equal) => { }
-            res => return res
+            Some(Ordering::Equal) => {}
+            res => return res,
         }
         match self.class.partial_cmp(&other.class) {
-            Some(Ordering::Equal) => { }
-            res => return res
+            Some(Ordering::Equal) => {}
+            res => return res,
         }
         self.data.partial_cmp(&other.data)
     }
 }
 
 impl<N, D> Ord for Record<N, D>
-where N: Ord, D: RecordData + Ord {
+where
+    N: Ord,
+    D: RecordData + Ord,
+{
     fn cmp(&self, other: &Self) -> Ordering {
         match self.owner.cmp(&other.owner) {
-            Ordering::Equal => { }
-            res => return res
+            Ordering::Equal => {}
+            res => return res,
         }
         match self.class.cmp(&other.class) {
-            Ordering::Equal => { }
-            res => return res
+            Ordering::Equal => {}
+            res => return res,
         }
         self.data.cmp(&other.data)
     }
 }
 
 impl<N, NN, D, DD> CanonicalOrd<Record<NN, DD>> for Record<N, D>
-where N: ToDname, NN: ToDname, D: RecordData + CanonicalOrd<DD>, DD: RecordData {
+where
+    N: ToDname,
+    NN: ToDname,
+    D: RecordData + CanonicalOrd<DD>,
+    DD: RecordData,
+{
     fn canonical_cmp(&self, other: &Record<NN, DD>) -> Ordering {
         // This sort order will keep all records of a zone together. Ie.,
         // all the records with the same zone and ending in a given name
         // form one sequence.
         match self.class.cmp(&other.class) {
-            Ordering::Equal => { }
-            res => return res
+            Ordering::Equal => {}
+            res => return res,
         }
         match self.owner.name_cmp(&other.owner) {
-            Ordering::Equal => { }
-            res => return res
+            Ordering::Equal => {}
+            res => return res,
         }
         match self.rtype().cmp(&other.rtype()) {
-            Ordering::Equal => { }
-            res => return res
+            Ordering::Equal => {}
+            res => return res,
         }
         self.data.canonical_cmp(&other.data)
     }
 }
 
-
 //--- Hash
 
 impl<Name, Data> hash::Hash for Record<Name, Data>
-where Name: hash::Hash, Data: hash::Hash {
+where
+    Name: hash::Hash,
+    Data: hash::Hash,
+{
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.owner.hash(state);
         self.class.hash(state);
@@ -284,12 +303,14 @@ where Name: hash::Hash, Data: hash::Hash {
         self.data.hash(state);
     }
 }
-        
 
 //--- Parse and Compose
 
 impl<Ref, Data> Parse<Ref> for Option<Record<ParsedDname<Ref>, Data>>
-where Ref: OctetsRef, Data: ParseRecordData<Ref> {
+where
+    Ref: OctetsRef,
+    Data: ParseRecordData<Ref>,
+{
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let header = RecordHeader::parse(parser)?;
         header.parse_into_record(parser)
@@ -301,10 +322,7 @@ where Ref: OctetsRef, Data: ParseRecordData<Ref> {
 }
 
 impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_compressed_dname(&self.owner)?;
             self.data.rtype().compose(target)?;
@@ -314,48 +332,51 @@ impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.owner.compose_canonical(target)?;
             self.data.rtype().compose(target)?;
             self.class.compose(target)?;
             self.ttl.compose(target)?;
-            target.u16_len_prefixed(|target| {
-                self.data.compose_canonical(target)
-            })
+            target.u16_len_prefixed(|target| self.data.compose_canonical(target))
         })
     }
 }
 
-
 //--- Display and Debug
 
 impl<Name, Data> fmt::Display for Record<Name, Data>
-where Name: fmt::Display, Data: RecordData + fmt::Display {
-   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
+where
+    Name: fmt::Display,
+    Data: RecordData + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
             "{}. {} {} {} {}",
-            self.owner, self.ttl, self.class, self.data.rtype(),
+            self.owner,
+            self.ttl,
+            self.class,
+            self.data.rtype(),
             self.data
         )
     }
 }
 
 impl<Name, Data> fmt::Debug for Record<Name, Data>
-where Name: fmt::Debug, Data: fmt::Debug {
-   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-       f.debug_struct("Record")
-           .field("owner", &self.owner)
-           .field("class", &self.class)
-           .field("ttl", &self.ttl)
-           .field("data", &self.data)
-           .finish()
-   }
+where
+    Name: fmt::Debug,
+    Data: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Record")
+            .field("owner", &self.owner)
+            .field("class", &self.class)
+            .field("ttl", &self.ttl)
+            .field("data", &self.data)
+            .finish()
+    }
 }
-
 
 //------------ AsRecord ------------------------------------------------------
 
@@ -393,10 +414,7 @@ pub trait AsRecord {
     fn data(&self) -> &Self::Data;
 
     /// Produces the encoded record.
-    fn compose_record<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose_record<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_compressed_dname(self.owner())?;
             self.data().rtype().compose(target)?;
@@ -407,18 +425,13 @@ pub trait AsRecord {
     }
 
     /// Produces the canonically encoded record.
-    fn compose_record_canonical<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose_record_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.owner().compose_canonical(target)?;
             self.data().rtype().compose(target)?;
             self.class().compose(target)?;
             self.ttl().compose(target)?;
-            target.u16_len_prefixed(|target| {
-                self.data().compose_canonical(target)
-            })
+            target.u16_len_prefixed(|target| self.data().compose_canonical(target))
         })
     }
 }
@@ -427,42 +440,73 @@ impl<'a, T: AsRecord> AsRecord for &'a T {
     type Name = T::Name;
     type Data = T::Data;
 
-    fn owner(&self) -> &Self::Name { (*self).owner() }
-    fn class(&self) -> Class { (*self).class() }
-    fn ttl(&self) -> u32 { (*self).ttl() }
-    fn data(&self) -> &Self::Data { (*self).data() }
+    fn owner(&self) -> &Self::Name {
+        (*self).owner()
+    }
+    fn class(&self) -> Class {
+        (*self).class()
+    }
+    fn ttl(&self) -> u32 {
+        (*self).ttl()
+    }
+    fn data(&self) -> &Self::Data {
+        (*self).data()
+    }
 }
 
 impl<Name: ToDname, Data: RecordData> AsRecord for Record<Name, Data> {
     type Name = Name;
     type Data = Data;
 
-    fn owner(&self) -> &Self::Name { Self::owner(self) }
-    fn class(&self) -> Class { Self::class(self) }
-    fn ttl(&self) -> u32 { Self::ttl(self) }
-    fn data(&self) -> &Self::Data { Self::data(self) }
+    fn owner(&self) -> &Self::Name {
+        Self::owner(self)
+    }
+    fn class(&self) -> Class {
+        Self::class(self)
+    }
+    fn ttl(&self) -> u32 {
+        Self::ttl(self)
+    }
+    fn data(&self) -> &Self::Data {
+        Self::data(self)
+    }
 }
 
 impl<Name: ToDname, Data: RecordData> AsRecord for (Name, Class, u32, Data) {
     type Name = Name;
     type Data = Data;
 
-    fn owner(&self) -> &Self::Name { &self.0 }
-    fn class(&self) -> Class { self.1 }
-    fn ttl(&self) -> u32 { self.2 }
-    fn data(&self) -> &Self::Data { &self.3 }
+    fn owner(&self) -> &Self::Name {
+        &self.0
+    }
+    fn class(&self) -> Class {
+        self.1
+    }
+    fn ttl(&self) -> u32 {
+        self.2
+    }
+    fn data(&self) -> &Self::Data {
+        &self.3
+    }
 }
 
 impl<Name: ToDname, Data: RecordData> AsRecord for (Name, u32, Data) {
     type Name = Name;
     type Data = Data;
 
-    fn owner(&self) -> &Self::Name { &self.0 }
-    fn class(&self) -> Class { Class::In }
-    fn ttl(&self) -> u32 { self.1 }
-    fn data(&self) -> &Self::Data { &self.2 }
+    fn owner(&self) -> &Self::Name {
+        &self.0
+    }
+    fn class(&self) -> Class {
+        Class::In
+    }
+    fn ttl(&self) -> u32 {
+        self.1
+    }
+    fn data(&self) -> &Self::Data {
+        &self.2
+    }
 }
-
 
 //------------ RecordHeader --------------------------------------------------
 
@@ -485,14 +529,14 @@ pub struct RecordHeader<Name> {
 
 impl<Name> RecordHeader<Name> {
     /// Creates a new record header from its components.
-    pub fn new(
-        owner: Name,
-        rtype: Rtype,
-        class: Class,
-        ttl: u32,
-        rdlen: u16
-    ) -> Self {
-        RecordHeader { owner, rtype, class, ttl, rdlen }
+    pub fn new(owner: Name, rtype: Rtype, class: Class, ttl: u32, rdlen: u16) -> Self {
+        RecordHeader {
+            owner,
+            rtype,
+            class,
+            ttl,
+            rdlen,
+        }
     }
 }
 
@@ -501,10 +545,11 @@ impl<Name> RecordHeader<Name> {
     ///
     /// If the function succeeds, the parser will be positioned right behind
     /// the end of the record.
-    pub fn parse_and_skip<Ref>(
-        parser: &mut Parser<Ref>
-    ) -> Result<Self, ParseError>
-    where Self: Parse<Ref>, Ref: OctetsRef {
+    pub fn parse_and_skip<Ref>(parser: &mut Parser<Ref>) -> Result<Self, ParseError>
+    where
+        Self: Parse<Ref>,
+        Ref: OctetsRef,
+    {
         let header = Self::parse(parser)?;
         match parser.advance(header.rdlen() as usize) {
             Ok(()) => Ok(header),
@@ -515,9 +560,7 @@ impl<Name> RecordHeader<Name> {
 
 impl RecordHeader<()> {
     /// Parses only the record length and skips over all the other fields.
-    fn parse_rdlen<Ref: OctetsRef>(
-        parser: &mut Parser<Ref>
-    ) -> Result<u16, ParseError> {
+    fn parse_rdlen<Ref: OctetsRef>(parser: &mut Parser<Ref>) -> Result<u16, ParseError> {
         ParsedDname::skip(parser)?;
         Rtype::skip(parser)?;
         Class::skip(parser)?;
@@ -536,16 +579,14 @@ impl<Ref: OctetsRef> RecordHeader<ParsedDname<Ref>> {
     /// it skips over the record data.
     pub fn parse_into_record<Data>(
         self,
-        parser: &mut Parser<Ref>
+        parser: &mut Parser<Ref>,
     ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
-    where Data: ParseRecordData<Ref> {
+    where
+        Data: ParseRecordData<Ref>,
+    {
         parser.parse_block(self.rdlen as usize, |parser| {
             match Data::parse_data(self.rtype, parser)? {
-                Some(data) => {
-                    Ok(Some(Record::new(
-                        self.owner, self.class, self.ttl, data
-                    )))
-                }
+                Some(data) => Ok(Some(Record::new(self.owner, self.class, self.ttl, data))),
                 None => {
                     parser.advance_to_end();
                     Ok(None)
@@ -587,45 +628,49 @@ impl<Name> RecordHeader<Name> {
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<Name, NName> PartialEq<RecordHeader<NName>> for RecordHeader<Name>
-where Name: ToDname, NName: ToDname {
+where
+    Name: ToDname,
+    NName: ToDname,
+{
     fn eq(&self, other: &RecordHeader<NName>) -> bool {
         self.owner.name_eq(&other.owner)
-        && self.rtype == other.rtype
-        && self.class == other.class
-        && self.ttl == other.ttl
-        && self.rdlen == other.rdlen
+            && self.rtype == other.rtype
+            && self.class == other.class
+            && self.ttl == other.ttl
+            && self.rdlen == other.rdlen
     }
 }
 
-impl<Name: ToDname> Eq for RecordHeader<Name> { }
-
+impl<Name: ToDname> Eq for RecordHeader<Name> {}
 
 //--- PartialOrd and Ord
 //
 // No CanonicalOrd because that doesn’t really make sense.
 
 impl<Name, NName> PartialOrd<RecordHeader<NName>> for RecordHeader<Name>
-where Name: ToDname, NName: ToDname {
+where
+    Name: ToDname,
+    NName: ToDname,
+{
     fn partial_cmp(&self, other: &RecordHeader<NName>) -> Option<Ordering> {
         match self.owner.name_cmp(&other.owner) {
-            Ordering::Equal => { }
-            other => return Some(other)
+            Ordering::Equal => {}
+            other => return Some(other),
         }
         match self.rtype.partial_cmp(&other.rtype) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.class.partial_cmp(&other.class) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.ttl.partial_cmp(&other.ttl) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         self.rdlen.partial_cmp(&other.rdlen)
     }
@@ -634,25 +679,24 @@ where Name: ToDname, NName: ToDname {
 impl<Name: ToDname> Ord for RecordHeader<Name> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.owner.name_cmp(&other.owner) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.rtype.cmp(&other.rtype) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.class.cmp(&other.class) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.ttl.cmp(&other.ttl) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.rdlen.cmp(&other.rdlen)
     }
 }
-
 
 //--- Hash
 
@@ -666,7 +710,6 @@ impl<Name: hash::Hash> hash::Hash for RecordHeader<Name> {
     }
 }
 
-
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for RecordHeader<ParsedDname<Ref>> {
@@ -676,7 +719,7 @@ impl<Ref: OctetsRef> Parse<Ref> for RecordHeader<ParsedDname<Ref>> {
             Rtype::parse(parser)?,
             Class::parse(parser)?,
             u32::parse(parser)?,
-            parser.parse_u16()?
+            parser.parse_u16()?,
         ))
     }
 
@@ -691,10 +734,7 @@ impl<Ref: OctetsRef> Parse<Ref> for RecordHeader<ParsedDname<Ref>> {
 }
 
 impl<Name: Compose> Compose for RecordHeader<Name> {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.owner.compose(buf)?;
             self.rtype.compose(buf)?;
@@ -704,10 +744,7 @@ impl<Name: Compose> Compose for RecordHeader<Name> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.owner.compose_canonical(buf)?;
             self.rtype.compose(buf)?;
@@ -717,7 +754,6 @@ impl<Name: Compose> Compose for RecordHeader<Name> {
         })
     }
 }
-
 
 //--- Debug
 
@@ -732,7 +768,6 @@ impl<Name: fmt::Debug> fmt::Debug for RecordHeader<Name> {
             .finish()
     }
 }
-
 
 //------------ ParsedRecord --------------------------------------------------
 
@@ -765,10 +800,7 @@ impl<Ref> ParsedRecord<Ref> {
     ///
     /// The record data is provided via a parser that is positioned at the
     /// first byte of the record data.
-    pub fn new(
-        header: RecordHeader<ParsedDname<Ref>>,
-        data: Parser<Ref>
-    ) -> Self {
+    pub fn new(header: RecordHeader<ParsedDname<Ref>>, data: Parser<Ref>) -> Self {
         ParsedRecord { header, data }
     }
 
@@ -810,11 +842,13 @@ impl<Ref: OctetsRef> ParsedRecord<Ref> {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    pub fn to_record<Data>(
-        &self
-    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
-    where Data: ParseRecordData<Ref> {
-        self.header.clone().parse_into_record(&mut self.data.clone())
+    pub fn to_record<Data>(&self) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    where
+        Data: ParseRecordData<Ref>,
+    {
+        self.header
+            .clone()
+            .parse_into_record(&mut self.data.clone())
     }
 
     /// Trades the parsed record for a real resource record.
@@ -828,29 +862,31 @@ impl<Ref: OctetsRef> ParsedRecord<Ref> {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    pub fn into_record<Data>(
-        mut self
-    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
-    where Data: ParseRecordData<Ref> {
+    pub fn into_record<Data>(mut self) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    where
+        Data: ParseRecordData<Ref>,
+    {
         self.header.parse_into_record(&mut self.data)
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<Ref, OtherRef> PartialEq<ParsedRecord<OtherRef>> for ParsedRecord<Ref>
-where Ref: OctetsRef, OtherRef: OctetsRef {
+where
+    Ref: OctetsRef,
+    OtherRef: OctetsRef,
+{
     fn eq(&self, other: &ParsedRecord<OtherRef>) -> bool {
         self.header == other.header
-        && self.data.peek(self.header.rdlen() as usize).eq(
-            &other.data.peek(other.header.rdlen() as usize)
-        )
+            && self
+                .data
+                .peek(self.header.rdlen() as usize)
+                .eq(&other.data.peek(other.header.rdlen() as usize))
     }
 }
 
-impl<Ref: OctetsRef> Eq for ParsedRecord<Ref> { }
-
+impl<Ref: OctetsRef> Eq for ParsedRecord<Ref> {}
 
 //--- Parse
 //
@@ -872,7 +908,6 @@ impl<Ref: OctetsRef> Parse<Ref> for ParsedRecord<Ref> {
     }
 }
 
-
 //------------ RecordParseError ----------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -883,28 +918,32 @@ pub enum RecordParseError<N, D> {
 }
 
 impl<N, D> fmt::Display for RecordParseError<N, D>
-where N: fmt::Display, D: fmt::Display {
+where
+    N: fmt::Display,
+    D: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             RecordParseError::Name(ref name) => name.fmt(f),
             RecordParseError::Data(ref data) => data.fmt(f),
-            RecordParseError::ShortBuf => {
-                f.write_str("unexpected end of buffer")
-            }
+            RecordParseError::ShortBuf => f.write_str("unexpected end of buffer"),
         }
     }
 }
 
 #[cfg(feature = "std")]
 impl<N, D> std::error::Error for RecordParseError<N, D>
-where N: std::error::Error, D: std::error::Error { }
+where
+    N: std::error::Error,
+    D: std::error::Error,
+{
+}
 
 impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
     fn from(_: ShortBuf) -> Self {
         RecordParseError::ShortBuf
     }
 }
-
 
 //============ Testing ======================================================
 
@@ -914,19 +953,19 @@ mod test {
     #[test]
     #[cfg(features = "bytes")]
     fn ds_octets_into() {
+        use crate::base::iana::{DigestAlg, Rtype, SecAlg};
         use crate::name::Dname;
         use crate::octets::OctetsInto;
-        use crate::base::iana::{DigestAlg, Rtype, SecAlg};
         use crate::rdata::Ds;
 
         let ds: Record<Dname<&[u8]>, Ds<&[u8]>> = Record::new(
-            "a.example".parse().unwrap(), Class::In, 86400,
-            Ds::new(12, SecAlg::RsaSha256, b"something")
+            "a.example".parse().unwrap(),
+            Class::In,
+            86400,
+            Ds::new(12, SecAlg::RsaSha256, b"something"),
         );
-        let ds_bytes: Record<Dname<Bytes>, Ds<Bytes>>
-            = ds.octets_into().unwrap();
+        let ds_bytes: Record<Dname<Bytes>, Ds<Bytes>> = ds.octets_into().unwrap();
         assert_eq!(ds.owner(), ds_bytes.owner());
         asswer_eq!(ds.data().digest(), ds_bytes.data().digest());
     }
 }
-

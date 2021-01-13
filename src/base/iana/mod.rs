@@ -31,12 +31,12 @@ pub use self::exterr::ExtendedErrorCode;
 pub use self::nsec3::Nsec3HashAlg;
 pub use self::opcode::Opcode;
 pub use self::opt::OptionCode;
-pub use self::rcode::{Rcode, OptRcode, TsigRcode};
+pub use self::rcode::{OptRcode, Rcode, TsigRcode};
 pub use self::rtype::Rtype;
 pub use self::secalg::SecAlg;
 
-
-#[macro_use] mod macros;
+#[macro_use]
+mod macros;
 
 pub mod class;
 pub mod digestalg;
@@ -47,4 +47,3 @@ pub mod opt;
 pub mod rcode;
 pub mod rtype;
 pub mod secalg;
-

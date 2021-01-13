@@ -1,9 +1,8 @@
 //! DNSSEC Algorithm Numbers
 
-
 //------------ SecAlg -------------------------------------------------------
 
-int_enum!{
+int_enum! {
     /// Security Algorithm Numbers.
     ///
     /// These numbers are used in various security related record types.
@@ -118,4 +117,3 @@ int_enum!{
 }
 
 int_enum_str_with_decimal!(SecAlg, u8, "unknown algorithm");
-

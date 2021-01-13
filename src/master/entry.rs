@@ -1,17 +1,13 @@
-/// A master file entry.
-
-use std::borrow::ToOwned;
-use std::path::PathBuf;
-use std::string::String;
-use bytes::Bytes;
+use super::scan::{CharSource, Pos, Scan, ScanError, Scanner, SyntaxError};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::Dname;
 use crate::base::record::Record;
 use crate::rdata::MasterRecordData;
-use super::scan::{
-    CharSource, Pos, Scan, ScanError, Scanner, SyntaxError
-};
-
+use bytes::Bytes;
+/// A master file entry.
+use std::borrow::ToOwned;
+use std::path::PathBuf;
+use std::string::String;
 
 //------------ Entry ---------------------------------------------------------
 
@@ -36,7 +32,7 @@ pub enum Entry {
     /// This entry contains the origin for relative domain names encountered
     /// in subsequent entries.
     Origin(Dname<Bytes>),
-    
+
     /// An `$INCLUDE` control entry.
     ///
     /// This entry instructs the parser to insert the content of the given
@@ -45,7 +41,10 @@ pub enum Entry {
     /// system dependent. The optional `origin` attribute contains the
     /// initial value of the origin of relative domain names when including
     /// the file.
-    Include { path: PathBuf, origin: Option<Dname<Bytes>> },
+    Include {
+        path: PathBuf,
+        origin: Option<Dname<Bytes>>,
+    },
 
     /// A `$TTL` control entry.
     ///
@@ -69,7 +68,7 @@ pub enum Entry {
     Record(MasterRecord),
 
     /// A blank entry.
-    Blank
+    Blank,
 }
 
 impl Entry {
@@ -98,33 +97,24 @@ impl Entry {
     ) -> Result<Option<Self>, ScanError> {
         if scanner.eof_reached() {
             Ok(None)
-        }
-        else if let Ok(entry) = Self::scan_control(scanner) {
+        } else if let Ok(entry) = Self::scan_control(scanner) {
             Ok(Some(entry))
-        }
-        else if let Ok(()) = Self::scan_blank(scanner) {
+        } else if let Ok(()) = Self::scan_blank(scanner) {
             Ok(Some(Entry::Blank))
-        }
-        else {
-            let record = Self::scan_record(
-                scanner, last_owner, last_class, default_ttl
-            )?;
+        } else {
+            let record = Self::scan_record(scanner, last_owner, last_class, default_ttl)?;
             Ok(Some(Entry::Record(record)))
         }
     }
 
-    fn scan_blank<C: CharSource>(
-        scanner: &mut Scanner<C>
-    ) -> Result<(), ScanError> {
+    fn scan_blank<C: CharSource>(scanner: &mut Scanner<C>) -> Result<(), ScanError> {
         scanner.scan_opt_space()?;
         scanner.scan_newline()?;
         Ok(())
     }
 
     /// Tries to scan a control entry.
-    fn scan_control<C: CharSource>(
-        scanner: &mut Scanner<C>
-    ) -> Result<Self, ScanError> {
+    fn scan_control<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         match ControlType::scan(scanner)? {
             ControlType::Origin => {
                 let name = Dname::scan(scanner)?;
@@ -156,9 +146,7 @@ impl Entry {
         default_ttl: Option<u32>,
     ) -> Result<MasterRecord, ScanError> {
         let owner = Self::scan_owner(scanner, last_owner)?;
-        let (ttl, class) = Self::scan_ttl_class(
-            scanner, last_class, default_ttl
-        )?;
+        let (ttl, class) = Self::scan_ttl_class(scanner, last_class, default_ttl)?;
         let rtype = Rtype::scan(scanner)?;
         let rdata = MasterRecordData::scan(rtype, scanner)?;
         scanner.scan_newline()?;
@@ -167,67 +155,56 @@ impl Entry {
 
     fn scan_owner<C: CharSource>(
         scanner: &mut Scanner<C>,
-        last_owner: Option<&Dname<Bytes>>
+        last_owner: Option<&Dname<Bytes>>,
     ) -> Result<Dname<Bytes>, ScanError> {
         let pos = scanner.pos();
         if let Ok(()) = scanner.scan_space() {
-            if let Some(owner) = last_owner { Ok(owner.clone()) }
-            else { Err(ScanError::Syntax(SyntaxError::NoLastOwner, pos)) }
-        }
-        else if let Ok(()) = scanner.skip_literal("@") {
-            if let Some(ref origin) = *scanner.origin() { Ok(origin.clone()) }
-            else { Err(ScanError::Syntax(SyntaxError::NoOrigin, pos)) }
-        }
-        else {
+            if let Some(owner) = last_owner {
+                Ok(owner.clone())
+            } else {
+                Err(ScanError::Syntax(SyntaxError::NoLastOwner, pos))
+            }
+        } else if let Ok(()) = scanner.skip_literal("@") {
+            if let Some(ref origin) = *scanner.origin() {
+                Ok(origin.clone())
+            } else {
+                Err(ScanError::Syntax(SyntaxError::NoOrigin, pos))
+            }
+        } else {
             Dname::scan(scanner)
         }
-
     }
 
-    fn scan_ttl_class<C: CharSource>(scanner: &mut Scanner<C>,
-                                     last_class: Option<Class>,
-                                     default_ttl: Option<u32>)
-                                     -> Result<(u32, Class), ScanError> {
+    fn scan_ttl_class<C: CharSource>(
+        scanner: &mut Scanner<C>,
+        last_class: Option<Class>,
+        default_ttl: Option<u32>,
+    ) -> Result<(u32, Class), ScanError> {
         let pos = scanner.pos();
         let (ttl, class) = match u32::scan(scanner) {
-            Ok(ttl) => {
-                match Class::scan(scanner) {
-                    Ok(class) => {
-                        (Some(ttl), Some(class))
-                    }
-                    Err(_) => (Some(ttl), None)
-                }
-            }
-            Err(_) => {
-                match Class::scan(scanner) {
-                    Ok(class) => {
-                        match u32::scan(scanner) {
-                            Ok(ttl) => {
-                                (Some(ttl), Some(class))
-                            }
-                            Err(_) => (None, Some(class))
-                        }
-                    }
-                    Err(_) => (None, None)
-                }
-            }
+            Ok(ttl) => match Class::scan(scanner) {
+                Ok(class) => (Some(ttl), Some(class)),
+                Err(_) => (Some(ttl), None),
+            },
+            Err(_) => match Class::scan(scanner) {
+                Ok(class) => match u32::scan(scanner) {
+                    Ok(ttl) => (Some(ttl), Some(class)),
+                    Err(_) => (None, Some(class)),
+                },
+                Err(_) => (None, None),
+            },
         };
         let ttl = match ttl.or(default_ttl) {
             Some(ttl) => ttl,
-            None => {
-                return Err(ScanError::Syntax(SyntaxError::NoDefaultTtl, pos))
-            }
+            None => return Err(ScanError::Syntax(SyntaxError::NoDefaultTtl, pos)),
         };
         let class = match class.or(last_class) {
             Some(class) => class,
-            None => {
-                return Err(ScanError::Syntax(SyntaxError::NoLastClass, pos))
-            }
+            None => return Err(ScanError::Syntax(SyntaxError::NoLastClass, pos)),
         };
         Ok((ttl, class))
     }
 }
-
 
 //------------ ControlType ---------------------------------------------------
 
@@ -237,37 +214,28 @@ enum ControlType {
     Origin,
     Include,
     Ttl,
-    Other(String, Pos)
+    Other(String, Pos),
 }
 
 impl Scan for ControlType {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         let pos = scanner.pos();
         scanner.scan_string_word(|word| {
             if word.eq_ignore_ascii_case("$ORIGIN") {
                 Ok(ControlType::Origin)
-            }
-            else if word.eq_ignore_ascii_case("$INCLUDE") {
+            } else if word.eq_ignore_ascii_case("$INCLUDE") {
                 Ok(ControlType::Include)
-            }
-            else if word.eq_ignore_ascii_case("$TTL") {
+            } else if word.eq_ignore_ascii_case("$TTL") {
                 Ok(ControlType::Ttl)
-            }
-            else if let Some('$') = word.chars().next() {
+            } else if let Some('$') = word.chars().next() {
                 Ok(ControlType::Other(word.to_owned(), pos))
-            }
-            else {
+            } else {
                 Err(SyntaxError::Expected(String::from("$")))
             }
         })
     }
 }
 
-
 //------------ MasterRecord --------------------------------------------------
 
-pub type MasterRecord = Record<
-    Dname<Bytes>, MasterRecordData<Bytes, Dname<Bytes>>
->;
-
+pub type MasterRecord = Record<Dname<Bytes>, MasterRecordData<Bytes, Dname<Bytes>>>;

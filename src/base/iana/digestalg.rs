@@ -1,9 +1,8 @@
 //! Delegation signer digest algorithm numbers.
 
-
 //------------ DigestAlg -----------------------------------------------------
 
-int_enum!{
+int_enum! {
     /// Delegation signer digest algorithm numbers.
     ///
     /// These numbers are used in the DS resource record to specify how the
@@ -44,4 +43,3 @@ int_enum!{
 }
 
 int_enum_str_decimal!(DigestAlg, u8);
-

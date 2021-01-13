@@ -1,9 +1,8 @@
 //! Resource Record (RR) TYPEs
 
-
 //------------ Rtype ---------------------------------------------------------
 
-int_enum!{
+int_enum! {
     /// Resource Record Types.
     ///
     /// Each resource records has a 16 bit type value indicating what kind of
@@ -16,7 +15,7 @@ int_enum!{
     /// This type is complete as of 2019-01-28.
     ///
     /// [IANA registry]: http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
-    /// 
+    ///
     /// In order to avoid confusion over capitalization, the mnemonics are
     /// treated as single acronyms and therefore all variant names are spelled
     /// with an initial capital letter in accordance with the Rust naming
@@ -60,7 +59,7 @@ int_enum!{
     ///
     /// (Experimental.)
     (Mr => 9, b"MR")
-    
+
     /// A null resource record.
     ///
     /// (Experimental.)
@@ -83,7 +82,7 @@ int_enum!{
 
     /// Text strings.
     (Txt => 16, b"TXT")
-    
+
     /// For Responsible Person.
     ///
     /// See RFC 1183
@@ -113,7 +112,7 @@ int_enum!{
     ///
     /// See RFC 1706.
     (Nsap => 22, b"NSAP")
-    
+
     /// For domain name pointer, NSAP style.
     ///
     /// See RFC 1348, RFC 1637, RFC 1706.
@@ -134,7 +133,7 @@ int_enum!{
     ///
     /// See RFC 1712
     (Gpos => 27, b"GPOS")
-    
+
     /// IPv6 address.
     ///
     /// See RFC 3596.
@@ -250,7 +249,7 @@ int_enum!{
     ///
     /// See RFC 5155.
     (Nsec3param => 51, b"NSEC3PARAM")
-    
+
     /// TLSA.
     ///
     /// See RFC 6698.
@@ -284,7 +283,7 @@ int_enum!{
     ///
     /// See RFC 7344.
     (Cdnskey => 60, b"CDNSKEY")
-    
+
     /// OpenPGP key.
     ///
     /// See draft-ietf-dane-openpgpkey.
@@ -309,7 +308,7 @@ int_enum!{
     ///
     /// IANA-Reserved.
     (Uinfo => 100, b"UINFO")
-    
+
     /// UID.
     ///
     /// IANA-Reserved.
@@ -354,12 +353,12 @@ int_enum!{
     ///
     /// See RFC 7043.
     (Eui64 => 109, b"EUI64")
-    
+
     /// Transaction key.
     ///
     /// See RFC 2930.
     (Tkey => 249, b"TKEY")
-    
+
     /// Transaction signature.
     ///
     /// See RFC 2845.
@@ -369,7 +368,7 @@ int_enum!{
     ///
     /// See RFC 1995.
     (Ixfr => 251, b"IXFR")
-    
+
     /// Transfer of entire zone.
     ///
     /// See RFC 1035 and RFC 5936.
@@ -415,7 +414,4 @@ int_enum!{
     (Dlv => 32769, b"DLV")
 }
 
-int_enum_str_with_prefix!(
-    Rtype, "TYPE", b"TYPE", u16, "unknown record type"
-);
-
+int_enum_str_with_prefix!(Rtype, "TYPE", b"TYPE", u16, "unknown record type");

@@ -1,11 +1,10 @@
 //! The trait defining an abstract resolver.
 
-use std::io;
-use futures::future::Future;
-use crate::base::name::ToDname;
 use crate::base::message::Message;
+use crate::base::name::ToDname;
 use crate::base::question::Question;
-
+use futures::future::Future;
+use std::io;
 
 //----------- Resolver -------------------------------------------------------
 
@@ -33,9 +32,10 @@ pub trait Resolver {
     /// The method takes anything that can be converted into a question and
     /// produces a future trying to answer the question.
     fn query<N, Q>(&self, question: Q) -> Self::Query
-    where N: ToDname, Q: Into<Question<N>>;
+    where
+        N: ToDname,
+        Q: Into<Question<N>>;
 }
-
 
 //------------ SearchNames ---------------------------------------------------
 
@@ -54,4 +54,3 @@ pub trait SearchNames {
     /// Returns an iterator over the search suffixes.
     fn search_iter(&self) -> Self::Iter;
 }
-

@@ -3,11 +3,8 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
+use super::super::octets::{Compose, FormError, OctetsBuilder, ParseError, ShortBuf};
 use core::{borrow, cmp, fmt, hash, ops};
-use super::super::octets::{
-    Compose, FormError, OctetsBuilder, ParseError, ShortBuf
-};
-
 
 //------------ Label ---------------------------------------------------------
 
@@ -54,9 +51,7 @@ impl Label {
     /// # Safety
     ///
     /// The `slice` must be at most 63 octets long.
-    pub(super) unsafe fn from_slice_mut_unchecked(
-        slice: &mut [u8]
-    ) -> &mut Self {
+    pub(super) unsafe fn from_slice_mut_unchecked(slice: &mut [u8]) -> &mut Self {
         &mut *(slice as *mut [u8] as *mut Self)
     }
 
@@ -78,8 +73,7 @@ impl Label {
     pub fn from_slice(slice: &[u8]) -> Result<&Self, LongLabelError> {
         if slice.len() > 63 {
             Err(LongLabelError)
-        }
-        else {
+        } else {
             Ok(unsafe { Self::from_slice_unchecked(slice) })
         }
     }
@@ -87,13 +81,10 @@ impl Label {
     /// Converts a mutable octets slice into a label.
     ///
     /// This will fail of the slice is longer than 63 octets.
-    pub fn from_slice_mut(
-        slice: &mut [u8]
-    ) -> Result<&mut Self, LongLabelError> {
+    pub fn from_slice_mut(slice: &mut [u8]) -> Result<&mut Self, LongLabelError> {
         if slice.len() > 63 {
             Err(LongLabelError)
-        }
-        else {
+        } else {
             Ok(unsafe { Self::from_slice_mut_unchecked(slice) })
         }
     }
@@ -102,38 +93,31 @@ impl Label {
     ///
     /// On success, the function returns a label and the remainder of
     /// the slice.
-    pub fn split_from(slice: &[u8])
-                      -> Result<(&Self, &[u8]), SplitLabelError> {
+    pub fn split_from(slice: &[u8]) -> Result<(&Self, &[u8]), SplitLabelError> {
         let head = match slice.get(0) {
             Some(ch) => *ch,
-            None => return Err(SplitLabelError::ShortInput)
+            None => return Err(SplitLabelError::ShortInput),
         };
         let end = match head {
-            0 ..= 0x3F => (head as usize) + 1,
-            0x40 ..= 0x7F => {
-                return Err(
-                    SplitLabelError::BadType(LabelTypeError::Extended(head))
-                )
-            }
-            0xC0 ..= 0xFF => {
+            0..=0x3F => (head as usize) + 1,
+            0x40..=0x7F => return Err(SplitLabelError::BadType(LabelTypeError::Extended(head))),
+            0xC0..=0xFF => {
                 let res = match slice.get(1) {
                     Some(ch) => u16::from(*ch),
-                    None => return Err(SplitLabelError::ShortInput)
+                    None => return Err(SplitLabelError::ShortInput),
                 };
                 let res = res | ((u16::from(head) & 0x3F) << 8);
-                return Err(SplitLabelError::Pointer(res))
+                return Err(SplitLabelError::Pointer(res));
             }
-            _ => {
-                return Err(
-                    SplitLabelError::BadType(LabelTypeError::Undefined)
-                )
-            }
+            _ => return Err(SplitLabelError::BadType(LabelTypeError::Undefined)),
         };
         if slice.len() < end {
-            return Err(SplitLabelError::ShortInput)
+            return Err(SplitLabelError::ShortInput);
         }
-        Ok((unsafe { Self::from_slice_unchecked(&slice[1..end]) },
-            &slice[end..]))
+        Ok((
+            unsafe { Self::from_slice_unchecked(&slice[1..end]) },
+            &slice[end..],
+        ))
     }
 
     /// Iterates over the labels in some part of an octets slice.
@@ -161,7 +145,7 @@ impl Label {
     }
 
     /// Returns the label in canonical form.
-    /// 
+    ///
     /// In this form, all ASCII letters are lowercase.
     pub fn to_canonical(&self) -> OwnedLabel {
         let mut res = OwnedLabel::from_label(self);
@@ -172,8 +156,8 @@ impl Label {
     /// Returns the composed label ordering.
     pub fn composed_cmp(&self, other: &Self) -> cmp::Ordering {
         match self.0.len().cmp(&other.0.len()) {
-            cmp::Ordering::Equal => { }
-            other => return other
+            cmp::Ordering::Equal => {}
+            other => return other,
         }
         self.0.cmp(other.as_ref())
     }
@@ -181,8 +165,8 @@ impl Label {
     /// Returns the composed ordering with ASCII letters lowercased.
     pub fn lowercase_composed_cmp(&self, other: &Self) -> cmp::Ordering {
         match self.0.len().cmp(&other.0.len()) {
-            cmp::Ordering::Equal => { }
-            other => return other
+            cmp::Ordering::Equal => {}
+            other => return other,
         }
         self.cmp(other)
     }
@@ -191,9 +175,7 @@ impl Label {
     ///
     /// The method builds the encoded form of the label that starts with a
     /// one octet length indicator.
-    pub fn build<Builder: OctetsBuilder>(
-        &self, target: &mut Builder
-    ) -> Result<(), ShortBuf> {
+    pub fn build<Builder: OctetsBuilder>(&self, target: &mut Builder) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_slice(&[self.len() as u8])?;
             target.append_slice(self.as_slice())
@@ -206,7 +188,8 @@ impl Label {
     /// one octet length indicator. It also converts all ASCII letters into
     /// their lowercase form.
     pub fn build_lowercase<Builder: OctetsBuilder>(
-        &self, target: &mut Builder
+        &self,
+        target: &mut Builder,
     ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_slice(&[self.len() as u8])?;
@@ -217,7 +200,6 @@ impl Label {
         })
     }
 }
-
 
 /// # Properties
 ///
@@ -241,24 +223,17 @@ impl Label {
     }
 }
 
-
 //--- Compose
 
 impl Compose for Label {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             (self.len() as u8).compose(target)?;
             target.append_slice(self.as_ref())
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             (self.len() as u8).compose(target)?;
             for &ch in self.into_iter() {
@@ -268,7 +243,6 @@ impl Compose for Label {
         })
     }
 }
-
 
 //--- Deref, DerefMut, AsRef, and AsMut
 
@@ -298,18 +272,16 @@ impl AsMut<[u8]> for Label {
     }
 }
 
-
 //--- ToOwned
 
 #[cfg(feature = "std")]
 impl std::borrow::ToOwned for Label {
     type Owned = OwnedLabel;
-    
+
     fn to_owned(&self) -> Self::Owned {
         self.into()
     }
 }
-
 
 //--- PartialEq and Eq
 
@@ -319,8 +291,7 @@ impl PartialEq for Label {
     }
 }
 
-impl Eq for Label { }
-
+impl Eq for Label {}
 
 //--- PartialOrd and Ord
 
@@ -335,20 +306,19 @@ impl PartialOrd for Label {
     ///
     /// [RFC 4034]: https://tools.ietf.org/html/rfc4034
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.iter().map(u8::to_ascii_lowercase).partial_cmp(
-            other.iter().map(u8::to_ascii_lowercase)
-        )
+        self.iter()
+            .map(u8::to_ascii_lowercase)
+            .partial_cmp(other.iter().map(u8::to_ascii_lowercase))
     }
 }
 
 impl Ord for Label {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.iter().map(u8::to_ascii_lowercase).cmp(
-            other.iter().map(u8::to_ascii_lowercase)
-        )
+        self.iter()
+            .map(u8::to_ascii_lowercase)
+            .cmp(other.iter().map(u8::to_ascii_lowercase))
     }
 }
-
 
 //--- Hash
 
@@ -363,7 +333,6 @@ impl hash::Hash for Label {
     }
 }
 
-
 //--- IntoIterator
 
 impl<'a> IntoIterator for &'a Label {
@@ -375,7 +344,6 @@ impl<'a> IntoIterator for &'a Label {
     }
 }
 
-
 //--- Display and Debug
 
 impl fmt::Display for Label {
@@ -383,11 +351,9 @@ impl fmt::Display for Label {
         for &ch in self.iter() {
             if ch == b' ' || ch == b'.' || ch == b'\\' {
                 write!(f, "\\{}", ch as char)?;
-            }
-            else if !(0x20..0x7F).contains(&ch) {
+            } else if !(0x20..0x7F).contains(&ch) {
                 write!(f, "\\{:03}", ch)?;
-            }
-            else {
+            } else {
                 write!(f, "{}", (ch as char))?;
             }
         }
@@ -402,7 +368,6 @@ impl fmt::Debug for Label {
         f.write_str(")")
     }
 }
-
 
 //------------ OwnedLabel ----------------------------------------------------
 
@@ -434,19 +399,13 @@ impl OwnedLabel {
 
     /// Returns a reference to the label.
     pub fn as_label(&self) -> &Label {
-        unsafe {
-            Label::from_slice_unchecked(&self.0[1..=(self.0[0] as usize)])
-        }
+        unsafe { Label::from_slice_unchecked(&self.0[1..=(self.0[0] as usize)]) }
     }
 
     /// Returns a mutable reference to the label.
     pub fn as_label_mut(&mut self) -> &mut Label {
         let len = self.0[0] as usize;
-        unsafe {
-            Label::from_slice_mut_unchecked(
-                &mut self.0[1..=len]
-            )
-        }
+        unsafe { Label::from_slice_mut_unchecked(&mut self.0[1..=len]) }
     }
 
     /// Returns a slice that is the wire-representation of the label.
@@ -456,7 +415,6 @@ impl OwnedLabel {
     }
 }
 
-
 //--- From
 
 impl<'a> From<&'a Label> for OwnedLabel {
@@ -464,7 +422,6 @@ impl<'a> From<&'a Label> for OwnedLabel {
         Self::from_label(label)
     }
 }
-
 
 //--- Deref, DerefMut, AsRef, AsMut, Borrow, and BorrowMut
 
@@ -518,7 +475,6 @@ impl borrow::BorrowMut<Label> for OwnedLabel {
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<T: AsRef<Label>> PartialEq<T> for OwnedLabel {
@@ -527,8 +483,7 @@ impl<T: AsRef<Label>> PartialEq<T> for OwnedLabel {
     }
 }
 
-impl Eq for OwnedLabel { }
-
+impl Eq for OwnedLabel {}
 
 //--- PartialOrd and Ord
 
@@ -544,7 +499,6 @@ impl Ord for OwnedLabel {
     }
 }
 
-
 //--- Hash
 
 impl hash::Hash for OwnedLabel {
@@ -552,7 +506,6 @@ impl hash::Hash for OwnedLabel {
         self.as_label().hash(state)
     }
 }
-
 
 //------------ SliceLabelsIter -----------------------------------------------
 
@@ -570,7 +523,7 @@ pub struct SliceLabelsIter<'a> {
     /// The position in `slice` where the next label start.
     ///
     /// As a life hack, we use `usize::max_value` to fuse the iterator.
-    start: usize
+    start: usize,
 }
 
 impl<'a> Iterator for SliceLabelsIter<'a> {
@@ -578,18 +531,17 @@ impl<'a> Iterator for SliceLabelsIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.start == usize::max_value() {
-            return None
+            return None;
         }
         loop {
             match Label::split_from(&self.slice[self.start..]) {
                 Ok((label, _)) => {
                     if label.is_root() {
                         self.start = usize::max_value();
-                    }
-                    else {
+                    } else {
                         self.start += label.compose_len();
                     }
-                    return Some(label)
+                    return Some(label);
                 }
                 Err(SplitLabelError::Pointer(pos)) => {
                     let pos = pos as usize;
@@ -597,20 +549,19 @@ impl<'a> Iterator for SliceLabelsIter<'a> {
                         // Incidentally, this also covers the case where
                         // pos points past the end of the message.
                         self.start = usize::max_value();
-                        return None
+                        return None;
                     }
                     self.start = pos;
                     continue;
                 }
                 Err(_) => {
                     self.start = usize::max_value();
-                    return None
+                    return None;
                 }
             }
         }
     }
 }
-
 
 //============ Error Types ===================================================
 
@@ -623,36 +574,31 @@ pub enum LabelTypeError {
     Undefined,
 
     /// The label was of the extended label type given.
-    /// 
+    ///
     /// The type value will be in the range `0x40` to `0x7F`, that is, it
     /// includes the original label type bits `0b01`.
     Extended(u8),
 }
-
 
 //--- Display and Error
 
 impl fmt::Display for LabelTypeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            LabelTypeError::Undefined
-                => f.write_str("undefined label type"),
-            LabelTypeError::Extended(value)
-                => write!(f, "unknown extended label 0x{:02x}", value)
+            LabelTypeError::Undefined => f.write_str("undefined label type"),
+            LabelTypeError::Extended(value) => write!(f, "unknown extended label 0x{:02x}", value),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for LabelTypeError { }
-
+impl std::error::Error for LabelTypeError {}
 
 //------------ LongLabelError ------------------------------------------------
 
 /// A label was longer than the allowed 63 octets.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LongLabelError;
-
 
 //--- Display and Error
 
@@ -663,13 +609,12 @@ impl fmt::Display for LongLabelError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for LongLabelError { }
-
+impl std::error::Error for LongLabelError {}
 
 //------------ SplitLabelError -----------------------------------------------
 
 /// An error happened while splitting a label from an octets slice.
-#[derive(Clone, Copy, Debug, Eq,  PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SplitLabelError {
     /// The label was a pointer to the given position.
     Pointer(u16),
@@ -695,33 +640,26 @@ impl From<SplitLabelError> for ParseError {
             SplitLabelError::Pointer(_) => {
                 ParseError::Form(FormError::new("compressed domain name"))
             }
-            SplitLabelError::BadType(_) => {
-                ParseError::Form(FormError::new("invalid label type"))
-            }
-            SplitLabelError::ShortInput => ParseError::ShortInput
+            SplitLabelError::BadType(_) => ParseError::Form(FormError::new("invalid label type")),
+            SplitLabelError::ShortInput => ParseError::ShortInput,
         }
     }
 }
-
 
 //--- Display and Error
 
 impl fmt::Display for SplitLabelError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SplitLabelError::Pointer(_)
-                => f.write_str("compressed domain name"),
-            SplitLabelError::BadType(ltype)
-                => ltype.fmt(f),
-            SplitLabelError::ShortInput
-                => ParseError::ShortInput.fmt(f)
+            SplitLabelError::Pointer(_) => f.write_str("compressed domain name"),
+            SplitLabelError::BadType(ltype) => ltype.fmt(f),
+            SplitLabelError::ShortInput => ParseError::ShortInput.fmt(f),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for SplitLabelError { }
-
+impl std::error::Error for SplitLabelError {}
 
 //============ Testing =======================================================
 
@@ -732,11 +670,9 @@ mod test {
     #[test]
     fn from_slice() {
         let x = [0u8; 10];
-        assert_eq!(Label::from_slice(&x[..]).unwrap().as_slice(),
-                   &x[..]);
+        assert_eq!(Label::from_slice(&x[..]).unwrap().as_slice(), &x[..]);
         let x = [0u8; 63];
-        assert_eq!(Label::from_slice(&x[..]).unwrap().as_slice(),
-                   &x[..]);
+        assert_eq!(Label::from_slice(&x[..]).unwrap().as_slice(), &x[..]);
         let x = [0u8; 64];
         assert!(Label::from_slice(&x[..]).is_err());
     }
@@ -744,39 +680,52 @@ mod test {
     #[test]
     fn split_from() {
         // regular label
-        assert_eq!(Label::split_from(b"\x03www\x07example\x03com\0").unwrap(),
-                   (Label::from_slice(b"www").unwrap(),
-                    &b"\x07example\x03com\0"[..]));
+        assert_eq!(
+            Label::split_from(b"\x03www\x07example\x03com\0").unwrap(),
+            (
+                Label::from_slice(b"www").unwrap(),
+                &b"\x07example\x03com\0"[..]
+            )
+        );
 
         // final regular label
-        assert_eq!(Label::split_from(b"\x03www").unwrap(),
-                   (Label::from_slice(b"www").unwrap(),
-                    &b""[..]));
+        assert_eq!(
+            Label::split_from(b"\x03www").unwrap(),
+            (Label::from_slice(b"www").unwrap(), &b""[..])
+        );
 
         // root label
-        assert_eq!(Label::split_from(b"\0some").unwrap(),
-                   (Label::from_slice(b"").unwrap(),
-                    &b"some"[..]));
+        assert_eq!(
+            Label::split_from(b"\0some").unwrap(),
+            (Label::from_slice(b"").unwrap(), &b"some"[..])
+        );
 
         // short slice
-        assert_eq!(Label::split_from(b"\x03ww"),
-                   Err(SplitLabelError::ShortInput));
+        assert_eq!(
+            Label::split_from(b"\x03ww"),
+            Err(SplitLabelError::ShortInput)
+        );
 
         // empty slice
-        assert_eq!(Label::split_from(b""),
-                   Err(SplitLabelError::ShortInput));
+        assert_eq!(Label::split_from(b""), Err(SplitLabelError::ShortInput));
 
         // compressed label
-        assert_eq!(Label::split_from(b"\xc0\x05foo"),
-                   Err(SplitLabelError::Pointer(5)));
+        assert_eq!(
+            Label::split_from(b"\xc0\x05foo"),
+            Err(SplitLabelError::Pointer(5))
+        );
 
         // undefined label type
-        assert_eq!(Label::split_from(b"\xb3foo"),
-                   Err(LabelTypeError::Undefined.into()));
+        assert_eq!(
+            Label::split_from(b"\xb3foo"),
+            Err(LabelTypeError::Undefined.into())
+        );
 
         // extended label type
-        assert_eq!(Label::split_from(b"\x66foo"),
-                   Err(LabelTypeError::Extended(0x66).into()));
+        assert_eq!(
+            Label::split_from(b"\x66foo"),
+            Err(LabelTypeError::Extended(0x66).into())
+        );
     }
 
     #[test]
@@ -796,25 +745,35 @@ mod test {
 
     #[test]
     fn eq() {
-        assert_eq!(Label::from_slice(b"example").unwrap(),
-                   Label::from_slice(b"eXAMple").unwrap());
-        assert_ne!(Label::from_slice(b"example").unwrap(),
-                   Label::from_slice(b"e4ample").unwrap());
+        assert_eq!(
+            Label::from_slice(b"example").unwrap(),
+            Label::from_slice(b"eXAMple").unwrap()
+        );
+        assert_ne!(
+            Label::from_slice(b"example").unwrap(),
+            Label::from_slice(b"e4ample").unwrap()
+        );
     }
 
     #[test]
     fn cmp() {
         use core::cmp::Ordering;
 
-        let labels = [Label::root(),
-                      Label::from_slice(b"\x01").unwrap(),
-                      Label::from_slice(b"*").unwrap(),
-                      Label::from_slice(b"\xc8").unwrap()];
+        let labels = [
+            Label::root(),
+            Label::from_slice(b"\x01").unwrap(),
+            Label::from_slice(b"*").unwrap(),
+            Label::from_slice(b"\xc8").unwrap(),
+        ];
         for i in 0..labels.len() {
             for j in 0..labels.len() {
-                let ord = if i < j { Ordering::Less }
-                          else if i == j { Ordering::Equal }
-                          else { Ordering::Greater };
+                let ord = if i < j {
+                    Ordering::Less
+                } else if i == j {
+                    Ordering::Equal
+                } else {
+                    Ordering::Greater
+                };
                 assert_eq!(labels[i].partial_cmp(&labels[j]), Some(ord));
                 assert_eq!(labels[i].cmp(&labels[j]), ord);
             }
@@ -839,4 +798,3 @@ mod test {
         assert_eq!(s1.finish(), s2.finish());
     }
 }
-

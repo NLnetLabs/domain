@@ -5,6 +5,5 @@
 
 pub mod entry;
 pub mod reader;
-pub mod source;
 pub mod scan;
-
+pub mod source;

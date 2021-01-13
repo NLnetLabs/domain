@@ -1,14 +1,13 @@
 //! Looking up host names.
 
-use std::io;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
 use crate::base::name::{ParsedDname, ToDname, ToRelativeDname};
 use crate::base::octets::OctetsRef;
-use crate::rdata::{A, Aaaa};
+use crate::rdata::{Aaaa, A};
 use crate::resolv::resolver::{Resolver, SearchNames};
-
+use std::io;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
 //------------ lookup_host ---------------------------------------------------
 
@@ -22,7 +21,8 @@ use crate::resolv::resolver::{Resolver, SearchNames};
 /// the host name is in fact an alias for another name, the value will also
 /// return the canonical name.
 pub async fn lookup_host<R: Resolver>(
-    resolver: &R, qname: impl ToDname
+    resolver: &R,
+    qname: impl ToDname,
 ) -> Result<FoundHosts<R>, io::Error> {
     let (a, aaaa) = tokio::join!(
         resolver.query((&qname, Rtype::A)),
@@ -31,24 +31,23 @@ pub async fn lookup_host<R: Resolver>(
     FoundHosts::new(aaaa, a)
 }
 
-
 //------------ search_host ---------------------------------------------------
 
 pub async fn search_host<R: Resolver + SearchNames>(
-    resolver: &R, qname: impl ToRelativeDname
+    resolver: &R,
+    qname: impl ToRelativeDname,
 ) -> Result<FoundHosts<R>, io::Error> {
     for suffix in resolver.search_iter() {
         if let Ok(name) = (&qname).chain(suffix) {
             if let Ok(answer) = lookup_host(resolver, name).await {
                 if !answer.is_empty() {
-                    return Ok(answer)
+                    return Ok(answer);
                 }
             }
         }
     }
     lookup_host(resolver, qname.chain_root()).await
 }
-
 
 //------------ FoundHosts ----------------------------------------------------
 
@@ -72,12 +71,12 @@ pub struct FoundHosts<R: Resolver> {
 impl<R: Resolver> FoundHosts<R> {
     pub fn new(
         aaaa: Result<R::Answer, io::Error>,
-        a: Result<R::Answer, io::Error>
+        a: Result<R::Answer, io::Error>,
     ) -> Result<Self, io::Error> {
         if aaaa.is_err() && a.is_err() {
             match aaaa {
                 Err(err) => return Err(err),
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         }
         Ok(FoundHosts { aaaa, a })
@@ -86,12 +85,12 @@ impl<R: Resolver> FoundHosts<R> {
     pub fn is_empty(&self) -> bool {
         if let Ok(ref aaaa) = self.aaaa {
             if aaaa.as_ref().header_counts().ancount() > 0 {
-                return false
+                return false;
             }
         }
         if let Ok(ref a) = self.a {
             if a.as_ref().header_counts().ancount() > 0 {
-                return false
+                return false;
             }
         }
         true
@@ -101,15 +100,21 @@ impl<R: Resolver> FoundHosts<R> {
     fn answer(&self) -> &R::Answer {
         match self.aaaa.as_ref() {
             Ok(answer) => answer,
-            Err(_) => self.a.as_ref().unwrap()
+            Err(_) => self.a.as_ref().unwrap(),
         }
     }
 }
 
 impl<R: Resolver> FoundHosts<R>
-where for<'a> &'a R::Octets: OctetsRef {
+where
+    for<'a> &'a R::Octets: OctetsRef,
+{
     pub fn qname(&self) -> ParsedDname<&R::Octets> {
-        self.answer().as_ref().first_question().unwrap().into_qname()
+        self.answer()
+            .as_ref()
+            .first_question()
+            .unwrap()
+            .into_qname()
     }
 
     /// Returns a reference to the canonical name for the host.
@@ -122,15 +127,19 @@ where for<'a> &'a R::Octets: OctetsRef {
         FoundHostsIter {
             name: self.canonical_name(),
             aaaa: {
-                self.aaaa.as_ref().ok()
-                .and_then(|msg| msg.as_ref().answer().ok())
-                .map(|answer| answer.limit_to::<Aaaa>())
+                self.aaaa
+                    .as_ref()
+                    .ok()
+                    .and_then(|msg| msg.as_ref().answer().ok())
+                    .map(|answer| answer.limit_to::<Aaaa>())
             },
             a: {
-                self.a.as_ref().ok()
-                .and_then(|msg| msg.as_ref().answer().ok())
-                .map(|answer| answer.limit_to::<A>())
-            }
+                self.a
+                    .as_ref()
+                    .ok()
+                    .and_then(|msg| msg.as_ref().answer().ok())
+                    .map(|answer| answer.limit_to::<A>())
+            },
         }
     }
 
@@ -140,10 +149,12 @@ where for<'a> &'a R::Octets: OctetsRef {
     /// `port`. The returned iterator implements `ToSocketAddrs` and thus
     /// can be used where `std::net` wants addresses right away.
     pub fn port_iter(&self, port: u16) -> FoundHostsSocketIter<&R::Octets> {
-        FoundHostsSocketIter { iter: self.iter(), port }
+        FoundHostsSocketIter {
+            iter: self.iter(),
+            port,
+        }
     }
 }
-
 
 //------------ FoundHostsIter ------------------------------------------------
 
@@ -152,7 +163,7 @@ where for<'a> &'a R::Octets: OctetsRef {
 pub struct FoundHostsIter<Ref: OctetsRef> {
     name: ParsedDname<Ref>,
     aaaa: Option<RecordIter<Ref, Aaaa>>,
-    a: Option<RecordIter<Ref, A>>
+    a: Option<RecordIter<Ref, A>>,
 }
 
 impl<Ref: OctetsRef> Iterator for FoundHostsIter<Ref> {
@@ -162,21 +173,20 @@ impl<Ref: OctetsRef> Iterator for FoundHostsIter<Ref> {
         while let Some(res) = self.aaaa.as_mut().and_then(Iterator::next) {
             if let Ok(record) = res {
                 if *record.owner() == self.name {
-                    return Some(record.data().addr().into())
+                    return Some(record.data().addr().into());
                 }
             }
         }
         while let Some(res) = self.a.as_mut().and_then(Iterator::next) {
             if let Ok(record) = res {
                 if *record.owner() == self.name {
-                    return Some(record.data().addr().into())
+                    return Some(record.data().addr().into());
                 }
             }
         }
         None
     }
 }
-
 
 //------------ FoundHostsSocketIter ------------------------------------------
 
@@ -191,7 +201,9 @@ impl<Ref: OctetsRef> Iterator for FoundHostsSocketIter<Ref> {
     type Item = SocketAddr;
 
     fn next(&mut self) -> Option<SocketAddr> {
-        self.iter.next().map(|addr| SocketAddr::new(addr, self.port))
+        self.iter
+            .next()
+            .map(|addr| SocketAddr::new(addr, self.port))
     }
 }
 
@@ -202,4 +214,3 @@ impl<Ref: OctetsRef> ToSocketAddrs for FoundHostsSocketIter<Ref> {
         Ok(self.clone())
     }
 }
-

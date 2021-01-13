@@ -1,19 +1,18 @@
 //! Looking up SRV records.
 
-use std::{io, mem, ops};
-use std::net::{IpAddr, SocketAddr};
-use std::vec::Vec;
-use futures::stream;
-use futures::stream::{Stream, StreamExt};
-use rand::distributions::{Distribution, Uniform};
+use super::host::lookup_host;
+use crate::base::iana::{Class, Rtype};
 use crate::base::message::Message;
 use crate::base::name::{Dname, ToDname, ToRelativeDname};
 use crate::base::octets::{OctetsRef, OctetsVec, ParseError};
-use crate::base::iana::{Class, Rtype};
-use crate::rdata::{A, Aaaa, Srv};
+use crate::rdata::{Aaaa, Srv, A};
 use crate::resolv::resolver::Resolver;
-use super::host::lookup_host;
-
+use futures::stream;
+use futures::stream::{Stream, StreamExt};
+use rand::distributions::{Distribution, Uniform};
+use std::net::{IpAddr, SocketAddr};
+use std::vec::Vec;
+use std::{io, mem, ops};
 
 // Look up SRV record. Three outcomes:
 //
@@ -30,14 +29,13 @@ use super::host::lookup_host;
 // In the third case we have a single (target, port) pair with the original
 // host and the fallback port which we need to resolve further.
 
-
 //------------ lookup_srv ----------------------------------------------------
 
 /// Creates a future that looks up SRV records.
 ///
 /// The future will use the resolver given in `resolver` to query the
 /// DNS for SRV records associated with domain name `name` and service
-/// `service`. 
+/// `service`.
 ///
 /// The value returned upon success can be turned into a stream of
 /// `ResolvedSrvItem`s corresponding to the found SRV records, ordered as per
@@ -56,16 +54,15 @@ pub async fn lookup_srv(
     resolver: &impl Resolver,
     service: impl ToRelativeDname,
     name: impl ToDname,
-    fallback_port: u16
+    fallback_port: u16,
 ) -> Result<Option<FoundSrvs>, SrvError> {
     let full_name = match (&service).chain(&name) {
         Ok(name) => name,
-        Err(_) => return Err(SrvError::LongName)
+        Err(_) => return Err(SrvError::LongName),
     };
     let answer = resolver.query((full_name, Rtype::Srv)).await?;
     FoundSrvs::new(&answer.as_ref().for_slice(), name, fallback_port)
 }
-
 
 //------------ FoundSrvs -----------------------------------------------------
 
@@ -84,13 +81,15 @@ impl FoundSrvs {
         self,
         resolver: &R,
     ) -> impl Stream<Item = Result<ResolvedSrvItem, io::Error>> + '_
-    where R::Octets: OctetsRef {
+    where
+        R::Octets: OctetsRef,
+    {
         // Let’s make a somewhat elaborate single iterator from self.items
         // that we can use as the base for the stream: We turn the result into
         // two options of the two cases and chain those up.
         let iter = match self.items {
             Ok(vec) => Some(vec.into_iter()).into_iter().flatten().chain(None),
-            Err(one) => None.into_iter().flatten().chain(Some(one))
+            Err(one) => None.into_iter().flatten().chain(Some(one)),
         };
         stream::iter(iter).then(move |item| item.resolve(resolver))
     }
@@ -98,18 +97,16 @@ impl FoundSrvs {
     /// Moves all results from `other` into `Self`, leaving `other` empty.
     ///
     /// Reorders merged results as if they were from a single query.
-    pub fn merge(&mut self, other : &mut Self) {
+    pub fn merge(&mut self, other: &mut Self) {
         if self.items.is_err() {
-            let one = mem::replace(
-                &mut self.items, Ok(Vec::new())
-            ).unwrap_err();
+            let one = mem::replace(&mut self.items, Ok(Vec::new())).unwrap_err();
             self.items.as_mut().unwrap().push(one);
         }
         match self.items {
             Ok(ref mut items) => {
                 match other.items {
                     Ok(ref vec) => items.extend_from_slice(vec),
-                    Err(ref one) => items.push(one.clone())
+                    Err(ref one) => items.push(one.clone()),
                 }
                 Self::reorder_items(items);
             }
@@ -126,15 +123,15 @@ impl FoundSrvs {
     ) -> Result<Option<Self>, SrvError> {
         let name = answer.canonical_name().ok_or(SrvError::MalformedAnswer)?;
         let mut items = Self::process_records(answer, &name)?;
-        
+
         if items.is_empty() {
             return Ok(Some(FoundSrvs {
-                items: Err(SrvItem::fallback(fallback_name, fallback_port))
-            }))
+                items: Err(SrvItem::fallback(fallback_name, fallback_port)),
+            }));
         }
         if items.len() == 1 && items[0].target().is_root() {
             // Exactly one record with target "." indicates no service.
-            return Ok(None)
+            return Ok(None);
         }
 
         // Build results including potentially resolved IP addresses
@@ -159,21 +156,17 @@ impl FoundSrvs {
         Ok(res)
     }
 
-    fn process_additional(
-        items: &mut [SrvItem], answer: &Message<&[u8]>
-    ) -> Result<(), SrvError> {
+    fn process_additional(items: &mut [SrvItem], answer: &Message<&[u8]>) -> Result<(), SrvError> {
         let additional = answer.additional()?;
         for item in items {
             let mut addrs = Vec::new();
             for record in additional {
                 let record = match record {
                     Ok(record) => record,
-                    Err(_) => continue
+                    Err(_) => continue,
                 };
-                if record.class() != Class::In ||
-                    record.owner() != item.target()
-                {
-                    continue
+                if record.class() != Class::In || record.owner() != item.target() {
+                    continue;
                 }
                 if let Ok(Some(record)) = record.to_record::<A>() {
                     addrs.push(record.data().addr().into())
@@ -199,7 +192,7 @@ impl FoundSrvs {
         let mut current_prio = 0;
         let mut weight_sum = 0;
         let mut first_index = 0;
-        for i in 0 .. items.len() {
+        for i in 0..items.len() {
             if current_prio != items[i].priority() {
                 current_prio = items[i].priority();
                 Self::reorder_by_weight(&mut items[first_index..i], weight_sum);
@@ -212,14 +205,14 @@ impl FoundSrvs {
     }
 
     /// Reorders items in a priority level based on their weight
-    fn reorder_by_weight(items: &mut [SrvItem], weight_sum : u32) {
+    fn reorder_by_weight(items: &mut [SrvItem], weight_sum: u32) {
         let mut rng = rand::thread_rng();
         let mut weight_sum = weight_sum;
-        for i in 0 .. items.len() {
+        for i in 0..items.len() {
             let range = Uniform::new(0, weight_sum + 1);
-            let mut sum : u32 = 0;
+            let mut sum: u32 = 0;
             let pick = range.sample(&mut rng);
-            for j in 0 .. items.len() {
+            for j in 0..items.len() {
                 sum += u32::from(items[j].weight());
                 if sum >= pick {
                     weight_sum -= u32::from(items[j].weight());
@@ -230,7 +223,6 @@ impl FoundSrvs {
         }
     }
 }
-
 
 //------------ SrvItem -------------------------------------------------------
 
@@ -245,8 +237,10 @@ impl SrvItem {
     fn from_rdata(srv: &Srv<impl ToDname>) -> Self {
         SrvItem {
             srv: Srv::new(
-                     srv.priority(), srv.weight(), srv.port(),
-                     srv.target().to_dname().unwrap()
+                srv.priority(),
+                srv.weight(),
+                srv.port(),
+                srv.target().to_dname().unwrap(),
             ),
             fallback: false,
             resolved: None,
@@ -257,34 +251,36 @@ impl SrvItem {
         SrvItem {
             srv: Srv::new(0, 0, fallback_port, name.to_dname().unwrap()),
             fallback: true,
-            resolved: None
+            resolved: None,
         }
     }
 
     // Resolves the target.
-    pub async fn resolve<R: Resolver>(
-        self, resolver: &R
-    ) -> Result<ResolvedSrvItem, io::Error>
-    where for<'a> &'a R::Octets: OctetsRef {
+    pub async fn resolve<R: Resolver>(self, resolver: &R) -> Result<ResolvedSrvItem, io::Error>
+    where
+        for<'a> &'a R::Octets: OctetsRef,
+    {
         let port = self.port();
         if let Some(resolved) = self.resolved {
-            return Ok(ResolvedSrvItem { 
+            return Ok(ResolvedSrvItem {
                 srv: self.srv,
                 resolved: {
-                    resolved.into_iter().map(|addr| {
-                        SocketAddr::new(addr, port)
-                    }).collect()
+                    resolved
+                        .into_iter()
+                        .map(|addr| SocketAddr::new(addr, port))
+                        .collect()
                 },
-            })
+            });
         }
         let resolved = lookup_host(resolver, self.target()).await?;
         Ok(ResolvedSrvItem {
             srv: self.srv,
             resolved: {
-                resolved.iter().map(|addr| {
-                    SocketAddr::new(addr, port)
-                }).collect()
-            }
+                resolved
+                    .iter()
+                    .map(|addr| SocketAddr::new(addr, port))
+                    .collect()
+            },
         })
     }
 }
@@ -302,7 +298,6 @@ impl ops::Deref for SrvItem {
         self.as_ref()
     }
 }
-
 
 //------------ ResolvedSrvItems ----------------------------------------------
 
@@ -332,7 +327,6 @@ impl ops::Deref for ResolvedSrvItem {
     }
 }
 
-
 //------------ SrvError ------------------------------------------------------
 
 #[derive(Debug)]
@@ -353,4 +347,3 @@ impl From<ParseError> for SrvError {
         SrvError::MalformedAnswer
     }
 }
-

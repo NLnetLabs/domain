@@ -3,14 +3,13 @@
 //! This is here so we can read from things that aren’t ASCII or UTF-8.
 #![cfg(feature = "std")]
 
-use std::{char, error, fmt, io};
+use super::scan::CharSource;
 use std::boxed::Box;
-use std::io::Read;
 use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::vec::Vec;
-use super::scan::CharSource;
-
+use std::{char, error, fmt, io};
 
 //------------ str -----------------------------------------------------------
 
@@ -24,7 +23,6 @@ impl<'a> CharSource for &'a str {
         Ok(Some(res))
     }
 }
-
 
 //------------ AsciiFile -----------------------------------------------------
 
@@ -45,7 +43,7 @@ impl AsciiFile {
                 let mut buffer = Vec::with_capacity(CAP);
                 buffer.set_len(CAP);
                 Some((buffer.into_boxed_slice(), 0, 0))
-            }
+            },
         }
     }
 
@@ -57,19 +55,15 @@ impl AsciiFile {
 
 impl CharSource for AsciiFile {
     fn next(&mut self) -> Result<Option<char>, io::Error> {
-        let err = if let Some((ref mut buf, ref mut len, ref mut pos))
-                                = self.buf {
+        let err = if let Some((ref mut buf, ref mut len, ref mut pos)) = self.buf {
             if *pos < *len {
                 let res = buf[*pos];
                 if res.is_ascii() {
                     *pos += 1;
-                    return Ok(Some(res as char))
+                    return Ok(Some(res as char));
                 }
-                Err(io::Error::new(
-                    io::ErrorKind::InvalidData, AsciiError(res)
-                ))
-            }
-            else {
+                Err(io::Error::new(io::ErrorKind::InvalidData, AsciiError(res)))
+            } else {
                 match self.file.read(buf) {
                     Ok(0) => Ok(None),
                     Ok(read_len) => {
@@ -77,24 +71,20 @@ impl CharSource for AsciiFile {
                         let res = buf[0];
                         if res.is_ascii() {
                             *pos = 1;
-                            return Ok(Some(res as char))
+                            return Ok(Some(res as char));
                         }
-                        Err(io::Error::new(
-                            io::ErrorKind::InvalidData, AsciiError(res)
-                        ))
+                        Err(io::Error::new(io::ErrorKind::InvalidData, AsciiError(res)))
                     }
-                    Err(err) => Err(err)
+                    Err(err) => Err(err),
                 }
             }
-        }
-        else {
+        } else {
             return Ok(None);
         };
         self.buf = None;
         err
     }
 }
-
 
 //------------ Utf8File ------------------------------------------------------
 
@@ -116,67 +106,68 @@ impl CharSource for Utf8File {
     fn next(&mut self) -> Result<Option<char>, io::Error> {
         let first = match self.0.next()? {
             Some(ch) => ch,
-            None => return Ok(None)
+            None => return Ok(None),
         };
-        if first.is_ascii() { //first < 0x80  {
-            return Ok(Some(first as char))
+        if first.is_ascii() {
+            //first < 0x80  {
+            return Ok(Some(first as char));
         }
         let second = match self.0.next()? {
             Some(ch) => ch,
             None => {
                 return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof, "unexpected EOF"
+                    io::ErrorKind::UnexpectedEof,
+                    "unexpected EOF",
                 ))
             }
         };
         if first < 0xC0 || second < 0x80 {
-            return Err(Utf8Error.into())
+            return Err(Utf8Error.into());
         }
         if first < 0xE0 {
             return Ok(Some(unsafe {
-                char::from_u32_unchecked(
-                    (u32::from(first & 0x1F)) << 6 |
-                    u32::from(second & 0x3F)
-                )
-            }))
+                char::from_u32_unchecked((u32::from(first & 0x1F)) << 6 | u32::from(second & 0x3F))
+            }));
         }
         let third = match self.0.next()? {
             Some(ch) => ch,
             None => {
                 return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof, "unexpected EOF"
+                    io::ErrorKind::UnexpectedEof,
+                    "unexpected EOF",
                 ))
             }
         };
         if third < 0x80 {
-            return Err(Utf8Error.into())
+            return Err(Utf8Error.into());
         }
         if first < 0xF0 {
             return Ok(Some(unsafe {
                 char::from_u32_unchecked(
-                    (u32::from(first & 0x0F)) << 12 |
-                    (u32::from(second & 0x3F)) << 6 |
-                    u32::from(third & 0x3F)
+                    (u32::from(first & 0x0F)) << 12
+                        | (u32::from(second & 0x3F)) << 6
+                        | u32::from(third & 0x3F),
                 )
-            }))
+            }));
         }
         let fourth = match self.0.next()? {
             Some(ch) => ch,
             None => {
                 return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof, "unexpected EOF"
+                    io::ErrorKind::UnexpectedEof,
+                    "unexpected EOF",
                 ))
             }
         };
         if first > 0xF7 || fourth < 0x80 {
-            return Err(Utf8Error.into())
+            return Err(Utf8Error.into());
         }
         Ok(Some(unsafe {
             char::from_u32_unchecked(
-                (u32::from(first & 0x07)) << 18 |
-                (u32::from(second & 0x3F)) << 12 |
-                (u32::from(third & 0x3F)) << 6 |
-                u32::from(fourth & 0x3F)
+                (u32::from(first & 0x07)) << 18
+                    | (u32::from(second & 0x3F)) << 12
+                    | (u32::from(third & 0x3F)) << 6
+                    | u32::from(fourth & 0x3F),
             )
         }))
     }
@@ -187,7 +178,6 @@ impl From<Utf8Error> for io::Error {
         io::Error::new(io::ErrorKind::Other, err)
     }
 }
-
 
 //------------ OctetFile -----------------------------------------------------
 
@@ -208,7 +198,7 @@ impl OctetFile {
                 let mut buffer = Vec::with_capacity(CAP);
                 buffer.set_len(CAP);
                 Some((buffer.into_boxed_slice(), 0, 0))
-            }
+            },
         }
     }
 
@@ -219,14 +209,12 @@ impl OctetFile {
 
     #[inline]
     fn next(&mut self) -> Result<Option<u8>, io::Error> {
-        let err = if let Some((ref mut buf, ref mut len, ref mut pos))
-                                = self.buf {
+        let err = if let Some((ref mut buf, ref mut len, ref mut pos)) = self.buf {
             if *pos < *len {
                 let res = buf[*pos];
                 *pos += 1;
-                return Ok(Some(res))
-            }
-            else {
+                return Ok(Some(res));
+            } else {
                 match self.file.read(buf) {
                     Ok(0) => Ok(None),
                     Ok(read_len) => {
@@ -234,17 +222,14 @@ impl OctetFile {
                         let res = buf[0];
                         if res.is_ascii() {
                             *pos = 1;
-                            return Ok(Some(res))
+                            return Ok(Some(res));
                         }
-                        Err(io::Error::new(
-                            io::ErrorKind::InvalidData, AsciiError(res)
-                        ))
+                        Err(io::Error::new(io::ErrorKind::InvalidData, AsciiError(res)))
                     }
-                    Err(err) => Err(err)
+                    Err(err) => Err(err),
                 }
             }
-        }
-        else {
+        } else {
             return Ok(None);
         };
         self.buf = None;
@@ -252,16 +237,13 @@ impl OctetFile {
     }
 }
 
-
 //=========== Error Types ===================================================
-
 
 //------------ AsciiError ----------------------------------------------------
 
 /// An error happened while reading an ASCII-only file.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AsciiError(u8);
-
 
 //--- Display and Error
 
@@ -271,15 +253,13 @@ impl fmt::Display for AsciiError {
     }
 }
 
-impl error::Error for AsciiError { }
-
+impl error::Error for AsciiError {}
 
 //------------ Utf8Error -----------------------------------------------------
 
 /// An error happened while reading a file encoded with UTF-8.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Utf8Error;
-
 
 //--- Display and Error
 
@@ -289,5 +269,4 @@ impl fmt::Display for Utf8Error {
     }
 }
 
-impl error::Error for Utf8Error { }
-
+impl error::Error for Utf8Error {}

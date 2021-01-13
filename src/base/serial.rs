@@ -7,18 +7,16 @@
 //!
 //! [`Serial`]: struct.Serial.html
 
-use core::{cmp, fmt, str};
-use core::cmp::Ordering;
-#[cfg(feature = "std")] use std::time::{SystemTime, UNIX_EPOCH};
-#[cfg(feature = "chrono")] use chrono::{DateTime, Utc, TimeZone};
-#[cfg(feature = "master")] use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError
-};
 use super::cmp::CanonicalOrd;
-use super::octets::{
-    Compose, OctetsBuilder, Parse, Parser, ParseError, ShortBuf
-};
-
+use super::octets::{Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf};
+#[cfg(feature = "master")]
+use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+#[cfg(feature = "chrono")]
+use chrono::{DateTime, TimeZone, Utc};
+use core::cmp::Ordering;
+use core::{cmp, fmt, str};
+#[cfg(feature = "std")]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 //------------ Serial --------------------------------------------------------
 
@@ -54,7 +52,7 @@ impl Serial {
         let now = SystemTime::now();
         let value = match now.duration_since(UNIX_EPOCH) {
             Ok(value) => value,
-            Err(_) => UNIX_EPOCH.duration_since(now).unwrap()
+            Err(_) => UNIX_EPOCH.duration_since(now).unwrap(),
         };
         Self(value.as_secs() as u32)
     }
@@ -81,22 +79,20 @@ impl Serial {
     }
 
     /// Scan a serial represention signature time value.
-    /// 
+    ///
     /// In [RRSIG] records, the expiration and inception times are given as
     /// serial values. Their master file format can either be the signature
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
     ///
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
-    #[cfg(feature="master")]
-    pub fn scan_rrsig<C: CharSource>(
-        scanner: &mut Scanner<C>
-    ) -> Result<Self, ScanError> {
+    #[cfg(feature = "master")]
+    pub fn scan_rrsig<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             (0, [0u8; 14]),
             |&mut (ref mut pos, ref mut buf), symbol| {
                 let ch = symbol.into_digit(10)? as u8;
                 if *pos == 14 {
-                    return Err(SyntaxError::IllegalInteger) // XXX Not quite
+                    return Err(SyntaxError::IllegalInteger); // XXX Not quite
                 }
                 buf[*pos] = ch;
                 *pos += 1;
@@ -108,16 +104,14 @@ impl Serial {
                     // with possible overflows.
                     let mut res = 0u64;
                     for ch in &buf[..pos] {
-                        res = res *10 + (u64::from(*ch));
+                        res = res * 10 + (u64::from(*ch));
                     }
                     if res > u64::from(::std::u32::MAX) {
                         Err(SyntaxError::IllegalInteger)
-                    }
-                    else {
+                    } else {
                         Ok(Serial(res as u32))
                     }
-                }
-                else if pos == 14 {
+                } else if pos == 14 {
                     let year = u32_from_buf(&buf[0..4]) as i32;
                     let month = u32_from_buf(&buf[4..6]);
                     let day = u32_from_buf(&buf[6..8]);
@@ -127,45 +121,40 @@ impl Serial {
                     match month {
                         1 | 3 | 5 | 7 | 8 | 10 | 12 => {
                             if month > 31 {
-                                return Err(SyntaxError::IllegalInteger)
+                                return Err(SyntaxError::IllegalInteger);
                             }
                         }
                         4 | 6 | 9 | 11 => {
                             if month > 30 {
-                                return Err(SyntaxError::IllegalInteger)
+                                return Err(SyntaxError::IllegalInteger);
                             }
                         }
                         2 => {
                             if year % 4 == 0 && year % 100 != 0 {
                                 if month > 29 {
-                                    return Err(SyntaxError::IllegalInteger)
+                                    return Err(SyntaxError::IllegalInteger);
                                 }
-                            }
-                            else if month > 28 {
-                                return Err(SyntaxError::IllegalInteger)
+                            } else if month > 28 {
+                                return Err(SyntaxError::IllegalInteger);
                             }
                         }
-                        _ => {
-                            return Err(SyntaxError::IllegalInteger)
-                        }
+                        _ => return Err(SyntaxError::IllegalInteger),
                     }
                     if month < 1 || hour > 23 || minute > 59 || second > 59 {
-                        return Err(SyntaxError::IllegalInteger)
+                        return Err(SyntaxError::IllegalInteger);
                     }
                     Ok(Serial(
                         Utc.ymd(year, month, day)
                             .and_hms(hour, minute, second)
-                            .timestamp() as u32
+                            .timestamp() as u32,
                     ))
-                }
-                else {
+                } else {
                     Err(SyntaxError::IllegalInteger) // XXX Still not quite.
                 }
-            }
+            },
         )
     }
 }
-
 
 //--- From and FromStr
 
@@ -196,7 +185,6 @@ impl str::FromStr for Serial {
     }
 }
 
-
 //--- Parse and Compose
 
 impl<T: AsRef<[u8]>> Parse<T> for Serial {
@@ -210,21 +198,16 @@ impl<T: AsRef<[u8]>> Parse<T> for Serial {
 }
 
 impl Compose for Serial {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         self.0.compose(target)
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for Serial {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
         u32::scan(scanner).map(Into::into)
     }
 }
@@ -234,7 +217,6 @@ impl fmt::Display for Serial {
         write!(f, "{}", self.0)
     }
 }
-
 
 //--- PartialOrd
 
@@ -247,7 +229,7 @@ impl cmp::PartialOrd for Serial {
                 match sub.cmp(&0x8000_0000) {
                     Ordering::Less => Some(Ordering::Less),
                     Ordering::Greater => Some(Ordering::Greater),
-                    Ordering::Equal => None
+                    Ordering::Equal => None,
                 }
             }
             Ordering::Greater => {
@@ -255,7 +237,7 @@ impl cmp::PartialOrd for Serial {
                 match sub.cmp(&0x8000_0000) {
                     Ordering::Less => Some(Ordering::Greater),
                     Ordering::Greater => Some(Ordering::Less),
-                    Ordering::Equal => None
+                    Ordering::Equal => None,
                 }
             }
         }
@@ -268,10 +250,9 @@ impl CanonicalOrd for Serial {
     }
 }
 
-
 //------------ Helper Functions ----------------------------------------------
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 fn u32_from_buf(buf: &[u8]) -> u32 {
     let mut res = 0;
     for ch in buf {
@@ -279,7 +260,6 @@ fn u32_from_buf(buf: &[u8]) -> u32 {
     }
     res
 }
-
 
 //============ Testing =======================================================
 
@@ -290,9 +270,10 @@ mod test {
     #[test]
     fn good_addition() {
         assert_eq!(Serial(0).add(4), Serial(4));
-        assert_eq!(Serial(0xFF00_0000).add(0x0F00_0000),
-                   Serial(((0xFF00_0000u64 + 0x0F00_0000u64)
-                           % 0x1_0000_0000) as u32));
+        assert_eq!(
+            Serial(0xFF00_0000).add(0x0F00_0000),
+            Serial(((0xFF00_0000u64 + 0x0F00_0000u64) % 0x1_0000_0000) as u32)
+        );
     }
 
     #[test]
@@ -321,15 +302,19 @@ mod test {
 
         // s1 is said to be greater than s2 if [...]
         // (i1 < i2 and i2 - i1 > 2^(SERIAL_BITS - 1))
-        assert_eq!(Serial(12).partial_cmp(&Serial(3_000_000_012)),
-                   Some(Greater));
+        assert_eq!(
+            Serial(12).partial_cmp(&Serial(3_000_000_012)),
+            Some(Greater)
+        );
         assert_ne!(Serial(12).partial_cmp(&Serial(13)), Some(Greater));
 
         // (i1 > i2 and i1 - i2 < 2^(SERIAL_BITS - 1))
         assert_eq!(Serial(13).partial_cmp(&Serial(12)), Some(Greater));
-        assert_ne!(Serial(3_000_000_012).partial_cmp(&Serial(12)),
-                   Some(Greater));
-        
+        assert_ne!(
+            Serial(3_000_000_012).partial_cmp(&Serial(12)),
+            Some(Greater)
+        );
+
         // Er, I think that’s what’s left.
         assert_eq!(Serial(1).partial_cmp(&Serial(0x8000_0001)), None);
         assert_eq!(Serial(0x8000_0001).partial_cmp(&Serial(1)), None);

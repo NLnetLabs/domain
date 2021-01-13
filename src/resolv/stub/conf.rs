@@ -8,7 +8,8 @@
 //!
 //! Both parts are modeled along the lines of glibc’s resolver.
 
-use std::{convert, error, fmt, fs, io, ops};
+use crate::base::name::{self, Dname};
+use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::default::Default;
 use std::io::Read;
@@ -17,9 +18,7 @@ use std::path::Path;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::time::Duration;
 use std::vec::Vec;
-use smallvec::SmallVec;
-use crate::base::name::{self, Dname};
-
+use std::{convert, error, fmt, fs, io, ops};
 
 //------------ ResolvOptions ------------------------------------------------
 
@@ -54,7 +53,7 @@ pub struct ResolvOptions {
     /// This option is not currently implemented. It is likely to be
     /// eventually implemented by the query.
     pub aa_only: bool,
-    
+
     /// Always use TCP.
     ///
     /// This option is implemented by the query.
@@ -174,23 +173,34 @@ impl Default for ResolvOptions {
             search: SearchList::new(),
             //sortlist,
             ndots: 1,
-            timeout: Duration::new(5,0),
+            timeout: Duration::new(5, 0),
             attempts: 2,
 
             // enabled by default:
-            recurse: true, default_names: true, dn_search: true,
+            recurse: true,
+            default_names: true,
+            dn_search: true,
 
             // everthing else is not:
-            aa_only: false, use_vc: false, primary: false, ign_tc: false,
-            stay_open: false, use_inet6: false, rotate: false,
-            no_check_name: false, keep_tsig: false, blast: false,
-            use_bstring: false, use_ip6dotint: false, use_edns0: false,
-            single_request: false, single_request_reopen: false,
-            no_tld_query: false
+            aa_only: false,
+            use_vc: false,
+            primary: false,
+            ign_tc: false,
+            stay_open: false,
+            use_inet6: false,
+            rotate: false,
+            no_check_name: false,
+            keep_tsig: false,
+            blast: false,
+            use_bstring: false,
+            use_ip6dotint: false,
+            use_edns0: false,
+            single_request: false,
+            single_request_reopen: false,
+            no_tld_query: false,
         }
     }
 }
-
 
 //------------ Transport -----------------------------------------------------
 
@@ -225,7 +235,6 @@ impl Transport {
         }
     }
 }
-
 
 //------------ ServerConf ----------------------------------------------------
 
@@ -286,7 +295,6 @@ impl ServerConf {
     }
 }
 
-
 //------------ ResolvConf ---------------------------------------------------
 
 /// Resolver configuration.
@@ -317,7 +325,6 @@ pub struct ResolvConf {
     pub options: ResolvOptions,
 }
 
-
 /// # Management
 ///
 impl ResolvConf {
@@ -328,7 +335,7 @@ impl ResolvConf {
     pub fn new() -> Self {
         ResolvConf {
             servers: Vec::new(),
-            options: ResolvOptions::default()
+            options: ResolvOptions::default(),
         }
     }
 
@@ -342,8 +349,7 @@ impl ResolvConf {
         if self.servers.is_empty() {
             // glibc just simply uses 127.0.0.1:53. Let's do that, too,
             // and claim it is for compatibility.
-            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                                       53);
+            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 53);
             self.servers.push(ServerConf::new(addr, Transport::Udp));
             self.servers.push(ServerConf::new(addr, Transport::Tcp));
         }
@@ -366,14 +372,11 @@ impl ResolvConf {
     }
 }
 
-
 /// # Parsing Configuration File
 ///
 impl ResolvConf {
     /// Parses the configuration from a file.
-    pub fn parse_file<P: AsRef<Path>>(
-        &mut self, path: P
-    ) -> Result<(), Error> {
+    pub fn parse_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
         let mut file = fs::File::open(path)?;
         self.parse(&mut file)
     }
@@ -388,9 +391,8 @@ impl ResolvConf {
             let line = line?;
             let line = line.trim_end();
 
-            if line.is_empty() || line.starts_with(';') ||
-                                  line.starts_with('#') {
-                continue
+            if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+                continue;
             }
 
             let mut words = line.split_whitespace();
@@ -399,32 +401,25 @@ impl ResolvConf {
                 Some("nameserver") => self.parse_nameserver(words)?,
                 Some("domain") => self.parse_domain(words)?,
                 Some("search") => self.parse_search(words)?,
-                Some("sortlist") => { /* TODO: self.parse_sortlist(words)? */ },
+                Some("sortlist") => { /* TODO: self.parse_sortlist(words)? */ }
                 Some("options") => self.parse_options(words)?,
-                _ => return Err(Error::ParseError)
+                _ => return Err(Error::ParseError),
             }
         }
         Ok(())
     }
 
-    fn parse_nameserver(
-        &mut self,
-        mut words: SplitWhitespace
-    ) -> Result<(), Error> {
+    fn parse_nameserver(&mut self, mut words: SplitWhitespace) -> Result<(), Error> {
         use std::net::ToSocketAddrs;
-        
-        for addr in (next_word(&mut words)?, 53).to_socket_addrs()?
-        {
+
+        for addr in (next_word(&mut words)?, 53).to_socket_addrs()? {
             self.servers.push(ServerConf::new(addr, Transport::Udp));
             self.servers.push(ServerConf::new(addr, Transport::Tcp));
         }
         no_more_words(words)
     }
 
-    fn parse_domain(
-        &mut self,
-        mut words: SplitWhitespace
-    ) -> Result<(), Error> {
+    fn parse_domain(&mut self, mut words: SplitWhitespace) -> Result<(), Error> {
         let domain = SearchSuffix::from_str(next_word(&mut words)?)?;
         self.options.search = domain.into();
         no_more_words(words)
@@ -460,57 +455,28 @@ impl ResolvConf {
     fn parse_options(&mut self, words: SplitWhitespace) -> Result<(), Error> {
         for word in words {
             match split_arg(word)? {
-                ("debug", None) => { }
-                ("ndots", Some(n)) => {
-                    self.options.ndots = n
-                }
-                ("timeout", Some(n)) => {
-                    self.options.timeout = Duration::new(n as u64, 0)
-                }
-                ("attempts", Some(n)) => {
-                    self.options.attempts = n
-                }
-                ("rotate", None) => {
-                    self.options.rotate = true
-                }
-                ("no-check-names", None) => {
-                    self.options.no_check_name = true
-                }
-                ("inet6", None) => {
-                    self.options.use_inet6 = true
-                }
-                ("ip6-bytestring", None) => {
-                    self.options.use_bstring = true
-                }
-                ("ip6-dotint", None) => {
-                    self.options.use_ip6dotint = true
-                }
-                ("no-ip6-dotint", None) => {
-                    self.options.use_ip6dotint = false
-                }
-                ("edns0", None) => {
-                    self.options.use_edns0 = true
-                }
-                ("single-request", None) => {
-                    self.options.single_request = true
-                }
-                ("single-request-reopen", None) => {
-                    self.options.single_request_reopen = true
-                }
-                ("no-tld-query", None) => {
-                    self.options.no_tld_query = true
-                }
-                ("use-vc", None) => {
-                    self.options.use_vc = true
-                }
+                ("debug", None) => {}
+                ("ndots", Some(n)) => self.options.ndots = n,
+                ("timeout", Some(n)) => self.options.timeout = Duration::new(n as u64, 0),
+                ("attempts", Some(n)) => self.options.attempts = n,
+                ("rotate", None) => self.options.rotate = true,
+                ("no-check-names", None) => self.options.no_check_name = true,
+                ("inet6", None) => self.options.use_inet6 = true,
+                ("ip6-bytestring", None) => self.options.use_bstring = true,
+                ("ip6-dotint", None) => self.options.use_ip6dotint = true,
+                ("no-ip6-dotint", None) => self.options.use_ip6dotint = false,
+                ("edns0", None) => self.options.use_edns0 = true,
+                ("single-request", None) => self.options.single_request = true,
+                ("single-request-reopen", None) => self.options.single_request_reopen = true,
+                ("no-tld-query", None) => self.options.no_tld_query = true,
+                ("use-vc", None) => self.options.use_vc = true,
                 // Ignore unknown or misformated options.
-                _ => { }
+                _ => {}
             }
         }
         Ok(())
     }
 }
-
 
 //--- Default
 
@@ -520,7 +486,6 @@ impl Default for ResolvConf {
     }
 }
 
-
 //--- Display
 
 impl fmt::Display for ResolvConf {
@@ -529,8 +494,11 @@ impl fmt::Display for ResolvConf {
         for server in &self.servers {
             let server = server.addr;
             f.write_str("nameserver ")?;
-            if server.port() == 53 { server.ip().fmt(f)?; }
-            else { server.fmt(f)?; }
+            if server.port() == 53 {
+                server.ip().fmt(f)?;
+            } else {
+                server.fmt(f)?;
+            }
             "\n".fmt(f)?;
         }
         match self.options.search.len().cmp(&1) {
@@ -544,50 +512,80 @@ impl fmt::Display for ResolvConf {
                 }
                 "\n".fmt(f)?;
             }
-            Ordering::Less => { }
+            Ordering::Less => {}
         }
 
         // Collect options so we only print them if there are any non-default
         // ones.
         let mut options = Vec::new();
-        
+
         if self.options.ndots != 1 {
             options.push(format!("ndots:{}", self.options.ndots));
         }
-        if self.options.timeout != Duration::new(5,0) {
+        if self.options.timeout != Duration::new(5, 0) {
             // XXX This ignores fractional seconds.
-            options.push(
-                format!("timeout:{}", self.options.timeout.as_secs())
-            );
+            options.push(format!("timeout:{}", self.options.timeout.as_secs()));
         }
         if self.options.attempts != 2 {
             options.push(format!("attempts:{}", self.options.attempts));
         }
-        if self.options.aa_only { options.push("aa-only".into()) }
-        if self.options.use_vc { options.push("use-vc".into()) }
-        if self.options.primary { options.push("primary".into()) }
-        if self.options.ign_tc { options.push("ign-tc".into()) }
-        if !self.options.recurse { options.push("no-recurse".into()) }
+        if self.options.aa_only {
+            options.push("aa-only".into())
+        }
+        if self.options.use_vc {
+            options.push("use-vc".into())
+        }
+        if self.options.primary {
+            options.push("primary".into())
+        }
+        if self.options.ign_tc {
+            options.push("ign-tc".into())
+        }
+        if !self.options.recurse {
+            options.push("no-recurse".into())
+        }
         if !self.options.default_names {
             options.push("no-default-names".into())
         }
-        if self.options.stay_open { options.push("stay-open".into()) }
-        if !self.options.dn_search { options.push("no-dn-search".into()) }
-        if self.options.use_inet6 { options.push("use-inet6".into()) }
-        if self.options.rotate { options.push("rotate".into()) }
-        if self.options.no_check_name { options.push("no-check-name".into()) }
-        if self.options.keep_tsig { options.push("keep-tsig".into()) }
-        if self.options.blast { options.push("blast".into()) }
-        if self.options.use_bstring { options.push("use-bstring".into()) }
-        if self.options.use_ip6dotint { options.push("ip6dotint".into()) }
-        if self.options.use_edns0 { options.push("use-edns0".into()) }
+        if self.options.stay_open {
+            options.push("stay-open".into())
+        }
+        if !self.options.dn_search {
+            options.push("no-dn-search".into())
+        }
+        if self.options.use_inet6 {
+            options.push("use-inet6".into())
+        }
+        if self.options.rotate {
+            options.push("rotate".into())
+        }
+        if self.options.no_check_name {
+            options.push("no-check-name".into())
+        }
+        if self.options.keep_tsig {
+            options.push("keep-tsig".into())
+        }
+        if self.options.blast {
+            options.push("blast".into())
+        }
+        if self.options.use_bstring {
+            options.push("use-bstring".into())
+        }
+        if self.options.use_ip6dotint {
+            options.push("ip6dotint".into())
+        }
+        if self.options.use_edns0 {
+            options.push("use-edns0".into())
+        }
         if self.options.single_request {
             options.push("single-request".into())
         }
         if self.options.single_request_reopen {
             options.push("single-request-reopen".into())
         }
-        if self.options.no_tld_query { options.push("no-tld-query".into()) }
+        if self.options.no_tld_query {
+            options.push("no-tld-query".into())
+        }
 
         if !options.is_empty() {
             "options".fmt(f)?;
@@ -601,11 +599,9 @@ impl fmt::Display for ResolvConf {
     }
 }
 
-
 //------------ SearchSuffix --------------------------------------------------
 
 pub type SearchSuffix = Dname<SmallVec<[u8; 24]>>;
-
 
 //------------ SearchList ----------------------------------------------------
 
@@ -644,7 +640,6 @@ impl From<SearchSuffix> for SearchList {
     }
 }
 
-
 //--- AsRef and Deref
 
 impl AsRef<[SearchSuffix]> for SearchList {
@@ -661,18 +656,15 @@ impl ops::Deref for SearchList {
     }
 }
 
-
 //------------ Private Helpers -----------------------------------------------
 //
 // These are here to wrap stuff into Results.
 
 /// Returns a reference to the next word or an error.
-fn next_word<'a>(
-    words: &'a mut str::SplitWhitespace
-) -> Result<&'a str, Error> {
+fn next_word<'a>(words: &'a mut str::SplitWhitespace) -> Result<&'a str, Error> {
     match words.next() {
         Some(word) => Ok(word),
-        None => Err(Error::ParseError)
+        None => Err(Error::ParseError),
     }
 }
 
@@ -680,7 +672,7 @@ fn next_word<'a>(
 fn no_more_words(mut words: str::SplitWhitespace) -> Result<(), Error> {
     match words.next() {
         Some(..) => Err(Error::ParseError),
-        None => Ok(())
+        None => Ok(()),
     }
 }
 
@@ -694,10 +686,9 @@ fn split_arg(s: &str) -> Result<(&str, Option<usize>), Error> {
             let (left, right) = s.split_at(idx);
             Ok((left, Some(usize::from_str_radix(&right[1..], 10)?)))
         }
-        None => Ok((s, None))
+        None => Ok((s, None)),
     }
 }
-
 
 //------------ Error --------------------------------------------------------
 
@@ -711,7 +702,7 @@ pub enum Error {
     Io(io::Error),
 }
 
-impl error::Error for Error { }
+impl error::Error for Error {}
 
 impl convert::From<io::Error> for Error {
     fn from(error: io::Error) -> Error {
@@ -735,29 +726,28 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::ParseError => write!(f, "error parsing configuration"),
-            Error::Io(ref e) => e.fmt(f)
+            Error::Io(ref e) => e.fmt(f),
         }
     }
 }
-
 
 //============ Testing ======================================================
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use std::io;
     use std::string::ToString;
-    use super::*;
 
     #[test]
     fn parse_resolv_conf() {
         let mut conf = ResolvConf::new();
         let data = "nameserver 192.0.2.0\n\
                     nameserver 192.0.2.1\n\
-                    options use-vc ndots:122\n".to_string();
+                    options use-vc ndots:122\n"
+            .to_string();
         assert!(conf.parse(&mut io::Cursor::new(data)).is_ok());
         assert!(conf.options.use_vc);
         assert_eq!(conf.options.ndots, 122);
     }
 }
-
