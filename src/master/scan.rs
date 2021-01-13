@@ -1089,11 +1089,7 @@ impl Token {
     /// This happens if the token is either a newline itself or an unescaped
     /// semicolon which starts a comment until line’s end.
     fn is_newline_ahead(self) -> bool {
-        match self {
-            Token::Symbol(Symbol::Char(';')) => true,
-            Token::Newline => true,
-            _ => false,
-        }
+        matches!(self, Token::Symbol(Symbol::Char(';')) | Token::Newline)
     }
 }
 
