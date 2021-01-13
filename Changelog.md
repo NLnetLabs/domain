@@ -10,7 +10,7 @@ Breaking
   `resolv-sync`. ([#74])
 * The trait `domain::base::octets::IntoOctets` has been merged into
   `domain::base::octets::OctetsBuilder`. It’s method `into_octets` is now
-  available as `freeze` on `OctetsBuilder. ([#75])
+  available as `freeze` on `OctetsBuilder`. ([#75])
 
 * Supprt for extended errors defined in [RFC 8914]. ([#79] by [@xofyarg])
 * New traits `domain::base::octets::OctetsFrom` and `OctetsInto` to
