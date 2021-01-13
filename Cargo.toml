@@ -26,13 +26,17 @@ ring           = { version = "0.16.14", optional = true }
 smallvec       = { version = "1", optional = true }
 tokio          = { version = "1", optional = true, features = ["io-util", "macros", "net", "time"] }
 
+[target.'cfg(macos)'.dependencies]
+# specifying this overrides minimum-version mio's 0.2.69 libc dependency, which allows the build to work
+libc = { version = "0.2.71", default-features = false, optional = true }
+
 [features]
 # If you add a feature here, also add it to .github/workflows/ci.yml for the
 # cargo test run. Only interop must not be present.
 default     = ["std"]
 interop     = ["bytes", "ring"]
 master      = ["std", "bytes", "chrono"]
-resolv      = ["bytes", "futures", "smallvec", "std", "tokio"]
+resolv      = ["bytes", "futures", "smallvec", "std", "tokio", "libc"]
 resolv-sync = ["resolv", "tokio/rt"]
 sign        = ["std"]
 std         = []
