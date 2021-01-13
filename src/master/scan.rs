@@ -332,12 +332,13 @@ impl<C: CharSource> Scanner<C> {
                         break
                     }
                 }
-                self.ok(())
             }
-            Some(Token::Newline) => self.ok(()),
-            None => self.ok(()),
-            _ => self.err(SyntaxError::ExpectedNewline)
+            Some(Token::Newline) | None => {},
+            _ => return self.err(SyntaxError::ExpectedNewline)
         }
+
+        self.ok();
+        Ok(())
     }
 
     /// Scans over a mandatory sequence of space.
@@ -349,7 +350,8 @@ impl<C: CharSource> Scanner<C> {
     /// accordingly.
     pub fn scan_space(&mut self) -> Result<(), ScanError> {
         if self.skip_space()? {
-            self.ok(())
+            self.ok();
+            Ok(())
         }
         else {
             self.err(SyntaxError::ExpectedSpace)
@@ -397,7 +399,8 @@ impl<C: CharSource> Scanner<C> {
                 _ => { }
             }
         }
-        self.ok(())
+        self.ok();
+        Ok(())
     }
 
     /// Skips over the word with the content `literal`.
@@ -776,7 +779,7 @@ impl<C: CharSource> Scanner<C> {
 
 
     /// Progresses the scanner to the current position and returns `t`.
-    fn ok<T>(&mut self, t: T) -> Result<T, ScanError> {
+    fn ok(&mut self) {
         if self.buf.len() == self.cur {
             self.buf.clear();
             self.start = 0;
@@ -785,7 +788,6 @@ impl<C: CharSource> Scanner<C> {
             self.start = self.cur;
         }
         self.start_pos = self.cur_pos;
-        Ok(t)
     }
 
     /// Backtracks to the last token start and reports an error there.
@@ -857,16 +859,16 @@ impl<C: CharSource> Scanner<C> {
     /// Progresses the scanner on success, otherwise backtracks with an
     /// ‘unexpected space’ error.
     fn skip_delimiter(&mut self) -> Result<(), ScanError> {
-        if self.skip_space()? {
-            self.ok(())
-        }
-        else {
+        if !self.skip_space()? {
             match self.peek()? {
-                Some(ch) if ch.is_newline_ahead() => self.ok(()),
-                None => self.ok(()),
-                _ => self.err(SyntaxError::ExpectedSpace)
+                Some(ch) if ch.is_newline_ahead() => {},
+                None => {},
+                _ => return self.err(SyntaxError::ExpectedSpace)
             }
         }
+
+        self.ok();
+        Ok(())
     }
 
     /// Skips over space.
