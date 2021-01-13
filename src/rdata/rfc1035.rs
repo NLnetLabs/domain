@@ -784,7 +784,7 @@ where
     Octets: OctetsFrom<SrcOctets>,
 {
     fn octets_from(source: Null<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.data).map(|octets| Self::new(octets))
+        Octets::octets_from(source.data).map(Self::new)
     }
 }
 
