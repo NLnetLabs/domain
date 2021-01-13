@@ -81,7 +81,7 @@ impl Symbol {
         if ch == b' ' || ch == b'"' || ch == b'\\' || ch == b';' {
             Symbol::SimpleEscape(ch as char)
         }
-        else if ch < 0x20 || ch > 0x7E {
+        else if !(0x20..=0x7E).contains(&ch) {
             Symbol::DecimalEscape(ch)
         }
         else {

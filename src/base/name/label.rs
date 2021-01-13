@@ -384,7 +384,7 @@ impl fmt::Display for Label {
             if ch == b' ' || ch == b'.' || ch == b'\\' {
                 write!(f, "\\{}", ch as char)?;
             }
-            else if ch < b' ' || ch >= 0x7F {
+            else if !(0x20..0x7F).contains(&ch) {
                 write!(f, "\\{:03}", ch)?;
             }
             else {
