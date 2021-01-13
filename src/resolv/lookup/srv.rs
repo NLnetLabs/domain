@@ -80,10 +80,10 @@ pub struct FoundSrvs {
 }
 
 impl FoundSrvs {
-    pub fn into_stream<'r, R: Resolver>(
+    pub fn into_stream<R: Resolver>(
         self,
-        resolver: &'r R,
-    ) -> impl Stream<Item = Result<ResolvedSrvItem, io::Error>> + 'r
+        resolver: &R,
+    ) -> impl Stream<Item = Result<ResolvedSrvItem, io::Error>> + '_
     where R::Octets: OctetsRef {
         // Let’s make a somewhat elaborate single iterator from self.items
         // that we can use as the base for the stream: We turn the result into
