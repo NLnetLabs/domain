@@ -21,4 +21,9 @@ jobs:
       run: cargo clippy --all-features -- -D warnings
     - run: cargo build --no-default-features --verbose
     - run: cargo test --features="master resolv resolv-sync sign tsig validate" --verbose
-
+    - if: matrix.rust == 'nightly'
+      run: |
+        cargo +nightly update -Z minimal-versions
+        cargo check --features="master resolv resolv-sync sign tsig validate" --verbose --all-targets
+        cargo test --features="master resolv resolv-sync sign tsig validate"
+      name: Check and test with minimal-versions
