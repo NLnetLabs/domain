@@ -18,13 +18,13 @@ path = "src/lib.rs"
 [dependencies]
 rand           = "0.7"
 
-bytes          = { version = "0.5.4", optional = true }
+bytes          = { version = "1.0", optional = true }
 chrono         = { version = "0.4", optional = true }
-futures        = { version = "0.3.4", optional = true }
+futures        = { version = "0.3.9", optional = true }
 #openssl       = { version = "0.10", optional = true }
 ring           = { version = "0.16.14", optional = true }
-smallvec       = { version = "1.2", optional = true }
-tokio          = { version = "0.2.13", optional = true, features = ["io-util", "macros", "tcp", "time", "udp"] }
+smallvec       = { version = "1.6", optional = true }
+tokio          = { version = "1.0", optional = true, features = ["io-util", "macros", "net", "time"] }
 
 [features]
 # If you add a feature here, also add it to .github/workflows/ci.yml for the
@@ -33,15 +33,15 @@ default     = ["std"]
 interop     = ["bytes", "ring"]
 master      = ["std", "bytes", "chrono"]
 resolv      = ["bytes", "futures", "smallvec", "std", "tokio"]
-resolv-sync = ["resolv", "tokio/rt-core"]
+resolv-sync = ["resolv", "tokio/rt"]
 sign        = ["std"]
 std         = []
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 
 [dev-dependencies]
-native-tls  = "^0.2"
-tokio-tls   = "^0.3.0"
+tokio-native-tls   = "0.3"
+tokio              = { version = "1.0", features = ["rt-multi-thread", "io-util", "net"] }
 
 [[example]]
 name = "readzone"

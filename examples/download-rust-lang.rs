@@ -1,13 +1,13 @@
 use std::str::FromStr;
 
-use native_tls::TlsConnector;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use domain::base::name::Dname;
 use domain::resolv::StubResolver;
+use tokio::net::TcpStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_native_tls::native_tls::TlsConnector;
 
 #[tokio::main]
-async fn main()  {
+async fn main() {
     let resolver = StubResolver::new();
     let addr = match resolver.lookup_host(
         &Dname::<Vec<u8>>::from_str("www.rust-lang.org").unwrap()
@@ -32,15 +32,13 @@ async fn main()  {
             return;
         }
     };
-    let cx = tokio_tls::TlsConnector::from(
-        match TlsConnector::builder().build() {
-            Ok(cx) => cx,
-            Err(err) => {
-                eprintln!("Creating TLS context failed: {}", err);
-                return;
-            }
+    let cx = tokio_native_tls::TlsConnector::from(match TlsConnector::builder().build() {
+        Ok(cx) => cx,
+        Err(err) => {
+            eprintln!("Creating TLS context failed: {}", err);
+            return;
         }
-    );
+    });
     let mut socket = match cx.connect("www.rust-lang.org", socket).await {
         Ok(socket) => socket,
         Err(err) => {
@@ -66,4 +64,3 @@ async fn main()  {
 
     println!("{}", String::from_utf8_lossy(&response));
 }
-

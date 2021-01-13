@@ -470,11 +470,9 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<O, N> Into<Result<MasterRecordData<O, N>, Self>>
-        for AllRecordData<O, N>
-        {
-            fn into(self) -> Result<MasterRecordData<O, N>, Self> {
-                match self {
+        impl<O, N> From<AllRecordData<O, N>> for Result<MasterRecordData<O, N>, AllRecordData<O, N>> {
+            fn from(value: AllRecordData<O, N>) -> Result<MasterRecordData<O, N>, AllRecordData<O, N>> {
+                match value {
                     $( $( $(
                         AllRecordData::$mtype(inner) => {
                             Ok(MasterRecordData::$mtype(inner))
@@ -483,11 +481,10 @@ macro_rules! rdata_types {
                     AllRecordData::Other(inner) => {
                         Ok(MasterRecordData::Other(inner))
                     }
-                    _ => Err(self)
+                    value => Err(value),
                 }
             }
         }
-
 
         //--- OctetsFrom
 

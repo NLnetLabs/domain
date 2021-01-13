@@ -189,10 +189,10 @@ impl StubResolver {
         F: FnOnce(StubResolver) -> R + Send + 'static,
     {
         let resolver = Self::from_conf(conf);
-        let mut runtime = runtime::Builder::new()
-            .basic_scheduler()
+        let runtime = runtime::Builder::new_current_thread()
             .enable_all()
-            .build().unwrap();
+            .build()
+            .unwrap();
         runtime.block_on(op(resolver))
     }
 }
@@ -531,7 +531,7 @@ impl ServerInfo {
     pub async fn udp_query(
         query: &QueryMessage, addr: SocketAddr, recv_size: usize
     ) -> Result<Answer, io::Error> {
-        let mut sock = Self::udp_bind(addr.is_ipv4()).await?;
+        let sock = Self::udp_bind(addr.is_ipv4()).await?;
         sock.connect(addr).await?;
         let sent = sock.send(query.as_target().as_dgram_slice()).await?;
         if sent != query.as_target().as_dgram_slice().len() {

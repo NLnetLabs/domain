@@ -10,12 +10,14 @@ Breaking
   `resolv-sync`. ([#74])
 * The trait `domain::base::octets::IntoOctets` has been merged into
   `domain::base::octets::OctetsBuilder`. It’s method `into_octets` is now
-  available as `freeze` on `OctetsBuilder. ([#75])
+  available as `freeze` on `OctetsBuilder`. ([#75])
 
 * Supprt for extended errors defined in [RFC 8914]. ([#79] by [@xofyarg])
 * New traits `domain::base::octets::OctetsFrom` and `OctetsInto` to
   convert types that are generic over octets sequences between different
   octets sequences. ([#77])
+
+* Upgrade to tokio 1.0, bytes 1.0, and latest of other dependencies ([#84] by [@koivunej])
 
 Bug Fixes
 
@@ -38,8 +40,10 @@ Other Changes
 [#77]: https://github.com/NLnetLabs/domain/pull/77
 [#79]: https://github.com/NLnetLabs/domain/pull/79
 [#80]: https://github.com/NLnetLabs/domain/pull/80
+[#84]: https://github.com/NLnetLabs/domain/pull/84
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
+[@koivunej]: https://github.com/koivunej
 [RFC 8914]: https://tools.ietf.org/html/rfc8914
 
 

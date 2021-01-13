@@ -350,7 +350,7 @@ impl<Builder: OctetsBuilder> AsRef<[u8]> for DnameBuilder<Builder> {
 fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
                 where C: Iterator<Item=char> {
     let ch = chars.next().ok_or(FromStrError::UnexpectedEnd)?;
-    if ch >= '0' &&  ch <= '9' {
+    if ('0'..='9').contains(&ch) {
         let v = ch.to_digit(10).unwrap() * 100
               + chars.next().ok_or(FromStrError::UnexpectedEnd)
                      .and_then(|c| c.to_digit(10)
