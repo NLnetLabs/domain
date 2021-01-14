@@ -1,7 +1,11 @@
-use self::conf::{ResolvConf, ResolvOptions, SearchSuffix, ServerConf, Transport};
+use self::conf::{
+    ResolvConf, ResolvOptions, SearchSuffix, ServerConf, Transport,
+};
 use crate::base::iana::Rcode;
 use crate::base::message::Message;
-use crate::base::message_builder::{AdditionalBuilder, MessageBuilder, StreamTarget};
+use crate::base::message_builder::{
+    AdditionalBuilder, MessageBuilder, StreamTarget,
+};
 use crate::base::name::{ToDname, ToRelativeDname};
 use crate::base::octets::Octets512;
 use crate::base::question::Question;
@@ -86,7 +90,9 @@ impl StubResolver {
     /// Creates a new resolver using the given configuraiton.
     pub fn from_conf(conf: ResolvConf) -> Self {
         StubResolver {
-            preferred: ServerList::from_conf(&conf, |s| s.transport.is_preferred()),
+            preferred: ServerList::from_conf(&conf, |s| {
+                s.transport.is_preferred()
+            }),
             stream: ServerList::from_conf(&conf, |s| s.transport.is_stream()),
             options: conf.options,
         }
@@ -105,17 +111,26 @@ impl StubResolver {
             .await
     }
 
-    async fn query_message(&self, message: QueryMessage) -> Result<Answer, io::Error> {
+    async fn query_message(
+        &self,
+        message: QueryMessage,
+    ) -> Result<Answer, io::Error> {
         Query::new(self)?.run(message).await
     }
 }
 
 impl StubResolver {
-    pub async fn lookup_addr(&self, addr: IpAddr) -> Result<FoundAddrs<&Self>, io::Error> {
+    pub async fn lookup_addr(
+        &self,
+        addr: IpAddr,
+    ) -> Result<FoundAddrs<&Self>, io::Error> {
         lookup_addr(&self, addr).await
     }
 
-    pub async fn lookup_host(&self, qname: impl ToDname) -> Result<FoundHosts<&Self>, io::Error> {
+    pub async fn lookup_host(
+        &self,
+        qname: impl ToDname,
+    ) -> Result<FoundHosts<&Self>, io::Error> {
         lookup_host(&self, qname).await
     }
 
@@ -187,7 +202,8 @@ impl Default for StubResolver {
 impl<'a> Resolver for &'a StubResolver {
     type Octets = Bytes;
     type Answer = Answer;
-    type Query = Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + 'a>>;
+    type Query =
+        Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + 'a>>;
 
     fn query<N, Q>(&self, question: Q) -> Self::Query
     where
@@ -238,27 +254,34 @@ pub struct Query<'a> {
 
 impl<'a> Query<'a> {
     pub fn new(resolver: &'a StubResolver) -> Result<Self, io::Error> {
-        let (preferred, counter) = if resolver.options().use_vc || resolver.preferred.is_empty() {
-            if resolver.stream.is_empty() {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "no servers available",
-                ));
-            }
-            (false, resolver.stream.counter(resolver.options().rotate))
-        } else {
-            (true, resolver.preferred.counter(resolver.options().rotate))
-        };
+        let (preferred, counter) =
+            if resolver.options().use_vc || resolver.preferred.is_empty() {
+                if resolver.stream.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "no servers available",
+                    ));
+                }
+                (false, resolver.stream.counter(resolver.options().rotate))
+            } else {
+                (true, resolver.preferred.counter(resolver.options().rotate))
+            };
         Ok(Query {
             resolver,
             preferred,
             attempt: 0,
             counter,
-            error: Err(io::Error::new(io::ErrorKind::TimedOut, "all timed out")),
+            error: Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "all timed out",
+            )),
         })
     }
 
-    pub async fn run(mut self, mut message: QueryMessage) -> Result<Answer, io::Error> {
+    pub async fn run(
+        mut self,
+        mut message: QueryMessage,
+    ) -> Result<Answer, io::Error> {
         loop {
             match self.run_query(&mut message).await {
                 Ok(answer) => {
@@ -297,15 +320,20 @@ impl<'a> Query<'a> {
     }
 
     fn create_message(question: Question<impl ToDname>) -> QueryMessage {
-        let mut message =
-            MessageBuilder::from_target(StreamTarget::new(Octets512::new()).unwrap()).unwrap();
+        let mut message = MessageBuilder::from_target(
+            StreamTarget::new(Octets512::new()).unwrap(),
+        )
+        .unwrap();
         message.header_mut().set_rd(true);
         let mut message = message.question();
         message.push(question).unwrap();
         message.additional()
     }
 
-    async fn run_query(&mut self, message: &mut QueryMessage) -> Result<Answer, io::Error> {
+    async fn run_query(
+        &mut self,
+        message: &mut QueryMessage,
+    ) -> Result<Answer, io::Error> {
         let server = self.current_server();
         server.prepare_message(message);
         server.query(message).await
@@ -340,7 +368,8 @@ impl<'a> Query<'a> {
         }
         self.preferred = false;
         self.attempt = 0;
-        self.counter = self.resolver.stream.counter(self.resolver.options().rotate);
+        self.counter =
+            self.resolver.stream.counter(self.resolver.options().rotate);
         true
     }
 
@@ -437,12 +466,19 @@ impl ServerInfo {
         }
     }
 
-    pub async fn query(&self, query: &QueryMessage) -> Result<Answer, io::Error> {
+    pub async fn query(
+        &self,
+        query: &QueryMessage,
+    ) -> Result<Answer, io::Error> {
         let res = match self.conf.transport {
             Transport::Udp => {
                 timeout(
                     self.conf.request_timeout,
-                    Self::udp_query(query, self.conf.addr, self.conf.recv_size),
+                    Self::udp_query(
+                        query,
+                        self.conf.addr,
+                        self.conf.recv_size,
+                    ),
                 )
                 .await
             }
@@ -457,11 +493,17 @@ impl ServerInfo {
         match res {
             Ok(Ok(answer)) => Ok(answer),
             Ok(Err(err)) => Err(err),
-            Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "request timed out")),
+            Err(_) => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "request timed out",
+            )),
         }
     }
 
-    pub async fn tcp_query(query: &QueryMessage, addr: SocketAddr) -> Result<Answer, io::Error> {
+    pub async fn tcp_query(
+        query: &QueryMessage,
+        addr: SocketAddr,
+    ) -> Result<Answer, io::Error> {
         let mut sock = TcpStream::connect(&addr).await?;
         sock.write_all(query.as_target().as_stream_slice()).await?;
 
@@ -479,7 +521,10 @@ impl ServerInfo {
                 }
             // else try with the next message.
             } else {
-                return Err(io::Error::new(io::ErrorKind::Other, "short buf"));
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "short buf",
+                ));
             }
         }
     }
@@ -493,7 +538,10 @@ impl ServerInfo {
         sock.connect(addr).await?;
         let sent = sock.send(query.as_target().as_dgram_slice()).await?;
         if sent != query.as_target().as_dgram_slice().len() {
-            return Err(io::Error::new(io::ErrorKind::Other, "short UDP send"));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "short UDP send",
+            ));
         }
         loop {
             let mut buf = vec![0; recv_size]; // XXX use uninit'ed mem here.

@@ -43,7 +43,8 @@ use super::header::Header;
 use super::iana::{OptRcode, OptionCode, Rtype};
 use super::name::ToDname;
 use super::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf,
 };
 use super::rdata::RtypeRecordData;
 use super::record::Record;
@@ -168,7 +169,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Opt<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Opt<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.octets.as_ref())
     }
 }
@@ -310,7 +314,10 @@ impl Default for OptHeader {
 }
 
 impl Compose for OptHeader {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.inner)
     }
 }
@@ -491,7 +498,10 @@ impl<Octets: AsRef<[u8]>> Parse<Octets> for OptionHeader {
 }
 
 impl Compose for OptionHeader {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.code.compose(target)?;
             self.len.compose(target)
@@ -738,7 +748,10 @@ impl<Octets: AsMut<[u8]>> AsMut<[u8]> for UnknownOptData<Octets> {
 //--- Compose
 
 impl<Octets: AsRef<[u8]>> Compose for UnknownOptData<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.data.as_ref())
     }
 }

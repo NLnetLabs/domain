@@ -75,7 +75,9 @@ where
         self.compose_canonical(&mut buf).unwrap();
 
         let mut ctx = match algorithm {
-            DigestAlg::Sha1 => digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY),
+            DigestAlg::Sha1 => {
+                digest::Context::new(&digest::SHA1_FOR_LEGACY_USE_ONLY)
+            }
             DigestAlg::Sha256 => digest::Context::new(&digest::SHA256),
             DigestAlg::Sha384 => digest::Context::new(&digest::SHA384),
             _ => {
@@ -207,7 +209,10 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
         let signed_data = signed_data.as_ref();
 
         match self.algorithm() {
-            SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 | SecAlg::RsaSha256 | SecAlg::RsaSha512 => {
+            SecAlg::RsaSha1
+            | SecAlg::RsaSha1Nsec3Sha1
+            | SecAlg::RsaSha256
+            | SecAlg::RsaSha512 => {
                 let (algorithm, min_bytes) = match self.algorithm() {
                     SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 => (
                         &signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
@@ -232,15 +237,20 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                 // The key isn't available in either PEM or DER, so use the
                 // direct RSA verifier.
                 let (e, n) = rsa_exponent_modulus(dnskey)?;
-                let public_key = signature::RsaPublicKeyComponents { n: &n, e: &e };
+                let public_key =
+                    signature::RsaPublicKeyComponents { n: &n, e: &e };
                 public_key
                     .verify(algorithm, signed_data, &signature)
                     .map_err(|_| AlgorithmError::BadSig)
             }
             SecAlg::EcdsaP256Sha256 | SecAlg::EcdsaP384Sha384 => {
                 let algorithm = match self.algorithm() {
-                    SecAlg::EcdsaP256Sha256 => &signature::ECDSA_P256_SHA256_FIXED,
-                    SecAlg::EcdsaP384Sha384 => &signature::ECDSA_P384_SHA384_FIXED,
+                    SecAlg::EcdsaP256Sha256 => {
+                        &signature::ECDSA_P256_SHA256_FIXED
+                    }
+                    SecAlg::EcdsaP384Sha384 => {
+                        &signature::ECDSA_P384_SHA384_FIXED
+                    }
                     _ => unreachable!(),
                 };
 
@@ -307,7 +317,9 @@ pub enum AlgorithmError {
 impl fmt::Display for AlgorithmError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            AlgorithmError::Unsupported => f.write_str("unsupported algorithm"),
+            AlgorithmError::Unsupported => {
+                f.write_str("unsupported algorithm")
+            }
             AlgorithmError::BadSig => f.write_str("bad signature"),
             AlgorithmError::InvalidData => f.write_str("invalid data"),
         }
@@ -393,7 +405,14 @@ mod test {
         let mut records: Vec<_> = [&ksk, &zsk]
             .iter()
             .cloned()
-            .map(|x| Record::new(rrsig.signer_name().clone(), Class::In, 0, x.clone()))
+            .map(|x| {
+                Record::new(
+                    rrsig.signer_name().clone(),
+                    Class::In,
+                    0,
+                    x.clone(),
+                )
+            })
             .collect();
         let signed_data = {
             let mut buf = Vec::new();
@@ -490,21 +509,28 @@ mod test {
                 257,
                 3,
                 SecAlg::Ed25519,
-                base64::decode("m1NELLVVQKl4fHVn/KKdeNO0PrYKGT3IGbYseT8XcKo=")
-                    .unwrap()
-                    .into(),
+                base64::decode(
+                    "m1NELLVVQKl4fHVn/KKdeNO0PrYKGT3IGbYseT8XcKo=",
+                )
+                .unwrap()
+                .into(),
             ),
             Dnskey::new(
                 256,
                 3,
                 SecAlg::Ed25519,
-                base64::decode("2tstZAjgmlDTePn0NVXrAHBJmg84LoaFVxzLl1anjGI=")
-                    .unwrap()
-                    .into(),
+                base64::decode(
+                    "2tstZAjgmlDTePn0NVXrAHBJmg84LoaFVxzLl1anjGI=",
+                )
+                .unwrap()
+                .into(),
             ),
         );
 
-        let owner = Dname::from_octets(Bytes::from(b"\x07ED25519\x02nl\x00".as_ref())).unwrap();
+        let owner = Dname::from_octets(Bytes::from(
+            b"\x07ED25519\x02nl\x00".as_ref(),
+        ))
+        .unwrap();
         let rrsig = Rrsig::new(
             Rtype::Dnskey,
             SecAlg::Ed25519,
@@ -548,14 +574,20 @@ mod test {
             .into(),
         );
 
-        let mut records: Vec<Record<Dname, MasterRecordData<Bytes, Dname>>> = [&ksk, &zsk]
-            .iter()
-            .cloned()
-            .map(|x| {
-                let data = MasterRecordData::from(x.clone());
-                Record::new(rrsig.signer_name().clone(), Class::In, 0, data)
-            })
-            .collect();
+        let mut records: Vec<Record<Dname, MasterRecordData<Bytes, Dname>>> =
+            [&ksk, &zsk]
+                .iter()
+                .cloned()
+                .map(|x| {
+                    let data = MasterRecordData::from(x.clone());
+                    Record::new(
+                        rrsig.signer_name().clone(),
+                        Class::In,
+                        0,
+                        data,
+                    )
+                })
+                .collect();
 
         let signed_data = {
             let mut buf = Vec::new();

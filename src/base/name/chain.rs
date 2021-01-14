@@ -81,7 +81,10 @@ impl<L: ToRelativeDname, R: ToEitherDname> Chain<L, R> {
     /// [`Compose`]: ../compose/trait.Compose.html
     /// [`ToDname`]: trait.ToDname.html
     /// [`ToRelativeDname`]: trait.ToRelativeDname.html
-    pub fn chain<N: ToEitherDname>(self, other: N) -> Result<Chain<Self, N>, LongChainError> {
+    pub fn chain<N: ToEitherDname>(
+        self,
+        other: N,
+    ) -> Result<Chain<Self, N>, LongChainError> {
         Chain::new(self, other)
     }
 }
@@ -96,14 +99,20 @@ impl<L, R> Chain<L, R> {
 //--- Compose
 
 impl<L: ToRelativeDname, R: ToEitherDname> Compose for Chain<L, R> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.left.compose(target)?;
             self.right.compose(target)
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.left.compose_canonical(target)?;
             self.right.compose_canonical(target)
@@ -116,30 +125,44 @@ where
     Octets: AsRef<[u8]>,
     R: ToDname,
 {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         match self.left {
             UncertainDname::Absolute(ref name) => name.compose(target),
-            UncertainDname::Relative(ref name) => target.append_all(|target| {
-                name.compose(target)?;
-                self.right.compose(target)
-            }),
+            UncertainDname::Relative(ref name) => {
+                target.append_all(|target| {
+                    name.compose(target)?;
+                    self.right.compose(target)
+                })
+            }
         }
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         match self.left {
-            UncertainDname::Absolute(ref name) => name.compose_canonical(target),
-            UncertainDname::Relative(ref name) => target.append_all(|target| {
-                name.compose_canonical(target)?;
-                self.right.compose_canonical(target)
-            }),
+            UncertainDname::Absolute(ref name) => {
+                name.compose_canonical(target)
+            }
+            UncertainDname::Relative(ref name) => {
+                target.append_all(|target| {
+                    name.compose_canonical(target)?;
+                    self.right.compose_canonical(target)
+                })
+            }
         }
     }
 }
 
 //--- ToLabelIter, ToRelativeDname, ToDname
 
-impl<'a, L: ToRelativeDname, R: ToEitherDname> ToLabelIter<'a> for Chain<L, R> {
+impl<'a, L: ToRelativeDname, R: ToEitherDname> ToLabelIter<'a>
+    for Chain<L, R>
+{
     type LabelIter = ChainIter<'a, L, R>;
 
     fn iter_labels(&'a self) -> Self::LabelIter {
@@ -156,10 +179,14 @@ where
 
     fn iter_labels(&'a self) -> Self::LabelIter {
         match self.left {
-            UncertainDname::Absolute(ref name) => UncertainChainIter::Absolute(name.iter_labels()),
-            UncertainDname::Relative(ref name) => UncertainChainIter::Relative(ChainIter(
-                name.iter_labels().chain(self.right.iter_labels()),
-            )),
+            UncertainDname::Absolute(ref name) => {
+                UncertainChainIter::Absolute(name.iter_labels())
+            }
+            UncertainDname::Relative(ref name) => {
+                UncertainChainIter::Relative(ChainIter(
+                    name.iter_labels().chain(self.right.iter_labels()),
+                ))
+            }
         }
     }
 }
@@ -312,7 +339,9 @@ mod test {
             .chain(RelativeDname::empty_ref())
             .unwrap();
         assert_to_relative_dname(&rel);
-        assert_to_dname(&RelativeDname::empty_ref().chain(Dname::root_ref()).unwrap());
+        assert_to_dname(
+            &RelativeDname::empty_ref().chain(Dname::root_ref()).unwrap(),
+        );
         assert_to_dname(
             &RelativeDname::empty_ref()
                 .chain(RelativeDname::empty_ref())
@@ -321,8 +350,12 @@ mod test {
                 .unwrap(),
         );
         assert_to_dname(&rel.clone().chain(Dname::root_ref()).unwrap());
-        assert_to_relative_dname(&rel.chain(RelativeDname::empty_ref()).unwrap());
-        assert_to_dname(&UncertainDname::root_vec().chain(Dname::root_vec()).unwrap());
+        assert_to_relative_dname(
+            &rel.chain(RelativeDname::empty_ref()).unwrap(),
+        );
+        assert_to_dname(
+            &UncertainDname::root_vec().chain(Dname::root_vec()).unwrap(),
+        );
         assert_to_dname(
             &UncertainDname::empty_vec()
                 .chain(Dname::root_vec())
@@ -385,14 +418,19 @@ mod test {
     /// Tests that the label iterators all work as expected.
     #[test]
     fn iter_labels() {
-        fn cmp_iter<'a, I: Iterator<Item = &'a Label>>(iter: I, labels: &[&[u8]]) {
+        fn cmp_iter<'a, I: Iterator<Item = &'a Label>>(
+            iter: I,
+            labels: &[&[u8]],
+        ) {
             let labels = labels.iter().map(|s| Label::from_slice(s).unwrap());
             assert!(iter.eq(labels))
         }
 
         let w = RelativeDname::from_octets(b"\x03www".as_ref()).unwrap();
-        let ec = RelativeDname::from_octets(b"\x07example\x03com".as_ref()).unwrap();
-        let ecr = Dname::from_octets(b"\x07example\x03com\x00".as_ref()).unwrap();
+        let ec = RelativeDname::from_octets(b"\x07example\x03com".as_ref())
+            .unwrap();
+        let ecr =
+            Dname::from_octets(b"\x07example\x03com\x00".as_ref()).unwrap();
         let fbr = Dname::from_octets(b"\x03foo\x03bar\x00".as_ref()).unwrap();
 
         cmp_iter(
@@ -436,8 +474,10 @@ mod test {
         use std::vec::Vec;
 
         let w = RelativeDname::from_octets(b"\x03www".as_ref()).unwrap();
-        let ec = RelativeDname::from_octets(b"\x07example\x03com".as_ref()).unwrap();
-        let ecr = Dname::from_octets(b"\x07example\x03com\x00".as_ref()).unwrap();
+        let ec = RelativeDname::from_octets(b"\x07example\x03com".as_ref())
+            .unwrap();
+        let ecr =
+            Dname::from_octets(b"\x07example\x03com\x00".as_ref()).unwrap();
         let fbr = Dname::from_octets(b"\x03foo\x03bar\x00".as_ref()).unwrap();
 
         let mut buf = Vec::new();

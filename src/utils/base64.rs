@@ -233,7 +233,9 @@ impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             DecodeError::TrailingInput => f.write_str("trailing input"),
-            DecodeError::IllegalChar(ch) => write!(f, "illegal character '{}'", ch),
+            DecodeError::IllegalChar(ch) => {
+                write!(f, "illegal character '{}'", ch)
+            }
             DecodeError::ShortInput => f.write_str("incomplete input"),
         }
     }
@@ -302,10 +304,19 @@ mod test {
         assert_eq!(decode("Zm9vYmFy").unwrap().as_ref(), b"foobar");
 
         assert_eq!(decode("FPucA").unwrap_err(), DecodeError::ShortInput);
-        assert_eq!(decode("FPucA=").unwrap_err(), DecodeError::IllegalChar('='));
+        assert_eq!(
+            decode("FPucA=").unwrap_err(),
+            DecodeError::IllegalChar('=')
+        );
         assert_eq!(decode("FPucAw=").unwrap_err(), DecodeError::ShortInput);
-        assert_eq!(decode("FPucAw=a").unwrap_err(), DecodeError::TrailingInput);
-        assert_eq!(decode("FPucAw==a").unwrap_err(), DecodeError::TrailingInput);
+        assert_eq!(
+            decode("FPucAw=a").unwrap_err(),
+            DecodeError::TrailingInput
+        );
+        assert_eq!(
+            decode("FPucAw==a").unwrap_err(),
+            DecodeError::TrailingInput
+        );
     }
 
     #[test]

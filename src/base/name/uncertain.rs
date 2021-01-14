@@ -82,7 +82,8 @@ impl<Octets> UncertainDname<Octets> {
         <Octets as FromBuilder>::Builder: EmptyBuilder,
         C: IntoIterator<Item = char>,
     {
-        let mut builder = DnameBuilder::<<Octets as FromBuilder>::Builder>::new();
+        let mut builder =
+            DnameBuilder::<<Octets as FromBuilder>::Builder>::new();
         builder.append_chars(chars)?;
         if builder.in_label() || builder.is_empty() {
             Ok(builder.finish().into())
@@ -169,7 +170,10 @@ impl<Octets> UncertainDname<Octets> {
     ///     struct.RelativeDname.html#method.into_absolute
     pub fn into_absolute(
         self,
-    ) -> Result<Dname<<<Octets as IntoBuilder>::Builder as OctetsBuilder>::Octets>, PushError>
+    ) -> Result<
+        Dname<<<Octets as IntoBuilder>::Builder as OctetsBuilder>::Octets>,
+        PushError,
+    >
     where
         Octets: AsRef<[u8]> + IntoBuilder,
         <Octets as IntoBuilder>::Builder: OctetsBuilder<Octets = Octets>,
@@ -227,7 +231,10 @@ impl<Octets> UncertainDname<Octets> {
     /// be absolute. If the name is already absolute, the chain will be the
     /// name itself. If it is relative, if will be the concatenation of the
     /// name and `suffix`.
-    pub fn chain<S: ToEitherDname>(self, suffix: S) -> Result<Chain<Self, S>, LongChainError>
+    pub fn chain<S: ToEitherDname>(
+        self,
+        suffix: S,
+    ) -> Result<Chain<Self, S>, LongChainError>
     where
         Octets: AsRef<[u8]>,
     {
@@ -276,7 +283,8 @@ impl<Octets: AsRef<T>, T> AsRef<T> for UncertainDname<Octets> {
 
 //--- PartialEq, and Eq
 
-impl<Octets, Other> PartialEq<UncertainDname<Other>> for UncertainDname<Octets>
+impl<Octets, Other> PartialEq<UncertainDname<Other>>
+    for UncertainDname<Octets>
 where
     Octets: AsRef<[u8]>,
     Other: AsRef<[u8]>,
@@ -331,17 +339,27 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainDname<Octets> {
 //--- Compose
 
 impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         match *self {
             UncertainDname::Absolute(ref name) => name.compose(target),
             UncertainDname::Relative(ref name) => name.compose(target),
         }
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         match *self {
-            UncertainDname::Absolute(ref name) => name.compose_canonical(target),
-            UncertainDname::Relative(ref name) => name.compose_canonical(target),
+            UncertainDname::Absolute(ref name) => {
+                name.compose_canonical(target)
+            }
+            UncertainDname::Relative(ref name) => {
+                name.compose_canonical(target)
+            }
         }
     }
 }
@@ -350,7 +368,9 @@ impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for UncertainDname<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         if let Ok(()) = scanner.skip_literal(".") {
             return Ok(UncertainDname::root());
         }
@@ -371,7 +391,9 @@ impl Scan for UncertainDname<Bytes> {
                                 return Err(FromStrError::from(err).into());
                             }
                         } else {
-                            return Err(FromStrError::IllegalCharacter(ch).into());
+                            return Err(
+                                FromStrError::IllegalCharacter(ch).into()
+                            );
                         }
                     }
                     Symbol::DecimalEscape(ch) => {

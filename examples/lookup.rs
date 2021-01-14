@@ -6,8 +6,12 @@ use std::str::FromStr;
 
 async fn forward(resolver: &StubResolver, name: UncertainDname<Vec<u8>>) {
     let answer = match name {
-        UncertainDname::Absolute(ref name) => resolver.lookup_host(name).await,
-        UncertainDname::Relative(ref name) => resolver.search_host(name).await,
+        UncertainDname::Absolute(ref name) => {
+            resolver.lookup_host(name).await
+        }
+        UncertainDname::Relative(ref name) => {
+            resolver.search_host(name).await
+        }
     };
     match answer {
         Ok(answer) => {

@@ -60,7 +60,9 @@ use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
 use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
 use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
-use crate::base::octets::{OctetsBuilder, OctetsRef, OctetsVec, ParseError, ShortBuf};
+use crate::base::octets::{
+    OctetsBuilder, OctetsRef, OctetsVec, ParseError, ShortBuf,
+};
 use crate::base::record::Record;
 use crate::rdata::rfc2845::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
@@ -253,11 +255,16 @@ impl Key {
     }
 
     /// Checks whether the key in the record is this key.
-    fn check_tsig<Octets>(&self, tsig: &MessageTsig<Octets>) -> Result<(), ValidationError>
+    fn check_tsig<Octets>(
+        &self,
+        tsig: &MessageTsig<Octets>,
+    ) -> Result<(), ValidationError>
     where
         for<'o> &'o Octets: OctetsRef,
     {
-        if *tsig.owner() != self.name || *tsig.data().algorithm() != self.algorithm().to_dname() {
+        if *tsig.owner() != self.name
+            || *tsig.data().algorithm() != self.algorithm().to_dname()
+        {
             Err(ValidationError::BadKey)
         } else {
             Ok(())
@@ -341,14 +348,24 @@ pub trait KeyStore {
     ///
     /// The method looks up a key based on a pair of name and algorithm. If
     /// the key can be found, it is returned. Otherwise, `None` is returned.
-    fn get_key<N: ToDname>(&self, name: &N, algorithm: Algorithm) -> Option<Self::Key>;
+    fn get_key<N: ToDname>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key>;
 }
 
 impl<K: AsRef<Key> + Clone> KeyStore for K {
     type Key = Self;
 
-    fn get_key<N: ToDname>(&self, name: &N, algorithm: Algorithm) -> Option<Self::Key> {
-        if self.as_ref().name() == name && self.as_ref().algorithm() == algorithm {
+    fn get_key<N: ToDname>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
+        if self.as_ref().name() == name
+            && self.as_ref().algorithm() == algorithm
+        {
             Some(self.clone())
         } else {
             None
@@ -363,7 +380,11 @@ where
 {
     type Key = K;
 
-    fn get_key<N: ToDname>(&self, name: &N, algorithm: Algorithm) -> Option<Self::Key> {
+    fn get_key<N: ToDname>(
+        &self,
+        name: &N,
+        algorithm: Algorithm,
+    ) -> Option<Self::Key> {
         // XXX This seems a bit wasteful.
         let name = name.to_dname::<OctetsVec>().unwrap();
         self.get(&(name, algorithm)).cloned()
@@ -440,8 +461,14 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         message: &mut AdditionalBuilder<Target>,
         fudge: u16,
     ) -> Result<Self, ShortBuf> {
-        let variables = Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
-        let (mut context, mac) = SigningContext::request(key, message.as_slice(), None, &variables);
+        let variables =
+            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
+        let (mut context, mac) = SigningContext::request(
+            key,
+            message.as_slice(),
+            None,
+            &variables,
+        );
         let mac = context.key().signature_slice(&mac);
         context.apply_signature(mac);
         context.key().complete_message(message, &variables, mac)?;
@@ -458,7 +485,10 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// whether this record is a correct record for this transaction and if
     /// it correctly signs the answer for this transaction. If any of this
     /// fails, returns an error.
-    pub fn answer<Octets>(&self, message: &mut Message<Octets>) -> Result<(), ValidationError>
+    pub fn answer<Octets>(
+        &self,
+        message: &mut Message<Octets>,
+    ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
         for<'a> &'a Octets: OctetsRef,
@@ -472,7 +502,10 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         header.counts_mut().dec_arcount();
         let signature = self.context.answer(
             header.as_slice(),
-            Some(&message.as_slice()[mem::size_of::<HeaderSection>()..tsig.start]),
+            Some(
+                &message.as_slice()
+                    [mem::size_of::<HeaderSection>()..tsig.start],
+            ),
             &tsig.variables(),
         );
         self.context
@@ -532,8 +565,9 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
         Octets: AsRef<[u8]> + AsMut<[u8]>,
         for<'o> &'o Octets: OctetsRef,
     {
-        SigningContext::server_request(store, message)
-            .map(|context| context.map(|context| ServerTransaction { context }))
+        SigningContext::server_request(store, message).map(|context| {
+            context.map(|context| ServerTransaction { context })
+        })
     }
 
     /// Produces a signed answer.
@@ -568,10 +602,11 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
         message: &mut AdditionalBuilder<Target>,
         fudge: u16,
     ) -> Result<(), ShortBuf> {
-        let variables = Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
-        let (mac, key) = self
-            .context
-            .final_answer(message.as_slice(), None, &variables);
+        let variables =
+            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
+        let (mac, key) =
+            self.context
+                .final_answer(message.as_slice(), None, &variables);
         let mac = key.as_ref().signature_slice(&mac);
         key.as_ref().complete_message(message, &variables, mac)
     }
@@ -648,8 +683,14 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         message: &mut AdditionalBuilder<Target>,
         fudge: u16,
     ) -> Result<Self, ShortBuf> {
-        let variables = Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
-        let (mut context, mac) = SigningContext::request(key, message.as_slice(), None, &variables);
+        let variables =
+            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
+        let (mut context, mac) = SigningContext::request(
+            key,
+            message.as_slice(),
+            None,
+            &variables,
+        );
         let mac = context.key().signature_slice(&mac);
         context.apply_signature(mac);
         context.key().complete_message(message, &variables, mac)?;
@@ -668,7 +709,10 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     ///
     /// If it doesn’t or if there had been more than 99 unsigned messages in
     /// the sequence since the last signed one, returns an error.
-    pub fn answer<Octets>(&mut self, message: &mut Message<Octets>) -> Result<(), ValidationError>
+    pub fn answer<Octets>(
+        &mut self,
+        message: &mut Message<Octets>,
+    ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
         for<'a> &'a Octets: OctetsRef,
@@ -696,7 +740,10 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     }
 
     /// Checks the first answer in the sequence.
-    fn answer_first<Octets>(&mut self, message: &mut Message<Octets>) -> Result<(), ValidationError>
+    fn answer_first<Octets>(
+        &mut self,
+        message: &mut Message<Octets>,
+    ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
         for<'a> &'a Octets: OctetsRef,
@@ -710,7 +757,10 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         header.counts_mut().dec_arcount();
         let signature = self.context.first_answer(
             header.as_slice(),
-            Some(&message.as_slice()[mem::size_of::<HeaderSection>()..tsig.start]),
+            Some(
+                &message.as_slice()
+                    [mem::size_of::<HeaderSection>()..tsig.start],
+            ),
             &tsig.variables(),
         );
         self.context
@@ -751,7 +801,10 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         header.counts_mut().dec_arcount();
         let signature = self.context.signed_subsequent(
             header.as_slice(),
-            Some(&message.as_slice()[mem::size_of::<HeaderSection>()..tsig.start]),
+            Some(
+                &message.as_slice()
+                    [mem::size_of::<HeaderSection>()..tsig.start],
+            ),
             &tsig.variables(),
         );
         self.context
@@ -852,14 +905,18 @@ impl<K: AsRef<Key>> ServerSequence<K> {
         message: &mut AdditionalBuilder<Target>,
         fudge: u16,
     ) -> Result<(), ShortBuf> {
-        let variables = Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
+        let variables =
+            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
         let mac = if self.first {
             self.first = false;
             self.context
                 .first_answer(message.as_slice(), None, &variables)
         } else {
-            self.context
-                .signed_subsequent(message.as_slice(), None, &variables)
+            self.context.signed_subsequent(
+                message.as_slice(),
+                None,
+                &variables,
+            )
         };
         let mac = self.key().signature_slice(&mac);
         self.key().complete_message(message, &variables, mac)
@@ -946,7 +1003,10 @@ impl<K: AsRef<Key>> SigningContext<K> {
         let (mut context, signature) = Self::request(
             key,
             header.as_slice(),
-            Some(&message.as_slice()[mem::size_of::<HeaderSection>()..tsig.start]),
+            Some(
+                &message.as_slice()
+                    [mem::size_of::<HeaderSection>()..tsig.start],
+            ),
             &variables,
         );
         let res = context
@@ -1043,7 +1103,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
         Octets: AsRef<[u8]>,
         for<'o> &'o Octets: OctetsRef,
     {
-        if message.header().rcode() == Rcode::NotAuth && tsig.data().error() == TsigRcode::BadTime {
+        if message.header().rcode() == Rcode::NotAuth
+            && tsig.data().error() == TsigRcode::BadTime
+        {
             let server = match tsig.data().other_time() {
                 Some(time) => time,
                 None => return Err(ValidationError::FormErr),
@@ -1120,7 +1182,12 @@ impl<K: AsRef<Key>> SigningContext<K> {
     ///
     /// This happens on a clone of the original signing context. The context
     /// itself will _not_ change.
-    fn answer(&self, first: &[u8], second: Option<&[u8]>, variables: &Variables) -> hmac::Tag {
+    fn answer(
+        &self,
+        first: &[u8],
+        second: Option<&[u8]>,
+        variables: &Variables,
+    ) -> hmac::Tag {
         let mut context = self.context.clone();
         context.update(first);
         if let Some(second) = second {
@@ -1300,7 +1367,12 @@ struct Variables {
 
 impl Variables {
     /// Creates a new value from the parts.
-    fn new(time_signed: Time48, fudge: u16, error: TsigRcode, other: Option<Time48>) -> Self {
+    fn new(
+        time_signed: Time48,
+        fudge: u16,
+        error: TsigRcode,
+        other: Option<Time48>,
+    ) -> Self {
         Variables {
             time_signed,
             fudge,
@@ -1567,8 +1639,10 @@ impl<K: AsRef<Key>> ServerError<K> {
         let mut builder = builder.additional();
         match self.0 {
             ServerErrorInner::Unsigned { error } => {
-                let tsig =
-                    { MessageTsig::from_message(msg).expect("missing or malformed TSIG record") };
+                let tsig = {
+                    MessageTsig::from_message(msg)
+                        .expect("missing or malformed TSIG record")
+                };
                 builder.push((
                     tsig.owner(),
                     tsig.class(),
@@ -1585,10 +1659,17 @@ impl<K: AsRef<Key>> ServerError<K> {
                 ))?;
             }
             ServerErrorInner::Signed { context, variables } => {
-                let (mac, key) = context.final_answer(builder.as_slice(), None, &variables);
+                let (mac, key) = context.final_answer(
+                    builder.as_slice(),
+                    None,
+                    &variables,
+                );
                 let mac = key.as_ref().signature_slice(&mac);
-                key.as_ref()
-                    .complete_message(&mut builder, &variables, mac)?;
+                key.as_ref().complete_message(
+                    &mut builder,
+                    &variables,
+                    mac,
+                )?;
             }
         }
         Ok(builder)
@@ -1639,8 +1720,12 @@ pub enum NewKeyError {
 impl fmt::Display for NewKeyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            NewKeyError::BadMinMacLen => f.write_str("minimum signature length out of bounds"),
-            NewKeyError::BadSigningLen => f.write_str("created signature length out of bounds"),
+            NewKeyError::BadMinMacLen => {
+                f.write_str("minimum signature length out of bounds")
+            }
+            NewKeyError::BadSigningLen => {
+                f.write_str("created signature length out of bounds")
+            }
         }
     }
 }
@@ -1679,11 +1764,15 @@ impl From<ring::error::Unspecified> for GenerateKeyError {
 impl fmt::Display for GenerateKeyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            GenerateKeyError::BadMinMacLen => f.write_str("minimum signature length out of bounds"),
+            GenerateKeyError::BadMinMacLen => {
+                f.write_str("minimum signature length out of bounds")
+            }
             GenerateKeyError::BadSigningLen => {
                 f.write_str("created signature length out of bounds")
             }
-            GenerateKeyError::GenerationFailed => f.write_str("generating key failed"),
+            GenerateKeyError::GenerationFailed => {
+                f.write_str("generating key failed")
+            }
         }
     }
 }
@@ -1739,17 +1828,27 @@ impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             ValidationError::BadAlg => f.write_str("unknown algorithm"),
-            ValidationError::BadOther => f.write_str("bad content of 'other' field"),
+            ValidationError::BadOther => {
+                f.write_str("bad content of 'other' field")
+            }
             ValidationError::BadSig => f.write_str("bad signature"),
             ValidationError::BadTrunc => f.write_str("short signature"),
             ValidationError::BadKey => f.write_str("unknown key"),
             ValidationError::BadTime => f.write_str("bad time"),
             ValidationError::FormErr => f.write_str("format error"),
             ValidationError::ServerUnsigned => f.write_str("unsigned answer"),
-            ValidationError::ServerBadKey => f.write_str("unknown key on server"),
-            ValidationError::ServerBadSig => f.write_str("server failed to verify MAC"),
-            ValidationError::ServerBadTime { .. } => f.write_str("server reported bad time"),
-            ValidationError::TooManyUnsigned => f.write_str("too many unsigned messages"),
+            ValidationError::ServerBadKey => {
+                f.write_str("unknown key on server")
+            }
+            ValidationError::ServerBadSig => {
+                f.write_str("server failed to verify MAC")
+            }
+            ValidationError::ServerBadTime { .. } => {
+                f.write_str("server reported bad time")
+            }
+            ValidationError::TooManyUnsigned => {
+                f.write_str("too many unsigned messages")
+            }
         }
     }
 }

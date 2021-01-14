@@ -8,7 +8,8 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf,
 };
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -122,7 +123,9 @@ where
     NN: ToDname,
 {
     fn eq(&self, other: &Question<NN>) -> bool {
-        self.qname.name_eq(&other.qname) && self.qtype == other.qtype && self.qclass == other.qclass
+        self.qname.name_eq(&other.qname)
+            && self.qtype == other.qtype
+            && self.qclass == other.qclass
     }
 }
 
@@ -210,7 +213,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Question<ParsedDname<Ref>> {
 }
 
 impl<N: ToDname> Compose for Question<N> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_compressed_dname(&self.qname)?;
             self.qtype.compose(target)?;
@@ -218,7 +224,10 @@ impl<N: ToDname> Compose for Question<N> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.qname.compose_canonical(target)?;
             self.qtype.compose_canonical(target)?;
@@ -277,7 +286,10 @@ pub trait AsQuestion {
     fn qclass(&self) -> Class;
 
     /// Produces the encoding of the question.
-    fn compose_question<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf>
+    fn compose_question<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf>
     where
         Self::Name: Compose,
     {
@@ -289,7 +301,10 @@ pub trait AsQuestion {
     }
 
     /// Produces the canoncial encoding of the question.
-    fn compose_question_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf>
+    fn compose_question_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf>
     where
         Self::Name: Compose,
     {

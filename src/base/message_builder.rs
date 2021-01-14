@@ -212,7 +212,8 @@ impl MessageBuilder<BytesMut> {
 impl MessageBuilder<StreamTarget<BytesMut>> {
     /// Creates a new streamable message builder atop a bytes value.
     pub fn new_stream_bytes() -> Self {
-        Self::from_target(StreamTarget::new(BytesMut::new()).unwrap()).unwrap()
+        Self::from_target(StreamTarget::new(BytesMut::new()).unwrap())
+            .unwrap()
     }
 }
 
@@ -255,7 +256,10 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
     ///
     /// Sets a random ID, pushes the domain and the AXFR record type into
     /// the question section, and converts the builder into an answer builder.
-    pub fn request_axfr<N: ToDname>(mut self, apex: N) -> Result<AnswerBuilder<Target>, ShortBuf> {
+    pub fn request_axfr<N: ToDname>(
+        mut self,
+        apex: N,
+    ) -> Result<AnswerBuilder<Target>, ShortBuf> {
         self.header_mut().set_random_id();
         let mut builder = self.question();
         builder.push((apex, Rtype::Axfr))?;
@@ -483,7 +487,10 @@ impl<Target: OctetsBuilder> QuestionBuilder<Target> {
     ///
     /// [`AsQuestion`]: ../question/trait.AsQuestion.html
     /// [`Question`]: ../question/trait.Question.html
-    pub fn push(&mut self, question: impl AsQuestion) -> Result<(), ShortBuf> {
+    pub fn push(
+        &mut self,
+        question: impl AsQuestion,
+    ) -> Result<(), ShortBuf> {
         let pos = self.as_target().len();
         question.compose_question(self.as_target_mut())?;
         self.counts_mut().inc_qdcount().map_err(|err| {
@@ -1405,7 +1412,9 @@ where
     }
 }
 
-impl<Target: OctetsBuilder> RecordSectionBuilder for AuthorityBuilder<Target> {
+impl<Target: OctetsBuilder> RecordSectionBuilder
+    for AuthorityBuilder<Target>
+{
     fn push(&mut self, record: impl AsRecord) -> Result<(), ShortBuf> {
         Self::push(self, record)
     }
@@ -1443,7 +1452,9 @@ pub struct OptBuilder<'a, Target> {
 
 impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
     /// Creates a new opt builder atop an additional builder.
-    fn new(additional: &'a mut AdditionalBuilder<Target>) -> Result<Self, ShortBuf> {
+    fn new(
+        additional: &'a mut AdditionalBuilder<Target>,
+    ) -> Result<Self, ShortBuf> {
         let start = additional.as_target().as_ref().len();
         let arcount = additional.counts().arcount();
 
@@ -1478,7 +1489,11 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
     ///
     /// The method will append an option with the given option code. The data
     /// of the option will be written via the closure `op`.
-    pub fn push_raw_option<F>(&mut self, code: OptionCode, op: F) -> Result<(), ShortBuf>
+    pub fn push_raw_option<F>(
+        &mut self,
+        code: OptionCode,
+        op: F,
+    ) -> Result<(), ShortBuf>
     where
         F: FnOnce(&mut Target) -> Result<(), ShortBuf>,
     {
@@ -1491,7 +1506,9 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
 
         // Update the length. If the option is too long, truncate and return
         // an error.
-        let len = self.as_target().as_ref().len() - self.start - (mem::size_of::<OptHeader>() + 2);
+        let len = self.as_target().as_ref().len()
+            - self.start
+            - (mem::size_of::<OptHeader>() + 2);
         if len > usize::from(u16::max_value()) {
             self.as_target_mut().truncate(pos);
             return Err(ShortBuf);
@@ -1569,7 +1586,9 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
     /// Returns a mutual reference the full OPT header.
     fn opt_header_mut(&mut self) -> &mut OptHeader {
         let start = self.start;
-        OptHeader::for_record_slice_mut(&mut self.as_target_mut().as_mut()[start..])
+        OptHeader::for_record_slice_mut(
+            &mut self.as_target_mut().as_mut()[start..],
+        )
     }
 
     /// Returns a reference to the underlying octets builder.
@@ -1767,7 +1786,10 @@ impl<Target> StaticCompressor<Target> {
     }
 
     /// Returns a known position of a domain name if there is one.
-    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(&self, name: N) -> Option<u16>
+    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &self,
+        name: N,
+    ) -> Option<u16>
     where
         Target: AsRef<[u8]>,
     {
@@ -1831,7 +1853,10 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
         }
     }
 
-    fn append_compressed_dname<N: ToDname>(&mut self, name: &N) -> Result<(), ShortBuf> {
+    fn append_compressed_dname<N: ToDname>(
+        &mut self,
+        name: &N,
+    ) -> Result<(), ShortBuf> {
         let mut name = name.iter_labels().peekable();
 
         loop {
@@ -1962,7 +1987,10 @@ impl<Target> TreeCompressor<Target> {
         self.target.as_mut()
     }
 
-    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(&self, name: N) -> Option<u16> {
+    fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &self,
+        name: N,
+    ) -> Option<u16> {
         let mut node = &self.start;
         for label in name {
             if label.is_root() {
@@ -1973,7 +2001,11 @@ impl<Target> TreeCompressor<Target> {
         None
     }
 
-    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(&mut self, name: N, pos: usize) -> bool {
+    fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
+        &mut self,
+        name: N,
+        pos: usize,
+    ) -> bool {
         if pos >= 0xC000 {
             return false;
         }
@@ -2024,7 +2056,10 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
         }
     }
 
-    fn append_compressed_dname<N: ToDname>(&mut self, name: &N) -> Result<(), ShortBuf> {
+    fn append_compressed_dname<N: ToDname>(
+        &mut self,
+        name: &N,
+    ) -> Result<(), ShortBuf> {
         let mut name = name.iter_labels().peekable();
 
         loop {
@@ -2084,8 +2119,10 @@ mod test {
 
         // Create a message builder wrapping a compressor wrapping a stream
         // target.
-        let mut msg =
-            MessageBuilder::from_target(StaticCompressor::new(StreamTarget::new_vec())).unwrap();
+        let mut msg = MessageBuilder::from_target(StaticCompressor::new(
+            StreamTarget::new_vec(),
+        ))
+        .unwrap();
 
         // Set the RD bit in the header and proceed to the question section.
         msg.header_mut().set_rd(true);
@@ -2181,7 +2218,15 @@ mod test {
         msg.push((
             Dname::root_slice(),
             86390,
-            Soa::new(mname, rname, Serial(2020081701), 1800, 900, 604800, 86400),
+            Soa::new(
+                mname,
+                rname,
+                Serial(2020081701),
+                1800,
+                900,
+                604800,
+                86400,
+            ),
         ))
         .unwrap();
         msg.finish()
@@ -2191,14 +2236,16 @@ mod test {
     fn compressor() {
         // An example negative response to `example. NS` with an SOA to test various compressed name situations.
         let expect = &[
-            0x00, 0x00, 0x81, 0x83, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x07, 0x65,
-            0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x00, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x06,
-            0x00, 0x01, 0x00, 0x01, 0x51, 0x76, 0x00, 0x40, 0x01, 0x61, 0x0c, 0x72, 0x6f, 0x6f,
-            0x74, 0x2d, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x73, 0x03, 0x6e, 0x65, 0x74, 0x00,
-            0x05, 0x6e, 0x73, 0x74, 0x6c, 0x64, 0x0c, 0x76, 0x65, 0x72, 0x69, 0x73, 0x69, 0x67,
-            0x6e, 0x2d, 0x67, 0x72, 0x73, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x78, 0x68, 0x00, 0x25,
-            0x00, 0x00, 0x07, 0x08, 0x00, 0x00, 0x03, 0x84, 0x00, 0x09, 0x3a, 0x80, 0x00, 0x01,
-            0x51, 0x80,
+            0x00, 0x00, 0x81, 0x83, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x00, 0x00,
+            0x02, 0x00, 0x01, 0x00, 0x00, 0x06, 0x00, 0x01, 0x00, 0x01, 0x51,
+            0x76, 0x00, 0x40, 0x01, 0x61, 0x0c, 0x72, 0x6f, 0x6f, 0x74, 0x2d,
+            0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x73, 0x03, 0x6e, 0x65, 0x74,
+            0x00, 0x05, 0x6e, 0x73, 0x74, 0x6c, 0x64, 0x0c, 0x76, 0x65, 0x72,
+            0x69, 0x73, 0x69, 0x67, 0x6e, 0x2d, 0x67, 0x72, 0x73, 0x03, 0x63,
+            0x6f, 0x6d, 0x00, 0x78, 0x68, 0x00, 0x25, 0x00, 0x00, 0x07, 0x08,
+            0x00, 0x00, 0x03, 0x84, 0x00, 0x09, 0x3a, 0x80, 0x00, 0x01, 0x51,
+            0x80,
         ];
 
         let msg = create_compressed(StaticCompressor::new(Vec::new()));

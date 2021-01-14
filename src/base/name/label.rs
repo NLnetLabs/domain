@@ -3,7 +3,9 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
-use super::super::octets::{Compose, FormError, OctetsBuilder, ParseError, ShortBuf};
+use super::super::octets::{
+    Compose, FormError, OctetsBuilder, ParseError, ShortBuf,
+};
 use core::{borrow, cmp, fmt, hash, ops};
 
 //------------ Label ---------------------------------------------------------
@@ -51,7 +53,9 @@ impl Label {
     /// # Safety
     ///
     /// The `slice` must be at most 63 octets long.
-    pub(super) unsafe fn from_slice_mut_unchecked(slice: &mut [u8]) -> &mut Self {
+    pub(super) unsafe fn from_slice_mut_unchecked(
+        slice: &mut [u8],
+    ) -> &mut Self {
         &mut *(slice as *mut [u8] as *mut Self)
     }
 
@@ -81,7 +85,9 @@ impl Label {
     /// Converts a mutable octets slice into a label.
     ///
     /// This will fail of the slice is longer than 63 octets.
-    pub fn from_slice_mut(slice: &mut [u8]) -> Result<&mut Self, LongLabelError> {
+    pub fn from_slice_mut(
+        slice: &mut [u8],
+    ) -> Result<&mut Self, LongLabelError> {
         if slice.len() > 63 {
             Err(LongLabelError)
         } else {
@@ -93,14 +99,20 @@ impl Label {
     ///
     /// On success, the function returns a label and the remainder of
     /// the slice.
-    pub fn split_from(slice: &[u8]) -> Result<(&Self, &[u8]), SplitLabelError> {
+    pub fn split_from(
+        slice: &[u8],
+    ) -> Result<(&Self, &[u8]), SplitLabelError> {
         let head = match slice.get(0) {
             Some(ch) => *ch,
             None => return Err(SplitLabelError::ShortInput),
         };
         let end = match head {
             0..=0x3F => (head as usize) + 1,
-            0x40..=0x7F => return Err(SplitLabelError::BadType(LabelTypeError::Extended(head))),
+            0x40..=0x7F => {
+                return Err(SplitLabelError::BadType(
+                    LabelTypeError::Extended(head),
+                ))
+            }
             0xC0..=0xFF => {
                 let res = match slice.get(1) {
                     Some(ch) => u16::from(*ch),
@@ -109,7 +121,11 @@ impl Label {
                 let res = res | ((u16::from(head) & 0x3F) << 8);
                 return Err(SplitLabelError::Pointer(res));
             }
-            _ => return Err(SplitLabelError::BadType(LabelTypeError::Undefined)),
+            _ => {
+                return Err(SplitLabelError::BadType(
+                    LabelTypeError::Undefined,
+                ))
+            }
         };
         if slice.len() < end {
             return Err(SplitLabelError::ShortInput);
@@ -175,7 +191,10 @@ impl Label {
     ///
     /// The method builds the encoded form of the label that starts with a
     /// one octet length indicator.
-    pub fn build<Builder: OctetsBuilder>(&self, target: &mut Builder) -> Result<(), ShortBuf> {
+    pub fn build<Builder: OctetsBuilder>(
+        &self,
+        target: &mut Builder,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_slice(&[self.len() as u8])?;
             target.append_slice(self.as_slice())
@@ -226,14 +245,20 @@ impl Label {
 //--- Compose
 
 impl Compose for Label {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             (self.len() as u8).compose(target)?;
             target.append_slice(self.as_ref())
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             (self.len() as u8).compose(target)?;
             for &ch in self.into_iter() {
@@ -399,7 +424,9 @@ impl OwnedLabel {
 
     /// Returns a reference to the label.
     pub fn as_label(&self) -> &Label {
-        unsafe { Label::from_slice_unchecked(&self.0[1..=(self.0[0] as usize)]) }
+        unsafe {
+            Label::from_slice_unchecked(&self.0[1..=(self.0[0] as usize)])
+        }
     }
 
     /// Returns a mutable reference to the label.
@@ -586,7 +613,9 @@ impl fmt::Display for LabelTypeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             LabelTypeError::Undefined => f.write_str("undefined label type"),
-            LabelTypeError::Extended(value) => write!(f, "unknown extended label 0x{:02x}", value),
+            LabelTypeError::Extended(value) => {
+                write!(f, "unknown extended label 0x{:02x}", value)
+            }
         }
     }
 }
@@ -640,7 +669,9 @@ impl From<SplitLabelError> for ParseError {
             SplitLabelError::Pointer(_) => {
                 ParseError::Form(FormError::new("compressed domain name"))
             }
-            SplitLabelError::BadType(_) => ParseError::Form(FormError::new("invalid label type")),
+            SplitLabelError::BadType(_) => {
+                ParseError::Form(FormError::new("invalid label type"))
+            }
             SplitLabelError::ShortInput => ParseError::ShortInput,
         }
     }
@@ -651,7 +682,9 @@ impl From<SplitLabelError> for ParseError {
 impl fmt::Display for SplitLabelError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SplitLabelError::Pointer(_) => f.write_str("compressed domain name"),
+            SplitLabelError::Pointer(_) => {
+                f.write_str("compressed domain name")
+            }
             SplitLabelError::BadType(ltype) => ltype.fmt(f),
             SplitLabelError::ShortInput => ParseError::ShortInput.fmt(f),
         }

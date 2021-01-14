@@ -8,7 +8,8 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::utils::base64;
@@ -175,12 +176,15 @@ impl<O, N> Tsig<O, N> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Tsig<SrcOctets, SrcName>> for Tsig<Octets, Name>
+impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Tsig<SrcOctets, SrcName>>
+    for Tsig<Octets, Name>
 where
     Octets: OctetsFrom<SrcOctets>,
     Name: OctetsFrom<SrcName>,
 {
-    fn octets_from(source: Tsig<SrcOctets, SrcName>) -> Result<Self, ShortBuf> {
+    fn octets_from(
+        source: Tsig<SrcOctets, SrcName>,
+    ) -> Result<Self, ShortBuf> {
         Ok(Tsig::new(
             Name::octets_from(source.algorithm)?,
             source.time_signed,
@@ -380,7 +384,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Tsig<Ref::Range, ParsedDname<Ref>> {
 }
 
 impl<O: AsRef<[u8]>, N: Compose> Compose for Tsig<O, N> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.algorithm.compose(buf)?;
             self.time_signed.compose(buf)?;
@@ -500,7 +507,8 @@ impl Time48 {
     /// Returns `true` iff `other` is at most `fudge` seconds before or after
     /// this value’s time.
     pub fn eq_fudged(self, other: Self, fudge: u64) -> bool {
-        self.0.saturating_sub(fudge) <= other.0 && self.0.saturating_add(fudge) >= other.0
+        self.0.saturating_sub(fudge) <= other.0
+            && self.0.saturating_add(fudge) >= other.0
     }
 }
 
@@ -527,7 +535,10 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for Time48 {
 }
 
 impl Compose for Time48 {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.into_octets())
     }
 }

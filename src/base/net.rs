@@ -39,7 +39,11 @@ mod nostd {
 
     impl fmt::Display for Ipv4Addr {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}.{}.{}.{}", self.0[0], self.0[1], self.0[2], self.0[3])
+            write!(
+                f,
+                "{}.{}.{}.{}",
+                self.0[0], self.0[1], self.0[2], self.0[3]
+            )
         }
     }
 
@@ -104,7 +108,9 @@ mod nostd {
                     )
                 }
                 _ => {
-                    fn find_zero_slice(segments: &[u16; 8]) -> (usize, usize) {
+                    fn find_zero_slice(
+                        segments: &[u16; 8],
+                    ) -> (usize, usize) {
                         let mut longest_span_len = 0;
                         let mut longest_span_at = 0;
                         let mut cur_span_len = 0;
@@ -131,7 +137,8 @@ mod nostd {
                         (longest_span_at, longest_span_len)
                     }
 
-                    let (zeros_at, zeros_len) = find_zero_slice(&self.segments());
+                    let (zeros_at, zeros_len) =
+                        find_zero_slice(&self.segments());
 
                     if zeros_len > 1 {
                         fn fmt_subslice(
@@ -149,7 +156,10 @@ mod nostd {
 
                         fmt_subslice(&self.segments()[..zeros_at], fmt)?;
                         fmt.write_str("::")?;
-                        fmt_subslice(&self.segments()[zeros_at + zeros_len..], fmt)
+                        fmt_subslice(
+                            &self.segments()[zeros_at + zeros_len..],
+                            fmt,
+                        )
                     } else {
                         let &[a, b, c, d, e, f, g, h] = &self.segments();
                         write!(

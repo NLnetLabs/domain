@@ -102,19 +102,28 @@ impl Entry {
         } else if let Ok(()) = Self::scan_blank(scanner) {
             Ok(Some(Entry::Blank))
         } else {
-            let record = Self::scan_record(scanner, last_owner, last_class, default_ttl)?;
+            let record = Self::scan_record(
+                scanner,
+                last_owner,
+                last_class,
+                default_ttl,
+            )?;
             Ok(Some(Entry::Record(record)))
         }
     }
 
-    fn scan_blank<C: CharSource>(scanner: &mut Scanner<C>) -> Result<(), ScanError> {
+    fn scan_blank<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<(), ScanError> {
         scanner.scan_opt_space()?;
         scanner.scan_newline()?;
         Ok(())
     }
 
     /// Tries to scan a control entry.
-    fn scan_control<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan_control<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         match ControlType::scan(scanner)? {
             ControlType::Origin => {
                 let name = Dname::scan(scanner)?;
@@ -146,7 +155,8 @@ impl Entry {
         default_ttl: Option<u32>,
     ) -> Result<MasterRecord, ScanError> {
         let owner = Self::scan_owner(scanner, last_owner)?;
-        let (ttl, class) = Self::scan_ttl_class(scanner, last_class, default_ttl)?;
+        let (ttl, class) =
+            Self::scan_ttl_class(scanner, last_class, default_ttl)?;
         let rtype = Rtype::scan(scanner)?;
         let rdata = MasterRecordData::scan(rtype, scanner)?;
         scanner.scan_newline()?;
@@ -196,11 +206,15 @@ impl Entry {
         };
         let ttl = match ttl.or(default_ttl) {
             Some(ttl) => ttl,
-            None => return Err(ScanError::Syntax(SyntaxError::NoDefaultTtl, pos)),
+            None => {
+                return Err(ScanError::Syntax(SyntaxError::NoDefaultTtl, pos))
+            }
         };
         let class = match class.or(last_class) {
             Some(class) => class,
-            None => return Err(ScanError::Syntax(SyntaxError::NoLastClass, pos)),
+            None => {
+                return Err(ScanError::Syntax(SyntaxError::NoLastClass, pos))
+            }
         };
         Ok((ttl, class))
     }
@@ -218,7 +232,9 @@ enum ControlType {
 }
 
 impl Scan for ControlType {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         let pos = scanner.pos();
         scanner.scan_string_word(|word| {
             if word.eq_ignore_ascii_case("$ORIGIN") {
@@ -238,4 +254,5 @@ impl Scan for ControlType {
 
 //------------ MasterRecord --------------------------------------------------
 
-pub type MasterRecord = Record<Dname<Bytes>, MasterRecordData<Bytes, Dname<Bytes>>>;
+pub type MasterRecord =
+    Record<Dname<Bytes>, MasterRecordData<Bytes, Dname<Bytes>>>;

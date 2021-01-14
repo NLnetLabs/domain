@@ -10,14 +10,16 @@ use crate::base::iana::Rtype;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError,
-    Parser, ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef,
+    Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
 use crate::base::str::Symbol;
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner, SyntaxError,
+};
 #[cfg(feature = "master")]
 use bytes::Bytes;
 #[cfg(feature = "bytes")]
@@ -111,7 +113,10 @@ impl<Octets: AsRef<[u8]>> Parse<Octets> for A {
 }
 
 impl Compose for A {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         self.addr.compose(target)
     }
 }
@@ -120,8 +125,11 @@ impl Compose for A {
 
 #[cfg(feature = "master")]
 impl Scan for A {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
-        scanner.scan_string_phrase(|res| A::from_str(&res).map_err(Into::into))
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        scanner
+            .scan_string_phrase(|res| A::from_str(&res).map_err(Into::into))
     }
 }
 
@@ -302,7 +310,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Hinfo<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.cpu.compose(target)?;
             self.os.compose(target)
@@ -314,7 +325,9 @@ impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Hinfo<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(CharStr::scan(scanner)?, CharStr::scan(scanner)?))
     }
 }
@@ -462,7 +475,8 @@ where
     NN: ToDname,
 {
     fn eq(&self, other: &Minfo<NN>) -> bool {
-        self.rmailbx.name_eq(&other.rmailbx) && self.emailbx.name_eq(&other.emailbx)
+        self.rmailbx.name_eq(&other.rmailbx)
+            && self.emailbx.name_eq(&other.emailbx)
     }
 }
 
@@ -522,14 +536,20 @@ impl<Ref: OctetsRef> Parse<Ref> for Minfo<ParsedDname<Ref>> {
 }
 
 impl<N: ToDname> Compose for Minfo<N> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_compressed_dname(&self.rmailbx)?;
             target.append_compressed_dname(&self.emailbx)
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.rmailbx.compose_canonical(target)?;
             self.emailbx.compose_canonical(target)
@@ -541,7 +561,9 @@ impl<N: ToDname> Compose for Minfo<N> {
 
 #[cfg(feature = "master")]
 impl<N: Scan> Scan for Minfo<N> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?))
     }
 }
@@ -631,7 +653,8 @@ where
     NN: ToDname,
 {
     fn eq(&self, other: &Mx<NN>) -> bool {
-        self.preference == other.preference && self.exchange.name_eq(&other.exchange)
+        self.preference == other.preference
+            && self.exchange.name_eq(&other.exchange)
     }
 }
 
@@ -687,14 +710,20 @@ impl<Ref: OctetsRef> Parse<Ref> for Mx<ParsedDname<Ref>> {
 }
 
 impl<N: ToDname> Compose for Mx<N> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.preference.compose(target)?;
             target.append_compressed_dname(&self.exchange)
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.preference.compose(target)?;
             self.exchange.compose_canonical(target)
@@ -706,7 +735,9 @@ impl<N: ToDname> Compose for Mx<N> {
 
 #[cfg(feature = "master")]
 impl<N: Scan> Scan for Mx<N> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(u16::scan(scanner)?, N::scan(scanner)?))
     }
 }
@@ -853,7 +884,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Null<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Null<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.data.as_ref())
     }
 }
@@ -1160,7 +1194,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Soa<ParsedDname<Ref>> {
 }
 
 impl<N: ToDname> Compose for Soa<N> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             buf.append_compressed_dname(&self.mname)?;
             buf.append_compressed_dname(&self.rname)?;
@@ -1172,7 +1209,10 @@ impl<N: ToDname> Compose for Soa<N> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.mname.compose_canonical(buf)?;
             self.rname.compose_canonical(buf)?;
@@ -1189,7 +1229,9 @@ impl<N: ToDname> Compose for Soa<N> {
 
 #[cfg(feature = "master")]
 impl<N: Scan> Scan for Soa<N> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             N::scan(scanner)?,
             N::scan(scanner)?,
@@ -1402,7 +1444,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Txt<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 }
@@ -1411,7 +1456,9 @@ impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Txt<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         scanner.scan_byte_phrase(|res| {
             let mut builder = TxtBuilder::new_bytes();
             if builder.append_slice(res.as_ref()).is_err() {
@@ -1553,7 +1600,8 @@ mod test {
     fn hinfo_octets_into() {
         use crate::octets::OctetsInto;
 
-        let hinfo: Hinfo<Vec<u8>> = Hinfo::new("1234".parse().unwrap(), "abcd".parse().unwrap());
+        let hinfo: Hinfo<Vec<u8>> =
+            Hinfo::new("1234".parse().unwrap(), "abcd".parse().unwrap());
         let hinfo_bytes: Hinfo<bytes::Bytes> = hinfo.octets_into().unwrap();
         assert_eq!(hinfo.cpu(), hinfo_bytes.cpu());
         assert_eq!(hinfo.os(), hinfo_bytes.os());
@@ -1565,9 +1613,12 @@ mod test {
         use crate::base::Dname;
         use crate::octets::OctetsInto;
 
-        let minfo: Minfo<Dname<Vec<u8>>> =
-            Minfo::new("a.example".parse().unwrap(), "b.example".parse().unwrap());
-        let minfo_bytes: Minfo<Dname<bytes::Bytes>> = minfo.octets_into().unwrap();
+        let minfo: Minfo<Dname<Vec<u8>>> = Minfo::new(
+            "a.example".parse().unwrap(),
+            "b.example".parse().unwrap(),
+        );
+        let minfo_bytes: Minfo<Dname<bytes::Bytes>> =
+            minfo.octets_into().unwrap();
         assert_eq!(minfo.rmailbx(), minfo_bytes.rmailbx());
         assert_eq!(minfo.emailbx(), minfo_bytes.emailbx());
     }

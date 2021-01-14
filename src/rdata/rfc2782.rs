@@ -8,7 +8,8 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "master")]
@@ -173,7 +174,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Srv<ParsedDname<Ref>> {
 }
 
 impl<N: Compose> Compose for Srv<N> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.priority.compose(buf)?;
             self.weight.compose(buf)?;
@@ -182,7 +186,10 @@ impl<N: Compose> Compose for Srv<N> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.priority.compose(buf)?;
             self.weight.compose(buf)?;
@@ -202,7 +209,9 @@ impl<N> RtypeRecordData for Srv<N> {
 
 #[cfg(feature = "master")]
 impl<N: Scan> Scan for Srv<N> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u16::scan(scanner)?,

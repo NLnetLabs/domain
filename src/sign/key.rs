@@ -8,7 +8,10 @@ pub trait SigningKey {
     type Error;
 
     fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error>;
-    fn ds<N: ToDname>(&self, owner: N) -> Result<Ds<Self::Octets>, Self::Error>;
+    fn ds<N: ToDname>(
+        &self,
+        owner: N,
+    ) -> Result<Ds<Self::Octets>, Self::Error>;
 
     fn algorithm(&self) -> Result<SecAlg, Self::Error> {
         self.dnskey().map(|dnskey| dnskey.algorithm())
@@ -29,7 +32,10 @@ impl<'a, K: SigningKey> SigningKey for &'a K {
     fn dnskey(&self) -> Result<Dnskey<Self::Octets>, Self::Error> {
         (*self).dnskey()
     }
-    fn ds<N: ToDname>(&self, owner: N) -> Result<Ds<Self::Octets>, Self::Error> {
+    fn ds<N: ToDname>(
+        &self,
+        owner: N,
+    ) -> Result<Ds<Self::Octets>, Self::Error> {
         (*self).ds(owner)
     }
 

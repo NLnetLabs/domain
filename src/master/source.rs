@@ -55,32 +55,39 @@ impl AsciiFile {
 
 impl CharSource for AsciiFile {
     fn next(&mut self) -> Result<Option<char>, io::Error> {
-        let err = if let Some((ref mut buf, ref mut len, ref mut pos)) = self.buf {
-            if *pos < *len {
-                let res = buf[*pos];
-                if res.is_ascii() {
-                    *pos += 1;
-                    return Ok(Some(res as char));
-                }
-                Err(io::Error::new(io::ErrorKind::InvalidData, AsciiError(res)))
-            } else {
-                match self.file.read(buf) {
-                    Ok(0) => Ok(None),
-                    Ok(read_len) => {
-                        *len = read_len;
-                        let res = buf[0];
-                        if res.is_ascii() {
-                            *pos = 1;
-                            return Ok(Some(res as char));
-                        }
-                        Err(io::Error::new(io::ErrorKind::InvalidData, AsciiError(res)))
+        let err =
+            if let Some((ref mut buf, ref mut len, ref mut pos)) = self.buf {
+                if *pos < *len {
+                    let res = buf[*pos];
+                    if res.is_ascii() {
+                        *pos += 1;
+                        return Ok(Some(res as char));
                     }
-                    Err(err) => Err(err),
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        AsciiError(res),
+                    ))
+                } else {
+                    match self.file.read(buf) {
+                        Ok(0) => Ok(None),
+                        Ok(read_len) => {
+                            *len = read_len;
+                            let res = buf[0];
+                            if res.is_ascii() {
+                                *pos = 1;
+                                return Ok(Some(res as char));
+                            }
+                            Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                AsciiError(res),
+                            ))
+                        }
+                        Err(err) => Err(err),
+                    }
                 }
-            }
-        } else {
-            return Ok(None);
-        };
+            } else {
+                return Ok(None);
+            };
         self.buf = None;
         err
     }
@@ -126,7 +133,9 @@ impl CharSource for Utf8File {
         }
         if first < 0xE0 {
             return Ok(Some(unsafe {
-                char::from_u32_unchecked((u32::from(first & 0x1F)) << 6 | u32::from(second & 0x3F))
+                char::from_u32_unchecked(
+                    (u32::from(first & 0x1F)) << 6 | u32::from(second & 0x3F),
+                )
             }));
         }
         let third = match self.0.next()? {
@@ -209,29 +218,33 @@ impl OctetFile {
 
     #[inline]
     fn next(&mut self) -> Result<Option<u8>, io::Error> {
-        let err = if let Some((ref mut buf, ref mut len, ref mut pos)) = self.buf {
-            if *pos < *len {
-                let res = buf[*pos];
-                *pos += 1;
-                return Ok(Some(res));
-            } else {
-                match self.file.read(buf) {
-                    Ok(0) => Ok(None),
-                    Ok(read_len) => {
-                        *len = read_len;
-                        let res = buf[0];
-                        if res.is_ascii() {
-                            *pos = 1;
-                            return Ok(Some(res));
+        let err =
+            if let Some((ref mut buf, ref mut len, ref mut pos)) = self.buf {
+                if *pos < *len {
+                    let res = buf[*pos];
+                    *pos += 1;
+                    return Ok(Some(res));
+                } else {
+                    match self.file.read(buf) {
+                        Ok(0) => Ok(None),
+                        Ok(read_len) => {
+                            *len = read_len;
+                            let res = buf[0];
+                            if res.is_ascii() {
+                                *pos = 1;
+                                return Ok(Some(res));
+                            }
+                            Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                AsciiError(res),
+                            ))
                         }
-                        Err(io::Error::new(io::ErrorKind::InvalidData, AsciiError(res)))
+                        Err(err) => Err(err),
                     }
-                    Err(err) => Err(err),
                 }
-            }
-        } else {
-            return Ok(None);
-        };
+            } else {
+                return Ok(None);
+            };
         self.buf = None;
         err
     }

@@ -142,7 +142,12 @@ impl Symbol {
     pub fn is_word_char(self) -> bool {
         match self {
             Symbol::Char(ch) => {
-                ch != ' ' && ch != '\t' && ch != '(' && ch != ')' && ch != ';' && ch != '"'
+                ch != ' '
+                    && ch != '\t'
+                    && ch != '('
+                    && ch != ')'
+                    && ch != ';'
+                    && ch != '"'
             }
             _ => true,
         }

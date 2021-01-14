@@ -4,7 +4,8 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "master")]
@@ -26,7 +27,12 @@ pub struct Cdnskey<Octets> {
 }
 
 impl<Octets> Cdnskey<Octets> {
-    pub fn new(flags: u16, protocol: u8, algorithm: SecAlg, public_key: Octets) -> Self {
+    pub fn new(
+        flags: u16,
+        protocol: u8,
+        algorithm: SecAlg,
+        public_key: Octets,
+    ) -> Self {
         Cdnskey {
             flags,
             protocol,
@@ -162,7 +168,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.flags.compose(buf)?;
             self.protocol.compose(buf)?;
@@ -176,7 +185,9 @@ impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Cdnskey<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
@@ -223,7 +234,12 @@ pub struct Cds<Octets> {
 }
 
 impl<Octets> Cds<Octets> {
-    pub fn new(key_tag: u16, algorithm: SecAlg, digest_type: DigestAlg, digest: Octets) -> Self {
+    pub fn new(
+        key_tag: u16,
+        algorithm: SecAlg,
+        digest_type: DigestAlg,
+        digest: Octets,
+    ) -> Self {
         Cds {
             key_tag,
             algorithm,
@@ -375,7 +391,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.key_tag.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -389,7 +408,9 @@ impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Cds<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,

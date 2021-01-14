@@ -12,8 +12,8 @@ use ring::digest;
 use ring::error::Unspecified;
 use ring::rand::SecureRandom;
 use ring::signature::{
-    EcdsaKeyPair, Ed25519KeyPair, KeyPair, RsaEncoding, RsaKeyPair, Signature as RingSignature,
-    ECDSA_P256_SHA256_FIXED_SIGNING,
+    EcdsaKeyPair, Ed25519KeyPair, KeyPair, RsaEncoding, RsaKeyPair,
+    Signature as RingSignature, ECDSA_P256_SHA256_FIXED_SIGNING,
 };
 use std::vec::Vec;
 
@@ -31,12 +31,26 @@ enum RingKey {
 }
 
 impl<'a> Key<'a> {
-    pub fn throwaway_13(flags: u16, rng: &'a dyn SecureRandom) -> Result<Self, Unspecified> {
-        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, rng)?;
-        let keypair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref())?;
+    pub fn throwaway_13(
+        flags: u16,
+        rng: &'a dyn SecureRandom,
+    ) -> Result<Self, Unspecified> {
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(
+            &ECDSA_P256_SHA256_FIXED_SIGNING,
+            rng,
+        )?;
+        let keypair = EcdsaKeyPair::from_pkcs8(
+            &ECDSA_P256_SHA256_FIXED_SIGNING,
+            pkcs8.as_ref(),
+        )?;
         let public_key = keypair.public_key().as_ref()[1..].into();
         Ok(Key {
-            dnskey: Dnskey::new(flags, 3, SecAlg::EcdsaP256Sha256, public_key),
+            dnskey: Dnskey::new(
+                flags,
+                3,
+                SecAlg::EcdsaP256Sha256,
+                public_key,
+            ),
             key: RingKey::Ecdsa(keypair),
             rng,
         })
@@ -52,11 +66,15 @@ impl<'a> SigningKey for Key<'a> {
         Ok(self.dnskey.clone())
     }
 
-    fn ds<N: ToDname>(&self, owner: N) -> Result<Ds<Self::Octets>, Self::Error> {
+    fn ds<N: ToDname>(
+        &self,
+        owner: N,
+    ) -> Result<Ds<Self::Octets>, Self::Error> {
         let mut buf = Vec::new();
         owner.compose_canonical(&mut buf).unwrap();
         self.dnskey.compose_canonical(&mut buf).unwrap();
-        let digest = Vec::from(digest::digest(&digest::SHA256, &buf).as_ref());
+        let digest =
+            Vec::from(digest::digest(&digest::SHA256, &buf).as_ref());
         Ok(Ds::new(
             self.key_tag()?,
             self.dnskey.algorithm(),
@@ -67,7 +85,9 @@ impl<'a> SigningKey for Key<'a> {
 
     fn sign(&self, msg: &[u8]) -> Result<Self::Signature, Self::Error> {
         match self.key {
-            RingKey::Ecdsa(ref key) => key.sign(self.rng, msg).map(Signature::sig),
+            RingKey::Ecdsa(ref key) => {
+                key.sign(self.rng, msg).map(Signature::sig)
+            }
             RingKey::Ed25519(ref key) => Ok(Signature::sig(key.sign(msg))),
             RingKey::Rsa(ref key, encoding) => {
                 let mut sig = vec![0; key.public_modulus_len()];

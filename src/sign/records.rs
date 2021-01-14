@@ -125,7 +125,9 @@ impl<N, D> SortedRecords<N, D> {
                     // If we are at a zone cut, we only sign DS and NSEC
                     // records. NS records we must not sign and everything
                     // else shouldn’t be here, really.
-                    if rrset.rtype() != Rtype::Ds && rrset.rtype() != Rtype::Nsec {
+                    if rrset.rtype() != Rtype::Ds
+                        && rrset.rtype() != Rtype::Nsec
+                    {
                         continue;
                     }
                 } else {
@@ -221,7 +223,10 @@ impl<N, D> SortedRecords<N, D> {
             };
 
             if let Some((prev_name, bitmap)) = prev.take() {
-                res.push(prev_name.into_record(ttl, Nsec::new(name.owner().clone(), bitmap)));
+                res.push(prev_name.into_record(
+                    ttl,
+                    Nsec::new(name.owner().clone(), bitmap),
+                ));
             }
 
             let mut bitmap = RtypeBitmap::<Octets>::builder();
@@ -234,7 +239,9 @@ impl<N, D> SortedRecords<N, D> {
             prev = Some((name, bitmap.finalize()));
         }
         if let Some((prev_name, bitmap)) = prev {
-            res.push(prev_name.into_record(ttl, Nsec::new(apex_owner, bitmap)));
+            res.push(
+                prev_name.into_record(ttl, Nsec::new(apex_owner, bitmap)),
+            );
         }
         res
     }
@@ -333,7 +340,8 @@ impl<'a, N, D> Family<'a, N, D> {
         NN: ToDname,
         D: RecordData,
     {
-        self.family_name().ne(apex) && self.records().any(|record| record.rtype() == Rtype::Ns)
+        self.family_name().ne(apex)
+            && self.records().any(|record| record.rtype() == Rtype::Ns)
     }
 
     pub fn is_in_zone<NN: ToDname>(&self, apex: &FamilyName<NN>) -> bool
@@ -385,7 +393,11 @@ impl<N> FamilyName<N> {
             .map(|dnskey| self.clone().into_record(ttl, dnskey.convert()))
     }
 
-    pub fn ds<K: SigningKey>(&self, ttl: u32, key: K) -> Result<Record<N, Ds<K::Octets>>, K::Error>
+    pub fn ds<K: SigningKey>(
+        &self,
+        ttl: u32,
+        key: K,
+    ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
     where
         N: ToDname + Clone,
     {
@@ -502,7 +514,9 @@ where
         };
         let mut end = 1;
         while let Some(record) = self.slice.get(end) {
-            if !record.owner().name_eq(first.owner()) || record.class() != first.class() {
+            if !record.owner().name_eq(first.owner())
+                || record.class() != first.class()
+            {
                 break;
             }
             end += 1;

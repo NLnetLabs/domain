@@ -27,12 +27,14 @@
 
 use super::cmp::CanonicalOrd;
 use super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, OctetsFrom, OctetsRef, Parse,
-    ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder,
+    OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 use super::str::{BadSymbol, Symbol, SymbolError};
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner, SyntaxError,
+};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
@@ -101,7 +103,11 @@ impl<Octets: ?Sized> CharStr<Octets> {
     where
         Octets: IntoBuilder + Sized,
     {
-        unsafe { CharStrBuilder::from_builder_unchecked(IntoBuilder::into_builder(self.0)) }
+        unsafe {
+            CharStrBuilder::from_builder_unchecked(IntoBuilder::into_builder(
+                self.0,
+            ))
+        }
     }
 
     /// Converts the character string into its underlying octets value.
@@ -161,8 +167,12 @@ impl CharStr<Bytes> {
 
     /// Scans a character string given as a word of hexadecimal digits.
     #[cfg(feature = "master")]
-    pub fn scan_hex<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
-        scanner.scan_hex_word(|b| unsafe { Ok(CharStr::from_octets_unchecked(b)) })
+    pub fn scan_hex<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        scanner.scan_hex_word(|b| unsafe {
+            Ok(CharStr::from_octets_unchecked(b))
+        })
     }
 }
 
@@ -187,7 +197,8 @@ where
     Octets: OctetsFrom<SrcOctets>,
 {
     fn octets_from(source: CharStr<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.0).map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+        Octets::octets_from(source.0)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
 
@@ -196,14 +207,17 @@ where
 impl<Octets> str::FromStr for CharStr<Octets>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder: OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    <Octets as FromBuilder>::Builder:
+        OctetsBuilder<Octets = Octets> + EmptyBuilder,
 {
     type Err = FromStrError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Most likely, everything is ASCII so take `s`’s length as capacity.
         let mut builder =
-            CharStrBuilder::<<Octets as FromBuilder>::Builder>::with_capacity(s.len());
+            CharStrBuilder::<<Octets as FromBuilder>::Builder>::with_capacity(
+                s.len(),
+            );
         let mut chars = s.chars();
         while let Some(symbol) = Symbol::from_chars(&mut chars)? {
             if builder.len() == 255 {
@@ -326,7 +340,10 @@ impl<Ref: OctetsRef> Parse<Ref> for CharStr<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
-    fn compose<Target: OctetsBuilder>(&self, target: &mut Target) -> Result<(), ShortBuf> {
+    fn compose<Target: OctetsBuilder>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             (self.as_ref().len() as u8).compose(target)?;
             target.append_slice(self.as_ref())
@@ -338,7 +355,9 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for CharStr<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         scanner.scan_byte_phrase(|res| {
             if res.len() > 255 {
                 Err(SyntaxError::LongCharStr)
@@ -681,10 +700,16 @@ impl From<ShortBuf> for FromStrError {
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::ShortInput => f.write_str("unexpected end of input"),
-            FromStrError::LongString => f.write_str("character string with more than 255 octets"),
+            FromStrError::ShortInput => {
+                f.write_str("unexpected end of input")
+            }
+            FromStrError::LongString => {
+                f.write_str("character string with more than 255 octets")
+            }
             FromStrError::BadEscape => f.write_str("illegal escape sequence"),
-            FromStrError::BadSymbol(symbol) => write!(f, "illegal character '{}'", symbol),
+            FromStrError::BadSymbol(symbol) => {
+                write!(f, "illegal character '{}'", symbol)
+            }
             FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -705,7 +730,10 @@ mod test {
 
     #[test]
     fn from_slice() {
-        assert_eq!(CharStr::from_slice(b"01234").unwrap().as_slice(), b"01234");
+        assert_eq!(
+            CharStr::from_slice(b"01234").unwrap().as_slice(),
+            b"01234"
+        );
         assert_eq!(CharStr::from_slice(b"").unwrap().as_slice(), b"");
         assert!(CharStr::from_slice(&vec![0; 255]).is_ok());
         assert!(CharStr::from_slice(&vec![0; 256]).is_err());
@@ -836,7 +864,8 @@ mod test {
         assert_eq!(o.len(), 255);
         assert!(o.append_slice(b"f").is_err());
 
-        let mut o = CharStrBuilder::from_builder(vec![b'f', b'o', b'o']).unwrap();
+        let mut o =
+            CharStrBuilder::from_builder(vec![b'f', b'o', b'o']).unwrap();
         o.append_slice(b"bar").unwrap();
         assert_eq!(o.as_ref(), b"foobar");
         assert!(o.append_slice(&[0u8; 250][..]).is_err());

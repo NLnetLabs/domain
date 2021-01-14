@@ -44,7 +44,8 @@ impl<C: CharSource> Reader<C> {
                     return Ok(Some(ReaderItem::Control { name, start }))
                 }
                 Ok(Some(Entry::Record(record))) => {
-                    self.last = Some((record.owner().clone(), record.class()));
+                    self.last =
+                        Some((record.owner().clone(), record.class()));
                     return Ok(Some(ReaderItem::Record(record)));
                 }
                 Ok(Some(Entry::Blank)) => {}

@@ -8,9 +8,13 @@
 //! [`Serial`]: struct.Serial.html
 
 use super::cmp::CanonicalOrd;
-use super::octets::{Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf};
+use super::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
+};
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner, SyntaxError,
+};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone, Utc};
 use core::cmp::Ordering;
@@ -86,7 +90,9 @@ impl Serial {
     ///
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
     #[cfg(feature = "master")]
-    pub fn scan_rrsig<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    pub fn scan_rrsig<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             (0, [0u8; 14]),
             |&mut (ref mut pos, ref mut buf), symbol| {
@@ -198,7 +204,10 @@ impl<T: AsRef<[u8]>> Parse<T> for Serial {
 }
 
 impl Compose for Serial {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         self.0.compose(target)
     }
 }
@@ -207,7 +216,9 @@ impl Compose for Serial {
 
 #[cfg(feature = "master")]
 impl Scan for Serial {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         u32::scan(scanner).map(Into::into)
     }
 }
@@ -272,7 +283,9 @@ mod test {
         assert_eq!(Serial(0).add(4), Serial(4));
         assert_eq!(
             Serial(0xFF00_0000).add(0x0F00_0000),
-            Serial(((0xFF00_0000u64 + 0x0F00_0000u64) % 0x1_0000_0000) as u32)
+            Serial(
+                ((0xFF00_0000u64 + 0x0F00_0000u64) % 0x1_0000_0000) as u32
+            )
         );
     }
 
@@ -294,10 +307,16 @@ mod test {
         // s1 is said to be less than s2 if [...]
         // (i1 < i2 and i2 - i1 < 2^(SERIAL_BITS - 1))
         assert_eq!(Serial(12).partial_cmp(&Serial(13)), Some(Less));
-        assert_ne!(Serial(12).partial_cmp(&Serial(3_000_000_012)), Some(Less));
+        assert_ne!(
+            Serial(12).partial_cmp(&Serial(3_000_000_012)),
+            Some(Less)
+        );
 
         // or (i1 > i2 and i1 - i2 > 2^(SERIAL_BITS - 1))
-        assert_eq!(Serial(3_000_000_012).partial_cmp(&Serial(12)), Some(Less));
+        assert_eq!(
+            Serial(3_000_000_012).partial_cmp(&Serial(12)),
+            Some(Less)
+        );
         assert_ne!(Serial(13).partial_cmp(&Serial(12)), Some(Less));
 
         // s1 is said to be greater than s2 if [...]

@@ -57,7 +57,11 @@ impl<Builder> DnameBuilder<Builder> {
     where
         Builder: EmptyBuilder,
     {
-        unsafe { DnameBuilder::from_builder_unchecked(Builder::with_capacity(capacity)) }
+        unsafe {
+            DnameBuilder::from_builder_unchecked(Builder::with_capacity(
+                capacity,
+            ))
+        }
     }
 
     /// Creates a new domain name builder atop an existing octets builder.
@@ -204,7 +208,10 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// bytes.
     //
     //  XXX NEEDS TESTS
-    pub fn append_name<N: ToRelativeDname>(&mut self, name: &N) -> Result<(), PushNameError> {
+    pub fn append_name<N: ToRelativeDname>(
+        &mut self,
+        name: &N,
+    ) -> Result<(), PushNameError> {
         let head = self.head.take();
         self.end_label();
         if self.len() + name.len() > 254 {
@@ -342,15 +349,12 @@ where
     let ch = chars.next().ok_or(FromStrError::UnexpectedEnd)?;
     if ('0'..='9').contains(&ch) {
         let v = ch.to_digit(10).unwrap() * 100
-            + chars
-                .next()
-                .ok_or(FromStrError::UnexpectedEnd)
-                .and_then(|c| c.to_digit(10).ok_or(FromStrError::IllegalEscape))?
-                * 10
-            + chars
-                .next()
-                .ok_or(FromStrError::UnexpectedEnd)
-                .and_then(|c| c.to_digit(10).ok_or(FromStrError::IllegalEscape))?;
+            + chars.next().ok_or(FromStrError::UnexpectedEnd).and_then(
+                |c| c.to_digit(10).ok_or(FromStrError::IllegalEscape),
+            )? * 10
+            + chars.next().ok_or(FromStrError::UnexpectedEnd).and_then(
+                |c| c.to_digit(10).ok_or(FromStrError::IllegalEscape),
+            )?;
         if v > 255 {
             return Err(FromStrError::IllegalEscape);
         }
@@ -506,12 +510,24 @@ impl From<PushNameError> for FromStrError {
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::UnexpectedEnd => f.write_str("unexpected end of input"),
-            FromStrError::EmptyLabel => f.write_str("an empty label was encountered"),
-            FromStrError::BinaryLabel => f.write_str("a binary label was encountered"),
-            FromStrError::LongLabel => f.write_str("label length limit exceeded"),
-            FromStrError::IllegalEscape => f.write_str("illegal escape sequence"),
-            FromStrError::IllegalCharacter(char) => write!(f, "illegal character '{}'", char),
+            FromStrError::UnexpectedEnd => {
+                f.write_str("unexpected end of input")
+            }
+            FromStrError::EmptyLabel => {
+                f.write_str("an empty label was encountered")
+            }
+            FromStrError::BinaryLabel => {
+                f.write_str("a binary label was encountered")
+            }
+            FromStrError::LongLabel => {
+                f.write_str("label length limit exceeded")
+            }
+            FromStrError::IllegalEscape => {
+                f.write_str("illegal escape sequence")
+            }
+            FromStrError::IllegalCharacter(char) => {
+                write!(f, "illegal character '{}'", char)
+            }
             FromStrError::LongName => f.write_str("long domain name"),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
         }

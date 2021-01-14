@@ -349,7 +349,8 @@ impl ResolvConf {
         if self.servers.is_empty() {
             // glibc just simply uses 127.0.0.1:53. Let's do that, too,
             // and claim it is for compatibility.
-            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 53);
+            let addr =
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 53);
             self.servers.push(ServerConf::new(addr, Transport::Udp));
             self.servers.push(ServerConf::new(addr, Transport::Tcp));
         }
@@ -376,7 +377,10 @@ impl ResolvConf {
 ///
 impl ResolvConf {
     /// Parses the configuration from a file.
-    pub fn parse_file<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+    pub fn parse_file<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<(), Error> {
         let mut file = fs::File::open(path)?;
         self.parse(&mut file)
     }
@@ -391,7 +395,10 @@ impl ResolvConf {
             let line = line?;
             let line = line.trim_end();
 
-            if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+            if line.is_empty()
+                || line.starts_with(';')
+                || line.starts_with('#')
+            {
                 continue;
             }
 
@@ -401,7 +408,8 @@ impl ResolvConf {
                 Some("nameserver") => self.parse_nameserver(words)?,
                 Some("domain") => self.parse_domain(words)?,
                 Some("search") => self.parse_search(words)?,
-                Some("sortlist") => { /* TODO: self.parse_sortlist(words)? */ }
+                Some("sortlist") => { /* TODO: self.parse_sortlist(words)? */
+                }
                 Some("options") => self.parse_options(words)?,
                 _ => return Err(Error::ParseError),
             }
@@ -409,7 +417,10 @@ impl ResolvConf {
         Ok(())
     }
 
-    fn parse_nameserver(&mut self, mut words: SplitWhitespace) -> Result<(), Error> {
+    fn parse_nameserver(
+        &mut self,
+        mut words: SplitWhitespace,
+    ) -> Result<(), Error> {
         use std::net::ToSocketAddrs;
 
         for addr in (next_word(&mut words)?, 53).to_socket_addrs()? {
@@ -419,7 +430,10 @@ impl ResolvConf {
         no_more_words(words)
     }
 
-    fn parse_domain(&mut self, mut words: SplitWhitespace) -> Result<(), Error> {
+    fn parse_domain(
+        &mut self,
+        mut words: SplitWhitespace,
+    ) -> Result<(), Error> {
         let domain = SearchSuffix::from_str(next_word(&mut words)?)?;
         self.options.search = domain.into();
         no_more_words(words)
@@ -457,7 +471,9 @@ impl ResolvConf {
             match split_arg(word)? {
                 ("debug", None) => {}
                 ("ndots", Some(n)) => self.options.ndots = n,
-                ("timeout", Some(n)) => self.options.timeout = Duration::new(n as u64, 0),
+                ("timeout", Some(n)) => {
+                    self.options.timeout = Duration::new(n as u64, 0)
+                }
                 ("attempts", Some(n)) => self.options.attempts = n,
                 ("rotate", None) => self.options.rotate = true,
                 ("no-check-names", None) => self.options.no_check_name = true,
@@ -466,8 +482,12 @@ impl ResolvConf {
                 ("ip6-dotint", None) => self.options.use_ip6dotint = true,
                 ("no-ip6-dotint", None) => self.options.use_ip6dotint = false,
                 ("edns0", None) => self.options.use_edns0 = true,
-                ("single-request", None) => self.options.single_request = true,
-                ("single-request-reopen", None) => self.options.single_request_reopen = true,
+                ("single-request", None) => {
+                    self.options.single_request = true
+                }
+                ("single-request-reopen", None) => {
+                    self.options.single_request_reopen = true
+                }
                 ("no-tld-query", None) => self.options.no_tld_query = true,
                 ("use-vc", None) => self.options.use_vc = true,
                 // Ignore unknown or misformated options.
@@ -524,7 +544,8 @@ impl fmt::Display for ResolvConf {
         }
         if self.options.timeout != Duration::new(5, 0) {
             // XXX This ignores fractional seconds.
-            options.push(format!("timeout:{}", self.options.timeout.as_secs()));
+            options
+                .push(format!("timeout:{}", self.options.timeout.as_secs()));
         }
         if self.options.attempts != 2 {
             options.push(format!("attempts:{}", self.options.attempts));
@@ -661,7 +682,9 @@ impl ops::Deref for SearchList {
 // These are here to wrap stuff into Results.
 
 /// Returns a reference to the next word or an error.
-fn next_word<'a>(words: &'a mut str::SplitWhitespace) -> Result<&'a str, Error> {
+fn next_word<'a>(
+    words: &'a mut str::SplitWhitespace,
+) -> Result<&'a str, Error> {
     match words.next() {
         Some(word) => Ok(word),
         None => Err(Error::ParseError),

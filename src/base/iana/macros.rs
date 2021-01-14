@@ -258,7 +258,8 @@ macro_rules! int_enum_str_decimal {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
 
-                    Self::from_str(&word).map_err($crate::master::scan::SyntaxError::content)
+                    Self::from_str(&word)
+                        .map_err($crate::master::scan::SyntaxError::content)
                 })
             }
         }
@@ -335,8 +336,9 @@ macro_rules! int_enum_str_with_decimal {
                 scanner: &mut $crate::master::scan::Scanner<C>,
             ) -> Result<Self, $crate::master::scan::ScanError> {
                 scanner.scan_string_word(|word| {
-                    core::str::FromStr::from_str(&word)
-                        .map_err(|_| $crate::master::scan::SyntaxError::UnknownMnemonic)
+                    core::str::FromStr::from_str(&word).map_err(|_| {
+                        $crate::master::scan::SyntaxError::UnknownMnemonic
+                    })
                 })
             }
         }
@@ -384,7 +386,9 @@ macro_rules! int_enum_str_with_prefix {
                 match $ianatype::from_mnemonic(s.as_bytes()) {
                     Some(res) => Ok(res),
                     None => {
-                        if let Some((n, _)) = s.char_indices().nth($str_prefix.len()) {
+                        if let Some((n, _)) =
+                            s.char_indices().nth($str_prefix.len())
+                        {
                             let (l, r) = s.split_at(n);
                             if l.eq_ignore_ascii_case($str_prefix) {
                                 let value = match u16::from_str_radix(r, 10) {
@@ -429,8 +433,9 @@ macro_rules! int_enum_str_with_prefix {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
 
-                    Self::from_str(&word)
-                        .map_err(|_| $crate::master::scan::SyntaxError::UnknownMnemonic)
+                    Self::from_str(&word).map_err(|_| {
+                        $crate::master::scan::SyntaxError::UnknownMnemonic
+                    })
                 })
             }
         }

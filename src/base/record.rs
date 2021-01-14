@@ -19,7 +19,8 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf,
 };
 use super::rdata::{ParseRecordData, RecordData};
 use core::cmp::Ordering;
@@ -193,12 +194,15 @@ impl<N, D> From<(N, u32, D)> for Record<N, D> {
 // XXX We don’t have blanket FromOctets for a type T into itself, so this may
 //     not always work as expected. Not sure what we can do about it?
 
-impl<Name, Data, SrcName, SrcData> OctetsFrom<Record<SrcName, SrcData>> for Record<Name, Data>
+impl<Name, Data, SrcName, SrcData> OctetsFrom<Record<SrcName, SrcData>>
+    for Record<Name, Data>
 where
     Name: OctetsFrom<SrcName>,
     Data: OctetsFrom<SrcData>,
 {
-    fn octets_from(source: Record<SrcName, SrcData>) -> Result<Self, ShortBuf> {
+    fn octets_from(
+        source: Record<SrcName, SrcData>,
+    ) -> Result<Self, ShortBuf> {
         Ok(Record {
             owner: Name::octets_from(source.owner)?,
             class: source.class,
@@ -217,7 +221,9 @@ where
     DD: RecordData,
 {
     fn eq(&self, other: &Record<NN, DD>) -> bool {
-        self.owner == other.owner && self.class == other.class && self.data == other.data
+        self.owner == other.owner
+            && self.class == other.class
+            && self.data == other.data
     }
 }
 
@@ -322,7 +328,10 @@ where
 }
 
 impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_compressed_dname(&self.owner)?;
             self.data.rtype().compose(target)?;
@@ -332,13 +341,18 @@ impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.owner.compose_canonical(target)?;
             self.data.rtype().compose(target)?;
             self.class.compose(target)?;
             self.ttl.compose(target)?;
-            target.u16_len_prefixed(|target| self.data.compose_canonical(target))
+            target.u16_len_prefixed(|target| {
+                self.data.compose_canonical(target)
+            })
         })
     }
 }
@@ -414,7 +428,10 @@ pub trait AsRecord {
     fn data(&self) -> &Self::Data;
 
     /// Produces the encoded record.
-    fn compose_record<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_record<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_compressed_dname(self.owner())?;
             self.data().rtype().compose(target)?;
@@ -425,13 +442,18 @@ pub trait AsRecord {
     }
 
     /// Produces the canonically encoded record.
-    fn compose_record_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_record_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.owner().compose_canonical(target)?;
             self.data().rtype().compose(target)?;
             self.class().compose(target)?;
             self.ttl().compose(target)?;
-            target.u16_len_prefixed(|target| self.data().compose_canonical(target))
+            target.u16_len_prefixed(|target| {
+                self.data().compose_canonical(target)
+            })
         })
     }
 }
@@ -529,7 +551,13 @@ pub struct RecordHeader<Name> {
 
 impl<Name> RecordHeader<Name> {
     /// Creates a new record header from its components.
-    pub fn new(owner: Name, rtype: Rtype, class: Class, ttl: u32, rdlen: u16) -> Self {
+    pub fn new(
+        owner: Name,
+        rtype: Rtype,
+        class: Class,
+        ttl: u32,
+        rdlen: u16,
+    ) -> Self {
         RecordHeader {
             owner,
             rtype,
@@ -545,7 +573,9 @@ impl<Name> RecordHeader<Name> {
     ///
     /// If the function succeeds, the parser will be positioned right behind
     /// the end of the record.
-    pub fn parse_and_skip<Ref>(parser: &mut Parser<Ref>) -> Result<Self, ParseError>
+    pub fn parse_and_skip<Ref>(
+        parser: &mut Parser<Ref>,
+    ) -> Result<Self, ParseError>
     where
         Self: Parse<Ref>,
         Ref: OctetsRef,
@@ -560,7 +590,9 @@ impl<Name> RecordHeader<Name> {
 
 impl RecordHeader<()> {
     /// Parses only the record length and skips over all the other fields.
-    fn parse_rdlen<Ref: OctetsRef>(parser: &mut Parser<Ref>) -> Result<u16, ParseError> {
+    fn parse_rdlen<Ref: OctetsRef>(
+        parser: &mut Parser<Ref>,
+    ) -> Result<u16, ParseError> {
         ParsedDname::skip(parser)?;
         Rtype::skip(parser)?;
         Class::skip(parser)?;
@@ -586,7 +618,9 @@ impl<Ref: OctetsRef> RecordHeader<ParsedDname<Ref>> {
     {
         parser.parse_block(self.rdlen as usize, |parser| {
             match Data::parse_data(self.rtype, parser)? {
-                Some(data) => Ok(Some(Record::new(self.owner, self.class, self.ttl, data))),
+                Some(data) => Ok(Some(Record::new(
+                    self.owner, self.class, self.ttl, data,
+                ))),
                 None => {
                     parser.advance_to_end();
                     Ok(None)
@@ -734,7 +768,10 @@ impl<Ref: OctetsRef> Parse<Ref> for RecordHeader<ParsedDname<Ref>> {
 }
 
 impl<Name: Compose> Compose for RecordHeader<Name> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.owner.compose(buf)?;
             self.rtype.compose(buf)?;
@@ -744,7 +781,10 @@ impl<Name: Compose> Compose for RecordHeader<Name> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.owner.compose_canonical(buf)?;
             self.rtype.compose(buf)?;
@@ -800,7 +840,10 @@ impl<Ref> ParsedRecord<Ref> {
     ///
     /// The record data is provided via a parser that is positioned at the
     /// first byte of the record data.
-    pub fn new(header: RecordHeader<ParsedDname<Ref>>, data: Parser<Ref>) -> Self {
+    pub fn new(
+        header: RecordHeader<ParsedDname<Ref>>,
+        data: Parser<Ref>,
+    ) -> Self {
         ParsedRecord { header, data }
     }
 
@@ -842,7 +885,9 @@ impl<Ref: OctetsRef> ParsedRecord<Ref> {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    pub fn to_record<Data>(&self) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    pub fn to_record<Data>(
+        &self,
+    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
     where
         Data: ParseRecordData<Ref>,
     {
@@ -862,7 +907,9 @@ impl<Ref: OctetsRef> ParsedRecord<Ref> {
     /// an error if parsing fails.
     ///
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
-    pub fn into_record<Data>(mut self) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
+    pub fn into_record<Data>(
+        mut self,
+    ) -> Result<Option<Record<ParsedDname<Ref>, Data>>, ParseError>
     where
         Data: ParseRecordData<Ref>,
     {
@@ -926,7 +973,9 @@ where
         match *self {
             RecordParseError::Name(ref name) => name.fmt(f),
             RecordParseError::Data(ref data) => data.fmt(f),
-            RecordParseError::ShortBuf => f.write_str("unexpected end of buffer"),
+            RecordParseError::ShortBuf => {
+                f.write_str("unexpected end of buffer")
+            }
         }
     }
 }
@@ -964,7 +1013,8 @@ mod test {
             86400,
             Ds::new(12, SecAlg::RsaSha256, b"something"),
         );
-        let ds_bytes: Record<Dname<Bytes>, Ds<Bytes>> = ds.octets_into().unwrap();
+        let ds_bytes: Record<Dname<Bytes>, Ds<Bytes>> =
+            ds.octets_into().unwrap();
         assert_eq!(ds.owner(), ds_bytes.owner());
         asswer_eq!(ds.data().digest(), ds_bytes.data().digest());
     }

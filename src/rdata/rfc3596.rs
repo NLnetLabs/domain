@@ -88,7 +88,10 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for Aaaa {
 }
 
 impl Compose for Aaaa {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         self.addr.compose(target)
     }
 }
@@ -97,8 +100,12 @@ impl Compose for Aaaa {
 
 #[cfg(feature = "master")]
 impl Scan for Aaaa {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
-        scanner.scan_string_phrase(|res| core::str::FromStr::from_str(&res).map_err(Into::into))
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        scanner.scan_string_phrase(|res| {
+            core::str::FromStr::from_str(&res).map_err(Into::into)
+        })
     }
 }
 

@@ -481,7 +481,10 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     ///
     /// The trait provides a default implementation which simply appends the
     /// name uncompressed.
-    fn append_compressed_dname<N: ToDname>(&mut self, name: &N) -> Result<(), ShortBuf> {
+    fn append_compressed_dname<N: ToDname>(
+        &mut self,
+        name: &N,
+    ) -> Result<(), ShortBuf> {
         if let Some(slice) = name.as_flat_slice() {
             self.append_slice(slice)
         } else {
@@ -516,7 +519,8 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
                     self.truncate(pos);
                     Err(ShortBuf)
                 } else {
-                    self.as_mut()[pos..pos + 2].copy_from_slice(&(len as u16).to_be_bytes());
+                    self.as_mut()[pos..pos + 2]
+                        .copy_from_slice(&(len as u16).to_be_bytes());
                     Ok(())
                 }
             }
@@ -896,7 +900,10 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     ///
     /// Advances the parser by `len` octets. If there aren’t enough octats
     /// left, leaves the parser untouched and returns an error instead.
-    pub fn parse_octets(&mut self, len: usize) -> Result<Ref::Range, ParseError>
+    pub fn parse_octets(
+        &mut self,
+        len: usize,
+    ) -> Result<Ref::Range, ParseError>
     where
         Ref: OctetsRef,
     {
@@ -1006,7 +1013,11 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// `ParseError::ShortInput`.
     ///
     //  XXX NEEDS TESTS!!!
-    pub fn parse_block<F, U>(&mut self, limit: usize, op: F) -> Result<U, ParseError>
+    pub fn parse_block<F, U>(
+        &mut self,
+        limit: usize,
+        op: F,
+    ) -> Result<U, ParseError>
     where
         F: FnOnce(&mut Self) -> Result<U, ParseError>,
     {
@@ -1184,72 +1195,108 @@ pub trait Compose {
     /// If the representation doesn’t fit into the builder, returns an error.
     /// In this case the target is considered undefined. If it is supposed to
     /// be reused, it needs to be reset specifically.
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf>;
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf>;
 
     /// Appends the canonical representation of the value to the target.
     ///
     /// If the representation doesn’t fit into the builder, returns an error.
     /// In this case the target is considered undefined. If it is supposed to
     /// be reused, it needs to be reset specifically.
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         self.compose(target)
     }
 }
 
 impl<'a, C: Compose + ?Sized> Compose for &'a C {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         (*self).compose(target)
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         (*self).compose_canonical(target)
     }
 }
 
 impl Compose for i8 {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&[*self as u8])
     }
 }
 
 impl Compose for u8 {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&[*self])
     }
 }
 
 impl Compose for i16 {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.to_be_bytes())
     }
 }
 
 impl Compose for u16 {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.to_be_bytes())
     }
 }
 
 impl Compose for i32 {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.to_be_bytes())
     }
 }
 
 impl Compose for u32 {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.to_be_bytes())
     }
 }
 
 impl Compose for Ipv4Addr {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.octets())
     }
 }
 
 impl Compose for Ipv6Addr {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.octets())
     }
 }
@@ -1673,7 +1720,8 @@ mod test {
 
     #[test]
     fn parse_i32() {
-        let mut parser = Parser::from_static(b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
+        let mut parser =
+            Parser::from_static(b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
         assert_eq!(parser.parse_i32(), Ok(0x12345678));
         assert_eq!(parser.parse_i32(), Ok(-42424242));
         assert_eq!(parser.parse_i32(), Err(ParseError::ShortInput));
@@ -1681,7 +1729,8 @@ mod test {
 
     #[test]
     fn parse_u32() {
-        let mut parser = Parser::from_static(b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
+        let mut parser =
+            Parser::from_static(b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
         assert_eq!(parser.parse_u32(), Ok(0x12345678));
         assert_eq!(parser.parse_u32(), Ok(0xfd78a84e));
         assert_eq!(parser.parse_u32(), Err(ParseError::ShortInput));

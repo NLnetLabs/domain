@@ -84,7 +84,8 @@ fn tsig_client_nsd() {
             .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
-        let tran = tsig::ClientTransaction::request(&key, &mut request).unwrap();
+        let tran =
+            tsig::ClientTransaction::request(&key, &mut request).unwrap();
         let sock = UdpSocket::bind("127.0.0.1:54320").unwrap();
         sock.send_to(request.as_target().as_dgram_slice(), "127.0.0.1:54321")
             .unwrap();
@@ -137,21 +138,26 @@ fn tsig_server_drill() {
                 Err(_) => continue,
             };
             let answer = TestBuilder::new_stream_vec();
-            let answer = answer.start_answer(&request, Rcode::NoError).unwrap();
-            let tran = match tsig::ServerTransaction::request(&&key, &mut request) {
-                Ok(Some(tran)) => tran,
-                Ok(None) => {
-                    sock.send_to(answer.as_slice(), addr).unwrap();
-                    continue;
-                }
-                Err(error) => {
-                    let answer = error
-                        .build_message(&request, TestBuilder::new_stream_vec())
-                        .unwrap();
-                    sock.send_to(answer.as_slice(), addr).unwrap();
-                    continue;
-                }
-            };
+            let answer =
+                answer.start_answer(&request, Rcode::NoError).unwrap();
+            let tran =
+                match tsig::ServerTransaction::request(&&key, &mut request) {
+                    Ok(Some(tran)) => tran,
+                    Ok(None) => {
+                        sock.send_to(answer.as_slice(), addr).unwrap();
+                        continue;
+                    }
+                    Err(error) => {
+                        let answer = error
+                            .build_message(
+                                &request,
+                                TestBuilder::new_stream_vec(),
+                            )
+                            .unwrap();
+                        sock.send_to(answer.as_slice(), addr).unwrap();
+                        continue;
+                    }
+                };
             let mut answer = answer.additional();
             tran.answer(&mut answer).unwrap();
             sock.send_to(answer.as_slice(), addr).unwrap();
@@ -220,7 +226,8 @@ fn tsig_client_sequence_nsd() {
             .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
-        let mut tran = tsig::ClientSequence::request(&key, &mut request).unwrap();
+        let mut tran =
+            tsig::ClientSequence::request(&key, &mut request).unwrap();
         sock.write_all(request.as_target().as_stream_slice())
             .unwrap();
         loop {
@@ -234,7 +241,9 @@ fn tsig_client_sequence_nsd() {
             tran.answer(&mut answer).unwrap();
             // Last message has SOA as last record in answer section.
             // We don’t care about details.
-            if answer.answer().unwrap().last().unwrap().unwrap().rtype() == Rtype::Soa {
+            if answer.answer().unwrap().last().unwrap().unwrap().rtype()
+                == Rtype::Soa
+            {
                 break;
             }
         }
@@ -278,17 +287,20 @@ fn tsig_server_sequence_drill() {
                 .unwrap();
             let mut answer = make_first_axfr(&request);
             tran.answer(&mut answer).unwrap();
-            send_tcp(&mut sock, answer.as_target().as_stream_slice()).unwrap();
+            send_tcp(&mut sock, answer.as_target().as_stream_slice())
+                .unwrap();
             for two in 0..10u8 {
                 for one in 0..10u8 {
                     let mut answer = make_middle_axfr(&request, one, two);
                     tran.answer(&mut answer).unwrap();
-                    send_tcp(&mut sock, answer.as_target().as_stream_slice()).unwrap();
+                    send_tcp(&mut sock, answer.as_target().as_stream_slice())
+                        .unwrap();
                 }
             }
             let mut answer = make_last_axfr(&request);
             tran.answer(&mut answer).unwrap();
-            send_tcp(&mut sock, answer.as_target().as_stream_slice()).unwrap();
+            send_tcp(&mut sock, answer.as_target().as_stream_slice())
+                .unwrap();
         }
     });
 
@@ -324,7 +336,11 @@ fn make_first_axfr(request: &TestMessage) -> TestAdditional {
     msg.additional()
 }
 
-fn make_middle_axfr(request: &TestMessage, one: u8, two: u8) -> TestAdditional {
+fn make_middle_axfr(
+    request: &TestMessage,
+    one: u8,
+    two: u8,
+) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
     let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
     push_a(&mut msg, 1, one, two);

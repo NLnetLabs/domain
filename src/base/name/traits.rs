@@ -1,6 +1,8 @@
 //! Domain name-related traits.
 //!
-use super::super::octets::{Compose, EmptyBuilder, FromBuilder, OctetsBuilder};
+use super::super::octets::{
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder,
+};
 use super::builder::PushError;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -42,7 +44,10 @@ pub trait ToLabelIter<'a> {
     }
 
     /// Determines whether `base` is a prefix of `self`.
-    fn starts_with<N: ToLabelIter<'a> + ?Sized>(&'a self, base: &'a N) -> bool {
+    fn starts_with<N: ToLabelIter<'a> + ?Sized>(
+        &'a self,
+        base: &'a N,
+    ) -> bool {
         let mut self_iter = self.iter_labels();
         let mut base_iter = base.iter_labels();
         loop {
@@ -170,7 +175,9 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     ///
     /// Domain names are compared ignoring ASCII case.
     fn name_eq<N: ToDname + ?Sized>(&self, other: &N) -> bool {
-        if let (Some(left), Some(right)) = (self.as_flat_slice(), other.as_flat_slice()) {
+        if let (Some(left), Some(right)) =
+            (self.as_flat_slice(), other.as_flat_slice())
+        {
             // We can do this because the length octets of each label are in
             // the ranged 0..64 which is before all ASCII letters.
             left.eq_ignore_ascii_case(right)
@@ -207,7 +214,9 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
 
     /// Returns the composed name ordering.
     fn composed_cmp<N: ToDname + ?Sized>(&self, other: &N) -> cmp::Ordering {
-        if let (Some(left), Some(right)) = (self.as_flat_slice(), other.as_flat_slice()) {
+        if let (Some(left), Some(right)) =
+            (self.as_flat_slice(), other.as_flat_slice())
+        {
             return left.cmp(right);
         }
         let mut self_iter = self.iter_labels();
@@ -230,17 +239,22 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     }
 
     /// Returns the lowercase composed ordering.
-    fn lowercase_composed_cmp<N: ToDname + ?Sized>(&self, other: &N) -> cmp::Ordering {
+    fn lowercase_composed_cmp<N: ToDname + ?Sized>(
+        &self,
+        other: &N,
+    ) -> cmp::Ordering {
         // Since there isn’t a `cmp_ignore_ascii_case` on slice, we don’t
         // gain much from the shortcut.
         let mut self_iter = self.iter_labels();
         let mut other_iter = other.iter_labels();
         loop {
             match (self_iter.next(), other_iter.next()) {
-                (Some(left), Some(right)) => match left.lowercase_composed_cmp(right) {
-                    cmp::Ordering::Equal => {}
-                    other => return other,
-                },
+                (Some(left), Some(right)) => {
+                    match left.lowercase_composed_cmp(right) {
+                        cmp::Ordering::Equal => {}
+                        other => return other,
+                    }
+                }
                 (None, None) => return cmp::Ordering::Equal,
                 _ => {
                     // The root label sorts before any other label, so we
@@ -295,7 +309,9 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// some types of names.
     ///
     /// [`RelativeDname`]: struct.RelativeDname.html
-    fn to_relative_dname<Octets>(&self) -> Result<RelativeDname<Octets>, PushError>
+    fn to_relative_dname<Octets>(
+        &self,
+    ) -> Result<RelativeDname<Octets>, PushError>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
@@ -350,7 +366,10 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     }
 
     /// Returns a chain of this name and the provided name.
-    fn chain<N: ToEitherDname>(self, suffix: N) -> Result<Chain<Self, N>, LongChainError>
+    fn chain<N: ToEitherDname>(
+        self,
+        suffix: N,
+    ) -> Result<Chain<Self, N>, LongChainError>
     where
         Self: Sized,
     {
@@ -374,7 +393,9 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     ///
     /// Domain names are compared ignoring ASCII case.
     fn name_eq<N: ToRelativeDname + ?Sized>(&self, other: &N) -> bool {
-        if let (Some(left), Some(right)) = (self.as_flat_slice(), other.as_flat_slice()) {
+        if let (Some(left), Some(right)) =
+            (self.as_flat_slice(), other.as_flat_slice())
+        {
             left.eq_ignore_ascii_case(right)
         } else {
             self.iter_labels().eq(other.iter_labels())
@@ -395,7 +416,10 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// same name.
     ///
     /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
-    fn name_cmp<N: ToRelativeDname + ?Sized>(&self, other: &N) -> cmp::Ordering {
+    fn name_cmp<N: ToRelativeDname + ?Sized>(
+        &self,
+        other: &N,
+    ) -> cmp::Ordering {
         let mut self_iter = self.iter_labels();
         let mut other_iter = other.iter_labels();
         loop {

@@ -10,7 +10,9 @@ use tokio_native_tls::native_tls::TlsConnector;
 async fn main() {
     let resolver = StubResolver::new();
     let addr = match resolver
-        .lookup_host(&Dname::<Vec<u8>>::from_str("www.rust-lang.org").unwrap())
+        .lookup_host(
+            &Dname::<Vec<u8>>::from_str("www.rust-lang.org").unwrap(),
+        )
         .await
     {
         Ok(addr) => addr,
@@ -33,13 +35,15 @@ async fn main() {
             return;
         }
     };
-    let cx = tokio_native_tls::TlsConnector::from(match TlsConnector::builder().build() {
-        Ok(cx) => cx,
-        Err(err) => {
-            eprintln!("Creating TLS context failed: {}", err);
-            return;
-        }
-    });
+    let cx = tokio_native_tls::TlsConnector::from(
+        match TlsConnector::builder().build() {
+            Ok(cx) => cx,
+            Err(err) => {
+                eprintln!("Creating TLS context failed: {}", err);
+                return;
+            }
+        },
+    );
     let mut socket = match cx.connect("www.rust-lang.org", socket).await {
         Ok(socket) => socket,
         Err(err) => {

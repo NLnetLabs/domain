@@ -14,7 +14,9 @@ use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder};
 use super::name::ParsedDname;
-use super::octets::{OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf};
+use super::octets::{
+    OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+};
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
 use super::rdata::ParseRecordData;
@@ -375,7 +377,8 @@ where
     {
         if !self.header().qr()
             || self.header().id() != query.header().id()
-            || self.header_counts().qdcount() != query.header_counts().qdcount()
+            || self.header_counts().qdcount()
+                != query.header_counts().qdcount()
         {
             false
         } else {
@@ -400,7 +403,9 @@ where
     /// exactly one question or there is a parse error.
     ///
     /// [`first_question`]: #method.first_question
-    pub fn sole_question(&self) -> Result<Question<ParsedDname<&Octets>>, ParseError> {
+    pub fn sole_question(
+        &self,
+    ) -> Result<Question<ParsedDname<&Octets>>, ParseError> {
         match self.header_counts().qdcount() {
             0 => return Err(ParseError::form_error("no question")),
             1 => {}
@@ -537,7 +542,8 @@ where
     where
         Octets: AsMut<[u8]>,
     {
-        HeaderCounts::for_message_slice_mut(self.octets.as_mut()).dec_arcount();
+        HeaderCounts::for_message_slice_mut(self.octets.as_mut())
+            .dec_arcount();
     }
 
     /// Copy records from a message into the target message builder.
@@ -663,7 +669,9 @@ impl<Ref: OctetsRef> QuestionSection<Ref> {
         let mut parser = Parser::from_ref(octets);
         parser.advance(mem::size_of::<HeaderSection>()).unwrap();
         QuestionSection {
-            count: Ok(HeaderCounts::for_message_slice(parser.as_slice()).qdcount()),
+            count: Ok(
+                HeaderCounts::for_message_slice(parser.as_slice()).qdcount()
+            ),
             parser,
         }
     }
@@ -700,7 +708,8 @@ impl<Ref: OctetsRef> Iterator for QuestionSection<Ref> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
-            Ok(count) if count > 0 => match Question::parse(&mut self.parser) {
+            Ok(count) if count > 0 => match Question::parse(&mut self.parser)
+            {
                 Ok(question) => {
                     self.count = Ok(count - 1);
                     Some(Ok(question))
@@ -827,7 +836,8 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
     /// The parser must be positioned at the beginning of this section.
     fn new(parser: Parser<Ref>, section: Section) -> Self {
         RecordSection {
-            count: Ok(section.count(*HeaderCounts::for_message_slice(parser.as_slice()))),
+            count: Ok(section
+                .count(*HeaderCounts::for_message_slice(parser.as_slice()))),
             section,
             parser,
         }
@@ -853,7 +863,9 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
     /// [`ParsedDname`]: ../name/struct.ParsedDname.html
     /// [domain::rdata::parsed]: ../../rdata/parsed/index.html
-    pub fn limit_to<Data: ParseRecordData<Ref>>(self) -> RecordIter<Ref, Data> {
+    pub fn limit_to<Data: ParseRecordData<Ref>>(
+        self,
+    ) -> RecordIter<Ref, Data> {
         RecordIter::new(self, false)
     }
 
@@ -863,7 +875,9 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
     /// of class IN.
     ///
     /// [`limit_to`]: #method.limit_to
-    pub fn limit_to_in<Data: ParseRecordData<Ref>>(self) -> RecordIter<Ref, Data> {
+    pub fn limit_to_in<Data: ParseRecordData<Ref>>(
+        self,
+    ) -> RecordIter<Ref, Data> {
         RecordIter::new(self, true)
     }
 
@@ -884,16 +898,18 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
     /// Skip the next record.
     fn skip_next(&mut self) -> Option<Result<(), ParseError>> {
         match self.count {
-            Ok(count) if count > 0 => match ParsedRecord::skip(&mut self.parser) {
-                Ok(_) => {
-                    self.count = Ok(count - 1);
-                    Some(Ok(()))
+            Ok(count) if count > 0 => {
+                match ParsedRecord::skip(&mut self.parser) {
+                    Ok(_) => {
+                        self.count = Ok(count - 1);
+                        Some(Ok(()))
+                    }
+                    Err(err) => {
+                        self.count = Err(err);
+                        Some(Err(err))
+                    }
                 }
-                Err(err) => {
-                    self.count = Err(err);
-                    Some(Err(err))
-                }
-            },
+            }
             _ => None,
         }
     }
@@ -906,16 +922,18 @@ impl<Ref: OctetsRef> Iterator for RecordSection<Ref> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
-            Ok(count) if count > 0 => match ParsedRecord::parse(&mut self.parser) {
-                Ok(record) => {
-                    self.count = Ok(count - 1);
-                    Some(Ok(record))
+            Ok(count) if count > 0 => {
+                match ParsedRecord::parse(&mut self.parser) {
+                    Ok(record) => {
+                        self.count = Ok(count - 1);
+                        Some(Ok(record))
+                    }
+                    Err(err) => {
+                        self.count = Err(err);
+                        Some(Err(err))
+                    }
                 }
-                Err(err) => {
-                    self.count = Err(err);
-                    Some(Err(err))
-                }
-            },
+            }
             _ => None,
         }
     }
@@ -1001,7 +1019,9 @@ impl<Ref: OctetsRef, Data: ParseRecordData<Ref>> RecordIter<Ref, Data> {
     ///
     /// Returns an error if parsing the message has failed. Returns
     /// `Ok(None)` if this iterator was already on the additional section.
-    pub fn next_section(self) -> Result<Option<RecordSection<Ref>>, ParseError> {
+    pub fn next_section(
+        self,
+    ) -> Result<Option<RecordSection<Ref>>, ParseError> {
         self.section.next_section()
     }
 }
@@ -1197,7 +1217,9 @@ mod test {
         let msg = msg.for_slice();
         let target = MessageBuilder::new_vec().question();
         let res = msg.copy_records(target.answer(), |rr| {
-            if let Ok(Some(rr)) = rr.into_record::<AllRecordData<_, ParsedDname<_>>>() {
+            if let Ok(Some(rr)) =
+                rr.into_record::<AllRecordData<_, ParsedDname<_>>>()
+            {
                 if rr.rtype() == Rtype::Cname {
                     return Some(rr);
                 }

@@ -159,7 +159,9 @@ impl<C: CharSource> Scanner<C> {
                     return self.err(SyntaxError::Unexpected(ch));
                 }
             }
-            Some(Token::Newline) => return self.err(SyntaxError::UnexpectedNewline),
+            Some(Token::Newline) => {
+                return self.err(SyntaxError::UnexpectedNewline)
+            }
             None => return self.err(SyntaxError::UnexpectedEof),
         };
         while let Some(ch) = self.cond_read_symbol(Symbol::is_word_char)? {
@@ -182,7 +184,10 @@ impl<C: CharSource> Scanner<C> {
     /// to convert the value into something else via the closure `finalop`.
     /// This closure can fail, resulting in an error and back-tracking to
     /// the beginning of the phrase.
-    pub fn scan_string_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    pub fn scan_string_word<U, G>(
+        &mut self,
+        finalop: G,
+    ) -> Result<U, ScanError>
     where
         G: FnOnce(String) -> Result<U, SyntaxError>,
     {
@@ -227,8 +232,12 @@ impl<C: CharSource> Scanner<C> {
     {
         match self.read()? {
             Some(Token::Symbol(Symbol::Char('"'))) => {}
-            Some(Token::Symbol(ch)) => return self.err(SyntaxError::Unexpected(ch)),
-            Some(Token::Newline) => return self.err(SyntaxError::UnexpectedNewline),
+            Some(Token::Symbol(ch)) => {
+                return self.err(SyntaxError::Unexpected(ch))
+            }
+            Some(Token::Newline) => {
+                return self.err(SyntaxError::UnexpectedNewline)
+            }
             None => return self.err(SyntaxError::UnexpectedEof),
         }
         loop {
@@ -239,7 +248,9 @@ impl<C: CharSource> Scanner<C> {
                         return self.err(err);
                     }
                 }
-                Some(Token::Newline) => return self.err(SyntaxError::UnexpectedNewline),
+                Some(Token::Newline) => {
+                    return self.err(SyntaxError::UnexpectedNewline)
+                }
                 None => return self.err(SyntaxError::UnexpectedEof),
             }
         }
@@ -280,7 +291,10 @@ impl<C: CharSource> Scanner<C> {
     /// a chance to convert the value into something else via the closure
     /// `finalop`. This closure can fail, resulting in an error and
     /// back-tracking to the beginning of the phrase.
-    pub fn scan_byte_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    pub fn scan_byte_phrase<U, G>(
+        &mut self,
+        finalop: G,
+    ) -> Result<U, ScanError>
     where
         G: FnOnce(Bytes) -> Result<U, SyntaxError>,
     {
@@ -308,7 +322,10 @@ impl<C: CharSource> Scanner<C> {
     /// a chance to convert the value into something else via the closure
     /// `finalop`. This closure can fail, resulting in an error and
     /// back-tracking to the beginning of the phrase.
-    pub fn scan_string_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    pub fn scan_string_phrase<U, G>(
+        &mut self,
+        finalop: G,
+    ) -> Result<U, ScanError>
     where
         G: FnOnce(String) -> Result<U, SyntaxError>,
     {
@@ -397,7 +414,8 @@ impl<C: CharSource> Scanner<C> {
                 Some(Token::Symbol(Symbol::Char(')'))) => {
                     if !quote {
                         if !self.paren {
-                            return self.err(SyntaxError::Unexpected(')'.into()));
+                            return self
+                                .err(SyntaxError::Unexpected(')'.into()));
                         }
                         self.paren = false
                     }
@@ -419,7 +437,9 @@ impl<C: CharSource> Scanner<C> {
             |left, symbol| {
                 let first = match left.chars().next() {
                     Some(ch) => ch,
-                    None => return Err(SyntaxError::Expected(literal.into())),
+                    None => {
+                        return Err(SyntaxError::Expected(literal.into()))
+                    }
                 };
                 match symbol {
                     Symbol::Char(ch) if ch == first => {
@@ -454,7 +474,9 @@ impl<C: CharSource> Scanner<C> {
     {
         self.scan_word(
             (BytesMut::new(), None), // result and optional first char.
-            |&mut (ref mut res, ref mut first), symbol| hex_symbolop(res, first, symbol),
+            |&mut (ref mut res, ref mut first), symbol| {
+                hex_symbolop(res, first, symbol)
+            },
             |(res, first)| {
                 if let Some(ch) = first {
                     Err(SyntaxError::Unexpected(Symbol::Char(
@@ -477,7 +499,9 @@ impl<C: CharSource> Scanner<C> {
         loop {
             let res = self.scan_word(
                 (&mut buf, None),
-                |&mut (ref mut buf, ref mut first), symbol| hex_symbolop(buf, first, symbol),
+                |&mut (ref mut buf, ref mut first), symbol| {
+                    hex_symbolop(buf, first, symbol)
+                },
                 |(_, first)| {
                     if let Some(ch) = first {
                         Err(SyntaxError::Unexpected(Symbol::Char(
@@ -504,7 +528,10 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// In particular, this decodes the “base32hex” decoding definied in
     /// RFC 4648 without padding.
-    pub fn scan_base32hex_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    pub fn scan_base32hex_phrase<U, G>(
+        &mut self,
+        finalop: G,
+    ) -> Result<U, ScanError>
     where
         G: FnOnce(Bytes) -> Result<U, SyntaxError>,
     {
@@ -515,12 +542,17 @@ impl<C: CharSource> Scanner<C> {
                     .push(symbol.into_char()?)
                     .map_err(SyntaxError::content)
             },
-            |decoder| finalop(decoder.finalize().map_err(SyntaxError::content)?),
+            |decoder| {
+                finalop(decoder.finalize().map_err(SyntaxError::content)?)
+            },
         )
     }
 
     /// Scans a sequence of phrases containing base64 encoded data.
-    pub fn scan_base64_phrases<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    pub fn scan_base64_phrases<U, G>(
+        &mut self,
+        finalop: G,
+    ) -> Result<U, ScanError>
     where
         G: FnOnce(Bytes) -> Result<U, SyntaxError>,
     {
@@ -618,14 +650,18 @@ impl<C: CharSource> Scanner<C> {
                 let ch2 = match self.chars_next()? {
                     Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch * 10,
-                        None => return self.err_cur(SyntaxError::IllegalEscape),
+                        None => {
+                            return self.err_cur(SyntaxError::IllegalEscape)
+                        }
                     },
                     None => return self.err_cur(SyntaxError::UnexpectedEof),
                 };
                 let ch3 = match self.chars_next()? {
                     Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch,
-                        None => return self.err_cur(SyntaxError::IllegalEscape),
+                        None => {
+                            return self.err_cur(SyntaxError::IllegalEscape)
+                        }
                     },
                     None => return self.err_cur(SyntaxError::UnexpectedEof),
                 };
@@ -694,11 +730,13 @@ impl<C: CharSource> Scanner<C> {
                         ('\r', _) | ('\n', _) => {
                             self.newline = NewlineMode::Single(ch);
                             self.buf.push(Token::Newline);
-                            self.buf.push(Token::Symbol(Symbol::Char(second)));
+                            self.buf
+                                .push(Token::Symbol(Symbol::Char(second)));
                         }
                         _ => {
                             self.buf.push(Token::Symbol(Symbol::Char(ch)));
-                            self.buf.push(Token::Symbol(Symbol::Char(second)));
+                            self.buf
+                                .push(Token::Symbol(Symbol::Char(second)));
                         }
                     }
                     Ok(true)
@@ -783,7 +821,11 @@ impl<C: CharSource> Scanner<C> {
     }
 
     /// Reports an error at current position and then backtracks.
-    fn err_at<T>(&mut self, err: SyntaxError, pos: Pos) -> Result<T, ScanError> {
+    fn err_at<T>(
+        &mut self,
+        err: SyntaxError,
+        pos: Pos,
+    ) -> Result<T, ScanError> {
         self.cur = self.start;
         self.cur_pos = self.start_pos;
         Err(ScanError::Syntax(err, pos))
@@ -812,7 +854,10 @@ impl<C: CharSource> Scanner<C> {
         }
     }
 
-    fn cond_read_symbol<F>(&mut self, f: F) -> Result<Option<Symbol>, ScanError>
+    fn cond_read_symbol<F>(
+        &mut self,
+        f: F,
+    ) -> Result<Option<Symbol>, ScanError>
     where
         F: FnOnce(Symbol) -> bool,
     {
@@ -864,7 +909,8 @@ impl<C: CharSource> Scanner<C> {
                     None => break,
                     Some(Token::Symbol(Symbol::Char('('))) => {
                         let pos = self.cur_pos.prev();
-                        return self.err_at(SyntaxError::NestedParentheses, pos);
+                        return self
+                            .err_at(SyntaxError::NestedParentheses, pos);
                     }
                     Some(Token::Symbol(Symbol::Char(')'))) => {
                         self.paren = false;
@@ -886,7 +932,10 @@ impl<C: CharSource> Scanner<C> {
                     }
                     Some(Token::Symbol(Symbol::Char(')'))) => {
                         let pos = self.cur_pos.prev();
-                        return self.err_at(SyntaxError::Unexpected(')'.into()), pos);
+                        return self.err_at(
+                            SyntaxError::Unexpected(')'.into()),
+                            pos,
+                        );
                     }
                     _ => {}
                 }
@@ -903,12 +952,16 @@ impl<C: CharSource> Scanner<C> {
 #[cfg(feature = "bytes")]
 pub trait Scan: Sized {
     /// Scans a value from a master file.
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError>;
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError>;
 }
 
 #[cfg(feature = "bytes")]
 impl Scan for u32 {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             0u32,
             |res, symbol| {
@@ -939,7 +992,9 @@ impl Scan for u32 {
 
 #[cfg(feature = "bytes")]
 impl Scan for u16 {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             0u16,
             |res, symbol| {
@@ -970,7 +1025,9 @@ impl Scan for u16 {
 
 #[cfg(feature = "bytes")]
 impl Scan for u8 {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             0u8,
             |res, symbol| {
@@ -1022,7 +1079,9 @@ impl Token {
     /// which need special treatment.
     fn is_non_paren_space(self) -> bool {
         match self {
-            Token::Symbol(Symbol::Char(ch)) => ch == ' ' || ch == '\t' || ch == '(' || ch == ')',
+            Token::Symbol(Symbol::Char(ch)) => {
+                ch == ' ' || ch == '\t' || ch == '(' || ch == ')'
+            }
             _ => false,
         }
     }
@@ -1208,27 +1267,55 @@ impl fmt::Display for SyntaxError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             SyntaxError::Expected(ref s) => write!(f, "expected '{}'", s),
-            SyntaxError::ExpectedNewline => f.write_str("expected a new line"),
+            SyntaxError::ExpectedNewline => {
+                f.write_str("expected a new line")
+            }
             SyntaxError::ExpectedSpace => f.write_str("expected white space"),
-            SyntaxError::IllegalEscape => f.write_str("invalid escape sequence"),
+            SyntaxError::IllegalEscape => {
+                f.write_str("invalid escape sequence")
+            }
             SyntaxError::IllegalInteger => f.write_str("illegal integer"),
-            SyntaxError::IllegalAddr(ref err) => write!(f, "illegal address: {}", err),
-            SyntaxError::IllegalName(ref err) => write!(f, "illegal domain name: {}", err),
-            SyntaxError::LongCharStr => f.write_str("character string too long"),
+            SyntaxError::IllegalAddr(ref err) => {
+                write!(f, "illegal address: {}", err)
+            }
+            SyntaxError::IllegalName(ref err) => {
+                write!(f, "illegal domain name: {}", err)
+            }
+            SyntaxError::LongCharStr => {
+                f.write_str("character string too long")
+            }
             SyntaxError::UnevenHexString => {
                 f.write_str("hex string with an odd number of characters")
             }
-            SyntaxError::LongGenericData => f.write_str("more data given than in the length byte"),
-            SyntaxError::NestedParentheses => f.write_str("nested parentheses"),
-            SyntaxError::NoDefaultTtl => f.write_str("omitted TTL but no default TTL given"),
-            SyntaxError::NoLastClass => f.write_str("omitted class but no previous class given"),
-            SyntaxError::NoLastOwner => f.write_str("omitted owner but no previous owner given"),
-            SyntaxError::NoOrigin => f.write_str("owner @ without preceding $ORIGIN"),
+            SyntaxError::LongGenericData => {
+                f.write_str("more data given than in the length byte")
+            }
+            SyntaxError::NestedParentheses => {
+                f.write_str("nested parentheses")
+            }
+            SyntaxError::NoDefaultTtl => {
+                f.write_str("omitted TTL but no default TTL given")
+            }
+            SyntaxError::NoLastClass => {
+                f.write_str("omitted class but no previous class given")
+            }
+            SyntaxError::NoLastOwner => {
+                f.write_str("omitted owner but no previous owner given")
+            }
+            SyntaxError::NoOrigin => {
+                f.write_str("owner @ without preceding $ORIGIN")
+            }
             SyntaxError::RelativeName => f.write_str("relative domain name"),
             SyntaxError::Unexpected(sym) => write!(f, "unexpected '{}'", sym),
-            SyntaxError::UnexpectedNewline => f.write_str("unexpected newline"),
-            SyntaxError::UnexpectedEof => f.write_str("unexpected end of file"),
-            SyntaxError::UnknownMnemonic => f.write_str("unexpected mnemomic"),
+            SyntaxError::UnexpectedNewline => {
+                f.write_str("unexpected newline")
+            }
+            SyntaxError::UnexpectedEof => {
+                f.write_str("unexpected end of file")
+            }
+            SyntaxError::UnknownMnemonic => {
+                f.write_str("unexpected mnemomic")
+            }
             SyntaxError::Content(ref content) => content.fmt(f),
         }
     }

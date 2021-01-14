@@ -62,7 +62,10 @@ impl Config {
     }
 
     /// Writes the configuration to something writable.
-    pub fn write<W: io::Write>(&self, target: &mut W) -> Result<(), io::Error> {
+    pub fn write<W: io::Write>(
+        &self,
+        target: &mut W,
+    ) -> Result<(), io::Error> {
         // server: clause
         writeln!(target, "server:")?;
         for addr in &self.ip_address {
@@ -124,7 +127,11 @@ pub struct KeyConfig {
 }
 
 impl KeyConfig {
-    pub fn new<S: Into<String>, V: Into<Bytes>>(name: S, algorithm: S, secret: V) -> Self {
+    pub fn new<S: Into<String>, V: Into<Bytes>>(
+        name: S,
+        algorithm: S,
+        secret: V,
+    ) -> Self {
         KeyConfig {
             name: name.into(),
             algorithm: algorithm.into(),
@@ -132,7 +139,10 @@ impl KeyConfig {
         }
     }
 
-    pub fn write<W: io::Write>(&self, target: &mut W) -> Result<(), io::Error> {
+    pub fn write<W: io::Write>(
+        &self,
+        target: &mut W,
+    ) -> Result<(), io::Error> {
         writeln!(target, "key:")?;
         writeln!(target, "    name: {}", self.name)?;
         writeln!(target, "    algorithm: {}", self.algorithm)?;
@@ -166,7 +176,10 @@ impl ZoneConfig {
         }
     }
 
-    pub fn write<W: io::Write>(&self, target: &mut W) -> Result<(), io::Error> {
+    pub fn write<W: io::Write>(
+        &self,
+        target: &mut W,
+    ) -> Result<(), io::Error> {
         writeln!(target, "zone:")?;
         writeln!(target, "    name: {}", self.name)?;
         writeln!(target, "    zonefile: {}", self.zonefile.display())?;

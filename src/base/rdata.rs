@@ -25,10 +25,13 @@
 use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf,
 };
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner, SyntaxError,
+};
 #[cfg(feature = "master")]
 use bytes::{BufMut, Bytes, BytesMut};
 use core::cmp::Ordering;
@@ -76,7 +79,10 @@ pub trait ParseRecordData<Ref>: RecordData {
     ///
     /// If the function doesn’t want to process the data, it must not touch
     /// the parser. In particual, it must not advance it.
-    fn parse_data(rtype: Rtype, parser: &mut Parser<Ref>) -> Result<Option<Self>, ParseError>;
+    fn parse_data(
+        rtype: Rtype,
+        parser: &mut Parser<Ref>,
+    ) -> Result<Option<Self>, ParseError>;
 }
 
 //------------ RtypeRecordData -----------------------------------------------
@@ -111,7 +117,10 @@ impl<Octets, T> ParseRecordData<Octets> for T
 where
     T: RtypeRecordData + Parse<Octets> + Compose + Sized,
 {
-    fn parse_data(rtype: Rtype, parser: &mut Parser<Octets>) -> Result<Option<Self>, ParseError> {
+    fn parse_data(
+        rtype: Rtype,
+        parser: &mut Parser<Octets>,
+    ) -> Result<Option<Self>, ParseError> {
         if rtype == Self::RTYPE {
             Self::parse(parser).map(Some)
         } else {
@@ -176,7 +185,10 @@ impl UnknownRecordData<Bytes> {
     /// Scans the record data.
     ///
     /// This isn’t implemented via `Scan`, because we need the record type.
-    pub fn scan<C: CharSource>(rtype: Rtype, scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    pub fn scan<C: CharSource>(
+        rtype: Rtype,
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         scanner.skip_literal("\\#")?;
         let mut len = u16::scan(scanner)? as usize;
         let mut res = BytesMut::with_capacity(len);
@@ -211,11 +223,14 @@ impl UnknownRecordData<Bytes> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<UnknownRecordData<SrcOctets>> for UnknownRecordData<Octets>
+impl<Octets, SrcOctets> OctetsFrom<UnknownRecordData<SrcOctets>>
+    for UnknownRecordData<Octets>
 where
     Octets: OctetsFrom<SrcOctets>,
 {
-    fn octets_from(source: UnknownRecordData<SrcOctets>) -> Result<Self, ShortBuf> {
+    fn octets_from(
+        source: UnknownRecordData<SrcOctets>,
+    ) -> Result<Self, ShortBuf> {
         Ok(UnknownRecordData {
             rtype: source.rtype,
             data: Octets::octets_from(source.data)?,
@@ -225,7 +240,8 @@ where
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<UnknownRecordData<Other>> for UnknownRecordData<Octets>
+impl<Octets, Other> PartialEq<UnknownRecordData<Other>>
+    for UnknownRecordData<Octets>
 where
     Octets: AsRef<[u8]>,
     Other: AsRef<[u8]>,
@@ -239,17 +255,22 @@ impl<Octets: AsRef<[u8]>> Eq for UnknownRecordData<Octets> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<UnknownRecordData<Other>> for UnknownRecordData<Octets>
+impl<Octets, Other> PartialOrd<UnknownRecordData<Other>>
+    for UnknownRecordData<Octets>
 where
     Octets: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
-    fn partial_cmp(&self, other: &UnknownRecordData<Other>) -> Option<Ordering> {
+    fn partial_cmp(
+        &self,
+        other: &UnknownRecordData<Other>,
+    ) -> Option<Ordering> {
         self.data.as_ref().partial_cmp(other.data.as_ref())
     }
 }
 
-impl<Octets, Other> CanonicalOrd<UnknownRecordData<Other>> for UnknownRecordData<Octets>
+impl<Octets, Other> CanonicalOrd<UnknownRecordData<Other>>
+    for UnknownRecordData<Octets>
 where
     Octets: AsRef<[u8]>,
     Other: AsRef<[u8]>,
@@ -268,7 +289,10 @@ impl<Octets: AsRef<[u8]>> Ord for UnknownRecordData<Octets> {
 //--- Compose, and Compress
 
 impl<Octets: AsRef<[u8]>> Compose for UnknownRecordData<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.data.as_ref())
     }
 }
@@ -286,7 +310,10 @@ where
     Octets: AsRef<[u8]>,
     Ref: OctetsRef<Range = Octets>,
 {
-    fn parse_data(rtype: Rtype, parser: &mut Parser<Ref>) -> Result<Option<Self>, ParseError> {
+    fn parse_data(
+        rtype: Rtype,
+        parser: &mut Parser<Ref>,
+    ) -> Result<Option<Self>, ParseError> {
         let rdlen = parser.remaining();
         parser
             .parse_octets(rdlen)

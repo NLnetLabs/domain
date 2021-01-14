@@ -19,7 +19,9 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use super::iana::{Opcode, Rcode};
-use super::octets::{Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf};
+use super::octets::{
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
+};
 use core::convert::TryInto;
 use core::mem;
 
@@ -367,7 +369,10 @@ impl HeaderCounts {
     /// This function panics if the octets slice is shorter than 24 octets.
     pub fn for_message_slice(message: &[u8]) -> &Self {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
-        unsafe { &*((message[mem::size_of::<Header>()..].as_ptr()) as *const HeaderCounts) }
+        unsafe {
+            &*((message[mem::size_of::<Header>()..].as_ptr())
+                as *const HeaderCounts)
+        }
     }
 
     /// Creates a mutable counts reference from the octets slice of a message.
@@ -380,7 +385,10 @@ impl HeaderCounts {
     /// This function panics if the octets slice is shorter than 24 octets.
     pub fn for_message_slice_mut(message: &mut [u8]) -> &mut Self {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
-        unsafe { &mut *((message[mem::size_of::<Header>()..].as_ptr()) as *mut HeaderCounts) }
+        unsafe {
+            &mut *((message[mem::size_of::<Header>()..].as_ptr())
+                as *mut HeaderCounts)
+        }
     }
 
     /// Returns a reference to the raw octets slice of the header counts.
@@ -748,7 +756,10 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for HeaderSection {
 }
 
 impl Compose for HeaderSection {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(&self.inner)
     }
 }
@@ -783,7 +794,10 @@ mod test {
             HeaderCounts::for_message_slice_mut(vec.as_mut()).as_slice(),
             b"\x12\x34\x56\x78\x9a\xbc\xde\xf0"
         );
-        assert_eq!(HeaderSection::for_message_slice(header).as_slice(), header);
+        assert_eq!(
+            HeaderSection::for_message_slice(header).as_slice(),
+            header
+        );
         assert_eq!(
             HeaderSection::for_message_slice_mut(vec.as_mut()).as_slice(),
             header

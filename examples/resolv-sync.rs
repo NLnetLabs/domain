@@ -19,7 +19,9 @@ fn main() {
         }
     };
 
-    let res = StubResolver::run(move |stub| async move { stub.query((name, rtype)).await });
+    let res = StubResolver::run(move |stub| async move {
+        stub.query((name, rtype)).await
+    });
     let res = res.unwrap();
     let res = res.answer().unwrap().limit_to::<AllRecordData<_, _>>();
     for record in res {

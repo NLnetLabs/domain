@@ -10,8 +10,8 @@ use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::Dname;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef, Parse,
-    ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom,
+    OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
@@ -37,7 +37,12 @@ pub struct Dnskey<Octets> {
 }
 
 impl<Octets> Dnskey<Octets> {
-    pub fn new(flags: u16, protocol: u8, algorithm: SecAlg, public_key: Octets) -> Self {
+    pub fn new(
+        flags: u16,
+        protocol: u8,
+        algorithm: SecAlg,
+        public_key: Octets,
+    ) -> Self {
         Dnskey {
             flags,
             protocol,
@@ -261,7 +266,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.flags.compose(buf)?;
             self.protocol.compose(buf)?;
@@ -275,7 +283,9 @@ impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Dnskey<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
@@ -350,7 +360,10 @@ impl<Name> ProtoRrsig<Name> {
         }
     }
 
-    pub fn into_rrsig<Octets>(self, signature: Octets) -> Rrsig<Octets, Name> {
+    pub fn into_rrsig<Octets>(
+        self,
+        signature: Octets,
+    ) -> Rrsig<Octets, Name> {
         Rrsig::new(
             self.type_covered,
             self.algorithm,
@@ -388,7 +401,10 @@ where
 //--- Compose
 
 impl<Name: Compose> Compose for ProtoRrsig<Name> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.type_covered.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -401,7 +417,10 @@ impl<Name: Compose> Compose for ProtoRrsig<Name> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.type_covered.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -499,12 +518,15 @@ impl<Octets, Name> Rrsig<Octets, Name> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Rrsig<SrcOctets, SrcName>> for Rrsig<Octets, Name>
+impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Rrsig<SrcOctets, SrcName>>
+    for Rrsig<Octets, Name>
 where
     Octets: OctetsFrom<SrcOctets>,
     Name: OctetsFrom<SrcName>,
 {
-    fn octets_from(source: Rrsig<SrcOctets, SrcName>) -> Result<Self, ShortBuf> {
+    fn octets_from(
+        source: Rrsig<SrcOctets, SrcName>,
+    ) -> Result<Self, ShortBuf> {
         Ok(Rrsig::new(
             source.type_covered,
             source.algorithm,
@@ -704,7 +726,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
 }
 
 impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.type_covered.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -718,7 +743,10 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose_canonical<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.type_covered.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -737,7 +765,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
 
 #[cfg(feature = "master")]
 impl Scan for Rrsig<Bytes, Dname<Bytes>> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             Rtype::scan(scanner)?,
             SecAlg::scan(scanner)?,
@@ -830,12 +860,15 @@ impl<Octets, Name> Nsec<Octets, Name> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Nsec<SrcOctets, SrcName>> for Nsec<Octets, Name>
+impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Nsec<SrcOctets, SrcName>>
+    for Nsec<Octets, Name>
 where
     Octets: OctetsFrom<SrcOctets>,
     Name: OctetsFrom<SrcName>,
 {
-    fn octets_from(source: Nsec<SrcOctets, SrcName>) -> Result<Self, ShortBuf> {
+    fn octets_from(
+        source: Nsec<SrcOctets, SrcName>,
+    ) -> Result<Self, ShortBuf> {
         Ok(Nsec::new(
             Name::octets_from(source.next_name)?,
             RtypeBitmap::octets_from(source.types)?,
@@ -910,7 +943,9 @@ where
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octets, Name> {
+impl<Octets: AsRef<[u8]>, Name: hash::Hash> hash::Hash
+    for Nsec<Octets, Name>
+{
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.next_name.hash(state);
         self.types.hash(state);
@@ -934,7 +969,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Nsec<Ref::Range, ParsedDname<Ref>> {
 }
 
 impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.next_name.compose(target)?;
             self.types.compose(target)
@@ -948,7 +986,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
 
 #[cfg(feature = "master")]
 impl<N: Scan> Scan for Nsec<Bytes, N> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(N::scan(scanner)?, RtypeBitmap::scan(scanner)?))
     }
 }
@@ -995,7 +1035,12 @@ pub struct Ds<Octets> {
 }
 
 impl<Octets> Ds<Octets> {
-    pub fn new(key_tag: u16, algorithm: SecAlg, digest_type: DigestAlg, digest: Octets) -> Self {
+    pub fn new(
+        key_tag: u16,
+        algorithm: SecAlg,
+        digest_type: DigestAlg,
+        digest: Octets,
+    ) -> Self {
         Ds {
             key_tag,
             algorithm,
@@ -1147,7 +1192,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.key_tag.compose(buf)?;
             self.algorithm.compose(buf)?;
@@ -1161,7 +1209,9 @@ impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Ds<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
@@ -1272,7 +1322,8 @@ impl<Octets: AsRef<[u8]>> RtypeBitmap<Octets> {
         let (block, octet, mask) = split_rtype(rtype);
         let mut data = self.0.as_ref();
         while !data.is_empty() {
-            let ((window_num, window), next_data) = read_window(data).unwrap();
+            let ((window_num, window), next_data) =
+                read_window(data).unwrap();
             if window_num == block {
                 return !(window.len() <= octet || window[octet] & mask == 0);
             }
@@ -1292,7 +1343,8 @@ impl<T, Octets: AsRef<T>> AsRef<T> for RtypeBitmap<Octets> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<RtypeBitmap<SrcOctets>> for RtypeBitmap<Octets>
+impl<Octets, SrcOctets> OctetsFrom<RtypeBitmap<SrcOctets>>
+    for RtypeBitmap<Octets>
 where
     Octets: OctetsFrom<SrcOctets>,
 {
@@ -1367,7 +1419,8 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octets> {
 impl<Ref: OctetsRef> Parse<Ref> for RtypeBitmap<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = parser.remaining();
-        RtypeBitmap::from_octets(parser.parse_octets(len)?).map_err(Into::into)
+        RtypeBitmap::from_octets(parser.parse_octets(len)?)
+            .map_err(Into::into)
     }
 
     fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
@@ -1377,7 +1430,10 @@ impl<Ref: OctetsRef> Parse<Ref> for RtypeBitmap<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 }
@@ -1386,7 +1442,9 @@ impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for RtypeBitmap<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         let mut builder = RtypeBitmapBuilder::<BytesMut>::new();
         while let Ok(rtype) = Rtype::scan(scanner) {
             builder.add(rtype).unwrap()
@@ -1468,13 +1526,19 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
         let mut pos = 0;
         while pos < self.buf.as_ref().len() {
             match self.buf.as_ref()[pos].cmp(&block) {
-                Ordering::Equal => return Ok(&mut self.buf.as_mut()[pos..pos + 34]),
+                Ordering::Equal => {
+                    return Ok(&mut self.buf.as_mut()[pos..pos + 34])
+                }
                 Ordering::Greater => {
                     let len = self.buf.as_ref().len() - pos;
                     self.buf.append_slice(&[0; 34])?;
                     let buf = self.buf.as_mut();
                     unsafe {
-                        ptr::copy(buf.as_ptr().add(pos), buf.as_mut_ptr().add(pos + 34), len);
+                        ptr::copy(
+                            buf.as_ptr().add(pos),
+                            buf.as_mut_ptr().add(pos + 34),
+                            len,
+                        );
                         ptr::write_bytes(buf.as_mut_ptr().add(pos), 0, 34);
                     }
                     buf[pos] = block;
@@ -1601,7 +1665,8 @@ impl<'a> Iterator for RtypeBitmapIter<'a> {
         if self.data.is_empty() {
             return None;
         }
-        let res = Rtype::from_int(self.block | (self.octet as u16) << 3 | self.bit);
+        let res =
+            Rtype::from_int(self.block | (self.octet as u16) << 3 | self.bit);
         self.advance();
         Some(res)
     }
@@ -1621,7 +1686,9 @@ impl From<RtypeBitmapError> for ParseError {
     fn from(err: RtypeBitmapError) -> ParseError {
         match err {
             RtypeBitmapError::ShortInput => ParseError::ShortInput,
-            RtypeBitmapError::BadRtypeBitmap => FormError::new("invalid NSEC bitmap").into(),
+            RtypeBitmapError::BadRtypeBitmap => {
+                FormError::new("invalid NSEC bitmap").into()
+            }
         }
     }
 }
@@ -1632,7 +1699,9 @@ impl fmt::Display for RtypeBitmapError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             RtypeBitmapError::ShortInput => ParseError::ShortInput.fmt(f),
-            RtypeBitmapError::BadRtypeBitmap => f.write_str("invalid record type bitmap"),
+            RtypeBitmapError::BadRtypeBitmap => {
+                f.write_str("invalid record type bitmap")
+            }
         }
     }
 }
@@ -1814,7 +1883,8 @@ mod test {
     #[test]
     #[cfg(feature = "bytes")]
     fn dnskey_flags() {
-        let dnskey = Dnskey::new(257, 3, SecAlg::RsaSha256, bytes::Bytes::new());
+        let dnskey =
+            Dnskey::new(257, 3, SecAlg::RsaSha256, bytes::Bytes::new());
         assert_eq!(dnskey.is_zsk(), true);
         assert_eq!(dnskey.is_secure_entry_point(), true);
         assert_eq!(dnskey.is_revoked(), false);

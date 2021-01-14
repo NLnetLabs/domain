@@ -9,11 +9,14 @@ use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Nsec3HashAlg, Rtype};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner, SyntaxError};
+use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner, SyntaxError,
+};
 use crate::utils::base32;
 #[cfg(feature = "master")]
 use bytes::Bytes;
@@ -229,7 +232,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Nsec3<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.hash_algorithm.compose(buf)?;
             self.flags.compose(buf)?;
@@ -245,7 +251,9 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Nsec3<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             Nsec3HashAlg::scan(scanner)?,
             u8::scan(scanner)?,
@@ -258,7 +266,9 @@ impl Scan for Nsec3<Bytes> {
 }
 
 #[cfg(feature = "master")]
-fn scan_salt<C: CharSource>(scanner: &mut Scanner<C>) -> Result<CharStr<Bytes>, ScanError> {
+fn scan_salt<C: CharSource>(
+    scanner: &mut Scanner<C>,
+) -> Result<CharStr<Bytes>, ScanError> {
     if let Ok(()) = scanner.skip_literal("-") {
         Ok(CharStr::empty())
     } else {
@@ -267,8 +277,12 @@ fn scan_salt<C: CharSource>(scanner: &mut Scanner<C>) -> Result<CharStr<Bytes>, 
 }
 
 #[cfg(feature = "master")]
-fn scan_hash<C: CharSource>(scanner: &mut Scanner<C>) -> Result<CharStr<Bytes>, ScanError> {
-    scanner.scan_base32hex_phrase(|bytes| CharStr::from_bytes(bytes).map_err(SyntaxError::content))
+fn scan_hash<C: CharSource>(
+    scanner: &mut Scanner<C>,
+) -> Result<CharStr<Bytes>, ScanError> {
+    scanner.scan_base32hex_phrase(|bytes| {
+        CharStr::from_bytes(bytes).map_err(SyntaxError::content)
+    })
 }
 
 impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3<Octets> {
@@ -346,7 +360,8 @@ impl<Octets> Nsec3param<Octets> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Nsec3param<SrcOctets>> for Nsec3param<Octets>
+impl<Octets, SrcOctets> OctetsFrom<Nsec3param<SrcOctets>>
+    for Nsec3param<Octets>
 where
     Octets: OctetsFrom<SrcOctets>,
 {
@@ -471,7 +486,10 @@ impl<Ref: OctetsRef> Parse<Ref> for Nsec3param<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
+    fn compose<T: OctetsBuilder>(
+        &self,
+        target: &mut T,
+    ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.hash_algorithm.compose(buf)?;
             self.flags.compose(buf)?;
@@ -485,7 +503,9 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Nsec3param<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>) -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(
             Nsec3HashAlg::scan(scanner)?,
             u8::scan(scanner)?,

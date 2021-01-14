@@ -88,7 +88,9 @@ impl FoundSrvs {
         // that we can use as the base for the stream: We turn the result into
         // two options of the two cases and chain those up.
         let iter = match self.items {
-            Ok(vec) => Some(vec.into_iter()).into_iter().flatten().chain(None),
+            Ok(vec) => {
+                Some(vec.into_iter()).into_iter().flatten().chain(None)
+            }
             Err(one) => None.into_iter().flatten().chain(Some(one)),
         };
         stream::iter(iter).then(move |item| item.resolve(resolver))
@@ -99,7 +101,8 @@ impl FoundSrvs {
     /// Reorders merged results as if they were from a single query.
     pub fn merge(&mut self, other: &mut Self) {
         if self.items.is_err() {
-            let one = mem::replace(&mut self.items, Ok(Vec::new())).unwrap_err();
+            let one =
+                mem::replace(&mut self.items, Ok(Vec::new())).unwrap_err();
             self.items.as_mut().unwrap().push(one);
         }
         match self.items {
@@ -121,7 +124,8 @@ impl FoundSrvs {
         fallback_name: impl ToDname,
         fallback_port: u16,
     ) -> Result<Option<Self>, SrvError> {
-        let name = answer.canonical_name().ok_or(SrvError::MalformedAnswer)?;
+        let name =
+            answer.canonical_name().ok_or(SrvError::MalformedAnswer)?;
         let mut items = Self::process_records(answer, &name)?;
 
         if items.is_empty() {
@@ -156,7 +160,10 @@ impl FoundSrvs {
         Ok(res)
     }
 
-    fn process_additional(items: &mut [SrvItem], answer: &Message<&[u8]>) -> Result<(), SrvError> {
+    fn process_additional(
+        items: &mut [SrvItem],
+        answer: &Message<&[u8]>,
+    ) -> Result<(), SrvError> {
         let additional = answer.additional()?;
         for item in items {
             let mut addrs = Vec::new();
@@ -165,7 +172,9 @@ impl FoundSrvs {
                     Ok(record) => record,
                     Err(_) => continue,
                 };
-                if record.class() != Class::In || record.owner() != item.target() {
+                if record.class() != Class::In
+                    || record.owner() != item.target()
+                {
                     continue;
                 }
                 if let Ok(Some(record)) = record.to_record::<A>() {
@@ -195,7 +204,10 @@ impl FoundSrvs {
         for i in 0..items.len() {
             if current_prio != items[i].priority() {
                 current_prio = items[i].priority();
-                Self::reorder_by_weight(&mut items[first_index..i], weight_sum);
+                Self::reorder_by_weight(
+                    &mut items[first_index..i],
+                    weight_sum,
+                );
                 weight_sum = 0;
                 first_index = i;
             }
@@ -256,7 +268,10 @@ impl SrvItem {
     }
 
     // Resolves the target.
-    pub async fn resolve<R: Resolver>(self, resolver: &R) -> Result<ResolvedSrvItem, io::Error>
+    pub async fn resolve<R: Resolver>(
+        self,
+        resolver: &R,
+    ) -> Result<ResolvedSrvItem, io::Error>
     where
         for<'a> &'a R::Octets: OctetsRef,
     {

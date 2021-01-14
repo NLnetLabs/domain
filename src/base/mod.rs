@@ -102,7 +102,9 @@ pub use self::message_builder::TreeCompressor;
 pub use self::message_builder::{
     MessageBuilder, RecordSectionBuilder, StaticCompressor, StreamTarget,
 };
-pub use self::name::{Dname, DnameBuilder, ParsedDname, RelativeDname, ToDname, ToRelativeDname};
+pub use self::name::{
+    Dname, DnameBuilder, ParsedDname, RelativeDname, ToDname, ToRelativeDname,
+};
 #[cfg(feature = "smallvec")]
 pub use self::octets::OctetsVec;
 pub use self::octets::{Compose, Parser, ShortBuf};
