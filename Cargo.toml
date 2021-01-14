@@ -18,13 +18,17 @@ path = "src/lib.rs"
 [dependencies]
 rand           = "0.7"
 
-bytes          = { version = "1.0", optional = true }
-chrono         = { version = "0.4", optional = true }
-futures        = { version = "0.3.9", optional = true }
+bytes          = { version = "1", optional = true }
+chrono         = { version = "0.4.6", optional = true }
+futures        = { version = "0.3", optional = true }
 #openssl       = { version = "0.10", optional = true }
 ring           = { version = "0.16.14", optional = true }
-smallvec       = { version = "1.6", optional = true }
-tokio          = { version = "1.0", optional = true, features = ["io-util", "macros", "net", "time"] }
+smallvec       = { version = "1", optional = true }
+tokio          = { version = "1", optional = true, features = ["io-util", "macros", "net", "time"] }
+
+[target.'cfg(macos)'.dependencies]
+# specifying this overrides minimum-version mio's 0.2.69 libc dependency, which allows the build to work
+libc = { version = "0.2.71", default-features = false, optional = true }
 
 [features]
 # If you add a feature here, also add it to .github/workflows/ci.yml for the
@@ -32,7 +36,7 @@ tokio          = { version = "1.0", optional = true, features = ["io-util", "mac
 default     = ["std"]
 interop     = ["bytes", "ring"]
 master      = ["std", "bytes", "chrono"]
-resolv      = ["bytes", "futures", "smallvec", "std", "tokio"]
+resolv      = ["bytes", "futures", "smallvec", "std", "tokio", "libc"]
 resolv-sync = ["resolv", "tokio/rt"]
 sign        = ["std"]
 std         = []
@@ -41,7 +45,7 @@ validate    = ["std", "ring"]
 
 [dev-dependencies]
 tokio-native-tls   = "0.3"
-tokio              = { version = "1.0", features = ["rt-multi-thread", "io-util", "net"] }
+tokio              = { version = "1", features = ["rt-multi-thread", "io-util", "net"] }
 
 [[example]]
 name = "readzone"
