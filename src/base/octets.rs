@@ -27,9 +27,9 @@
 //! A reference to an octets type implements [`OctetsRef`]. The main purpose
 //! of this trait is to allow cheaply taking a sub-sequence, called a ‘range’,
 //! out of the octets. For most types, ranges will be octet slices `&[u8]` but
-//! some shareable types (most notably `bytes::Bytes`) allow ranges to be 
+//! some shareable types (most notably `bytes::Bytes`) allow ranges to be
 //! owned values, thus avoiding the lifetime limitations a slice would
-//! bring. 
+//! bring.
 //!
 //! One type is special in that it is its own octets reference: `&[u8]`,
 //! referred to as an octets slice in the documentation. This means that you
@@ -58,7 +58,7 @@
 //!     unimplemented!()
 //! }
 //! ```
-//! 
+//!
 //! The where clause demands that whatever octets type is being used, a
 //! reference to it must be an octets ref. The return value refers to the
 //! range type defined for this octets ref. The lifetime argument is
@@ -142,16 +142,19 @@
 //! [`Parser`]: struct.Parser.html
 //! [`ShortBuf`]: struct.ShortBuf.html
 
-use core::{borrow, hash, fmt};
-use core::cmp::Ordering;
-use core::convert::TryFrom;
-#[cfg(feature = "std")] use std::borrow::Cow;
-#[cfg(feature = "std")] use std::vec::Vec;
-#[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
-#[cfg(feature = "smallvec")] use smallvec::{Array, SmallVec};
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
-
+#[cfg(feature = "bytes")]
+use bytes::{Bytes, BytesMut};
+use core::cmp::Ordering;
+use core::convert::TryFrom;
+use core::{borrow, fmt, hash};
+#[cfg(feature = "smallvec")]
+use smallvec::{Array, SmallVec};
+#[cfg(feature = "std")]
+use std::borrow::Cow;
+#[cfg(feature = "std")]
+use std::vec::Vec;
 
 //============ Octets and Octet Builders =====================================
 
@@ -181,10 +184,8 @@ impl<'a> OctetsExt for &'a [u8] {
 impl<'a> OctetsExt for Cow<'a, [u8]> {
     fn truncate(&mut self, len: usize) {
         match *self {
-            Cow::Borrowed(ref mut slice) => {
-                *slice = &slice[..len]
-            }
-            Cow::Owned(ref mut vec) => vec.truncate(len)
+            Cow::Borrowed(ref mut slice) => *slice = &slice[..len],
+            Cow::Owned(ref mut vec) => vec.truncate(len),
         }
     }
 }
@@ -209,7 +210,6 @@ impl<A: Array<Item = u8>> OctetsExt for SmallVec<A> {
         self.truncate(len)
     }
 }
-
 
 //------------ OctetsRef -----------------------------------------------------
 
@@ -295,7 +295,7 @@ impl<'a> OctetsRef for &'a Vec<u8> {
 }
 
 #[cfg(feature = "bytes")]
-impl<'a> OctetsRef for &'a Bytes  {
+impl<'a> OctetsRef for &'a Bytes {
     type Range = Bytes;
 
     fn range(self, start: usize, end: usize) -> Self::Range {
@@ -312,7 +312,6 @@ impl<'a, A: Array<Item = u8>> OctetsRef for &'a SmallVec<A> {
     }
 }
 
-
 //------------ OctetsFrom ----------------------------------------------------
 
 /// Convert a type from one octets type to another.
@@ -328,7 +327,6 @@ pub trait OctetsFrom<Source>: Sized {
     fn octets_from(source: Source) -> Result<Self, ShortBuf>;
 }
 
-
 impl<'a, Source: AsRef<[u8]> + 'a> OctetsFrom<&'a Source> for &'a [u8] {
     fn octets_from(source: &'a Source) -> Result<Self, ShortBuf> {
         Ok(source.as_ref())
@@ -337,7 +335,9 @@ impl<'a, Source: AsRef<[u8]> + 'a> OctetsFrom<&'a Source> for &'a [u8] {
 
 #[cfg(feature = "std")]
 impl<Source> OctetsFrom<Source> for Vec<u8>
-where Self: From<Source> {
+where
+    Self: From<Source>,
+{
     fn octets_from(source: Source) -> Result<Self, ShortBuf> {
         Ok(From::from(source))
     }
@@ -345,7 +345,9 @@ where Self: From<Source> {
 
 #[cfg(feature = "bytes")]
 impl<Source> OctetsFrom<Source> for Bytes
-where Self: From<Source> {
+where
+    Self: From<Source>,
+{
     fn octets_from(source: Source) -> Result<Self, ShortBuf> {
         Ok(From::from(source))
     }
@@ -353,7 +355,9 @@ where Self: From<Source> {
 
 #[cfg(feature = "bytes")]
 impl<Source> OctetsFrom<Source> for BytesMut
-where Self: From<Source> {
+where
+    Self: From<Source>,
+{
     fn octets_from(source: Source) -> Result<Self, ShortBuf> {
         Ok(From::from(source))
     }
@@ -361,12 +365,14 @@ where Self: From<Source> {
 
 #[cfg(features = "smallvec")]
 impl<Source, A> OctetsFrom<Source> for SmallVec<A>
-where Source: AsRef<u8>, A: Array<Item = u8> {
+where
+    Source: AsRef<u8>,
+    A: Array<Item = u8>,
+{
     fn octets_from(source: Source) -> Result<Self, ShortBuf> {
         Ok(smallvec::ToSmallVec::to_smallvec(source.as_ref()))
     }
 }
-
 
 //------------ OctetsInto ----------------------------------------------------
 
@@ -379,7 +385,7 @@ where Source: AsRef<u8>, A: Array<Item = u8> {
 /// This is different from just `Into` in that the conversion may fail if the
 /// source sequence is longer than the space available for the target type.
 ///
-/// This trait has a blanket implementation for all pairs of types where 
+/// This trait has a blanket implementation for all pairs of types where
 /// `OctetsFrom` has been implemented.
 pub trait OctetsInto<Target> {
     /// Performs the conversion.
@@ -391,7 +397,6 @@ impl<Source, Target: OctetsFrom<Source>> OctetsInto<Target> for Source {
         Target::octets_from(self)
     }
 }
-
 
 //------------ OctetsBuilder -------------------------------------------------
 
@@ -451,7 +456,9 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     /// closure modified any already present data via `AsMut<[u8]>`, these
     /// modification will survive.
     fn append_all<F>(&mut self, op: F) -> Result<(), ShortBuf>
-    where F: FnOnce(&mut Self) -> Result<(), ShortBuf> {
+    where
+        F: FnOnce(&mut Self) -> Result<(), ShortBuf>,
+    {
         let pos = self.len();
         match op(self) {
             Ok(_) => Ok(()),
@@ -476,12 +483,11 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     /// name uncompressed.
     fn append_compressed_dname<N: ToDname>(
         &mut self,
-        name: &N
+        name: &N,
     ) -> Result<(), ShortBuf> {
         if let Some(slice) = name.as_flat_slice() {
             self.append_slice(slice)
-        }
-        else {
+        } else {
             self.append_all(|target| {
                 for label in name.iter_labels() {
                     label.build(target)?;
@@ -501,7 +507,9 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     /// closure adds more than 65535 octets or if any appending fails, the
     /// builder will be truncated to its previous length.
     fn u16_len_prefixed<F>(&mut self, op: F) -> Result<(), ShortBuf>
-    where F: FnOnce(&mut Self) -> Result<(), ShortBuf> {
+    where
+        F: FnOnce(&mut Self) -> Result<(), ShortBuf>,
+    {
         let pos = self.len();
         self.append_slice(&[0; 2])?;
         match op(self) {
@@ -510,11 +518,9 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
                 if len > usize::from(u16::max_value()) {
                     self.truncate(pos);
                     Err(ShortBuf)
-                }
-                else {
-                    self.as_mut()[pos..pos + 2].copy_from_slice(
-                        &(len as u16).to_be_bytes()
-                    );
+                } else {
+                    self.as_mut()[pos..pos + 2]
+                        .copy_from_slice(&(len as u16).to_be_bytes());
                     Ok(())
                 }
             }
@@ -544,7 +550,7 @@ impl OctetsBuilder for Vec<u8> {
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl OctetsBuilder for BytesMut {
     type Octets = Bytes;
 
@@ -580,7 +586,6 @@ impl<A: Array<Item = u8>> OctetsBuilder for SmallVec<A> {
     }
 }
 
-
 //------------ EmptyBuilder --------------------------------------------------
 
 /// An octets builder that can be newly created empty.
@@ -609,7 +614,7 @@ impl EmptyBuilder for Vec<u8> {
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl EmptyBuilder for BytesMut {
     fn empty() -> Self {
         BytesMut::new()
@@ -630,7 +635,6 @@ impl<A: Array<Item = u8>> EmptyBuilder for SmallVec<A> {
         SmallVec::with_capacity(capacity)
     }
 }
-
 
 //------------ IntoBuilder ---------------------------------------------------
 
@@ -670,7 +674,7 @@ impl<'a> IntoBuilder for Cow<'a, [u8]> {
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl IntoBuilder for Bytes {
     type Builder = BytesMut;
 
@@ -690,7 +694,6 @@ impl<A: Array<Item = u8>> IntoBuilder for SmallVec<A> {
         self
     }
 }
-
 
 //------------ FromBuilder ---------------------------------------------------
 
@@ -712,7 +715,7 @@ impl FromBuilder for Vec<u8> {
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl FromBuilder for Bytes {
     type Builder = BytesMut;
 
@@ -730,12 +733,11 @@ impl<A: Array<Item = u8>> FromBuilder for SmallVec<A> {
     }
 }
 
-
 //============ Parsing =======================================================
 
 //------------ Parser --------------------------------------------------------
 
-/// A parser for sequentially extracting data from an octets sequence. 
+/// A parser for sequentially extracting data from an octets sequence.
 ///
 /// The parser wraps an [octets reference] and remembers the read position on
 /// the referenced sequence. Methods allow reading out data and progressing
@@ -761,13 +763,21 @@ pub struct Parser<Ref> {
 impl<Ref> Parser<Ref> {
     /// Creates a new parser atop a reference to an octet sequence.
     pub fn from_ref(octets: Ref) -> Self
-    where Ref: AsRef<[u8]> {
-        Parser { pos: 0, len: octets.as_ref().len(), octets }
+    where
+        Ref: AsRef<[u8]>,
+    {
+        Parser {
+            pos: 0,
+            len: octets.as_ref().len(),
+            octets,
+        }
     }
 
     /// Returns the wrapped reference to the underlying octets sequence.
     pub fn octets_ref(&self) -> Ref
-    where Ref: Copy {
+    where
+        Ref: Copy,
+    {
         self.octets
     }
 
@@ -818,7 +828,9 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     ///
     /// The slice covers the entire sequence, not just the remaining data.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
-    where Ref: AsMut<[u8]> {
+    where
+        Ref: AsMut<[u8]>,
+    {
         &mut self.octets.as_mut()[..self.len]
     }
 
@@ -848,8 +860,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     pub fn seek(&mut self, pos: usize) -> Result<(), ParseError> {
         if pos > self.len {
             Err(ParseError::ShortInput)
-        }
-        else {
+        } else {
             self.pos = pos;
             Ok(())
         }
@@ -861,8 +872,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     pub fn advance(&mut self, len: usize) -> Result<(), ParseError> {
         if len > self.remaining() {
             Err(ParseError::ShortInput)
-        }
-        else {
+        } else {
             self.pos += len;
             Ok(())
         }
@@ -879,8 +889,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     pub fn check_len(&self, len: usize) -> Result<(), ParseError> {
         if self.remaining() < len {
             Err(ParseError::ShortInput)
-        }
-        else {
+        } else {
             Ok(())
         }
     }
@@ -893,12 +902,14 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// left, leaves the parser untouched and returns an error instead.
     pub fn parse_octets(
         &mut self,
-        len: usize
+        len: usize,
     ) -> Result<Ref::Range, ParseError>
-    where Ref: OctetsRef {
+    where
+        Ref: OctetsRef,
+    {
         let end = self.pos + len;
         if end > self.len {
-            return Err(ParseError::ShortInput)
+            return Err(ParseError::ShortInput);
         }
         let res = self.octets.range(self.pos, end);
         self.pos = end;
@@ -1003,7 +1014,9 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
     ///
     //  XXX NEEDS TESTS!!!
     pub fn parse_block<F, U>(
-        &mut self, limit: usize, op: F
+        &mut self,
+        limit: usize,
+        op: F,
     ) -> Result<U, ParseError>
     where
         F: FnOnce(&mut Self) -> Result<U, ParseError>,
@@ -1019,18 +1032,15 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
         self.len = len;
         let res = if self.pos != end {
             Err(ParseError::Form(FormError::new("trailing data in field")))
-        }
-        else if let Err(ParseError::ShortInput) = res {
+        } else if let Err(ParseError::ShortInput) = res {
             Err(ParseError::Form(FormError::new("short field")))
-        }
-        else {
+        } else {
             res
         };
         self.pos = end;
         res
     }
 }
-
 
 //------------ Parse ------------------------------------------------------
 
@@ -1040,7 +1050,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
 /// parser to create a value of itself. Because types may be generic over
 /// octets types, the trait is generic over the octets reference of the
 /// parser in question. Implementations should use minimal trait bounds
-/// matching the parser methods they use. 
+/// matching the parser methods they use.
 ///
 /// For types that are generic over an octets sequence, the reference type
 /// should be tied to the type’s own type argument. This will avoid having
@@ -1138,7 +1148,7 @@ impl<T: AsRef<[u8]>> Parse<T> for Ipv4Addr {
             u8::parse(parser)?,
             u8::parse(parser)?,
             u8::parse(parser)?,
-            u8::parse(parser)?
+            u8::parse(parser)?,
         ))
     }
 
@@ -1158,7 +1168,6 @@ impl<T: AsRef<[u8]>> Parse<T> for Ipv6Addr {
         parser.advance(16).map_err(Into::into)
     }
 }
-
 
 //============ Composing =====================================================
 
@@ -1188,7 +1197,7 @@ pub trait Compose {
     /// be reused, it needs to be reset specifically.
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf>;
 
     /// Appends the canonical representation of the value to the target.
@@ -1198,7 +1207,7 @@ pub trait Compose {
     /// be reused, it needs to be reset specifically.
     fn compose_canonical<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         self.compose(target)
     }
@@ -1207,14 +1216,14 @@ pub trait Compose {
 impl<'a, C: Compose + ?Sized> Compose for &'a C {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         (*self).compose(target)
     }
 
     fn compose_canonical<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         (*self).compose_canonical(target)
     }
@@ -1223,7 +1232,7 @@ impl<'a, C: Compose + ?Sized> Compose for &'a C {
 impl Compose for i8 {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(&[*self as u8])
     }
@@ -1232,7 +1241,7 @@ impl Compose for i8 {
 impl Compose for u8 {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(&[*self])
     }
@@ -1241,7 +1250,7 @@ impl Compose for u8 {
 impl Compose for i16 {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(&self.to_be_bytes())
     }
@@ -1250,7 +1259,7 @@ impl Compose for i16 {
 impl Compose for u16 {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(&self.to_be_bytes())
     }
@@ -1259,7 +1268,7 @@ impl Compose for u16 {
 impl Compose for i32 {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(&self.to_be_bytes())
     }
@@ -1268,7 +1277,7 @@ impl Compose for i32 {
 impl Compose for u32 {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(&self.to_be_bytes())
     }
@@ -1277,7 +1286,7 @@ impl Compose for u32 {
 impl Compose for Ipv4Addr {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(&self.octets())
     }
@@ -1286,7 +1295,7 @@ impl Compose for Ipv4Addr {
 impl Compose for Ipv6Addr {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(&self.octets())
     }
@@ -1488,13 +1497,11 @@ octets_array!(pub Octets1024 => 1024);
 octets_array!(pub Octets2048 => 2048);
 octets_array!(pub Octets4096 => 4096);
 
-
 //------------ OctetsVec -----------------------------------------------------
 
 /// A octets vector that doesn’t allocate for small sizes.
 #[cfg(feature = "smallvec")]
 pub type OctetsVec = SmallVec<[u8; 24]>;
-
 
 //============ Error Types ===================================================
 
@@ -1510,7 +1517,6 @@ pub type OctetsVec = SmallVec<[u8; 24]>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShortBuf;
 
-
 //--- Display and Error
 
 impl fmt::Display for ShortBuf {
@@ -1520,8 +1526,7 @@ impl fmt::Display for ShortBuf {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for ShortBuf { }
-
+impl std::error::Error for ShortBuf {}
 
 //--------- ParseError -------------------------------------------------------
 
@@ -1532,7 +1537,7 @@ pub enum ParseError {
     ShortInput,
 
     /// A formatting error occurred.
-    Form(FormError)
+    Form(FormError),
 }
 
 impl ParseError {
@@ -1542,7 +1547,6 @@ impl ParseError {
     }
 }
 
-
 //--- From
 
 impl From<FormError> for ParseError {
@@ -1551,23 +1555,19 @@ impl From<FormError> for ParseError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ParseError::ShortInput
-                => f.write_str("unexpected end of input"),
-            ParseError::Form(ref err)
-                => err.fmt(f)
+            ParseError::ShortInput => f.write_str("unexpected end of input"),
+            ParseError::Form(ref err) => err.fmt(f),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for ParseError { }
-
+impl std::error::Error for ParseError {}
 
 //------------ FormError -----------------------------------------------------
 
@@ -1586,7 +1586,6 @@ impl FormError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for FormError {
@@ -1596,8 +1595,7 @@ impl fmt::Display for FormError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for FormError { }
-
+impl std::error::Error for FormError {}
 
 //============ Testing =======================================================
 
@@ -1722,8 +1720,8 @@ mod test {
 
     #[test]
     fn parse_i32() {
-        let mut parser = Parser::from_static(
-            b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
+        let mut parser =
+            Parser::from_static(b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
         assert_eq!(parser.parse_i32(), Ok(0x12345678));
         assert_eq!(parser.parse_i32(), Ok(-42424242));
         assert_eq!(parser.parse_i32(), Err(ParseError::ShortInput));
@@ -1731,11 +1729,10 @@ mod test {
 
     #[test]
     fn parse_u32() {
-        let mut parser = Parser::from_static(
-            b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
+        let mut parser =
+            Parser::from_static(b"\x12\x34\x56\x78\xfd\x78\xa8\x4e\0\0\0");
         assert_eq!(parser.parse_u32(), Ok(0x12345678));
         assert_eq!(parser.parse_u32(), Ok(0xfd78a84e));
         assert_eq!(parser.parse_u32(), Err(ParseError::ShortInput));
     }
 }
-

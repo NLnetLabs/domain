@@ -22,7 +22,7 @@
 //! of these types, tuples of the components also work, such as a pair of a
 //! domain name and a record type for a question or a triple of the owner
 //! name, TTL, and record data for a record. If you already have a question
-//! or record, you can use the `push_ref` method to add 
+//! or record, you can use the `push_ref` method to add
 //!
 //!
 //! The `push` method of the record
@@ -128,22 +128,26 @@
 //! [`Record`]: ../question/struct.Record.html
 //! [octets builder]: ../octets/trait.OctetsBuilder.html
 
-use core::mem;
-#[cfg(feature = "std")] use core::convert::TryInto;
-use core::ops::{Deref, DerefMut};
-#[cfg(feature = "std")] use std::collections::HashMap;
-#[cfg(feature = "std")] use std::vec::Vec;
-#[cfg(feature = "bytes")] use bytes::BytesMut;
 use super::header::{Header, HeaderCounts, HeaderSection};
-use super::iana::{OptionCode, OptRcode, Rcode, Rtype};
+use super::iana::{OptRcode, OptionCode, Rcode, Rtype};
 use super::message::Message;
-use super::name::{ToDname, Label};
+use super::name::{Label, ToDname};
+#[cfg(feature = "std")]
+use super::octets::Octets64;
 use super::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
-#[cfg(feature = "std")] use super::octets::Octets64;
-use super::opt::{OptHeader, OptData};
+use super::opt::{OptData, OptHeader};
 use super::question::AsQuestion;
 use super::record::AsRecord;
-
+#[cfg(feature = "bytes")]
+use bytes::BytesMut;
+#[cfg(feature = "std")]
+use core::convert::TryInto;
+use core::mem;
+use core::ops::{Deref, DerefMut};
+#[cfg(feature = "std")]
+use std::collections::HashMap;
+#[cfg(feature = "std")]
+use std::vec::Vec;
 
 //------------ MessageBuilder ------------------------------------------------
 
@@ -176,9 +180,7 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
     pub fn from_target(mut target: Target) -> Result<Self, ShortBuf> {
         target.truncate(0);
         target.append_slice(HeaderSection::new().as_slice())?;
-        Ok(MessageBuilder {
-            target,
-        })
+        Ok(MessageBuilder { target })
     }
 }
 
@@ -194,27 +196,24 @@ impl MessageBuilder<Vec<u8>> {
 impl MessageBuilder<StreamTarget<Vec<u8>>> {
     /// Creates a new builder for a streamable message atop a `Vec<u8>`.
     pub fn new_stream_vec() -> Self {
-        Self::from_target(
-            StreamTarget::new(Vec::new()).unwrap()
-        ).unwrap()
+        Self::from_target(StreamTarget::new(Vec::new()).unwrap()).unwrap()
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl MessageBuilder<BytesMut> {
-    /// Creates a new message builder atop a bytes value. 
+    /// Creates a new message builder atop a bytes value.
     pub fn new_bytes() -> Self {
         Self::from_target(BytesMut::new()).unwrap()
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl MessageBuilder<StreamTarget<BytesMut>> {
-    /// Creates a new streamable message builder atop a bytes value. 
+    /// Creates a new streamable message builder atop a bytes value.
     pub fn new_stream_bytes() -> Self {
-        Self::from_target(
-            StreamTarget::new(BytesMut::new()).unwrap()
-        ).unwrap()
+        Self::from_target(StreamTarget::new(BytesMut::new()).unwrap())
+            .unwrap()
     }
 }
 
@@ -232,7 +231,10 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
         msg: &Message<Octets>,
         rcode: Rcode,
     ) -> Result<AnswerBuilder<Target>, ShortBuf>
-    where Octets: AsRef<[u8]>, for<'a> &'a Octets: OctetsRef {
+    where
+        Octets: AsRef<[u8]>,
+        for<'a> &'a Octets: OctetsRef,
+    {
         {
             let header = self.header_mut();
             header.set_id(msg.header().id());
@@ -256,7 +258,7 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
     /// the question section, and converts the builder into an answer builder.
     pub fn request_axfr<N: ToDname>(
         mut self,
-        apex: N
+        apex: N,
     ) -> Result<AnswerBuilder<Target>, ShortBuf> {
         self.header_mut().set_random_id();
         let mut builder = self.question();
@@ -264,7 +266,6 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
         Ok(builder.answer())
     }
 }
-
 
 /// # Access to the Message Header
 ///
@@ -358,7 +359,9 @@ impl<Target> MessageBuilder<Target> {
 
     /// Returns an octets slice of the octets assembled so far.
     pub fn as_slice(&self) -> &[u8]
-    where Target: AsRef<[u8]> {
+    where
+        Target: AsRef<[u8]>,
+    {
         self.as_target().as_ref()
     }
 
@@ -367,42 +370,50 @@ impl<Target> MessageBuilder<Target> {
     /// This message is atop the octets slices derived from the builder, so
     /// it can be created cheaply.
     pub fn as_message(&self) -> Message<&[u8]>
-    where Target: AsRef<[u8]> {
+    where
+        Target: AsRef<[u8]>,
+    {
         unsafe { Message::from_octets_unchecked(self.target.as_ref()) }
     }
 }
 
-
 //--- From
 
 impl<Target> From<QuestionBuilder<Target>> for MessageBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: QuestionBuilder<Target>) -> Self {
         src.builder()
     }
 }
 
 impl<Target> From<AnswerBuilder<Target>> for MessageBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AnswerBuilder<Target>) -> Self {
         src.builder()
     }
 }
 
 impl<Target> From<AuthorityBuilder<Target>> for MessageBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AuthorityBuilder<Target>) -> Self {
         src.builder()
     }
 }
 
 impl<Target> From<AdditionalBuilder<Target>> for MessageBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.builder()
     }
 }
-
 
 //--- AsRef
 //
@@ -419,7 +430,6 @@ impl<Target: AsRef<[u8]>> AsRef<[u8]> for MessageBuilder<Target> {
         self.as_slice()
     }
 }
-
 
 //------------ QuestionBuilder -----------------------------------------------
 
@@ -479,7 +489,7 @@ impl<Target: OctetsBuilder> QuestionBuilder<Target> {
     /// [`Question`]: ../question/trait.Question.html
     pub fn push(
         &mut self,
-        question: impl AsQuestion
+        question: impl AsQuestion,
     ) -> Result<(), ShortBuf> {
         let pos = self.as_target().len();
         question.compose_question(self.as_target_mut())?;
@@ -498,7 +508,8 @@ impl<Target: OctetsBuilder> QuestionBuilder<Target> {
     ///
     /// All previously added questions will be lost.
     pub fn rewind(&mut self) {
-        self.as_target_mut().truncate(mem::size_of::<HeaderSection>());
+        self.as_target_mut()
+            .truncate(mem::size_of::<HeaderSection>());
         self.counts_mut().set_qdcount(0);
     }
 
@@ -564,37 +575,43 @@ impl<Target> QuestionBuilder<Target> {
     }
 }
 
-
 //--- From
 
 impl<Target> From<MessageBuilder<Target>> for QuestionBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: MessageBuilder<Target>) -> Self {
         src.question()
     }
 }
 
 impl<Target> From<AnswerBuilder<Target>> for QuestionBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AnswerBuilder<Target>) -> Self {
         src.question()
     }
 }
 
 impl<Target> From<AuthorityBuilder<Target>> for QuestionBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AuthorityBuilder<Target>) -> Self {
         src.question()
     }
 }
 
 impl<Target> From<AdditionalBuilder<Target>> for QuestionBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.question()
     }
 }
-
 
 //--- Deref, DerefMut, AsRef, and AsMut
 
@@ -636,7 +653,6 @@ impl<Target: AsRef<[u8]>> AsRef<[u8]> for QuestionBuilder<Target> {
     }
 }
 
-
 //------------ AnswerBuilder -------------------------------------------------
 
 /// Builds the answer section of a DNS message.
@@ -676,7 +692,7 @@ impl<Target: OctetsBuilder> AnswerBuilder<Target> {
     fn new(builder: MessageBuilder<Target>) -> Self {
         AnswerBuilder {
             start: builder.target.as_ref().len(),
-            builder
+            builder,
         }
     }
 
@@ -794,37 +810,43 @@ impl<Target> AnswerBuilder<Target> {
     }
 }
 
-
 //--- From
 
 impl<Target> From<MessageBuilder<Target>> for AnswerBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: MessageBuilder<Target>) -> Self {
         src.answer()
     }
 }
 
 impl<Target> From<QuestionBuilder<Target>> for AnswerBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: QuestionBuilder<Target>) -> Self {
         src.answer()
     }
 }
 
 impl<Target> From<AuthorityBuilder<Target>> for AnswerBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AuthorityBuilder<Target>) -> Self {
         src.answer()
     }
 }
 
 impl<Target> From<AdditionalBuilder<Target>> for AnswerBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.answer()
     }
 }
-
 
 //--- Deref, DerefMut, AsRef, and AsMut
 
@@ -866,7 +888,6 @@ impl<Target: AsRef<[u8]>> AsRef<[u8]> for AnswerBuilder<Target> {
     }
 }
 
-
 //------------ AuthorityBuilder ----------------------------------------------
 
 /// Builds the authority section of a DNS message.
@@ -896,7 +917,7 @@ pub struct AuthorityBuilder<Target> {
     answer: AnswerBuilder<Target>,
 
     /// The index in the octets builder where the authority section starts.
-    start: usize
+    start: usize,
 }
 
 impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
@@ -906,7 +927,7 @@ impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
     fn new(answer: AnswerBuilder<Target>) -> Self {
         AuthorityBuilder {
             start: answer.as_target().as_ref().len(),
-            answer
+            answer,
         }
     }
 
@@ -1025,37 +1046,43 @@ impl<Target> AuthorityBuilder<Target> {
     }
 }
 
-
 //--- From
 
 impl<Target> From<MessageBuilder<Target>> for AuthorityBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: MessageBuilder<Target>) -> Self {
         src.authority()
     }
 }
 
 impl<Target> From<QuestionBuilder<Target>> for AuthorityBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: QuestionBuilder<Target>) -> Self {
         src.authority()
     }
 }
 
 impl<Target> From<AnswerBuilder<Target>> for AuthorityBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AnswerBuilder<Target>) -> Self {
         src.authority()
     }
 }
 
 impl<Target> From<AdditionalBuilder<Target>> for AuthorityBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.authority()
     }
 }
-
 
 //--- Deref, DerefMut, AsRef, and AsMut
 
@@ -1096,7 +1123,6 @@ impl<Target: AsRef<[u8]>> AsRef<[u8]> for AuthorityBuilder<Target> {
         self.as_slice()
     }
 }
-
 
 //------------ AdditionalBuilder ---------------------------------------------
 
@@ -1142,7 +1168,7 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
     fn new(authority: AuthorityBuilder<Target>) -> Self {
         AdditionalBuilder {
             start: authority.as_target().as_ref().len(),
-            authority
+            authority,
         }
     }
 
@@ -1193,7 +1219,9 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
     ///
     /// [`OptBuilder`]: struct.OptBuilder.html
     pub fn opt<F, R>(&mut self, build: F) -> Result<R, ShortBuf>
-    where F: FnOnce(&mut OptBuilder<Target>) -> Result<R, ShortBuf> {
+    where
+        F: FnOnce(&mut OptBuilder<Target>) -> Result<R, ShortBuf>,
+    {
         build(&mut OptBuilder::new(self)?)
     }
 }
@@ -1277,37 +1305,43 @@ impl<Target> AdditionalBuilder<Target> {
     }
 }
 
-
 //--- From
 
 impl<Target> From<MessageBuilder<Target>> for AdditionalBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: MessageBuilder<Target>) -> Self {
         src.additional()
     }
 }
 
 impl<Target> From<QuestionBuilder<Target>> for AdditionalBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: QuestionBuilder<Target>) -> Self {
         src.additional()
     }
 }
 
 impl<Target> From<AnswerBuilder<Target>> for AdditionalBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AnswerBuilder<Target>) -> Self {
         src.additional()
     }
 }
 
 impl<Target> From<AuthorityBuilder<Target>> for AdditionalBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn from(src: AuthorityBuilder<Target>) -> Self {
         src.additional()
     }
 }
-
 
 //--- Deref, DerefMut, AsRef, and AsMut
 
@@ -1349,7 +1383,6 @@ impl<Target: AsRef<[u8]>> AsRef<[u8]> for AdditionalBuilder<Target> {
     }
 }
 
-
 //------------ RecordSectionBuilder ------------------------------------------
 
 /// A section that can have records pushed to it.
@@ -1371,25 +1404,30 @@ pub trait RecordSectionBuilder {
 }
 
 impl<Target> RecordSectionBuilder for AnswerBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn push(&mut self, record: impl AsRecord) -> Result<(), ShortBuf> {
         Self::push(self, record)
     }
 }
 
-impl<Target: OctetsBuilder> RecordSectionBuilder for AuthorityBuilder<Target> {
+impl<Target: OctetsBuilder> RecordSectionBuilder
+    for AuthorityBuilder<Target>
+{
     fn push(&mut self, record: impl AsRecord) -> Result<(), ShortBuf> {
         Self::push(self, record)
     }
 }
 
 impl<Target> RecordSectionBuilder for AdditionalBuilder<Target>
-where Target: OctetsBuilder {
+where
+    Target: OctetsBuilder,
+{
     fn push(&mut self, record: impl AsRecord) -> Result<(), ShortBuf> {
         Self::push(self, record)
     }
 }
-
 
 //------------ OptBuilder ----------------------------------------------------
 
@@ -1415,33 +1453,36 @@ pub struct OptBuilder<'a, Target> {
 impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
     /// Creates a new opt builder atop an additional builder.
     fn new(
-        additional: &'a mut AdditionalBuilder<Target>
+        additional: &'a mut AdditionalBuilder<Target>,
     ) -> Result<Self, ShortBuf> {
         let start = additional.as_target().as_ref().len();
         let arcount = additional.counts().arcount();
 
-        let err = additional.as_target_mut().append_all(|target| {
-            OptHeader::default().compose(target)?;
-            0u16.compose(target)
-        }).is_err();
+        let err = additional
+            .as_target_mut()
+            .append_all(|target| {
+                OptHeader::default().compose(target)?;
+                0u16.compose(target)
+            })
+            .is_err();
         if err {
-            return Err(ShortBuf)
+            return Err(ShortBuf);
         }
         if additional.counts_mut().inc_arcount().is_err() {
             additional.as_target_mut().truncate(start);
-            return Err(ShortBuf)
+            return Err(ShortBuf);
         }
 
         Ok(OptBuilder {
-            additional, start, arcount
+            additional,
+            start,
+            arcount,
         })
     }
 
     /// Appends an option to the OPT record.
     pub fn push<Opt: OptData>(&mut self, opt: &Opt) -> Result<(), ShortBuf> {
-        self.push_raw_option(opt.code(), |target| {
-            opt.compose(target)
-        })
+        self.push_raw_option(opt.code(), |target| opt.compose(target))
     }
 
     /// Appends a raw option to the OPT record.
@@ -1449,9 +1490,13 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
     /// The method will append an option with the given option code. The data
     /// of the option will be written via the closure `op`.
     pub fn push_raw_option<F>(
-        &mut self, code: OptionCode, op: F
+        &mut self,
+        code: OptionCode,
+        op: F,
     ) -> Result<(), ShortBuf>
-    where F: FnOnce(&mut Target) -> Result<(), ShortBuf> {
+    where
+        F: FnOnce(&mut Target) -> Result<(), ShortBuf>,
+    {
         // Add the option.
         let pos = self.as_target().as_ref().len();
         self.as_target_mut().append_all(|target| {
@@ -1462,11 +1507,11 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
         // Update the length. If the option is too long, truncate and return
         // an error.
         let len = self.as_target().as_ref().len()
-                - self.start
-                - (mem::size_of::<OptHeader>() + 2);
+            - self.start
+            - (mem::size_of::<OptHeader>() + 2);
         if len > usize::from(u16::max_value()) {
             self.as_target_mut().truncate(pos);
-            return Err(ShortBuf)
+            return Err(ShortBuf);
         }
         let start = self.start + mem::size_of::<OptHeader>();
         self.as_target_mut().as_mut()[start..start + 2]
@@ -1542,7 +1587,7 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
     fn opt_header_mut(&mut self) -> &mut OptHeader {
         let start = self.start;
         OptHeader::for_record_slice_mut(
-            &mut self.as_target_mut().as_mut()[start..]
+            &mut self.as_target_mut().as_mut()[start..],
         )
     }
 
@@ -1556,7 +1601,6 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
         self.additional.as_target_mut()
     }
 }
-
 
 //------------ StreamTarget --------------------------------------------------
 
@@ -1575,7 +1619,7 @@ impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
 #[derive(Clone, Debug)]
 pub struct StreamTarget<Target> {
     /// The underlying octets builder.
-    target: Target
+    target: Target,
 }
 
 impl<Target: OctetsBuilder> StreamTarget<Target> {
@@ -1604,7 +1648,7 @@ impl<Target: OctetsBuilder> StreamTarget<Target> {
     pub fn as_target(&self) -> &Target {
         &self.target
     }
-    
+
     /// Converts the stream target into the underlying octets builder.
     ///
     /// The returned builder will contain the 16 bit length value with the
@@ -1637,7 +1681,6 @@ impl<Target: OctetsBuilder> StreamTarget<Target> {
     }
 }
 
-
 //--- AsRef, AsMut
 
 impl<Target: AsRef<[u8]>> AsRef<[u8]> for StreamTarget<Target> {
@@ -1652,7 +1695,6 @@ impl<Target: AsMut<[u8]>> AsMut<[u8]> for StreamTarget<Target> {
     }
 }
 
-
 //--- OctetsBuilder
 
 impl<Target: OctetsBuilder> OctetsBuilder for StreamTarget<Target> {
@@ -1664,7 +1706,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for StreamTarget<Target> {
                 self.update_shim();
                 Ok(())
             }
-            Err(ShortBuf) => Err(ShortBuf)
+            Err(ShortBuf) => Err(ShortBuf),
         }
     }
 
@@ -1677,7 +1719,6 @@ impl<Target: OctetsBuilder> OctetsBuilder for StreamTarget<Target> {
         self.target.freeze()
     }
 }
-
 
 //------------ StaticCompressor ----------------------------------------------
 
@@ -1714,7 +1755,7 @@ impl<Target> StaticCompressor<Target> {
         StaticCompressor {
             target,
             entries: Default::default(),
-            len: 0
+            len: 0,
         }
     }
 
@@ -1730,13 +1771,17 @@ impl<Target> StaticCompressor<Target> {
 
     /// Returns a reference to the octets slice of the content.
     pub fn as_slice(&self) -> &[u8]
-    where Target: AsRef<[u8]> {
+    where
+        Target: AsRef<[u8]>,
+    {
         self.target.as_ref()
     }
 
     /// Returns a reference to the octets slice of the content.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
-    where Target: AsMut<[u8]> {
+    where
+        Target: AsMut<[u8]>,
+    {
         self.target.as_mut()
     }
 
@@ -1745,14 +1790,16 @@ impl<Target> StaticCompressor<Target> {
         &self,
         name: N,
     ) -> Option<u16>
-    where Target: AsRef<[u8]> {
+    where
+        Target: AsRef<[u8]>,
+    {
         self.entries[..self.len].iter().find_map(|&pos| {
-            if name.clone().eq(
-                Label::iter_slice(self.target.as_ref(), pos as usize)
-            ) {
+            if name
+                .clone()
+                .eq(Label::iter_slice(self.target.as_ref(), pos as usize))
+            {
                 Some(pos)
-            }
-            else {
+            } else {
                 None
             }
         })
@@ -1764,13 +1811,11 @@ impl<Target> StaticCompressor<Target> {
             self.entries[self.len] = pos as u16;
             self.len += 1;
             true
-        }
-        else {
+        } else {
             false
         }
     }
 }
-
 
 //--- AsRef and AsMut
 
@@ -1785,7 +1830,6 @@ impl<Target: AsMut<[u8]>> AsMut<[u8]> for StaticCompressor<Target> {
         self.as_slice_mut()
     }
 }
-
 
 //--- OctetsBuilder
 
@@ -1803,7 +1847,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
             for i in 0..self.len {
                 if self.entries[i] >= len {
                     self.len = i;
-                    break
+                    break;
                 }
             }
         }
@@ -1811,7 +1855,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
 
     fn append_compressed_dname<N: ToDname>(
         &mut self,
-        name: &N
+        name: &N,
     ) -> Result<(), ShortBuf> {
         let mut name = name.iter_labels().peekable();
 
@@ -1821,13 +1865,13 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
             if let Some(label) = name.peek() {
                 if label.is_root() {
                     label.compose(self)?;
-                    return Ok(())
+                    return Ok(());
                 }
             }
 
             // If we already know this name, append it as a compressed label.
             if let Some(pos) = self.get(name.clone()) {
-                return (pos | 0xC000).compose(self)
+                return (pos | 0xC000).compose(self);
             }
 
             // So we don’t know the name. Try inserting it into the
@@ -1837,7 +1881,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
                 while let Some(label) = name.next() {
                     label.compose(self)?;
                 }
-                return Ok(())
+                return Ok(());
             }
 
             // Advance to the parent.
@@ -1850,7 +1894,6 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
         self.target.freeze()
     }
 }
-
 
 //------------ TreeCompressor ------------------------------------------------
 
@@ -1900,9 +1943,11 @@ impl Node {
     fn drop_above(&mut self, len: u16) {
         self.value = match self.value {
             Some(value) if value < len => Some(value),
-            _ => None
+            _ => None,
         };
-        self.parents.values_mut().for_each(|node| node.drop_above(len))
+        self.parents
+            .values_mut()
+            .for_each(|node| node.drop_above(len))
     }
 }
 
@@ -1912,7 +1957,7 @@ impl<Target> TreeCompressor<Target> {
     pub fn new(target: Target) -> Self {
         TreeCompressor {
             target,
-            start: Default::default()
+            start: Default::default(),
         }
     }
 
@@ -1928,19 +1973,23 @@ impl<Target> TreeCompressor<Target> {
 
     /// Returns an octets slice of the data.
     pub fn as_slice(&self) -> &[u8]
-    where Target: AsRef<[u8]> {
+    where
+        Target: AsRef<[u8]>,
+    {
         self.target.as_ref()
     }
 
     /// Returns an mutable octets slice of the data.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
-    where Target: AsMut<[u8]> {
+    where
+        Target: AsMut<[u8]>,
+    {
         self.target.as_mut()
     }
 
     fn get<'a, N: Iterator<Item = &'a Label> + Clone>(
         &self,
-        name: N
+        name: N,
     ) -> Option<u16> {
         let mut node = &self.start;
         for label in name {
@@ -1955,26 +2004,26 @@ impl<Target> TreeCompressor<Target> {
     fn insert<'a, N: Iterator<Item = &'a Label> + Clone>(
         &mut self,
         name: N,
-        pos: usize
+        pos: usize,
     ) -> bool {
         if pos >= 0xC000 {
-            return false
+            return false;
         }
         let pos = pos as u16;
         let mut node = &mut self.start;
         for label in name {
             if label.is_root() {
                 node.value = Some(pos);
-                break
+                break;
             }
-            node = node.parents.entry(
-                label.as_ref().try_into().unwrap()
-            ).or_default();
+            node = node
+                .parents
+                .entry(label.as_ref().try_into().unwrap())
+                .or_default();
         }
         true
     }
 }
-
 
 //--- AsRef, AsMut, and OctetsBuilder
 
@@ -2009,7 +2058,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
 
     fn append_compressed_dname<N: ToDname>(
         &mut self,
-        name: &N
+        name: &N,
     ) -> Result<(), ShortBuf> {
         let mut name = name.iter_labels().peekable();
 
@@ -2019,13 +2068,13 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
             if let Some(label) = name.peek() {
                 if label.is_root() {
                     label.compose(self)?;
-                    return Ok(())
+                    return Ok(());
                 }
             }
 
             // If we already know this name, append it as a compressed label.
             if let Some(pos) = self.get(name.clone()) {
-                return (pos | 0xC000).compose(self)
+                return (pos | 0xC000).compose(self);
             }
 
             // So we don’t know the name. Try inserting it into the
@@ -2035,7 +2084,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
                 while let Some(label) = name.next() {
                     label.compose(self)?;
                 }
-                return Ok(())
+                return Ok(());
             }
 
             // Advance to the parent. If the parent is root, just write that
@@ -2056,12 +2105,12 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod test {
-    use std::vec::Vec;
-    use crate::base::{iana::Rtype, Dname, opt};
-    use crate::rdata::{A, Ns, Soa};
-    use crate::base::Serial;
-    use core::str::FromStr;
     use super::*;
+    use crate::base::Serial;
+    use crate::base::{iana::Rtype, opt, Dname};
+    use crate::rdata::{Ns, Soa, A};
+    use core::str::FromStr;
+    use std::vec::Vec;
 
     #[test]
     fn message_builder() {
@@ -2070,11 +2119,10 @@ mod test {
 
         // Create a message builder wrapping a compressor wrapping a stream
         // target.
-        let mut msg = MessageBuilder::from_target(
-            StaticCompressor::new(
-                StreamTarget::new_vec()
-            )
-        ).unwrap();
+        let mut msg = MessageBuilder::from_target(StaticCompressor::new(
+            StreamTarget::new_vec(),
+        ))
+        .unwrap();
 
         // Set the RD bit in the header and proceed to the question section.
         msg.header_mut().set_rd(true);
@@ -2085,8 +2133,10 @@ mod test {
         let mut msg = msg.answer();
 
         // Add two answer and proceed to the additional sections
-        msg.push((&name, 86400, A::from_octets(192, 0, 2, 1))).unwrap();
-        msg.push((&name, 86400, A::from_octets(192, 0, 2, 2))).unwrap();
+        msg.push((&name, 86400, A::from_octets(192, 0, 2, 1)))
+            .unwrap();
+        msg.push((&name, 86400, A::from_octets(192, 0, 2, 2)))
+            .unwrap();
 
         // Add an authority
         let mut msg = msg.authority();
@@ -2094,8 +2144,9 @@ mod test {
 
         // Add additional
         let mut msg = msg.additional();
-        msg.push((&name, 86400, A::from_octets(192, 0, 2, 1))).unwrap();
-        
+        msg.push((&name, 86400, A::from_octets(192, 0, 2, 1)))
+            .unwrap();
+
         // Convert the builder into the actual message.
         let target = msg.finish().into_target();
 
@@ -2107,8 +2158,14 @@ mod test {
 
         let section = msg.answer().unwrap();
         let mut records = section.limit_to::<A>();
-        assert_eq!(records.next().unwrap().unwrap().data(), &A::from_octets(192, 0, 2, 1));
-        assert_eq!(records.next().unwrap().unwrap().data(), &A::from_octets(192, 0, 2, 2));
+        assert_eq!(
+            records.next().unwrap().unwrap().data(),
+            &A::from_octets(192, 0, 2, 1)
+        );
+        assert_eq!(
+            records.next().unwrap().unwrap().data(),
+            &A::from_octets(192, 0, 2, 2)
+        );
 
         let section = msg.authority().unwrap();
         let mut records = section.limit_to::<Ns<_>>();
@@ -2133,7 +2190,8 @@ mod test {
             o.set_udp_payload_size(4096);
             o.push(&nsid)?;
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
 
         let msg = Message::from_octets(msg.finish()).unwrap();
         let opt = msg.opt().unwrap();
@@ -2151,25 +2209,44 @@ mod test {
         msg.header_mut().set_ra(true);
         msg.header_mut().set_qr(true);
 
-        msg.push((&"example".parse::<Dname<Vec<u8>>>().unwrap(), Rtype::Ns)).unwrap();
+        msg.push((&"example".parse::<Dname<Vec<u8>>>().unwrap(), Rtype::Ns))
+            .unwrap();
         let mut msg = msg.authority();
 
         let mname: Dname<Vec<u8>> = "a.root-servers.net".parse().unwrap();
         let rname = "nstld.verisign-grs.com".parse().unwrap();
-        msg.push((Dname::root_slice(), 86390, Soa::new(mname, rname, Serial(2020081701), 1800, 900, 604800, 86400))).unwrap();
+        msg.push((
+            Dname::root_slice(),
+            86390,
+            Soa::new(
+                mname,
+                rname,
+                Serial(2020081701),
+                1800,
+                900,
+                604800,
+                86400,
+            ),
+        ))
+        .unwrap();
         msg.finish()
     }
 
     #[test]
     fn compressor() {
         // An example negative response to `example. NS` with an SOA to test various compressed name situations.
-        let expect = &[0x00,0x00,0x81,0x83,0x00,0x01,0x00,0x00,0x00,0x01,0x00,0x00,0x07,0x65,0x78,0x61,
-        0x6d,0x70,0x6c,0x65,0x00,0x00,0x02,0x00,0x01,0x00,0x00,0x06,0x00,0x01,0x00,0x01,
-        0x51,0x76,0x00,0x40,0x01,0x61,0x0c,0x72,0x6f,0x6f,0x74,0x2d,0x73,0x65,0x72,0x76,
-        0x65,0x72,0x73,0x03,0x6e,0x65,0x74,0x00,0x05,0x6e,0x73,0x74,0x6c,0x64,0x0c,0x76,
-        0x65,0x72,0x69,0x73,0x69,0x67,0x6e,0x2d,0x67,0x72,0x73,0x03,0x63,0x6f,0x6d,0x00,
-        0x78,0x68,0x00,0x25,0x00,0x00,0x07,0x08,0x00,0x00,0x03,0x84,0x00,0x09,0x3a,0x80,
-        0x00,0x01,0x51,0x80];
+        let expect = &[
+            0x00, 0x00, 0x81, 0x83, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x00, 0x00,
+            0x02, 0x00, 0x01, 0x00, 0x00, 0x06, 0x00, 0x01, 0x00, 0x01, 0x51,
+            0x76, 0x00, 0x40, 0x01, 0x61, 0x0c, 0x72, 0x6f, 0x6f, 0x74, 0x2d,
+            0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x73, 0x03, 0x6e, 0x65, 0x74,
+            0x00, 0x05, 0x6e, 0x73, 0x74, 0x6c, 0x64, 0x0c, 0x76, 0x65, 0x72,
+            0x69, 0x73, 0x69, 0x67, 0x6e, 0x2d, 0x67, 0x72, 0x73, 0x03, 0x63,
+            0x6f, 0x6d, 0x00, 0x78, 0x68, 0x00, 0x25, 0x00, 0x00, 0x07, 0x08,
+            0x00, 0x00, 0x03, 0x84, 0x00, 0x09, 0x3a, 0x80, 0x00, 0x01, 0x51,
+            0x80,
+        ];
 
         let msg = create_compressed(StaticCompressor::new(Vec::new()));
         assert_eq!(&expect[..], msg.as_ref());

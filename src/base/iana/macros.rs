@@ -4,7 +4,7 @@
 ///
 /// This adds impls for `From`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, and
 /// `Hash`.
-/// 
+///
 /// For `FromStr` and `Display`, see one of the other macros in this module.
 macro_rules! int_enum {
     ( $(#[$attr:meta])* =>
@@ -15,7 +15,7 @@ macro_rules! int_enum {
         #[derive(Clone, Copy, Debug)]
         pub enum $ianatype {
             $( $(#[$variant_attr])* $variant ),*,
-            
+
             /// A raw value given through its integer.
             Int($inttype)
         }
@@ -232,11 +232,11 @@ macro_rules! int_enum_str_mnemonics_only {
 /// only print the decimal values.
 macro_rules! int_enum_str_decimal {
     ($ianatype:ident, $inttype:ident) => {
-        
         impl $ianatype {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 core::str::from_utf8(bytes).ok().and_then(|r| {
-                    $inttype::from_str_radix(r, 10).ok()
+                    $inttype::from_str_radix(r, 10)
+                        .ok()
                         .map($ianatype::from_int)
                 })
             }
@@ -250,30 +250,27 @@ macro_rules! int_enum_str_decimal {
             }
         }
 
-        #[cfg(feature="master")]
+        #[cfg(feature = "master")]
         impl $crate::master::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
-                scanner: &mut $crate::master::scan::Scanner<C>
+                scanner: &mut $crate::master::scan::Scanner<C>,
             ) -> Result<Self, $crate::master::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
 
                     Self::from_str(&word)
-                         .map_err($crate::master::scan::SyntaxError::content)
+                        .map_err($crate::master::scan::SyntaxError::content)
                 })
             }
         }
 
         impl core::fmt::Display for $ianatype {
-            fn fmt(
-                &self, f: &mut core::fmt::Formatter
-            ) -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 write!(f, "{}", self.to_int())
             }
         }
-    }
+    };
 }
-
 
 /// Adds impls for `FromStr` and `Display` to the type given as first argument.
 ///
@@ -288,13 +285,14 @@ macro_rules! int_enum_str_with_decimal {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 $ianatype::from_mnemonic(bytes).or_else(|| {
                     core::str::from_utf8(bytes).ok().and_then(|r| {
-                        $inttype::from_str_radix(r, 10).ok()
+                        $inttype::from_str_radix(r, 10)
+                            .ok()
                             .map($ianatype::from_int)
                     })
                 })
             }
         }
-                                        
+
         impl core::str::FromStr for $ianatype {
             type Err = FromStrError;
 
@@ -306,8 +304,7 @@ macro_rules! int_enum_str_with_decimal {
                     None => {
                         if let Ok(res) = $inttype::from_str_radix(s, 10) {
                             Ok($ianatype::Int(res))
-                        }
-                        else {
+                        } else {
                             Err(FromStrError)
                         }
                     }
@@ -316,8 +313,7 @@ macro_rules! int_enum_str_with_decimal {
         }
 
         impl core::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter)
-                   -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 use core::fmt::Write;
 
                 match self.to_mnemonic() {
@@ -334,10 +330,10 @@ macro_rules! int_enum_str_with_decimal {
             }
         }
 
-        #[cfg(feature="master")]
+        #[cfg(feature = "master")]
         impl $crate::master::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
-                scanner: &mut $crate::master::scan::Scanner<C>
+                scanner: &mut $crate::master::scan::Scanner<C>,
             ) -> Result<Self, $crate::master::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     core::str::FromStr::from_str(&word).map_err(|_| {
@@ -348,7 +344,7 @@ macro_rules! int_enum_str_with_decimal {
         }
 
         from_str_error!($error);
-    }
+    };
 }
 
 /// Adds impls for `FromStr` and `Display` to the type given as first argument.
@@ -366,15 +362,15 @@ macro_rules! int_enum_str_with_prefix {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 $ianatype::from_mnemonic(bytes).or_else(|| {
                     if bytes.len() <= $u8_prefix.len() {
-                        return None
+                        return None;
                     }
                     let (l, r) = bytes.split_at($u8_prefix.len());
                     if !l.eq_ignore_ascii_case($u8_prefix) {
-                        return None
+                        return None;
                     }
                     let r = match core::str::from_utf8(r) {
                         Ok(r) => r,
-                        Err(_) => return None
+                        Err(_) => return None,
                     };
                     u16::from_str_radix(r, 10).ok().map($ianatype::from_int)
                 })
@@ -390,21 +386,20 @@ macro_rules! int_enum_str_with_prefix {
                 match $ianatype::from_mnemonic(s.as_bytes()) {
                     Some(res) => Ok(res),
                     None => {
-                        if let Some((n, _)) = s.char_indices()
-                                               .nth($str_prefix.len()) {
+                        if let Some((n, _)) =
+                            s.char_indices().nth($str_prefix.len())
+                        {
                             let (l, r) = s.split_at(n);
                             if l.eq_ignore_ascii_case($str_prefix) {
                                 let value = match u16::from_str_radix(r, 10) {
                                     Ok(x) => x,
-                                    Err(..) => return Err(FromStrError)
+                                    Err(..) => return Err(FromStrError),
                                 };
                                 Ok($ianatype::from_int(value))
-                            }
-                            else {
+                            } else {
                                 Err(FromStrError)
                             }
-                        }
-                        else {
+                        } else {
                             Err(FromStrError)
                         }
                     }
@@ -413,8 +408,7 @@ macro_rules! int_enum_str_with_prefix {
         }
 
         impl core::fmt::Display for $ianatype {
-            fn fmt(&self, f: &mut core::fmt::Formatter)
-                   -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 use core::fmt::Write;
 
                 match self.to_mnemonic() {
@@ -431,24 +425,23 @@ macro_rules! int_enum_str_with_prefix {
             }
         }
 
-        #[cfg(feature="master")]
+        #[cfg(feature = "master")]
         impl $crate::master::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
-                scanner: &mut $crate::master::scan::Scanner<C>
+                scanner: &mut $crate::master::scan::Scanner<C>,
             ) -> Result<Self, $crate::master::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
 
-                    Self::from_str(&word)
-                         .map_err(|_| {
-                             $crate::master::scan::SyntaxError::UnknownMnemonic
-                         })
+                    Self::from_str(&word).map_err(|_| {
+                        $crate::master::scan::SyntaxError::UnknownMnemonic
+                    })
                 })
             }
         }
 
         from_str_error!($error);
-    }
+    };
 }
 
 macro_rules! from_str_error {
@@ -459,16 +452,14 @@ macro_rules! from_str_error {
         #[cfg(feature = "std")]
         impl std::error::Error for FromStrError {
             fn description(&self) -> &str {
-               $description
+                $description
             }
         }
 
         impl core::fmt::Display for FromStrError {
-            fn fmt(
-                &self, f: &mut core::fmt::Formatter
-            ) -> core::fmt::Result {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 $description.fmt(f)
             }
         }
-    }
+    };
 }

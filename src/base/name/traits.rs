@@ -1,17 +1,19 @@
 //! Domain name-related traits.
 //!
-/// This is a private module. Its public traits are re-exported by the parent.
-
-use core::cmp;
-#[cfg(feature = "std")] use std::borrow::Cow;
-#[cfg(feature = "bytes")] use bytes::Bytes;
-use super::super::octets::{Compose, EmptyBuilder, FromBuilder, OctetsBuilder};
+use super::super::octets::{
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder,
+};
 use super::builder::PushError;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::Label;
 use super::relative::RelativeDname;
-
+#[cfg(feature = "bytes")]
+use bytes::Bytes;
+/// This is a private module. Its public traits are re-exported by the parent.
+use core::cmp;
+#[cfg(feature = "std")]
+use std::borrow::Cow;
 
 //------------ ToLabelIter ---------------------------------------------------
 
@@ -31,7 +33,7 @@ pub trait ToLabelIter<'a> {
     /// This iterator types needs to be double ended so that we can deal with
     /// name suffixes. It needs to be cloneable to be able to cascade over
     /// parents of a name.
-    type LabelIter: Iterator<Item=&'a Label> + DoubleEndedIterator + Clone;
+    type LabelIter: Iterator<Item = &'a Label> + DoubleEndedIterator + Clone;
 
     /// Returns an iterator over the labels.
     fn iter_labels(&'a self) -> Self::LabelIter;
@@ -43,14 +45,17 @@ pub trait ToLabelIter<'a> {
 
     /// Determines whether `base` is a prefix of `self`.
     fn starts_with<N: ToLabelIter<'a> + ?Sized>(
-        &'a self, base: &'a N
+        &'a self,
+        base: &'a N,
     ) -> bool {
         let mut self_iter = self.iter_labels();
         let mut base_iter = base.iter_labels();
         loop {
             match (self_iter.next(), base_iter.next()) {
                 (Some(sl), Some(bl)) => {
-                    if sl != bl { return false }
+                    if sl != bl {
+                        return false;
+                    }
                 }
                 (_, None) => return true,
                 (None, Some(_)) => return false,
@@ -59,18 +64,18 @@ pub trait ToLabelIter<'a> {
     }
 
     /// Determines whether `base` is a suffix of `self`.
-    fn ends_with<N: ToLabelIter<'a> + ?Sized>(
-        &'a self, base: &'a N
-    ) -> bool {
+    fn ends_with<N: ToLabelIter<'a> + ?Sized>(&'a self, base: &'a N) -> bool {
         let mut self_iter = self.iter_labels();
         let mut base_iter = base.iter_labels();
         loop {
             match (self_iter.next_back(), base_iter.next_back()) {
                 (Some(sl), Some(bl)) => {
-                    if sl != bl { return false }
+                    if sl != bl {
+                        return false;
+                    }
                 }
                 (_, None) => return true,
-                (None, Some(_)) =>  return false
+                (None, Some(_)) => return false,
             }
         }
     }
@@ -83,7 +88,6 @@ impl<'a, 'b, N: ToLabelIter<'b> + ?Sized> ToLabelIter<'b> for &'a N {
         (*self).iter_labels()
     }
 }
-
 
 //------------ ToDname -------------------------------------------------------
 
@@ -113,7 +117,7 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     fn to_dname<Octets>(&self) -> Result<Dname<Octets>, PushError>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder
+        <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
     {
         let mut builder = Octets::Builder::with_capacity(self.len());
         for label in self.iter_labels() {
@@ -144,9 +148,10 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     /// [`to_dname`]: #method.to_dname
     #[cfg(feature = "std")]
     fn to_cow(&self) -> Dname<std::borrow::Cow<[u8]>> {
-        let octets = self.as_flat_slice().map(Cow::Borrowed).unwrap_or_else(|| {
-            Cow::Owned(self.to_vec().into_octets())
-        });
+        let octets = self
+            .as_flat_slice()
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| Cow::Owned(self.to_vec().into_octets()));
         unsafe { Dname::from_octets_unchecked(octets) }
     }
 
@@ -157,7 +162,7 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     }
 
     /// Returns the domain name assembled into a bytes value.
-    #[cfg(feature="bytes")] 
+    #[cfg(feature = "bytes")]
     fn to_bytes(&self) -> Dname<Bytes> {
         self.to_dname().unwrap()
     }
@@ -170,13 +175,13 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     ///
     /// Domain names are compared ignoring ASCII case.
     fn name_eq<N: ToDname + ?Sized>(&self, other: &N) -> bool {
-        if let (Some(left), Some(right)) = (self.as_flat_slice(),
-                                            other.as_flat_slice()) {
+        if let (Some(left), Some(right)) =
+            (self.as_flat_slice(), other.as_flat_slice())
+        {
             // We can do this because the length octets of each label are in
             // the ranged 0..64 which is before all ASCII letters.
             left.eq_ignore_ascii_case(right)
-        }
-        else {
+        } else {
             self.iter_labels().eq(other.iter_labels())
         }
     }
@@ -196,15 +201,13 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
         let mut other_iter = other.iter_labels();
         loop {
             match (self_iter.next_back(), other_iter.next_back()) {
-                (Some(left), Some(right)) => {
-                    match left.cmp(right) {
-                        cmp::Ordering::Equal => {}
-                        res => return res
-                    }
-                }
+                (Some(left), Some(right)) => match left.cmp(right) {
+                    cmp::Ordering::Equal => {}
+                    res => return res,
+                },
                 (None, Some(_)) => return cmp::Ordering::Less,
                 (Some(_), None) => return cmp::Ordering::Greater,
-                (None, None) => return cmp::Ordering::Equal
+                (None, None) => return cmp::Ordering::Equal,
             }
         }
     }
@@ -212,19 +215,18 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     /// Returns the composed name ordering.
     fn composed_cmp<N: ToDname + ?Sized>(&self, other: &N) -> cmp::Ordering {
         if let (Some(left), Some(right)) =
-                               (self.as_flat_slice(), other.as_flat_slice()) {
-            return left.cmp(right)
+            (self.as_flat_slice(), other.as_flat_slice())
+        {
+            return left.cmp(right);
         }
         let mut self_iter = self.iter_labels();
         let mut other_iter = other.iter_labels();
         loop {
             match (self_iter.next(), other_iter.next()) {
-                (Some(left), Some(right)) => {
-                    match left.composed_cmp(right) {
-                        cmp::Ordering::Equal => { }
-                        other => return other
-                    }
-                }
+                (Some(left), Some(right)) => match left.composed_cmp(right) {
+                    cmp::Ordering::Equal => {}
+                    other => return other,
+                },
                 (None, None) => return cmp::Ordering::Equal,
                 _ => {
                     // The root label sorts before any other label, so we
@@ -239,7 +241,7 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     /// Returns the lowercase composed ordering.
     fn lowercase_composed_cmp<N: ToDname + ?Sized>(
         &self,
-        other: &N
+        other: &N,
     ) -> cmp::Ordering {
         // Since there isn’t a `cmp_ignore_ascii_case` on slice, we don’t
         // gain much from the shortcut.
@@ -249,8 +251,8 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
             match (self_iter.next(), other_iter.next()) {
                 (Some(left), Some(right)) => {
                     match left.lowercase_composed_cmp(right) {
-                        cmp::Ordering::Equal => { }
-                        other => return other
+                        cmp::Ordering::Equal => {}
+                        other => return other,
                     }
                 }
                 (None, None) => return cmp::Ordering::Equal,
@@ -272,15 +274,13 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
         let mut labels = self.iter_labels();
         if labels.next().unwrap().is_wildcard() {
             (labels.count() - 1) as u8
-        }
-        else {
+        } else {
             labels.count() as u8
         }
     }
 }
 
-impl<'a, N: ToDname + ?Sized + 'a> ToDname for &'a N { }
-
+impl<'a, N: ToDname + ?Sized + 'a> ToDname for &'a N {}
 
 //------------ ToRelativeDname -----------------------------------------------
 
@@ -310,19 +310,17 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     ///
     /// [`RelativeDname`]: struct.RelativeDname.html
     fn to_relative_dname<Octets>(
-        &self
+        &self,
     ) -> Result<RelativeDname<Octets>, PushError>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
         let mut builder = Octets::Builder::with_capacity(self.len());
         for label in self.iter_labels() {
             label.build(&mut builder)?;
         }
-        Ok(unsafe {
-            RelativeDname::from_octets_unchecked(builder.freeze()) 
-        })
+        Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
     }
 
     /// Returns a byte slice of the content if possible.
@@ -343,9 +341,10 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// [`to_dname`]: #method.to_dname
     #[cfg(feature = "std")]
     fn to_cow(&self) -> RelativeDname<std::borrow::Cow<[u8]>> {
-        let octets = self.as_flat_slice().map(Cow::Borrowed).unwrap_or_else(|| {
-            Cow::Owned(self.to_vec().into_octets())
-        });
+        let octets = self
+            .as_flat_slice()
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| Cow::Owned(self.to_vec().into_octets()));
         unsafe { RelativeDname::from_octets_unchecked(octets) }
     }
 
@@ -356,7 +355,7 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     }
 
     /// Returns the domain name assembled into a bytes value.
-    #[cfg(feature="bytes")] 
+    #[cfg(feature = "bytes")]
     fn to_bytes(&self) -> RelativeDname<Bytes> {
         self.to_relative_dname().unwrap()
     }
@@ -369,15 +368,19 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// Returns a chain of this name and the provided name.
     fn chain<N: ToEitherDname>(
         self,
-        suffix: N
+        suffix: N,
     ) -> Result<Chain<Self, N>, LongChainError>
-    where Self: Sized {
+    where
+        Self: Sized,
+    {
         Chain::new(self, suffix)
     }
 
     /// Returns the absolute name by chaining it with the root label.
     fn chain_root(self) -> Chain<Self, Dname<&'static [u8]>>
-    where Self: Sized {
+    where
+        Self: Sized,
+    {
         // Appending the root label will always work.
         Chain::new(self, Dname::root()).unwrap()
     }
@@ -390,11 +393,11 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     ///
     /// Domain names are compared ignoring ASCII case.
     fn name_eq<N: ToRelativeDname + ?Sized>(&self, other: &N) -> bool {
-        if let (Some(left), Some(right)) = (self.as_flat_slice(),
-                                            other.as_flat_slice()) {
+        if let (Some(left), Some(right)) =
+            (self.as_flat_slice(), other.as_flat_slice())
+        {
             left.eq_ignore_ascii_case(right)
-        }
-        else {
+        } else {
             self.iter_labels().eq(other.iter_labels())
         }
     }
@@ -415,28 +418,25 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// [RFC4034-6.1]: https://tools.ietf.org/html/rfc4034#section-6.1
     fn name_cmp<N: ToRelativeDname + ?Sized>(
         &self,
-        other: &N
+        other: &N,
     ) -> cmp::Ordering {
         let mut self_iter = self.iter_labels();
         let mut other_iter = other.iter_labels();
         loop {
             match (self_iter.next_back(), other_iter.next_back()) {
-                (Some(left), Some(right)) => {
-                    match left.cmp(right) {
-                        cmp::Ordering::Equal => {}
-                        res => return res
-                    }
-                }
+                (Some(left), Some(right)) => match left.cmp(right) {
+                    cmp::Ordering::Equal => {}
+                    res => return res,
+                },
                 (None, Some(_)) => return cmp::Ordering::Less,
                 (Some(_), None) => return cmp::Ordering::Greater,
-                (None, None) => return cmp::Ordering::Equal
+                (None, None) => return cmp::Ordering::Equal,
             }
         }
     }
 }
 
-impl<'a, N: ToRelativeDname + ?Sized + 'a> ToRelativeDname for &'a N { }
-
+impl<'a, N: ToRelativeDname + ?Sized + 'a> ToRelativeDname for &'a N {}
 
 //------------ ToEitherDname -------------------------------------------------
 
@@ -448,7 +448,6 @@ impl<'a, N: ToRelativeDname + ?Sized + 'a> ToRelativeDname for &'a N { }
 /// for [`ToLabelIter`].
 ///
 /// [`ToLabelIter`]: trait.ToLabelIter.html
-pub trait ToEitherDname: Compose + for<'a> ToLabelIter<'a> { }
+pub trait ToEitherDname: Compose + for<'a> ToLabelIter<'a> {}
 
-impl<N: Compose + for<'a> ToLabelIter<'a>> ToEitherDname for N { }
-
+impl<N: Compose + for<'a> ToLabelIter<'a>> ToEitherDname for N {}

@@ -3,9 +3,8 @@
 //! This module contains helper types for converting from and to string
 //! representation of types.
 
-use core::fmt;
 use super::octets::ParseError;
-
+use core::fmt;
 
 //------------ Symbol --------------------------------------------------------
 
@@ -34,14 +33,16 @@ impl Symbol {
     /// Returns the next symbol in the source, `Ok(None)` if the source has
     /// been exhausted, or an error if there wasn’t a valid symbol.
     pub fn from_chars<C>(chars: C) -> Result<Option<Self>, SymbolError>
-                      where C: IntoIterator<Item=char> {
+    where
+        C: IntoIterator<Item = char>,
+    {
         let mut chars = chars.into_iter();
         let ch = match chars.next() {
             Some(ch) => ch,
             None => return Ok(None),
         };
         if ch != '\\' {
-            return Ok(Some(Symbol::Char(ch)))
+            return Ok(Some(Symbol::Char(ch)));
         }
         match chars.next() {
             Some(ch) if ch.is_digit(10) => {
@@ -49,25 +50,25 @@ impl Symbol {
                 let ch2 = match chars.next() {
                     Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch * 10,
-                        None => return Err(SymbolError::BadEscape)
-                    }
-                    None => return Err(SymbolError::ShortInput)
+                        None => return Err(SymbolError::BadEscape),
+                    },
+                    None => return Err(SymbolError::ShortInput),
                 };
                 let ch3 = match chars.next() {
-                    Some(ch)  => match ch.to_digit(10) {
+                    Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch,
-                        None => return Err(SymbolError::BadEscape)
-                    }
-                    None => return Err(SymbolError::ShortInput)
+                        None => return Err(SymbolError::BadEscape),
+                    },
+                    None => return Err(SymbolError::ShortInput),
                 };
                 let res = ch + ch2 + ch3;
                 if res > 255 {
-                    return Err(SymbolError::BadEscape)
+                    return Err(SymbolError::BadEscape);
                 }
                 Ok(Some(Symbol::DecimalEscape(res as u8)))
             }
             Some(ch) => Ok(Some(Symbol::SimpleEscape(ch))),
-            None => Err(SymbolError::ShortInput)
+            None => Err(SymbolError::ShortInput),
         }
     }
 
@@ -80,11 +81,9 @@ impl Symbol {
     pub fn from_octet(ch: u8) -> Self {
         if ch == b' ' || ch == b'"' || ch == b'\\' || ch == b';' {
             Symbol::SimpleEscape(ch as char)
-        }
-        else if !(0x20..0x7F).contains(&ch) {
+        } else if !(0x20..0x7F).contains(&ch) {
             Symbol::DecimalEscape(ch)
-        }
-        else {
+        } else {
             Symbol::Char(ch as char)
         }
     }
@@ -105,8 +104,7 @@ impl Symbol {
             Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
                 if ch.is_ascii() && ch >= '\u{20}' && ch <= '\u{7E}' {
                     Ok(ch as u8)
-                }
-                else {
+                } else {
                     Err(BadSymbol(self))
                 }
             }
@@ -121,7 +119,7 @@ impl Symbol {
     pub fn into_char(self) -> Result<char, BadSymbol> {
         match self {
             Symbol::Char(ch) | Symbol::SimpleEscape(ch) => Ok(ch),
-            Symbol::DecimalEscape(_) => Err(BadSymbol(self))
+            Symbol::DecimalEscape(_) => Err(BadSymbol(self)),
         }
     }
 
@@ -130,10 +128,9 @@ impl Symbol {
         if let Symbol::Char(ch) = self {
             match ch.to_digit(base) {
                 Some(ch) => Ok(ch),
-                None => Err(BadSymbol(self))
+                None => Err(BadSymbol(self)),
             }
-        }
-        else {
+        } else {
             Err(BadSymbol(self))
         }
     }
@@ -145,14 +142,17 @@ impl Symbol {
     pub fn is_word_char(self) -> bool {
         match self {
             Symbol::Char(ch) => {
-                ch != ' ' && ch != '\t' && ch != '(' && ch != ')' &&
-                ch != ';' && ch != '"'
+                ch != ' '
+                    && ch != '\t'
+                    && ch != '('
+                    && ch != ')'
+                    && ch != ';'
+                    && ch != '"'
             }
-            _ => true
+            _ => true,
         }
     }
 }
-
 
 //--- From
 
@@ -161,7 +161,6 @@ impl From<char> for Symbol {
         Symbol::Char(ch)
     }
 }
-
 
 //--- Display
 
@@ -174,7 +173,6 @@ impl fmt::Display for Symbol {
         }
     }
 }
-
 
 //============ Error Types ===================================================
 
@@ -189,33 +187,28 @@ pub enum SymbolError {
     /// Unexpected end of input.
     ///
     /// This can only happen in a decimal escape sequence.
-    ShortInput
+    ShortInput,
 }
-
 
 //--- Display and Error
 
 impl fmt::Display for SymbolError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SymbolError::BadEscape
-                => f.write_str("illegal escape sequence"),
-            SymbolError::ShortInput
-                => ParseError::ShortInput.fmt(f)
+            SymbolError::BadEscape => f.write_str("illegal escape sequence"),
+            SymbolError::ShortInput => ParseError::ShortInput.fmt(f),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for SymbolError { }
-
+impl std::error::Error for SymbolError {}
 
 //------------ BadSymbol -----------------------------------------------------
 
-/// A symbol with an unexpected value was encountered. 
+/// A symbol with an unexpected value was encountered.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BadSymbol(pub Symbol);
-
 
 //--- Display and Error
 
@@ -226,5 +219,4 @@ impl fmt::Display for BadSymbol {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for BadSymbol { }
-
+impl std::error::Error for BadSymbol {}

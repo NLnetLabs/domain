@@ -18,13 +18,12 @@
 //! [`HeaderSection`]: struct.HeaderSection.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use core::mem;
-use core::convert::TryInto;
 use super::iana::{Opcode, Rcode};
 use super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
 };
-
+use core::convert::TryInto;
+use core::mem;
 
 //------------ Header --------------------------------------------------
 
@@ -58,7 +57,7 @@ use super::octets::{
 /// The basic structure and most of the fields re defined in [RFC 1035],
 /// except for the AD and CD flags, which are defined in [RFC 4035].
 ///
-/// [Field Access]: #field-access 
+/// [Field Access]: #field-access
 /// [`for_message_slice`]: #method.for_message_slice
 /// [`for_message_slice_mut`]: #method.for_message_slice_mut
 /// [`new`]: #method.new
@@ -69,7 +68,7 @@ pub struct Header {
     /// The actual header in its wire format representation.
     ///
     /// This means that the ID field is in big endian.
-    inner: [u8; 4]
+    inner: [u8; 4],
 }
 
 /// # Creation and Conversion
@@ -113,7 +112,6 @@ impl Header {
     }
 }
 
-
 /// # Field Access
 ///
 impl Header {
@@ -138,7 +136,9 @@ impl Header {
     }
 
     /// Sets the value of the ID field to a randomly chosen number.
-    pub fn set_random_id(&mut self) { self.set_id(::rand::random()) }
+    pub fn set_random_id(&mut self) {
+        self.set_id(::rand::random())
+    }
 
     /// Returns whether the QR bit is set.
     ///
@@ -146,11 +146,15 @@ impl Header {
     /// a response (`true`). In other words, this bit is actually stating
     /// whether the message is *not* a query. So, perhaps it might be good
     /// to read ‘QR’ as ‘query response.’
-    pub fn qr(self) -> bool { self.get_bit(2, 7) }
+    pub fn qr(self) -> bool {
+        self.get_bit(2, 7)
+    }
 
     /// Sets the value of the QR bit.
     ///
-    pub fn set_qr(&mut self, set: bool) { self.set_bit(2, 7, set) }
+    pub fn set_qr(&mut self, set: bool) {
+        self.set_bit(2, 7, set)
+    }
 
     /// Returns the value of the Opcode field.
     ///
@@ -174,12 +178,16 @@ impl Header {
     ///
     /// Using this bit, a name server generating a response states whether
     /// it is authoritative for the requested domain name, ie., whether this
-    /// response is an *authoritative answer.* The field has no meaning in 
+    /// response is an *authoritative answer.* The field has no meaning in
     /// a query.
-    pub fn aa(self) -> bool { self.get_bit(2, 2) }
+    pub fn aa(self) -> bool {
+        self.get_bit(2, 2)
+    }
 
     /// Sets the value of the AA bit.
-    pub fn set_aa(&mut self, set: bool) { self.set_bit(2, 2, set) }
+    pub fn set_aa(&mut self, set: bool) {
+        self.set_bit(2, 2, set)
+    }
 
     /// Returns whether the TC bit is set.
     ///
@@ -188,10 +196,14 @@ impl Header {
     /// datagram transports such as UDP to signal that the answer didn’t
     /// fit into a response and the query should be tried again using a
     /// stream transport such as TCP.
-    pub fn tc(self) -> bool { self.get_bit(2, 1) }
+    pub fn tc(self) -> bool {
+        self.get_bit(2, 1)
+    }
 
     /// Sets the value of the TC bit.
-    pub fn set_tc(&mut self, set: bool) { self.set_bit(2, 1, set) }
+    pub fn set_tc(&mut self, set: bool) {
+        self.set_bit(2, 1, set)
+    }
 
     /// Returns whether the RD bit is set.
     ///
@@ -199,48 +211,68 @@ impl Header {
     /// server to try and recursively gather a response if it doesn’t have
     /// the data available locally. The bit’s value is copied into the
     /// response.
-    pub fn rd(self) -> bool { self.get_bit(2, 0) }
+    pub fn rd(self) -> bool {
+        self.get_bit(2, 0)
+    }
 
     /// Sets the value of the RD bit.
-    pub fn set_rd(&mut self, set: bool) { self.set_bit(2, 0, set) }
+    pub fn set_rd(&mut self, set: bool) {
+        self.set_bit(2, 0, set)
+    }
 
     /// Returns whether the RA bit is set.
     ///
     /// In a response, the *recursion available* bit denotes whether the
     /// responding name server supports recursion. It has no meaning in
     /// a query.
-    pub fn ra(self) -> bool { self.get_bit(3, 7) }
+    pub fn ra(self) -> bool {
+        self.get_bit(3, 7)
+    }
 
     /// Sets the value of the RA bit.
-    pub fn set_ra(&mut self, set: bool) { self.set_bit(3, 7, set) }
+    pub fn set_ra(&mut self, set: bool) {
+        self.set_bit(3, 7, set)
+    }
 
     /// Returns whether the reserved bit is set.
     ///
     /// This bit must be `false` in all queries and responses.
-    pub fn z(self) -> bool { self.get_bit(3, 6) }
+    pub fn z(self) -> bool {
+        self.get_bit(3, 6)
+    }
 
     /// Sets the value of the reserved bit.
-    pub fn set_z(&mut self, set: bool) { self.set_bit(3, 6, set) }
+    pub fn set_z(&mut self, set: bool) {
+        self.set_bit(3, 6, set)
+    }
 
     /// Returns whether the AD bit is set.
     ///
     /// The *authentic data* bit is used by security-aware recursive name
     /// servers to indicate that it considers all RRsets in its response are
     /// authentic, i.e., have successfully passed DNSSEC validation.
-    pub fn ad(self) -> bool { self.get_bit(3, 5) }
+    pub fn ad(self) -> bool {
+        self.get_bit(3, 5)
+    }
 
     /// Sets the value of the AD bit.
-    pub fn set_ad(&mut self, set: bool) { self.set_bit(3, 5, set) }
+    pub fn set_ad(&mut self, set: bool) {
+        self.set_bit(3, 5, set)
+    }
 
     /// Returns whether the CD bit is set.
     ///
     /// The *checking disabled* bit is used by a security-aware resolver
     /// to indicate that it does not want upstream name servers to perform
     /// verification but rather would like to verify everything itself.
-    pub fn cd(self) -> bool { self.get_bit(3, 4) }
+    pub fn cd(self) -> bool {
+        self.get_bit(3, 4)
+    }
 
     /// Sets the value of the CD bit.
-    pub fn set_cd(&mut self, set: bool) { self.set_bit(3, 4, set) }
+    pub fn set_cd(&mut self, set: bool) {
+        self.set_bit(3, 4, set)
+    }
 
     /// Returns the value of the RCODE field.
     ///
@@ -258,7 +290,6 @@ impl Header {
         self.inner[3] = self.inner[3] & 0xF0 | (rcode.to_int() & 0x0F);
     }
 
-
     //--- Internal helpers
 
     /// Returns the value of the bit at the given position.
@@ -272,11 +303,13 @@ impl Header {
 
     /// Sets or resets the given bit.
     fn set_bit(&mut self, offset: usize, bit: usize, set: bool) {
-        if set { self.inner[offset] |= 1 << bit }
-        else { self.inner[offset] &= !(1 << bit) }
+        if set {
+            self.inner[offset] |= 1 << bit
+        } else {
+            self.inner[offset] &= !(1 << bit)
+        }
     }
-} 
-
+}
 
 //------------ HeaderCounts -------------------------------------------------
 
@@ -315,7 +348,7 @@ pub struct HeaderCounts {
     /// The actual headers in their wire-format representation.
     ///
     /// Ie., all values are stored big endian.
-    inner: [u8; 8]
+    inner: [u8; 8],
 }
 
 /// # Creation and Conversion
@@ -330,7 +363,7 @@ impl HeaderCounts {
     ///
     /// The slice `message` mut be the whole message, i.e., start with the
     /// bytes of the [`Header`](struct.Header.html).
-    /// 
+    ///
     /// # Panics
     ///
     /// This function panics if the octets slice is shorter than 24 octets.
@@ -338,7 +371,7 @@ impl HeaderCounts {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
         unsafe {
             &*((message[mem::size_of::<Header>()..].as_ptr())
-                                                      as *const HeaderCounts)
+                as *const HeaderCounts)
         }
     }
 
@@ -354,7 +387,7 @@ impl HeaderCounts {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
         unsafe {
             &mut *((message[mem::size_of::<Header>()..].as_ptr())
-                                                         as *mut HeaderCounts)
+                as *mut HeaderCounts)
         }
     }
 
@@ -373,7 +406,6 @@ impl HeaderCounts {
         self.as_slice_mut().copy_from_slice(counts.as_slice())
     }
 }
-
 
 /// # Field Access
 ///
@@ -403,7 +435,7 @@ impl HeaderCounts {
                 self.set_qdcount(count);
                 Ok(())
             }
-            None => Err(ShortBuf)
+            None => Err(ShortBuf),
         }
     }
 
@@ -417,7 +449,6 @@ impl HeaderCounts {
         assert!(count > 0);
         self.set_qdcount(count - 1);
     }
-
 
     /// Returns the value of the ANCOUNT field.
     ///
@@ -442,7 +473,7 @@ impl HeaderCounts {
                 self.set_ancount(count);
                 Ok(())
             }
-            None => Err(ShortBuf)
+            None => Err(ShortBuf),
         }
     }
 
@@ -474,13 +505,13 @@ impl HeaderCounts {
     ///
     /// If increasing the counter would result in an overflow, returns an
     /// error.
-    pub fn inc_nscount(&mut self) -> Result<(), ShortBuf>{
+    pub fn inc_nscount(&mut self) -> Result<(), ShortBuf> {
         match self.nscount().checked_add(1) {
             Some(count) => {
                 self.set_nscount(count);
                 Ok(())
             }
-            None => Err(ShortBuf)
+            None => Err(ShortBuf),
         }
     }
 
@@ -512,13 +543,13 @@ impl HeaderCounts {
     ///
     /// If increasing the counter would result in an overflow, returns an
     /// error.
-    pub fn inc_arcount(&mut self) -> Result <(), ShortBuf> {
+    pub fn inc_arcount(&mut self) -> Result<(), ShortBuf> {
         match self.arcount().checked_add(1) {
             Some(count) => {
                 self.set_arcount(count);
                 Ok(())
             }
-            None => Err(ShortBuf)
+            None => Err(ShortBuf),
         }
     }
 
@@ -532,7 +563,6 @@ impl HeaderCounts {
         assert!(count > 0);
         self.set_arcount(count - 1);
     }
-
 
     //--- Count fields in UPDATE messages
 
@@ -587,15 +617,12 @@ impl HeaderCounts {
     pub fn set_adcount(&mut self, value: u16) {
         self.set_arcount(value)
     }
-   
 
     //--- Internal helpers
 
     /// Returns the value of the 16 bit integer starting at a given offset.
     fn get_u16(self, offset: usize) -> u16 {
-        u16::from_be_bytes(
-            self.inner[offset..offset + 2].try_into().unwrap()
-        )
+        u16::from_be_bytes(self.inner[offset..offset + 2].try_into().unwrap())
     }
 
     /// Sets the value of the 16 bit integer starting at a given offset.
@@ -603,7 +630,6 @@ impl HeaderCounts {
         self.inner[offset..offset + 2].copy_from_slice(&value.to_be_bytes())
     }
 }
-
 
 //------------ HeaderSection -------------------------------------------------
 
@@ -623,7 +649,7 @@ impl HeaderCounts {
 /// [`new`]: #method.new
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HeaderSection {
-    inner: [u8; 12]
+    inner: [u8; 12],
 }
 
 /// # Creation and Conversion
@@ -665,7 +691,6 @@ impl HeaderSection {
     }
 }
 
-
 /// # Access to Header and Counts
 ///
 impl HeaderSection {
@@ -676,7 +701,7 @@ impl HeaderSection {
 
     /// Returns a mutable reference to the header.
     pub fn header_mut(&mut self) -> &mut Header {
-        Header::for_message_slice_mut(&mut self. inner)
+        Header::for_message_slice_mut(&mut self.inner)
     }
 
     /// Returns a reference to the header counts.
@@ -689,7 +714,6 @@ impl HeaderSection {
         HeaderCounts::for_message_slice_mut(&mut self.inner)
     }
 }
-
 
 //--- AsRef and AsMut
 
@@ -717,7 +741,6 @@ impl AsMut<HeaderCounts> for HeaderSection {
     }
 }
 
-
 //--- Parse and Compose
 
 impl<Ref: AsRef<[u8]>> Parse<Ref> for HeaderSection {
@@ -735,19 +758,18 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for HeaderSection {
 impl Compose for HeaderSection {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(&self.inner)
     }
 }
 
-
 //============ Testing ======================================================
 
 #[cfg(test)]
 mod test {
-    use crate::base::iana::{Opcode, Rcode};
     use super::*;
+    use crate::base::iana::{Opcode, Rcode};
 
     #[test]
     #[cfg(feature = "std")]
@@ -756,19 +778,30 @@ mod test {
 
         let header = b"\x01\x02\x00\x00\x12\x34\x56\x78\x9a\xbc\xde\xf0";
         let mut vec = Vec::from(&header[..]);
-        assert_eq!(Header::for_message_slice(header).as_slice(),
-                   b"\x01\x02\x00\x00");
-        assert_eq!(Header::for_message_slice_mut(vec.as_mut()).as_slice(),
-                   b"\x01\x02\x00\x00");
-        assert_eq!(HeaderCounts::for_message_slice(header).as_slice(),
-                   b"\x12\x34\x56\x78\x9a\xbc\xde\xf0");
-        assert_eq!(HeaderCounts::for_message_slice_mut(vec.as_mut()).as_slice(),
-                   b"\x12\x34\x56\x78\x9a\xbc\xde\xf0");
-        assert_eq!(HeaderSection::for_message_slice(header).as_slice(),
-                   header);
-        assert_eq!(HeaderSection::for_message_slice_mut(vec.as_mut())
-                                 .as_slice(),
-                   header);
+        assert_eq!(
+            Header::for_message_slice(header).as_slice(),
+            b"\x01\x02\x00\x00"
+        );
+        assert_eq!(
+            Header::for_message_slice_mut(vec.as_mut()).as_slice(),
+            b"\x01\x02\x00\x00"
+        );
+        assert_eq!(
+            HeaderCounts::for_message_slice(header).as_slice(),
+            b"\x12\x34\x56\x78\x9a\xbc\xde\xf0"
+        );
+        assert_eq!(
+            HeaderCounts::for_message_slice_mut(vec.as_mut()).as_slice(),
+            b"\x12\x34\x56\x78\x9a\xbc\xde\xf0"
+        );
+        assert_eq!(
+            HeaderSection::for_message_slice(header).as_slice(),
+            header
+        );
+        assert_eq!(
+            HeaderSection::for_message_slice_mut(vec.as_mut()).as_slice(),
+            header
+        );
     }
 
     #[test]
@@ -817,7 +850,9 @@ mod test {
 
     #[test]
     fn counts() {
-        let mut c = HeaderCounts { inner: [ 1, 2, 3, 4, 5, 6, 7, 8 ] };
+        let mut c = HeaderCounts {
+            inner: [1, 2, 3, 4, 5, 6, 7, 8],
+        };
         assert_eq!(c.qdcount(), 0x0102);
         assert_eq!(c.ancount(), 0x0304);
         assert_eq!(c.nscount(), 0x0506);
@@ -826,17 +861,19 @@ mod test {
         c.inc_ancount().unwrap();
         c.inc_nscount().unwrap();
         c.inc_arcount().unwrap();
-        assert_eq!(c.inner, [ 1, 3, 3, 5, 5, 7, 7, 9 ]);
+        assert_eq!(c.inner, [1, 3, 3, 5, 5, 7, 7, 9]);
         c.set_qdcount(0x0807);
         c.set_ancount(0x0605);
         c.set_nscount(0x0403);
         c.set_arcount(0x0201);
-        assert_eq!(c.inner, [ 8, 7, 6, 5, 4, 3, 2, 1 ]);
+        assert_eq!(c.inner, [8, 7, 6, 5, 4, 3, 2, 1]);
     }
 
     #[test]
     fn update_counts() {
-        let mut c = HeaderCounts { inner: [ 1, 2, 3, 4, 5, 6, 7, 8 ] };
+        let mut c = HeaderCounts {
+            inner: [1, 2, 3, 4, 5, 6, 7, 8],
+        };
         assert_eq!(c.zocount(), 0x0102);
         assert_eq!(c.prcount(), 0x0304);
         assert_eq!(c.upcount(), 0x0506);
@@ -845,13 +882,13 @@ mod test {
         c.set_prcount(0x0605);
         c.set_upcount(0x0403);
         c.set_adcount(0x0201);
-        assert_eq!(c.inner, [ 8, 7, 6, 5, 4, 3, 2, 1 ]);
+        assert_eq!(c.inner, [8, 7, 6, 5, 4, 3, 2, 1]);
     }
 
     #[test]
     fn inc_qdcount() {
         let mut c = HeaderCounts {
-            inner: [ 0xff,0xfe,0xff,0xff,0xff,0xff,0xff,0xff ]
+            inner: [0xff, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
         };
         assert!(c.inc_qdcount().is_ok());
         assert!(c.inc_qdcount().is_err());
@@ -860,7 +897,7 @@ mod test {
     #[test]
     fn inc_ancount() {
         let mut c = HeaderCounts {
-            inner: [ 0xff,0xff,0xff,0xfe,0xff,0xff,0xff,0xff ]
+            inner: [0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xff],
         };
         assert!(c.inc_ancount().is_ok());
         assert!(c.inc_ancount().is_err());
@@ -869,7 +906,7 @@ mod test {
     #[test]
     fn inc_nscount() {
         let mut c = HeaderCounts {
-            inner: [ 0xff,0xff,0xff,0xff,0xff,0xfe,0xff,0xff ]
+            inner: [0xff, 0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff],
         };
         assert!(c.inc_nscount().is_ok());
         assert!(c.inc_nscount().is_err());
@@ -878,10 +915,9 @@ mod test {
     #[test]
     fn inc_arcount() {
         let mut c = HeaderCounts {
-            inner: [ 0xff, 0xff,0xff,0xff,0xff,0xff,0xff,0xfe ]
+            inner: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe],
         };
         assert!(c.inc_arcount().is_ok());
         assert!(c.inc_arcount().is_err());
     }
 }
-

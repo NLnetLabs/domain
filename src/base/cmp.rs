@@ -19,7 +19,6 @@
 
 use core::cmp::Ordering;
 
-
 /// A trait for the canonical sort order of values.
 ///
 /// The canonical sort order is used in DNS security when multiple values are
@@ -99,4 +98,3 @@ pub trait CanonicalOrd<Rhs: ?Sized = Self> {
         )
     }
 }
-

@@ -33,7 +33,7 @@ macro_rules! rdata_types {
 
         /// Record data for all record types allowed in master files.
         ///
-        /// This enum collects the record data types for all currently 
+        /// This enum collects the record data types for all currently
         /// implemented record types that are allowed to be included in master
         /// files.
         #[derive(Clone)]
@@ -212,7 +212,7 @@ macro_rules! rdata_types {
         }
 
         //--- Hash
- 
+
         impl<O, N> core::hash::Hash for MasterRecordData<O, N>
         where O: AsRef<[u8]>, N: core::hash::Hash {
             fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
@@ -400,7 +400,7 @@ macro_rules! rdata_types {
 
         /// Record data for all record types.
         ///
-        /// This enum collects the record data types for all currently 
+        /// This enum collects the record data types for all currently
         /// implemented record types.
         #[derive(Clone)]
         #[non_exhaustive]
@@ -715,7 +715,7 @@ macro_rules! rdata_types {
             }
         }
 
-        
+
         //--- Display and Debug
 
         impl<O, N> core::fmt::Display for AllRecordData<O, N>
@@ -791,7 +791,6 @@ macro_rules! rdata_types {
 
     }
 }
-
 
 //------------ dname_type! --------------------------------------------------
 

@@ -2,24 +2,26 @@
 //!
 //! This is a private module. Its public types are re-exported by the parent.
 
-use core::{fmt, hash, str};
-#[cfg(feature = "std")] use std::vec::Vec;
-#[cfg(feature = "bytes")] use bytes::Bytes;
-#[cfg(feature = "master")] use bytes::BytesMut;
-#[cfg(feature="master")] use crate::master::scan::{
-    CharSource, Scan, Scanner, ScanError
-};
 use super::super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, ShortBuf,
 };
-#[cfg(feature = "master")] use super::super::str::Symbol;
+#[cfg(feature = "master")]
+use super::super::str::Symbol;
 use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::Label;
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToEitherDname, ToLabelIter};
-
+#[cfg(feature = "master")]
+use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+#[cfg(feature = "bytes")]
+use bytes::Bytes;
+#[cfg(feature = "master")]
+use bytes::BytesMut;
+use core::{fmt, hash, str};
+#[cfg(feature = "std")]
+use std::vec::Vec;
 
 //------------ UncertainDname ------------------------------------------------
 
@@ -46,13 +48,17 @@ impl<Octets> UncertainDname<Octets> {
 
     /// Creates a new uncertain domain name containing the root label only.
     pub fn root() -> Self
-    where Octets: From<&'static [u8]> {
+    where
+        Octets: From<&'static [u8]>,
+    {
         UncertainDname::Absolute(Dname::root())
     }
 
     /// Creates a new uncertain yet empty domain name.
     pub fn empty() -> Self
-    where Octets: From<&'static [u8]> {
+    where
+        Octets: From<&'static [u8]>,
+    {
         UncertainDname::Relative(RelativeDname::empty())
     }
 
@@ -74,20 +80,18 @@ impl<Octets> UncertainDname<Octets> {
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
-        C: IntoIterator<Item=char>
+        C: IntoIterator<Item = char>,
     {
         let mut builder =
             DnameBuilder::<<Octets as FromBuilder>::Builder>::new();
         builder.append_chars(chars)?;
         if builder.in_label() || builder.is_empty() {
             Ok(builder.finish().into())
-        }
-        else {
+        } else {
             Ok(builder.into_dname()?.into())
         }
     }
 }
-
 
 impl UncertainDname<&'static [u8]> {
     /// Creates an empty relative name atop a slice reference.
@@ -114,7 +118,7 @@ impl UncertainDname<Vec<u8>> {
     }
 }
 
-#[cfg(feature="bytes")] 
+#[cfg(feature = "bytes")]
 impl UncertainDname<Bytes> {
     /// Creates an empty relative name atop a bytes value.
     pub fn empty_bytes() -> Self {
@@ -145,7 +149,7 @@ impl<Octets> UncertainDname<Octets> {
     pub fn as_absolute(&self) -> Option<&Dname<Octets>> {
         match *self {
             UncertainDname::Absolute(ref name) => Some(name),
-            _ => None
+            _ => None,
         }
     }
 
@@ -165,10 +169,10 @@ impl<Octets> UncertainDname<Octets> {
     /// [`RelativeDname::into_absolute`]:
     ///     struct.RelativeDname.html#method.into_absolute
     pub fn into_absolute(
-        self
+        self,
     ) -> Result<
         Dname<<<Octets as IntoBuilder>::Builder as OctetsBuilder>::Octets>,
-        PushError
+        PushError,
     >
     where
         Octets: AsRef<[u8]> + IntoBuilder,
@@ -176,7 +180,7 @@ impl<Octets> UncertainDname<Octets> {
     {
         match self {
             UncertainDname::Absolute(name) => Ok(name),
-            UncertainDname::Relative(name) => name.into_absolute()
+            UncertainDname::Relative(name) => name.into_absolute(),
         }
     }
 
@@ -186,8 +190,7 @@ impl<Octets> UncertainDname<Octets> {
     pub fn try_into_absolute(self) -> Result<Dname<Octets>, Self> {
         if let UncertainDname::Absolute(name) = self {
             Ok(name)
-        }
-        else {
+        } else {
             Err(self)
         }
     }
@@ -198,8 +201,7 @@ impl<Octets> UncertainDname<Octets> {
     pub fn try_into_relative(self) -> Result<RelativeDname<Octets>, Self> {
         if let UncertainDname::Relative(name) = self {
             Ok(name)
-        }
-        else {
+        } else {
             Err(self)
         }
     }
@@ -208,13 +210,15 @@ impl<Octets> UncertainDname<Octets> {
     pub fn as_octets(&self) -> &Octets {
         match *self {
             UncertainDname::Absolute(ref name) => name.as_octets(),
-            UncertainDname::Relative(ref name) => name.as_octets()
+            UncertainDname::Relative(ref name) => name.as_octets(),
         }
     }
 
     /// Returns an octets slice with the raw content of the name.
     pub fn as_slice(&self) -> &[u8]
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         match *self {
             UncertainDname::Absolute(ref name) => name.as_slice(),
             UncertainDname::Relative(ref name) => name.as_slice(),
@@ -229,13 +233,14 @@ impl<Octets> UncertainDname<Octets> {
     /// name and `suffix`.
     pub fn chain<S: ToEitherDname>(
         self,
-        suffix: S
+        suffix: S,
     ) -> Result<Chain<Self, S>, LongChainError>
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         Chain::new_uncertain(self, suffix)
     }
 }
-
 
 //--- From
 
@@ -251,7 +256,6 @@ impl<Octets> From<RelativeDname<Octets>> for UncertainDname<Octets> {
     }
 }
 
-
 //--- FromStr
 
 impl<Octets> str::FromStr for UncertainDname<Octets>
@@ -266,7 +270,6 @@ where
     }
 }
 
-
 //--- AsRef
 
 impl<Octets: AsRef<T>, T> AsRef<T> for UncertainDname<Octets> {
@@ -278,25 +281,26 @@ impl<Octets: AsRef<T>, T> AsRef<T> for UncertainDname<Octets> {
     }
 }
 
-
 //--- PartialEq, and Eq
 
 impl<Octets, Other> PartialEq<UncertainDname<Other>>
-for UncertainDname<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+    for UncertainDname<Octets>
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn eq(&self, other: &UncertainDname<Other>) -> bool {
         use UncertainDname::*;
 
         match (self, other) {
             (&Absolute(ref l), &Absolute(ref r)) => l.eq(r),
             (&Relative(ref l), &Relative(ref r)) => l.eq(r),
-            _ => false
+            _ => false,
         }
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for UncertainDname<Octets> { }
-
+impl<Octets: AsRef<[u8]>> Eq for UncertainDname<Octets> {}
 
 //--- Hash
 
@@ -308,10 +312,9 @@ impl<Octets: AsRef<[u8]>> hash::Hash for UncertainDname<Octets> {
     }
 }
 
-
 //--- ToLabelIter
 
-impl<'a, Octets: AsRef<[u8]>> ToLabelIter<'a> for UncertainDname<Octets>  {
+impl<'a, Octets: AsRef<[u8]>> ToLabelIter<'a> for UncertainDname<Octets> {
     type LabelIter = DnameIter<'a>;
 
     fn iter_labels(&'a self) -> Self::LabelIter {
@@ -321,7 +324,6 @@ impl<'a, Octets: AsRef<[u8]>> ToLabelIter<'a> for UncertainDname<Octets>  {
         }
     }
 }
-
 
 //--- IntoIterator
 
@@ -334,23 +336,22 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainDname<Octets> {
     }
 }
 
-
 //--- Compose
 
 impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         match *self {
             UncertainDname::Absolute(ref name) => name.compose(target),
             UncertainDname::Relative(ref name) => name.compose(target),
         }
     }
-    
+
     fn compose_canonical<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         match *self {
             UncertainDname::Absolute(ref name) => {
@@ -363,15 +364,15 @@ impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
     }
 }
 
-
 //--- Scan
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for UncertainDname<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         if let Ok(()) = scanner.skip_literal(".") {
-            return Ok(UncertainDname::root())
+            return Ok(UncertainDname::root());
         }
         scanner.scan_word(
             DnameBuilder::<BytesMut>::new(),
@@ -380,25 +381,24 @@ impl Scan for UncertainDname<Bytes> {
                     Symbol::Char('.') => {
                         if name.in_label() {
                             name.end_label();
-                        }
-                        else {
-                            return Err(FromStrError::EmptyLabel.into())
+                        } else {
+                            return Err(FromStrError::EmptyLabel.into());
                         }
                     }
                     Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
                         if ch.is_ascii() {
                             if let Err(err) = name.push(ch as u8) {
-                                return Err(FromStrError::from(err).into())
+                                return Err(FromStrError::from(err).into());
                             }
-                        }
-                        else {
-                            return Err(FromStrError::IllegalCharacter(ch)
-                                                    .into())
+                        } else {
+                            return Err(
+                                FromStrError::IllegalCharacter(ch).into()
+                            );
                         }
                     }
                     Symbol::DecimalEscape(ch) => {
                         if let Err(err) = name.push(ch) {
-                            return Err(FromStrError::from(err).into())
+                            return Err(FromStrError::from(err).into());
                         }
                     }
                 }
@@ -407,15 +407,13 @@ impl Scan for UncertainDname<Bytes> {
             |name| {
                 if name.in_label() || name.is_empty() {
                     Ok(UncertainDname::from(name.finish()))
-                }
-                else {
+                } else {
                     Ok(UncertainDname::from(name.into_dname().unwrap()))
                 }
-            }
+            },
         )
     }
 }
-
 
 //--- Display and Debug
 
@@ -441,61 +439,87 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for UncertainDname<Octets> {
     }
 }
 
-
 //============ Testing =======================================================
 
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod test {
-    use std::string::String;
-    use std::str::FromStr;
     use super::*;
+    use std::str::FromStr;
+    use std::string::String;
 
     #[test]
     fn from_str() {
-
         type U = UncertainDname<Vec<u8>>;
 
         fn name(s: &str) -> U {
             U::from_str(s).unwrap()
         }
 
-        assert_eq!(name("www.example.com").as_relative().unwrap().as_slice(),
-                   b"\x03www\x07example\x03com");
-        assert_eq!(name("www.example.com.").as_absolute().unwrap().as_slice(),
-                   b"\x03www\x07example\x03com\0");
+        assert_eq!(
+            name("www.example.com").as_relative().unwrap().as_slice(),
+            b"\x03www\x07example\x03com"
+        );
+        assert_eq!(
+            name("www.example.com.").as_absolute().unwrap().as_slice(),
+            b"\x03www\x07example\x03com\0"
+        );
 
-        assert_eq!(name(r"www\.example.com").as_slice(),
-                   b"\x0bwww.example\x03com");
-        assert_eq!(name(r"w\119w.example.com").as_slice(),
-                   b"\x03www\x07example\x03com");
-        assert_eq!(name(r"w\000w.example.com").as_slice(),
-                   b"\x03w\0w\x07example\x03com");
+        assert_eq!(
+            name(r"www\.example.com").as_slice(),
+            b"\x0bwww.example\x03com"
+        );
+        assert_eq!(
+            name(r"w\119w.example.com").as_slice(),
+            b"\x03www\x07example\x03com"
+        );
+        assert_eq!(
+            name(r"w\000w.example.com").as_slice(),
+            b"\x03w\0w\x07example\x03com"
+        );
 
-        assert_eq!(U::from_str(r"w\01"),
-                   Err(FromStrError::UnexpectedEnd));
-        assert_eq!(U::from_str(r"w\"),
-                   Err(FromStrError::UnexpectedEnd));
-        assert_eq!(U::from_str(r"www..example.com"),
-                   Err(FromStrError::EmptyLabel));
-        assert_eq!(U::from_str(r"www.example.com.."),
-                   Err(FromStrError::EmptyLabel));
-        assert_eq!(U::from_str(r".www.example.com"),
-                   Err(FromStrError::EmptyLabel));
-        assert_eq!(U::from_str(r"www.\[322].example.com"),
-                   Err(FromStrError::BinaryLabel));
-        assert_eq!(U::from_str(r"www.\2example.com"),
-                   Err(FromStrError::IllegalEscape));
-        assert_eq!(U::from_str(r"www.\29example.com"),
-                   Err(FromStrError::IllegalEscape));
-        assert_eq!(U::from_str(r"www.\299example.com"),
-                   Err(FromStrError::IllegalEscape));
-        assert_eq!(U::from_str(r"www.\892example.com"),
-                   Err(FromStrError::IllegalEscape));
-        assert_eq!(U::from_str("www.e\0ample.com"),
-                   Err(FromStrError::IllegalCharacter('\0')));
-        assert_eq!(U::from_str("www.eüample.com"),
-                   Err(FromStrError::IllegalCharacter('ü')));
+        assert_eq!(U::from_str(r"w\01"), Err(FromStrError::UnexpectedEnd));
+        assert_eq!(U::from_str(r"w\"), Err(FromStrError::UnexpectedEnd));
+        assert_eq!(
+            U::from_str(r"www..example.com"),
+            Err(FromStrError::EmptyLabel)
+        );
+        assert_eq!(
+            U::from_str(r"www.example.com.."),
+            Err(FromStrError::EmptyLabel)
+        );
+        assert_eq!(
+            U::from_str(r".www.example.com"),
+            Err(FromStrError::EmptyLabel)
+        );
+        assert_eq!(
+            U::from_str(r"www.\[322].example.com"),
+            Err(FromStrError::BinaryLabel)
+        );
+        assert_eq!(
+            U::from_str(r"www.\2example.com"),
+            Err(FromStrError::IllegalEscape)
+        );
+        assert_eq!(
+            U::from_str(r"www.\29example.com"),
+            Err(FromStrError::IllegalEscape)
+        );
+        assert_eq!(
+            U::from_str(r"www.\299example.com"),
+            Err(FromStrError::IllegalEscape)
+        );
+        assert_eq!(
+            U::from_str(r"www.\892example.com"),
+            Err(FromStrError::IllegalEscape)
+        );
+        assert_eq!(
+            U::from_str("www.e\0ample.com"),
+            Err(FromStrError::IllegalCharacter('\0'))
+        );
+        assert_eq!(
+            U::from_str("www.eüample.com"),
+            Err(FromStrError::IllegalCharacter('ü'))
+        );
 
         // LongLabel
         let mut s = String::from("www.");
@@ -509,8 +533,7 @@ mod test {
             s.push('x');
         }
         s.push_str(".com");
-        assert_eq!(U::from_str(&s),
-                   Err(FromStrError::LongLabel));
+        assert_eq!(U::from_str(&s), Err(FromStrError::LongLabel));
 
         // Long Name
         let mut s = String::new();
@@ -531,4 +554,3 @@ mod test {
         assert_eq!(U::from_str(&s1), Err(FromStrError::LongName));
     }
 }
-

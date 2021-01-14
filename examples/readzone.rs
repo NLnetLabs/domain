@@ -2,8 +2,8 @@
 
 #[cfg(feature = "master")]
 fn main() {
-    use std::env;
     use domain::master::reader::Reader;
+    use std::env;
 
     for arg in env::args().skip(1) {
         print!("{}: ", arg);
@@ -23,13 +23,11 @@ fn main() {
         }
         if err {
             println!("");
-        }
-        else {
+        } else {
             println!("{} items.", items)
         }
     }
 }
 
 #[cfg(not(feature = "master"))]
-fn main() {
-} 
+fn main() {}

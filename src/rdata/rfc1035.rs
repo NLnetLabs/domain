@@ -4,26 +4,29 @@
 //!
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use core::{hash, fmt, ops};
-use core::cmp::Ordering;
-use core::str::FromStr;
-#[cfg(feature="bytes")] use bytes::BytesMut;
-#[cfg(feature="master")] use bytes::Bytes;
+use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::charstr::CharStr;
-use crate::base::str::Symbol;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::octets::{
     Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef,
-    Parse, ParseError, Parser, ShortBuf
+    Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
-#[cfg(feature="master")] use crate::master::scan::{
-    CharSource, ScanError, Scan, Scanner, SyntaxError
+use crate::base::str::Symbol;
+#[cfg(feature = "master")]
+use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner, SyntaxError,
 };
+#[cfg(feature = "master")]
+use bytes::Bytes;
+#[cfg(feature = "bytes")]
+use bytes::BytesMut;
+use core::cmp::Ordering;
+use core::str::FromStr;
+use core::{fmt, hash, ops};
 
 //------------ A ------------------------------------------------------------
 
@@ -50,10 +53,13 @@ impl A {
         A::new(Ipv4Addr::new(a, b, c, d))
     }
 
-    pub fn addr(&self) -> Ipv4Addr { self.addr }
-    pub fn set_addr(&mut self, addr: Ipv4Addr) { self.addr = addr }
+    pub fn addr(&self) -> Ipv4Addr {
+        self.addr
+    }
+    pub fn set_addr(&mut self, addr: Ipv4Addr) {
+        self.addr = addr
+    }
 }
-
 
 //--- OctetsFrom
 
@@ -62,7 +68,6 @@ impl OctetsFrom<A> for A {
         Ok(source)
     }
 }
-
 
 //--- From and FromStr
 
@@ -87,7 +92,6 @@ impl FromStr for A {
     }
 }
 
-
 //--- CanonicalOrd
 
 impl CanonicalOrd for A {
@@ -95,7 +99,6 @@ impl CanonicalOrd for A {
         self.cmp(other)
     }
 }
-
 
 //--- Parse and Compose
 
@@ -112,20 +115,21 @@ impl<Octets: AsRef<[u8]>> Parse<Octets> for A {
 impl Compose for A {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         self.addr.compose(target)
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")] 
+#[cfg(feature = "master")]
 impl Scan for A {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
-        scanner.scan_string_phrase(|res| A::from_str(&res).map_err(Into::into))
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        scanner
+            .scan_string_phrase(|res| A::from_str(&res).map_err(Into::into))
     }
 }
 
@@ -135,13 +139,11 @@ impl fmt::Display for A {
     }
 }
 
-
 //--- RtypeRecordData
 
 impl RtypeRecordData for A {
     const RTYPE: Rtype = Rtype::A;
 }
-
 
 //--- Deref and DerefMut
 
@@ -159,7 +161,6 @@ impl ops::DerefMut for A {
     }
 }
 
-
 //--- AsRef and AsMut
 
 impl AsRef<Ipv4Addr> for A {
@@ -174,7 +175,6 @@ impl AsMut<Ipv4Addr> for A {
     }
 }
 
-
 //------------ Cname --------------------------------------------------------
 
 dname_type! {
@@ -186,7 +186,6 @@ dname_type! {
     /// The CNAME type is defined in RFC 1035, section 3.3.1.
     (Cname, Cname, cname)
 }
-
 
 //------------ Hinfo --------------------------------------------------------
 
@@ -219,51 +218,59 @@ impl<Octets> Hinfo<Octets> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Octets, SrcOctets> OctetsFrom<Hinfo<SrcOctets>> for Hinfo<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: Hinfo<SrcOctets>) -> Result<Self, ShortBuf> {
         Ok(Hinfo::new(
             CharStr::octets_from(source.cpu)?,
-            CharStr::octets_from(source.os)?
+            CharStr::octets_from(source.os)?,
         ))
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<Octets, Other> PartialEq<Hinfo<Other>> for Hinfo<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn eq(&self, other: &Hinfo<Other>) -> bool {
         self.cpu.eq(&other.cpu) && self.os.eq(&other.os)
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Hinfo<Octets> { }
-
+impl<Octets: AsRef<[u8]>> Eq for Hinfo<Octets> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<Octets, Other> PartialOrd<Hinfo<Other>> for Hinfo<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn partial_cmp(&self, other: &Hinfo<Other>) -> Option<Ordering> {
         match self.cpu.partial_cmp(&other.cpu) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         self.os.partial_cmp(&other.os)
     }
 }
 
 impl<Octets, Other> CanonicalOrd<Hinfo<Other>> for Hinfo<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn canonical_cmp(&self, other: &Hinfo<Other>) -> Ordering {
         match self.cpu.canonical_cmp(&other.cpu) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.os.canonical_cmp(&other.os)
     }
@@ -272,13 +279,12 @@ where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
 impl<Octets: AsRef<[u8]>> Ord for Hinfo<Octets> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.cpu.cmp(&other.cpu) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.os.cmp(&other.os)
     }
 }
-
 
 //--- Hash
 
@@ -288,7 +294,6 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Hinfo<Octets> {
         self.os.hash(state);
     }
 }
-
 
 //--- Parse and Compose
 
@@ -307,7 +312,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Hinfo<Ref::Range> {
 impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.cpu.compose(target)?;
@@ -316,13 +321,13 @@ impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")] 
+#[cfg(feature = "master")]
 impl Scan for Hinfo<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(CharStr::scan(scanner)?, CharStr::scan(scanner)?))
     }
 }
@@ -332,7 +337,6 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Hinfo<Octets> {
         write!(f, "{} {}", self.cpu, self.os)
     }
 }
-
 
 //--- Debug
 
@@ -345,13 +349,11 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Hinfo<Octets> {
     }
 }
 
-
 //--- RtypeRecordData
 
 impl<Octets> RtypeRecordData for Hinfo<Octets> {
     const RTYPE: Rtype = Rtype::Hinfo;
 }
-
 
 //------------ Mb -----------------------------------------------------------
 
@@ -364,7 +366,6 @@ dname_type! {
     (Mb, Mb, madname)
 }
 
-
 //------------ Md -----------------------------------------------------------
 
 dname_type! {
@@ -372,14 +373,13 @@ dname_type! {
     ///
     /// The MD record specifices a host which has a mail agent for
     /// the domain which should be able to deliver mail for the domain.
-    /// 
+    ///
     /// The MD record is obsolete. It is recommended to either reject the record
     /// or convert them into an Mx record at preference 0.
     ///
     /// The MD record type is defined in RFC 1035, section 3.3.4.
     (Md, Md, madname)
 }
-
 
 //------------ Mf -----------------------------------------------------------
 
@@ -388,14 +388,13 @@ dname_type! {
     ///
     /// The MF record specifices a host which has a mail agent for
     /// the domain which will be accept mail for forwarding to the domain.
-    /// 
+    ///
     /// The MF record is obsolete. It is recommended to either reject the record
     /// or convert them into an Mx record at preference 10.
     ///
     /// The MF record type is defined in RFC 1035, section 3.3.5.
     (Mf, Mf, madname)
 }
-
 
 //------------ Mg -----------------------------------------------------------
 
@@ -404,13 +403,12 @@ dname_type! {
     ///
     /// The MG record specifices a mailbox which is a member of the mail group
     /// specified by the domain name.
-    /// 
+    ///
     /// The MG record is experimental.
     ///
     /// The MG record type is defined in RFC 1035, section 3.3.6.
     (Mg, Mg, madname)
 }
-
 
 //------------ Minfo --------------------------------------------------------
 
@@ -455,41 +453,46 @@ impl<N> Minfo<N> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Minfo<SrcName>> for Minfo<Name>
-where Name: OctetsFrom<SrcName> {
+where
+    Name: OctetsFrom<SrcName>,
+{
     fn octets_from(source: Minfo<SrcName>) -> Result<Self, ShortBuf> {
         Ok(Minfo::new(
             Name::octets_from(source.rmailbx)?,
-            Name::octets_from(source.emailbx)?
+            Name::octets_from(source.emailbx)?,
         ))
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<N, NN> PartialEq<Minfo<NN>> for Minfo<N>
-where N: ToDname, NN: ToDname {
+where
+    N: ToDname,
+    NN: ToDname,
+{
     fn eq(&self, other: &Minfo<NN>) -> bool {
         self.rmailbx.name_eq(&other.rmailbx)
-        && self.emailbx.name_eq(&other.emailbx)
+            && self.emailbx.name_eq(&other.emailbx)
     }
 }
 
-impl<N: ToDname> Eq for Minfo<N> { }
-
+impl<N: ToDname> Eq for Minfo<N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N, NN> PartialOrd<Minfo<NN>> for Minfo<N>
-where N: ToDname, NN: ToDname {
+where
+    N: ToDname,
+    NN: ToDname,
+{
     fn partial_cmp(&self, other: &Minfo<NN>) -> Option<Ordering> {
         match self.rmailbx.name_cmp(&other.rmailbx) {
-            Ordering::Equal => { }
-            other => return Some(other)
+            Ordering::Equal => {}
+            other => return Some(other),
         }
         Some(self.emailbx.name_cmp(&other.emailbx))
     }
@@ -498,8 +501,8 @@ where N: ToDname, NN: ToDname {
 impl<N: ToDname> Ord for Minfo<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.rmailbx.name_cmp(&other.rmailbx) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.emailbx.name_cmp(&other.emailbx)
     }
@@ -508,13 +511,12 @@ impl<N: ToDname> Ord for Minfo<N> {
 impl<N: ToDname, NN: ToDname> CanonicalOrd<Minfo<NN>> for Minfo<N> {
     fn canonical_cmp(&self, other: &Minfo<NN>) -> Ordering {
         match self.rmailbx.lowercase_composed_cmp(&other.rmailbx) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.emailbx.lowercase_composed_cmp(&other.emailbx)
     }
 }
-
 
 //--- Parse and Compose
 
@@ -522,7 +524,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Minfo<ParsedDname<Ref>> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         Ok(Self::new(
             ParsedDname::parse(parser)?,
-            ParsedDname::parse(parser)?
+            ParsedDname::parse(parser)?,
         ))
     }
 
@@ -536,7 +538,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Minfo<ParsedDname<Ref>> {
 impl<N: ToDname> Compose for Minfo<N> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_compressed_dname(&self.rmailbx)?;
@@ -546,7 +548,7 @@ impl<N: ToDname> Compose for Minfo<N> {
 
     fn compose_canonical<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.rmailbx.compose_canonical(target)?;
@@ -555,13 +557,13 @@ impl<N: ToDname> Compose for Minfo<N> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")] 
+#[cfg(feature = "master")]
 impl<N: Scan> Scan for Minfo<N> {
-    fn scan<C: CharSource>(scanner: &mut  Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?))
     }
 }
@@ -572,13 +574,11 @@ impl<N: fmt::Display> fmt::Display for Minfo<N> {
     }
 }
 
-
 //--- RecordData
 
 impl<N> RtypeRecordData for Minfo<N> {
     const RTYPE: Rtype = Rtype::Minfo;
 }
-
 
 //------------ Mr -----------------------------------------------------------
 
@@ -587,13 +587,12 @@ dname_type! {
     ///
     /// The MR record specifices a mailbox which is the proper rename of the
     /// specified mailbox.
-    /// 
+    ///
     /// The MR record is experimental.
     ///
     /// The MR record type is defined in RFC 1035, section 3.3.8.
     (Mr, Mr, newname)
 }
-
 
 //------------ Mx -----------------------------------------------------------
 
@@ -612,7 +611,10 @@ pub struct Mx<N> {
 impl<N> Mx<N> {
     /// Creates a new Mx record data from the components.
     pub fn new(preference: u16, exchange: N) -> Self {
-        Mx { preference, exchange }
+        Mx {
+            preference,
+            exchange,
+        }
     }
 
     /// The preference for this record.
@@ -629,41 +631,46 @@ impl<N> Mx<N> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Mx<SrcName>> for Mx<Name>
-where Name: OctetsFrom<SrcName> {
+where
+    Name: OctetsFrom<SrcName>,
+{
     fn octets_from(source: Mx<SrcName>) -> Result<Self, ShortBuf> {
         Ok(Mx::new(
             source.preference,
-            Name::octets_from(source.exchange)?
+            Name::octets_from(source.exchange)?,
         ))
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<N, NN> PartialEq<Mx<NN>> for Mx<N>
-where N: ToDname, NN: ToDname {
+where
+    N: ToDname,
+    NN: ToDname,
+{
     fn eq(&self, other: &Mx<NN>) -> bool {
         self.preference == other.preference
-        && self.exchange.name_eq(&other.exchange)
+            && self.exchange.name_eq(&other.exchange)
     }
 }
 
-impl<N: ToDname> Eq for Mx<N> { }
-
+impl<N: ToDname> Eq for Mx<N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N, NN> PartialOrd<Mx<NN>> for Mx<N>
-where N: ToDname, NN: ToDname {
+where
+    N: ToDname,
+    NN: ToDname,
+{
     fn partial_cmp(&self, other: &Mx<NN>) -> Option<Ordering> {
         match self.preference.partial_cmp(&other.preference) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         Some(self.exchange.name_cmp(&other.exchange))
     }
@@ -672,8 +679,8 @@ where N: ToDname, NN: ToDname {
 impl<N: ToDname> Ord for Mx<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.preference.cmp(&other.preference) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.exchange.name_cmp(&other.exchange)
     }
@@ -682,13 +689,12 @@ impl<N: ToDname> Ord for Mx<N> {
 impl<N: ToDname, NN: ToDname> CanonicalOrd<Mx<NN>> for Mx<N> {
     fn canonical_cmp(&self, other: &Mx<NN>) -> Ordering {
         match self.preference.cmp(&other.preference) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.exchange.lowercase_composed_cmp(&other.exchange)
     }
 }
-
 
 //--- Parse and Compose
 
@@ -706,7 +712,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Mx<ParsedDname<Ref>> {
 impl<N: ToDname> Compose for Mx<N> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.preference.compose(target)?;
@@ -716,7 +722,7 @@ impl<N: ToDname> Compose for Mx<N> {
 
     fn compose_canonical<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.preference.compose(target)?;
@@ -725,13 +731,13 @@ impl<N: ToDname> Compose for Mx<N> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")] 
+#[cfg(feature = "master")]
 impl<N: Scan> Scan for Mx<N> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         Ok(Self::new(u16::scan(scanner)?, N::scan(scanner)?))
     }
 }
@@ -742,13 +748,11 @@ impl<N: fmt::Display> fmt::Display for Mx<N> {
     }
 }
 
-
 //--- RtypeRecordData
 
 impl<N> RtypeRecordData for Mx<N> {
     const RTYPE: Rtype = Rtype::Mx;
 }
-
 
 //------------ Ns -----------------------------------------------------------
 
@@ -760,7 +764,6 @@ dname_type! {
     /// The NS record type is defined in RFC 1035, section 3.3.11.
     (Ns, Ns, nsdname)
 }
-
 
 //------------ Null ---------------------------------------------------------
 
@@ -797,7 +800,6 @@ impl<Octets: AsRef<[u8]>> Null<Octets> {
     }
 }
 
-
 //--- From
 
 impl<Octets> From<Octets> for Null<Octets> {
@@ -806,42 +808,48 @@ impl<Octets> From<Octets> for Null<Octets> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Octets, SrcOctets> OctetsFrom<Null<SrcOctets>> for Null<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: Null<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.data).map(|octets| {
-            Self::new(octets)
-        })
+        Octets::octets_from(source.data).map(Self::new)
     }
 }
-
 
 //--- PartialEq and Eq
 
 impl<Octets, Other> PartialEq<Null<Other>> for Null<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn eq(&self, other: &Null<Other>) -> bool {
         self.data.as_ref().eq(other.data.as_ref())
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Null<Octets> { }
-
+impl<Octets: AsRef<[u8]>> Eq for Null<Octets> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<Octets, Other> PartialOrd<Null<Other>> for Null<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn partial_cmp(&self, other: &Null<Other>) -> Option<Ordering> {
         self.data.as_ref().partial_cmp(other.data.as_ref())
     }
 }
 
 impl<Octets, Other> CanonicalOrd<Null<Other>> for Null<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn canonical_cmp(&self, other: &Null<Other>) -> Ordering {
         self.data.as_ref().cmp(other.data.as_ref())
     }
@@ -853,7 +861,6 @@ impl<Octets: AsRef<[u8]>> Ord for Null<Octets> {
     }
 }
 
-
 //--- Hash
 
 impl<Octets: AsRef<[u8]>> hash::Hash for Null<Octets> {
@@ -861,7 +868,6 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Null<Octets> {
         self.data.as_ref().hash(state)
     }
 }
-
 
 //--- ParseAll and Compose
 
@@ -880,19 +886,17 @@ impl<Ref: OctetsRef> Parse<Ref> for Null<Ref::Range> {
 impl<Octets: AsRef<[u8]>> Compose for Null<Octets> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(self.data.as_ref())
     }
 }
-
 
 //--- RtypeRecordData
 
 impl<Octets> RtypeRecordData for Null<Octets> {
     const RTYPE: Rtype = Rtype::Null;
 }
-
 
 //--- Deref
 
@@ -904,7 +908,6 @@ impl<Octets> ops::Deref for Null<Octets> {
     }
 }
 
-
 //--- AsRef
 
 impl<Octets: AsRef<Other>, Other> AsRef<Other> for Null<Octets> {
@@ -912,7 +915,6 @@ impl<Octets: AsRef<Other>, Other> AsRef<Other> for Null<Octets> {
         self.data.as_ref()
     }
 }
-
 
 //--- Display and Debug
 
@@ -934,7 +936,6 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Null<Octets> {
     }
 }
 
-
 //------------ Ptr ----------------------------------------------------------
 
 dname_type! {
@@ -953,7 +954,6 @@ impl<N> Ptr<N> {
     }
 }
 
-
 //------------ Soa ----------------------------------------------------------
 
 /// Soa record data.
@@ -970,14 +970,29 @@ pub struct Soa<N> {
     refresh: u32,
     retry: u32,
     expire: u32,
-    minimum:u32 
+    minimum: u32,
 }
 
 impl<N> Soa<N> {
     /// Creates new Soa record data from content.
-    pub fn new(mname: N, rname: N, serial: Serial,
-               refresh: u32, retry: u32, expire: u32, minimum: u32) -> Self {
-        Soa { mname, rname, serial, refresh, retry, expire, minimum }
+    pub fn new(
+        mname: N,
+        rname: N,
+        serial: Serial,
+        refresh: u32,
+        retry: u32,
+        expire: u32,
+        minimum: u32,
+    ) -> Self {
+        Soa {
+            mname,
+            rname,
+            serial,
+            refresh,
+            retry,
+            expire,
+            minimum,
+        }
     }
 
     /// The primary name server for the zone.
@@ -1016,11 +1031,12 @@ impl<N> Soa<N> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Soa<SrcName>> for Soa<Name>
-where Name: OctetsFrom<SrcName> {
+where
+    Name: OctetsFrom<SrcName>,
+{
     fn octets_from(source: Soa<SrcName>) -> Result<Self, ShortBuf> {
         Ok(Soa::new(
             Name::octets_from(source.mname)?,
@@ -1029,56 +1045,62 @@ where Name: OctetsFrom<SrcName> {
             source.refresh,
             source.retry,
             source.expire,
-            source.minimum
+            source.minimum,
         ))
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<N, NN> PartialEq<Soa<NN>> for Soa<N>
-where N: ToDname, NN: ToDname {
+where
+    N: ToDname,
+    NN: ToDname,
+{
     fn eq(&self, other: &Soa<NN>) -> bool {
         self.mname.name_eq(&other.mname)
-        && self.rname.name_eq(&other.rname)
-        && self.serial == other.serial && self.refresh == other.refresh
-        && self.retry == other.retry && self.expire == other.expire
-        && self.minimum == other.minimum
+            && self.rname.name_eq(&other.rname)
+            && self.serial == other.serial
+            && self.refresh == other.refresh
+            && self.retry == other.retry
+            && self.expire == other.expire
+            && self.minimum == other.minimum
     }
 }
 
-impl<N: ToDname> Eq for Soa<N> { }
-
+impl<N: ToDname> Eq for Soa<N> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<N, NN> PartialOrd<Soa<NN>> for Soa<N>
-where N: ToDname, NN: ToDname {
+where
+    N: ToDname,
+    NN: ToDname,
+{
     fn partial_cmp(&self, other: &Soa<NN>) -> Option<Ordering> {
         match self.mname.name_cmp(&other.mname) {
-            Ordering::Equal => { }
-            other => return Some(other)
+            Ordering::Equal => {}
+            other => return Some(other),
         }
         match self.rname.name_cmp(&other.rname) {
-            Ordering::Equal => { }
-            other => return Some(other)
+            Ordering::Equal => {}
+            other => return Some(other),
         }
         match u32::from(self.serial).partial_cmp(&u32::from(other.serial)) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.refresh.partial_cmp(&other.refresh) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.retry.partial_cmp(&other.retry) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.expire.partial_cmp(&other.expire) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         self.minimum.partial_cmp(&other.minimum)
     }
@@ -1087,28 +1109,28 @@ where N: ToDname, NN: ToDname {
 impl<N: ToDname> Ord for Soa<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.mname.name_cmp(&other.mname) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.rname.name_cmp(&other.rname) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match u32::from(self.serial).cmp(&u32::from(other.serial)) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.refresh.cmp(&other.refresh) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.retry.cmp(&other.retry) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.expire.cmp(&other.expire) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.minimum.cmp(&other.minimum)
     }
@@ -1117,33 +1139,32 @@ impl<N: ToDname> Ord for Soa<N> {
 impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
     fn canonical_cmp(&self, other: &Soa<NN>) -> Ordering {
         match self.mname.lowercase_composed_cmp(&other.mname) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.rname.lowercase_composed_cmp(&other.rname) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.serial.canonical_cmp(&other.serial) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.refresh.cmp(&other.refresh) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.retry.cmp(&other.retry) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.expire.cmp(&other.expire) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.minimum.cmp(&other.minimum)
     }
 }
-
 
 //--- Parse and Compose
 
@@ -1156,7 +1177,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Soa<ParsedDname<Ref>> {
             u32::parse(parser)?,
             u32::parse(parser)?,
             u32::parse(parser)?,
-            u32::parse(parser)?
+            u32::parse(parser)?,
         ))
     }
 
@@ -1175,7 +1196,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Soa<ParsedDname<Ref>> {
 impl<N: ToDname> Compose for Soa<N> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             buf.append_compressed_dname(&self.mname)?;
@@ -1190,7 +1211,7 @@ impl<N: ToDname> Compose for Soa<N> {
 
     fn compose_canonical<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.mname.compose_canonical(buf)?;
@@ -1204,35 +1225,46 @@ impl<N: ToDname> Compose for Soa<N> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")] 
+#[cfg(feature = "master")]
 impl<N: Scan> Scan for Soa<N> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
-        Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?,
-                     Serial::scan(scanner)?, u32::scan(scanner)?,
-                     u32::scan(scanner)?, u32::scan(scanner)?,
-                     u32::scan(scanner)?))
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        Ok(Self::new(
+            N::scan(scanner)?,
+            N::scan(scanner)?,
+            Serial::scan(scanner)?,
+            u32::scan(scanner)?,
+            u32::scan(scanner)?,
+            u32::scan(scanner)?,
+            u32::scan(scanner)?,
+        ))
     }
 }
 
 impl<N: fmt::Display> fmt::Display for Soa<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}. {}. {} {} {} {} {}",
-               self.mname, self.rname, self.serial, self.refresh, self.retry,
-               self.expire, self.minimum)
+        write!(
+            f,
+            "{}. {}. {} {} {} {} {}",
+            self.mname,
+            self.rname,
+            self.serial,
+            self.refresh,
+            self.retry,
+            self.expire,
+            self.minimum
+        )
     }
 }
-
 
 //--- RecordData
 
 impl<N> RtypeRecordData for Soa<N> {
     const RTYPE: Rtype = Rtype::Soa;
 }
-
 
 //------------ Txt ----------------------------------------------------------
 
@@ -1247,7 +1279,9 @@ pub struct Txt<Octets>(Octets);
 impl<Octets: FromBuilder> Txt<Octets> {
     /// Creates a new Txt record from a single character string.
     pub fn from_slice(text: &[u8]) -> Result<Self, ShortBuf>
-    where <Octets as FromBuilder>::Builder: EmptyBuilder {
+    where
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
         let mut builder = TxtBuilder::<Octets::Builder>::new();
         builder.append_slice(text)?;
         Ok(builder.finish())
@@ -1266,12 +1300,11 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
     pub fn as_flat_slice(&self) -> Option<&[u8]> {
         if self.0.as_ref()[0] as usize == self.0.as_ref().len() - 1 {
             Some(&self.0.as_ref()[1..])
-        }
-        else {
+        } else {
             None
         }
     }
-    
+
     pub fn len(&self) -> usize {
         self.0.as_ref().len()
     }
@@ -1289,7 +1322,9 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
     ///
     /// Access to the individual character strings is possible via iteration.
     pub fn text<T: FromBuilder>(&self) -> Result<T, ShortBuf>
-    where <T as FromBuilder>::Builder: EmptyBuilder {
+    where
+        <T as FromBuilder>::Builder: EmptyBuilder,
+    {
         // Capacity will be a few bytes too much. Probably better than
         // re-allocating.
         let mut res = T::Builder::with_capacity(self.len());
@@ -1300,16 +1335,16 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Octets, SrcOctets> OctetsFrom<Txt<SrcOctets>> for Txt<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: Txt<SrcOctets>) -> Result<Self, ShortBuf> {
         Octets::octets_from(source.0).map(Self)
     }
 }
-
 
 //--- IntoIterator
 
@@ -1325,30 +1360,38 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a Txt<Octets> {
 //--- PartialEq and Eq
 
 impl<Octets, Other> PartialEq<Txt<Other>> for Txt<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn eq(&self, other: &Txt<Other>) -> bool {
-        self.iter().flat_map(|s| s.iter().copied()).eq(
-            other.iter().flat_map(|s| s.iter().copied())
-        )
+        self.iter()
+            .flat_map(|s| s.iter().copied())
+            .eq(other.iter().flat_map(|s| s.iter().copied()))
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Txt<Octets> { }
-
+impl<Octets: AsRef<[u8]>> Eq for Txt<Octets> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<Octets, Other> PartialOrd<Txt<Other>> for Txt<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn partial_cmp(&self, other: &Txt<Other>) -> Option<Ordering> {
-        self.iter().flat_map(|s| s.iter().copied()).partial_cmp(
-            other.iter().flat_map(|s| s.iter().copied())
-        )
+        self.iter()
+            .flat_map(|s| s.iter().copied())
+            .partial_cmp(other.iter().flat_map(|s| s.iter().copied()))
     }
 }
 
 impl<Octets, Other> CanonicalOrd<Txt<Other>> for Txt<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn canonical_cmp(&self, other: &Txt<Other>) -> Ordering {
         // Canonical comparison requires TXT RDATA to be canonically sorted in the wire format.
         // The TXT has each label prefixed by length, which must be taken into account.
@@ -1365,22 +1408,21 @@ where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
 
 impl<Octets: AsRef<[u8]>> Ord for Txt<Octets> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.iter().flat_map(|s| s.iter().copied()).cmp(
-            other.iter().flat_map(|s| s.iter().copied())
-        )
+        self.iter()
+            .flat_map(|s| s.iter().copied())
+            .cmp(other.iter().flat_map(|s| s.iter().copied()))
     }
 }
-
 
 //--- Hash
 
 impl<Octets: AsRef<[u8]>> hash::Hash for Txt<Octets> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.iter().flat_map(|s| s.iter().copied())
+        self.iter()
+            .flat_map(|s| s.iter().copied())
             .for_each(|c| c.hash(state))
     }
 }
-
 
 //--- ParseAll and Compose
 
@@ -1404,26 +1446,24 @@ impl<Ref: OctetsRef> Parse<Ref> for Txt<Ref::Range> {
 impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")] 
+#[cfg(feature = "master")]
 impl Scan for Txt<Bytes> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>
+        scanner: &mut Scanner<C>,
     ) -> Result<Self, ScanError> {
         scanner.scan_byte_phrase(|res| {
             let mut builder = TxtBuilder::new_bytes();
             if builder.append_slice(res.as_ref()).is_err() {
                 Err(SyntaxError::LongCharStr)
-            }
-            else {
+            } else {
                 Ok(builder.finish())
             }
         })
@@ -1441,7 +1481,6 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Txt<Octets> {
     }
 }
 
-
 //--- Debug
 
 impl<Octets: AsRef<[u8]>> fmt::Debug for Txt<Octets> {
@@ -1452,13 +1491,11 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Txt<Octets> {
     }
 }
 
-
 //--- RtypeRecordData
 
 impl<Octets> RtypeRecordData for Txt<Octets> {
     const RTYPE: Rtype = Rtype::Txt;
 }
-
 
 //------------ TxtIter -------------------------------------------------------
 
@@ -1472,13 +1509,11 @@ impl<'a> Iterator for TxtIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.remaining() == 0 {
             None
-        }
-        else {
+        } else {
             Some(CharStr::parse(&mut self.0).unwrap().into_octets())
         }
     }
 }
-
 
 //------------ TxtBuilder ---------------------------------------------------
 
@@ -1496,12 +1531,12 @@ impl<Builder: OctetsBuilder + EmptyBuilder> TxtBuilder<Builder> {
     pub fn new() -> Self {
         TxtBuilder {
             builder: Builder::empty(),
-            start: None
+            start: None,
         }
     }
 }
 
-#[cfg(feature="bytes")] 
+#[cfg(feature = "bytes")]
 impl TxtBuilder<BytesMut> {
     pub fn new_bytes() -> Self {
         Self::new()
@@ -1514,7 +1549,7 @@ impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
             let left = 255 - (self.builder.len() - (start + 1));
             if slice.len() < left {
                 self.builder.append_slice(slice)?;
-                return Ok(())
+                return Ok(());
             }
             let (append, left) = slice.split_at(left);
             self.builder.append_slice(append)?;
@@ -1552,24 +1587,21 @@ impl<Builder: OctetsBuilder + EmptyBuilder> Default for TxtBuilder<Builder> {
     }
 }
 
-
 //============ Testing ======================================================
 
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod test {
-    use std::vec::Vec;
     use super::*;
+    use std::vec::Vec;
 
     #[test]
     #[cfg(features = "bytes")]
     fn hinfo_octets_into() {
         use crate::octets::OctetsInto;
 
-        let hinfo: Hinfo<Vec<u8>> = Hinfo::new(
-            "1234".parse().unwrap(),
-            "abcd".parse().unwrap()
-        );
+        let hinfo: Hinfo<Vec<u8>> =
+            Hinfo::new("1234".parse().unwrap(), "abcd".parse().unwrap());
         let hinfo_bytes: Hinfo<bytes::Bytes> = hinfo.octets_into().unwrap();
         assert_eq!(hinfo.cpu(), hinfo_bytes.cpu());
         assert_eq!(hinfo.os(), hinfo_bytes.os());
@@ -1583,7 +1615,7 @@ mod test {
 
         let minfo: Minfo<Dname<Vec<u8>>> = Minfo::new(
             "a.example".parse().unwrap(),
-            "b.example".parse().unwrap()
+            "b.example".parse().unwrap(),
         );
         let minfo_bytes: Minfo<Dname<bytes::Bytes>> =
             minfo.octets_into().unwrap();
@@ -1621,9 +1653,7 @@ mod test {
 
         // Empty
         let mut builder: TxtBuilder<Vec<u8>> = TxtBuilder::new();
-        assert!(builder
-            .append_slice(&[])
-            .is_ok());
+        assert!(builder.append_slice(&[]).is_ok());
         let empty = builder.finish();
         assert!(empty.is_empty());
         assert_eq!(0, empty.iter().count());
@@ -1658,11 +1688,14 @@ mod test {
             "brave-ledger-verification=66a7f27fb99949cc0c564ab98efcc58ea1bac3e97eb557c782ab2d44b49aefd7",
         ];
 
-        let records = data.iter().map(|e| {
-            let mut builder = TxtBuilder::<Vec<u8>>::new();
-            builder.append_slice(e.as_bytes()).unwrap();
-            builder.finish()
-        }).collect::<Vec<_>>();
+        let records = data
+            .iter()
+            .map(|e| {
+                let mut builder = TxtBuilder::<Vec<u8>>::new();
+                builder.append_slice(e.as_bytes()).unwrap();
+                builder.finish()
+            })
+            .collect::<Vec<_>>();
 
         // The canonical sort must sort by TXT labels which are prefixed by length byte first.
         let mut sorted = records.clone();

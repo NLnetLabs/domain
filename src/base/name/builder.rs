@@ -3,19 +3,20 @@
 //! This is a private module for tidiness. `DnameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
-use core::{fmt, ops};
-#[cfg(feature = "std")] use std::vec::Vec;
-#[cfg(feature = "bytes")] use bytes::BytesMut;
 use super::super::octets::{EmptyBuilder, OctetsBuilder, ShortBuf};
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
-
+#[cfg(feature = "bytes")]
+use bytes::BytesMut;
+use core::{fmt, ops};
+#[cfg(feature = "std")]
+use std::vec::Vec;
 
 //------------ DnameBuilder --------------------------------------------------
 
 /// Builds a domain name step by step by appending data.
-/// 
+///
 /// The domain name builder is the most fundamental way to construct a new
 /// domain name. It wraps an octets builder and allows adding single octets,
 /// octet slices, or entire labels.
@@ -37,22 +38,29 @@ impl<Builder> DnameBuilder<Builder> {
     /// domain name. Since that may not be the case, this function is
     /// unsafe.
     pub(super) unsafe fn from_builder_unchecked(builder: Builder) -> Self {
-        DnameBuilder { builder, head: None }
+        DnameBuilder {
+            builder,
+            head: None,
+        }
     }
 
     /// Creates a new, empty name builder.
     pub fn new() -> Self
-    where Builder: EmptyBuilder {
+    where
+        Builder: EmptyBuilder,
+    {
         unsafe { DnameBuilder::from_builder_unchecked(Builder::empty()) }
     }
 
     /// Creates a new, empty builder with a given capacity.
     pub fn with_capacity(capacity: usize) -> Self
-    where Builder: EmptyBuilder {
+    where
+        Builder: EmptyBuilder,
+    {
         unsafe {
-            DnameBuilder::from_builder_unchecked(
-                Builder::with_capacity(capacity)
-            )
+            DnameBuilder::from_builder_unchecked(Builder::with_capacity(
+                capacity,
+            ))
         }
     }
 
@@ -61,7 +69,9 @@ impl<Builder> DnameBuilder<Builder> {
     /// The function checks that whatever is in the builder already
     /// consititutes a correctly encoded relative domain name.
     pub fn from_builder(builder: Builder) -> Result<Self, RelativeDnameError>
-    where Builder: OctetsBuilder {
+    where
+        Builder: OctetsBuilder,
+    {
         RelativeDname::check_slice(builder.as_ref())?;
         Ok(unsafe { DnameBuilder::from_builder_unchecked(builder) })
     }
@@ -83,7 +93,7 @@ impl DnameBuilder<Vec<u8>> {
     }
 }
 
-#[cfg(feature="bytes")] 
+#[cfg(feature = "bytes")]
 impl DnameBuilder<BytesMut> {
     /// Creates an empty domain name bulider atop a bytes value.
     pub fn new_bytes() -> Self {
@@ -121,11 +131,10 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
         }
         if let Some(head) = self.head {
             if len - head > 63 {
-                return Err(PushError::LongLabel)
+                return Err(PushError::LongLabel);
             }
             self.builder.append_slice(&[ch])?;
-        }
-        else {
+        } else {
             self.head = Some(len);
             self.builder.append_slice(&[0, ch])?;
         }
@@ -140,19 +149,18 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// If `slice` is empty, does absolutely nothing.
     pub fn append_slice(&mut self, slice: &[u8]) -> Result<(), PushError> {
         if slice.is_empty() {
-            return Ok(())
+            return Ok(());
         }
         if let Some(head) = self.head {
             if slice.len() > 63 - (self.len() - head) {
-                return Err(PushError::LongLabel)
+                return Err(PushError::LongLabel);
             }
-        }
-        else {
+        } else {
             if slice.len() > 63 {
-                return Err(PushError::LongLabel)
+                return Err(PushError::LongLabel);
             }
             if self.len() + slice.len() > 254 {
-                return Err(PushError::LongName)
+                return Err(PushError::LongName);
             }
             self.head = Some(self.len());
             self.builder.append_slice(&[0])?;
@@ -185,7 +193,7 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
         self.end_label();
         if let Err(err) = self.append_slice(label) {
             self.head = head;
-            return Err(err)
+            return Err(err);
         }
         self.end_label();
         Ok(())
@@ -201,13 +209,14 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     //
     //  XXX NEEDS TESTS
     pub fn append_name<N: ToRelativeDname>(
-        &mut self, name: &N
+        &mut self,
+        name: &N,
     ) -> Result<(), PushNameError> {
         let head = self.head.take();
         self.end_label();
         if self.len() + name.len() > 254 {
             self.head = head;
-            return Err(PushNameError::LongName)
+            return Err(PushNameError::LongName);
         }
         for label in name.iter_labels() {
             label.build(&mut self.builder)?
@@ -233,14 +242,14 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// [`in_label`] #method.in_label
     pub fn append_chars<C: IntoIterator<Item = char>>(
         &mut self,
-        chars: C
+        chars: C,
     ) -> Result<(), FromStrError> {
         let mut chars = chars.into_iter();
         while let Some(ch) = chars.next() {
             match ch {
                 '.' => {
                     if !self.in_label() {
-                        return Err(FromStrError::EmptyLabel)
+                        return Err(FromStrError::EmptyLabel);
                     }
                     self.end_label();
                 }
@@ -248,17 +257,15 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
                     let in_label = self.in_label();
                     self.push(parse_escape(&mut chars, in_label)?)?;
                 }
-                ' ' ..= '-' | '/' ..= '[' | ']' ..= '~' => {
-                    self.push(ch as u8)?
-                }
-                _ => return Err(FromStrError::IllegalCharacter(ch))
+                ' '..='-' | '/'..='[' | ']'..='~' => self.push(ch as u8)?,
+                _ => return Err(FromStrError::IllegalCharacter(ch)),
             }
         }
         Ok(())
     }
 
     /// Finishes building the name and returns the resulting relative name.
-    /// 
+    ///
     /// If there currently is a label being built, ends the label first
     /// before returning the name. I.e., you don’t have to call [`end_label`]
     /// explicitely.
@@ -269,13 +276,9 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     ///
     /// [`end_label`]: #method.end_label
     /// [`into_dname`]: #method.into_dname
-    pub fn finish(
-        mut self
-    ) -> RelativeDname<Builder::Octets> {
+    pub fn finish(mut self) -> RelativeDname<Builder::Octets> {
         self.end_label();
-        unsafe {
-            RelativeDname::from_octets_unchecked(self.builder.freeze())
-        }
+        unsafe { RelativeDname::from_octets_unchecked(self.builder.freeze()) }
     }
 
     /// Appends the root label to the name and returns it as a `Dname`.
@@ -283,38 +286,32 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// If there currently is a label under construction, ends the label.
     /// Then adds the empty root label and transforms the name into a
     /// `Dname`.
-    pub fn into_dname(
-        mut self
-    ) -> Result<Dname<Builder::Octets>, PushError> {
+    pub fn into_dname(mut self) -> Result<Dname<Builder::Octets>, PushError> {
         self.end_label();
         self.builder.append_slice(&[0])?;
-        Ok(unsafe {
-            Dname::from_octets_unchecked(self.builder.freeze())
-        })
+        Ok(unsafe { Dname::from_octets_unchecked(self.builder.freeze()) })
     }
 
     /// Appends an origin and returns the resulting `Dname`.
     /// If there currently is a label under construction, ends the label.
     /// Then adds the `origin` and transforms the name into a
-    /// `Dname`. 
+    /// `Dname`.
     //
     //  XXX NEEDS TESTS
     pub fn append_origin<N: ToDname>(
-        mut self, origin: &N
+        mut self,
+        origin: &N,
     ) -> Result<Dname<Builder::Octets>, PushNameError> {
         self.end_label();
         if self.len() + origin.len() > 255 {
-            return Err(PushNameError::LongName)
+            return Err(PushNameError::LongName);
         }
         for label in origin.iter_labels() {
             label.build(&mut self.builder)?
         }
-        Ok(unsafe {
-            Dname::from_octets_unchecked(self.builder.freeze())
-        })
+        Ok(unsafe { Dname::from_octets_unchecked(self.builder.freeze()) })
     }
 }
-
 
 //--- Default
 
@@ -323,7 +320,6 @@ impl<Builder: EmptyBuilder> Default for DnameBuilder<Builder> {
         Self::new()
     }
 }
-
 
 //--- Deref and AsRef
 
@@ -341,42 +337,40 @@ impl<Builder: OctetsBuilder> AsRef<[u8]> for DnameBuilder<Builder> {
     }
 }
 
-
 //------------ Santa’s Little Helpers ----------------------------------------
 
 /// Parses the contents of an escape sequence from `chars`.
 ///
 /// The backslash should already have been taken out of `chars`.
 fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
-                where C: Iterator<Item=char> {
+where
+    C: Iterator<Item = char>,
+{
     let ch = chars.next().ok_or(FromStrError::UnexpectedEnd)?;
     if ('0'..='9').contains(&ch) {
         let v = ch.to_digit(10).unwrap() * 100
-              + chars.next().ok_or(FromStrError::UnexpectedEnd)
-                     .and_then(|c| c.to_digit(10)
-                                    .ok_or(FromStrError::IllegalEscape))?
-                     * 10
-              + chars.next().ok_or(FromStrError::UnexpectedEnd)
-                     .and_then(|c| c.to_digit(10)
-                                    .ok_or(FromStrError::IllegalEscape))?;
+            + chars.next().ok_or(FromStrError::UnexpectedEnd).and_then(
+                |c| c.to_digit(10).ok_or(FromStrError::IllegalEscape),
+            )? * 10
+            + chars.next().ok_or(FromStrError::UnexpectedEnd).and_then(
+                |c| c.to_digit(10).ok_or(FromStrError::IllegalEscape),
+            )?;
         if v > 255 {
-            return Err(FromStrError::IllegalEscape)
+            return Err(FromStrError::IllegalEscape);
         }
         Ok(v as u8)
-    }
-    else if ch == '[' {
+    } else if ch == '[' {
         // `\[` at the start of a label marks a binary label which we don’t
         // support. Within a label, the sequence is fine.
         if in_label {
             Ok(b'[')
-        }
-        else {
+        } else {
             Err(FromStrError::BinaryLabel)
         }
+    } else {
+        Ok(ch as u8)
     }
-    else { Ok(ch as u8) }
 }
-
 
 //============ Error Types ===================================================
 
@@ -395,7 +389,6 @@ pub enum PushError {
     ShortBuf,
 }
 
-
 //--- From
 
 impl From<ShortBuf> for PushError {
@@ -404,25 +397,20 @@ impl From<ShortBuf> for PushError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for PushError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            PushError::LongLabel
-                => f.write_str("long label"),
-            PushError::LongName
-                => f.write_str("long domain name"),
-            PushError::ShortBuf
-                => ShortBuf.fmt(f)
+            PushError::LongLabel => f.write_str("long label"),
+            PushError::LongName => f.write_str("long domain name"),
+            PushError::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for PushError { }
-
+impl std::error::Error for PushError {}
 
 //------------ PushNameError -------------------------------------------------
 
@@ -444,23 +432,19 @@ impl From<ShortBuf> for PushNameError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for PushNameError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            PushNameError::LongName
-                => f.write_str("long domain name"),
-            PushNameError::ShortBuf
-                => ShortBuf.fmt(f)
+            PushNameError::LongName => f.write_str("long domain name"),
+            PushNameError::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for PushNameError { }
-
+impl std::error::Error for PushNameError {}
 
 //------------ FromStrError --------------------------------------------------
 
@@ -500,7 +484,6 @@ pub enum FromStrError {
     ShortBuf,
 }
 
-
 //--- From
 
 impl From<PushError> for FromStrError {
@@ -522,35 +505,37 @@ impl From<PushNameError> for FromStrError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::UnexpectedEnd
-                => f.write_str("unexpected end of input"),
-            FromStrError::EmptyLabel
-                => f.write_str("an empty label was encountered"),
-            FromStrError::BinaryLabel
-                => f.write_str("a binary label was encountered"),
-            FromStrError::LongLabel
-                => f.write_str("label length limit exceeded"),
-            FromStrError::IllegalEscape
-                => f.write_str("illegal escape sequence"),
-            FromStrError::IllegalCharacter(char)
-                => write!(f, "illegal character '{}'", char),
-            FromStrError::LongName
-                => f.write_str("long domain name"),
-            FromStrError::ShortBuf
-                => ShortBuf.fmt(f)
+            FromStrError::UnexpectedEnd => {
+                f.write_str("unexpected end of input")
+            }
+            FromStrError::EmptyLabel => {
+                f.write_str("an empty label was encountered")
+            }
+            FromStrError::BinaryLabel => {
+                f.write_str("a binary label was encountered")
+            }
+            FromStrError::LongLabel => {
+                f.write_str("label length limit exceeded")
+            }
+            FromStrError::IllegalEscape => {
+                f.write_str("illegal escape sequence")
+            }
+            FromStrError::IllegalCharacter(char) => {
+                write!(f, "illegal character '{}'", char)
+            }
+            FromStrError::LongName => f.write_str("long domain name"),
+            FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for FromStrError { }
-
+impl std::error::Error for FromStrError {}
 
 //============ Testing =======================================================
 
@@ -571,8 +556,7 @@ mod test {
         builder.append_slice(b"le").unwrap();
         builder.end_label();
         builder.append_slice(b"com").unwrap();
-        assert_eq!(builder.finish().as_slice(),
-                   b"\x03www\x07example\x03com");
+        assert_eq!(builder.finish().as_slice(), b"\x03www\x07example\x03com");
     }
 
     #[test]
@@ -581,8 +565,7 @@ mod test {
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
         builder.append_label(b"com").unwrap();
-        assert_eq!(builder.finish().as_slice(),
-                   b"\x03www\x07example\x03com");
+        assert_eq!(builder.finish().as_slice(), b"\x03www\x07example\x03com");
     }
 
     #[test]
@@ -592,15 +575,14 @@ mod test {
         builder.append_slice(b"ww").unwrap();
         builder.append_label(b"example").unwrap();
         builder.append_slice(b"com").unwrap();
-        assert_eq!(builder.finish().as_slice(),
-                   b"\x03www\x07example\x03com");
+        assert_eq!(builder.finish().as_slice(), b"\x03www\x07example\x03com");
     }
 
     #[test]
     fn name_limit() {
         let mut builder = DnameBuilder::new_vec();
         for _ in 0..25 {
-            // 9 bytes label is 10 bytes in total 
+            // 9 bytes label is 10 bytes in total
             builder.append_label(b"123456789").unwrap();
         }
 
@@ -619,10 +601,14 @@ mod test {
     fn label_limit() {
         let mut builder = DnameBuilder::new_vec();
         builder.append_label(&[0u8; 63][..]).unwrap();
-        assert_eq!(builder.append_label(&[0u8; 64][..]),
-                   Err(PushError::LongLabel));
-        assert_eq!(builder.append_label(&[0u8; 164][..]),
-                   Err(PushError::LongLabel));
+        assert_eq!(
+            builder.append_label(&[0u8; 64][..]),
+            Err(PushError::LongLabel)
+        );
+        assert_eq!(
+            builder.append_label(&[0u8; 164][..]),
+            Err(PushError::LongLabel)
+        );
 
         builder.append_slice(&[0u8; 60][..]).unwrap();
         let _ = builder.clone().append_label(b"123").unwrap();
@@ -638,8 +624,7 @@ mod test {
         builder.append_label(b"www").unwrap();
         builder.append_label(b"example").unwrap();
         builder.append_slice(b"com").unwrap();
-        assert_eq!(builder.finish().as_slice(),
-                   b"\x03www\x07example\x03com");
+        assert_eq!(builder.finish().as_slice(), b"\x03www\x07example\x03com");
     }
 
     #[test]

@@ -25,19 +25,21 @@
 //! [`CharStrBuilder`]: struct.CharStrMut.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use core::{cmp, fmt, hash, ops, str};
-#[cfg(feature = "std")] use std::vec::Vec;
-#[cfg(feature = "bytes")] use bytes::{Bytes, BytesMut};
-#[cfg(feature="master")] use crate::master::scan::{
-    CharSource, Scan, Scanner, ScanError, SyntaxError
-};
 use super::cmp::CanonicalOrd;
 use super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, OctetsFrom,
-    OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder,
+    OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 use super::str::{BadSymbol, Symbol, SymbolError};
-
+#[cfg(feature = "master")]
+use crate::master::scan::{
+    CharSource, Scan, ScanError, Scanner, SyntaxError,
+};
+#[cfg(feature = "bytes")]
+use bytes::{Bytes, BytesMut};
+use core::{cmp, fmt, hash, ops, str};
+#[cfg(feature = "std")]
+use std::vec::Vec;
 
 //------------ CharStr -------------------------------------------------------
 
@@ -56,90 +58,117 @@ pub struct CharStr<Octets: ?Sized>(Octets);
 impl<Octets: ?Sized> CharStr<Octets> {
     /// Creates a new empty character string.
     pub fn empty() -> Self
-    where Octets: From<&'static [u8]> {
+    where
+        Octets: From<&'static [u8]>,
+    {
         CharStr(b"".as_ref().into())
     }
 
-    /// Creates a new character string from an octets value. 
+    /// Creates a new character string from an octets value.
     ///
     /// Returns succesfully if `octets` can indeed be used as a
     /// character string, i.e., it is not longer than 255 bytes.
     pub fn from_octets(octets: Octets) -> Result<Self, CharStrError>
-    where Octets: AsRef<[u8]> + Sized {
-        if octets.as_ref().len() > 255 { Err(CharStrError) }
-        else { Ok(unsafe { Self::from_octets_unchecked(octets) })}
+    where
+        Octets: AsRef<[u8]> + Sized,
+    {
+        if octets.as_ref().len() > 255 {
+            Err(CharStrError)
+        } else {
+            Ok(unsafe { Self::from_octets_unchecked(octets) })
+        }
     }
 
     /// Creates a character string from octets without length check.
     ///
     /// As this can break the guarantees made by the type, it is unsafe.
     unsafe fn from_octets_unchecked(octets: Octets) -> Self
-    where Octets: Sized {
+    where
+        Octets: Sized,
+    {
         CharStr(octets)
     }
 
     /// Creates a new empty builder for this character string type.
     pub fn builder() -> CharStrBuilder<Octets::Builder>
-    where Octets: IntoBuilder, Octets::Builder: EmptyBuilder {
+    where
+        Octets: IntoBuilder,
+        Octets::Builder: EmptyBuilder,
+    {
         CharStrBuilder::new()
     }
 
     /// Converts the character string into a builder.
     pub fn into_builder(self) -> CharStrBuilder<Octets::Builder>
-    where Octets: IntoBuilder + Sized {
+    where
+        Octets: IntoBuilder + Sized,
+    {
         unsafe {
-            CharStrBuilder::from_builder_unchecked(
-                IntoBuilder::into_builder(self.0)
-            )
+            CharStrBuilder::from_builder_unchecked(IntoBuilder::into_builder(
+                self.0,
+            ))
         }
     }
 
     /// Converts the character string into its underlying octets value.
     pub fn into_octets(self) -> Octets
-    where Octets: Sized {
+    where
+        Octets: Sized,
+    {
         self.0
     }
 
     /// Returns a character string atop a slice of the content.
     pub fn for_slice(&self) -> CharStr<&[u8]>
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         unsafe { CharStr::from_octets_unchecked(self.0.as_ref()) }
     }
 
     /// Returns a character string atop a mutable slice of the content.
     pub fn for_slice_mut(&mut self) -> CharStr<&mut [u8]>
-    where Octets: AsMut<[u8]> {
+    where
+        Octets: AsMut<[u8]>,
+    {
         unsafe { CharStr::from_octets_unchecked(self.0.as_mut()) }
     }
 
     /// Returns a reference to a slice of the character string’s data.
     pub fn as_slice(&self) -> &[u8]
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         self.0.as_ref()
     }
 
     /// Returns a reference to a mutable slice of the character string’s data.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
-    where Octets: AsMut<[u8]> {
+    where
+        Octets: AsMut<[u8]>,
+    {
         self.0.as_mut()
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl CharStr<Bytes> {
     /// Creates a new character string from a bytes value.
     ///
     /// Returns succesfully if the bytes slice can indeed be used as a
     /// character string, i.e., it is not longer than 255 bytes.
     pub fn from_bytes(bytes: Bytes) -> Result<Self, CharStrError> {
-        if bytes.len() > 255 { Err(CharStrError) }
-        else { Ok(unsafe { Self::from_octets_unchecked(bytes) })}
+        if bytes.len() > 255 {
+            Err(CharStrError)
+        } else {
+            Ok(unsafe { Self::from_octets_unchecked(bytes) })
+        }
     }
 
     /// Scans a character string given as a word of hexadecimal digits.
-    #[cfg(feature="master")]
+    #[cfg(feature = "master")]
     pub fn scan_hex<C: CharSource>(
-        scanner: &mut Scanner<C>
+        scanner: &mut Scanner<C>,
     ) -> Result<Self, ScanError> {
         scanner.scan_hex_word(|b| unsafe {
             Ok(CharStr::from_octets_unchecked(b))
@@ -153,29 +182,25 @@ impl CharStr<[u8]> {
     /// If the byte slice is longer than 255 bytes, the function will return
     /// an error.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, CharStrError> {
-        if slice.len() > 255 { Err(CharStrError) }
-        else { 
-            Ok(unsafe {
-                &*(slice as *const [u8] as *const CharStr<[u8]>)
-            })
+        if slice.len() > 255 {
+            Err(CharStrError)
+        } else {
+            Ok(unsafe { &*(slice as *const [u8] as *const CharStr<[u8]>) })
         }
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Octets, SrcOctets> OctetsFrom<CharStr<SrcOctets>> for CharStr<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: CharStr<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.0).map(|octets| {
-            unsafe {
-                Self::from_octets_unchecked(octets)
-            }
-        })
+        Octets::octets_from(source.0)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
-
 
 //--- FromStr
 
@@ -189,9 +214,10 @@ where
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Most likely, everything is ASCII so take `s`’s length as capacity.
-        let mut builder = 
-            CharStrBuilder::<<Octets as FromBuilder>::Builder>
-            ::with_capacity(s.len());
+        let mut builder =
+            CharStrBuilder::<<Octets as FromBuilder>::Builder>::with_capacity(
+                s.len(),
+            );
         let mut chars = s.chars();
         while let Some(symbol) = Symbol::from_chars(&mut chars)? {
             if builder.len() == 255 {
@@ -202,7 +228,6 @@ where
         Ok(builder.finish())
     }
 }
-
 
 //--- Deref and AsRef
 
@@ -232,70 +257,80 @@ impl<Octets: AsMut<U> + ?Sized, U: ?Sized> AsMut<U> for CharStr<Octets> {
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<T, U> PartialEq<U> for CharStr<T>
-where T: AsRef<[u8]> + ?Sized, U: AsRef<[u8]> + ?Sized {
+where
+    T: AsRef<[u8]> + ?Sized,
+    U: AsRef<[u8]> + ?Sized,
+{
     fn eq(&self, other: &U) -> bool {
         self.as_slice().eq_ignore_ascii_case(other.as_ref())
     }
 }
 
-impl<T: AsRef<[u8]> + ?Sized> Eq for CharStr<T> { }
-
+impl<T: AsRef<[u8]> + ?Sized> Eq for CharStr<T> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
 impl<T, U> PartialOrd<U> for CharStr<T>
-where T: AsRef<[u8]> + ?Sized, U: AsRef<[u8]> + ?Sized {
+where
+    T: AsRef<[u8]> + ?Sized,
+    U: AsRef<[u8]> + ?Sized,
+{
     fn partial_cmp(&self, other: &U) -> Option<cmp::Ordering> {
-        self.0.as_ref().iter().map(
-            u8::to_ascii_lowercase
-        ).partial_cmp(
-            other.as_ref().iter().map(u8::to_ascii_lowercase)
-        )
+        self.0
+            .as_ref()
+            .iter()
+            .map(u8::to_ascii_lowercase)
+            .partial_cmp(other.as_ref().iter().map(u8::to_ascii_lowercase))
     }
 }
 
 impl<T: AsRef<[u8]> + ?Sized> Ord for CharStr<T> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.0.as_ref().iter().map(u8::to_ascii_lowercase)
+        self.0
+            .as_ref()
+            .iter()
+            .map(u8::to_ascii_lowercase)
             .cmp(other.0.as_ref().iter().map(u8::to_ascii_lowercase))
     }
 }
 
 impl<T, U> CanonicalOrd<CharStr<U>> for CharStr<T>
-where T: AsRef<[u8]> + ?Sized, U: AsRef<[u8]> + ?Sized {
+where
+    T: AsRef<[u8]> + ?Sized,
+    U: AsRef<[u8]> + ?Sized,
+{
     fn canonical_cmp(&self, other: &CharStr<U>) -> cmp::Ordering {
         match self.0.as_ref().len().cmp(&other.0.as_ref().len()) {
-            cmp::Ordering::Equal => { }
-            other => return other
+            cmp::Ordering::Equal => {}
+            other => return other,
         }
         self.as_slice().cmp(other.as_slice())
     }
 }
 
-
 //--- Hash
 
 impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.0.as_ref().iter().map(u8::to_ascii_lowercase)
+        self.0
+            .as_ref()
+            .iter()
+            .map(u8::to_ascii_lowercase)
             .for_each(|ch| ch.hash(state))
     }
 }
-
-
 
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for CharStr<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = parser.parse_u8()? as usize;
-        parser.parse_octets(len).map(|bytes| {
-            unsafe { Self::from_octets_unchecked(bytes) }
-        })
+        parser
+            .parse_octets(len)
+            .map(|bytes| unsafe { Self::from_octets_unchecked(bytes) })
     }
 
     fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
@@ -307,7 +342,7 @@ impl<Ref: OctetsRef> Parse<Ref> for CharStr<Ref::Range> {
 impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
     fn compose<Target: OctetsBuilder>(
         &self,
-        target: &mut Target
+        target: &mut Target,
     ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             (self.as_ref().len() as u8).compose(target)?;
@@ -316,18 +351,17 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for CharStr<Bytes> {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         scanner.scan_byte_phrase(|res| {
             if res.len() > 255 {
                 Err(SyntaxError::LongCharStr)
-            }
-            else {
+            } else {
                 Ok(unsafe { CharStr::from_octets_unchecked(res) })
             }
         })
@@ -361,7 +395,6 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::UpperHex for CharStr<T> {
     }
 }
 
-
 //--- IntoIterator
 
 impl<T: AsRef<[u8]>> IntoIterator for CharStr<T> {
@@ -382,7 +415,6 @@ impl<'a, T: AsRef<[u8]> + ?Sized + 'a> IntoIterator for &'a CharStr<T> {
     }
 }
 
-
 //--- Debug
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::Debug for CharStr<T> {
@@ -390,7 +422,6 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::Debug for CharStr<T> {
         write!(f, "CharStr(\"{:?}\")", self.0.as_ref())
     }
 }
-
 
 //------------ CharStrBuilder ------------------------------------------------
 
@@ -430,8 +461,7 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     pub fn from_builder(builder: Builder) -> Result<Self, CharStrError> {
         if builder.as_ref().len() > 255 {
             Err(CharStrError)
-        }
-        else {
+        } else {
             Ok(unsafe { Self::from_builder_unchecked(builder) })
         }
     }
@@ -450,7 +480,7 @@ impl CharStrBuilder<Vec<u8>> {
     }
 }
 
-#[cfg(feature="bytes")]
+#[cfg(feature = "bytes")]
 impl CharStrBuilder<BytesMut> {
     /// Creates a new empty builder for a bytes value.
     pub fn new_bytes() -> Self {
@@ -475,7 +505,6 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     }
 }
 
-
 //--- Default
 
 impl<Builder: EmptyBuilder> Default for CharStrBuilder<Builder> {
@@ -484,7 +513,6 @@ impl<Builder: EmptyBuilder> Default for CharStrBuilder<Builder> {
     }
 }
 
-
 //--- OctetsBuilder
 
 impl<Builder: OctetsBuilder> OctetsBuilder for CharStrBuilder<Builder> {
@@ -492,7 +520,7 @@ impl<Builder: OctetsBuilder> OctetsBuilder for CharStrBuilder<Builder> {
 
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
         if self.0.len() + slice.len() > 255 {
-            return Err(ShortBuf)
+            return Err(ShortBuf);
         }
         self.0.append_slice(slice)
     }
@@ -506,7 +534,6 @@ impl<Builder: OctetsBuilder> OctetsBuilder for CharStrBuilder<Builder> {
     }
 }
 
-
 //--- Deref and DerefMut
 
 impl<Builder: AsRef<[u8]>> ops::Deref for CharStrBuilder<Builder> {
@@ -518,12 +545,13 @@ impl<Builder: AsRef<[u8]>> ops::Deref for CharStrBuilder<Builder> {
 }
 
 impl<Builder> ops::DerefMut for CharStrBuilder<Builder>
-where Builder: AsRef<[u8]> + AsMut<[u8]> {
+where
+    Builder: AsRef<[u8]> + AsMut<[u8]>,
+{
     fn deref_mut(&mut self) -> &mut [u8] {
         self.0.as_mut()
     }
 }
-
 
 //--- AsRef and AsMut
 
@@ -539,7 +567,6 @@ impl<Builder: AsMut<[u8]>> AsMut<[u8]> for CharStrBuilder<Builder> {
     }
 }
 
-
 //------------ IntoIter ------------------------------------------------------
 
 /// The iterator type for `IntoIterator` for a character string itself.
@@ -554,7 +581,7 @@ impl<T: AsRef<[u8]>> IntoIter<T> {
         IntoIter {
             len: octets.as_ref().len(),
             octets,
-            pos: 0
+            pos: 0,
         }
     }
 }
@@ -565,15 +592,13 @@ impl<T: AsRef<[u8]>> Iterator for IntoIter<T> {
     fn next(&mut self) -> Option<Self::Item> {
         if self.pos == self.len {
             None
-        }
-        else {
+        } else {
             let res = self.octets.as_ref()[self.pos];
             self.pos += 1;
             Some(res)
         }
     }
 }
-
 
 //------------ Iter ----------------------------------------------------------
 
@@ -598,7 +623,6 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
-
 //============ Error Types ===================================================
 
 //------------ CharStrError --------------------------------------------------
@@ -616,8 +640,7 @@ impl fmt::Display for CharStrError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for CharStrError { }
-
+impl std::error::Error for CharStrError {}
 
 //------------ FromStrError --------------------------------------------
 
@@ -649,7 +672,6 @@ pub enum FromStrError {
     ShortBuf,
 }
 
-
 //--- From
 
 impl From<SymbolError> for FromStrError {
@@ -673,37 +695,36 @@ impl From<ShortBuf> for FromStrError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::ShortInput
-                => f.write_str("unexpected end of input"),
-            FromStrError::LongString
-                => f.write_str("character string with more than 255 octets"),
-            FromStrError::BadEscape
-                => f.write_str("illegal escape sequence"),
-            FromStrError::BadSymbol(symbol)
-                => write!(f, "illegal character '{}'", symbol),
-            FromStrError::ShortBuf
-                => ShortBuf.fmt(f)
+            FromStrError::ShortInput => {
+                f.write_str("unexpected end of input")
+            }
+            FromStrError::LongString => {
+                f.write_str("character string with more than 255 octets")
+            }
+            FromStrError::BadEscape => f.write_str("illegal escape sequence"),
+            FromStrError::BadSymbol(symbol) => {
+                write!(f, "illegal character '{}'", symbol)
+            }
+            FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for FromStrError { }
-
+impl std::error::Error for FromStrError {}
 
 //============ Testing ======================================================
 
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod test {
-    use std::vec::Vec;
     use super::*;
+    use std::vec::Vec;
 
     type CharStrRef<'a> = CharStr<&'a [u8]>;
 
@@ -719,18 +740,18 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature="bytes")]
+    #[cfg(feature = "bytes")]
     fn from_bytes() {
         assert_eq!(
-            CharStr::from_bytes(
-                bytes::Bytes::from_static(b"01234")
-            ).unwrap().as_slice(),
+            CharStr::from_bytes(bytes::Bytes::from_static(b"01234"))
+                .unwrap()
+                .as_slice(),
             b"01234"
         );
         assert_eq!(
-            CharStr::from_bytes(
-                bytes::Bytes::from_static(b"")
-            ).unwrap().as_slice(),
+            CharStr::from_bytes(bytes::Bytes::from_static(b""))
+                .unwrap()
+                .as_slice(),
             b""
         );
         assert!(CharStr::from_bytes(vec![0; 255].into()).is_ok());
@@ -815,9 +836,9 @@ mod test {
 
     fn is_ord(l: &[u8], r: &[u8], order: cmp::Ordering) {
         assert_eq!(
-            CharStr::from_slice(l).unwrap().cmp(
-                &CharStr::from_slice(r).unwrap()
-            ),
+            CharStr::from_slice(l)
+                .unwrap()
+                .cmp(&CharStr::from_slice(r).unwrap()),
             order
         )
     }
@@ -843,9 +864,8 @@ mod test {
         assert_eq!(o.len(), 255);
         assert!(o.append_slice(b"f").is_err());
 
-        let mut o = CharStrBuilder::from_builder(
-            vec![b'f', b'o', b'o']
-        ).unwrap();
+        let mut o =
+            CharStrBuilder::from_builder(vec![b'f', b'o', b'o']).unwrap();
         o.append_slice(b"bar").unwrap();
         assert_eq!(o.as_ref(), b"foobar");
         assert!(o.append_slice(&[0u8; 250][..]).is_err());
@@ -853,4 +873,3 @@ mod test {
         assert_eq!(o.len(), 255);
     }
 }
-

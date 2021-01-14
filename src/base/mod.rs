@@ -28,10 +28,10 @@
 //! wire-format messages other forms of representation conversion such as
 //! reading from a master file, we use the term *parsing* for extracting data
 //! from a wire-format representation and *composing* for producing such a
-//! representation. 
+//! representation.
 //!
 //! Both parsing and composing happen on buffers holding a complete DNS
-//! message. This seems to be a reasonable choice given the limited 
+//! message. This seems to be a reasonable choice given the limited
 //! size of DNS messages and the complexities introduced by compressing
 //! domain names in message by referencing other parts of the message.
 //! The fundamental types for parsing and composing are also part of the
@@ -97,18 +97,20 @@ pub use self::cmp::CanonicalOrd;
 pub use self::header::{Header, HeaderCounts, HeaderSection};
 pub use self::iana::Rtype;
 pub use self::message::{Message, QuestionSection, RecordSection};
+#[cfg(feature = "std")]
+pub use self::message_builder::TreeCompressor;
 pub use self::message_builder::{
-    MessageBuilder, RecordSectionBuilder, StaticCompressor, StreamTarget
+    MessageBuilder, RecordSectionBuilder, StaticCompressor, StreamTarget,
 };
-#[cfg(feature = "std")] pub use self::message_builder::TreeCompressor;
 pub use self::name::{
-    Dname, DnameBuilder, ParsedDname, RelativeDname, ToDname, ToRelativeDname
+    Dname, DnameBuilder, ParsedDname, RelativeDname, ToDname, ToRelativeDname,
 };
-pub use self::octets::{Compose, Parser, ShortBuf}; 
-#[cfg(feature = "smallvec")] pub use self::octets::OctetsVec;
+#[cfg(feature = "smallvec")]
+pub use self::octets::OctetsVec;
+pub use self::octets::{Compose, Parser, ShortBuf};
 pub use self::question::Question;
 pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
-pub use self::record::{Record, RecordHeader, ParsedRecord};
+pub use self::record::{ParsedRecord, Record, RecordHeader};
 pub use self::serial::Serial;
 
 //--- Modules
@@ -123,9 +125,8 @@ pub mod name;
 pub mod net;
 pub mod octets;
 pub mod opt;
+pub mod question;
 pub mod rdata;
 pub mod record;
-pub mod question;
 pub mod serial;
 pub mod str;
-

@@ -5,7 +5,7 @@
 //! Main types: [`Dname`], [`RelativeDname`], [`ParsedDname`],
 //! [`UncertainDname`], [`DnameBuilder`].<br/>
 //! Main traits: [`ToDname`], [`ToRelativeDname`].
-//! 
+//!
 //! Domain names are a sequence of *labels* which are in turn a sequence of
 //! up to 63 octets. While they are limited to a subset of ASCII by
 //! convention, all octet values are allowed. In their wire-format
@@ -57,18 +57,22 @@
 //! [`ToRelativeDname`]: trait.ToRelativeDname.html
 //! [`UncertainDname`]: enum.UncertainDname.html
 
-pub use self::builder::{DnameBuilder, FromStrError, PushError, PushNameError};
+pub use self::builder::{
+    DnameBuilder, FromStrError, PushError, PushNameError,
+};
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
 pub use self::dname::{Dname, DnameError};
 pub use self::label::{
     Label, LabelTypeError, LongLabelError, OwnedLabel, SliceLabelsIter,
-    SplitLabelError
+    SplitLabelError,
 };
 pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedSuffixIter};
 pub use self::relative::{
-    RelativeDname, DnameIter, RelativeDnameError, StripSuffixError
+    DnameIter, RelativeDname, RelativeDnameError, StripSuffixError,
 };
-pub use self::traits::{ToDname, ToEitherDname, ToLabelIter, ToRelativeDname};
+pub use self::traits::{
+    ToDname, ToEitherDname, ToLabelIter, ToRelativeDname,
+};
 pub use self::uncertain::UncertainDname;
 
 mod builder;
@@ -79,4 +83,3 @@ mod parsed;
 mod relative;
 mod traits;
 mod uncertain;
-

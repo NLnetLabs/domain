@@ -10,21 +10,20 @@
 //!
 //! [`Message`]: struct.Message.html
 
-use core::{fmt, mem};
-use core::marker::PhantomData;
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder};
 use super::name::ParsedDname;
 use super::octets::{
-    OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
 use super::rdata::ParseRecordData;
 use super::record::{AsRecord, ParsedRecord, Record};
 use crate::rdata::rfc1035::Cname;
-
+use core::marker::PhantomData;
+use core::{fmt, mem};
 
 //------------ Message -------------------------------------------------------
 
@@ -44,7 +43,7 @@ use crate::rdata::rfc1035::Cname;
 ///
 /// The header section is of a fixed sized and can be accessed at any time
 /// through the methods given under [Header Section]. Most likely, you will
-/// be interested in the first part of the header which is 
+/// be interested in the first part of the header which is
 /// returned by the [`header`] method.  The second part of the header
 /// section contains the number of entries in the following four sections
 /// and is of less interest as there are more sophisticated ways of accessing
@@ -65,11 +64,11 @@ use crate::rdata::rfc1035::Cname;
 ///
 /// You can acquire an iterator over the questions through the [`question`]
 /// method. It returns a [`QuestionSection`] value that is an iterator over
-/// questions. Since a single question is such a common case, there is a 
+/// questions. Since a single question is such a common case, there is a
 /// convenience method [`first_question`] that returns the first question
 /// only.
 ///
-/// The following three section all contain DNS resource records. In 
+/// The following three section all contain DNS resource records. In
 /// queries, they are empty in a request and may or may not contain records
 /// in a response. The *answer* section contains all the records that answer
 /// the given question. The *authority* section contains records declaring
@@ -81,7 +80,7 @@ use crate::rdata::rfc1035::Cname;
 /// may include these right away and free of charge.
 ///
 /// There are functions to access all three sections directly: [`answer`],
-/// [`authority`], and [`additional`]. Each method returns a value of type 
+/// [`authority`], and [`additional`]. Each method returns a value of type
 /// [RecordSection] which acts as an iterator over the records in the
 /// section. Since there are no pointers to where the later sections start,
 /// accessing them directly means iterating over the previous sections. This
@@ -153,7 +152,7 @@ use crate::rdata::rfc1035::Cname;
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone, Copy)]
 pub struct Message<Octets> {
-    octets: Octets
+    octets: Octets,
 }
 
 /// # Creation and Conversion
@@ -166,11 +165,12 @@ impl<Octets> Message<Octets> {
     /// function returns ok, the message may still be broken with other
     /// methods returning errors later one.
     pub fn from_octets(octets: Octets) -> Result<Self, ShortBuf>
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         if octets.as_ref().len() < mem::size_of::<HeaderSection>() {
             Err(ShortBuf)
-        }
-        else {
+        } else {
             Ok(unsafe { Self::from_octets_unchecked(octets) })
         }
     }
@@ -195,7 +195,9 @@ impl<Octets> Message<Octets> {
 
     /// Returns a slice to the underlying octets sequence.
     pub fn as_slice(&self) -> &[u8]
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         self.octets.as_ref()
     }
 
@@ -204,17 +206,20 @@ impl<Octets> Message<Octets> {
     /// Because it is possible to utterly break the message using this slice,
     /// the method is private.
     fn as_slice_mut(&mut self) -> &mut [u8]
-    where Octets: AsMut<[u8]> {
+    where
+        Octets: AsMut<[u8]>,
+    {
         self.octets.as_mut()
     }
 
     /// Returns a message for a slice of the octets sequence.
     pub fn for_slice(&self) -> Message<&[u8]>
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         unsafe { Message::from_octets_unchecked(self.octets.as_ref()) }
     }
 }
-
 
 /// # Header Section
 ///
@@ -223,10 +228,12 @@ impl<Octets: AsRef<[u8]>> Message<Octets> {
     pub fn header(&self) -> Header {
         *Header::for_message_slice(self.as_slice())
     }
-    
+
     /// Returns a mutable reference to the message header.
     pub fn header_mut(&mut self) -> &mut Header
-    where Octets: AsMut<[u8]> {
+    where
+        Octets: AsMut<[u8]>,
+    {
         Header::for_message_slice_mut(self.as_slice_mut())
     }
 
@@ -254,7 +261,9 @@ impl<Octets: AsRef<[u8]>> Message<Octets> {
 /// # Access to Sections
 ///
 impl<Octets> Message<Octets>
-where for<'a> &'a Octets: OctetsRef {
+where
+    for<'a> &'a Octets: OctetsRef,
+{
     /// Returns the question section.
     pub fn question(&self) -> QuestionSection<&Octets> {
         QuestionSection::new(&self.octets)
@@ -317,13 +326,15 @@ where for<'a> &'a Octets: OctetsRef {
     /// Returns all four sections in one fell swoop.
     #[allow(clippy::type_complexity)]
     pub fn sections(
-        &self
+        &self,
     ) -> Result<
         (
-            QuestionSection<&Octets>, RecordSection<&Octets>,
-            RecordSection<&Octets>, RecordSection<&Octets>
+            QuestionSection<&Octets>,
+            RecordSection<&Octets>,
+            RecordSection<&Octets>,
+            RecordSection<&Octets>,
         ),
-        ParseError
+        ParseError,
     > {
         let question = self.question();
         let answer = question.clone().next_section()?;
@@ -347,13 +358,12 @@ where for<'a> &'a Octets: OctetsRef {
     }
 }
 
-
 /// # Helpers for Common Tasks
 ///
 impl<Octets> Message<Octets>
 where
     Octets: AsRef<[u8]>,
-    for<'a> &'a Octets: OctetsRef
+    for<'a> &'a Octets: OctetsRef,
 {
     /// Returns whether this is the answer to some other message.
     ///
@@ -363,7 +373,7 @@ where
     pub fn is_answer<Other>(&self, query: &Message<Other>) -> bool
     where
         Other: AsRef<[u8]>,
-        for <'o> &'o Other: OctetsRef
+        for<'o> &'o Other: OctetsRef,
     {
         if !self.header().qr()
             || self.header().id() != query.header().id()
@@ -371,8 +381,9 @@ where
                 != query.header_counts().qdcount()
         {
             false
+        } else {
+            self.question() == query.question()
         }
-        else { self.question() == query.question() }
     }
 
     /// Returns the first question, if there is any.
@@ -382,7 +393,7 @@ where
     pub fn first_question(&self) -> Option<Question<ParsedDname<&Octets>>> {
         match self.question().next() {
             None | Some(Err(..)) => None,
-            Some(Ok(question)) => Some(question)
+            Some(Ok(question)) => Some(question),
         }
     }
 
@@ -393,16 +404,15 @@ where
     ///
     /// [`first_question`]: #method.first_question
     pub fn sole_question(
-        &self
+        &self,
     ) -> Result<Question<ParsedDname<&Octets>>, ParseError> {
         match self.header_counts().qdcount() {
             0 => return Err(ParseError::form_error("no question")),
-            1 => { }
+            1 => {}
             _ => return Err(ParseError::form_error("multiple questions")),
         }
         self.question().next().unwrap()
     }
-
 
     /// Returns the query type of the first question, if any.
     pub fn qtype(&self) -> Option<Rtype> {
@@ -411,10 +421,12 @@ where
 
     /// Returns whether the message contains answers of a given type.
     pub fn contains_answer<'s, Data>(&'s self) -> bool
-    where Data: ParseRecordData<&'s Octets> {
+    where
+        Data: ParseRecordData<&'s Octets>,
+    {
         let answer = match self.answer() {
             Ok(answer) => answer,
-            Err(..) => return false
+            Err(..) => return false,
         };
         answer.limit_to::<Data>().next().is_some()
     }
@@ -443,7 +455,7 @@ where
     pub fn canonical_name(&self) -> Option<ParsedDname<&Octets>> {
         let question = match self.first_question() {
             None => return None,
-            Some(question) => question
+            Some(question) => question,
         };
         let mut name = question.into_qname();
         let answer = match self.answer() {
@@ -465,10 +477,10 @@ where
                 }
             }
             if !found {
-                return Some(name)
+                return Some(name);
             }
         }
-        
+
         None
     }
 
@@ -478,7 +490,7 @@ where
             Ok(section) => match section.limit_to::<Opt<_>>().next() {
                 Some(Ok(rr)) => Some(OptRecord::from(rr)),
                 _ => None,
-            }
+            },
             Err(_) => None,
         }
     }
@@ -492,18 +504,18 @@ where
     /// If the last record is of the wrong type or parsing fails, returns
     /// `None`.
     pub fn get_last_additional<'s, Data: ParseRecordData<&'s Octets>>(
-        &'s self
+        &'s self,
     ) -> Option<Record<ParsedDname<&'s Octets>, Data>> {
         let mut section = match self.additional() {
             Ok(section) => section,
-            Err(_) => return None
+            Err(_) => return None,
         };
         loop {
             match section.count {
                 Err(_) => return None,
                 Ok(0) => return None,
                 Ok(1) => break,
-                _ => { }
+                _ => {}
             }
             let _ = section.next();
         }
@@ -513,7 +525,7 @@ where
         };
         let record = match record.into_record() {
             Ok(Some(record)) => record,
-            _ => return None
+            _ => return None,
         };
         Some(record)
     }
@@ -527,10 +539,11 @@ where
     ///
     /// The method panics if the additional section is empty.
     pub fn remove_last_additional(&mut self)
-    where Octets: AsMut<[u8]> {
-        HeaderCounts::for_message_slice_mut(
-            self.octets.as_mut()
-        ).dec_arcount();
+    where
+        Octets: AsMut<[u8]>,
+    {
+        HeaderCounts::for_message_slice_mut(self.octets.as_mut())
+            .dec_arcount();
     }
 
     /// Copy records from a message into the target message builder.
@@ -541,14 +554,14 @@ where
     pub fn copy_records<'s, R, F, T, O>(
         &'s self,
         target: T,
-        mut op: F
+        mut op: F,
     ) -> Result<AdditionalBuilder<O>, CopyRecordsError>
     where
-        for <'a> &'a Octets: OctetsRef,
+        for<'a> &'a Octets: OctetsRef,
         R: AsRecord + 's,
         F: FnMut(ParsedRecord<&'s Octets>) -> Option<R>,
         T: Into<AnswerBuilder<O>>,
-        O: OctetsBuilder
+        O: OctetsBuilder,
     {
         let mut source = self.answer()?;
         let mut target = target.into();
@@ -581,7 +594,6 @@ where
     }
 }
 
-
 //--- AsRef
 
 impl<Octets> AsRef<Octets> for Message<Octets> {
@@ -596,33 +608,33 @@ impl<Octets: AsRef<[u8]>> AsRef<[u8]> for Message<Octets> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Octets, SrcOctets> OctetsFrom<Message<SrcOctets>> for Message<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: Message<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.octets).map(|octets| {
-            unsafe {
-                Self::from_octets_unchecked(octets)
-            }
-        })
+        Octets::octets_from(source.octets)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
-
 
 //--- IntoIterator
 
 impl<'a, Octets> IntoIterator for &'a Message<Octets>
-where for<'s> &'s Octets: OctetsRef {
+where
+    for<'s> &'s Octets: OctetsRef,
+{
     type Item = Result<(ParsedRecord<&'a Octets>, Section), ParseError>;
     type IntoIter = MessageIter<&'a Octets>;
 
     fn into_iter(self) -> Self::IntoIter {
-        MessageIter { inner: self.answer().ok() }
+        MessageIter {
+            inner: self.answer().ok(),
+        }
     }
 }
-
 
 //------------ QuestionSection ----------------------------------------------
 
@@ -648,7 +660,7 @@ pub struct QuestionSection<Ref> {
     /// The `Result` is here to monitor an error during iteration.
     /// It is used to fuse the iterator after an error and is also returned
     /// by `answer()` should that be called after an error.
-    count: Result<u16, ParseError>
+    count: Result<u16, ParseError>,
 }
 
 impl<Ref: OctetsRef> QuestionSection<Ref> {
@@ -657,8 +669,8 @@ impl<Ref: OctetsRef> QuestionSection<Ref> {
         let mut parser = Parser::from_ref(octets);
         parser.advance(mem::size_of::<HeaderSection>()).unwrap();
         QuestionSection {
-            count: Ok(HeaderCounts::for_message_slice(
-                parser.as_slice()).qdcount()
+            count: Ok(
+                HeaderCounts::for_message_slice(parser.as_slice()).qdcount()
             ),
             parser,
         }
@@ -676,7 +688,7 @@ impl<Ref: OctetsRef> QuestionSection<Ref> {
     ///
     /// [`RecordSection`]: struct.RecordSection.html
     pub fn answer(mut self) -> Result<RecordSection<Ref>, ParseError> {
-        while self.next().is_some() { }
+        while self.next().is_some() {}
         let _ = self.count?;
         Ok(RecordSection::new(self.parser, Section::first()))
     }
@@ -689,7 +701,6 @@ impl<Ref: OctetsRef> QuestionSection<Ref> {
     }
 }
 
-
 //--- Iterator
 
 impl<Ref: OctetsRef> Iterator for QuestionSection<Ref> {
@@ -697,28 +708,29 @@ impl<Ref: OctetsRef> Iterator for QuestionSection<Ref> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.count {
-            Ok(count) if count > 0 => {
-                match Question::parse(&mut self.parser) {
-                    Ok(question) => {
-                        self.count = Ok(count - 1);
-                        Some(Ok(question))
-                    }
-                    Err(err) => {
-                        self.count = Err(err);
-                        Some(Err(err))
-                    }
+            Ok(count) if count > 0 => match Question::parse(&mut self.parser)
+            {
+                Ok(question) => {
+                    self.count = Ok(count - 1);
+                    Some(Ok(question))
                 }
-            }
-            _ => None
+                Err(err) => {
+                    self.count = Err(err);
+                    Some(Err(err))
+                }
+            },
+            _ => None,
         }
     }
 }
 
-
 //--- PartialEq
 
 impl<Ref, Other> PartialEq<QuestionSection<Other>> for QuestionSection<Ref>
-where Ref: OctetsRef, Other: OctetsRef {
+where
+    Ref: OctetsRef,
+    Other: OctetsRef,
+{
     fn eq(&self, other: &QuestionSection<Other>) -> bool {
         let mut me = *self;
         let mut other = *other;
@@ -726,16 +738,15 @@ where Ref: OctetsRef, Other: OctetsRef {
             match (me.next(), other.next()) {
                 (Some(Ok(left)), Some(Ok(right))) => {
                     if left != right {
-                        return false
+                        return false;
                     }
                 }
                 (None, None) => return true,
-                _ => return false
+                _ => return false,
             }
         }
     }
 }
-
 
 //------------ Section -------------------------------------------------------
 
@@ -748,20 +759,21 @@ where Ref: OctetsRef, Other: OctetsRef {
 pub enum Section {
     Answer,
     Authority,
-    Additional
+    Additional,
 }
-
 
 impl Section {
     /// Returns the first section.
-    pub fn first() -> Self { Section::Answer }
+    pub fn first() -> Self {
+        Section::Answer
+    }
 
     /// Returns the correct record count for this section.
     fn count(self, counts: HeaderCounts) -> u16 {
         match self {
             Section::Answer => counts.ancount(),
             Section::Authority => counts.nscount(),
-            Section::Additional => counts.arcount()
+            Section::Additional => counts.arcount(),
         }
     }
 
@@ -770,11 +782,10 @@ impl Section {
         match self {
             Section::Answer => Some(Section::Authority),
             Section::Authority => Some(Section::Additional),
-            Section::Additional => None
+            Section::Additional => None,
         }
     }
 }
-
 
 //------------ RecordSection -----------------------------------------------
 
@@ -816,7 +827,7 @@ pub struct RecordSection<Ref> {
     /// The `Result` is here to monitor an error during iteration.
     /// It is used to fuse the iterator after an error and is also returned
     /// by `answer()` should that be called after an error.
-    count: Result<u16, ParseError>
+    count: Result<u16, ParseError>,
 }
 
 impl<Ref: OctetsRef> RecordSection<Ref> {
@@ -825,9 +836,8 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
     /// The parser must be positioned at the beginning of this section.
     fn new(parser: Parser<Ref>, section: Section) -> Self {
         RecordSection {
-            count: Ok(section.count(
-                *HeaderCounts::for_message_slice(parser.as_slice())
-            )),
+            count: Ok(section
+                .count(*HeaderCounts::for_message_slice(parser.as_slice()))),
             section,
             parser,
         }
@@ -854,7 +864,7 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
     /// [`ParsedDname`]: ../name/struct.ParsedDname.html
     /// [domain::rdata::parsed]: ../../rdata/parsed/index.html
     pub fn limit_to<Data: ParseRecordData<Ref>>(
-        self
+        self,
     ) -> RecordIter<Ref, Data> {
         RecordIter::new(self, false)
     }
@@ -866,7 +876,7 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
     ///
     /// [`limit_to`]: #method.limit_to
     pub fn limit_to_in<Data: ParseRecordData<Ref>>(
-        self
+        self,
     ) -> RecordIter<Ref, Data> {
         RecordIter::new(self, true)
     }
@@ -878,9 +888,9 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
     pub fn next_section(mut self) -> Result<Option<Self>, ParseError> {
         let section = match self.section.next_section() {
             Some(section) => section,
-            None => return Ok(None)
+            None => return Ok(None),
         };
-        while self.skip_next().is_some() { }
+        while self.skip_next().is_some() {}
         let _ = self.count?;
         Ok(Some(RecordSection::new(self.parser, section)))
     }
@@ -900,11 +910,10 @@ impl<Ref: OctetsRef> RecordSection<Ref> {
                     }
                 }
             }
-            _ => None
+            _ => None,
         }
     }
 }
-
 
 //--- Iterator
 
@@ -925,11 +934,10 @@ impl<Ref: OctetsRef> Iterator for RecordSection<Ref> {
                     }
                 }
             }
-            _ => None
+            _ => None,
         }
     }
 }
-
 
 //------------ MessageIter ---------------------------------------------------
 
@@ -949,7 +957,7 @@ impl<Ref: OctetsRef> Iterator for MessageIter<Ref> {
                 if let Some(item) = item {
                     return Some(item.map(|item| (item, inner.section)));
                 }
-            },
+            }
             None => return None,
         }
 
@@ -960,11 +968,10 @@ impl<Ref: OctetsRef> Iterator for MessageIter<Ref> {
                 self.inner = section;
                 self.next()
             }
-            Err(err) => Some(Err(err))
+            Err(err) => Some(Err(err)),
         }
     }
 }
-
 
 //------------ RecordIter ----------------------------------------------------
 
@@ -987,13 +994,17 @@ impl<Ref: OctetsRef> Iterator for MessageIter<Ref> {
 pub struct RecordIter<Ref, Data> {
     section: RecordSection<Ref>,
     in_only: bool,
-    marker: PhantomData<Data>
+    marker: PhantomData<Data>,
 }
 
 impl<Ref: OctetsRef, Data: ParseRecordData<Ref>> RecordIter<Ref, Data> {
     /// Creates a new record iterator.
     fn new(section: RecordSection<Ref>, in_only: bool) -> Self {
-        RecordIter { section, in_only, marker: PhantomData }
+        RecordIter {
+            section,
+            in_only,
+            marker: PhantomData,
+        }
     }
 
     /// Trades the limited iterator for the full iterator.
@@ -1009,17 +1020,19 @@ impl<Ref: OctetsRef, Data: ParseRecordData<Ref>> RecordIter<Ref, Data> {
     /// Returns an error if parsing the message has failed. Returns
     /// `Ok(None)` if this iterator was already on the additional section.
     pub fn next_section(
-        self
+        self,
     ) -> Result<Option<RecordSection<Ref>>, ParseError> {
         self.section.next_section()
     }
 }
 
-
 //--- Iterator
 
 impl<Ref, Data> Iterator for RecordIter<Ref, Data>
-where Ref: OctetsRef, Data: ParseRecordData<Ref> {
+where
+    Ref: OctetsRef,
+    Data: ParseRecordData<Ref>,
+{
     type Item = Result<Record<ParsedDname<Ref>, Data>, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1030,17 +1043,16 @@ where Ref: OctetsRef, Data: ParseRecordData<Ref> {
                 None => return None,
             };
             if self.in_only && record.class() != Class::In {
-                continue
+                continue;
             }
             match record.into_record() {
                 Ok(Some(record)) => return Some(Ok(record)),
                 Err(err) => return Some(Err(err)),
-                Ok(None) => { }
+                Ok(None) => {}
             }
         }
     }
 }
-
 
 //============ Error Types ===================================================
 
@@ -1056,7 +1068,6 @@ pub enum CopyRecordsError {
     ShortBuf,
 }
 
-
 //--- From
 
 impl From<ParseError> for CopyRecordsError {
@@ -1071,31 +1082,33 @@ impl From<ShortBuf> for CopyRecordsError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for CopyRecordsError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             CopyRecordsError::Parse(ref err) => err.fmt(f),
-            CopyRecordsError::ShortBuf => ShortBuf.fmt(f)
+            CopyRecordsError::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for CopyRecordsError { }
-
+impl std::error::Error for CopyRecordsError {}
 
 //============ Testing =======================================================
 
 #[cfg(test)]
 mod test {
-    #[cfg(feature = "std")] use std::vec::Vec;
-    #[cfg(feature = "std")] use crate::rdata::{Ns, AllRecordData};
-    #[cfg(feature = "std")] use crate::base::message_builder::MessageBuilder;
-    #[cfg(feature = "std")] use crate::base::name::Dname;
     use super::*;
+    #[cfg(feature = "std")]
+    use crate::base::message_builder::MessageBuilder;
+    #[cfg(feature = "std")]
+    use crate::base::name::Dname;
+    #[cfg(feature = "std")]
+    use crate::rdata::{AllRecordData, Ns};
+    #[cfg(feature = "std")]
+    use std::vec::Vec;
 
     // Helper for test cases
     #[cfg(feature = "std")]
@@ -1105,14 +1118,16 @@ mod test {
         msg.push((
             Dname::vec_from_str("foo.example.com.").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("baz.example.com.").unwrap())
-        )).unwrap();
+            Cname::new(Dname::vec_from_str("baz.example.com.").unwrap()),
+        ))
+        .unwrap();
         let mut msg = msg.authority();
         msg.push((
             Dname::vec_from_str("bar.example.com.").unwrap(),
             86000,
-            Ns::new(Dname::vec_from_str("baz.example.com.").unwrap())
-        )).unwrap();
+            Ns::new(Dname::vec_from_str("baz.example.com.").unwrap()),
+        ))
+        .unwrap();
         msg.into_message()
     }
 
@@ -1129,9 +1144,8 @@ mod test {
 
         // Message without CNAMEs.
         let mut msg = MessageBuilder::new_vec().question();
-        msg.push(
-            (Dname::vec_from_str("example.com.").unwrap(), Rtype::A)
-        ).unwrap();
+        msg.push((Dname::vec_from_str("example.com.").unwrap(), Rtype::A))
+            .unwrap();
         let msg_ref = msg.as_message();
         assert_eq!(
             Dname::vec_from_str("example.com.").unwrap(),
@@ -1143,18 +1157,21 @@ mod test {
         msg.push((
             Dname::vec_from_str("bar.example.com.").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("baz.example.com.").unwrap())
-        )).unwrap();
+            Cname::new(Dname::vec_from_str("baz.example.com.").unwrap()),
+        ))
+        .unwrap();
         msg.push((
             Dname::vec_from_str("example.com.").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("foo.example.com.").unwrap())
-        )).unwrap();
+            Cname::new(Dname::vec_from_str("foo.example.com.").unwrap()),
+        ))
+        .unwrap();
         msg.push((
             Dname::vec_from_str("foo.example.com.").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("bar.example.com.").unwrap())
-        )).unwrap();
+            Cname::new(Dname::vec_from_str("bar.example.com.").unwrap()),
+        ))
+        .unwrap();
         let msg_ref = msg.as_message();
         assert_eq!(
             Dname::vec_from_str("baz.example.com.").unwrap(),
@@ -1165,14 +1182,16 @@ mod test {
         msg.push((
             Dname::vec_from_str("baz.example.com").unwrap(),
             86000,
-            Cname::new(Dname::vec_from_str("foo.example.com").unwrap())
-        )).unwrap();
+            Cname::new(Dname::vec_from_str("foo.example.com").unwrap()),
+        ))
+        .unwrap();
         assert!(msg.as_message().canonical_name().is_none());
         msg.push((
             Dname::vec_from_str("baz.example.com").unwrap(),
             86000,
-            A::from_octets(127,0,0,1)
-        )).unwrap();
+            A::from_octets(127, 0, 0, 1),
+        ))
+        .unwrap();
         assert!(msg.as_message().canonical_name().is_none());
     }
 
@@ -1199,7 +1218,8 @@ mod test {
         let target = MessageBuilder::new_vec().question();
         let res = msg.copy_records(target.answer(), |rr| {
             if let Ok(Some(rr)) =
-                    rr.into_record::<AllRecordData<_, ParsedDname<_>>>() {
+                rr.into_record::<AllRecordData<_, ParsedDname<_>>>()
+            {
                 if rr.rtype() == Rtype::Cname {
                     return Some(rr);
                 }
@@ -1215,4 +1235,3 @@ mod test {
         }
     }
 }
-

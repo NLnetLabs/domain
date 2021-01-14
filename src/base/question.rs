@@ -4,16 +4,15 @@
 //! the question section of a DNS message and the `AsQuestion` trait for
 //! producing questions on the fly.
 
-use core::{fmt, hash};
-use core::cmp::Ordering;
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, Parser, ParseError,
-    ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    ShortBuf,
 };
-
+use core::cmp::Ordering;
+use core::{fmt, hash};
 
 //------------ Question ------------------------------------------------------
 
@@ -46,12 +45,20 @@ pub struct Question<N> {
 impl<N> Question<N> {
     /// Creates a new question from its three componets.
     pub fn new(qname: N, qtype: Rtype, qclass: Class) -> Self {
-        Question { qname, qtype, qclass }
+        Question {
+            qname,
+            qtype,
+            qclass,
+        }
     }
 
     /// Creates a new question from a name and record type, assuming class IN.
     pub fn new_in(qname: N, qtype: Rtype) -> Self {
-        Question { qname, qtype, qclass: Class::In }
+        Question {
+            qname,
+            qtype,
+            qclass: Class::In,
+        }
     }
 
     /// Converts the question into the qname.
@@ -59,7 +66,6 @@ impl<N> Question<N> {
         self.qname
     }
 }
-
 
 /// # Field Access
 ///
@@ -80,7 +86,6 @@ impl<N: ToDname> Question<N> {
     }
 }
 
-
 //--- From
 
 impl<N: ToDname> From<(N, Rtype, Class)> for Question<N> {
@@ -95,61 +100,70 @@ impl<N: ToDname> From<(N, Rtype)> for Question<N> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Question<SrcName>> for Question<Name>
-where Name: OctetsFrom<SrcName> {
+where
+    Name: OctetsFrom<SrcName>,
+{
     fn octets_from(source: Question<SrcName>) -> Result<Self, ShortBuf> {
         Ok(Question::new(
             Name::octets_from(source.qname)?,
-            source.qtype, source.qclass
+            source.qtype,
+            source.qclass,
         ))
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<N, NN> PartialEq<Question<NN>> for Question<N>
-where N: ToDname, NN: ToDname {
+where
+    N: ToDname,
+    NN: ToDname,
+{
     fn eq(&self, other: &Question<NN>) -> bool {
         self.qname.name_eq(&other.qname)
-        && self.qtype == other.qtype
-        && self.qclass == other.qclass
+            && self.qtype == other.qtype
+            && self.qclass == other.qclass
     }
 }
 
-impl<N: ToDname> Eq for Question<N> { }
-
+impl<N: ToDname> Eq for Question<N> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<N, NN> PartialOrd<Question<NN>> for Question<N>
-where N: ToDname, NN: ToDname {
+where
+    N: ToDname,
+    NN: ToDname,
+{
     fn partial_cmp(&self, other: &Question<NN>) -> Option<Ordering> {
         match self.qname.name_cmp(&other.qname) {
-            Ordering::Equal => { }
-            other => return Some(other)
+            Ordering::Equal => {}
+            other => return Some(other),
         }
         match self.qtype.partial_cmp(&other.qtype) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         self.qclass.partial_cmp(&other.qclass)
     }
 }
 
 impl<N, NN> CanonicalOrd<Question<NN>> for Question<N>
-where N: ToDname, NN: ToDname {
+where
+    N: ToDname,
+    NN: ToDname,
+{
     fn canonical_cmp(&self, other: &Question<NN>) -> Ordering {
         match self.qname.lowercase_composed_cmp(&other.qname) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.qtype.cmp(&other.qtype) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.qclass.cmp(&other.qclass)
     }
@@ -158,17 +172,16 @@ where N: ToDname, NN: ToDname {
 impl<N: ToDname> Ord for Question<N> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.qname.name_cmp(&other.qname) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.qtype.cmp(&other.qtype) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.qclass.cmp(&other.qclass)
     }
 }
-
 
 //--- Hash
 
@@ -180,7 +193,6 @@ impl<N: hash::Hash> hash::Hash for Question<N> {
     }
 }
 
-
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Question<ParsedDname<Ref>> {
@@ -188,7 +200,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Question<ParsedDname<Ref>> {
         Ok(Question::new(
             ParsedDname::parse(parser)?,
             Rtype::parse(parser)?,
-            Class::parse(parser)?
+            Class::parse(parser)?,
         ))
     }
 
@@ -203,7 +215,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Question<ParsedDname<Ref>> {
 impl<N: ToDname> Compose for Question<N> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             target.append_compressed_dname(&self.qname)?;
@@ -214,7 +226,7 @@ impl<N: ToDname> Compose for Question<N> {
 
     fn compose_canonical<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|target| {
             self.qname.compose_canonical(target)?;
@@ -223,7 +235,6 @@ impl<N: ToDname> Compose for Question<N> {
         })
     }
 }
-
 
 //--- Display and Debug
 
@@ -242,7 +253,6 @@ impl<N: fmt::Debug> fmt::Debug for Question<N> {
             .finish()
     }
 }
-
 
 //------------ AsQuestion ----------------------------------------------------
 
@@ -278,9 +288,11 @@ pub trait AsQuestion {
     /// Produces the encoding of the question.
     fn compose_question<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf>
-    where Self::Name: Compose {
+    where
+        Self::Name: Compose,
+    {
         target.append_all(|target| {
             target.append_compressed_dname(self.qname())?;
             self.qtype().compose(target)?;
@@ -291,9 +303,11 @@ pub trait AsQuestion {
     /// Produces the canoncial encoding of the question.
     fn compose_question_canonical<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf>
-    where Self::Name: Compose {
+    where
+        Self::Name: Compose,
+    {
         target.append_all(|target| {
             self.qname().compose_canonical(target)?;
             self.qtype().compose_canonical(target)?;
@@ -337,16 +351,27 @@ impl<Name: ToDname> AsQuestion for Question<Name> {
 impl<Name: ToDname> AsQuestion for (Name, Rtype, Class) {
     type Name = Name;
 
-    fn qname(&self) -> &Self::Name { &self.0 }
-    fn qtype(&self) -> Rtype { self.1 }
-    fn qclass(&self) -> Class { self.2 }
+    fn qname(&self) -> &Self::Name {
+        &self.0
+    }
+    fn qtype(&self) -> Rtype {
+        self.1
+    }
+    fn qclass(&self) -> Class {
+        self.2
+    }
 }
 
 impl<Name: ToDname> AsQuestion for (Name, Rtype) {
     type Name = Name;
 
-    fn qname(&self) -> &Self::Name { &self.0 }
-    fn qtype(&self) -> Rtype { self.1 }
-    fn qclass(&self) -> Class { Class::In }
+    fn qname(&self) -> &Self::Name {
+        &self.0
+    }
+    fn qtype(&self) -> Rtype {
+        self.1
+    }
+    fn qclass(&self) -> Class {
+        Class::In
+    }
 }
-

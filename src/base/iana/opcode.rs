@@ -1,9 +1,8 @@
 //! DNS OpCodes.
 
-
 //------------ Opcode --------------------------------------------------------
 
-int_enum!{
+int_enum! {
     /// DNS OpCodes.
     ///
     /// The opcode specifies the kind of query to be performed.
@@ -83,4 +82,3 @@ int_enum!{
 }
 
 int_enum_str_with_decimal!(Opcode, u8, "unknown opcode");
-

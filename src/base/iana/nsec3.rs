@@ -1,9 +1,8 @@
 //! NSEC3 hash algorithms.
 
-
 //------------ Nsec3HashAlg --------------------------------------------------
 
-int_enum!{
+int_enum! {
     /// NSEC3 hash algorithm numbers.
     ///
     /// This type selects the algorithm used to hash domain names for use with
@@ -22,4 +21,3 @@ int_enum!{
 }
 
 int_enum_str_decimal!(Nsec3HashAlg, u8);
-

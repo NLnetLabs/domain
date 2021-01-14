@@ -1,15 +1,14 @@
 //! Looking up host names for addresses.
 
-use std::io;
-use std::net::IpAddr;
-use std::str::FromStr;
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
 use crate::base::name::{Dname, DnameBuilder, ParsedDname};
 use crate::base::octets::{Octets128, OctetsRef};
 use crate::rdata::Ptr;
 use crate::resolv::resolver::Resolver;
-
+use std::io;
+use std::net::IpAddr;
+use std::str::FromStr;
 
 //------------ lookup_addr ---------------------------------------------------
 
@@ -18,16 +17,16 @@ use crate::resolv::resolver::Resolver;
 /// The function will query DNS using the resolver represented by `resolv`.
 /// It will query DNS only and not consider any other database the system
 /// may have.
-/// 
+///
 /// The value returned upon success can be turned into an iterator over
 /// host names via its `iter()` method. This is due to lifetime issues.
 pub async fn lookup_addr<R: Resolver>(
-    resolv: &R, addr: IpAddr
+    resolv: &R,
+    addr: IpAddr,
 ) -> Result<FoundAddrs<R>, io::Error> {
     let name = dname_from_addr(addr);
     resolv.query((name, Rtype::Ptr)).await.map(FoundAddrs)
 }
-
 
 //------------ FoundAddrs ----------------------------------------------------
 
@@ -39,23 +38,27 @@ pub struct FoundAddrs<R: Resolver>(R::Answer);
 
 impl<R: Resolver> FoundAddrs<R> {
     /// Returns an iterator over the host names.
-    pub fn iter(
-        &self
-    ) -> FoundAddrsIter<&R::Octets>
-    where for<'a> &'a R::Octets: OctetsRef {
+    pub fn iter(&self) -> FoundAddrsIter<&R::Octets>
+    where
+        for<'a> &'a R::Octets: OctetsRef,
+    {
         FoundAddrsIter {
             name: self.0.as_ref().canonical_name(),
             answer: {
-                self.0.as_ref().answer().ok().map(
-                    |sec| sec.limit_to::<Ptr<_>>()
-                )
-            }
+                self.0
+                    .as_ref()
+                    .answer()
+                    .ok()
+                    .map(|sec| sec.limit_to::<Ptr<_>>())
+            },
         }
     }
 }
 
 impl<'a, R: Resolver> IntoIterator for &'a FoundAddrs<R>
-where for<'x> &'x R::Octets: OctetsRef {
+where
+    for<'x> &'x R::Octets: OctetsRef,
+{
     type Item = ParsedDname<&'a R::Octets>;
     type IntoIter = FoundAddrsIter<&'a R::Octets>;
 
@@ -63,7 +66,6 @@ where for<'x> &'x R::Octets: OctetsRef {
         self.iter()
     }
 }
-
 
 //------------ FoundAddrsIter ------------------------------------------------
 
@@ -82,13 +84,12 @@ impl<Ref: OctetsRef> Iterator for FoundAddrsIter<Ref> {
         let answer = self.answer.as_mut()?;
         while let Some(Ok(record)) = answer.next() {
             if record.owner() == name {
-                return Some(record.into_data().into_ptrdname())
+                return Some(record.into_data().into_ptrdname());
             }
         }
         None
     }
 }
-
 
 //------------ Helper Functions ---------------------------------------------
 
@@ -97,12 +98,11 @@ fn dname_from_addr(addr: IpAddr) -> Dname<Octets128> {
     match addr {
         IpAddr::V4(addr) => {
             let octets = addr.octets();
-            Dname::from_str(
-                &format!(
-                    "{}.{}.{}.{}.in-addr.arpa.", octets[3],
-                    octets[2], octets[1], octets[0]
-                )
-            ).unwrap()
+            Dname::from_str(&format!(
+                "{}.{}.{}.{}.in-addr.arpa.",
+                octets[3], octets[2], octets[1], octets[0]
+            ))
+            .unwrap()
         }
         IpAddr::V6(addr) => {
             let mut res = DnameBuilder::<Octets128>::new();
@@ -134,7 +134,6 @@ fn hexdigit(nibble: u8) -> u8 {
         13 => b'D',
         14 => b'E',
         15 => b'F',
-        _ => unreachable!()
+        _ => unreachable!(),
     }
 }
-

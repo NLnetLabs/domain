@@ -1,22 +1,24 @@
-use std::env;
-use std::str::FromStr;
-use domain::base::Rtype;
 use domain::base::name::Dname;
+use domain::base::Rtype;
 use domain::rdata::AllRecordData;
 use domain::resolv::StubResolver;
+use std::env;
+use std::str::FromStr;
 
 fn main() {
     let mut args = env::args().skip(1);
-    let name = args.next().and_then(|arg| Dname::<Vec<_>>::from_str(&arg).ok());
+    let name = args
+        .next()
+        .and_then(|arg| Dname::<Vec<_>>::from_str(&arg).ok());
     let rtype = args.next().and_then(|arg| Rtype::from_str(&arg).ok());
     let (name, rtype) = match (name, rtype) {
         (Some(name), Some(rtype)) => (name, rtype),
         _ => {
             println!("Usage: sync <domain> <record type>");
-            return
+            return;
         }
     };
-    
+
     let res = StubResolver::run(move |stub| async move {
         stub.query((name, rtype)).await
     });
@@ -27,4 +29,3 @@ fn main() {
         println!("{}", record);
     }
 }
-

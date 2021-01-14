@@ -32,8 +32,8 @@ pub mod rfc2782;
 pub mod rfc2845;
 pub mod rfc3596;
 pub mod rfc4034;
-pub mod rfc6672;
 pub mod rfc5155;
+pub mod rfc6672;
 pub mod rfc7344;
 
 // The rdata_types! macro (defined in self::macros) reexports the record data
@@ -114,4 +114,3 @@ rdata_types! {
         }
     }
 }
-

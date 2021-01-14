@@ -1,21 +1,20 @@
 //! Record data from [RFC 7344]: CDS and CDNSKEY records.
 //!
 //! [RFC 7344]: https://tools.ietf.org/html/rfc7344
-use core::{fmt, hash};
-use core::cmp::Ordering;
-#[cfg(feature="master")] use bytes::Bytes;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::octets::{
     Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
-    ShortBuf
+    ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
-#[cfg(feature="master")] use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner
-};
+#[cfg(feature = "master")]
+use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
 use crate::utils::base64;
-
+#[cfg(feature = "master")]
+use bytes::Bytes;
+use core::cmp::Ordering;
+use core::{fmt, hash};
 
 //------------ Cdnskey --------------------------------------------------------
 
@@ -32,7 +31,7 @@ impl<Octets> Cdnskey<Octets> {
         flags: u16,
         protocol: u8,
         algorithm: SecAlg,
-        public_key: Octets
+        public_key: Octets,
     ) -> Self {
         Cdnskey {
             flags,
@@ -59,58 +58,68 @@ impl<Octets> Cdnskey<Octets> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Octets, SrcOctets> OctetsFrom<Cdnskey<SrcOctets>> for Cdnskey<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: Cdnskey<SrcOctets>) -> Result<Self, ShortBuf> {
         Ok(Cdnskey::new(
-            source.flags, source.protocol, source.algorithm,
+            source.flags,
+            source.protocol,
+            source.algorithm,
             Octets::octets_from(source.public_key)?,
         ))
     }
 }
 
-
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Cdnskey<Other>> for Cdnskey<Octets> 
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+impl<Octets, Other> PartialEq<Cdnskey<Other>> for Cdnskey<Octets>
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn eq(&self, other: &Cdnskey<Other>) -> bool {
         self.flags == other.flags
-        && self.protocol == other.protocol
-        && self.algorithm == other.algorithm
-        && self.public_key.as_ref() == other.public_key.as_ref()
+            && self.protocol == other.protocol
+            && self.algorithm == other.algorithm
+            && self.public_key.as_ref() == other.public_key.as_ref()
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Cdnskey<Octets> { }
-
+impl<Octets: AsRef<[u8]>> Eq for Cdnskey<Octets> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Cdnskey<Other>> for Cdnskey<Octets> 
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+impl<Octets, Other> PartialOrd<Cdnskey<Other>> for Cdnskey<Octets>
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn partial_cmp(&self, other: &Cdnskey<Other>) -> Option<Ordering> {
         Some(self.canonical_cmp(other))
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Cdnskey<Other>> for Cdnskey<Octets> 
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+impl<Octets, Other> CanonicalOrd<Cdnskey<Other>> for Cdnskey<Octets>
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn canonical_cmp(&self, other: &Cdnskey<Other>) -> Ordering {
         match self.flags.cmp(&other.flags) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.protocol.cmp(&other.protocol) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.algorithm.cmp(&other.algorithm) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.public_key.as_ref().cmp(other.public_key.as_ref())
     }
@@ -121,7 +130,6 @@ impl<Octets: AsRef<[u8]>> Ord for Cdnskey<Octets> {
         self.canonical_cmp(other)
     }
 }
-
 
 //--- Hash
 
@@ -134,26 +142,25 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cdnskey<Octets> {
     }
 }
 
-
 //--- ParseAll and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
-            None => return Err(ParseError::ShortInput)
+            None => return Err(ParseError::ShortInput),
         };
         Ok(Self::new(
             u16::parse(parser)?,
             u8::parse(parser)?,
             SecAlg::parse(parser)?,
-            parser.parse_octets(len)?
+            parser.parse_octets(len)?,
         ))
     }
 
     fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
-            return Err(ParseError::ShortInput)
+            return Err(ParseError::ShortInput);
         }
         parser.advance_to_end();
         Ok(())
@@ -163,7 +170,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
 impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.flags.compose(buf)?;
@@ -174,19 +181,18 @@ impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for Cdnskey<Bytes> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>
+        scanner: &mut Scanner<C>,
     ) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
-            scanner.scan_base64_phrases(Ok)?
+            scanner.scan_base64_phrases(Ok)?,
         ))
     }
 }
@@ -197,7 +203,6 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Cdnskey<Octets> {
         base64::display(&self.public_key, f)
     }
 }
-
 
 //--- Debug
 
@@ -212,13 +217,11 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Cdnskey<Octets> {
     }
 }
 
-
 //--- RecordData
 
 impl<Octets> RtypeRecordData for Cdnskey<Octets> {
     const RTYPE: Rtype = Rtype::Cdnskey;
 }
-
 
 //------------ Cds -----------------------------------------------------------
 
@@ -235,9 +238,14 @@ impl<Octets> Cds<Octets> {
         key_tag: u16,
         algorithm: SecAlg,
         digest_type: DigestAlg,
-        digest: Octets
+        digest: Octets,
     ) -> Self {
-        Cds { key_tag, algorithm, digest_type, digest }
+        Cds {
+            key_tag,
+            algorithm,
+            digest_type,
+            digest,
+        }
     }
 
     pub fn key_tag(&self) -> u16 {
@@ -261,70 +269,80 @@ impl<Octets> Cds<Octets> {
     }
 }
 
-
 //--- OctetsFrom
 
 impl<Octets, SrcOctets> OctetsFrom<Cds<SrcOctets>> for Cds<Octets>
-where Octets: OctetsFrom<SrcOctets> {
+where
+    Octets: OctetsFrom<SrcOctets>,
+{
     fn octets_from(source: Cds<SrcOctets>) -> Result<Self, ShortBuf> {
         Ok(Cds::new(
-            source.key_tag, source.algorithm, source.digest_type,
+            source.key_tag,
+            source.algorithm,
+            source.digest_type,
             Octets::octets_from(source.digest)?,
         ))
     }
 }
 
-
 //--- PartialEq and Eq
 
 impl<Octets, Other> PartialEq<Cds<Other>> for Cds<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn eq(&self, other: &Cds<Other>) -> bool {
         self.key_tag == other.key_tag
-        && self.algorithm == other.algorithm
-        && self.digest_type == other.digest_type
-        && self.digest.as_ref().eq(other.digest.as_ref())
+            && self.algorithm == other.algorithm
+            && self.digest_type == other.digest_type
+            && self.digest.as_ref().eq(other.digest.as_ref())
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Cds<Octets> { }
-
+impl<Octets: AsRef<[u8]>> Eq for Cds<Octets> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<Octets, Other> PartialOrd<Cds<Other>> for Cds<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn partial_cmp(&self, other: &Cds<Other>) -> Option<Ordering> {
         match self.key_tag.partial_cmp(&other.key_tag) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.algorithm.partial_cmp(&other.algorithm) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         match self.digest_type.partial_cmp(&other.digest_type) {
-            Some(Ordering::Equal) => { }
-            other => return other
+            Some(Ordering::Equal) => {}
+            other => return other,
         }
         self.digest.as_ref().partial_cmp(other.digest.as_ref())
     }
 }
 
 impl<Octets, Other> CanonicalOrd<Cds<Other>> for Cds<Octets>
-where Octets: AsRef<[u8]>, Other: AsRef<[u8]> {
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{
     fn canonical_cmp(&self, other: &Cds<Other>) -> Ordering {
         match self.key_tag.cmp(&other.key_tag) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.algorithm.cmp(&other.algorithm) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         match self.digest_type.cmp(&other.digest_type) {
-            Ordering::Equal => { }
-            other => return other
+            Ordering::Equal => {}
+            other => return other,
         }
         self.digest.as_ref().cmp(other.digest.as_ref())
     }
@@ -335,7 +353,6 @@ impl<Octets: AsRef<[u8]>> Ord for Cds<Octets> {
         self.canonical_cmp(other)
     }
 }
-
 
 //--- Hash
 
@@ -348,20 +365,19 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cds<Octets> {
     }
 }
 
-
 //--- Parse and Compose
 
 impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
     fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
-            None => return Err(ParseError::ShortInput)
+            None => return Err(ParseError::ShortInput),
         };
         Ok(Self::new(
             u16::parse(parser)?,
             SecAlg::parse(parser)?,
             DigestAlg::parse(parser)?,
-            parser.parse_octets(len)?
+            parser.parse_octets(len)?,
         ))
     }
 
@@ -377,7 +393,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
 impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_all(|buf| {
             self.key_tag.compose(buf)?;
@@ -388,13 +404,12 @@ impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for Cds<Bytes> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>
+        scanner: &mut Scanner<C>,
     ) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
@@ -407,15 +422,17 @@ impl Scan for Cds<Bytes> {
 
 impl<Octets: AsRef<[u8]>> fmt::Display for Cds<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {} ", self.key_tag, self.algorithm,
-               self.digest_type)?;
+        write!(
+            f,
+            "{} {} {} ",
+            self.key_tag, self.algorithm, self.digest_type
+        )?;
         for ch in self.digest.as_ref() {
             write!(f, "{:02x}", ch)?
         }
         Ok(())
     }
 }
-
 
 //--- Debug
 
@@ -429,7 +446,6 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Cds<Octets> {
             .finish()
     }
 }
-
 
 //--- RtypeRecordData
 

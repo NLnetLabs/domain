@@ -4,25 +4,23 @@
 //!
 //! [RFC 3596]: https://tools.ietf.org/html/rfc3596
 
-use core::{fmt, ops};
-use core::cmp::Ordering;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::net::Ipv6Addr;
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
-#[cfg(feature="master")] use crate::master::scan::{
-    CharSource, Scan, Scanner, ScanError
-};
-
+#[cfg(feature = "master")]
+use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+use core::cmp::Ordering;
+use core::{fmt, ops};
 
 //------------ Aaaa ---------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Aaaa {
-    addr: Ipv6Addr
+    addr: Ipv6Addr,
 }
 
 impl Aaaa {
@@ -30,10 +28,13 @@ impl Aaaa {
         Aaaa { addr }
     }
 
-    pub fn addr(&self) -> Ipv6Addr { self.addr }
-    pub fn set_addr(&mut self, addr: Ipv6Addr) { self.addr = addr }
+    pub fn addr(&self) -> Ipv6Addr {
+        self.addr
+    }
+    pub fn set_addr(&mut self, addr: Ipv6Addr) {
+        self.addr = addr
+    }
 }
-
 
 //--- From and FromStr
 
@@ -58,7 +59,6 @@ impl core::str::FromStr for Aaaa {
     }
 }
 
-
 //--- OctetsFrom
 
 impl OctetsFrom<Aaaa> for Aaaa {
@@ -67,7 +67,6 @@ impl OctetsFrom<Aaaa> for Aaaa {
     }
 }
 
-
 //--- CanonicalOrd
 
 impl CanonicalOrd for Aaaa {
@@ -75,7 +74,6 @@ impl CanonicalOrd for Aaaa {
         self.cmp(other)
     }
 }
-
 
 //--- Parse, ParseAll, and Compose
 
@@ -92,19 +90,19 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for Aaaa {
 impl Compose for Aaaa {
     fn compose<T: OctetsBuilder>(
         &self,
-        target: &mut T
+        target: &mut T,
     ) -> Result<(), ShortBuf> {
         self.addr.compose(target)
     }
 }
 
-
 //--- Scan and Display
 
-#[cfg(feature="master")]
+#[cfg(feature = "master")]
 impl Scan for Aaaa {
-    fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                           -> Result<Self, ScanError> {
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
+    ) -> Result<Self, ScanError> {
         scanner.scan_string_phrase(|res| {
             core::str::FromStr::from_str(&res).map_err(Into::into)
         })
@@ -117,13 +115,11 @@ impl fmt::Display for Aaaa {
     }
 }
 
-
 //--- RecordData
 
 impl RtypeRecordData for Aaaa {
     const RTYPE: Rtype = Rtype::Aaaa;
 }
-
 
 //--- Deref and DerefMut
 
@@ -141,7 +137,6 @@ impl ops::DerefMut for Aaaa {
     }
 }
 
-
 //--- AsRef and AsMut
 
 impl AsRef<Ipv6Addr> for Aaaa {
@@ -155,4 +150,3 @@ impl AsMut<Ipv6Addr> for Aaaa {
         &mut self.addr
     }
 }
-

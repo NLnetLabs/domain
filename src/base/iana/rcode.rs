@@ -19,7 +19,6 @@
 
 use core::{cmp, fmt, hash};
 
-
 //------------ Rcode --------------------------------------------------------
 
 /// DNS Response Codes.
@@ -163,7 +162,7 @@ pub enum Rcode {
     /// A raw, integer rcode value.
     ///
     /// When converting to an `u8`, only the lower four bits are used.
-    Int(u8)
+    Int(u8),
 }
 
 impl Rcode {
@@ -185,7 +184,7 @@ impl Rcode {
             8 => NXRRSet,
             9 => NotAuth,
             10 => NotZone,
-            value => Int(value)
+            value => Int(value),
         }
     }
 
@@ -205,22 +204,24 @@ impl Rcode {
             NXRRSet => 8,
             NotAuth => 9,
             NotZone => 10,
-            Int(value) => value & 0x0F
+            Int(value) => value & 0x0F,
         }
     }
 }
 
-
 //--- From
 
 impl From<u8> for Rcode {
-    fn from(value: u8) -> Rcode { Rcode::from_int(value) }
+    fn from(value: u8) -> Rcode {
+        Rcode::from_int(value)
+    }
 }
 
 impl From<Rcode> for u8 {
-    fn from(value: Rcode) -> u8 { value.to_int() }
+    fn from(value: Rcode) -> u8 {
+        value.to_int()
+    }
 }
-
 
 //--- Display
 
@@ -240,16 +241,13 @@ impl fmt::Display for Rcode {
             NXRRSet => "NXRRSET".fmt(f),
             NotAuth => "NOAUTH".fmt(f),
             NotZone => "NOTZONE".fmt(f),
-            Int(i) => {
-                match Rcode::from_int(i) {
-                    Rcode::Int(i) => i.fmt(f),
-                    value => value.fmt(f)
-                }
-            }
+            Int(i) => match Rcode::from_int(i) {
+                Rcode::Int(i) => i.fmt(f),
+                value => value.fmt(f),
+            },
         }
     }
 }
-
 
 //--- PartialEq and Eq
 
@@ -271,8 +269,7 @@ impl cmp::PartialEq<Rcode> for u8 {
     }
 }
 
-impl cmp::Eq for Rcode { }
-
+impl cmp::Eq for Rcode {}
 
 //--- PartialOrd and Ord
 
@@ -300,7 +297,6 @@ impl cmp::Ord for Rcode {
     }
 }
 
-
 //--- Hash
 
 impl hash::Hash for Rcode {
@@ -308,7 +304,6 @@ impl hash::Hash for Rcode {
         self.to_int().hash(state)
     }
 }
-
 
 //------------ OptRcode -----------------------------------------------------
 
@@ -465,7 +460,6 @@ pub enum OptRcode {
 
     // XXX We will not define the values from the TSIG and TKEY RFCs,
     //     unless are used in OPT records, too?
-
     /// Bad or missing server cookie.
     ///
     /// The request contained a COOKIE option either without a server cookie
@@ -480,9 +474,8 @@ pub enum OptRcode {
     ///
     /// When converting to a 12 bit code, the upper four bits are simply
     /// ignored.
-    Int(u16)
+    Int(u16),
 }
-
 
 impl OptRcode {
     /// Creates an rcode from an integer.
@@ -505,7 +498,7 @@ impl OptRcode {
             10 => NotZone,
             16 => BadVers,
             23 => BadCookie,
-            value => Int(value)
+            value => Int(value),
         }
     }
 
@@ -527,15 +520,13 @@ impl OptRcode {
             NotZone => 10,
             BadVers => 16,
             BadCookie => 23,
-            Int(value) => value & 0x0F
+            Int(value) => value & 0x0F,
         }
     }
 
     /// Creates an extended rcode value from its parts.
     pub fn from_parts(rcode: Rcode, ext: u8) -> OptRcode {
-        OptRcode::from_int(
-            u16::from(ext) << 4 | u16::from(rcode.to_int())
-        )
+        OptRcode::from_int(u16::from(ext) << 4 | u16::from(rcode.to_int()))
     }
 
     /// Returns the two parts of an extended rcode value.
@@ -555,21 +546,25 @@ impl OptRcode {
     }
 }
 
-
 //--- From
 
 impl From<u16> for OptRcode {
-    fn from(value: u16) -> OptRcode { OptRcode::from_int(value) }
+    fn from(value: u16) -> OptRcode {
+        OptRcode::from_int(value)
+    }
 }
 
 impl From<OptRcode> for u16 {
-    fn from(value: OptRcode) -> u16 { value.to_int() }
+    fn from(value: OptRcode) -> u16 {
+        value.to_int()
+    }
 }
 
 impl From<Rcode> for OptRcode {
-    fn from(value: Rcode) -> OptRcode { OptRcode::from_parts(value, 0) }
+    fn from(value: Rcode) -> OptRcode {
+        OptRcode::from_parts(value, 0)
+    }
 }
-
 
 //--- Display
 
@@ -591,21 +586,17 @@ impl fmt::Display for OptRcode {
             NotZone => "NOTZONE".fmt(f),
             BadVers => "BADVER".fmt(f),
             BadCookie => "BADCOOKIE".fmt(f),
-            Int(i) => {
-                match OptRcode::from_int(i) {
-                    Int(i) => i.fmt(f),
-                    value => value.fmt(f)
-                }
-            }
+            Int(i) => match OptRcode::from_int(i) {
+                Int(i) => i.fmt(f),
+                value => value.fmt(f),
+            },
         }
     }
 }
 
-
-
 //------------ TsigRcode ----------------------------------------------------
 
-int_enum!{
+int_enum! {
     /// Response codes for transaction authentication (TSIG).
     ///
     /// TSIG and TKEY resource records contain a 16 bit wide error field whose
@@ -817,7 +808,6 @@ int_enum!{
     /// [RFC 7873]: https://tools.ietf.org/html/rfc7873
     (BadCookie => 23, b"BADCOOKIE")
 }
-
 
 //--- From
 

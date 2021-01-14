@@ -3,7 +3,7 @@ use crate::base::iana::Rtype;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
     Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
-    ShortBuf
+    ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "master")]
@@ -27,10 +27,10 @@ dname_type! {
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod test {
-    use std::vec::Vec;
     use crate::base::name::Dname;
     use crate::rdata::rfc6672;
     use core::str::FromStr;
+    use std::vec::Vec;
 
     #[test]
     fn create_dname() {

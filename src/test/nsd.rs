@@ -1,21 +1,20 @@
 //! Configuring and running NSD.
 
-use std::{fmt, io};
+use crate::utils::base64;
+use bytes::Bytes;
 use std::fs::File;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::string::String;
 use std::vec::Vec;
-use bytes::Bytes;
-use crate::utils::base64;
-
+use std::{fmt, io};
 
 //------------ Config --------------------------------------------------------
 
 /// NSD configuration.
 ///
 /// This type contains a subset of the options available in NSD’s
-/// configuration file. In order to configure an NSD instance, you create and 
+/// configuration file. In order to configure an NSD instance, you create and
 /// manipulate a value of this type and, once you are happy with it, save if
 /// to disk via the `save` method.
 ///
@@ -65,7 +64,7 @@ impl Config {
     /// Writes the configuration to something writable.
     pub fn write<W: io::Write>(
         &self,
-        target: &mut W
+        target: &mut W,
     ) -> Result<(), io::Error> {
         // server: clause
         writeln!(target, "server:")?;
@@ -117,7 +116,6 @@ impl Config {
     }
 }
 
-
 //------------ KeyConfig -----------------------------------------------------
 
 /// A single `key:` clause fo the NSD configuration.
@@ -130,18 +128,20 @@ pub struct KeyConfig {
 
 impl KeyConfig {
     pub fn new<S: Into<String>, V: Into<Bytes>>(
-        name: S, algorithm: S, secret: V
+        name: S,
+        algorithm: S,
+        secret: V,
     ) -> Self {
         KeyConfig {
-            name: name.into(), 
+            name: name.into(),
             algorithm: algorithm.into(),
-            secret: secret.into()
+            secret: secret.into(),
         }
     }
 
     pub fn write<W: io::Write>(
         &self,
-        target: &mut W
+        target: &mut W,
     ) -> Result<(), io::Error> {
         writeln!(target, "key:")?;
         writeln!(target, "    name: {}", self.name)?;
@@ -152,7 +152,6 @@ impl KeyConfig {
         Ok(())
     }
 }
-
 
 //------------ ZoneConfig ----------------------------------------------------
 
@@ -166,18 +165,20 @@ pub struct ZoneConfig {
 
 impl ZoneConfig {
     pub fn new<S: Into<String>, P: Into<PathBuf>>(
-        name: S, zonefile: P, provide_xfr: Vec<Acl>
+        name: S,
+        zonefile: P,
+        provide_xfr: Vec<Acl>,
     ) -> Self {
         ZoneConfig {
             name: name.into(),
             zonefile: zonefile.into(),
-            provide_xfr
+            provide_xfr,
         }
     }
 
     pub fn write<W: io::Write>(
         &self,
-        target: &mut W
+        target: &mut W,
     ) -> Result<(), io::Error> {
         writeln!(target, "zone:")?;
         writeln!(target, "    name: {}", self.name)?;
@@ -189,7 +190,6 @@ impl ZoneConfig {
         Ok(())
     }
 }
-
 
 //------------ Acl -----------------------------------------------------------
 
@@ -205,7 +205,7 @@ pub struct Acl {
     pub ip_port: Option<u16>,
 
     /// Name of TSIG key.
-    key: Option<String>
+    key: Option<String>,
 }
 
 impl Acl {
@@ -213,9 +213,14 @@ impl Acl {
         ip_addr: IpAddr,
         ip_net: Option<u8>,
         ip_port: Option<u16>,
-        key: Option<String>
+        key: Option<String>,
     ) -> Self {
-        Acl { ip_addr, ip_net, ip_port, key }
+        Acl {
+            ip_addr,
+            ip_net,
+            ip_port,
+            key,
+        }
     }
 }
 
@@ -230,9 +235,8 @@ impl fmt::Display for Acl {
         }
         match self.key {
             Some(ref key) => write!(f, " {}", key)?,
-            None => write!(f, " NOKEY")?
+            None => write!(f, " NOKEY")?,
         }
         Ok(())
     }
 }
-        

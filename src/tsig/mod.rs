@@ -5,7 +5,7 @@
 //!
 //! TSIG is intended to provide authentication for message exchanges. Messages
 //! are signed using a secret key shared between the two participants. The
-//! party sending the request – the client – generates a signature over the 
+//! party sending the request – the client – generates a signature over the
 //! message it is about to send using that key and adds it in a special record
 //! of record type [TSIG] to the additional section of the message. The
 //! receiver of the request – the server – verifies the signature using the
@@ -55,24 +55,20 @@
 
 mod interop;
 
-
-use std::{cmp, error, fmt, hash, mem, str};
-use std::collections::HashMap;
-use bytes::{Bytes, BytesMut};
-use ring::{constant_time, hmac, rand, hkdf::KeyType};
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
 use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
-use crate::base::name::{
-    Dname, Label, ParsedDname, ToDname, ToLabelIter
-};
+use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
 use crate::base::octets::{
-    OctetsBuilder, OctetsRef, OctetsVec, ParseError, ShortBuf
+    OctetsBuilder, OctetsRef, OctetsVec, ParseError, ShortBuf,
 };
 use crate::base::record::Record;
 use crate::rdata::rfc2845::{Time48, Tsig};
-
+use bytes::{Bytes, BytesMut};
+use ring::{constant_time, hkdf::KeyType, hmac, rand};
+use std::collections::HashMap;
+use std::{cmp, error, fmt, hash, mem, str};
 
 //------------ Key -----------------------------------------------------------
 
@@ -147,16 +143,15 @@ impl Key {
         key: &[u8],
         name: Dname<OctetsVec>,
         min_mac_len: Option<usize>,
-        signing_len: Option<usize>
+        signing_len: Option<usize>,
     ) -> Result<Self, NewKeyError> {
-        let (min_mac_len, signing_len) = Self::calculate_bounds(
-            algorithm, min_mac_len, signing_len
-        )?;
+        let (min_mac_len, signing_len) =
+            Self::calculate_bounds(algorithm, min_mac_len, signing_len)?;
         Ok(Key {
             key: hmac::Key::new(algorithm.into_hmac_algorithm(), key),
             name,
             min_mac_len,
-            signing_len
+            signing_len,
         })
     }
 
@@ -172,23 +167,20 @@ impl Key {
         rng: &dyn rand::SecureRandom,
         name: Dname<OctetsVec>,
         min_mac_len: Option<usize>,
-        signing_len: Option<usize>
+        signing_len: Option<usize>,
     ) -> Result<(Self, Bytes), GenerateKeyError> {
-        let (min_mac_len, signing_len) = Self::calculate_bounds(
-            algorithm, min_mac_len, signing_len
-        )?;
+        let (min_mac_len, signing_len) =
+            Self::calculate_bounds(algorithm, min_mac_len, signing_len)?;
         let algorithm = algorithm.into_hmac_algorithm();
         let key_len = algorithm.len();
         let mut bytes = BytesMut::with_capacity(key_len);
         bytes.resize(key_len, 0);
         rng.fill(&mut bytes)?;
         let key = Key {
-            key: hmac::Key::new(
-                algorithm, &bytes
-            ),
+            key: hmac::Key::new(algorithm, &bytes),
             name,
             min_mac_len,
-            signing_len
+            signing_len,
         };
         Ok((key, bytes.freeze()))
     }
@@ -200,25 +192,25 @@ impl Key {
     fn calculate_bounds(
         algorithm: Algorithm,
         min_mac_len: Option<usize>,
-        signing_len: Option<usize>
+        signing_len: Option<usize>,
     ) -> Result<(usize, usize), NewKeyError> {
         let min_mac_len = match min_mac_len {
             Some(len) => {
                 if !algorithm.within_len_bounds(len) {
-                    return Err(NewKeyError::BadMinMacLen)
+                    return Err(NewKeyError::BadMinMacLen);
                 }
                 len
             }
-            None => algorithm.native_len()
+            None => algorithm.native_len(),
         };
         let signing_len = match signing_len {
             Some(len) => {
                 if !algorithm.within_len_bounds(len) {
-                    return Err(NewKeyError::BadSigningLen)
+                    return Err(NewKeyError::BadSigningLen);
                 }
                 len
             }
-            None => algorithm.native_len()
+            None => algorithm.native_len(),
         };
         Ok((min_mac_len, signing_len))
     }
@@ -233,7 +225,6 @@ impl Key {
         &signature.as_ref()[..self.signing_len]
     }
 }
-
 
 /// # Access to Properties
 ///
@@ -266,15 +257,16 @@ impl Key {
     /// Checks whether the key in the record is this key.
     fn check_tsig<Octets>(
         &self,
-        tsig: &MessageTsig<Octets>
+        tsig: &MessageTsig<Octets>,
     ) -> Result<(), ValidationError>
-    where for<'o> &'o Octets: OctetsRef {
+    where
+        for<'o> &'o Octets: OctetsRef,
+    {
         if *tsig.owner() != self.name
-            || *tsig.data().algorithm() != self.algorithm().to_dname() 
+            || *tsig.data().algorithm() != self.algorithm().to_dname()
         {
             Err(ValidationError::BadKey)
-        }
-        else {
+        } else {
             Ok(())
         }
     }
@@ -290,12 +282,11 @@ impl Key {
         provided: &[u8],
     ) -> Result<(), ValidationError> {
         if provided.len() < self.min_mac_len {
-            return Err(ValidationError::BadTrunc)
+            return Err(ValidationError::BadTrunc);
         }
         let expected = if provided.len() < expected.as_ref().len() {
             &expected.as_ref()[..provided.len()]
-        }
-        else {
+        } else {
             expected.as_ref()
         };
         constant_time::verify_slices_are_equal(expected, provided)
@@ -322,7 +313,6 @@ impl Key {
     }
 }
 
-
 //--- AsRef
 
 impl AsRef<Key> for Key {
@@ -330,7 +320,6 @@ impl AsRef<Key> for Key {
         self
     }
 }
-
 
 //------------ KeyStore ------------------------------------------------------
 
@@ -360,7 +349,9 @@ pub trait KeyStore {
     /// The method looks up a key based on a pair of name and algorithm. If
     /// the key can be found, it is returned. Otherwise, `None` is returned.
     fn get_key<N: ToDname>(
-        &self, name: &N, algorithm: Algorithm
+        &self,
+        name: &N,
+        algorithm: Algorithm,
     ) -> Option<Self::Key>;
 }
 
@@ -368,14 +359,15 @@ impl<K: AsRef<Key> + Clone> KeyStore for K {
     type Key = Self;
 
     fn get_key<N: ToDname>(
-        &self, name: &N, algorithm: Algorithm
+        &self,
+        name: &N,
+        algorithm: Algorithm,
     ) -> Option<Self::Key> {
-        if self.as_ref().name() == name 
+        if self.as_ref().name() == name
             && self.as_ref().algorithm() == algorithm
         {
             Some(self.clone())
-        }
-        else {
+        } else {
             None
         }
     }
@@ -384,19 +376,20 @@ impl<K: AsRef<Key> + Clone> KeyStore for K {
 impl<K, S> KeyStore for HashMap<(Dname<OctetsVec>, Algorithm), K, S>
 where
     K: AsRef<Key> + Clone,
-    S: hash::BuildHasher
+    S: hash::BuildHasher,
 {
     type Key = K;
 
     fn get_key<N: ToDname>(
-        &self, name: &N, algorithm: Algorithm
+        &self,
+        name: &N,
+        algorithm: Algorithm,
     ) -> Option<Self::Key> {
         // XXX This seems a bit wasteful.
         let name = name.to_dname::<OctetsVec>().unwrap();
         self.get(&(name, algorithm)).cloned()
     }
 }
-
 
 //------------ ClientTransaction ---------------------------------------------
 
@@ -439,7 +432,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// [`request_with_fudge`]: #method.request_with_fudge
     pub fn request<Target: OctetsBuilder>(
         key: K,
-        message: &mut AdditionalBuilder<Target>
+        message: &mut AdditionalBuilder<Target>,
     ) -> Result<Self, ShortBuf> {
         Self::request_with_fudge(key, message, 300)
     }
@@ -466,13 +459,15 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     pub fn request_with_fudge<Target: OctetsBuilder>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
-        fudge: u16
+        fudge: u16,
     ) -> Result<Self, ShortBuf> {
-        let variables = Variables::new(
-            Time48::now(), fudge, TsigRcode::NoError, None
-        );
+        let variables =
+            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
-            key, message.as_slice(), None, &variables
+            key,
+            message.as_slice(),
+            None,
+            &variables,
         );
         let mac = context.key().signature_slice(&mac);
         context.apply_signature(mac);
@@ -491,29 +486,31 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// it correctly signs the answer for this transaction. If any of this
     /// fails, returns an error.
     pub fn answer<Octets>(
-        &self, message: &mut Message<Octets>
+        &self,
+        message: &mut Message<Octets>,
     ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef
+        for<'a> &'a Octets: OctetsRef,
     {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(some) => some,
-            None => return Err(ValidationError::ServerUnsigned)
+            None => return Err(ValidationError::ServerUnsigned),
         };
         let mut header = message.header_section();
         header.header_mut().set_id(tsig.data().original_id());
         header.counts_mut().dec_arcount();
         let signature = self.context.answer(
             header.as_slice(),
-            Some(&message.as_slice()[
-                 mem::size_of::<HeaderSection>()..tsig.start
-            ]),
-            &tsig.variables()
+            Some(
+                &message.as_slice()
+                    [mem::size_of::<HeaderSection>()..tsig.start],
+            ),
+            &tsig.variables(),
         );
-        self.context.key().compare_signatures(
-            &signature, tsig.data().mac().as_ref()
-        )?;
+        self.context
+            .key()
+            .compare_signatures(&signature, tsig.data().mac().as_ref())?;
         self.context.check_answer_time(message, &tsig)?;
         remove_tsig(tsig.into_original_id(), message);
         Ok(())
@@ -524,7 +521,6 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         self.context.key()
     }
 }
-
 
 //------------ ServerTransaction ---------------------------------------------
 
@@ -562,16 +558,16 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// client as the error case of the result.
     pub fn request<Store, Octets>(
         store: &Store,
-        message: &mut Message<Octets>
+        message: &mut Message<Octets>,
     ) -> Result<Option<Self>, ServerError<K>>
     where
-        Store: KeyStore<Key=K>,
+        Store: KeyStore<Key = K>,
         Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'o> &'o Octets: OctetsRef
+        for<'o> &'o Octets: OctetsRef,
     {
-        SigningContext::server_request(
-            store, message
-        ).map(|context| context.map(|context| ServerTransaction { context }))
+        SigningContext::server_request(store, message).map(|context| {
+            context.map(|context| ServerTransaction { context })
+        })
     }
 
     /// Produces a signed answer.
@@ -587,7 +583,8 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// isn’t enough space left, it returns the builder unchanged as the
     /// error case.
     pub fn answer<Target: OctetsBuilder>(
-        self, message: &mut AdditionalBuilder<Target>
+        self,
+        message: &mut AdditionalBuilder<Target>,
     ) -> Result<(), ShortBuf> {
         self.answer_with_fudge(message, 300)
     }
@@ -603,14 +600,13 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     pub fn answer_with_fudge<Target: OctetsBuilder>(
         self,
         message: &mut AdditionalBuilder<Target>,
-        fudge: u16
+        fudge: u16,
     ) -> Result<(), ShortBuf> {
-        let variables = Variables::new(
-            Time48::now(), fudge, TsigRcode::NoError, None
-        );
-        let (mac, key) = self.context.final_answer(
-            message.as_slice(), None, &variables
-        );
+        let variables =
+            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
+        let (mac, key) =
+            self.context
+                .final_answer(message.as_slice(), None, &variables);
         let mac = key.as_ref().signature_slice(&mac);
         key.as_ref().complete_message(message, &variables, mac)
     }
@@ -620,7 +616,6 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
         self.context.key()
     }
 }
-
 
 //------------ ClientSequence ------------------------------------------------
 
@@ -668,7 +663,8 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// freeze the message and return both it and a new value of a client
     /// sequence.
     pub fn request<Target: OctetsBuilder>(
-        key: K, message: &mut AdditionalBuilder<Target>
+        key: K,
+        message: &mut AdditionalBuilder<Target>,
     ) -> Result<Self, ShortBuf> {
         Self::request_with_fudge(key, message, 300)
     }
@@ -683,18 +679,26 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     ///
     /// [`request`]: #method.request
     pub fn request_with_fudge<Target: OctetsBuilder>(
-        key: K, message: &mut AdditionalBuilder<Target>, fudge: u16
+        key: K,
+        message: &mut AdditionalBuilder<Target>,
+        fudge: u16,
     ) -> Result<Self, ShortBuf> {
-        let variables = Variables::new(
-            Time48::now(), fudge, TsigRcode::NoError, None
-        );
+        let variables =
+            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
-            key, message.as_slice(), None, &variables
+            key,
+            message.as_slice(),
+            None,
+            &variables,
         );
         let mac = context.key().signature_slice(&mac);
         context.apply_signature(mac);
         context.key().complete_message(message, &variables, mac)?;
-        Ok(ClientSequence { context, first: true, unsigned: 0 })
+        Ok(ClientSequence {
+            context,
+            first: true,
+            unsigned: 0,
+        })
     }
 
     /// Validates an answer.
@@ -707,16 +711,15 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// the sequence since the last signed one, returns an error.
     pub fn answer<Octets>(
         &mut self,
-        message: &mut Message<Octets>
+        message: &mut Message<Octets>,
     ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef
+        for<'a> &'a Octets: OctetsRef,
     {
         if self.first {
             self.answer_first(message)
-        }
-        else {
+        } else {
             self.answer_subsequent(message)
         }
     }
@@ -731,8 +734,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         // The last message must be signed, so the counter must be 0 here.
         if self.unsigned != 0 {
             Err(ValidationError::TooManyUnsigned)
-        }
-        else {
+        } else {
             Ok(())
         }
     }
@@ -740,29 +742,30 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// Checks the first answer in the sequence.
     fn answer_first<Octets>(
         &mut self,
-        message: &mut Message<Octets>
+        message: &mut Message<Octets>,
     ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef
+        for<'a> &'a Octets: OctetsRef,
     {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(some) => some,
-            None => return Err(ValidationError::ServerUnsigned)
+            None => return Err(ValidationError::ServerUnsigned),
         };
         let mut header = message.header_section();
         header.header_mut().set_id(tsig.data().original_id());
         header.counts_mut().dec_arcount();
         let signature = self.context.first_answer(
             header.as_slice(),
-            Some(&message.as_slice()[
-                 mem::size_of::<HeaderSection>()..tsig.start
-            ]),
-            &tsig.variables()
+            Some(
+                &message.as_slice()
+                    [mem::size_of::<HeaderSection>()..tsig.start],
+            ),
+            &tsig.variables(),
         );
-        self.context.key().compare_signatures(
-            &signature, tsig.data().mac().as_ref()
-        )?;
+        self.context
+            .key()
+            .compare_signatures(&signature, tsig.data().mac().as_ref())?;
         self.context.apply_signature(tsig.data().mac().as_ref());
         self.context.check_answer_time(message, &tsig)?;
         self.first = false;
@@ -774,10 +777,10 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     fn answer_subsequent<Octets>(
         &mut self,
         message: &mut Message<Octets>,
-    ) -> Result<(), ValidationError> 
+    ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef
+        for<'a> &'a Octets: OctetsRef,
     {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(tsig) => tsig,
@@ -785,10 +788,9 @@ impl<K: AsRef<Key>> ClientSequence<K> {
                 if self.unsigned < 99 {
                     self.context.unsigned_subsequent(message.as_slice());
                     self.unsigned += 1;
-                    return Ok(())
-                }
-                else {
-                    return Err(ValidationError::TooManyUnsigned)
+                    return Ok(());
+                } else {
+                    return Err(ValidationError::TooManyUnsigned);
                 }
             }
         };
@@ -799,14 +801,15 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         header.counts_mut().dec_arcount();
         let signature = self.context.signed_subsequent(
             header.as_slice(),
-            Some(&message.as_slice()[
-                 mem::size_of::<HeaderSection>()..tsig.start
-            ]),
-            &tsig.variables()
+            Some(
+                &message.as_slice()
+                    [mem::size_of::<HeaderSection>()..tsig.start],
+            ),
+            &tsig.variables(),
         );
-        self.context.key().compare_signatures(
-            &signature, tsig.data().mac().as_ref()
-        )?;
+        self.context
+            .key()
+            .compare_signatures(&signature, tsig.data().mac().as_ref())?;
         self.context.apply_signature(tsig.data().mac().as_ref());
         self.context.check_answer_time(message, &tsig)?;
         self.unsigned = 0;
@@ -819,7 +822,6 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         self.context.key()
     }
 }
-
 
 //------------ ServerSequence ------------------------------------------------
 
@@ -864,18 +866,19 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// client as the error case of the result.
     pub fn request<Store, Octets>(
         store: &Store,
-        message: &mut Message<Octets>
+        message: &mut Message<Octets>,
     ) -> Result<Option<Self>, ServerError<K>>
     where
-        Store: KeyStore<Key=K>,
+        Store: KeyStore<Key = K>,
         Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'o> &'o Octets: OctetsRef
+        for<'o> &'o Octets: OctetsRef,
     {
-        SigningContext::server_request(
-            store, message
-        ).map(|context| context.map(|context| {
-            ServerSequence { context, first: false }
-        }))
+        SigningContext::server_request(store, message).map(|context| {
+            context.map(|context| ServerSequence {
+                context,
+                first: false,
+            })
+        })
     }
 
     /// Produces a signed answer.
@@ -886,7 +889,8 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// fails because there wasn’t enough space in the builder, returns the
     /// unchanged builder as an error.
     pub fn answer<Target: OctetsBuilder>(
-        &mut self, message: &mut AdditionalBuilder<Target>
+        &mut self,
+        message: &mut AdditionalBuilder<Target>,
     ) -> Result<(), ShortBuf> {
         self.answer_with_fudge(message, 300)
     }
@@ -899,18 +903,19 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     pub fn answer_with_fudge<Target: OctetsBuilder>(
         &mut self,
         message: &mut AdditionalBuilder<Target>,
-        fudge: u16
+        fudge: u16,
     ) -> Result<(), ShortBuf> {
-        let variables = Variables::new(
-            Time48::now(), fudge, TsigRcode::NoError, None
-        );
+        let variables =
+            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
         let mac = if self.first {
             self.first = false;
-            self.context.first_answer(message.as_slice(), None, &variables)
-        }
-        else {
+            self.context
+                .first_answer(message.as_slice(), None, &variables)
+        } else {
             self.context.signed_subsequent(
-                message.as_slice(), None, &variables
+                message.as_slice(),
+                None,
+                &variables,
             )
         };
         let mac = self.key().signature_slice(&mac);
@@ -922,7 +927,6 @@ impl<K: AsRef<Key>> ServerSequence<K> {
         self.context.key()
     }
 }
-
 
 //------------ SigningContext ------------------------------------------------
 
@@ -964,19 +968,19 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// to the client otherwise.
     fn server_request<Store, Octets>(
         store: &Store,
-        message: &mut Message<Octets>
+        message: &mut Message<Octets>,
     ) -> Result<Option<Self>, ServerError<Store::Key>>
     where
         Store: KeyStore<Key = K>,
         Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef
+        for<'a> &'a Octets: OctetsRef,
     {
         // 4.5 Server TSIG checks
         //
         // First, do we have a valid TSIG?
         let tsig = match MessageTsig::from_message(message) {
             Some(tsig) => tsig,
-            None => return Ok(None)
+            None => return Ok(None),
         };
 
         // 4.5.1. KEY check and error handling
@@ -997,22 +1001,24 @@ impl<K: AsRef<Key>> SigningContext<K> {
         header.header_mut().set_id(tsig.data().original_id());
         header.counts_mut().dec_arcount();
         let (mut context, signature) = Self::request(
-            key, header.as_slice(),
-            Some(&message.as_slice()[
-                 mem::size_of::<HeaderSection>()..tsig.start
-            ]),
-            &variables
+            key,
+            header.as_slice(),
+            Some(
+                &message.as_slice()
+                    [mem::size_of::<HeaderSection>()..tsig.start],
+            ),
+            &variables,
         );
-        let res = context.key.as_ref().compare_signatures(
-            &signature,
-            tsig.data().mac().as_ref()
-        );
+        let res = context
+            .key
+            .as_ref()
+            .compare_signatures(&signature, tsig.data().mac().as_ref());
         if let Err(err) = res {
             return Err(ServerError::unsigned(match err {
                 ValidationError::BadTrunc => TsigRcode::BadTrunc,
                 ValidationError::BadKey => TsigRcode::BadKey,
                 _ => TsigRcode::FormErr,
-            }))
+            }));
         }
 
         // The signature is fine. Add it to the context for later.
@@ -1029,9 +1035,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
                     variables.time_signed,
                     variables.fudge,
                     TsigRcode::BadTime,
-                    Some(Time48::now())
-                )
-            ))
+                    Some(Time48::now()),
+                ),
+            ));
         }
         remove_tsig(tsig.into_original_id(), message);
         Ok(Some(context))
@@ -1054,22 +1060,25 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// later have to have the TSIG record stripped off and the ID updated.
     fn get_answer_tsig<'a, Octets>(
         &self,
-        message: &'a Message<Octets>
+        message: &'a Message<Octets>,
     ) -> Result<Option<MessageTsig<'a, Octets>>, ValidationError>
-    where Octets: AsRef<[u8]>, for<'o> &'o Octets: OctetsRef {
+    where
+        Octets: AsRef<[u8]>,
+        for<'o> &'o Octets: OctetsRef,
+    {
         // Extract TSIG or bail out.
         let tsig = match MessageTsig::from_message(message) {
             Some(tsig) => tsig,
-            None => return Ok(None)
+            None => return Ok(None),
         };
 
         // Check for unsigned errors.
         if message.header().rcode() == Rcode::NotAuth {
             if tsig.data().error() == TsigRcode::BadKey {
-                return Err(ValidationError::ServerBadKey)
+                return Err(ValidationError::ServerBadKey);
             }
             if tsig.data().error() == TsigRcode::BadSig {
-                return Err(ValidationError::ServerBadSig)
+                return Err(ValidationError::ServerBadSig);
             }
         }
 
@@ -1081,7 +1090,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
 
     /// Checks the timing values of an answer TSIG.
     ///
-    /// This is the second part of the code shared between the various 
+    /// This is the second part of the code shared between the various
     /// answer methods of `ClientTransaction` and `ClientSequence`. It
     /// checks for timing errors reported by the server as well as the
     /// time signed in the signature.
@@ -1090,22 +1099,26 @@ impl<K: AsRef<Key>> SigningContext<K> {
         message: &'a Message<Octets>,
         tsig: &MessageTsig<'a, Octets>,
     ) -> Result<(), ValidationError>
-    where Octets: AsRef<[u8]>, for<'o> &'o Octets: OctetsRef {
+    where
+        Octets: AsRef<[u8]>,
+        for<'o> &'o Octets: OctetsRef,
+    {
         if message.header().rcode() == Rcode::NotAuth
             && tsig.data().error() == TsigRcode::BadTime
         {
             let server = match tsig.data().other_time() {
                 Some(time) => time,
-                None => return Err(ValidationError::FormErr)
+                None => return Err(ValidationError::FormErr),
             };
             return Err(ValidationError::ServerBadTime {
-                client: tsig.data().time_signed(), server
-            })
+                client: tsig.data().time_signed(),
+                server,
+            });
         }
 
         // Check the time.
         if !tsig.data().is_valid_now() {
-            return Err(ValidationError::BadTime)
+            return Err(ValidationError::BadTime);
         }
 
         Ok(())
@@ -1117,7 +1130,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     fn new(key: K) -> Self {
         SigningContext {
             context: key.as_ref().signing_context(),
-            key
+            key,
         }
     }
 
@@ -1150,7 +1163,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         key: K,
         first: &[u8],
         second: Option<&[u8]>,
-        variables: &Variables
+        variables: &Variables,
     ) -> (Self, hmac::Tag) {
         let mut context = key.as_ref().signing_context();
         context.update(first);
@@ -1173,7 +1186,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         &self,
         first: &[u8],
         second: Option<&[u8]>,
-        variables: &Variables
+        variables: &Variables,
     ) -> hmac::Tag {
         let mut context = self.context.clone();
         context.update(first);
@@ -1191,7 +1204,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         mut self,
         first: &[u8],
         second: Option<&[u8]>,
-        variables: &Variables
+        variables: &Variables,
     ) -> (hmac::Tag, K) {
         self.context.update(first);
         if let Some(second) = second {
@@ -1208,7 +1221,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         &mut self,
         first: &[u8],
         second: Option<&[u8]>,
-        variables: &Variables
+        variables: &Variables,
     ) -> hmac::Tag {
         // Replace current context with new context.
         let mut context = self.key().signing_context();
@@ -1224,10 +1237,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     }
 
     /// Applies the content of an unsigned message to the context.
-    fn unsigned_subsequent(
-        &mut self,
-        message: &[u8]
-    ) {
+    fn unsigned_subsequent(&mut self, message: &[u8]) {
         self.context.update(message)
     }
 
@@ -1238,7 +1248,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         &mut self,
         first: &[u8],
         second: Option<&[u8]>,
-        variables: &Variables
+        variables: &Variables,
     ) -> hmac::Tag {
         // Replace current context with new context.
         let mut context = self.key().signing_context();
@@ -1254,16 +1264,17 @@ impl<K: AsRef<Key>> SigningContext<K> {
     }
 }
 
-
 //------------ MessageTsig ---------------------------------------------------
 
 /// The TSIG record of a message.
 struct MessageTsig<'a, Octets>
-where for<'o> &'o Octets: OctetsRef {
+where
+    for<'o> &'o Octets: OctetsRef,
+{
     /// The actual record.
     record: Record<
         ParsedDname<&'a Octets>,
-        Tsig<<&'a Octets as OctetsRef>::Range, ParsedDname<&'a Octets>>
+        Tsig<<&'a Octets as OctetsRef>::Range, ParsedDname<&'a Octets>>,
     >,
 
     /// The index of the start of the record.
@@ -1271,27 +1282,34 @@ where for<'o> &'o Octets: OctetsRef {
 }
 
 impl<'a, Octets> MessageTsig<'a, Octets>
-where for<'o> &'o Octets: OctetsRef {
+where
+    for<'o> &'o Octets: OctetsRef,
+{
     /// Get the TSIG record from a message.
     ///
     /// Checks that there is exactly one TSIG record in the additional
     /// section, that it is the last record in this section. If that is true,
     /// returns the parsed TSIG records.
     fn from_message(msg: &'a Message<Octets>) -> Option<Self>
-    where Octets: AsRef<[u8]>, for<'o> &'o Octets: OctetsRef {
+    where
+        Octets: AsRef<[u8]>,
+        for<'o> &'o Octets: OctetsRef,
+    {
         let mut section = msg.additional().ok()?;
         let mut start = section.pos();
         let mut record = section.next()?;
         loop {
             record = match section.next() {
                 Some(record) => record,
-                None => break
+                None => break,
             };
             start = section.pos();
         }
-        record.ok()?.into_record::<Tsig<_, _>>().ok()?.map(|record| {
-            MessageTsig { record, start }
-        })
+        record
+            .ok()?
+            .into_record::<Tsig<_, _>>()
+            .ok()?
+            .map(|record| MessageTsig { record, start })
     }
 
     fn variables(&self) -> Variables {
@@ -1309,17 +1327,18 @@ where for<'o> &'o Octets: OctetsRef {
 }
 
 impl<'a, Octets> std::ops::Deref for MessageTsig<'a, Octets>
-where for<'o> &'o Octets: OctetsRef {
+where
+    for<'o> &'o Octets: OctetsRef,
+{
     type Target = Record<
         ParsedDname<&'a Octets>,
-        Tsig<<&'a Octets as OctetsRef>::Range, ParsedDname<&'a Octets>>
+        Tsig<<&'a Octets as OctetsRef>::Range, ParsedDname<&'a Octets>>,
     >;
 
     fn deref(&self) -> &Self::Target {
         &self.record
     }
 }
-
 
 //------------ Variables -----------------------------------------------------
 
@@ -1352,10 +1371,13 @@ impl Variables {
         time_signed: Time48,
         fudge: u16,
         error: TsigRcode,
-        other: Option<Time48>
+        other: Option<Time48>,
     ) -> Self {
         Variables {
-            time_signed, fudge, error, other
+            time_signed,
+            fudge,
+            error,
+            other,
         }
     }
 
@@ -1370,7 +1392,7 @@ impl Variables {
         let other = self.other.map(Time48::into_octets);
         let other = match other {
             Some(ref time) => time.as_ref(),
-            None => b""
+            None => b"",
         };
         builder.push((
             key.name.clone(),
@@ -1384,7 +1406,7 @@ impl Variables {
                 original_id,
                 self.error,
                 other,
-            )
+            ),
         ))
     }
 
@@ -1411,8 +1433,7 @@ impl Variables {
         // Other Len
         if self.other.is_some() {
             context.update(&6u16.to_be_bytes());
-        }
-        else {
+        } else {
             context.update(&0u16.to_be_bytes());
         }
         // Other
@@ -1431,7 +1452,6 @@ impl Variables {
     }
 }
 
-
 //------------ Algorithm -----------------------------------------------------
 
 /// The supported TSIG algorithms.
@@ -1440,7 +1460,7 @@ pub enum Algorithm {
     Sha1,
     Sha256,
     Sha384,
-    Sha512
+    Sha512,
 }
 
 impl Algorithm {
@@ -1451,18 +1471,18 @@ impl Algorithm {
         let mut labels = name.iter_labels();
         let first = match labels.next() {
             Some(label) => label,
-            None => return None
+            None => return None,
         };
         match labels.next() {
-            Some(label) if label.is_root() => {},
-            _ => return None
+            Some(label) if label.is_root() => {}
+            _ => return None,
         }
         match first.as_slice() {
             b"hmac-sha1" => Some(Algorithm::Sha1),
             b"hmac-sha256" => Some(Algorithm::Sha256),
             b"hmac-sha384" => Some(Algorithm::Sha384),
             b"hmac-sha512" => Some(Algorithm::Sha512),
-            _ => None
+            _ => None,
         }
     }
 
@@ -1479,7 +1499,7 @@ impl Algorithm {
         } else if alg == hmac::HMAC_SHA512 {
             Algorithm::Sha512
         } else {
-           panic!("Unknown TSIG key algorithm.") 
+            panic!("Unknown TSIG key algorithm.")
         }
     }
 
@@ -1505,11 +1525,7 @@ impl Algorithm {
 
     /// Returns a domain name for this value.
     pub fn to_dname(self) -> Dname<&'static [u8]> {
-        unsafe {
-            Dname::from_octets_unchecked(
-                self.into_wire_slice()
-            )
-        }
+        unsafe { Dname::from_octets_unchecked(self.into_wire_slice()) }
     }
 
     /// Returns the native length of a signature created with this algorithm.
@@ -1519,11 +1535,9 @@ impl Algorithm {
 
     /// Returns the bounds for the allowed signature size.
     pub fn within_len_bounds(self, len: usize) -> bool {
-        len >= cmp::max(10, self.native_len() / 2)
-        && len <= self.native_len()
+        len >= cmp::max(10, self.native_len() / 2) && len <= self.native_len()
     }
 }
-
 
 //--- FromStr
 
@@ -1541,32 +1555,33 @@ impl str::FromStr for Algorithm {
     }
 }
 
-
 //--- Display
 
 impl fmt::Display for Algorithm {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match *self {
-            Algorithm::Sha1 => "hmac-sha1",
-            Algorithm::Sha256 => "hmac-sha256",
-            Algorithm::Sha384 => "hmac-sha384",
-            Algorithm::Sha512 => "hmac-sha512",
-        })
+        write!(
+            f,
+            "{}",
+            match *self {
+                Algorithm::Sha1 => "hmac-sha1",
+                Algorithm::Sha256 => "hmac-sha256",
+                Algorithm::Sha384 => "hmac-sha384",
+                Algorithm::Sha512 => "hmac-sha512",
+            }
+        )
     }
 }
-
 
 //------------ Helper Functions ----------------------------------------------
 
 fn remove_tsig<Octets>(original_id: u16, message: &mut Message<Octets>)
 where
     Octets: AsRef<[u8]> + AsMut<[u8]>,
-    for<'o> &'o Octets: OctetsRef
+    for<'o> &'o Octets: OctetsRef,
 {
     message.header_mut().set_id(original_id);
     message.remove_last_additional();
 }
-
 
 //============ Error Types ===================================================
 
@@ -1585,15 +1600,13 @@ enum ServerErrorInner<K> {
     ///
     /// To crate the actual message, we need the original message with the
     /// TSIG intact as the last additional record.
-    Unsigned {
-        error: TsigRcode,
-    },
+    Unsigned { error: TsigRcode },
 
     /// Return a signed error message.
     Signed {
         context: SigningContext<K>,
         variables: Variables,
-    }
+    },
 }
 
 impl<K> ServerError<K> {
@@ -1619,18 +1632,21 @@ impl<K: AsRef<Key>> ServerError<K> {
         msg: &Message<Octets>,
         builder: MessageBuilder<Target>,
     ) -> Result<AdditionalBuilder<Target>, ShortBuf>
-    where for<'a> &'a Octets: OctetsRef {
+    where
+        for<'a> &'a Octets: OctetsRef,
+    {
         let builder = builder.start_answer(msg, Rcode::NotAuth)?;
         let mut builder = builder.additional();
         match self.0 {
             ServerErrorInner::Unsigned { error } => {
                 let tsig = {
-                    MessageTsig::from_message(
-                        msg
-                    ).expect("missing or malformed TSIG record")
+                    MessageTsig::from_message(msg)
+                        .expect("missing or malformed TSIG record")
                 };
                 builder.push((
-                    tsig.owner(), tsig.class(), tsig.ttl(),
+                    tsig.owner(),
+                    tsig.class(),
+                    tsig.ttl(),
                     Tsig::new(
                         tsig.data().algorithm(),
                         tsig.data().time_signed(),
@@ -1639,21 +1655,26 @@ impl<K: AsRef<Key>> ServerError<K> {
                         msg.header().id(),
                         error,
                         b"",
-                    )
+                    ),
                 ))?;
             }
             ServerErrorInner::Signed { context, variables } => {
                 let (mac, key) = context.final_answer(
-                    builder.as_slice(), None, &variables
+                    builder.as_slice(),
+                    None,
+                    &variables,
                 );
                 let mac = key.as_ref().signature_slice(&mac);
-                key.as_ref().complete_message(&mut builder, &variables, mac)?;
+                key.as_ref().complete_message(
+                    &mut builder,
+                    &variables,
+                    mac,
+                )?;
             }
         }
         Ok(builder)
     }
 }
-
 
 //--- Debug, Display, and Error
 
@@ -1669,11 +1690,10 @@ impl<K> fmt::Debug for ServerErrorInner<K> {
             ServerErrorInner::Unsigned { error } => {
                 f.debug_struct("Unsigned").field("error", &error).finish()
             }
-            ServerErrorInner::Signed { ref variables, .. } => {
-                f.debug_struct("Signed")
-                    .field("variables", variables)
-                    .finish()
-            }
+            ServerErrorInner::Signed { ref variables, .. } => f
+                .debug_struct("Signed")
+                .field("variables", variables)
+                .finish(),
         }
     }
 }
@@ -1684,7 +1704,7 @@ impl<K> fmt::Display for ServerError<K> {
     }
 }
 
-impl<K> error::Error for ServerError<K> { }
+impl<K> error::Error for ServerError<K> {}
 
 //------------ NewKeyError ---------------------------------------------------
 
@@ -1695,22 +1715,22 @@ pub enum NewKeyError {
     BadSigningLen,
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for NewKeyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            NewKeyError::BadMinMacLen
-                => f.write_str("minimum signature length out of bounds"),
-            NewKeyError::BadSigningLen
-                => f.write_str("created signature length out of bounds"),
+            NewKeyError::BadMinMacLen => {
+                f.write_str("minimum signature length out of bounds")
+            }
+            NewKeyError::BadSigningLen => {
+                f.write_str("created signature length out of bounds")
+            }
         }
     }
 }
 
-impl error::Error for NewKeyError { }
-
+impl error::Error for NewKeyError {}
 
 //------------ GenerateKeyError ----------------------------------------------
 
@@ -1722,14 +1742,13 @@ pub enum GenerateKeyError {
     GenerationFailed,
 }
 
-
 //--- From
 
 impl From<NewKeyError> for GenerateKeyError {
     fn from(err: NewKeyError) -> Self {
         match err {
             NewKeyError::BadMinMacLen => GenerateKeyError::BadMinMacLen,
-            NewKeyError::BadSigningLen => GenerateKeyError::BadSigningLen
+            NewKeyError::BadSigningLen => GenerateKeyError::BadSigningLen,
         }
     }
 }
@@ -1740,31 +1759,31 @@ impl From<ring::error::Unspecified> for GenerateKeyError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for GenerateKeyError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            GenerateKeyError::BadMinMacLen
-                => f.write_str("minimum signature length out of bounds"),
-            GenerateKeyError::BadSigningLen
-                => f.write_str("created signature length out of bounds"),
-            GenerateKeyError::GenerationFailed
-                => f.write_str("generating key failed"),
+            GenerateKeyError::BadMinMacLen => {
+                f.write_str("minimum signature length out of bounds")
+            }
+            GenerateKeyError::BadSigningLen => {
+                f.write_str("created signature length out of bounds")
+            }
+            GenerateKeyError::GenerationFailed => {
+                f.write_str("generating key failed")
+            }
         }
     }
 }
 
-impl error::Error for GenerateKeyError { }
-
+impl error::Error for GenerateKeyError {}
 
 //------------ AlgorithmError ------------------------------------------------
 
 /// An invalid algorithm was provided.
 #[derive(Clone, Copy, Debug)]
 pub struct AlgorithmError;
-
 
 //--- Display and Error
 
@@ -1774,8 +1793,7 @@ impl fmt::Display for AlgorithmError {
     }
 }
 
-impl error::Error for AlgorithmError { }
-
+impl error::Error for AlgorithmError {}
 
 //------------ ValidationError -----------------------------------------------
 
@@ -1792,13 +1810,9 @@ pub enum ValidationError {
     ServerUnsigned,
     ServerBadKey,
     ServerBadSig,
-    ServerBadTime {
-        client: Time48,
-        server: Time48
-    },
+    ServerBadTime { client: Time48, server: Time48 },
     TooManyUnsigned,
 }
-
 
 //--- From
 
@@ -1808,39 +1822,35 @@ impl From<ParseError> for ValidationError {
     }
 }
 
-
 //--- Display and Error
 
 impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ValidationError::BadAlg
-                => f.write_str("unknown algorithm"),
-            ValidationError::BadOther
-                => f.write_str("bad content of 'other' field"),
-            ValidationError::BadSig
-                => f.write_str("bad signature"),
-            ValidationError::BadTrunc
-                => f.write_str("short signature"),
-            ValidationError::BadKey
-                => f.write_str("unknown key"),
-            ValidationError::BadTime
-                => f.write_str("bad time"),
-            ValidationError::FormErr
-                => f.write_str("format error"),
-            ValidationError::ServerUnsigned
-                => f.write_str("unsigned answer"),
-            ValidationError::ServerBadKey
-                => f.write_str("unknown key on server"),
-            ValidationError::ServerBadSig
-                => f.write_str("server failed to verify MAC"),
-            ValidationError::ServerBadTime { .. }
-                => f.write_str("server reported bad time"),
-            ValidationError::TooManyUnsigned
-                => f.write_str("too many unsigned messages"),
+            ValidationError::BadAlg => f.write_str("unknown algorithm"),
+            ValidationError::BadOther => {
+                f.write_str("bad content of 'other' field")
+            }
+            ValidationError::BadSig => f.write_str("bad signature"),
+            ValidationError::BadTrunc => f.write_str("short signature"),
+            ValidationError::BadKey => f.write_str("unknown key"),
+            ValidationError::BadTime => f.write_str("bad time"),
+            ValidationError::FormErr => f.write_str("format error"),
+            ValidationError::ServerUnsigned => f.write_str("unsigned answer"),
+            ValidationError::ServerBadKey => {
+                f.write_str("unknown key on server")
+            }
+            ValidationError::ServerBadSig => {
+                f.write_str("server failed to verify MAC")
+            }
+            ValidationError::ServerBadTime { .. } => {
+                f.write_str("server reported bad time")
+            }
+            ValidationError::TooManyUnsigned => {
+                f.write_str("too many unsigned messages")
+            }
         }
     }
 }
 
-impl error::Error for ValidationError { }
-
+impl error::Error for ValidationError {}

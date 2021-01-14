@@ -1,5 +1,3 @@
 //! Stuff from Cargo.
 
-
-pub struct Environ {
-}
+pub struct Environ {}

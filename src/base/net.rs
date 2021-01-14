@@ -8,11 +8,10 @@
 //! and doesn’t provide all the features the `std` version has.
 
 #[cfg(feature = "std")]
-pub use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, AddrParseError};
+pub use std::net::{AddrParseError, IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[cfg(not(feature = "std"))]
 pub use self::nostd::*;
-
 
 #[cfg(not(feature = "std"))]
 mod nostd {
@@ -41,7 +40,8 @@ mod nostd {
     impl fmt::Display for Ipv4Addr {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(
-                f, "{}.{}.{}.{}",
+                f,
+                "{}.{}.{}.{}",
                 self.0[0], self.0[1], self.0[2], self.0[3]
             )
         }
@@ -87,16 +87,30 @@ mod nostd {
                 [0, 0, 0, 0, 0, 0, 0, 1] => write!(fmt, "::1"),
                 // Ipv4 Compatible address
                 [0, 0, 0, 0, 0, 0, g, h] => {
-                    write!(fmt, "::{}.{}.{}.{}", (g >> 8) as u8, g as u8,
-                           (h >> 8) as u8, h as u8)
+                    write!(
+                        fmt,
+                        "::{}.{}.{}.{}",
+                        (g >> 8) as u8,
+                        g as u8,
+                        (h >> 8) as u8,
+                        h as u8
+                    )
                 }
                 // Ipv4-Mapped address
                 [0, 0, 0, 0, 0, 0xffff, g, h] => {
-                    write!(fmt, "::ffff:{}.{}.{}.{}", (g >> 8) as u8, g as u8,
-                           (h >> 8) as u8, h as u8)
-                },
+                    write!(
+                        fmt,
+                        "::ffff:{}.{}.{}.{}",
+                        (g >> 8) as u8,
+                        g as u8,
+                        (h >> 8) as u8,
+                        h as u8
+                    )
+                }
                 _ => {
-                    fn find_zero_slice(segments: &[u16; 8]) -> (usize, usize) {
+                    fn find_zero_slice(
+                        segments: &[u16; 8],
+                    ) -> (usize, usize) {
                         let mut longest_span_len = 0;
                         let mut longest_span_at = 0;
                         let mut cur_span_len = 0;
@@ -123,13 +137,13 @@ mod nostd {
                         (longest_span_at, longest_span_len)
                     }
 
-                    let (zeros_at, zeros_len) = find_zero_slice(
-                        &self.segments()
-                    );
+                    let (zeros_at, zeros_len) =
+                        find_zero_slice(&self.segments());
 
                     if zeros_len > 1 {
                         fn fmt_subslice(
-                            segments: &[u16], fmt: &mut fmt::Formatter<'_>
+                            segments: &[u16],
+                            fmt: &mut fmt::Formatter<'_>,
                         ) -> fmt::Result {
                             if !segments.is_empty() {
                                 write!(fmt, "{:x}", segments[0])?;
@@ -143,7 +157,8 @@ mod nostd {
                         fmt_subslice(&self.segments()[..zeros_at], fmt)?;
                         fmt.write_str("::")?;
                         fmt_subslice(
-                            &self.segments()[zeros_at + zeros_len..], fmt
+                            &self.segments()[zeros_at + zeros_len..],
+                            fmt,
                         )
                     } else {
                         let &[a, b, c, d, e, f, g, h] = &self.segments();
@@ -157,7 +172,6 @@ mod nostd {
             }
         }
     }
-
 
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub enum IpAddr {
@@ -189,8 +203,6 @@ mod nostd {
         }
     }
 
-
     #[derive(Clone, Copy, Debug)]
     pub struct AddrParseError;
 }
-

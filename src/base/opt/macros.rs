@@ -36,7 +36,7 @@ macro_rules! opt_types {
             }
         )* )*
 
-        
+
         //--- Compose
 
         impl<Octets: AsRef<[u8]>> Compose for AllOptData<Octets> {
