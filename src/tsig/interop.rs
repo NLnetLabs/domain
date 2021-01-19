@@ -71,7 +71,7 @@ fn tsig_client_nsd() {
     let mut nsd = Command::new("/usr/sbin/nsd")
         .args(&["-c", &format!("{}", nsdconfpath.display()), "-d"])
         .spawn()
-        .unwrap();
+        .expect("failed to start nsd");
     thread::sleep(Duration::from_secs(1));
     if nsd.try_wait().unwrap().is_some() {
         panic!("NSD didn't start.");
@@ -167,7 +167,7 @@ fn tsig_server_drill() {
     let status = Command::new("/usr/bin/drill")
         .args(&["-p", "54322", "-y", &secret, "example.com", "@127.0.0.1"])
         .status()
-        .unwrap();
+        .expect("failed to start drill");
     drop(join);
     assert!(status.success());
 }
@@ -213,7 +213,7 @@ fn tsig_client_sequence_nsd() {
     let mut nsd = Command::new("/usr/sbin/nsd")
         .args(&["-c", &format!("{}", nsdconfpath.display()), "-d"])
         .spawn()
-        .unwrap();
+        .expect("failed to start nsd");
     thread::sleep(Duration::from_secs(1));
     if nsd.try_wait().unwrap().is_some() {
         panic!("NSD didn't start.");
@@ -316,7 +316,7 @@ fn tsig_server_sequence_drill() {
             "@127.0.0.1",
         ])
         .status()
-        .unwrap();
+        .expect("failed to start drill");
     drop(join);
     assert!(status.success());
 }
