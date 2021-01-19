@@ -18,7 +18,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::time::Duration;
 use std::vec::Vec;
-use std::{env, fs, io, thread};
+use std::{env, fs, io, path::PathBuf, thread};
 
 type TestMessage = Message<Vec<u8>>;
 type TestBuilder = MessageBuilder<StreamTarget<Vec<u8>>>;
@@ -35,7 +35,7 @@ fn tsig_client_nsd() {
     // Set up and start NSD with example.org and a TSIG key for AXFRing it.
     let rng = SystemRandom::new();
 
-    let cur_dir = env::current_dir().unwrap();
+    let cur_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let base_dir = cur_dir.join("target/test/tsig_client_nsd");
     fs::create_dir_all(&base_dir).unwrap();
     let base_dir = base_dir.canonicalize().unwrap();
@@ -177,7 +177,7 @@ fn tsig_server_drill() {
 fn tsig_client_sequence_nsd() {
     let rng = SystemRandom::new();
 
-    let cur_dir = env::current_dir().unwrap();
+    let cur_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let base_dir = cur_dir.join("target/test/tsig_client_sequence_nsd");
     fs::create_dir_all(&base_dir).unwrap();
     let base_dir = base_dir.canonicalize().unwrap();
