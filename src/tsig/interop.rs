@@ -36,7 +36,7 @@ fn tsig_client_nsd() {
     let rng = SystemRandom::new();
 
     let cur_dir = env::current_dir().unwrap();
-    let base_dir = cur_dir.join("../target/test/tsig_client_nsd");
+    let base_dir = cur_dir.join("target/test/tsig_client_nsd");
     fs::create_dir_all(&base_dir).unwrap();
     let base_dir = base_dir.canonicalize().unwrap();
     let nsdconfpath = base_dir.join("nsd.conf");
@@ -178,7 +178,7 @@ fn tsig_client_sequence_nsd() {
     let rng = SystemRandom::new();
 
     let cur_dir = env::current_dir().unwrap();
-    let base_dir = cur_dir.join("../target/test/tsig_client_sequence_nsd");
+    let base_dir = cur_dir.join("target/test/tsig_client_sequence_nsd");
     fs::create_dir_all(&base_dir).unwrap();
     let base_dir = base_dir.canonicalize().unwrap();
     let nsdconfpath = base_dir.join("nsd.conf");
