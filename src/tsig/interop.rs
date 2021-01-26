@@ -18,7 +18,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::time::Duration;
 use std::vec::Vec;
-use std::{env, fs, io, thread};
+use std::{env, fs, io, path::PathBuf, thread};
 
 type TestMessage = Message<Vec<u8>>;
 type TestBuilder = MessageBuilder<StreamTarget<Vec<u8>>>;
@@ -35,8 +35,8 @@ fn tsig_client_nsd() {
     // Set up and start NSD with example.org and a TSIG key for AXFRing it.
     let rng = SystemRandom::new();
 
-    let cur_dir = env::current_dir().unwrap();
-    let base_dir = cur_dir.join("../target/test/tsig_client_nsd");
+    let cur_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let base_dir = cur_dir.join("target/test/tsig_client_nsd");
     fs::create_dir_all(&base_dir).unwrap();
     let base_dir = base_dir.canonicalize().unwrap();
     let nsdconfpath = base_dir.join("nsd.conf");
@@ -71,7 +71,7 @@ fn tsig_client_nsd() {
     let mut nsd = Command::new("/usr/sbin/nsd")
         .args(&["-c", &format!("{}", nsdconfpath.display()), "-d"])
         .spawn()
-        .unwrap();
+        .expect("failed to start nsd");
     thread::sleep(Duration::from_secs(1));
     if nsd.try_wait().unwrap().is_some() {
         panic!("NSD didn't start.");
@@ -167,7 +167,7 @@ fn tsig_server_drill() {
     let status = Command::new("/usr/bin/drill")
         .args(&["-p", "54322", "-y", &secret, "example.com", "@127.0.0.1"])
         .status()
-        .unwrap();
+        .expect("failed to start drill");
     drop(join);
     assert!(status.success());
 }
@@ -177,8 +177,8 @@ fn tsig_server_drill() {
 fn tsig_client_sequence_nsd() {
     let rng = SystemRandom::new();
 
-    let cur_dir = env::current_dir().unwrap();
-    let base_dir = cur_dir.join("../target/test/tsig_client_sequence_nsd");
+    let cur_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let base_dir = cur_dir.join("target/test/tsig_client_sequence_nsd");
     fs::create_dir_all(&base_dir).unwrap();
     let base_dir = base_dir.canonicalize().unwrap();
     let nsdconfpath = base_dir.join("nsd.conf");
@@ -213,7 +213,7 @@ fn tsig_client_sequence_nsd() {
     let mut nsd = Command::new("/usr/sbin/nsd")
         .args(&["-c", &format!("{}", nsdconfpath.display()), "-d"])
         .spawn()
-        .unwrap();
+        .expect("failed to start nsd");
     thread::sleep(Duration::from_secs(1));
     if nsd.try_wait().unwrap().is_some() {
         panic!("NSD didn't start.");
@@ -316,7 +316,7 @@ fn tsig_server_sequence_drill() {
             "@127.0.0.1",
         ])
         .status()
-        .unwrap();
+        .expect("failed to start drill");
     drop(join);
     assert!(status.success());
 }
