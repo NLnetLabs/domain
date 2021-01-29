@@ -333,44 +333,17 @@ impl<'a, Source: AsRef<[u8]> + 'a> OctetsFrom<&'a Source> for &'a [u8] {
     }
 }
 
-#[cfg(feature = "std")]
-impl<Source> OctetsFrom<Source> for Vec<u8>
+impl<Source, Octets> OctetsFrom<Source> for Octets
 where
-    Self: From<Source>,
+    Source: AsRef<[u8]>,
+    Octets: FromBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder,
 {
     fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(From::from(source))
-    }
-}
-
-#[cfg(feature = "bytes")]
-impl<Source> OctetsFrom<Source> for Bytes
-where
-    Self: From<Source>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(From::from(source))
-    }
-}
-
-#[cfg(feature = "bytes")]
-impl<Source> OctetsFrom<Source> for BytesMut
-where
-    Self: From<Source>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(From::from(source))
-    }
-}
-
-#[cfg(features = "smallvec")]
-impl<Source, A> OctetsFrom<Source> for SmallVec<A>
-where
-    Source: AsRef<u8>,
-    A: Array<Item = u8>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(smallvec::ToSmallVec::to_smallvec(source.as_ref()))
+        let mut builder =
+            Octets::Builder::with_capacity(source.as_ref().len());
+        builder.append_slice(source.as_ref())?;
+        Ok(builder.freeze())
     }
 }
 
@@ -1734,5 +1707,60 @@ mod test {
         assert_eq!(parser.parse_u32(), Ok(0x12345678));
         assert_eq!(parser.parse_u32(), Ok(0xfd78a84e));
         assert_eq!(parser.parse_u32(), Err(ParseError::ShortInput));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn convert() {
+        use crate::base::octets::{Octets32, OctetsInto};
+        use crate::base::{Dname, Record};
+        use crate::rdata::Cname;
+
+        // Use case: provide a flexible interface for caller to
+        // get record from storage.
+        fn load_record<O>() -> Record<Dname<O>, Cname<Dname<O>>>
+        where
+            O: FromBuilder,
+            <O as FromBuilder>::Builder: EmptyBuilder,
+        {
+            // let rr = cache_get().clone();
+            let rr: Record<Dname<Octets32>, Cname<Dname<Octets32>>> = (
+                "a.example".parse().unwrap(),
+                300,
+                Cname::new("b.example".parse().unwrap()),
+            )
+                .into();
+
+            rr.octets_into().unwrap()
+        }
+        let rr: Record<Dname<Vec<u8>>, Cname<Dname<Vec<u8>>>> = load_record();
+
+        let rr_ref: Record<_, _> = (
+            rr.owner().for_slice(),
+            rr.ttl(),
+            Cname::new(rr.data().cname().for_slice()),
+        )
+            .into();
+
+        // Use case: save a owned copy into cache.
+        fn save_record<O: AsRef<[u8]>>(
+            rr: Record<Dname<O>, Cname<Dname<O>>>,
+        ) {
+            let _owned: Record<Dname<Vec<u8>>, Cname<Dname<Vec<u8>>>> =
+                rr.octets_into().unwrap();
+            // cache_put(_owned)
+        }
+        save_record(rr_ref.clone());
+
+        // convert between octets
+        #[cfg(feature = "bytes")]
+        {
+            use bytes::Bytes;
+
+            let b: Record<Dname<Bytes>, Cname<Dname<Bytes>>> =
+                rr_ref.clone().octets_into().unwrap();
+            let _: Record<Dname<Vec<u8>>, Cname<Dname<Vec<u8>>>> =
+                b.octets_into().unwrap();
+        }
     }
 }
