@@ -7,6 +7,7 @@ use super::super::octets::{
 use super::super::octets::{DeserializeOctets, SerializeOctets};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
+use super::parsed::ParsedDname;
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
 #[cfg(feature = "master")]
@@ -621,6 +622,17 @@ where
     fn octets_from(source: Dname<SrcOctets>) -> Result<Self, ShortBuf> {
         Octets::octets_from(source.0)
             .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+    }
+}
+
+impl<SrcOctets, Octets> OctetsFrom<ParsedDname<SrcOctets>> for Dname<Octets>
+where
+    SrcOctets: AsRef<[u8]>,
+    Octets: FromBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder,
+{
+    fn octets_from(source: ParsedDname<SrcOctets>) -> Result<Self, ShortBuf> {
+        source.to_dname().map_err(|_| ShortBuf)
     }
 }
 

@@ -371,32 +371,16 @@ impl<'a, Source: AsRef<[u8]> + 'a> OctetsFrom<&'a Source> for &'a [u8] {
 }
 
 #[cfg(feature = "std")]
-impl<Source> OctetsFrom<Source> for Vec<u8>
-where
-    Self: From<Source>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(From::from(source))
+impl<'a> OctetsFrom<&'a [u8]> for Vec<u8> {
+    fn octets_from(source: &'a [u8]) -> Result<Self, ShortBuf> {
+        Ok(Self::from(source))
     }
 }
 
-#[cfg(feature = "bytes")]
-impl<Source> OctetsFrom<Source> for Bytes
-where
-    Self: From<Source>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(From::from(source))
-    }
-}
-
-#[cfg(feature = "bytes")]
-impl<Source> OctetsFrom<Source> for BytesMut
-where
-    Self: From<Source>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(From::from(source))
+#[cfg(feature = "std")]
+impl OctetsFrom<Vec<u8>> for Vec<u8> {
+    fn octets_from(source: Vec<u8>) -> Result<Self, ShortBuf> {
+        Ok(source)
     }
 }
 
@@ -408,6 +392,76 @@ where
 {
     fn octets_from(source: Source) -> Result<Self, ShortBuf> {
         Ok(smallvec::ToSmallVec::to_smallvec(source.as_ref()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> OctetsFrom<&'a [u8]> for Bytes {
+    fn octets_from(source: &'a [u8]) -> Result<Self, ShortBuf> {
+        Ok(Self::copy_from_slice(source))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl OctetsFrom<Bytes> for Bytes {
+    fn octets_from(source: Bytes) -> Result<Self, ShortBuf> {
+        Ok(source)
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl OctetsFrom<BytesMut> for BytesMut {
+    fn octets_from(source: BytesMut) -> Result<Self, ShortBuf> {
+        Ok(source)
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl OctetsFrom<Bytes> for BytesMut {
+    fn octets_from(source: Bytes) -> Result<Self, ShortBuf> {
+        Ok(Self::from(source.as_ref()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl OctetsFrom<BytesMut> for Bytes {
+    fn octets_from(source: BytesMut) -> Result<Self, ShortBuf> {
+        Ok(Self::from(source))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl<'a> OctetsFrom<&'a [u8]> for BytesMut {
+    fn octets_from(source: &'a [u8]) -> Result<Self, ShortBuf> {
+        Ok(Self::from(source))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl OctetsFrom<Vec<u8>> for Bytes {
+    fn octets_from(source: Vec<u8>) -> Result<Self, ShortBuf> {
+        Ok(Self::from(source))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl OctetsFrom<Vec<u8>> for BytesMut {
+    fn octets_from(source: Vec<u8>) -> Result<Self, ShortBuf> {
+        Ok(Self::from(source.as_slice()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl OctetsFrom<Bytes> for Vec<u8> {
+    fn octets_from(source: Bytes) -> Result<Self, ShortBuf> {
+        Ok(source.as_ref().to_vec())
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl OctetsFrom<BytesMut> for Vec<u8> {
+    fn octets_from(source: BytesMut) -> Result<Self, ShortBuf> {
+        Ok(source.as_ref().to_vec())
     }
 }
 
@@ -1884,6 +1938,41 @@ macro_rules! octets_array {
             }
         }
 
+        impl OctetsFrom<$name> for $name {
+            fn octets_from(source: $name) -> Result<Self, ShortBuf> {
+                Ok(source)
+            }
+        }
+
+        #[cfg(feature = "std")]
+        impl OctetsFrom<Vec<u8>> for $name {
+            fn octets_from(source: Vec<u8>) -> Result<Self, ShortBuf> {
+                let octets = <[u8; $len]>::try_from(source).map_err(|_| ShortBuf)?;
+                Ok($name { octets, len: $len })
+            }
+        }
+
+        #[cfg(feature = "std")]
+        impl OctetsFrom<$name> for Vec<u8> {
+            fn octets_from(source: $name) -> Result<Self, ShortBuf> {
+                Ok(source.octets.into())
+            }
+        }
+
+        #[cfg(feature = "bytes")]
+        impl OctetsFrom<$name> for Bytes {
+            fn octets_from(source: $name) -> Result<Self, ShortBuf> {
+                Ok(source.octets.to_vec().into())
+            }
+        }
+
+        #[cfg(feature = "bytes")]
+        impl OctetsFrom<$name> for BytesMut {
+            fn octets_from(source: $name) -> Result<Self, ShortBuf> {
+                Ok(BytesMut::from(source.octets.as_ref()))
+            }
+        }
+
         impl core::ops::Deref for $name {
             type Target = [u8];
 
@@ -2259,5 +2348,62 @@ mod test {
         assert_eq!(parser.parse_u32(), Ok(0x12345678));
         assert_eq!(parser.parse_u32(), Ok(0xfd78a84e));
         assert_eq!(parser.parse_u32(), Err(ParseError::ShortInput));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn convert() {
+        use crate::base::octets::{Octets32, OctetsInto};
+        use crate::base::{Dname, Record};
+        use crate::rdata::Cname;
+
+        // Use case: provide a flexible interface for caller to
+        // get record from storage.
+        fn load_record<O>() -> Record<Dname<O>, Cname<Dname<O>>>
+        where
+            O: FromBuilder + OctetsFrom<Octets32>,
+            <O as FromBuilder>::Builder: EmptyBuilder,
+        {
+            // let rr = cache_get().clone();
+            let rr: Record<Dname<Octets32>, Cname<Dname<Octets32>>> = (
+                "a.example".parse().unwrap(),
+                300,
+                Cname::new("b.example".parse().unwrap()),
+            )
+                .into();
+
+            rr.octets_into().unwrap()
+        }
+        let rr: Record<Dname<Vec<u8>>, Cname<Dname<Vec<u8>>>> = load_record();
+
+        let rr_ref: Record<_, _> = (
+            rr.owner().for_slice(),
+            rr.ttl(),
+            Cname::new(rr.data().cname().for_slice()),
+        )
+            .into();
+
+        // Use case: save a owned copy into cache.
+        fn save_record<O>(rr: Record<Dname<O>, Cname<Dname<O>>>)
+        where
+            O: AsRef<[u8]>,
+            Vec<u8>: OctetsFrom<O>,
+        {
+            let _owned: Record<Dname<Vec<u8>>, Cname<Dname<Vec<u8>>>> =
+                rr.octets_into().unwrap();
+            // cache_put(_owned)
+        }
+        save_record(rr_ref.clone());
+
+        // convert between octets
+        #[cfg(feature = "bytes")]
+        {
+            use bytes::Bytes;
+
+            let b: Record<Dname<Bytes>, Cname<Dname<Bytes>>> =
+                rr_ref.clone().octets_into().unwrap();
+            let _: Record<Dname<Vec<u8>>, Cname<Dname<Vec<u8>>>> =
+                b.octets_into().unwrap();
+        }
     }
 }

@@ -1007,22 +1007,24 @@ impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
 mod test {
 
     #[test]
-    #[cfg(features = "bytes")]
+    #[cfg(feature = "bytes")]
     fn ds_octets_into() {
-        use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-        use crate::name::Dname;
-        use crate::octets::OctetsInto;
+        use crate::base::iana::{Class, DigestAlg, SecAlg};
+        use crate::base::octets::OctetsInto;
+        use crate::base::{Dname, Record};
         use crate::rdata::Ds;
+        use bytes::Bytes;
 
+        let owner = "a.example".parse::<Dname<Bytes>>().unwrap();
         let ds: Record<Dname<&[u8]>, Ds<&[u8]>> = Record::new(
-            "a.example".parse().unwrap(),
+            owner.for_slice(),
             Class::In,
             86400,
-            Ds::new(12, SecAlg::RsaSha256, b"something"),
+            Ds::new(12, SecAlg::RsaSha256, DigestAlg::Sha256, b"something"),
         );
         let ds_bytes: Record<Dname<Bytes>, Ds<Bytes>> =
-            ds.octets_into().unwrap();
+            ds.clone().octets_into().unwrap();
         assert_eq!(ds.owner(), ds_bytes.owner());
-        asswer_eq!(ds.data().digest(), ds_bytes.data().digest());
+        assert_eq!(ds.data().digest(), ds_bytes.data().digest());
     }
 }

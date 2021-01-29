@@ -1841,29 +1841,30 @@ mod test {
     use std::vec::Vec;
 
     #[test]
-    #[cfg(features = "bytes")]
+    #[cfg(feature = "bytes")]
     fn hinfo_octets_into() {
-        use crate::octets::OctetsInto;
+        use crate::base::octets::OctetsInto;
 
         let hinfo: Hinfo<Vec<u8>> =
             Hinfo::new("1234".parse().unwrap(), "abcd".parse().unwrap());
-        let hinfo_bytes: Hinfo<bytes::Bytes> = hinfo.octets_into().unwrap();
+        let hinfo_bytes: Hinfo<bytes::Bytes> =
+            hinfo.clone().octets_into().unwrap();
         assert_eq!(hinfo.cpu(), hinfo_bytes.cpu());
         assert_eq!(hinfo.os(), hinfo_bytes.os());
     }
 
     #[test]
-    #[cfg(features = "bytes")]
+    #[cfg(feature = "bytes")]
     fn minfo_octets_into() {
+        use crate::base::octets::OctetsInto;
         use crate::base::Dname;
-        use crate::octets::OctetsInto;
 
         let minfo: Minfo<Dname<Vec<u8>>> = Minfo::new(
             "a.example".parse().unwrap(),
             "b.example".parse().unwrap(),
         );
         let minfo_bytes: Minfo<Dname<bytes::Bytes>> =
-            minfo.octets_into().unwrap();
+            minfo.clone().octets_into().unwrap();
         assert_eq!(minfo.rmailbx(), minfo_bytes.rmailbx());
         assert_eq!(minfo.emailbx(), minfo_bytes.emailbx());
     }
