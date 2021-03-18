@@ -44,6 +44,7 @@ use core::{cmp, fmt, hash};
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 2671]: https://tools.ietf.org/html/rfc2671
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum Rcode {
     /// No error condition.
     ///
