@@ -77,7 +77,6 @@
 //! [smallvec]: https://docs.rs/smallvec/
 
 #![no_std]
-
 #![allow(renamed_and_removed_lints)]
 #![allow(clippy::unknown_clippy_lints)]
 
