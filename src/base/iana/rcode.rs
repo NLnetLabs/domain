@@ -16,6 +16,7 @@
 //! [RFC 2930]: https://tools.ietf.org/html/rfc2930
 //! [RFC 6891]: https://tools.ietf.org/html/rfc6891
 //!
+#![allow(clippy::upper_case_acronyms)]
 
 use core::{cmp, fmt, hash};
 
@@ -44,7 +45,6 @@ use core::{cmp, fmt, hash};
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 2671]: https://tools.ietf.org/html/rfc2671
 #[derive(Clone, Copy, Debug)]
-#[allow(clippy::upper_case_acronyms)]
 pub enum Rcode {
     /// No error condition.
     ///

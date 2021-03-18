@@ -284,7 +284,7 @@ where
     ///
     /// [`next_section`]: ../struct.QuestionSection.html#method.next_section
     pub fn answer(&self) -> Result<RecordSection<&Octets>, ParseError> {
-        Ok(self.question().next_section()?)
+        self.question().next_section()
     }
 
     /// Returns the prerequisite section of an UPDATE message.

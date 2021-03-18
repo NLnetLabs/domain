@@ -597,7 +597,7 @@ impl RecordHeader<()> {
         Rtype::skip(parser)?;
         Class::skip(parser)?;
         u32::skip(parser)?;
-        Ok(u16::parse(parser)?)
+        u16::parse(parser)
     }
 }
 
