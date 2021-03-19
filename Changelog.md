@@ -28,8 +28,8 @@ Bug Fixes
 * Fix canonical comparison of TXT RDATA by taking the length labels into
   account. ([#76] by [@vavrusa])
 * Fix parsed not rejecting of malformed TXT RDATA. ([#80] by [@vavrusa])
-
-New
+* Resolver: Host lookup now considers possibly separate CNAME chains for
+  the responses to the A and AAAA queries. ([#90] by [@varusa])
 
 
 Other Changes
@@ -41,6 +41,7 @@ Other Changes
 [#79]: https://github.com/NLnetLabs/domain/pull/79
 [#80]: https://github.com/NLnetLabs/domain/pull/80
 [#84]: https://github.com/NLnetLabs/domain/pull/84
+[#90]: https://github.com/NLnetLabs/domain/pull/90
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
 [@koivunej]: https://github.com/koivunej
