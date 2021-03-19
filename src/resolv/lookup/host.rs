@@ -79,6 +79,7 @@ impl<R: Resolver> FoundHosts<R> {
                 _ => unreachable!(),
             }
         }
+
         Ok(FoundHosts { aaaa, a })
     }
 
@@ -118,6 +119,11 @@ where
     }
 
     /// Returns a reference to the canonical name for the host.
+    ///
+    /// # Notes
+    ///
+    /// This method expects the canonical name to be same in both A/AAAA responses,
+    /// if it isn't, it's going to return a canonical name for one of them.
     pub fn canonical_name(&self) -> ParsedDname<&R::Octets> {
         self.answer().as_ref().canonical_name().unwrap()
     }
@@ -125,7 +131,16 @@ where
     /// Returns an iterator over the IP addresses returned by the lookup.
     pub fn iter(&self) -> FoundHostsIter<&R::Octets> {
         FoundHostsIter {
-            name: self.canonical_name(),
+            aaaa_name: self
+                .aaaa
+                .as_ref()
+                .ok()
+                .and_then(|msg| msg.as_ref().canonical_name()),
+            a_name: self
+                .a
+                .as_ref()
+                .ok()
+                .and_then(|msg| msg.as_ref().canonical_name()),
             aaaa: {
                 self.aaaa
                     .as_ref()
@@ -161,7 +176,8 @@ where
 /// An iterator over the IP addresses returned by a host lookup.
 #[derive(Clone, Debug)]
 pub struct FoundHostsIter<Ref: OctetsRef> {
-    name: ParsedDname<Ref>,
+    aaaa_name: Option<ParsedDname<Ref>>,
+    a_name: Option<ParsedDname<Ref>>,
     aaaa: Option<RecordIter<Ref, Aaaa>>,
     a: Option<RecordIter<Ref, A>>,
 }
@@ -172,14 +188,14 @@ impl<Ref: OctetsRef> Iterator for FoundHostsIter<Ref> {
     fn next(&mut self) -> Option<IpAddr> {
         while let Some(res) = self.aaaa.as_mut().and_then(Iterator::next) {
             if let Ok(record) = res {
-                if *record.owner() == self.name {
+                if Some(*record.owner()) == self.aaaa_name {
                     return Some(record.data().addr().into());
                 }
             }
         }
         while let Some(res) = self.a.as_mut().and_then(Iterator::next) {
             if let Ok(record) = res {
-                if *record.owner() == self.name {
+                if Some(*record.owner()) == self.a_name {
                     return Some(record.data().addr().into());
                 }
             }
