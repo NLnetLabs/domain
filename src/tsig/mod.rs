@@ -529,13 +529,11 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
 /// This type allows checking a received request and sign an answer to it
 /// before sending it out.
 ///
-/// A received request is given to [`request`] together with a set of
-/// acceptable keys via a key store which will produce a server transaction
-/// value if the message was signed. Once an answer is ready, it can be given
-/// to that transaction value to sign it, thereby producing a message that
-/// can be returned to the client.
-///
-/// [`request
+/// A received request is given to [`request`][Self::request] together with
+/// a set of acceptable keys via a key store which will produce a server
+/// transaction value if the message was signed. Once an answer is ready, it
+/// can be given to that transaction value to sign it, thereby producing a
+/// message that can be returned to the client.
 #[derive(Clone, Debug)]
 pub struct ServerTransaction<K> {
     context: SigningContext<K>,
@@ -831,14 +829,16 @@ impl<K: AsRef<Key>> ClientSequence<K> {
 /// a known key and produce a sequence of answers to this request.
 ///
 /// A sequence is created by giving a received message and a set of
-/// acceptable keys to the [`request`] function. It will produce a server
-/// sequence value if the message was correctly signed with any of keys.
-/// Each answer message is then given to [`answer`] to finalize it into a
-/// signed message.
+/// acceptable keys to the [`request`][Self::request] function. It will
+/// produce a server sequence value if the message was correctly signed with
+/// any of keys.  Each answer message is then given to
+/// [`answer`][Self::answer] to finalize it into a signed message.
 ///
 /// Note that while the original [RFC 2845] allows a sequence of up to 99
 /// intermediary messages not to be signed, this is in the process of being
 /// deprecated. This implementation therefore signs each and every answer.
+///
+/// [RFC 2845]: https://tools.ietf.org/html/rfc2845
 #[derive(Clone, Debug)]
 pub struct ServerSequence<K> {
     /// A signing context to be used for the next signed answer.
@@ -897,9 +897,9 @@ impl<K: AsRef<Key>> ServerSequence<K> {
 
     /// Produces a signed answer with a given fudge.
     ///
-    /// This is nearly identical to [`answer`] except that it allows to
-    /// specify the ‘fudge’ which declares the number of seconds the
-    /// receiver’s clock may be off from this systems current time.
+    /// This is nearly identical to [`answer`][Self::answer] except that it
+    /// allows to specify the ‘fudge’ which declares the number of seconds
+    /// the receiver’s clock may be off from this systems current time.
     pub fn answer_with_fudge<Target: OctetsBuilder>(
         &mut self,
         message: &mut AdditionalBuilder<Target>,

@@ -27,8 +27,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// A serial number.
 ///
 /// Serial numbers are used in DNS to track changes to resources. For
-/// instance, the [`Soa`] record type provides a serial number that expresses
-/// the version of the zone. Since these numbers are only 32 bits long, they
+/// instance, the [`Soa`][crate::rdata::rfc1035::Soa] record type provides
+/// a serial number that expresses the version of the zone. Since these
+/// numbers are only 32 bits long, they
 /// can wrap. [RFC 1982] defined the semantics for doing arithmetics in the
 /// face of these wrap-arounds. This type implements these semantics atop a
 /// native `u32`.

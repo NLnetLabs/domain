@@ -46,7 +46,9 @@ int_enum! {
     (ForgedAnswer => 4, b"Forged Answer")
 
     /// The resolver attempted to perform DNSSEC validation, but
-    /// validation ended in the Indeterminate state [RFC4035].
+    /// validation ended in the Indeterminate state [RFC 4035].
+    ///
+    /// [RFC 4035]: https://tools.ietf.org/html/rfc4035
     (DnssecIndeterminate => 5, b"DNSSEC Indeterminate")
 
     /// The resolver attempted to perform DNSSEC validation, but

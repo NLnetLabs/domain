@@ -237,9 +237,8 @@ impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
     /// three digit decimal value.
     ///
     /// The last label will only be ended if the last character was a dot.
-    /// Thus, you can determine if that was the case via [`in_label`].
-    ///
-    /// [`in_label`] #method.in_label
+    /// Thus, you can determine if that was the case via
+    /// [`in_label`][Self::in_label].
     pub fn append_chars<C: IntoIterator<Item = char>>(
         &mut self,
         chars: C,

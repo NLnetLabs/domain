@@ -142,7 +142,8 @@ where
 ///
 /// [RFC 3597] limits the types for which compressed names are allowed in the
 /// record data to those defined in [RFC 1035] itself. Specific types for all
-/// these record types exist in [`domain::rdata::rfc1035`].
+/// these record types exist in
+/// [`domain::rdata::rfc1035`][crate::rdata::rfc1035].
 ///
 /// Ultimately, you should only use this type for record types for which there
 /// is no implementation available in this crate. The two types

@@ -1,7 +1,8 @@
 //! Decoding and encoding of base 32.
 //!
 //! The base 32 encoding is defined in [RFC 4648]. It is essentially a
-//! case-insensitive version of [base64] which is necessary when encoding
+//! case-insensitive version of [base64][super::base64] which is necessary
+//! when encoding
 //! binary data in domain names. The RFC defines two separate encodings,
 //! called *base32* and *base32hex*. The DNS uses the latter version,
 //! particularly in [NSEC3], for encoding binary data in domain names, as it

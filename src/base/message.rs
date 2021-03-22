@@ -695,7 +695,8 @@ impl<Ref: OctetsRef> QuestionSection<Ref> {
 
     /// Proceeds to the answer section.
     ///
-    /// This is identical to [`answer`] and is here for consistency.
+    /// This is identical to [`answer`][Self::answer] and is here for
+    /// consistency.
     pub fn next_section(self) -> Result<RecordSection<Ref>, ParseError> {
         self.answer()
     }
