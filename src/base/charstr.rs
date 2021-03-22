@@ -21,8 +21,6 @@
 //! addition, a backslash followed by a non-digit printable ASCII character
 //! is accepted, too, with the ASCII value of this character used.
 //!
-//! [`CharStr`]: struct.CharStr.html
-//! [`CharStrBuilder`]: struct.CharStrMut.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use super::cmp::CanonicalOrd;
@@ -52,6 +50,8 @@ use std::vec::Vec;
 ///
 /// As per [RFC 1035], character strings compare ignoring ASCII case.
 /// `CharStr`’s implementations of the `std::cmp` traits act accordingly.
+///
+/// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone)]
 pub struct CharStr<Octets: ?Sized>(Octets);
 
@@ -427,8 +427,8 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::Debug for CharStr<T> {
 
 /// A builder for a character string.
 ///
-/// This type wraps an [`OctetBuilder`] and in turn implements the
-/// [`OctetBuilder`] trait, making sure that the content cannot grow beyond
+/// This type wraps an [`OctetsBuilder`] and in turn implements the
+/// [`OctetsBuilder`] trait, making sure that the content cannot grow beyond
 /// the 255 octet limit of a character string.
 #[derive(Clone)]
 pub struct CharStrBuilder<Builder>(Builder);
@@ -717,6 +717,7 @@ impl fmt::Display for FromStrError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for FromStrError {}
+
 
 //============ Testing ======================================================
 

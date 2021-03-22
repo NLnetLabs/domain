@@ -13,9 +13,6 @@
 //! addition, the [`HeaderSection`] type wraps both of them into a single
 //! type.
 //!
-//! [`Header`]: struct.Header.html
-//! [`HeaderCounts`]: struct.HeaderCounts.html
-//! [`HeaderSection`]: struct.HeaderSection.html
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use super::iana::{Opcode, Rcode};
@@ -48,19 +45,17 @@ use core::mem;
 /// information on the fields, see these methods in the section
 /// [Field Access] below.
 ///
-/// You can create owned values via the [`new`] methods or `Default` trait.
-/// However, more often the type will
+/// You can create owned values via the [`new`][Self::new] method or
+/// the `Default` trait.  However, more often the type will
 /// be used via a reference into the octets of an actual message. The
-/// functions [`for_message_slice`] and [`for_message_slice_mut`] create such
+/// functions [`for_message_slice`][Self::for_message_slice] and
+/// [`for_message_slice_mut`][Self::for_message_slice_mut] create such
 /// references from an octets slice.
 ///
 /// The basic structure and most of the fields re defined in [RFC 1035],
 /// except for the AD and CD flags, which are defined in [RFC 4035].
 ///
 /// [Field Access]: #field-access
-/// [`for_message_slice`]: #method.for_message_slice
-/// [`for_message_slice_mut`]: #method.for_message_slice_mut
-/// [`new`]: #method.new
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 4035]: https://tools.ietf.org/html/rfc4035
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -79,9 +74,6 @@ impl Header {
     /// The new header has all fields as either zero or false. Thus, the
     /// opcode will be [`Opcode::Query`] and the response code will be
     /// [`Rcode::NoError`].
-    ///
-    /// [`Opcode::Query`]: ../iana/opcode/enum.Opcode.html#variant.Query
-    /// [`Rcode::NoError`]: ../iana/rcode/enum.Rcode.html#variant.NoError
     pub fn new() -> Self {
         Self::default()
     }
@@ -123,9 +115,7 @@ impl Header {
     ///
     /// When choosing an ID for an outgoing message, make sure it is random
     /// to avoid spoofing through guessing the message ID. The method
-    /// [`set_random_id`] can be used for this purpose.
-    ///
-    /// [`set_random_id`]: #method.set_random_id
+    /// [`set_random_id`][Self::set_random_id] can be used for this purpose.
     pub fn id(self) -> u16 {
         u16::from_be_bytes(self.inner[..2].try_into().unwrap())
     }
@@ -162,9 +152,6 @@ impl Header {
     /// the [`Opcode`] type for more information on the possible values and
     /// their meaning. Normal queries have the variant [`Opcode::Query`]
     /// which is also the default value when creating a new header.
-    ///
-    /// [`Opcode`]: ../../iana/opcode/enum.Opcode.html
-    /// [`Opcode::Query`]: ../../iana/opcode/enum.Opcode.html#variant.Query
     pub fn opcode(self) -> Opcode {
         Opcode::from_int((self.inner[2] >> 3) & 0x0F)
     }
@@ -325,9 +312,10 @@ impl Header {
 /// These are defined in [RFC 1035].
 ///
 /// Like with the other header part, you can create an owned value via the
-/// [`new`] method or the `Default` trait or can get a reference to the
-/// value atop a message slice via [`for_message_slice`] or
-/// [`for_message_slice_mut`].
+/// [`new`][Self::new] method or the `Default` trait or can get a reference
+/// to the value atop a message slice via
+/// [`for_message_slice`][Self::for_message_slice] or
+/// [`for_message_slice_mut`][Self::for_message_slice_mut].
 ///
 /// For each field there are three methods for getting, setting, and
 /// incrementing.
@@ -338,9 +326,6 @@ impl Header {
 /// and ADCOUNT for the additional section. The type has convenience methods
 /// for these fields as well so you don’t have to remember which is which.
 ///
-/// [`for_message_slice`]: #method.for_message_slice
-/// [`for_message_slice_mut`]: #method.for_message_slice_mut
-/// [`new`]: #method.new
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 /// [RFC 2136]: https://tools.ietf.org/html/rfc2136
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -378,7 +363,7 @@ impl HeaderCounts {
     /// Creates a mutable counts reference from the octets slice of a message.
     ///
     /// The slice `message` mut be the whole message, i.e., start with the
-    /// bytes of the [`Header`](struct.Header.html).
+    /// bytes of the [`Header`].
     ///
     /// # Panics
     ///
@@ -637,16 +622,12 @@ impl HeaderCounts {
 ///
 /// Consists of a [`Header`] directly followed by a [`HeaderCounts`].
 ///
-/// You can create an owned value via the [`new`] function or `Default` trait
-/// or acquire a pointer referring the the header section of an existing DNS
-/// message via the [`for_message_slice`] or [`for_message_slice_mut`]
+/// You can create an owned value via the [`new`][Self::new] function or the
+/// `Default` trait and acquire a pointer referring the the header section of
+/// an existing DNS message via the
+/// [`for_message_slice`][Self::for_message_slice] or
+/// [`for_message_slice_mut`][Self::for_message_slice_mut]
 /// functions.
-///
-/// [`Header`]: struct.Header.html
-/// [`HeaderCounts`]: struct.HeaderCounts.html
-/// [`for_message_slice`]: #method.for_message_slice
-/// [`for_message_slice_mut`]: #method.for_message_slice_mut
-/// [`new`]: #method.new
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HeaderSection {
     inner: [u8; 12],
@@ -763,6 +744,7 @@ impl Compose for HeaderSection {
         target.append_slice(&self.inner)
     }
 }
+
 
 //============ Testing ======================================================
 

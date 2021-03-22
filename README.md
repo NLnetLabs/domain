@@ -19,29 +19,14 @@ Currently, these blocks include:
   validation,
 * a simple Tokio-based stub resolver.
 
-
-## What’s Next?
-
-We have collected our plans for the next steps in development of these
-crates in the [Development Roadmap].
-
-For ideas that would benefit from some user feedback, we are creating
-issues with the [discuss] label.
-
-If you have ideas, requests, or proposals, don’t hesitate to open issues.
-
-[Development Roadmap]: https://github.com/NLnetLabs/domain/projects/1
-[discuss]: https://github.com/NLnetLabs/domain/labels/discuss
-
-
-## Contributing
-
-If you have comments, proposed changes, or would like to contribute,
-please open an issue.
+If you have ideas, requests, or proposals for future features, pleased
+don’t hesitate to open Github issues.
 
 
 ## Licensing
 
-All domain crates are distributed under the terms of the BSD-3-clause
-license. See the LICENSE files in the individual crates for details.
+The domain crate is distributed under the terms of the BSD-3-clause
+license. See the [LICENSE] file for details.
+
+[LICENSE]: https://github.com/NLnetLabs/domain/blob/main/LICENSE
 

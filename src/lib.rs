@@ -3,13 +3,21 @@
 //! This crates provides a number of bulding blocks for developing
 //! functionality related to the DNS. It provides fundamental types, traits,
 //! and code as well as a wide range of optional features. The intent is to
-//! eventually cover all aspects of the DNS.
+//! eventually cover all aspects of modern DNS.
+//!
+//! The crate uses feature flags to allow you to select only those modules
+//! you need for you particular project. In most cases, the feature names
+//! are equal to the module they enable.
 //!
 //! # Modules
 //!
-//! The most important module is [base]. It contains a wide variety of types,
-//! traits, and functionality to deal with DNS data. The module [rdata]
-//! contains types and implementations for a growing number of record types.
+//! A set of modules providing fundamental types and functionality is always
+//! enabled:
+//!
+//! * [base] contains a wide variety of types, traits, and functionality
+//!   to deal with DNS data, and 
+//! * [rdata] contains types and implementations for a growing number of
+//!   record types.
 //!
 //! In addition to those two basic modules, there are a number of modules for
 //! more specific features that are not required in all applications. In order
@@ -19,42 +27,42 @@
 //!
 //! Currently, there are the following modules:
 //!
-//! * [master]: reading and writing of master files – also known as zone
-//!   files –, i.e., the textual representation of DNS data.
-//! * [sign]: support for DNSSEC signing,
-//! * [tsig]: support for securing DNS transactions with TSIG records,
-//! * [validate]: support for DNSSEC validation.
+//! * [master]: Experimental reading and writing of master files – also known
+//!   as zone files –, i.e., the textual representation of DNS data. This
+//!   module will be re-implemented in the near future and will be renamed to
+//!   _zonefiles._
+//! * [resolv]: An asynchronous DNS resolver based on the
+//!   [Tokio](https://tokio.rs/) async runtime.
+//! * [sign]: Experimental support for DNSSEC signing.
+//! * [tsig]: Support for securing DNS transactions with TSIG records.
+//! * [validate]: Experimental support for DNSSEC validation.
 //!
-//! One missing module is _resolv,_ which implements an asynchronous DNS
-//! resolver. This module currently resides in its own crate [domain-resolv]
-//! do to restrictions for async functions used by the module and will be
-//! transfered here as soon as possible.
 //!
-//! A few additional feature flags that enable the use of other crates either
-//! by adding features to this crate or by implementing traits for types
-//! defined by those crates. See the overview of feature flags below.
+//! # Reference of Feature Flags
 //!
-//! # Overview of Feature Flags
+//! The following is the complete list of the feature flags available.
 //!
-//! The following feature flags are available to select optional parts of
-//! the crate and to keep the amount of compiled code and dependencies small
-//! if these parts are not required.
-//!
-//! * `bytes`: enables using the types `Bytes` and `BytesMut` from the
-//!    [bytes] crate as octet sequences.
-//! * `chrono`: adds the [chrono] crate as a dependency. This adds support
-//!   for generating serial numbers from time stamps.
-//! * `master`: master file (also known as zone file) parsing and
-//!   construction. This will enable the [master] module and currently
-//!   enables the `bytes`, `chrono`, and `std` features.
-//! * `ring`: enables crypto functionality via the [ring] crate.
+//! * `bytes`: Rnables using the types `Bytes` and `BytesMut` from the
+//!    [bytes](https://github.com/tokio-rs/bytes) crate as octet sequences.
+//! * `chrono`: Adds the [chrono](https://github.com/chronotope/chrono)
+//!   crate as a dependency. This adds support for generating serial numbers
+//!   from time stamps.
+//! * `master`: Zone file parsing and construction. This will enable the
+//!   [master] module and currently enables the `bytes`, `chrono`, and `std`
+//!   features. Note that feature and module are experimental and will soon
+//!   be replaced.
+//! * `resolv`: Enables the asynchronous stub resolver via the [resolv]
+//!   module.
+//! * `ring`: Enables crypto functionality via the
+//!   [ring](https://github.com/briansmith/ring) crate.
 //! * `sign`: basic DNSSEC signing support. This will enable the [sign]
 //!   module and requires the `std` feature. Note that this will not directly
 //!   enable actually signing. For that you will also need to pick a crypto
 //!   module via an additional feature. Currently we only support the `ring`
 //!   module, but support for OpenSSL is coming soon.
-//! * `smallvec`: enables the use of the `Smallvec` type from the [smallvec]
-//!   crate as octet sequences.
+//! * `smallvec`: enables the use of the `Smallvec` type from the
+//!   [smallvec](https://github.com/servo/rust-smallvec) crate as octet
+//!   sequences.
 //! * `std`: support for the Rust std library. This feature is enabled by
 //!   default.
 //! * `tsig`: support for signing and validating message exchanges via TSIG
@@ -63,18 +71,6 @@
 //! * `validate`: basic DNSSEC validation support. This feature enables the
 //!   [validate] module and currently also enables the `std` and `ring`
 //!   features.
-//!
-//! [base]: base/index.html
-//! [master]: master/index.html
-//! [rdata]: rdata/index.html
-//! [sign]: sign/index.html
-//! [tsig]: tsig/index.html
-//! [validate]: valiate/index.html
-//! [bytes]: https://docs.rs/bytes/
-//! [domain-resolv]: https://docs.rs/domain-resolv/
-//! [chrono]: https://docs.rs/chrono/
-//! [ring]: https://docs.rs/ring/
-//! [smallvec]: https://docs.rs/smallvec/
 
 #![no_std]
 #![allow(renamed_and_removed_lints)]

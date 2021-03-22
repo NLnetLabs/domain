@@ -11,13 +11,15 @@ Breaking
 * The trait `domain::base::octets::IntoOctets` has been merged into
   `domain::base::octets::OctetsBuilder`. It’s method `into_octets` is now
   available as `freeze` on `OctetsBuilder`. ([#75])
+* Upgrade to tokio 1.0, bytes 1.0, and latest of other dependencies
+  ([#84] by [@koivunej])
 
-* Supprt for extended errors defined in [RFC 8914]. ([#79] by [@xofyarg])
+New
+
+* Support for extended errors defined in [RFC 8914]. ([#79] by [@xofyarg])
 * New traits `domain::base::octets::OctetsFrom` and `OctetsInto` to
   convert types that are generic over octets sequences between different
   octets sequences. ([#77])
-
-* Upgrade to tokio 1.0, bytes 1.0, and latest of other dependencies ([#84] by [@koivunej])
 
 Bug Fixes
 
@@ -27,7 +29,7 @@ Bug Fixes
   by [@vavrusa])
 * Fix canonical comparison of TXT RDATA by taking the length labels into
   account. ([#76] by [@vavrusa])
-* Fix parsed not rejecting of malformed TXT RDATA. ([#80] by [@vavrusa])
+* Fix parser not rejecting malformed TXT RDATA. ([#80] by [@vavrusa])
 * Resolver: Host lookup now considers possibly separate CNAME chains for
   the responses to the A and AAAA queries. ([#90] by [@varusa])
 

@@ -30,8 +30,8 @@
 //! trait so you can build code that works with all three record sections.
 //!
 //! The [`AdditionalBuilder`] has a special feature that helps building the
-//! OPT record for EDNS. Its [`opt`] method allows a closure to build this
-//! record on the fly via the [`OptBuilder`] type.
+//! OPT record for EDNS. Its [`opt`][AdditionalBuilder::opt] method allows a
+//! closure to build this record on the fly via the [`OptBuilder`] type.
 //!
 //! Building happens atop any [octets builder], so the type of buffer to use
 //! for building can be chosen. The module also provides a few helper types
