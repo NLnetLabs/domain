@@ -22,7 +22,6 @@ use core::{cmp, fmt, str};
 #[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-
 //------------ Serial --------------------------------------------------------
 
 /// A serial number.

@@ -745,7 +745,6 @@ impl Compose for HeaderSection {
     }
 }
 
-
 //============ Testing ======================================================
 
 #[cfg(test)]

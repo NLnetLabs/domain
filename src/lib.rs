@@ -15,7 +15,7 @@
 //! enabled:
 //!
 //! * [base] contains a wide variety of types, traits, and functionality
-//!   to deal with DNS data, and 
+//!   to deal with DNS data, and
 //! * [rdata] contains types and implementations for a growing number of
 //!   record types.
 //!

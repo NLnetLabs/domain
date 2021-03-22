@@ -718,7 +718,6 @@ impl fmt::Display for FromStrError {
 #[cfg(feature = "std")]
 impl std::error::Error for FromStrError {}
 
-
 //============ Testing ======================================================
 
 #[cfg(test)]
