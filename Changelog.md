@@ -1,6 +1,8 @@
 # Change Log
 
-## Unreleased 0.6.0
+## 0.6.0
+
+Released 2021-03-22.
 
 Breaking
 
