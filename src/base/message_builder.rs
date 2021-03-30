@@ -244,10 +244,8 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
             header.set_rcode(rcode);
         }
         let mut builder = self.question();
-        for item in msg.question() {
-            if let Ok(item) = item {
-                builder.push(item)?;
-            }
+        for item in msg.question().flatten() {
+            builder.push(item)?;
         }
         Ok(builder.answer())
     }
