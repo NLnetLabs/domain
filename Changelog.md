@@ -10,6 +10,10 @@ Bug Fixes
 
 Other Changes
 
+* Enables all features when building for doc.rs. ([#99])
+
+[#99]: https://github.com/NLnetLabs/domain/pull/99
+
 
 ## 0.6.0
 

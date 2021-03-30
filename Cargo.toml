@@ -47,6 +47,9 @@ validate    = ["std", "ring"]
 tokio-native-tls   = "0.3"
 tokio              = { version = "1", features = ["rt-multi-thread", "io-util", "net"] }
 
+[package.metadata.docs.rs]
+all-features = true
+
 [[example]]
 name = "readzone"
 required-features = ["master"]
