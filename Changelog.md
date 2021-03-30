@@ -1,12 +1,11 @@
 # Change Log
 
-## Unreleased next version
+## 0.6.1
 
-Breaking Changes
+Released 2021-03-31.
 
-New
-
-Bug Fixes
+This release is a maintenance release only in order to show the complete
+documentation on docs.rs.
 
 Other Changes
 
