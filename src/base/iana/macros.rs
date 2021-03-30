@@ -235,9 +235,7 @@ macro_rules! int_enum_str_decimal {
         impl $ianatype {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 core::str::from_utf8(bytes).ok().and_then(|r| {
-                    $inttype::from_str_radix(r, 10)
-                        .ok()
-                        .map($ianatype::from_int)
+                    r.parse().ok().map($ianatype::from_int)
                 })
             }
         }
@@ -246,7 +244,7 @@ macro_rules! int_enum_str_decimal {
             type Err = core::num::ParseIntError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                $inttype::from_str_radix(s, 10).map($ianatype::from_int)
+                s.parse().map($ianatype::from_int)
             }
         }
 
@@ -285,9 +283,7 @@ macro_rules! int_enum_str_with_decimal {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 $ianatype::from_mnemonic(bytes).or_else(|| {
                     core::str::from_utf8(bytes).ok().and_then(|r| {
-                        $inttype::from_str_radix(r, 10)
-                            .ok()
-                            .map($ianatype::from_int)
+                        r.parse().ok().map($ianatype::from_int)
                     })
                 })
             }
@@ -302,7 +298,7 @@ macro_rules! int_enum_str_with_decimal {
                 match $ianatype::from_mnemonic(s.as_bytes()) {
                     Some(res) => Ok(res),
                     None => {
-                        if let Ok(res) = $inttype::from_str_radix(s, 10) {
+                        if let Ok(res) = s.parse() {
                             Ok($ianatype::Int(res))
                         } else {
                             Err(FromStrError)
@@ -372,7 +368,7 @@ macro_rules! int_enum_str_with_prefix {
                         Ok(r) => r,
                         Err(_) => return None,
                     };
-                    u16::from_str_radix(r, 10).ok().map($ianatype::from_int)
+                    r.parse().ok().map($ianatype::from_int)
                 })
             }
         }
@@ -391,7 +387,7 @@ macro_rules! int_enum_str_with_prefix {
                         {
                             let (l, r) = s.split_at(n);
                             if l.eq_ignore_ascii_case($str_prefix) {
-                                let value = match u16::from_str_radix(r, 10) {
+                                let value = match r.parse() {
                                     Ok(x) => x,
                                     Err(..) => return Err(FromStrError),
                                 };
