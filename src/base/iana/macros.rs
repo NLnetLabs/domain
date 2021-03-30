@@ -234,9 +234,9 @@ macro_rules! int_enum_str_decimal {
     ($ianatype:ident, $inttype:ident) => {
         impl $ianatype {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-                core::str::from_utf8(bytes).ok().and_then(|r| {
-                    r.parse().ok().map($ianatype::from_int)
-                })
+                core::str::from_utf8(bytes)
+                    .ok()
+                    .and_then(|r| r.parse().ok().map($ianatype::from_int))
             }
         }
 
@@ -282,9 +282,9 @@ macro_rules! int_enum_str_with_decimal {
         impl $ianatype {
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 $ianatype::from_mnemonic(bytes).or_else(|| {
-                    core::str::from_utf8(bytes).ok().and_then(|r| {
-                        r.parse().ok().map($ianatype::from_int)
-                    })
+                    core::str::from_utf8(bytes)
+                        .ok()
+                        .and_then(|r| r.parse().ok().map($ianatype::from_int))
                 })
             }
         }
