@@ -710,7 +710,7 @@ pub trait FromBuilder: AsRef<[u8]> + Sized {
 impl FromBuilder for Vec<u8> {
     type Builder = Self;
 
-    fn from_builder(builder: Self) -> Self {
+    fn from_builder(builder: Self::Builder) -> Self {
         builder
     }
 }
@@ -728,7 +728,7 @@ impl FromBuilder for Bytes {
 impl<A: Array<Item = u8>> FromBuilder for SmallVec<A> {
     type Builder = Self;
 
-    fn from_builder(builder: Self) -> Self {
+    fn from_builder(builder: Self::Builder) -> Self {
         builder
     }
 }

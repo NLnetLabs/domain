@@ -707,7 +707,7 @@ fn split_arg(s: &str) -> Result<(&str, Option<usize>), Error> {
     match s.find(':') {
         Some(idx) => {
             let (left, right) = s.split_at(idx);
-            Ok((left, Some(usize::from_str_radix(&right[1..], 10)?)))
+            Ok((left, Some(right[1..].parse()?)))
         }
         None => Ok((s, None)),
     }

@@ -149,12 +149,10 @@ impl FoundSrvs {
         name: &impl ToDname,
     ) -> Result<Vec<SrvItem>, SrvError> {
         let mut res = Vec::new();
-        for record in answer.answer()?.limit_to_in::<Srv<_>>() {
-            // XXX We could also error out if any SRV error is broken?
-            if let Ok(record) = record {
-                if record.owner() == name {
-                    res.push(SrvItem::from_rdata(record.data()))
-                }
+        // XXX We could also error out if any SRV error is broken?
+        for record in answer.answer()?.limit_to_in::<Srv<_>>().flatten() {
+            if record.owner() == name {
+                res.push(SrvItem::from_rdata(record.data()))
             }
         }
         Ok(res)
