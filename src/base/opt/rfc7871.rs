@@ -56,7 +56,8 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
         // | IPv6 address, depending on FAMILY, which MUST be truncated to
         // | the number of bits indicated by the SOURCE PREFIX-LENGTH field,
         // | padding with 0 bits to pad to the end of the last octet needed.
-        let prefix_bytes = prefix_bytes(usize::from(source_prefix_len));
+        let (prefix_bytes, mask) =
+            prefix_bytes(usize::from(source_prefix_len));
 
         let addr = match family {
             1 => {
@@ -69,6 +70,9 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
                     );
                 }
                 parser.parse_buf(&mut buf[..prefix_bytes])?;
+                if let Some(e) = buf.get_mut(prefix_bytes - 1) {
+                    *e &= mask;
+                }
                 IpAddr::from(buf)
             }
             2 => {
@@ -81,6 +85,9 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
                     );
                 }
                 parser.parse_buf(&mut buf[..prefix_bytes])?;
+                if let Some(e) = buf.get_mut(prefix_bytes - 1) {
+                    *e &= mask;
+                }
                 IpAddr::from(buf)
             }
             _ => {
@@ -106,30 +113,41 @@ impl Compose for ClientSubnet {
         &self,
         target: &mut T
     ) -> Result<(), ShortBuf> {
-        let prefix_bytes = prefix_bytes(self.source_prefix_len as usize);
-        target.append_all(|target| {
-            match self.addr {
-                IpAddr::V4(addr) => {
-                    1u16.compose(target)?;
-                    self.source_prefix_len.compose(target)?;
-                    self.scope_prefix_len.compose(target)?;
-                    target.append_slice(&addr.octets()[..prefix_bytes])
+        let (prefix_bytes, mask) =
+            prefix_bytes(self.source_prefix_len as usize);
+        target.append_all(|target| match self.addr {
+            IpAddr::V4(addr) => {
+                1u16.compose(target)?;
+                self.source_prefix_len.compose(target)?;
+                self.scope_prefix_len.compose(target)?;
+                let mut array = addr.octets();
+                if let Some(e) = array.get_mut(prefix_bytes - 1) {
+                    *e &= mask;
                 }
-                IpAddr::V6(addr) => {
-                    2u16.compose(target)?;
-                    self.source_prefix_len.compose(target)?;
-                    self.scope_prefix_len.compose(target)?;
-                    target.append_slice(&addr.octets()[..prefix_bytes])
+                target.append_slice(&array[..prefix_bytes])
+            }
+            IpAddr::V6(addr) => {
+                2u16.compose(target)?;
+                self.source_prefix_len.compose(target)?;
+                self.scope_prefix_len.compose(target)?;
+                let mut array = addr.octets();
+                if let Some(e) = array.get_mut(prefix_bytes - 1) {
+                    *e &= mask;
                 }
+                target.append_slice(&array[..prefix_bytes])
             }
         })
     }
 }
 
-fn prefix_bytes(bits: usize) -> usize {
-    (bits + 7) / 8
+fn prefix_bytes(bits: usize) -> (usize, u8) {
+    let n = (bits + 7) / 8;
+    let mask = match 8 - (bits % 8) {
+        0 => 0xff,
+        n => 0xff << n,
+    };
+    (n, mask)
 }
-
 
 //--- CodeOptData
 
@@ -137,3 +155,35 @@ impl CodeOptData for ClientSubnet {
     const CODE: OptionCode = OptionCode::ClientSubnet;
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::base::octets::Octets512;
+    use core::convert::TryFrom;
+
+    #[test]
+    fn truncate_bits() {
+        // no extra truncation
+        let csub = ClientSubnet::new(23, 0, "192.0.2.0".parse().unwrap());
+        let mut buf = Octets512::new();
+        csub.compose(&mut buf).unwrap();
+        assert_eq!(buf.as_ref(), [0, 1, 23, 0, 192, 0, 2].as_ref());
+
+        let parsed =
+            ClientSubnet::parse(&mut Parser::from_ref(buf.as_ref())).unwrap();
+        assert_eq!(parsed, csub);
+
+        // with extra truncation
+        let opt_bytes = [0, 1, 22, 0, 192, 0, 2];
+        let csub = ClientSubnet::parse(&mut Parser::from_ref(
+            Octets512::try_from(opt_bytes.as_ref()).unwrap(),
+        ))
+        .unwrap();
+        assert_eq!(csub.addr(), "192.0.0.0".parse::<IpAddr>().unwrap());
+
+        let csub = ClientSubnet::new(22, 0, "192.0.2.0".parse().unwrap());
+        let mut buf = Octets512::new();
+        csub.compose(&mut buf).unwrap();
+        assert_eq!(buf.as_ref(), [0, 1, 22, 0, 192, 0, 0].as_ref());
+    }
+}
