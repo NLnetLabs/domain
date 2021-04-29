@@ -8,8 +8,13 @@ New
 
 Bug Fixes
 
+* Correctly encode and decode the address in EDNS client subnet when the
+  number of bits isn’t divisible by 8. ([#101] by [@xofyarg])
+
 Other Changes
 
+[#101]: https://github.com/NLnetLabs/domain/pull/101
+[@xofyarg]: https://github.com/xofyarg
 
 
 ## 0.6.1
