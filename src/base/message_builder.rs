@@ -1876,7 +1876,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
             // compressor. If we can’t insert anymore, just write out what’s
             // left and return.
             if !self.insert(self.target.len()) {
-                while let Some(label) = name.next() {
+                for label in &mut name {
                     label.compose(self)?;
                 }
                 return Ok(());
@@ -2079,7 +2079,7 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
             // compressor. If we can’t insert anymore, just write out what’s
             // left and return.
             if !self.insert(name.clone(), self.target.len()) {
-                while let Some(label) = name.next() {
+                for label in &mut name {
                     label.compose(self)?;
                 }
                 return Ok(());
