@@ -337,9 +337,9 @@ where
         ParseError,
     > {
         let question = self.question();
-        let answer = question.clone().next_section()?;
-        let authority = answer.clone().next_section()?.unwrap();
-        let additional = authority.clone().next_section()?.unwrap();
+        let answer = question.next_section()?;
+        let authority = answer.next_section()?.unwrap();
+        let additional = authority.next_section()?.unwrap();
         Ok((question, answer, authority, additional))
     }
 
@@ -565,7 +565,7 @@ where
     {
         let mut source = self.answer()?;
         let mut target = target.into();
-        while let Some(rr) = source.next() {
+        for rr in &mut source {
             let rr = rr?;
             if let Some(rr) = op(rr) {
                 target.push(rr)?;
@@ -574,7 +574,7 @@ where
 
         let mut source = source.next_section()?.unwrap();
         let mut target = target.authority();
-        while let Some(rr) = source.next() {
+        for rr in &mut source {
             let rr = rr?;
             if let Some(rr) = op(rr) {
                 target.push(rr)?;
