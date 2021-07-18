@@ -1,5 +1,6 @@
 //! Key and Signer using ring.
 #![cfg(feature = "ring")]
+#![cfg_attr(docsrs, doc(cfg(feature = "ring")))]
 
 use super::key::SigningKey;
 use crate::base::iana::{DigestAlg, SecAlg};

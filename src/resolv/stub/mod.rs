@@ -152,6 +152,7 @@ impl StubResolver {
 }
 
 #[cfg(feature = "resolv-sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "resolv-sync")))]
 impl StubResolver {
     /// Synchronously perform a DNS operation atop a standard resolver.
     ///

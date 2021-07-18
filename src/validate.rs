@@ -2,6 +2,7 @@
 //!
 //! **This module is experimental and likely to change significantly.**
 #![cfg(feature = "validate")]
+#![cfg_attr(docsrs, doc(cfg(feature = "validate")))]
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};

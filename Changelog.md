@@ -13,9 +13,14 @@ Bug Fixes
 
 Other Changes
 
+* Enable `doc_cfg` feature flag documentation for docs.rs.
+  ([#104] by [Martin Fischer])
+
 [#101]: https://github.com/NLnetLabs/domain/pull/101
 [#102]: https://github.com/NLnetLabs/domain/pull/102
 [@xofyarg]: https://github.com/xofyarg
+[#104]: https://github.com/NLnetLabs/domain/pull/104
+[Martin Fischer]: https://push-f.com/
 
 
 ## 0.6.1

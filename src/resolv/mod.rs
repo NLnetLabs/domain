@@ -31,6 +31,7 @@
 //! [`Resolver`]: resolver/trait.Resolver.html
 //! [`StubResolver`]: stub/struct.StubResolver.html
 #![cfg(feature = "resolv")]
+#![cfg_attr(docsrs, doc(cfg(feature = "resolv")))]
 
 pub use self::resolver::Resolver;
 pub use self::stub::StubResolver;

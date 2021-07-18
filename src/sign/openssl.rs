@@ -1,5 +1,6 @@
 //! Key and Signer using OpenSSL.
 #![cfg(feature = "openssl")]
+#![cfg_attr(docsrs, doc(cfg(feature = "openssl")))]
 
 use std::vec::Vec;
 use openssl::error::ErrorStack;
