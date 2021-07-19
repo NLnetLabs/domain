@@ -52,6 +52,7 @@
 //! [`ClientSequence`]: struct.ClientSequence.html
 //! [`ServerSequence`]: struct.ServerSequence.html
 #![cfg(feature = "tsig")]
+#![cfg_attr(docsrs, doc(cfg(feature = "tsig")))]
 
 mod interop;
 

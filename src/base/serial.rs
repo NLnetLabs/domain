@@ -178,6 +178,7 @@ impl From<Serial> for u32 {
 }
 
 #[cfg(feature = "chrono")]
+#[cfg_attr(docsrs, doc(cfg(feature = "chrono")))]
 impl<T: TimeZone> From<DateTime<T>> for Serial {
     fn from(value: DateTime<T>) -> Self {
         Self(value.timestamp() as u32)

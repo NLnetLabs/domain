@@ -152,6 +152,7 @@ impl<Octets: ?Sized> CharStr<Octets> {
 }
 
 #[cfg(feature = "bytes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
 impl CharStr<Bytes> {
     /// Creates a new character string from a bytes value.
     ///
@@ -167,6 +168,7 @@ impl CharStr<Bytes> {
 
     /// Scans a character string given as a word of hexadecimal digits.
     #[cfg(feature = "master")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "master")))]
     pub fn scan_hex<C: CharSource>(
         scanner: &mut Scanner<C>,
     ) -> Result<Self, ScanError> {

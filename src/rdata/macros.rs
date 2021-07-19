@@ -321,6 +321,7 @@ macro_rules! rdata_types {
         //--- (Scan) and Display
 
         #[cfg(feature="master")]
+        #[cfg_attr(docsrs, doc(cfg(feature = "master")))]
         impl MasterRecordData<
             bytes::Bytes, $crate::base::name::Dname<bytes::Bytes>
         > {

@@ -49,6 +49,7 @@ tokio              = { version = "1", features = ["rt-multi-thread", "io-util", 
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
 name = "readzone"

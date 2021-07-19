@@ -2,6 +2,7 @@
 //!
 //! **This module is experimental and likely to change significantly.**
 #![cfg(feature = "sign")]
+#![cfg_attr(docsrs, doc(cfg(feature = "sign")))]
 
 pub mod key;
 //pub mod openssl;
