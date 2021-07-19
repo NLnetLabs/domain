@@ -240,7 +240,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                 let public_key =
                     signature::RsaPublicKeyComponents { n: &n, e: &e };
                 public_key
-                    .verify(algorithm, signed_data, &signature)
+                    .verify(algorithm, signed_data, signature)
                     .map_err(|_| AlgorithmError::BadSig)
             }
             SecAlg::EcdsaP256Sha256 | SecAlg::EcdsaP384Sha384 => {
@@ -258,16 +258,16 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                 let public_key = dnskey.public_key().as_ref();
                 let mut key = Vec::with_capacity(public_key.len() + 1);
                 key.push(0x4);
-                key.extend_from_slice(&public_key);
+                key.extend_from_slice(public_key);
 
                 signature::UnparsedPublicKey::new(algorithm, &key)
-                    .verify(&signed_data, &signature)
+                    .verify(signed_data, signature)
                     .map_err(|_| AlgorithmError::BadSig)
             }
             SecAlg::Ed25519 => {
                 let key = dnskey.public_key();
                 signature::UnparsedPublicKey::new(&signature::ED25519, &key)
-                    .verify(&signed_data, &signature)
+                    .verify(signed_data, signature)
                     .map_err(|_| AlgorithmError::BadSig)
             }
             _ => Err(AlgorithmError::Unsupported),

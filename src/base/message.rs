@@ -244,7 +244,7 @@ impl<Octets: AsRef<[u8]>> Message<Octets> {
 
     /// Returns the entire header section.
     pub fn header_section(&self) -> HeaderSection {
-        *HeaderSection::for_message_slice(&self.as_slice())
+        *HeaderSection::for_message_slice(self.as_slice())
     }
 
     /// Returns whether the rcode of the header is NoError.
