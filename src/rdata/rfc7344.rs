@@ -8,10 +8,8 @@ use crate::base::octets::{
     ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scanner};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError};
+use crate::scan::{Scan, ScanError, Scanner};
 use crate::utils::base64;
 #[cfg(feature = "master")]
 use bytes::Bytes;
@@ -187,9 +185,7 @@ impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Cdnskey<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
@@ -410,9 +406,7 @@ impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Cds<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,

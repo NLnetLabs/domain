@@ -9,10 +9,8 @@ use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
 #[cfg(feature = "master")]
 use super::uncertain::UncertainDname;
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scanner};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, SyntaxError};
+use crate::scan::{Scan, ScanError, Scanner, SyntaxError};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::str::FromStr;
@@ -807,9 +805,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Dname<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         let pos = scanner.pos();
         let name = match UncertainDname::scan(scanner)? {
             UncertainDname::Relative(name) => name,

@@ -91,6 +91,101 @@ impl<C: CharSource> Scanner<C> {
     }
 }
 
+impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
+    fn pos(&self) -> Pos {
+        self.pos()
+    }
+
+    fn origin(&self) -> &Option<Dname<Bytes>> {
+        self.origin()
+    }
+
+    fn skip_literal(&mut self, literal: &str) -> Result<(), ScanError> {
+        self.skip_literal(literal)
+    }
+
+    fn scan_word<T, U, F, G>(
+        &mut self,
+        target: T,
+        symbolop: F,
+        finalop: G,
+    ) -> Result<U, ScanError>
+    where
+        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
+        G: FnOnce(T) -> Result<U, SyntaxError>,
+    {
+        self.scan_word(target, symbolop, finalop)
+    }
+
+    fn scan_string_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(String) -> Result<U, SyntaxError>,
+    {
+        self.scan_string_word(finalop)
+    }
+
+    fn scan_phrase<T, U, F, G>(
+        &mut self,
+        target: T,
+        symbolop: F,
+        finalop: G,
+    ) -> Result<U, ScanError>
+    where
+        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
+        G: FnOnce(T) -> Result<U, SyntaxError>,
+    {
+        self.scan_phrase(target, symbolop, finalop)
+    }
+
+    fn scan_byte_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
+        self.scan_byte_phrase(finalop)
+    }
+
+    fn scan_string_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(String) -> Result<U, SyntaxError>,
+    {
+        self.scan_string_phrase(finalop)
+    }
+
+    fn scan_hex_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
+        self.scan_hex_word(finalop)
+    }
+
+    fn scan_hex_words<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
+        self.scan_hex_word(finalop)
+    }
+
+    fn scan_base32hex_phrase<U, G>(
+        &mut self,
+        finalop: G,
+    ) -> Result<U, ScanError>
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
+        self.scan_base32hex_phrase(finalop)
+    }
+
+    fn scan_base64_phrases<U, G>(
+        &mut self,
+        finalop: G,
+    ) -> Result<U, ScanError>
+    where
+        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+    {
+        self.scan_base64_phrases(finalop)
+    }
+}
+
 /// # Access to Origin
 ///
 /// Domain names in a master file that do not end in a dot are relative to

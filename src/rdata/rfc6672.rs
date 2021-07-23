@@ -6,8 +6,6 @@ use crate::base::octets::{
     ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scanner};
 #[cfg(feature = "scan")]
 use crate::scan::{Scan, ScanError};
 use core::cmp::Ordering;

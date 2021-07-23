@@ -11,10 +11,8 @@ use super::cmp::CanonicalOrd;
 use super::octets::{
     Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
 };
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scanner};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, SyntaxError};
+use crate::scan::{Scan, ScanError, Scanner, SyntaxError};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone, Utc};
 use core::cmp::Ordering;
@@ -91,8 +89,8 @@ impl Serial {
     ///
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
     #[cfg(feature = "master")]
-    pub fn scan_rrsig<C: CharSource>(
-        scanner: &mut Scanner<C>,
+    pub fn scan_rrsig<S: Scanner>(
+        scanner: &mut S,
     ) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             (0, [0u8; 14]),
@@ -218,9 +216,7 @@ impl Compose for Serial {
 
 #[cfg(feature = "master")]
 impl Scan for Serial {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         u32::scan(scanner).map(Into::into)
     }
 }

@@ -15,10 +15,8 @@ use crate::base::octets::{
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scanner};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError};
+use crate::scan::{Scan, ScanError, Scanner};
 use crate::utils::base64;
 #[cfg(feature = "master")]
 use bytes::{Bytes, BytesMut};
@@ -285,9 +283,7 @@ impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Dnskey<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
@@ -767,9 +763,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
 
 #[cfg(feature = "master")]
 impl Scan for Rrsig<Bytes, Dname<Bytes>> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         Ok(Self::new(
             Rtype::scan(scanner)?,
             SecAlg::scan(scanner)?,
@@ -988,9 +982,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
 
 #[cfg(feature = "master")]
 impl<N: Scan> Scan for Nsec<Bytes, N> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         Ok(Self::new(N::scan(scanner)?, RtypeBitmap::scan(scanner)?))
     }
 }
@@ -1211,9 +1203,7 @@ impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Ds<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         Ok(Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
@@ -1444,9 +1434,7 @@ impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for RtypeBitmap<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         let mut builder = RtypeBitmapBuilder::<BytesMut>::new();
         while let Ok(rtype) = Rtype::scan(scanner) {
             builder.add(rtype).unwrap()

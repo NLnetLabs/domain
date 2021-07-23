@@ -325,10 +325,10 @@ macro_rules! rdata_types {
         impl MasterRecordData<
             bytes::Bytes, $crate::base::name::Dname<bytes::Bytes>
         > {
-            pub fn scan<C>(rtype: $crate::base::iana::Rtype,
-                           scanner: &mut $crate::master::scan::Scanner<C>)
+            pub fn scan<S>(rtype: $crate::base::iana::Rtype,
+                           scanner: &mut S)
                            -> Result<Self, $crate::scan::ScanError>
-                        where C: $crate::master::scan::CharSource {
+                        where S: $crate::scan::Scanner {
                 use $crate::scan::Scan;
 
                 match rtype {
@@ -922,7 +922,7 @@ macro_rules! dname_type {
 
         #[cfg(feature="master")]
         impl<N: Scan> Scan for $target<N> {
-            fn scan<C: CharSource>(scanner: &mut Scanner<C>)
+            fn scan<S: crate::scan::Scanner>(scanner: &mut S)
                                    -> Result<Self, ScanError> {
                 N::scan(scanner).map(Self::new)
             }

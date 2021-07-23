@@ -250,8 +250,8 @@ macro_rules! int_enum_str_decimal {
 
         #[cfg(feature = "master")]
         impl $crate::scan::Scan for $ianatype {
-            fn scan<C: $crate::master::scan::CharSource>(
-                scanner: &mut $crate::master::scan::Scanner<C>,
+            fn scan<S: $crate::scan::Scanner>(
+                scanner: &mut S,
             ) -> Result<Self, $crate::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
@@ -328,8 +328,8 @@ macro_rules! int_enum_str_with_decimal {
 
         #[cfg(feature = "master")]
         impl $crate::scan::Scan for $ianatype {
-            fn scan<C: $crate::master::scan::CharSource>(
-                scanner: &mut $crate::master::scan::Scanner<C>,
+            fn scan<S: $crate::scan::Scanner>(
+                scanner: &mut S,
             ) -> Result<Self, $crate::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     core::str::FromStr::from_str(&word).map_err(|_| {
@@ -423,8 +423,8 @@ macro_rules! int_enum_str_with_prefix {
 
         #[cfg(feature = "master")]
         impl $crate::scan::Scan for $ianatype {
-            fn scan<C: $crate::master::scan::CharSource>(
-                scanner: &mut $crate::master::scan::Scanner<C>,
+            fn scan<S: $crate::scan::Scanner>(
+                scanner: &mut S,
             ) -> Result<Self, $crate::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;

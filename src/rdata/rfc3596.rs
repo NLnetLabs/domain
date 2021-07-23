@@ -11,10 +11,8 @@ use crate::base::octets::{
     Compose, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scanner};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError};
+use crate::scan::{Scan, ScanError, Scanner};
 use core::cmp::Ordering;
 use core::{fmt, ops};
 
@@ -102,9 +100,7 @@ impl Compose for Aaaa {
 
 #[cfg(feature = "master")]
 impl Scan for Aaaa {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         scanner.scan_string_phrase(|res| {
             core::str::FromStr::from_str(&res).map_err(Into::into)
         })

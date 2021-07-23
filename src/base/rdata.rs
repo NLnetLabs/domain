@@ -28,10 +28,8 @@ use super::octets::{
     Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
     ShortBuf,
 };
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scanner};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, SyntaxError};
+use crate::scan::{Scan, ScanError, Scanner, SyntaxError};
 #[cfg(feature = "master")]
 use bytes::{BufMut, Bytes, BytesMut};
 use core::cmp::Ordering;
@@ -186,9 +184,9 @@ impl UnknownRecordData<Bytes> {
     /// Scans the record data.
     ///
     /// This isn’t implemented via `Scan`, because we need the record type.
-    pub fn scan<C: CharSource>(
+    pub fn scan<S: Scanner>(
         rtype: Rtype,
-        scanner: &mut Scanner<C>,
+        scanner: &mut S,
     ) -> Result<Self, ScanError> {
         scanner.skip_literal("\\#")?;
         let mut len = u16::scan(scanner)? as usize;

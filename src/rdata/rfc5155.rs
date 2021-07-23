@@ -13,10 +13,8 @@ use crate::base::octets::{
     ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scanner};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, SyntaxError};
+use crate::scan::{Scan, ScanError, Scanner, SyntaxError};
 use crate::utils::base32;
 #[cfg(feature = "master")]
 use bytes::Bytes;
@@ -251,9 +249,7 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Nsec3<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         Ok(Self::new(
             Nsec3HashAlg::scan(scanner)?,
             u8::scan(scanner)?,
@@ -266,8 +262,8 @@ impl Scan for Nsec3<Bytes> {
 }
 
 #[cfg(feature = "master")]
-fn scan_salt<C: CharSource>(
-    scanner: &mut Scanner<C>,
+fn scan_salt<S: Scanner>(
+    scanner: &mut S,
 ) -> Result<CharStr<Bytes>, ScanError> {
     if let Ok(()) = scanner.skip_literal("-") {
         Ok(CharStr::empty())
@@ -277,8 +273,8 @@ fn scan_salt<C: CharSource>(
 }
 
 #[cfg(feature = "master")]
-fn scan_hash<C: CharSource>(
-    scanner: &mut Scanner<C>,
+fn scan_hash<S: Scanner>(
+    scanner: &mut S,
 ) -> Result<CharStr<Bytes>, ScanError> {
     scanner.scan_base32hex_phrase(|bytes| {
         CharStr::from_bytes(bytes).map_err(SyntaxError::content)
@@ -503,9 +499,7 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for Nsec3param<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         Ok(Self::new(
             Nsec3HashAlg::scan(scanner)?,
             u8::scan(scanner)?,

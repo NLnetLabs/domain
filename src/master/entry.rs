@@ -233,8 +233,8 @@ enum ControlType {
 }
 
 impl Scan for ControlType {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+    fn scan<S: crate::scan::Scanner>(
+        scanner: &mut S,
     ) -> Result<Self, ScanError> {
         let pos = scanner.pos();
         scanner.scan_string_word(|word| {

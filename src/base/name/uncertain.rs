@@ -13,10 +13,8 @@ use super::dname::Dname;
 use super::label::Label;
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToEitherDname, ToLabelIter};
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scanner};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError};
+use crate::scan::{Scan, ScanError, Scanner};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 #[cfg(feature = "master")]
@@ -370,9 +368,7 @@ impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
 
 #[cfg(feature = "master")]
 impl Scan for UncertainDname<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
         if let Ok(()) = scanner.skip_literal(".") {
             return Ok(UncertainDname::root());
         }
