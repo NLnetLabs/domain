@@ -1,8 +1,8 @@
 //! Scanning master file tokens.
 
-use crate::base::name::Dname;
+use crate::base::name::{Dname, UncertainDname};
 use crate::base::str::Symbol;
-use crate::scan::SyntaxError;
+use crate::scan::{Scan, SyntaxError};
 use crate::utils::{base32, base64};
 use bytes::{BufMut, Bytes, BytesMut};
 use std::error;
@@ -96,10 +96,6 @@ impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
         self.pos()
     }
 
-    fn origin(&self) -> &Option<Dname<Bytes>> {
-        self.origin()
-    }
-
     fn skip_literal(&mut self, literal: &str) -> Result<(), ScanError> {
         self.skip_literal(literal)
     }
@@ -149,6 +145,22 @@ impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
         G: FnOnce(String) -> Result<U, SyntaxError>,
     {
         self.scan_string_phrase(finalop)
+    }
+
+    /// Scans a domain name.
+    fn scan_dname(&mut self) -> Result<Dname<Bytes>, ScanError> {
+        let pos = self.pos();
+        let name = match UncertainDname::scan(self)? {
+            UncertainDname::Relative(name) => name,
+            UncertainDname::Absolute(name) => return Ok(name),
+        };
+        let origin = match *self.origin() {
+            Some(ref origin) => origin,
+            None => return Err((SyntaxError::NoOrigin, pos).into()),
+        };
+        name.into_builder()
+            .append_origin(origin)
+            .map_err(|err| (SyntaxError::from(err), pos).into())
     }
 
     fn scan_hex_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>

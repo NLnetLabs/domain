@@ -28,9 +28,6 @@ pub trait Scanner {
     /// Returns the current position of the scanner.
     fn pos(&self) -> Pos;
 
-    /// Returns the current origin if any.
-    fn origin(&self) -> &Option<Dname<Bytes>>;
-
     /// Skips over the word with the content `literal`.
     ///
     /// The content indeed needs to be literally the literal. Escapes are
@@ -112,6 +109,9 @@ pub trait Scanner {
     ) -> Result<U, ScanError>
     where
         G: FnOnce(String) -> Result<U, SyntaxError>;
+
+    /// Scans a domain name.
+    fn scan_dname(&mut self) -> Result<Dname<Bytes>, ScanError>;
 
     /// Scans a word containing a sequence of pairs of hex digits.
     ///

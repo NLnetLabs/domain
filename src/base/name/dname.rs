@@ -7,10 +7,8 @@ use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
-#[cfg(feature = "master")]
-use super::uncertain::UncertainDname;
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner, SyntaxError};
+use crate::scan::{Scan, ScanError, Scanner};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::str::FromStr;
@@ -806,18 +804,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
 #[cfg(feature = "master")]
 impl Scan for Dname<Bytes> {
     fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
-        let pos = scanner.pos();
-        let name = match UncertainDname::scan(scanner)? {
-            UncertainDname::Relative(name) => name,
-            UncertainDname::Absolute(name) => return Ok(name),
-        };
-        let origin = match *scanner.origin() {
-            Some(ref origin) => origin,
-            None => return Err((SyntaxError::NoOrigin, pos).into()),
-        };
-        name.into_builder()
-            .append_origin(origin)
-            .map_err(|err| (SyntaxError::from(err), pos).into())
+        scanner.scan_dname()
     }
 }
 
