@@ -327,9 +327,9 @@ macro_rules! rdata_types {
         > {
             pub fn scan<C>(rtype: $crate::base::iana::Rtype,
                            scanner: &mut $crate::master::scan::Scanner<C>)
-                           -> Result<Self, $crate::master::scan::ScanError>
+                           -> Result<Self, $crate::scan::ScanError>
                         where C: $crate::master::scan::CharSource {
-                use $crate::master::scan::Scan;
+                use $crate::scan::Scan;
 
                 match rtype {
                     $( $( $(

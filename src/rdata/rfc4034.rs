@@ -16,7 +16,9 @@ use crate::base::octets::{
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+use crate::master::scan::{CharSource, Scanner};
+#[cfg(feature = "scan")]
+use crate::scan::{Scan, ScanError};
 use crate::utils::base64;
 #[cfg(feature = "master")]
 use bytes::{Bytes, BytesMut};

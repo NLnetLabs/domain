@@ -35,9 +35,10 @@ libc = { version = "0.2.71", default-features = false, optional = true }
 # cargo test run. Only interop must not be present.
 default     = ["std"]
 interop     = ["bytes", "ring"]
-master      = ["std", "bytes", "chrono"]
+master      = ["scan"]
 resolv      = ["bytes", "futures", "smallvec", "std", "tokio", "libc"]
 resolv-sync = ["resolv", "tokio/rt"]
+scan        = ["std", "bytes", "chrono", "master"]
 sign        = ["std"]
 std         = []
 tsig        = ["bytes", "ring", "smallvec"]

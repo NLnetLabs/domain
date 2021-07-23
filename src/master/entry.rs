@@ -1,8 +1,9 @@
-use super::scan::{CharSource, Pos, Scan, ScanError, Scanner, SyntaxError};
+use super::scan::{CharSource, Pos, Scanner};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::Dname;
 use crate::base::record::Record;
 use crate::rdata::MasterRecordData;
+use crate::scan::{Scan, ScanError, SyntaxError};
 use bytes::Bytes;
 /// A master file entry.
 use std::borrow::ToOwned;

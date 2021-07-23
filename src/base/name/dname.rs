@@ -10,9 +10,9 @@ use super::traits::{ToDname, ToLabelIter};
 #[cfg(feature = "master")]
 use super::uncertain::UncertainDname;
 #[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
+use crate::master::scan::{CharSource, Scanner};
+#[cfg(feature = "scan")]
+use crate::scan::{Scan, ScanError, SyntaxError};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::str::FromStr;

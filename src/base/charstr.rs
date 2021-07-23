@@ -30,9 +30,9 @@ use super::octets::{
 };
 use super::str::{BadSymbol, Symbol, SymbolError};
 #[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
+use crate::master::scan::{CharSource, Scanner};
+#[cfg(feature = "scan")]
+use crate::scan::{Scan, ScanError, SyntaxError};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};

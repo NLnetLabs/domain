@@ -14,9 +14,9 @@ use crate::base::octets::{
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
+use crate::master::scan::{CharSource, Scanner};
+#[cfg(feature = "scan")]
+use crate::scan::{Scan, ScanError, SyntaxError};
 use crate::utils::base32;
 #[cfg(feature = "master")]
 use bytes::Bytes;

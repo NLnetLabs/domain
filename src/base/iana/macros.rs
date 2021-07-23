@@ -249,15 +249,15 @@ macro_rules! int_enum_str_decimal {
         }
 
         #[cfg(feature = "master")]
-        impl $crate::master::scan::Scan for $ianatype {
+        impl $crate::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
                 scanner: &mut $crate::master::scan::Scanner<C>,
-            ) -> Result<Self, $crate::master::scan::ScanError> {
+            ) -> Result<Self, $crate::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
 
                     Self::from_str(&word)
-                        .map_err($crate::master::scan::SyntaxError::content)
+                        .map_err($crate::scan::SyntaxError::content)
                 })
             }
         }
@@ -327,13 +327,13 @@ macro_rules! int_enum_str_with_decimal {
         }
 
         #[cfg(feature = "master")]
-        impl $crate::master::scan::Scan for $ianatype {
+        impl $crate::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
                 scanner: &mut $crate::master::scan::Scanner<C>,
-            ) -> Result<Self, $crate::master::scan::ScanError> {
+            ) -> Result<Self, $crate::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     core::str::FromStr::from_str(&word).map_err(|_| {
-                        $crate::master::scan::SyntaxError::UnknownMnemonic
+                        $crate::scan::SyntaxError::UnknownMnemonic
                     })
                 })
             }
@@ -422,15 +422,15 @@ macro_rules! int_enum_str_with_prefix {
         }
 
         #[cfg(feature = "master")]
-        impl $crate::master::scan::Scan for $ianatype {
+        impl $crate::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
                 scanner: &mut $crate::master::scan::Scanner<C>,
-            ) -> Result<Self, $crate::master::scan::ScanError> {
+            ) -> Result<Self, $crate::scan::ScanError> {
                 scanner.scan_string_word(|word| {
                     use ::std::str::FromStr;
 
                     Self::from_str(&word).map_err(|_| {
-                        $crate::master::scan::SyntaxError::UnknownMnemonic
+                        $crate::scan::SyntaxError::UnknownMnemonic
                     })
                 })
             }

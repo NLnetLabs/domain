@@ -14,7 +14,9 @@ use super::label::Label;
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToEitherDname, ToLabelIter};
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+use crate::master::scan::{CharSource, Scanner};
+#[cfg(feature = "scan")]
+use crate::scan::{Scan, ScanError};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 #[cfg(feature = "master")]

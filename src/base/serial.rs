@@ -12,9 +12,9 @@ use super::octets::{
     Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
 };
 #[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
+use crate::master::scan::{CharSource, Scanner};
+#[cfg(feature = "scan")]
+use crate::scan::{Scan, ScanError, SyntaxError};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone, Utc};
 use core::cmp::Ordering;
