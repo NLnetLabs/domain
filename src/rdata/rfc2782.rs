@@ -13,7 +13,7 @@ use crate::base::octets::{
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner};
+use crate::scan::{Scan, Scanner};
 use core::cmp::Ordering;
 use core::fmt;
 
@@ -207,9 +207,9 @@ impl<N> RtypeRecordData for Srv<N> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl<N: Scan> Scan for Srv<N> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u16::scan(scanner)?,

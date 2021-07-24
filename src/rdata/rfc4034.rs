@@ -6,7 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 use crate::base::name::Dname;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
@@ -16,9 +16,9 @@ use crate::base::octets::{
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner};
+use crate::scan::{Scan, Scanner};
 use crate::utils::base64;
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 use bytes::{Bytes, BytesMut};
 use core::cmp::Ordering;
 use core::convert::TryInto;
@@ -281,9 +281,9 @@ impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Dnskey<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
@@ -761,9 +761,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Rrsig<Bytes, Dname<Bytes>> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(
             Rtype::scan(scanner)?,
             SecAlg::scan(scanner)?,
@@ -980,9 +980,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl<N: Scan> Scan for Nsec<Bytes, N> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(N::scan(scanner)?, RtypeBitmap::scan(scanner)?))
     }
 }
@@ -1201,9 +1201,9 @@ impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Ds<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
@@ -1432,9 +1432,9 @@ impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for RtypeBitmap<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         let mut builder = RtypeBitmapBuilder::<BytesMut>::new();
         while let Ok(rtype) = Rtype::scan(scanner) {
             builder.add(rtype).unwrap()

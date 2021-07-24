@@ -320,14 +320,14 @@ macro_rules! rdata_types {
 
         //--- (Scan) and Display
 
-        #[cfg(feature="master")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "master")))]
+        #[cfg(feature="scan")]
+        #[cfg_attr(docsrs, doc(cfg(feature = "scan")))]
         impl MasterRecordData<
             bytes::Bytes, $crate::base::name::Dname<bytes::Bytes>
         > {
             pub fn scan<S>(rtype: $crate::base::iana::Rtype,
                            scanner: &mut S)
-                           -> Result<Self, $crate::scan::ScanError>
+                           -> Result<Self, S::Err>
                         where S: $crate::scan::Scanner {
                 use $crate::scan::Scan;
 
@@ -920,10 +920,10 @@ macro_rules! dname_type {
 
         //--- Scan and Display
 
-        #[cfg(feature="master")]
-        impl<N: Scan> Scan for $target<N> {
+        #[cfg(feature="scan")]
+        impl<N: crate::scan::Scan> crate::scan::Scan for $target<N> {
             fn scan<S: crate::scan::Scanner>(scanner: &mut S)
-                                   -> Result<Self, ScanError> {
+                                   -> Result<Self, S::Err> {
                 N::scan(scanner).map(Self::new)
             }
         }

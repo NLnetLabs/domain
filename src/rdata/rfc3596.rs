@@ -12,7 +12,7 @@ use crate::base::octets::{
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner};
+use crate::scan::{Scan, Scanner};
 use core::cmp::Ordering;
 use core::{fmt, ops};
 
@@ -98,9 +98,9 @@ impl Compose for Aaaa {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Aaaa {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner.scan_string_phrase(|res| {
             core::str::FromStr::from_str(&res).map_err(Into::into)
         })

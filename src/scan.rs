@@ -8,8 +8,6 @@ use name::Dname;
 use crate::base::name;
 use crate::base::net::AddrParseError;
 use crate::base::str::{BadSymbol, Symbol};
-use crate::master::scan::Pos;
-pub use crate::master::scan::ScanError;
 use std::boxed::Box;
 use std::error;
 use std::fmt;
@@ -21,18 +19,21 @@ use std::string::String;
 #[cfg(feature = "bytes")]
 pub trait Scan: Sized {
     /// Scans a value from a master file.
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError>;
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err>;
 }
 
 pub trait Scanner {
+    type Pos;
+    type Err: From<(SyntaxError, Self::Pos)>;
+
     /// Returns the current position of the scanner.
-    fn pos(&self) -> Pos;
+    fn pos(&self) -> Self::Pos;
 
     /// Skips over the word with the content `literal`.
     ///
     /// The content indeed needs to be literally the literal. Escapes are
     /// not translated before comparison and case has to be as is.
-    fn skip_literal(&mut self, literal: &str) -> Result<(), ScanError>;
+    fn skip_literal(&mut self, literal: &str) -> Result<(), Self::Err>;
 
     /// Scans a word token.
     ///
@@ -54,7 +55,7 @@ pub trait Scanner {
         target: T,
         symbolop: F,
         finalop: G,
-    ) -> Result<U, ScanError>
+    ) -> Result<U, Self::Err>
     where
         F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
         G: FnOnce(T) -> Result<U, SyntaxError>;
@@ -66,7 +67,7 @@ pub trait Scanner {
     /// to convert the value into something else via the closure `finalop`.
     /// This closure can fail, resulting in an error and back-tracking to
     /// the beginning of the phrase.
-    fn scan_string_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    fn scan_string_word<U, G>(&mut self, finalop: G) -> Result<U, Self::Err>
     where
         G: FnOnce(String) -> Result<U, SyntaxError>;
 
@@ -80,7 +81,7 @@ pub trait Scanner {
         target: T,
         symbolop: F,
         finalop: G,
-    ) -> Result<U, ScanError>
+    ) -> Result<U, Self::Err>
     where
         F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
         G: FnOnce(T) -> Result<U, SyntaxError>;
@@ -92,7 +93,7 @@ pub trait Scanner {
     /// a chance to convert the value into something else via the closure
     /// `finalop`. This closure can fail, resulting in an error and
     /// back-tracking to the beginning of the phrase.
-    fn scan_byte_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    fn scan_byte_phrase<U, G>(&mut self, finalop: G) -> Result<U, Self::Err>
     where
         G: FnOnce(Bytes) -> Result<U, SyntaxError>;
 
@@ -106,22 +107,22 @@ pub trait Scanner {
     fn scan_string_phrase<U, G>(
         &mut self,
         finalop: G,
-    ) -> Result<U, ScanError>
+    ) -> Result<U, Self::Err>
     where
         G: FnOnce(String) -> Result<U, SyntaxError>;
 
     /// Scans a domain name.
-    fn scan_dname(&mut self) -> Result<Dname<Bytes>, ScanError>;
+    fn scan_dname(&mut self) -> Result<Dname<Bytes>, Self::Err>;
 
     /// Scans a word containing a sequence of pairs of hex digits.
     ///
     /// The word is returned as a `Bytes` value with each byte representing
     /// the decoded value of one hex digit pair.
-    fn scan_hex_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    fn scan_hex_word<U, G>(&mut self, finalop: G) -> Result<U, Self::Err>
     where
         G: FnOnce(Bytes) -> Result<U, SyntaxError>;
 
-    fn scan_hex_words<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
+    fn scan_hex_words<U, G>(&mut self, finalop: G) -> Result<U, Self::Err>
     where
         G: FnOnce(Bytes) -> Result<U, SyntaxError>;
 
@@ -132,7 +133,7 @@ pub trait Scanner {
     fn scan_base32hex_phrase<U, G>(
         &mut self,
         finalop: G,
-    ) -> Result<U, ScanError>
+    ) -> Result<U, Self::Err>
     where
         G: FnOnce(Bytes) -> Result<U, SyntaxError>;
 
@@ -140,14 +141,14 @@ pub trait Scanner {
     fn scan_base64_phrases<U, G>(
         &mut self,
         finalop: G,
-    ) -> Result<U, ScanError>
+    ) -> Result<U, Self::Err>
     where
         G: FnOnce(Bytes) -> Result<U, SyntaxError>;
 }
 
 #[cfg(feature = "bytes")]
 impl Scan for u32 {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner.scan_phrase(
             0u32,
             |res, symbol| {
@@ -178,7 +179,7 @@ impl Scan for u32 {
 
 #[cfg(feature = "bytes")]
 impl Scan for u16 {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner.scan_phrase(
             0u16,
             |res, symbol| {
@@ -209,7 +210,7 @@ impl Scan for u16 {
 
 #[cfg(feature = "bytes")]
 impl Scan for u8 {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner.scan_phrase(
             0u8,
             |res, symbol| {

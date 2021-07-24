@@ -8,7 +8,7 @@ use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner};
+use crate::scan::{Scan, Scanner};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::str::FromStr;
@@ -801,9 +801,9 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Dname<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner.scan_dname()
     }
 }

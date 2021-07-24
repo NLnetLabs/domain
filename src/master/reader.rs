@@ -1,9 +1,8 @@
 use super::entry::{Entry, MasterRecord};
-use super::scan::{CharSource, Pos, Scanner};
+use super::scan::{CharSource, Pos, ScanError, Scanner};
 use super::source::Utf8File;
 use crate::base::iana::Class;
 use crate::base::name::Dname;
-use crate::scan::ScanError;
 use bytes::Bytes;
 use std::fmt;
 use std::io;
@@ -131,7 +130,6 @@ impl fmt::Display for ReaderItem {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::scan::ScanError;
 
     #[test]
     fn print() {

@@ -92,6 +92,9 @@ impl<C: CharSource> Scanner<C> {
 }
 
 impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
+    type Pos = Pos;
+    type Err = ScanError;
+
     fn pos(&self) -> Pos {
         self.pos()
     }

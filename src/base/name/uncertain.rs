@@ -5,7 +5,7 @@
 use super::super::octets::{
     Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, ShortBuf,
 };
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 use super::super::str::Symbol;
 use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
@@ -14,10 +14,10 @@ use super::label::Label;
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToEitherDname, ToLabelIter};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner};
+use crate::scan::{Scan, Scanner};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 use bytes::BytesMut;
 use core::{fmt, hash, str};
 #[cfg(feature = "std")]
@@ -366,9 +366,9 @@ impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
 
 //--- Scan
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for UncertainDname<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         if let Ok(()) = scanner.skip_literal(".") {
             return Ok(UncertainDname::root());
         }

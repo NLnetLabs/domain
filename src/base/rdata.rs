@@ -29,8 +29,8 @@ use super::octets::{
     ShortBuf,
 };
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner, SyntaxError};
-#[cfg(feature = "master")]
+use crate::scan::{Scan, Scanner, SyntaxError};
+#[cfg(feature = "scan")]
 use bytes::{BufMut, Bytes, BytesMut};
 use core::cmp::Ordering;
 use core::fmt;
@@ -179,7 +179,7 @@ impl<Octets> UnknownRecordData<Octets> {
     }
 }
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl UnknownRecordData<Bytes> {
     /// Scans the record data.
     ///
@@ -187,7 +187,7 @@ impl UnknownRecordData<Bytes> {
     pub fn scan<S: Scanner>(
         rtype: Rtype,
         scanner: &mut S,
-    ) -> Result<Self, ScanError> {
+    ) -> Result<Self, S::Err> {
         scanner.skip_literal("\\#")?;
         let mut len = u16::scan(scanner)? as usize;
         let mut res = BytesMut::with_capacity(len);

@@ -9,9 +9,9 @@ use crate::base::octets::{
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner};
+use crate::scan::{Scan, Scanner};
 use crate::utils::base64;
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 use bytes::Bytes;
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -183,9 +183,9 @@ impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Cdnskey<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
@@ -404,9 +404,9 @@ impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Cds<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,

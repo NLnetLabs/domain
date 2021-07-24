@@ -12,7 +12,7 @@ use super::octets::{
     Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
 };
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner, SyntaxError};
+use crate::scan::{Scan, Scanner, SyntaxError};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone, Utc};
 use core::cmp::Ordering;
@@ -88,10 +88,8 @@ impl Serial {
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
     ///
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
-    #[cfg(feature = "master")]
-    pub fn scan_rrsig<S: Scanner>(
-        scanner: &mut S,
-    ) -> Result<Self, ScanError> {
+    #[cfg(feature = "scan")]
+    pub fn scan_rrsig<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner.scan_phrase(
             (0, [0u8; 14]),
             |&mut (ref mut pos, ref mut buf), symbol| {
@@ -214,9 +212,9 @@ impl Compose for Serial {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Serial {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         u32::scan(scanner).map(Into::into)
     }
 }
@@ -261,7 +259,7 @@ impl CanonicalOrd for Serial {
 
 //------------ Helper Functions ----------------------------------------------
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 fn u32_from_buf(buf: &[u8]) -> u32 {
     let mut res = 0;
     for ch in buf {

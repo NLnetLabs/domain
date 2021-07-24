@@ -17,8 +17,8 @@ use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
 use crate::base::str::Symbol;
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, ScanError, Scanner, SyntaxError};
-#[cfg(feature = "master")]
+use crate::scan::{Scan, Scanner, SyntaxError};
+#[cfg(feature = "scan")]
 use bytes::Bytes;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
@@ -121,9 +121,9 @@ impl Compose for A {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for A {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner
             .scan_string_phrase(|res| A::from_str(&res).map_err(Into::into))
     }
@@ -319,9 +319,9 @@ impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Hinfo<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(CharStr::scan(scanner)?, CharStr::scan(scanner)?))
     }
 }
@@ -553,9 +553,9 @@ impl<N: ToDname> Compose for Minfo<N> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl<N: Scan> Scan for Minfo<N> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?))
     }
 }
@@ -725,9 +725,9 @@ impl<N: ToDname> Compose for Mx<N> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl<N: Scan> Scan for Mx<N> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(u16::scan(scanner)?, N::scan(scanner)?))
     }
 }
@@ -1217,9 +1217,9 @@ impl<N: ToDname> Compose for Soa<N> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl<N: Scan> Scan for Soa<N> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(
             N::scan(scanner)?,
             N::scan(scanner)?,
@@ -1442,9 +1442,9 @@ impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
+#[cfg(feature = "scan")]
 impl Scan for Txt<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, ScanError> {
+    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner.scan_byte_phrase(|res| {
             let mut builder = TxtBuilder::new_bytes();
             if builder.append_slice(res.as_ref()).is_err() {

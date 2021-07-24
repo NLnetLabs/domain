@@ -1,9 +1,9 @@
-use super::scan::{CharSource, Pos, Scanner};
+use super::scan::{CharSource, Pos, ScanError, Scanner};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::Dname;
 use crate::base::record::Record;
 use crate::rdata::MasterRecordData;
-use crate::scan::{Scan, ScanError, SyntaxError};
+use crate::scan::{Scan, SyntaxError};
 use bytes::Bytes;
 /// A master file entry.
 use std::borrow::ToOwned;
@@ -232,9 +232,10 @@ enum ControlType {
     Other(String, Pos),
 }
 
-impl Scan for ControlType {
-    fn scan<S: crate::scan::Scanner>(
-        scanner: &mut S,
+impl ControlType {
+    /// This isn't implemented via `Scan`, because it depends on a specific Pos type.
+    fn scan<C: CharSource>(
+        scanner: &mut Scanner<C>,
     ) -> Result<Self, ScanError> {
         let pos = scanner.pos();
         scanner.scan_string_word(|word| {
