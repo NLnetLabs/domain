@@ -30,7 +30,7 @@ use super::octets::{
 };
 use super::str::{BadSymbol, Symbol, SymbolError};
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, Scanner, SyntaxError};
+use crate::scan::{RdataError, Scan, Scanner};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
@@ -356,7 +356,7 @@ impl Scan for CharStr<Bytes> {
     fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner.scan_byte_phrase(|res| {
             if res.len() > 255 {
-                Err(SyntaxError::LongCharStr)
+                Err(RdataError::LongCharStr)
             } else {
                 Ok(unsafe { CharStr::from_octets_unchecked(res) })
             }

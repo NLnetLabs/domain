@@ -1,9 +1,11 @@
-use super::scan::{CharSource, Pos, ScanError, Scanner};
+use super::scan::{
+    CharSource, ErrorKind, Pos, ScanError, Scanner, SyntaxError,
+};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::Dname;
 use crate::base::record::Record;
 use crate::rdata::MasterRecordData;
-use crate::scan::{Scan, SyntaxError};
+use crate::scan::{RdataError, Scan};
 use bytes::Bytes;
 /// A master file entry.
 use std::borrow::ToOwned;
@@ -173,13 +175,16 @@ impl Entry {
             if let Some(owner) = last_owner {
                 Ok(owner.clone())
             } else {
-                Err(ScanError::Syntax(SyntaxError::NoLastOwner, pos))
+                Err(ScanError(
+                    ErrorKind::Syntax(SyntaxError::NoLastOwner),
+                    pos,
+                ))
             }
         } else if let Ok(()) = scanner.skip_literal("@") {
             if let Some(ref origin) = *scanner.origin() {
                 Ok(origin.clone())
             } else {
-                Err(ScanError::Syntax(SyntaxError::NoOrigin, pos))
+                Err(ScanError(ErrorKind::Syntax(SyntaxError::NoOrigin), pos))
             }
         } else {
             Dname::scan(scanner)
@@ -208,13 +213,19 @@ impl Entry {
         let ttl = match ttl.or(default_ttl) {
             Some(ttl) => ttl,
             None => {
-                return Err(ScanError::Syntax(SyntaxError::NoDefaultTtl, pos))
+                return Err(ScanError(
+                    ErrorKind::Syntax(SyntaxError::NoDefaultTtl),
+                    pos,
+                ))
             }
         };
         let class = match class.or(last_class) {
             Some(class) => class,
             None => {
-                return Err(ScanError::Syntax(SyntaxError::NoLastClass, pos))
+                return Err(ScanError(
+                    ErrorKind::Syntax(SyntaxError::NoLastClass),
+                    pos,
+                ))
             }
         };
         Ok((ttl, class))
@@ -248,7 +259,7 @@ impl ControlType {
             } else if let Some('$') = word.chars().next() {
                 Ok(ControlType::Other(word.to_owned(), pos))
             } else {
-                Err(SyntaxError::Expected(String::from("$")))
+                Err(RdataError::Expected(String::from("$")))
             }
         })
     }

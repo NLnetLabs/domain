@@ -2,7 +2,7 @@
 
 use crate::base::name::{Dname, UncertainDname};
 use crate::base::str::Symbol;
-use crate::scan::{Scan, SyntaxError};
+use crate::scan::{RdataError, Scan};
 use crate::utils::{base32, base64};
 use bytes::{BufMut, Bytes, BytesMut};
 use std::error;
@@ -110,15 +110,15 @@ impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
-        G: FnOnce(T) -> Result<U, SyntaxError>,
+        F: FnMut(&mut T, Symbol) -> Result<(), RdataError>,
+        G: FnOnce(T) -> Result<U, RdataError>,
     {
         self.scan_word(target, symbolop, finalop)
     }
 
     fn scan_string_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
     where
-        G: FnOnce(String) -> Result<U, SyntaxError>,
+        G: FnOnce(String) -> Result<U, RdataError>,
     {
         self.scan_string_word(finalop)
     }
@@ -130,22 +130,22 @@ impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
-        G: FnOnce(T) -> Result<U, SyntaxError>,
+        F: FnMut(&mut T, Symbol) -> Result<(), RdataError>,
+        G: FnOnce(T) -> Result<U, RdataError>,
     {
         self.scan_phrase(target, symbolop, finalop)
     }
 
     fn scan_byte_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         self.scan_byte_phrase(finalop)
     }
 
     fn scan_string_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
     where
-        G: FnOnce(String) -> Result<U, SyntaxError>,
+        G: FnOnce(String) -> Result<U, RdataError>,
     {
         self.scan_string_phrase(finalop)
     }
@@ -163,19 +163,19 @@ impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
         };
         name.into_builder()
             .append_origin(origin)
-            .map_err(|err| (SyntaxError::from(err), pos).into())
+            .map_err(|err| (RdataError::from(err), pos).into())
     }
 
     fn scan_hex_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         self.scan_hex_word(finalop)
     }
 
     fn scan_hex_words<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         self.scan_hex_word(finalop)
     }
@@ -185,7 +185,7 @@ impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         self.scan_base32hex_phrase(finalop)
     }
@@ -195,7 +195,7 @@ impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         self.scan_base64_phrases(finalop)
     }
@@ -259,8 +259,8 @@ impl<C: CharSource> Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
-        G: FnOnce(T) -> Result<U, SyntaxError>,
+        F: FnMut(&mut T, Symbol) -> Result<(), RdataError>,
+        G: FnOnce(T) -> Result<U, RdataError>,
     {
         match self.peek()? {
             Some(Token::Symbol(ch)) => {
@@ -298,7 +298,7 @@ impl<C: CharSource> Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        G: FnOnce(String) -> Result<U, SyntaxError>,
+        G: FnOnce(String) -> Result<U, RdataError>,
     {
         self.scan_word(
             String::new(),
@@ -336,8 +336,8 @@ impl<C: CharSource> Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
-        G: FnOnce(T) -> Result<U, SyntaxError>,
+        F: FnMut(&mut T, Symbol) -> Result<(), RdataError>,
+        G: FnOnce(T) -> Result<U, RdataError>,
     {
         match self.read()? {
             Some(Token::Symbol(Symbol::Char('"'))) => {}
@@ -383,8 +383,8 @@ impl<C: CharSource> Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        F: FnMut(&mut T, Symbol) -> Result<(), SyntaxError>,
-        G: FnOnce(T) -> Result<U, SyntaxError>,
+        F: FnMut(&mut T, Symbol) -> Result<(), RdataError>,
+        G: FnOnce(T) -> Result<U, RdataError>,
     {
         if let Some(Token::Symbol(Symbol::Char('"'))) = self.peek()? {
             self.scan_quoted(target, symbolop, finalop)
@@ -405,7 +405,7 @@ impl<C: CharSource> Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         self.scan_phrase(
             BytesMut::new(),
@@ -436,7 +436,7 @@ impl<C: CharSource> Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        G: FnOnce(String) -> Result<U, SyntaxError>,
+        G: FnOnce(String) -> Result<U, RdataError>,
     {
         self.scan_phrase(
             String::new(),
@@ -546,23 +546,21 @@ impl<C: CharSource> Scanner<C> {
             |left, symbol| {
                 let first = match left.chars().next() {
                     Some(ch) => ch,
-                    None => {
-                        return Err(SyntaxError::Expected(literal.into()))
-                    }
+                    None => return Err(RdataError::Expected(literal.into())),
                 };
                 match symbol {
                     Symbol::Char(ch) if ch == first => {
                         *left = &left[ch.len_utf8()..];
                         Ok(())
                     }
-                    _ => Err(SyntaxError::Expected(literal.into())),
+                    _ => Err(RdataError::Expected(literal.into())),
                 }
             },
             |left| {
                 if left.is_empty() {
                     Ok(())
                 } else {
-                    Err(SyntaxError::Expected(literal.into()))
+                    Err(RdataError::Expected(literal.into()))
                 }
             },
         )
@@ -579,7 +577,7 @@ impl<C: CharSource> Scanner<C> {
     /// the decoded value of one hex digit pair.
     pub fn scan_hex_word<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         self.scan_word(
             (BytesMut::new(), None), // result and optional first char.
@@ -588,7 +586,7 @@ impl<C: CharSource> Scanner<C> {
             },
             |(res, first)| {
                 if let Some(ch) = first {
-                    Err(SyntaxError::Unexpected(Symbol::Char(
+                    Err(RdataError::Unexpected(Symbol::Char(
                         ::std::char::from_digit(ch, 16).unwrap(),
                     )))
                 } else {
@@ -600,7 +598,7 @@ impl<C: CharSource> Scanner<C> {
 
     pub fn scan_hex_words<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         let start_pos = self.pos();
         let mut buf = BytesMut::new();
@@ -613,7 +611,7 @@ impl<C: CharSource> Scanner<C> {
                 },
                 |(_, first)| {
                     if let Some(ch) = first {
-                        Err(SyntaxError::Unexpected(Symbol::Char(
+                        Err(RdataError::Unexpected(Symbol::Char(
                             ::std::char::from_digit(ch, 16).unwrap(),
                         )))
                     } else {
@@ -642,17 +640,17 @@ impl<C: CharSource> Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         self.scan_phrase(
             base32::Decoder::new_hex(),
             |decoder, symbol| {
                 decoder
                     .push(symbol.into_char()?)
-                    .map_err(SyntaxError::content)
+                    .map_err(RdataError::content)
             },
             |decoder| {
-                finalop(decoder.finalize().map_err(SyntaxError::content)?)
+                finalop(decoder.finalize().map_err(RdataError::content)?)
             },
         )
     }
@@ -663,7 +661,7 @@ impl<C: CharSource> Scanner<C> {
         finalop: G,
     ) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, SyntaxError>,
+        G: FnOnce(Bytes) -> Result<U, RdataError>,
     {
         let start_pos = self.pos();
         let mut decoder = base64::Decoder::new();
@@ -674,7 +672,7 @@ impl<C: CharSource> Scanner<C> {
                 |decoder, symbol| {
                     decoder
                         .push(symbol.into_char()?)
-                        .map_err(SyntaxError::content)
+                        .map_err(RdataError::content)
                 },
                 Ok,
             );
@@ -689,7 +687,7 @@ impl<C: CharSource> Scanner<C> {
         }
         let bytes = decoder
             .finalize()
-            .map_err(|err| (SyntaxError::content(err), self.pos()))?;
+            .map_err(|err| (RdataError::content(err), self.pos()))?;
         finalop(bytes).map_err(|err| (err, start_pos).into())
     }
 }
@@ -699,13 +697,13 @@ fn hex_symbolop(
     buf: &mut BytesMut,
     first: &mut Option<u32>,
     symbol: Symbol,
-) -> Result<(), SyntaxError> {
+) -> Result<(), RdataError> {
     let ch = match symbol {
         Symbol::Char(ch) => match ch.to_digit(16) {
             Some(ch) => ch,
-            _ => return Err(SyntaxError::Unexpected(symbol)),
+            _ => return Err(RdataError::Unexpected(symbol)),
         },
-        _ => return Err(SyntaxError::Unexpected(symbol)),
+        _ => return Err(RdataError::Unexpected(symbol)),
     };
     if let Some(ch1) = first.take() {
         if buf.remaining_mut() == 0 {
@@ -732,7 +730,7 @@ impl<C: CharSource> Scanner<C> {
             for ch in &self.buf {
                 pos.update(*ch)
             }
-            ScanError::Source(err, pos)
+            ScanError(ErrorKind::Source(err), pos)
         })
     }
 
@@ -919,25 +917,28 @@ impl<C: CharSource> Scanner<C> {
     ///
     /// The method is generic over whatever type `T` so it can be used to
     /// create whatever particular result is needed.
-    fn err<T>(&mut self, err: SyntaxError) -> Result<T, ScanError> {
+    fn err<T, E: Into<ErrorKind>>(&mut self, err: E) -> Result<T, ScanError> {
         let pos = self.start_pos;
         self.err_at(err, pos)
     }
 
-    fn err_cur<T>(&mut self, err: SyntaxError) -> Result<T, ScanError> {
+    fn err_cur<T, E: Into<ErrorKind>>(
+        &mut self,
+        err: E,
+    ) -> Result<T, ScanError> {
         let pos = self.cur_pos;
         self.err_at(err, pos)
     }
 
     /// Reports an error at current position and then backtracks.
-    fn err_at<T>(
+    fn err_at<T, E: Into<ErrorKind>>(
         &mut self,
-        err: SyntaxError,
+        err: E,
         pos: Pos,
     ) -> Result<T, ScanError> {
         self.cur = self.start;
         self.cur_pos = self.start_pos;
-        Err(ScanError::Syntax(err, pos))
+        Err(ScanError(err.into(), pos))
     }
 }
 
@@ -1197,26 +1198,103 @@ impl fmt::Display for Pos {
 
 //============ Error Types ===================================================
 
-//------------ ScanError -----------------------------------------------------
+/// A syntax error happened while scanning master data.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum SyntaxError {
+    Expected(String),
+    ExpectedNewline,
+    ExpectedSpace,
+    NestedParentheses,
+    IllegalEscape,
+    NoDefaultTtl,
+    NoLastClass,
+    NoLastOwner,
+    NoOrigin,
+    Unexpected(Symbol),
+    UnexpectedNewline,
+    UnexpectedEof,
+}
+
+//--- Display and Error
+
+impl fmt::Display for SyntaxError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::Expected(ref s) => write!(f, "expected '{}'", s),
+            Self::ExpectedSpace => f.write_str("expected white space"),
+            Self::ExpectedNewline => f.write_str("expected a new line"),
+            Self::IllegalEscape => f.write_str("invalid escape sequence"),
+            Self::NestedParentheses => f.write_str("nested parentheses"),
+            Self::NoDefaultTtl => {
+                f.write_str("omitted TTL but no default TTL given")
+            }
+            Self::NoLastClass => {
+                f.write_str("omitted class but no previous class given")
+            }
+            Self::NoLastOwner => {
+                f.write_str("omitted owner but no previous owner given")
+            }
+            Self::NoOrigin => {
+                f.write_str("owner @ without preceding $ORIGIN")
+            }
+            Self::Unexpected(sym) => write!(f, "unexpected '{}'", sym),
+            Self::UnexpectedNewline => f.write_str("unexpected newline"),
+            Self::UnexpectedEof => f.write_str("unexpected end of file"),
+        }
+    }
+}
 
 /// An error happened while scanning master data.
 #[derive(Debug)]
-pub enum ScanError {
-    Source(io::Error, Pos),
-    Syntax(SyntaxError, Pos),
+pub struct ScanError(pub ErrorKind, pub Pos);
+
+#[derive(Debug)]
+pub enum ErrorKind {
+    Source(io::Error),
+    Rdata(RdataError),
+    Syntax(SyntaxError),
+}
+
+impl From<RdataError> for ErrorKind {
+    fn from(err: RdataError) -> Self {
+        Self::Rdata(err)
+    }
+}
+
+impl From<SyntaxError> for ErrorKind {
+    fn from(err: SyntaxError) -> Self {
+        Self::Syntax(err)
+    }
+}
+
+impl fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::Source(ref err) => err.fmt(f),
+            Self::Rdata(ref err) => err.fmt(f),
+            Self::Syntax(ref err) => err.fmt(f),
+        }
+    }
 }
 
 //--- From
 
 impl From<(io::Error, Pos)> for ScanError {
     fn from(err: (io::Error, Pos)) -> ScanError {
-        ScanError::Source(err.0, err.1)
+        ScanError(ErrorKind::Source(err.0), err.1)
+    }
+}
+
+impl From<(RdataError, Pos)> for ScanError {
+    fn from(err: (RdataError, Pos)) -> ScanError {
+        ScanError(ErrorKind::Rdata(err.0), err.1)
     }
 }
 
 impl From<(SyntaxError, Pos)> for ScanError {
     fn from(err: (SyntaxError, Pos)) -> ScanError {
-        ScanError::Syntax(err.0, err.1)
+        ScanError(ErrorKind::Syntax(err.0), err.1)
     }
 }
 
@@ -1224,10 +1302,7 @@ impl From<(SyntaxError, Pos)> for ScanError {
 
 impl fmt::Display for ScanError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ScanError::Source(ref err, pos) => write!(f, "{}: {}", pos, err),
-            ScanError::Syntax(ref err, pos) => write!(f, "{}: {}", pos, err),
-        }
+        write!(f, "{}: {}", self.1, self.0)
     }
 }
 

@@ -12,7 +12,7 @@ use super::octets::{
     Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
 };
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, Scanner, SyntaxError};
+use crate::scan::{RdataError, Scan, Scanner};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone, Utc};
 use core::cmp::Ordering;
@@ -95,7 +95,7 @@ impl Serial {
             |&mut (ref mut pos, ref mut buf), symbol| {
                 let ch = symbol.into_digit(10)? as u8;
                 if *pos == 14 {
-                    return Err(SyntaxError::IllegalInteger); // XXX Not quite
+                    return Err(RdataError::IllegalInteger); // XXX Not quite
                 }
                 buf[*pos] = ch;
                 *pos += 1;
@@ -110,7 +110,7 @@ impl Serial {
                         res = res * 10 + (u64::from(*ch));
                     }
                     if res > u64::from(::std::u32::MAX) {
-                        Err(SyntaxError::IllegalInteger)
+                        Err(RdataError::IllegalInteger)
                     } else {
                         Ok(Serial(res as u32))
                     }
@@ -124,27 +124,27 @@ impl Serial {
                     match month {
                         1 | 3 | 5 | 7 | 8 | 10 | 12 => {
                             if month > 31 {
-                                return Err(SyntaxError::IllegalInteger);
+                                return Err(RdataError::IllegalInteger);
                             }
                         }
                         4 | 6 | 9 | 11 => {
                             if month > 30 {
-                                return Err(SyntaxError::IllegalInteger);
+                                return Err(RdataError::IllegalInteger);
                             }
                         }
                         2 => {
                             if year % 4 == 0 && year % 100 != 0 {
                                 if month > 29 {
-                                    return Err(SyntaxError::IllegalInteger);
+                                    return Err(RdataError::IllegalInteger);
                                 }
                             } else if month > 28 {
-                                return Err(SyntaxError::IllegalInteger);
+                                return Err(RdataError::IllegalInteger);
                             }
                         }
-                        _ => return Err(SyntaxError::IllegalInteger),
+                        _ => return Err(RdataError::IllegalInteger),
                     }
                     if month < 1 || hour > 23 || minute > 59 || second > 59 {
-                        return Err(SyntaxError::IllegalInteger);
+                        return Err(RdataError::IllegalInteger);
                     }
                     Ok(Serial(
                         Utc.ymd(year, month, day)
@@ -152,7 +152,7 @@ impl Serial {
                             .timestamp() as u32,
                     ))
                 } else {
-                    Err(SyntaxError::IllegalInteger) // XXX Still not quite.
+                    Err(RdataError::IllegalInteger) // XXX Still not quite.
                 }
             },
         )

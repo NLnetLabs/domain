@@ -17,7 +17,7 @@ use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
 use crate::base::str::Symbol;
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, Scanner, SyntaxError};
+use crate::scan::{RdataError, Scan, Scanner};
 #[cfg(feature = "scan")]
 use bytes::Bytes;
 #[cfg(feature = "bytes")]
@@ -1448,7 +1448,7 @@ impl Scan for Txt<Bytes> {
         scanner.scan_byte_phrase(|res| {
             let mut builder = TxtBuilder::new_bytes();
             if builder.append_slice(res.as_ref()).is_err() {
-                Err(SyntaxError::LongCharStr)
+                Err(RdataError::LongCharStr)
             } else {
                 Ok(builder.finish())
             }

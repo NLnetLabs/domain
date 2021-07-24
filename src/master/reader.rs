@@ -164,9 +164,6 @@ $INCLUDE <SUBSYS>ISI-MAILBOXES.TXT"[..],
         for item in reader {
             match item {
                 Ok(item) => println!("{}", item),
-                Err(ScanError::Syntax(err, pos)) => {
-                    panic!("{}:{}:  {:?}", pos.line(), pos.col(), err);
-                }
                 Err(err) => panic!("{:?}", err),
             }
         }

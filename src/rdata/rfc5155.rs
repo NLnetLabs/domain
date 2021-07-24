@@ -14,7 +14,7 @@ use crate::base::octets::{
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, Scanner, SyntaxError};
+use crate::scan::{RdataError, Scan, Scanner};
 use crate::utils::base32;
 #[cfg(feature = "scan")]
 use bytes::Bytes;
@@ -273,7 +273,7 @@ fn scan_salt<S: Scanner>(scanner: &mut S) -> Result<CharStr<Bytes>, S::Err> {
 #[cfg(feature = "scan")]
 fn scan_hash<S: Scanner>(scanner: &mut S) -> Result<CharStr<Bytes>, S::Err> {
     scanner.scan_base32hex_phrase(|bytes| {
-        CharStr::from_bytes(bytes).map_err(SyntaxError::content)
+        CharStr::from_bytes(bytes).map_err(RdataError::content)
     })
 }
 

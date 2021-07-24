@@ -29,7 +29,7 @@ use super::octets::{
     ShortBuf,
 };
 #[cfg(feature = "scan")]
-use crate::scan::{Scan, Scanner, SyntaxError};
+use crate::scan::{RdataError, Scan, Scanner};
 #[cfg(feature = "scan")]
 use bytes::{BufMut, Bytes, BytesMut};
 use core::cmp::Ordering;
@@ -196,7 +196,7 @@ impl UnknownRecordData<Bytes> {
                 (&mut res, len, None), // buffer and optional first char
                 |&mut (ref mut res, ref mut len, ref mut first), symbol| {
                     if *len == 0 {
-                        return Err(SyntaxError::LongGenericData);
+                        return Err(RdataError::LongGenericData);
                     }
                     let ch = symbol.into_digit(16)? as u8;
                     if let Some(ch1) = *first {
@@ -209,7 +209,7 @@ impl UnknownRecordData<Bytes> {
                 },
                 |(_, len, first)| {
                     if first.is_some() {
-                        Err(SyntaxError::UnevenHexString)
+                        Err(RdataError::UnevenHexString)
                     } else {
                         Ok(len)
                     }

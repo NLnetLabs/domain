@@ -257,7 +257,7 @@ macro_rules! int_enum_str_decimal {
                     use ::std::str::FromStr;
 
                     Self::from_str(&word)
-                        .map_err($crate::scan::SyntaxError::content)
+                        .map_err($crate::scan::RdataError::content)
                 })
             }
         }
@@ -333,7 +333,7 @@ macro_rules! int_enum_str_with_decimal {
             ) -> Result<Self, S::Err> {
                 scanner.scan_string_word(|word| {
                     core::str::FromStr::from_str(&word).map_err(|_| {
-                        $crate::scan::SyntaxError::UnknownMnemonic
+                        $crate::scan::RdataError::UnknownMnemonic
                     })
                 })
             }
@@ -430,7 +430,7 @@ macro_rules! int_enum_str_with_prefix {
                     use ::std::str::FromStr;
 
                     Self::from_str(&word).map_err(|_| {
-                        $crate::scan::SyntaxError::UnknownMnemonic
+                        $crate::scan::RdataError::UnknownMnemonic
                     })
                 })
             }
