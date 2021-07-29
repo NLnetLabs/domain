@@ -4,6 +4,8 @@
 
 Breaking Changes
 
+* The minimum supported Rust version is now 1.49. ([#107])
+
 New
 
 Bug Fixes
@@ -20,6 +22,7 @@ Other Changes
 [#102]: https://github.com/NLnetLabs/domain/pull/102
 [@xofyarg]: https://github.com/xofyarg
 [#104]: https://github.com/NLnetLabs/domain/pull/104
+[#107]: https://github.com/NLnetLabs/domain/pull/107
 [Martin Fischer]: https://push-f.com/
 
 
