@@ -94,6 +94,7 @@ impl<C: CharSource> Scanner<C> {
 impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
     type Pos = Pos;
     type Err = ScanError;
+    type Octets = Bytes;
 
     fn pos(&self) -> Pos {
         self.pos()
@@ -138,7 +139,7 @@ impl<C: CharSource> crate::scan::Scanner for Scanner<C> {
 
     fn scan_byte_phrase<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
     where
-        G: FnOnce(Bytes) -> Result<U, RdataError>,
+        G: FnOnce(Self::Octets) -> Result<U, RdataError>,
     {
         self.scan_byte_phrase(finalop)
     }

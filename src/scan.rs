@@ -25,6 +25,7 @@ pub trait Scan: Sized {
 pub trait Scanner {
     type Pos;
     type Err: From<(RdataError, Self::Pos)>;
+    type Octets: AsRef<[u8]>;
 
     /// Returns the current position of the scanner.
     fn pos(&self) -> Self::Pos;
