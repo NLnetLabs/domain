@@ -30,7 +30,7 @@ use super::octets::{
 };
 use super::str::{BadSymbol, Symbol, SymbolError};
 #[cfg(feature = "scan")]
-use crate::scan::{RdataError, Scan, Scanner};
+use crate::scan::{RdataError, ScanWithOctets, Scanner};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
@@ -352,10 +352,12 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
 //--- Scan and Display
 
 #[cfg(feature = "scan")]
-impl Scan for CharStr<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
+impl<O: AsRef<[u8]>> ScanWithOctets<O> for CharStr<O> {
+    fn scan_with_octets<S: Scanner<Octets = O>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Err> {
         scanner.scan_byte_phrase(|res| {
-            if res.len() > 255 {
+            if res.as_ref().len() > 255 {
                 Err(RdataError::LongCharStr)
             } else {
                 Ok(unsafe { CharStr::from_octets_unchecked(res) })

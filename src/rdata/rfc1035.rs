@@ -19,7 +19,7 @@ use crate::base::str::Symbol;
 #[cfg(feature = "scan")]
 use crate::base::Dname;
 #[cfg(feature = "scan")]
-use crate::scan::{RdataError, Scan, Scanner};
+use crate::scan::{RdataError, Scan, ScanWithOctets, Scanner};
 #[cfg(feature = "scan")]
 use bytes::Bytes;
 #[cfg(feature = "bytes")]
@@ -322,9 +322,14 @@ impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
 //--- Scan and Display
 
 #[cfg(feature = "scan")]
-impl Scan for Hinfo<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
-        Ok(Self::new(CharStr::scan(scanner)?, CharStr::scan(scanner)?))
+impl<O: AsRef<[u8]>> ScanWithOctets<O> for Hinfo<O> {
+    fn scan_with_octets<S: Scanner<Octets = O>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Err> {
+        Ok(Self::new(
+            CharStr::scan_with_octets(scanner)?,
+            CharStr::scan_with_octets(scanner)?,
+        ))
     }
 }
 
@@ -1445,10 +1450,12 @@ impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
 //--- Scan and Display
 
 #[cfg(feature = "scan")]
-impl Scan for Txt<Bytes> {
-    fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
+impl<O: AsRef<[u8]>> ScanWithOctets<O> for Txt<O> {
+    fn scan_with_octets<S: Scanner<Octets = O>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Err> {
         scanner.scan_byte_phrase(|res| {
-            if res.len() + 255 + 1 >= 0xFFFF {
+            if res.as_ref().len() + 255 + 1 >= 0xFFFF {
                 return Err(RdataError::LongCharStr);
             }
             Ok(Self(res))

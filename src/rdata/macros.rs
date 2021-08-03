@@ -38,14 +38,14 @@ macro_rules! rdata_types {
         /// files.
         #[derive(Clone)]
         #[non_exhaustive]
-        pub enum MasterRecordData<O, N> {
+        pub enum MasterRecordData<O, N, B = O> {
             $( $( $(
                 $mtype($mtype $( < $( $mn ),* > )*),
             )* )* )*
             Other($crate::base::rdata::UnknownRecordData<O>),
         }
 
-        impl<O, N> MasterRecordData<O, N> {
+        impl<O, N, B> MasterRecordData<O, N, B> {
             fn rtype(&self) -> $crate::base::iana::Rtype {
                 match *self {
                     $( $( $(
@@ -96,8 +96,8 @@ macro_rules! rdata_types {
         //--- From
 
         $( $( $(
-            impl<O, N> From<$mtype $( < $( $mn ),* >)*>
-            for MasterRecordData<O, N> {
+            impl<O, N, B> From<$mtype $( < $( $mn ),* >)*>
+            for MasterRecordData<O, N, B> {
                 fn from(value: $mtype $( < $( $mn ),* >)*) -> Self {
                     MasterRecordData::$mtype(value)
                 }
@@ -322,19 +322,19 @@ macro_rules! rdata_types {
 
         #[cfg(feature="scan")]
         #[cfg_attr(docsrs, doc(cfg(feature = "scan")))]
-        impl MasterRecordData<
-            bytes::Bytes, $crate::base::name::Dname<bytes::Bytes>
+        impl<B: AsRef<[u8]>> MasterRecordData<
+            bytes::Bytes, $crate::base::name::Dname<bytes::Bytes>, B
         > {
             pub fn scan<S>(rtype: $crate::base::iana::Rtype,
                            scanner: &mut S)
                            -> Result<Self, S::Err>
-                        where S: $crate::scan::Scanner {
-                use $crate::scan::Scan;
+                        where S: $crate::scan::Scanner<Octets = B> {
+                use $crate::scan::ScanWithOctets;
 
                 match rtype {
                     $( $( $(
                         $crate::base::iana::Rtype::$mtype => {
-                            $mtype::scan(scanner)
+                            $mtype::scan_with_octets(scanner)
                                    .map(MasterRecordData::$mtype)
                         }
                     )* )* )*
@@ -405,7 +405,7 @@ macro_rules! rdata_types {
         /// implemented record types.
         #[derive(Clone)]
         #[non_exhaustive]
-        pub enum AllRecordData<O, N> {
+        pub enum AllRecordData<O, N, B = O> {
             $( $( $(
                 $mtype($mtype $( < $( $mn ),* > )*),
             )* )* )*
@@ -416,7 +416,7 @@ macro_rules! rdata_types {
             Other($crate::base::rdata::UnknownRecordData<O>),
         }
 
-        impl<O, N> AllRecordData<O, N> {
+        impl<O, N, B> AllRecordData<O, N, B> {
             fn rtype(&self) -> $crate::base::iana::Rtype {
                 match *self {
                     $( $( $(
@@ -441,8 +441,8 @@ macro_rules! rdata_types {
         //--- From and Into
 
         $( $( $(
-            impl<O, N> From<$mtype $( < $( $mn ),* > )*>
-            for AllRecordData<O, N> {
+            impl<O, N, B> From<$mtype $( < $( $mn ),* > )*>
+            for AllRecordData<O, N, B> {
                 fn from(value: $mtype $( < $( $mn ),* >)*) -> Self {
                     AllRecordData::$mtype(value)
                 }

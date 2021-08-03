@@ -22,6 +22,21 @@ pub trait Scan: Sized {
     fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err>;
 }
 
+pub trait ScanWithOctets<O>: Sized {
+    /// Scans a value with a scanner of a specific Octets type.
+    fn scan_with_octets<S: Scanner<Octets = O>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Err>;
+}
+
+impl<X: Scan, O> ScanWithOctets<O> for X {
+    fn scan_with_octets<S: Scanner<Octets = O>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Err> {
+        Self::scan(scanner)
+    }
+}
+
 pub trait Scanner {
     type Pos;
     type Err: From<(RdataError, Self::Pos)>;
@@ -96,7 +111,7 @@ pub trait Scanner {
     /// back-tracking to the beginning of the phrase.
     fn scan_byte_phrase<U, G>(&mut self, finalop: G) -> Result<U, Self::Err>
     where
-        G: FnOnce(Bytes) -> Result<U, RdataError>;
+        G: FnOnce(Self::Octets) -> Result<U, RdataError>;
 
     /// Scans a phrase with Unicode text into a `String`.
     ///

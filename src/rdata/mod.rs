@@ -48,7 +48,8 @@ pub mod rfc7344;
 // Add any new module here and then add all record types in that module that
 // can appear in master files under "master" and all others under "pseudo".
 // Your type can be generic over an octet type "O" and a domain name type "N".
-// Add these as needed.
+// Add these as needed. For octet types that can possibly be borrowed from zone
+// files use the "B" generic type.
 //
 // Each type entry has to be followed by a comma, even the last one. The macro
 // is messy enough as it is ...
@@ -57,7 +58,7 @@ rdata_types! {
         master {
             A,
             Cname<N>,
-            Hinfo<O>,
+            Hinfo<B>,
             Mb<N>,
             Md<N>,
             Mf<N>,
@@ -67,7 +68,7 @@ rdata_types! {
             Ns<N>,
             Ptr<N>,
             Soa<N>,
-            Txt<O>,
+            Txt<B>,
         }
         pseudo {
             Null<O>,
