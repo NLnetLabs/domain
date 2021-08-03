@@ -1448,12 +1448,10 @@ impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
 impl Scan for Txt<Bytes> {
     fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         scanner.scan_byte_phrase(|res| {
-            let mut builder = TxtBuilder::new_bytes();
-            if builder.append_slice(res.as_ref()).is_err() {
-                Err(RdataError::LongCharStr)
-            } else {
-                Ok(builder.finish())
+            if res.len() + 255 + 1 >= 0xFFFF {
+                return Err(RdataError::LongCharStr);
             }
+            Ok(Self(res))
         })
     }
 }
