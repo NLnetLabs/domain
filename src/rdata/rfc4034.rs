@@ -772,7 +772,7 @@ impl Scan for Rrsig<Bytes, Dname<Bytes>> {
             Serial::scan_rrsig(scanner)?,
             Serial::scan_rrsig(scanner)?,
             u16::scan(scanner)?,
-            Dname::scan(scanner)?,
+            scanner.scan_dname()?,
             scanner.scan_base64_phrases(Ok)?,
         ))
     }
@@ -981,9 +981,12 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
 //--- Scan and Display
 
 #[cfg(feature = "scan")]
-impl<N: Scan> Scan for Nsec<Bytes, N> {
+impl Scan for Nsec<Bytes, Dname<Bytes>> {
     fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
-        Ok(Self::new(N::scan(scanner)?, RtypeBitmap::scan(scanner)?))
+        Ok(Self::new(
+            scanner.scan_dname()?,
+            RtypeBitmap::scan(scanner)?,
+        ))
     }
 }
 

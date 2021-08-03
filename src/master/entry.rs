@@ -5,7 +5,7 @@ use crate::base::iana::{Class, Rtype};
 use crate::base::name::Dname;
 use crate::base::record::Record;
 use crate::rdata::MasterRecordData;
-use crate::scan::{RdataError, Scan};
+use crate::scan::{RdataError, Scan, Scanner as ScannerTrait};
 use bytes::Bytes;
 /// A master file entry.
 use std::borrow::ToOwned;
@@ -129,13 +129,13 @@ impl Entry {
     ) -> Result<Self, ScanError> {
         match ControlType::scan(scanner)? {
             ControlType::Origin => {
-                let name = Dname::scan(scanner)?;
+                let name = scanner.scan_dname()?;
                 scanner.scan_newline()?;
                 Ok(Entry::Origin(name))
             }
             ControlType::Include => {
                 let path = scanner.scan_string_phrase(|x| Ok(x.into()))?;
-                let origin = Dname::scan(scanner).ok();
+                let origin = scanner.scan_dname().ok();
                 scanner.scan_newline()?;
                 Ok(Entry::Include { path, origin })
             }
@@ -187,7 +187,7 @@ impl Entry {
                 Err(ScanError(ErrorKind::Syntax(SyntaxError::NoOrigin), pos))
             }
         } else {
-            Dname::scan(scanner)
+            scanner.scan_dname()
         }
     }
 

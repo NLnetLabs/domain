@@ -4,6 +4,9 @@
 //!
 //! [RFC 2782]: https://tools.ietf.org/html/rfc2782
 
+#[cfg(feature = "scan")]
+use bytes::Bytes;
+
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{ParsedDname, ToDname};
@@ -12,6 +15,8 @@ use crate::base::octets::{
     ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
+#[cfg(feature = "scan")]
+use crate::base::Dname;
 #[cfg(feature = "scan")]
 use crate::scan::{Scan, Scanner};
 use core::cmp::Ordering;
@@ -208,13 +213,13 @@ impl<N> RtypeRecordData for Srv<N> {
 //--- Scan and Display
 
 #[cfg(feature = "scan")]
-impl<N: Scan> Scan for Srv<N> {
+impl Scan for Srv<Dname<Bytes>> {
     fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(
             u16::scan(scanner)?,
             u16::scan(scanner)?,
             u16::scan(scanner)?,
-            N::scan(scanner)?,
+            scanner.scan_dname()?,
         ))
     }
 }

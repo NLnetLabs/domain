@@ -17,6 +17,8 @@ use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
 use crate::base::str::Symbol;
 #[cfg(feature = "scan")]
+use crate::base::Dname;
+#[cfg(feature = "scan")]
 use crate::scan::{RdataError, Scan, Scanner};
 #[cfg(feature = "scan")]
 use bytes::Bytes;
@@ -554,9 +556,9 @@ impl<N: ToDname> Compose for Minfo<N> {
 //--- Scan and Display
 
 #[cfg(feature = "scan")]
-impl<N: Scan> Scan for Minfo<N> {
+impl Scan for Minfo<Dname<Bytes>> {
     fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
-        Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?))
+        Ok(Self::new(scanner.scan_dname()?, scanner.scan_dname()?))
     }
 }
 
@@ -726,9 +728,9 @@ impl<N: ToDname> Compose for Mx<N> {
 //--- Scan and Display
 
 #[cfg(feature = "scan")]
-impl<N: Scan> Scan for Mx<N> {
+impl Scan for Mx<Dname<Bytes>> {
     fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
-        Ok(Self::new(u16::scan(scanner)?, N::scan(scanner)?))
+        Ok(Self::new(u16::scan(scanner)?, scanner.scan_dname()?))
     }
 }
 
@@ -1218,11 +1220,11 @@ impl<N: ToDname> Compose for Soa<N> {
 //--- Scan and Display
 
 #[cfg(feature = "scan")]
-impl<N: Scan> Scan for Soa<N> {
+impl Scan for Soa<Dname<Bytes>> {
     fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Err> {
         Ok(Self::new(
-            N::scan(scanner)?,
-            N::scan(scanner)?,
+            scanner.scan_dname()?,
+            scanner.scan_dname()?,
             Serial::scan(scanner)?,
             u32::scan(scanner)?,
             u32::scan(scanner)?,

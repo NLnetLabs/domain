@@ -921,10 +921,10 @@ macro_rules! dname_type {
         //--- Scan and Display
 
         #[cfg(feature="scan")]
-        impl<N: crate::scan::Scan> crate::scan::Scan for $target<N> {
+        impl crate::scan::Scan for $target<crate::base::name::Dname<bytes::Bytes>> {
             fn scan<S: crate::scan::Scanner>(scanner: &mut S)
                                    -> Result<Self, S::Err> {
-                N::scan(scanner).map(Self::new)
+                scanner.scan_dname().map(Self::new)
             }
         }
 
