@@ -20,7 +20,7 @@ use super::octets::{
     Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
 };
 use core::convert::TryInto;
-use core::mem;
+use core::{fmt, mem, str::FromStr};
 
 //------------ Header --------------------------------------------------
 
@@ -130,18 +130,12 @@ impl Header {
         self.set_id(::rand::random())
     }
 
-    /// Returns whether the QR bit is set.
-    ///
-    /// The QR bit specifies whether a message is a query (`false`) or
-    /// a response (`true`). In other words, this bit is actually stating
-    /// whether the message is *not* a query. So, perhaps it might be good
-    /// to read ‘QR’ as ‘query response.’
+    /// Returns whether the [QR](Flags::qr) bit is set.
     pub fn qr(self) -> bool {
         self.get_bit(2, 7)
     }
 
-    /// Sets the value of the QR bit.
-    ///
+    /// Sets the value of the [QR](Flags::qr) bit.
     pub fn set_qr(&mut self, set: bool) {
         self.set_bit(2, 7, set)
     }
@@ -161,62 +155,71 @@ impl Header {
         self.inner[2] = self.inner[2] & 0x87 | (opcode.to_int() << 3);
     }
 
-    /// Returns whether the AA bit is set.
+    /// Returns all flags contained in the header.
     ///
-    /// Using this bit, a name server generating a response states whether
-    /// it is authoritative for the requested domain name, ie., whether this
-    /// response is an *authoritative answer.* The field has no meaning in
-    /// a query.
+    /// This is a virtual field composed of all the flag bits that are present
+    /// in the header. The returned [`Flags`] type can be useful when you're
+    /// working with all flags, rather than a single one, which can be easily
+    /// obtained from the header directly.
+    pub fn flags(self) -> Flags {
+        Flags {
+            qr: self.qr(),
+            aa: self.aa(),
+            tc: self.tc(),
+            rd: self.rd(),
+            ra: self.ra(),
+            ad: self.ad(),
+            cd: self.cd(),
+        }
+    }
+
+    /// Sets all flag bits.
+    pub fn set_flags(&mut self, flags: Flags) {
+        self.set_qr(flags.qr);
+        self.set_aa(flags.aa);
+        self.set_tc(flags.tc);
+        self.set_rd(flags.rd);
+        self.set_ra(flags.ra);
+        self.set_ad(flags.ad);
+        self.set_cd(flags.cd);
+    }
+
+    /// Returns whether the [AA](Flags::aa) bit is set.
     pub fn aa(self) -> bool {
         self.get_bit(2, 2)
     }
 
-    /// Sets the value of the AA bit.
+    /// Sets the value of the [AA](Flags::aa) bit.
     pub fn set_aa(&mut self, set: bool) {
         self.set_bit(2, 2, set)
     }
 
-    /// Returns whether the TC bit is set.
-    ///
-    /// The *truncation* bit is set if there was more data available then
-    /// fit into the message. This is typically used when employing
-    /// datagram transports such as UDP to signal that the answer didn’t
-    /// fit into a response and the query should be tried again using a
-    /// stream transport such as TCP.
+    /// Returns whether the [TC](Flags::tc) bit is set.
     pub fn tc(self) -> bool {
         self.get_bit(2, 1)
     }
 
-    /// Sets the value of the TC bit.
+    /// Sets the value of the [TC](Flags::tc) bit.
     pub fn set_tc(&mut self, set: bool) {
         self.set_bit(2, 1, set)
     }
 
-    /// Returns whether the RD bit is set.
-    ///
-    /// The *recursion desired* bit may be set in a query to ask the name
-    /// server to try and recursively gather a response if it doesn’t have
-    /// the data available locally. The bit’s value is copied into the
-    /// response.
+    /// Returns whether the [RD](Flags::rd) bit is set.
     pub fn rd(self) -> bool {
         self.get_bit(2, 0)
     }
 
-    /// Sets the value of the RD bit.
+    /// Sets the value of the [RD](Flags::rd) bit.
     pub fn set_rd(&mut self, set: bool) {
         self.set_bit(2, 0, set)
     }
 
-    /// Returns whether the RA bit is set.
-    ///
-    /// In a response, the *recursion available* bit denotes whether the
-    /// responding name server supports recursion. It has no meaning in
-    /// a query.
+    /// Returns whether the [RA](Flags::ra) bit is set.
     pub fn ra(self) -> bool {
         self.get_bit(3, 7)
     }
 
-    /// Sets the value of the RA bit.
+    /// Sets the value of the [RA](Flags::ra) bit.
     pub fn set_ra(&mut self, set: bool) {
         self.set_bit(3, 7, set)
     }
@@ -233,30 +236,22 @@ impl Header {
         self.set_bit(3, 6, set)
     }
 
-    /// Returns whether the AD bit is set.
-    ///
-    /// The *authentic data* bit is used by security-aware recursive name
-    /// servers to indicate that it considers all RRsets in its response are
-    /// authentic, i.e., have successfully passed DNSSEC validation.
+    /// Returns whether the [AD](Flags::ad) bit is set.
     pub fn ad(self) -> bool {
         self.get_bit(3, 5)
     }
 
-    /// Sets the value of the AD bit.
+    /// Sets the value of the [AD](Flags::ad) bit.
     pub fn set_ad(&mut self, set: bool) {
         self.set_bit(3, 5, set)
     }
 
-    /// Returns whether the CD bit is set.
-    ///
-    /// The *checking disabled* bit is used by a security-aware resolver
-    /// to indicate that it does not want upstream name servers to perform
-    /// verification but rather would like to verify everything itself.
+    /// Returns whether the [CD](Flags::cd) bit is set.
     pub fn cd(self) -> bool {
         self.get_bit(3, 4)
     }
 
-    /// Sets the value of the CD bit.
+    /// Sets the value of the [CD](Flags::cd) bit.
     pub fn set_cd(&mut self, set: bool) {
         self.set_bit(3, 4, set)
     }
@@ -295,6 +290,137 @@ impl Header {
         } else {
             self.inner[offset] &= !(1 << bit)
         }
+    }
+}
+
+//------------ Flags ---------------------------------------------------
+
+/// The flags contained in the DNS message header.
+///
+/// This is a utility type that makes it easier to work with flags. It contains
+/// only standard DNS message flags that are part of the [`Header`], i.e., EDNS
+/// flags are not included.
+///
+/// This type has a text notation and can be created from it as well. Each
+/// flags that is set is represented by a two-letter token, which is the
+/// uppercase version of the flag name.  If mutliple flags are set, the tokens
+/// are separated by space.
+///
+/// ```
+/// use core::str::FromStr;
+/// use domain::base::header::Flags;
+///
+/// let flags = Flags::from_str("QR AA").unwrap();
+/// assert!(flags.qr && flags.aa);
+/// assert_eq!(format!("{}", flags), "QR AA");
+/// ```
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+pub struct Flags {
+    /// The `QR` bit specifies whether a message is a query (`false`) or a
+    /// response (`true`). In other words, this bit is actually stating whether
+    /// the message is *not* a query. So, perhaps it might be good to read ‘QR’
+    /// as ‘query response.’
+    pub qr: bool,
+
+    /// Using the `AA` bit, a name server generating a response states whether
+    /// it is authoritative for the requested domain name, ie., whether this
+    /// response is an *authoritative answer.* The field has no meaning in a
+    /// query.
+    pub aa: bool,
+
+    /// The *truncation* (`TC`) bit is set if there was more data available then
+    /// fit into the message. This is typically used when employing datagram
+    /// transports such as UDP to signal that the answer didn’t fit into a
+    /// response and the query should be tried again using a stream transport
+    /// such as TCP.
+    pub tc: bool,
+
+    /// The *recursion desired* (`RD`) bit may be set in a query to ask the name
+    /// server to try and recursively gather a response if it doesn’t have the
+    /// data available locally. The bit’s value is copied into the response.
+    pub rd: bool,
+
+    /// In a response, the *recursion available* (`RA`) bit denotes whether the
+    /// responding name server supports recursion. It has no meaning in a query.
+    pub ra: bool,
+
+    /// The *authentic data* (`AD`) bit is used by security-aware recursive name
+    /// servers to indicate that it considers all RRsets in its response are
+    /// authentic, i.e., have successfully passed DNSSEC validation.
+    pub ad: bool,
+
+    /// The *checking disabled* (`CD`) bit is used by a security-aware resolver
+    /// to indicate that it does not want upstream name servers to perform
+    /// verification but rather would like to verify everything itself.
+    pub cd: bool,
+}
+
+/// # Creation and Conversion
+///
+impl Flags {
+    /// Creates new flags.
+    ///
+    /// All flags will be unset.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+//--- Display & FromStr
+
+impl fmt::Display for Flags {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut sep = "";
+        if self.qr {
+            write!(f, "QR")?;
+            sep = " ";
+        }
+        if self.aa {
+            write!(f, "{}AA", sep)?;
+            sep = " ";
+        }
+        if self.tc {
+            write!(f, "{}TC", sep)?;
+            sep = " ";
+        }
+        if self.rd {
+            write!(f, "{}RD", sep)?;
+            sep = " ";
+        }
+        if self.ra {
+            write!(f, "{}RA", sep)?;
+            sep = " ";
+        }
+        if self.ad {
+            write!(f, "{}AD", sep)?;
+            sep = " ";
+        }
+        if self.cd {
+            write!(f, "{}CD", sep)?;
+        }
+        Ok(())
+    }
+}
+
+impl FromStr for Flags {
+    type Err = FlagsFromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut flags = Flags::new();
+        for token in s.to_uppercase().split(' ') {
+            match token {
+                "QR" => flags.qr = true,
+                "AA" => flags.aa = true,
+                "TC" => flags.tc = true,
+                "RD" => flags.rd = true,
+                "RA" => flags.ra = true,
+                "AD" => flags.ad = true,
+                "CD" => flags.cd = true,
+                "" => {}
+                _ => return Err(FlagsFromStrError),
+            }
+        }
+        Ok(flags)
     }
 }
 
@@ -745,6 +871,23 @@ impl Compose for HeaderSection {
     }
 }
 
+//============ Error Types ===================================================
+
+//------------ FlagsFromStrError --------------------------------------------
+
+/// An error happened when converting string to flags.
+#[derive(Debug)]
+pub struct FlagsFromStrError;
+
+impl fmt::Display for FlagsFromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "illegal flags token")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for FlagsFromStrError {}
+
 //============ Testing ======================================================
 
 #[cfg(test)]
@@ -819,6 +962,15 @@ mod test {
         test_field!(id, set_id, 0, 0x1234);
         test_field!(qr, set_qr, false, true, false);
         test_field!(opcode, set_opcode, Opcode::Query, Opcode::Notify);
+        test_field!(
+            flags,
+            set_flags,
+            Flags::new(),
+            Flags {
+                qr: true,
+                ..Default::default()
+            }
+        );
         test_field!(aa, set_aa, false, true, false);
         test_field!(tc, set_tc, false, true, false);
         test_field!(rd, set_rd, false, true, false);
@@ -900,5 +1052,54 @@ mod test {
         };
         assert!(c.inc_arcount().is_ok());
         assert!(c.inc_arcount().is_err());
+    }
+
+    #[test]
+    fn flags_display() {
+        let f = Flags::new();
+        assert_eq!(format!("{}", f), "");
+        let f = Flags {
+            qr: true,
+            aa: true,
+            tc: true,
+            rd: true,
+            ra: true,
+            ad: true,
+            cd: true,
+        };
+        assert_eq!(format!("{}", f), "QR AA TC RD RA AD CD");
+        let mut f = Flags::new();
+        f.rd = true;
+        f.cd = true;
+        assert_eq!(format!("{}", f), "RD CD");
+    }
+
+    #[test]
+    fn flags_from_str() {
+        let f1 = Flags::from_str("").unwrap();
+        let f2 = Flags::new();
+        assert_eq!(f1, f2);
+        let f1 = Flags::from_str("QR AA TC RD RA AD CD").unwrap();
+        let f2 = Flags {
+            qr: true,
+            aa: true,
+            tc: true,
+            rd: true,
+            ra: true,
+            ad: true,
+            cd: true,
+        };
+        assert_eq!(f1, f2);
+        let f1 = Flags::from_str("tC Aa CD rd").unwrap();
+        let f2 = Flags {
+            aa: true,
+            tc: true,
+            rd: true,
+            cd: true,
+            ..Default::default()
+        };
+        assert_eq!(f1, f2);
+        let f1 = Flags::from_str("XXXX");
+        assert!(f1.is_err());
     }
 }
