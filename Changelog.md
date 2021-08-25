@@ -8,6 +8,9 @@ Breaking Changes
 
 New
 
+* ``base::header::Flag` for easier working for the flags of a message
+  header. ([#109] by [@tomaskrizek])
+
 Bug Fixes
 
 * Correctly encode and decode the address in EDNS client subnet when the
@@ -20,9 +23,11 @@ Other Changes
 
 [#101]: https://github.com/NLnetLabs/domain/pull/101
 [#102]: https://github.com/NLnetLabs/domain/pull/102
-[@xofyarg]: https://github.com/xofyarg
 [#104]: https://github.com/NLnetLabs/domain/pull/104
 [#107]: https://github.com/NLnetLabs/domain/pull/107
+[#109]: https://github.com/NLnetLabs/domain/pull/109
+[@xofyarg]: https://github.com/xofyarg
+[@tomaskrizek]: https://github.com/tomaskrizek
 [Martin Fischer]: https://push-f.com/
 
 
