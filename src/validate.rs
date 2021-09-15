@@ -230,14 +230,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                     _ => unreachable!(),
                 };
 
-                // Check for minimum supported key size
-                if self.signature().as_ref().len() < min_bytes {
-                    return Err(AlgorithmError::Unsupported);
-                }
-
                 // The key isn't available in either PEM or DER, so use the
                 // direct RSA verifier.
-                let (e, n) = rsa_exponent_modulus(dnskey)?;
+                let (e, n) = rsa_exponent_modulus(dnskey, min_bytes)?;
                 let public_key =
                     signature::RsaPublicKeyComponents { n: &n, e: &e };
                 public_key
@@ -279,6 +274,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
 /// Return the RSA exponent and modulus components from DNSKEY record data.
 fn rsa_exponent_modulus(
     dnskey: &Dnskey<impl AsRef<[u8]>>,
+    min_len: usize,
 ) -> Result<(&[u8], &[u8]), AlgorithmError> {
     let public_key = dnskey.public_key().as_ref();
     if public_key.len() <= 3 {
@@ -294,9 +290,14 @@ fn rsa_exponent_modulus(
     };
 
     // Check if there's enough space for exponent and modulus.
-    if public_key.len() < pos + exp_len {
+    if public_key[pos..].len() < pos + exp_len {
         return Err(AlgorithmError::InvalidData);
     };
+
+    // Check for minimum supported key size
+    if public_key[pos..].len() < min_len {
+        return Err(AlgorithmError::Unsupported);
+    }
 
     Ok(public_key[pos..].split_at(exp_len))
 }
@@ -347,7 +348,7 @@ mod test {
     type Dnskey = crate::rdata::Dnskey<Bytes>;
     type Rrsig = crate::rdata::Rrsig<Bytes, Dname>;
 
-    // Returns current root KSK/ZSK for testing.
+    // Returns current root KSK/ZSK for testing (2048b)
     fn root_pubkey() -> (Dnskey, Dnskey) {
         let ksk = base64::decode(
             "\
@@ -368,6 +369,24 @@ mod test {
             WiUk59OgvHmDqmcC7VXYBhK8V8Tic089XJgExGeplKWUt9yyc31ra1swJX5\
             1XsOaQz17+vyLVH8AZP26KvKFiZeoRbaq6vl+hc8HQnI2ug5rA2zoz3MsSQ\
             BvP1f/HvqsWxLqwXXKyDD1QM639U+XzVB8CYigyscRP22QCnwKIU=",
+        )
+        .unwrap()
+        .into();
+        (
+            Dnskey::new(257, 3, SecAlg::RsaSha256, ksk),
+            Dnskey::new(256, 3, SecAlg::RsaSha256, zsk),
+        )
+    }
+
+    // Returns the current net KSK/ZSK for testing (1024b)
+    fn net_pubkey() -> (Dnskey, Dnskey) {
+        let ksk = base64::decode(
+            "AQOYBnzqWXIEj6mlgXg4LWC0HP2n8eK8XqgHlmJ/69iuIHsa1TrHDG6TcOra/pyeGKwH0nKZhTmXSuUFGh9BCNiwVDuyyb6OBGy2Nte9Kr8NwWg4q+zhSoOf4D+gC9dEzg0yFdwT0DKEvmNPt0K4jbQDS4Yimb+uPKuF6yieWWrPYYCrv8C9KC8JMze2uT6NuWBfsl2fDUoV4l65qMww06D7n+p7RbdwWkAZ0fA63mXVXBZF6kpDtsYD7SUB9jhhfLQE/r85bvg3FaSs5Wi2BaqN06SzGWI1DHu7axthIOeHwg00zxlhTpoYCH0ldoQz+S65zWYi/fRJiyLSBb6JZOvn",
+        )
+        .unwrap()
+        .into();
+        let zsk = base64::decode(
+            "AQPW36Zs2vsDFGgdXBlg8RXSr1pSJ12NK+u9YcWfOr85we2z5A04SKQlIfyTK37dItGFcldtF7oYwPg11T3R33viKV6PyASvnuRl8QKiLk5FfGUDt1sQJv3S/9wT22Le1vnoE/6XFRyeb8kmJgz0oQB1VAO9b0l6Vm8KAVeOGJ+Qsjaq0O0aVzwPvmPtYm/i3qoAhkaMBUpg6RrF5NKhRyG3",
         )
         .unwrap()
         .into();
@@ -432,6 +451,7 @@ mod test {
 
     #[test]
     fn rrsig_verify_rsa_sha256() {
+        // Test 2048b long key
         let (ksk, zsk) = root_pubkey();
         let rrsig = Rrsig::new(
             Rtype::Dnskey,
@@ -443,17 +463,44 @@ mod test {
             20326,
             Dname::root(),
             base64::decode(
-                "otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXk\
-                ZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3\
-                Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7Xgzz\
-                ooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0\
-                SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM786\
-                1CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==",
+                "otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==",
             )
             .unwrap()
             .into(),
         );
         rrsig_verify_dnskey(ksk, zsk, rrsig);
+
+        // Test 1024b long key
+        let (ksk, zsk) = net_pubkey();
+        let rrsig = Rrsig::new(
+            Rtype::Dnskey,
+            SecAlg::RsaSha256,
+            1,
+            86400,
+            rrsig_serial("20210921162830"),
+            rrsig_serial("20210906162330"),
+            35886,
+            "net.".parse::<Dname>().unwrap(),
+            base64::decode(
+                "j1s1IPMoZd0mbmelNVvcbYNe2tFCdLsLpNCnQ8xW6d91ujwPZ2yDlc3lU3hb+Jq3sPoj+5lVgB7fZzXQUQTPFWLF7zvW49da8pWuqzxFtg6EjXRBIWH5rpEhOcr+y3QolJcPOTx+/utCqt2tBKUUy3LfM6WgvopdSGaryWdwFJPW7qKHjyyLYxIGx5AEuLfzsA5XZf8CmpUheSRH99GRZoIB+sQzHuelWGMQ5A42DPvOVZFmTpIwiT2QaIpid4nJ7jNfahfwFrCoS+hvqjK9vktc5/6E/Mt7DwCQDaPt5cqDfYltUitQy+YA5YP5sOhINChYadZe+2N80OA+RKz0mA==",
+            )
+            .unwrap()
+            .into(),
+        );
+        rrsig_verify_dnskey(ksk, zsk, rrsig.clone());
+
+        // Test that 512b short RSA DNSKEY is not supported (too short)
+        let data = base64::decode(
+            "AwEAAcFcGsaxxdgiuuGmCkVImy4h99CqT7jwY3pexPGcnUFtR2Fh36BponcwtkZ4cAgtvd4Qs8PkxUdp6p/DlUmObdk=",
+        )
+        .unwrap()
+        .into();
+
+        let short_key = Dnskey::new(256, 3, SecAlg::RsaSha256, data);
+        let err = rrsig
+            .verify_signed_data(&short_key, &vec![0; 100])
+            .unwrap_err();
+        assert_eq!(err, AlgorithmError::Unsupported);
     }
 
     #[test]
