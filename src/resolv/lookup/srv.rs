@@ -239,7 +239,10 @@ impl FoundSrvs {
 #[derive(Clone, Debug)]
 pub struct SrvItem {
     srv: Srv<Dname<OctetsVec>>,
+
+    #[allow(dead_code)] // XXX Check if we can actually remove it.
     fallback: bool,
+    
     resolved: Option<Vec<IpAddr>>,
 }
 

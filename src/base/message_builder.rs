@@ -1445,6 +1445,7 @@ pub struct OptBuilder<'a, Target> {
     start: usize,
 
     /// The additional count before we added the record.
+    #[allow(dead_code)] // XXX Check if we can actually remove it.
     arcount: u16,
 }
 
