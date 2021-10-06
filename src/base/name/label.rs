@@ -403,6 +403,7 @@ impl fmt::Debug for Label {
 //
 //  This keeps the label in wire format, so the first octet is the length
 //  octet, the remainder is the content.
+#[derive(Clone, Copy)]
 pub struct OwnedLabel([u8; 64]);
 
 impl OwnedLabel {
@@ -531,6 +532,20 @@ impl Ord for OwnedLabel {
 impl hash::Hash for OwnedLabel {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.as_label().hash(state)
+    }
+}
+
+//--- Display and Debug
+
+impl fmt::Display for OwnedLabel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.as_label().fmt(f)
+    }
+}
+
+impl fmt::Debug for OwnedLabel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_tuple("OwnedLabel").field(&self.as_label()).finish()
     }
 }
 
