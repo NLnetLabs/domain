@@ -545,9 +545,7 @@ impl fmt::Display for OwnedLabel {
 
 impl fmt::Debug for OwnedLabel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_tuple("OwnedLabel")
-            .field(&self.as_label())
-            .finish()
+        f.debug_tuple("OwnedLabel").field(&self.as_label()).finish()
     }
 }
 
