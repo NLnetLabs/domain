@@ -10,11 +10,15 @@ New
 
 * ``base::header::Flag` for easier working for the flags of a message
   header. ([#109] by [@tomaskrizek])
+* `base::name::OwnedLabel` now implements `Clone` and `Copy` as well as
+  `Display` and `Debug`. ([#112])
 
 Bug Fixes
 
 * Correctly encode and decode the address in EDNS client subnet when the
   number of bits isn’t divisible by 8. ([#101] and [#102] by [@xofyarg])
+* `validate`: Check for the correct public key size instead of infering if
+  from the RRSIG length. ([#110] by [@vavrusa])
 
 Other Changes
 
@@ -26,8 +30,11 @@ Other Changes
 [#104]: https://github.com/NLnetLabs/domain/pull/104
 [#107]: https://github.com/NLnetLabs/domain/pull/107
 [#109]: https://github.com/NLnetLabs/domain/pull/109
-[@xofyarg]: https://github.com/xofyarg
+[#110]: https://github.com/NLnetLabs/domain/pull/110
+[#112]: https://github.com/NLnetLabs/domain/pull/112
 [@tomaskrizek]: https://github.com/tomaskrizek
+[@vavrusa]: https://github.com/vavrusa
+[@xofyarg]: https://github.com/xofyarg
 [Martin Fischer]: https://push-f.com/
 
 
