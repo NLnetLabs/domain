@@ -173,6 +173,11 @@ impl<Name, Data> Record<Name, Data> {
     pub fn into_data(self) -> Data {
         self.data
     }
+
+    /// Trades the record for its owner name and data.
+    pub fn into_owner_and_data(self) -> (Name, Data) {
+        (self.owner, self.data)
+    }
 }
 
 //--- From
