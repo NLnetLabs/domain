@@ -338,7 +338,7 @@ mod test {
     use crate::base::iana::{Class, Rtype, SecAlg};
     use crate::base::serial::Serial;
     use crate::master::scan::Scanner;
-    use crate::rdata::{ZoneRecordData, Mx};
+    use crate::rdata::{Mx, ZoneRecordData};
     use crate::utils::base64;
     use bytes::Bytes;
     use std::str::FromStr;
