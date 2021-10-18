@@ -12,6 +12,8 @@ New
   header. ([#109] by [@tomaskrizek])
 * `base::name::OwnedLabel` now implements `Clone` and `Copy` as well as
   `Display` and `Debug`. ([#112])
+* `base::record::Record::into_owner_and_name` allows decomposing a record
+  into its two parts that aren’t `Copy`. ([#114])
 
 Bug Fixes
 
@@ -32,6 +34,7 @@ Other Changes
 [#109]: https://github.com/NLnetLabs/domain/pull/109
 [#110]: https://github.com/NLnetLabs/domain/pull/110
 [#112]: https://github.com/NLnetLabs/domain/pull/112
+[#114]: https://github.com/NLnetLabs/domain/pull/114
 [@tomaskrizek]: https://github.com/tomaskrizek
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
