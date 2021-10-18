@@ -338,7 +338,7 @@ mod test {
     use crate::base::iana::{Class, Rtype, SecAlg};
     use crate::base::serial::Serial;
     use crate::master::scan::Scanner;
-    use crate::rdata::{MasterRecordData, Mx};
+    use crate::rdata::{ZoneRecordData, Mx};
     use crate::utils::base64;
     use bytes::Bytes;
     use std::str::FromStr;
@@ -622,12 +622,12 @@ mod test {
             .into(),
         );
 
-        let mut records: Vec<Record<Dname, MasterRecordData<Bytes, Dname>>> =
+        let mut records: Vec<Record<Dname, ZoneRecordData<Bytes, Dname>>> =
             [&ksk, &zsk]
                 .iter()
                 .cloned()
                 .map(|x| {
-                    let data = MasterRecordData::from(x.clone());
+                    let data = ZoneRecordData::from(x.clone());
                     Record::new(
                         rrsig.signer_name().clone(),
                         Class::In,

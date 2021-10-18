@@ -2,7 +2,7 @@ use super::scan::{CharSource, Pos, Scan, ScanError, Scanner, SyntaxError};
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::Dname;
 use crate::base::record::Record;
-use crate::rdata::MasterRecordData;
+use crate::rdata::ZoneRecordData;
 use bytes::Bytes;
 /// A master file entry.
 use std::borrow::ToOwned;
@@ -158,7 +158,7 @@ impl Entry {
         let (ttl, class) =
             Self::scan_ttl_class(scanner, last_class, default_ttl)?;
         let rtype = Rtype::scan(scanner)?;
-        let rdata = MasterRecordData::scan(rtype, scanner)?;
+        let rdata = ZoneRecordData::scan(rtype, scanner)?;
         scanner.scan_newline()?;
         Ok(Record::new(owner, class, ttl, rdata))
     }
@@ -255,4 +255,4 @@ impl Scan for ControlType {
 //------------ MasterRecord --------------------------------------------------
 
 pub type MasterRecord =
-    Record<Dname<Bytes>, MasterRecordData<Bytes, Dname<Bytes>>>;
+    Record<Dname<Bytes>, ZoneRecordData<Bytes, Dname<Bytes>>>;
