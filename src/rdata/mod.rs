@@ -19,8 +19,8 @@
 //! In addition, the module provides two enums combining the known types.
 //! [`AllRecordData`] indeed contains all record data types known plus
 //! [`UnknownRecordData`][crate::base::rdata::UnknownRecordData] for the
-//! rest, while [`MasterRecordData`] only
-//! contains those types that can appear in master files plus, again,
+//! rest, while [`ZoneRecordData`] only
+//! contains those types that can appear in zone files plus, again,
 //! [`UnknownRecordData`][crate::base::rdata::UnknownRecordData] for
 //! everything else.
 
@@ -36,9 +36,9 @@ pub mod rfc5155;
 pub mod rfc6672;
 pub mod rfc7344;
 
-// The rdata_types! macro (defined in self::macros) reexports the record data
-// types here and creates the MasterRecordData and AllRecordData enums
-// containing all record types that can appear in master files or all record
+// The rdata_types! macro (defined in self::macros) re-exports the record data
+// types here and creates the ZoneRecordData and AllRecordData enums
+// containing all record types that can appear in a zone and all record
 // types that exist.
 //
 // All record data types listed here MUST have the same name as the
@@ -46,7 +46,7 @@ pub mod rfc7344;
 // relies on that.
 //
 // Add any new module here and then add all record types in that module that
-// can appear in master files under "master" and all others under "pseudo".
+// can appear in zone files under "zone" and all others under "pseudo".
 // Your type can be generic over an octet type "O" and a domain name type "N".
 // Add these as needed.
 //
@@ -54,7 +54,7 @@ pub mod rfc7344;
 // is messy enough as it is ...
 rdata_types! {
     rfc1035::{
-        master {
+        zone {
             A,
             Cname<N>,
             Hinfo<O>,
@@ -74,7 +74,7 @@ rdata_types! {
         }
     }
     rfc2782::{
-        master {
+        zone {
             Srv<N>,
         }
     }
@@ -84,12 +84,12 @@ rdata_types! {
         }
     }
     rfc3596::{
-        master {
+        zone {
             Aaaa,
         }
     }
     rfc4034::{
-        master {
+        zone {
             Dnskey<O>,
             Rrsig<O, N>,
             Nsec<O, N>,
@@ -97,18 +97,18 @@ rdata_types! {
         }
     }
     rfc6672::{
-        master {
+        zone {
             Dname<N>,
         }
     }
     rfc5155::{
-        master {
+        zone {
             Nsec3<O>,
             Nsec3param<O>,
         }
     }
     rfc7344::{
-        master {
+        zone {
             Cdnskey<O>,
             Cds<O>,
         }
