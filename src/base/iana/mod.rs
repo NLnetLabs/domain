@@ -34,6 +34,7 @@ pub use self::opt::OptionCode;
 pub use self::rcode::{OptRcode, Rcode, TsigRcode};
 pub use self::rtype::Rtype;
 pub use self::secalg::SecAlg;
+pub use self::svcb::SvcbParamKey;
 
 #[macro_use]
 mod macros;
@@ -47,3 +48,4 @@ pub mod opt;
 pub mod rcode;
 pub mod rtype;
 pub mod secalg;
+pub mod svcb;
