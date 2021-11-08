@@ -306,6 +306,27 @@ impl hash::Hash for Rcode {
     }
 }
 
+//--- Serialize and Deserialize
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Rcode {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        self.to_int().serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Rcode {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        u8::deserialize(deserializer).map(Rcode::from_int)
+    }
+}
+
 //------------ OptRcode -----------------------------------------------------
 
 /// Extended DNS Response Codes for OPT records.

@@ -536,7 +536,7 @@ impl<C: CharSource> Scanner<C> {
         G: FnOnce(Bytes) -> Result<U, SyntaxError>,
     {
         self.scan_phrase(
-            base32::Decoder::new_hex(),
+            base32::Decoder::<BytesMut>::new_hex(),
             |decoder, symbol| {
                 decoder
                     .push(symbol.into_char()?)
@@ -557,7 +557,7 @@ impl<C: CharSource> Scanner<C> {
         G: FnOnce(Bytes) -> Result<U, SyntaxError>,
     {
         let start_pos = self.pos();
-        let mut decoder = base64::Decoder::new();
+        let mut decoder = base64::Decoder::<BytesMut>::new();
         let mut first = true;
         loop {
             let res = self.scan_phrase(

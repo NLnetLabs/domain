@@ -30,6 +30,7 @@ use core::{fmt, iter};
 /// [`ToRelativeDname`]: trait.ToRelativeDname.html
 /// [`UncertainDname`]: struct.UncertainDname.html#method.chain
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Chain<L, R> {
     /// The first domain name.
     left: L,
@@ -393,7 +394,7 @@ mod test {
         assert_eq!(left.clone().chain(five_abs.clone()).unwrap().len(), 255);
         assert_eq!(left.clone().chain(five_rel.clone()).unwrap().len(), 255);
         assert!(left.clone().chain(six_abs.clone()).is_err());
-        assert!(left.clone().chain(six_rel.clone()).is_err());
+        assert!(left.clone().chain(six_rel).is_err());
         assert!(left
             .clone()
             .chain(five_rel.clone())
@@ -404,15 +405,15 @@ mod test {
             .clone()
             .chain(five_rel.clone())
             .unwrap()
-            .chain(five_rel.clone())
+            .chain(five_rel)
             .is_err());
 
         let left = UncertainDname::from(left);
-        assert_eq!(left.clone().chain(five_abs.clone()).unwrap().len(), 255);
+        assert_eq!(left.clone().chain(five_abs).unwrap().len(), 255);
         assert!(left.clone().chain(six_abs.clone()).is_err());
 
         let left = UncertainDname::from(left.into_absolute().unwrap());
-        assert_eq!(left.clone().chain(six_abs.clone()).unwrap().len(), 251);
+        assert_eq!(left.chain(six_abs).unwrap().len(), 251);
     }
 
     /// Tests that the label iterators all work as expected.

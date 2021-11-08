@@ -19,10 +19,31 @@ use core::{fmt, hash};
 //------------ Cdnskey --------------------------------------------------------
 
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>
+        ",
+        deserialize = "
+            Octets:
+                crate::base::octets::FromBuilder
+                + crate::base::octets::DeserializeOctets<'de>,
+            <Octets as crate::base::octets::FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets>
+                + crate::base::octets::EmptyBuilder,
+        ",
+    ))
+)]
 pub struct Cdnskey<Octets> {
     flags: u16,
     protocol: u8,
     algorithm: SecAlg,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "crate::utils::base64::serde")
+    )]
     public_key: Octets,
 }
 
@@ -226,10 +247,31 @@ impl<Octets> RtypeRecordData for Cdnskey<Octets> {
 //------------ Cds -----------------------------------------------------------
 
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>
+        ",
+        deserialize = "
+            Octets:
+                crate::base::octets::FromBuilder
+                + crate::base::octets::DeserializeOctets<'de>,
+            <Octets as crate::base::octets::FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets>
+                + crate::base::octets::EmptyBuilder,
+        ",
+    ))
+)]
 pub struct Cds<Octets> {
     key_tag: u16,
     algorithm: SecAlg,
     digest_type: DigestAlg,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "crate::utils::base64::serde")
+    )]
     digest: Octets,
 }
 

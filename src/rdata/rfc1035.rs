@@ -4,7 +4,7 @@
 //!
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use crate::base::charstr::CharStr;
+use crate::base::charstr::{CharStr, CharStrError};
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{ParsedDname, ToDname};
@@ -13,6 +13,8 @@ use crate::base::octets::{
     Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef,
     Parse, ParseError, Parser, ShortBuf,
 };
+#[cfg(feature = "serde")]
+use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
 use crate::base::str::Symbol;
@@ -38,6 +40,7 @@ use core::{fmt, hash, ops};
 ///
 /// The A record type is defined in RFC 1035, section 3.4.1.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct A {
     addr: Ipv4Addr,
 }
@@ -196,6 +199,17 @@ dname_type! {
 ///
 /// The Hinfo type is defined in RFC 1035, section 3.3.2.
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "Octets: AsRef<[u8]> + crate::base::octets::SerializeOctets",
+        deserialize = "Octets: \
+                crate::base::octets::FromBuilder \
+                + crate::base::octets::DeserializeOctets<'de>, \
+            <Octets as FromBuilder>::Builder: EmptyBuilder ",
+    ))
+)]
 pub struct Hinfo<Octets> {
     cpu: CharStr<Octets>,
     os: CharStr<Octets>,
@@ -422,6 +436,7 @@ dname_type! {
 ///
 /// The Minfo record type is defined in RFC 1035, section 3.3.7.
 #[derive(Clone, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Minfo<N> {
     rmailbx: N,
     emailbx: N,
@@ -603,6 +618,7 @@ dname_type! {
 ///
 /// The Mx record type is defined in RFC 1035, section 3.3.9.
 #[derive(Clone, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Mx<N> {
     preference: u16,
     exchange: N,
@@ -774,7 +790,19 @@ dname_type! {
 ///
 /// The Null record type is defined in RFC 1035, section 3.3.10.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Null<Octets> {
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
+            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            bound(
+                serialize = "Octets: crate::base::octets::SerializeOctets",
+                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+            )
+        )
+    )]
     data: Octets,
 }
 
@@ -963,6 +991,7 @@ impl<N> Ptr<N> {
 ///
 /// The Soa record type is defined in RFC 1035, section 3.3.13.
 #[derive(Clone, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Soa<N> {
     mname: N,
     rname: N,
@@ -1289,12 +1318,28 @@ impl<Octets: FromBuilder> Txt<Octets> {
 }
 
 impl<Octets: AsRef<[u8]>> Txt<Octets> {
+    /// Creates a new TXT record from its encoded content.
+    pub fn from_octets(octets: Octets) -> Result<Self, CharStrError> {
+        let mut tmp = octets.as_ref();
+        while !tmp.is_empty() {
+            if tmp.len() <= tmp[0] as usize {
+                return Err(CharStrError);
+            }
+            tmp = &tmp[(tmp[0] as usize) + 1..];
+        }
+        Ok(Txt(octets))
+    }
+
     /// Returns an iterator over the text items.
     ///
     /// The Txt format contains one or more length-delimited byte strings.
     /// This method returns an iterator over each of them.
     pub fn iter(&self) -> TxtIter {
-        TxtIter(Parser::from_ref(self.0.as_ref()))
+        TxtIter(self.iter_char_strs())
+    }
+
+    pub fn iter_char_strs(&self) -> TxtCharStrIter {
+        TxtCharStrIter(Parser::from_ref(self.0.as_ref()))
     }
 
     pub fn as_flat_slice(&self) -> Option<&[u8]> {
@@ -1497,21 +1542,189 @@ impl<Octets> RtypeRecordData for Txt<Octets> {
     const RTYPE: Rtype = Rtype::Txt;
 }
 
-//------------ TxtIter -------------------------------------------------------
+//--- Serialize and Deserialize
+
+#[cfg(feature = "serde")]
+impl<Octets> serde::Serialize for Txt<Octets>
+where
+    Octets: AsRef<[u8]> + SerializeOctets,
+{
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+
+        struct TxtSeq<'a, Octets>(&'a Txt<Octets>);
+
+        impl<'a, Octets> serde::Serialize for TxtSeq<'a, Octets>
+        where
+            Octets: AsRef<[u8]> + SerializeOctets,
+        {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                let mut serializer = serializer.serialize_seq(None)?;
+                for item in self.0.iter_char_strs() {
+                    serializer
+                        .serialize_element(&format_args!("{}", item))?;
+                }
+                serializer.end()
+            }
+        }
+
+        if serializer.is_human_readable() {
+            serializer.serialize_newtype_struct("Txt", &TxtSeq(self))
+        } else {
+            serializer.serialize_newtype_struct(
+                "Txt",
+                &self.0.as_serialized_octets(),
+            )
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, Octets> serde::Deserialize<'de> for Txt<Octets>
+where
+    Octets: FromBuilder + DeserializeOctets<'de>,
+    <Octets as FromBuilder>::Builder: EmptyBuilder,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        use core::marker::PhantomData;
+
+        struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = Txt<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("TXT record data")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> Result<Self::Value, E> {
+                // This is a non-canonical serialization. We accept strings
+                // of any length and break them down into chunks.
+                let mut builder =
+                    TxtBuilder::<<Octets as FromBuilder>::Builder>::new();
+                let mut chars = v.chars();
+                while let Some(ch) =
+                    Symbol::from_chars(&mut chars).map_err(E::custom)?
+                {
+                    builder
+                        .append_u8(ch.into_octet().map_err(E::custom)?)
+                        .map_err(E::custom)?;
+                }
+                Ok(builder.finish())
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut builder =
+                    TxtBuilder::<<Octets as FromBuilder>::Builder>::new();
+                while let Some(s) = seq.next_element::<&'de str>()? {
+                    builder.append_zone_char_str(s)?;
+                }
+                Ok(builder.finish())
+            }
+
+            fn visit_borrowed_bytes<E: serde::de::Error>(
+                self,
+                value: &'de [u8],
+            ) -> Result<Self::Value, E> {
+                self.0.visit_borrowed_bytes(value).and_then(|octets| {
+                    Txt::from_octets(octets).map_err(E::custom)
+                })
+            }
+
+            #[cfg(feature = "std")]
+            fn visit_byte_buf<E: serde::de::Error>(
+                self,
+                value: std::vec::Vec<u8>,
+            ) -> Result<Self::Value, E> {
+                self.0.visit_byte_buf(value).and_then(|octets| {
+                    Txt::from_octets(octets).map_err(E::custom)
+                })
+            }
+        }
+
+        struct NewtypeVisitor<T>(PhantomData<T>);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = Txt<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("TXT record data")
+            }
+
+            fn visit_newtype_struct<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                if deserializer.is_human_readable() {
+                    deserializer
+                        .deserialize_str(InnerVisitor(Octets::visitor()))
+                } else {
+                    Octets::deserialize_with_visitor(
+                        deserializer,
+                        InnerVisitor(Octets::visitor()),
+                    )
+                }
+            }
+        }
+
+        deserializer
+            .deserialize_newtype_struct("Txt", NewtypeVisitor(PhantomData))
+    }
+}
+
+//------------ TxtCharStrIter ------------------------------------------------
 
 /// An iterator over the character strings of a Txt record.
 #[derive(Clone)]
-pub struct TxtIter<'a>(Parser<&'a [u8]>);
+pub struct TxtCharStrIter<'a>(Parser<&'a [u8]>);
 
-impl<'a> Iterator for TxtIter<'a> {
-    type Item = &'a [u8];
+impl<'a> Iterator for TxtCharStrIter<'a> {
+    type Item = CharStr<&'a [u8]>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.remaining() == 0 {
             None
         } else {
-            Some(CharStr::parse(&mut self.0).unwrap().into_octets())
+            Some(CharStr::parse(&mut self.0).unwrap())
         }
+    }
+}
+
+//------------ TxtIter -------------------------------------------------------
+
+/// An iterator over the character strings of a Txt record.
+#[derive(Clone)]
+pub struct TxtIter<'a>(TxtCharStrIter<'a>);
+
+impl<'a> Iterator for TxtIter<'a> {
+    type Item = &'a [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(CharStr::into_octets)
     }
 }
 
@@ -1572,11 +1785,43 @@ impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Txt<Builder::Octets> {
+    pub fn append_u8(&mut self, ch: u8) -> Result<(), ShortBuf> {
+        self.append_slice(&[ch])
+    }
+
+    #[cfg(feature = "serde")]
+    fn append_zone_char_str<E: serde::de::Error>(
+        &mut self,
+        s: &str,
+    ) -> Result<(), E> {
+        self.close_char_str();
+        self.start = Some(self.builder.len());
+        self.builder.append_slice(&[0]).map_err(E::custom)?;
+        let mut chars = s.chars();
+        let mut len = 0;
+        while let Some(sym) =
+            Symbol::from_chars(&mut chars).map_err(E::custom)?
+        {
+            if len == 255 {
+                return Err(E::custom(CharStrError));
+            }
+            let sym = sym.into_octet().map_err(E::custom)?;
+            self.builder.append_slice(&[sym]).map_err(E::custom)?;
+            len += 1;
+        }
+        self.close_char_str();
+        Ok(())
+    }
+
+    fn close_char_str(&mut self) {
         if let Some(start) = self.start {
             let last_slice_len = self.builder.len() - (start + 1);
             self.builder.as_mut()[start] = last_slice_len as u8;
         }
+    }
+
+    pub fn finish(mut self) -> Txt<Builder::Octets> {
+        self.close_char_str();
         Txt(self.builder.freeze())
     }
 }
@@ -1704,5 +1949,45 @@ mod test {
         for (a, b) in records.iter().zip(sorted.iter()) {
             assert_eq!(a, b);
         }
+    }
+
+    #[cfg(all(feature = "serde", feature = "std"))]
+    #[test]
+    fn txt_ser_de() {
+        use serde_test::{assert_tokens, Configure, Token};
+
+        let txt = Txt::from_octets(Vec::from(b"\x03foo".as_ref())).unwrap();
+        assert_tokens(
+            &txt.clone().compact(),
+            &[
+                Token::NewtypeStruct { name: "Txt" },
+                Token::ByteBuf(b"\x03foo"),
+            ],
+        );
+        assert_tokens(
+            &txt.readable(),
+            &[
+                Token::NewtypeStruct { name: "Txt" },
+                Token::Seq { len: None },
+                Token::BorrowedStr("foo"),
+                Token::SeqEnd,
+            ],
+        );
+    }
+
+    #[cfg(all(feature = "serde", feature = "std"))]
+    #[test]
+    fn txt_de_str() {
+        use serde_test::{assert_de_tokens, Configure, Token};
+
+        assert_de_tokens(
+            &Txt::from_octets(Vec::from(b"\x03foo".as_ref()))
+                .unwrap()
+                .readable(),
+            &[
+                Token::NewtypeStruct { name: "Txt" },
+                Token::BorrowedStr("foo"),
+            ],
+        );
     }
 }

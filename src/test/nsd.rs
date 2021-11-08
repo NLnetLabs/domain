@@ -44,15 +44,16 @@ impl Config {
     /// Creates a configuration that keeps all NSD data in a directory.
     pub fn all_in<P: AsRef<Path>>(path: P) -> Self {
         let path = path.as_ref();
-        let mut res = Self::default();
-        res.database = Some(path.join("nsd.nsd"));
-        res.zonelistfile = Some(path.join("zone.list"));
-        res.pidfile = Some(path.join("nsd.pid"));
-        res.username = Some("\"\"".into());
-        res.zonesdir = Some(path.into());
-        res.xfrdfile = Some(path.join("nsd.xfrd.state"));
-        res.xfrdir = Some(path.into());
-        res
+        Config {
+            database: Some(path.join("nsd.nsd")),
+            zonelistfile: Some(path.join("zone.list")),
+            pidfile: Some(path.join("nsd.pid")),
+            username: Some("\"\"".into()),
+            zonesdir: Some(path.into()),
+            xfrdfile: Some(path.join("nsd.xfrd.state")),
+            xfrdir: Some(path.into()),
+            ..Default::default()
+        }
     }
 
     /// Writes the configuration to a file.

@@ -1,26 +1,20 @@
-//! Decoding and encoding of base 64.
+//! Decoding and encoding of Base 64.
 //!
-//! The base 64 encoding is defined in [RFC 4648]. There are two variants
+//! The Base 64 encoding is defined in [RFC 4648]. There are two variants
 //! defined in the RFC, dubbed *base64* and *base64url* which are
 //! differenciated by the last two characters in the alphabet. The DNS uses
 //! only the original *base64* variant, so this is what is implemented by the
 //! module for now.
 //!
 //! The module defines the type [`Decoder`] which keeps the state necessary
-//! for decoding. The convenince functions `decode` and `display`
-//! decode and encode octets, respectively.
-//!
-//! Decoding currently requires the `bytes` feature as it is intended for
-//! use by the master file parser. This will change when the parser will be
-//! converted to work with any octets builder.
+//! for decoding. The various functions offered use such a decoder to decode
+//! and encode octets in various forms.
 //!
 //! [RFC 4648]: https://tools.ietf.org/html/rfc4648
-//! [`Decoder`]: struct.Decoder.html
-//! [`decode`]: fn.decode.html
-//! [`display`]: fn.display.html
 
-#[cfg(feature = "bytes")]
-use bytes::{BufMut, Bytes, BytesMut};
+use crate::base::octets::{
+    EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf,
+};
 use core::fmt;
 #[cfg(feature = "std")]
 use std::string::String;
@@ -31,9 +25,13 @@ use std::string::String;
 ///
 /// The function attempts to decode the entire string and returns the result
 /// as a `Bytes` value.
-#[cfg(feature = "bytes")]
-pub fn decode(s: &str) -> Result<Bytes, DecodeError> {
-    let mut decoder = Decoder::new();
+pub fn decode<Octets>(s: &str) -> Result<Octets, DecodeError>
+where
+    Octets: FromBuilder,
+    <Octets as FromBuilder>::Builder:
+        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+{
+    let mut decoder = Decoder::<<Octets as FromBuilder>::Builder>::new();
     for ch in s.chars() {
         decoder.push(ch)?;
     }
@@ -100,6 +98,105 @@ pub fn encode_string<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> String {
     res
 }
 
+/// Returns a placeholder value that implements `Display` for encoded data.
+pub fn encode_display<Octets: AsRef<[u8]>>(
+    octets: &Octets,
+) -> impl fmt::Display + '_ {
+    struct Display<'a>(&'a [u8]);
+
+    impl<'a> fmt::Display for Display<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            display(self.0, f)
+        }
+    }
+
+    Display(octets.as_ref())
+}
+
+/// Serialize and deserialize octets Base64 encoded or binary.
+///
+/// This module can be used with Serde’s `with` attribute. It will serialize
+/// an octets sequence as a Base64 encoded string with human readable
+/// serializers or as a raw octets sequence for compact serializers.
+#[cfg(feature = "serde")]
+pub mod serde {
+    use super::encode_display;
+    use crate::base::octets::{
+        DeserializeOctets, EmptyBuilder, FromBuilder, OctetsBuilder,
+        SerializeOctets,
+    };
+    use core::fmt;
+
+    pub fn serialize<Octets, S>(
+        octets: &Octets,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        Octets: AsRef<[u8]> + SerializeOctets,
+        S: serde::Serializer,
+    {
+        if serializer.is_human_readable() {
+            serializer.collect_str(&encode_display(octets))
+        } else {
+            octets.serialize_octets(serializer)
+        }
+    }
+
+    pub fn deserialize<'de, Octets, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Octets, D::Error>
+    where
+        Octets: FromBuilder + DeserializeOctets<'de>,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        struct Visitor<'de, Octets: DeserializeOctets<'de>>(Octets::Visitor);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for Visitor<'de, Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = Octets;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("an Base64-encoded string")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> Result<Self::Value, E> {
+                super::decode(v).map_err(E::custom)
+            }
+
+            fn visit_borrowed_bytes<E: serde::de::Error>(
+                self,
+                value: &'de [u8],
+            ) -> Result<Self::Value, E> {
+                self.0.visit_borrowed_bytes(value)
+            }
+
+            #[cfg(feature = "std")]
+            fn visit_byte_buf<E: serde::de::Error>(
+                self,
+                value: std::vec::Vec<u8>,
+            ) -> Result<Self::Value, E> {
+                self.0.visit_byte_buf(value)
+            }
+        }
+
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_str(Visitor(Octets::visitor()))
+        } else {
+            Octets::deserialize_with_visitor(
+                deserializer,
+                Visitor(Octets::visitor()),
+            )
+        }
+    }
+}
+
 //------------ Decoder -------------------------------------------------------
 
 /// A base 64 decoder.
@@ -107,8 +204,7 @@ pub fn encode_string<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> String {
 /// This type keeps all the state for decoding a sequence of characters
 /// representing data encoded in base 32. Upon success, the decoder returns
 /// the decoded data in a `bytes::Bytes` value.
-#[cfg(feature = "bytes")]
-pub struct Decoder {
+pub struct Decoder<Builder> {
     /// A buffer for up to four characters.
     ///
     /// We only keep `u8`s here because only ASCII characters are used by
@@ -122,22 +218,23 @@ pub struct Decoder {
     next: usize,
 
     /// The target or an error if something went wrong.
-    target: Result<BytesMut, DecodeError>,
+    target: Result<Builder, DecodeError>,
 }
 
-#[cfg(feature = "bytes")]
-impl Decoder {
+impl<Builder: EmptyBuilder> Decoder<Builder> {
     /// Creates a new empty decoder.
     pub fn new() -> Self {
         Decoder {
             buf: [0; 4],
             next: 0,
-            target: Ok(BytesMut::new()),
+            target: Ok(Builder::empty()),
         }
     }
+}
 
+impl<Builder: OctetsBuilder> Decoder<Builder> {
     /// Finalizes decoding and returns the decoded data.
-    pub fn finalize(self) -> Result<Bytes, DecodeError> {
+    pub fn finalize(self) -> Result<Builder::Octets, DecodeError> {
         let (target, next) = (self.target, self.next);
         target.and_then(|bytes| {
             // next is either 0 or 0xF0 for a completed group.
@@ -181,16 +278,16 @@ impl Decoder {
 
         if self.next == 4 {
             let target = self.target.as_mut().unwrap(); // Err covered above.
-            target.reserve(3);
-            target.put_u8(self.buf[0] << 2 | self.buf[1] >> 4);
+            target.append_slice(&[self.buf[0] << 2 | self.buf[1] >> 4])?;
             if self.buf[2] != 0x80 {
-                target.put_u8(self.buf[1] << 4 | self.buf[2] >> 2)
+                target
+                    .append_slice(&[self.buf[1] << 4 | self.buf[2] >> 2])?;
             }
             if self.buf[3] != 0x80 {
                 if self.buf[2] == 0x80 {
                     return Err(DecodeError::TrailingInput);
                 }
-                target.put_u8((self.buf[2] << 6) | self.buf[3]);
+                target.append_slice(&[(self.buf[2] << 6) | self.buf[3]])?;
                 self.next = 0
             } else {
                 self.next = 0xF0
@@ -204,7 +301,7 @@ impl Decoder {
 //--- Default
 
 #[cfg(feature = "bytes")]
-impl Default for Decoder {
+impl<Builder: EmptyBuilder> Default for Decoder<Builder> {
     fn default() -> Self {
         Self::new()
     }
@@ -215,7 +312,7 @@ impl Default for Decoder {
 //------------ DecodeError ---------------------------------------------------
 
 /// An error happened while decoding a base 64 or base 32 encoded string.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DecodeError {
     /// A character was pushed that isn’t allowed in the encoding.
     IllegalChar(char),
@@ -225,6 +322,15 @@ pub enum DecodeError {
 
     /// The input ended with an incomplete sequence.
     ShortInput,
+
+    /// The buffer to decode into is too short.
+    ShortBuf,
+}
+
+impl From<ShortBuf> for DecodeError {
+    fn from(_: ShortBuf) -> Self {
+        DecodeError::ShortBuf
+    }
 }
 
 //--- Display and Error
@@ -237,6 +343,7 @@ impl fmt::Display for DecodeError {
                 write!(f, "illegal character '{}'", ch)
             }
             DecodeError::ShortInput => f.write_str("incomplete input"),
+            DecodeError::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
@@ -251,7 +358,6 @@ impl std::error::Error for DecodeError {}
 /// This maps encoding characters into their values. A value of 0xFF stands in
 /// for illegal characters. We only provide the first 128 characters since the
 /// alphabet will only use ASCII characters.
-#[cfg(feature = "bytes")]
 const DECODE_ALPHABET: [u8; 128] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x00 .. 0x07
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0x08 .. 0x0F
@@ -283,25 +389,28 @@ const ENCODE_ALPHABET: [char; 64] = [
 ];
 
 /// The padding character
-#[cfg(feature = "bytes")]
 const PAD: char = '=';
 
 //============ Test ==========================================================
 
 #[cfg(test)]
 mod test {
-    #[cfg(feature = "bytes")]
+    #[cfg(feature = "std")]
     #[test]
     fn decode_str() {
-        use super::*;
+        use super::DecodeError;
 
-        assert_eq!(decode("").unwrap().as_ref(), b"");
-        assert_eq!(decode("Zg==").unwrap().as_ref(), b"f");
-        assert_eq!(decode("Zm8=").unwrap().as_ref(), b"fo");
-        assert_eq!(decode("Zm9v").unwrap().as_ref(), b"foo");
-        assert_eq!(decode("Zm9vYg==").unwrap().as_ref(), b"foob");
-        assert_eq!(decode("Zm9vYmE=").unwrap().as_ref(), b"fooba");
-        assert_eq!(decode("Zm9vYmFy").unwrap().as_ref(), b"foobar");
+        fn decode(s: &str) -> Result<std::vec::Vec<u8>, DecodeError> {
+            super::decode(s)
+        }
+
+        assert_eq!(&decode("").unwrap(), b"");
+        assert_eq!(&decode("Zg==").unwrap(), b"f");
+        assert_eq!(&decode("Zm8=").unwrap(), b"fo");
+        assert_eq!(&decode("Zm9v").unwrap(), b"foo");
+        assert_eq!(&decode("Zm9vYg==").unwrap(), b"foob");
+        assert_eq!(&decode("Zm9vYmE=").unwrap(), b"fooba");
+        assert_eq!(&decode("Zm9vYmFy").unwrap(), b"foobar");
 
         assert_eq!(decode("FPucA").unwrap_err(), DecodeError::ShortInput);
         assert_eq!(

@@ -38,6 +38,25 @@ macro_rules! rdata_types {
         /// files.
         #[derive(Clone)]
         #[non_exhaustive]
+        #[cfg_attr(
+            feature = "serde",
+            derive(serde::Serialize, serde::Deserialize),
+            serde(bound(
+                serialize = "
+                    O: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+                    N: serde::Serialize,
+                ",
+                deserialize = "
+                    O:
+                        crate::base::octets::FromBuilder
+                        + crate::base::octets::DeserializeOctets<'de>,
+                    <O as crate::base::octets::FromBuilder>::Builder:
+                        crate::base::octets::OctetsBuilder<Octets = O>
+                        + crate::base::octets::EmptyBuilder,
+                    N: serde::Deserialize<'de>,
+                ",
+            ))
+        )]
         pub enum ZoneRecordData<O, N> {
             $( $( $(
                 $mtype($mtype $( < $( $mn ),* > )*),
@@ -808,6 +827,10 @@ macro_rules! dname_type {
     ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
         $(#[$attr])*
         #[derive(Clone, Debug)]
+        #[cfg_attr(
+            feature = "serde",
+            derive(serde::Serialize, serde::Deserialize)
+        )]
         pub struct $target<N> {
             $field: N
         }

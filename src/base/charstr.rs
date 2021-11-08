@@ -28,6 +28,8 @@ use super::octets::{
     Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder,
     OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
+#[cfg(feature = "serde")]
+use super::octets::{DeserializeOctets, SerializeOctets};
 use super::str::{BadSymbol, Symbol, SymbolError};
 #[cfg(feature = "master")]
 use crate::master::scan::{
@@ -421,7 +423,122 @@ impl<'a, T: AsRef<[u8]> + ?Sized + 'a> IntoIterator for &'a CharStr<T> {
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::Debug for CharStr<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CharStr(\"{:?}\")", self.0.as_ref())
+        f.debug_tuple("CharStr")
+            .field(&format_args!("{}", self))
+            .finish()
+    }
+}
+
+//--- Serialize and Deserialize
+
+#[cfg(feature = "serde")]
+impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for CharStr<T> {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            serializer.serialize_newtype_struct(
+                "CharStr",
+                &format_args!("{}", self),
+            )
+        } else {
+            serializer.serialize_newtype_struct(
+                "CharStr",
+                &self.0.as_serialized_octets(),
+            )
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, Octets> serde::Deserialize<'de> for CharStr<Octets>
+where
+    Octets: FromBuilder + DeserializeOctets<'de>,
+    <Octets as FromBuilder>::Builder:
+        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        use core::marker::PhantomData;
+        use core::str::FromStr;
+
+        struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = CharStr<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a character string")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> Result<Self::Value, E> {
+                CharStr::from_str(v).map_err(E::custom)
+            }
+
+            fn visit_borrowed_bytes<E: serde::de::Error>(
+                self,
+                value: &'de [u8],
+            ) -> Result<Self::Value, E> {
+                self.0.visit_borrowed_bytes(value).and_then(|octets| {
+                    CharStr::from_octets(octets).map_err(E::custom)
+                })
+            }
+
+            #[cfg(feature = "std")]
+            fn visit_byte_buf<E: serde::de::Error>(
+                self,
+                value: std::vec::Vec<u8>,
+            ) -> Result<Self::Value, E> {
+                self.0.visit_byte_buf(value).and_then(|octets| {
+                    CharStr::from_octets(octets).map_err(E::custom)
+                })
+            }
+        }
+
+        struct NewtypeVisitor<T>(PhantomData<T>);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = CharStr<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a character string")
+            }
+
+            fn visit_newtype_struct<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                if deserializer.is_human_readable() {
+                    deserializer
+                        .deserialize_str(InnerVisitor(Octets::visitor()))
+                } else {
+                    Octets::deserialize_with_visitor(
+                        deserializer,
+                        InnerVisitor(Octets::visitor()),
+                    )
+                }
+            }
+        }
+
+        deserializer.deserialize_newtype_struct(
+            "CharStr",
+            NewtypeVisitor(PhantomData),
+        )
     }
 }
 
@@ -840,7 +957,7 @@ mod test {
         assert_eq!(
             CharStr::from_slice(l)
                 .unwrap()
-                .cmp(&CharStr::from_slice(r).unwrap()),
+                .cmp(CharStr::from_slice(r).unwrap()),
             order
         )
     }
@@ -873,5 +990,31 @@ mod test {
         assert!(o.append_slice(&[0u8; 250][..]).is_err());
         o.append_slice(&[0u8; 249][..]).unwrap();
         assert_eq!(o.len(), 255);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn ser_de() {
+        use serde_test::{assert_tokens, Configure, Token};
+
+        assert_tokens(
+            &CharStr::from_octets(vec![b'f', b'o', 0x12])
+                .unwrap()
+                .compact(),
+            &[
+                Token::NewtypeStruct { name: "CharStr" },
+                Token::ByteBuf(b"fo\x12"),
+            ],
+        );
+
+        assert_tokens(
+            &CharStr::from_octets(vec![b'f', b'o', 0x12])
+                .unwrap()
+                .readable(),
+            &[
+                Token::NewtypeStruct { name: "CharStr" },
+                Token::Str("fo\\018"),
+            ],
+        );
     }
 }

@@ -333,6 +333,7 @@ impl error::Error for AlgorithmError {}
 //============ Test ==========================================================
 
 #[cfg(test)]
+#[cfg(feature = "std")]
 mod test {
     use super::*;
     use crate::base::iana::{Class, Rtype, SecAlg};
@@ -342,15 +343,16 @@ mod test {
     use crate::utils::base64;
     use bytes::Bytes;
     use std::str::FromStr;
+    use std::vec::Vec;
 
-    type Dname = crate::base::name::Dname<Bytes>;
-    type Ds = crate::rdata::Ds<Bytes>;
-    type Dnskey = crate::rdata::Dnskey<Bytes>;
-    type Rrsig = crate::rdata::Rrsig<Bytes, Dname>;
+    type Dname = crate::base::name::Dname<Vec<u8>>;
+    type Ds = crate::rdata::Ds<Vec<u8>>;
+    type Dnskey = crate::rdata::Dnskey<Vec<u8>>;
+    type Rrsig = crate::rdata::Rrsig<Vec<u8>, Dname>;
 
     // Returns current root KSK/ZSK for testing (2048b)
     fn root_pubkey() -> (Dnskey, Dnskey) {
-        let ksk = base64::decode(
+        let ksk = base64::decode::<Vec<u8>>(
             "\
             AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/\
             4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMt\
@@ -359,9 +361,8 @@ mod test {
             6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+c\
             n8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU=",
         )
-        .unwrap()
-        .into();
-        let zsk = base64::decode(
+        .unwrap();
+        let zsk = base64::decode::<Vec<u8>>(
             "\
             AwEAAeVDC34GZILwsQJy97K2Fst4P3XYZrXLyrkausYzSqEjSUulgh+iLgH\
             g0y7FIF890+sIjXsk7KLJUmCOWfYWPorNKEOKLk5Zx/4M6D3IHZE3O3m/Ea\
@@ -370,8 +371,7 @@ mod test {
             1XsOaQz17+vyLVH8AZP26KvKFiZeoRbaq6vl+hc8HQnI2ug5rA2zoz3MsSQ\
             BvP1f/HvqsWxLqwXXKyDD1QM639U+XzVB8CYigyscRP22QCnwKIU=",
         )
-        .unwrap()
-        .into();
+        .unwrap();
         (
             Dnskey::new(257, 3, SecAlg::RsaSha256, ksk),
             Dnskey::new(256, 3, SecAlg::RsaSha256, zsk),
@@ -380,16 +380,14 @@ mod test {
 
     // Returns the current net KSK/ZSK for testing (1024b)
     fn net_pubkey() -> (Dnskey, Dnskey) {
-        let ksk = base64::decode(
+        let ksk = base64::decode::<Vec<u8>>(
             "AQOYBnzqWXIEj6mlgXg4LWC0HP2n8eK8XqgHlmJ/69iuIHsa1TrHDG6TcOra/pyeGKwH0nKZhTmXSuUFGh9BCNiwVDuyyb6OBGy2Nte9Kr8NwWg4q+zhSoOf4D+gC9dEzg0yFdwT0DKEvmNPt0K4jbQDS4Yimb+uPKuF6yieWWrPYYCrv8C9KC8JMze2uT6NuWBfsl2fDUoV4l65qMww06D7n+p7RbdwWkAZ0fA63mXVXBZF6kpDtsYD7SUB9jhhfLQE/r85bvg3FaSs5Wi2BaqN06SzGWI1DHu7axthIOeHwg00zxlhTpoYCH0ldoQz+S65zWYi/fRJiyLSBb6JZOvn",
         )
-        .unwrap()
-        .into();
-        let zsk = base64::decode(
+        .unwrap();
+        let zsk = base64::decode::<Vec<u8>>(
             "AQPW36Zs2vsDFGgdXBlg8RXSr1pSJ12NK+u9YcWfOr85we2z5A04SKQlIfyTK37dItGFcldtF7oYwPg11T3R33viKV6PyASvnuRl8QKiLk5FfGUDt1sQJv3S/9wT22Le1vnoE/6XFRyeb8kmJgz0oQB1VAO9b0l6Vm8KAVeOGJ+Qsjaq0O0aVzwPvmPtYm/i3qoAhkaMBUpg6RrF5NKhRyG3",
         )
-        .unwrap()
-        .into();
+        .unwrap();
         (
             Dnskey::new(257, 3, SecAlg::RsaSha256, ksk),
             Dnskey::new(256, 3, SecAlg::RsaSha256, zsk),
@@ -404,13 +402,14 @@ mod test {
             20326,
             SecAlg::RsaSha256,
             DigestAlg::Sha256,
-            base64::decode("4G1EuAuPHTmpXAsNfGXQhFjogECbvGg0VxBCN8f47I0=")
-                .unwrap()
-                .into(),
+            base64::decode::<Vec<u8>>(
+                "4G1EuAuPHTmpXAsNfGXQhFjogECbvGg0VxBCN8f47I0=",
+            )
+            .unwrap(),
         );
         assert_eq!(
             dnskey.digest(&owner, DigestAlg::Sha256).unwrap().as_ref(),
-            expected.digest().as_ref()
+            expected.digest()
         );
     }
 
@@ -418,7 +417,7 @@ mod test {
     fn dnskey_digest_unsupported() {
         let (dnskey, _) = root_pubkey();
         let owner = Dname::root();
-        assert_eq!(dnskey.digest(&owner, DigestAlg::Gost).is_err(), true);
+        assert!(dnskey.digest(&owner, DigestAlg::Gost).is_err());
     }
 
     fn rrsig_verify_dnskey(ksk: Dnskey, zsk: Dnskey, rrsig: Rrsig) {
@@ -462,11 +461,10 @@ mod test {
             1558396800.into(),
             20326,
             Dname::root(),
-            base64::decode(
+            base64::decode::<Vec<u8>>(
                 "otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==",
             )
             .unwrap()
-            .into(),
         );
         rrsig_verify_dnskey(ksk, zsk, rrsig);
 
@@ -481,20 +479,18 @@ mod test {
             rrsig_serial("20210906162330"),
             35886,
             "net.".parse::<Dname>().unwrap(),
-            base64::decode(
+            base64::decode::<Vec<u8>>(
                 "j1s1IPMoZd0mbmelNVvcbYNe2tFCdLsLpNCnQ8xW6d91ujwPZ2yDlc3lU3hb+Jq3sPoj+5lVgB7fZzXQUQTPFWLF7zvW49da8pWuqzxFtg6EjXRBIWH5rpEhOcr+y3QolJcPOTx+/utCqt2tBKUUy3LfM6WgvopdSGaryWdwFJPW7qKHjyyLYxIGx5AEuLfzsA5XZf8CmpUheSRH99GRZoIB+sQzHuelWGMQ5A42DPvOVZFmTpIwiT2QaIpid4nJ7jNfahfwFrCoS+hvqjK9vktc5/6E/Mt7DwCQDaPt5cqDfYltUitQy+YA5YP5sOhINChYadZe+2N80OA+RKz0mA==",
             )
             .unwrap()
-            .into(),
         );
         rrsig_verify_dnskey(ksk, zsk, rrsig.clone());
 
         // Test that 512b short RSA DNSKEY is not supported (too short)
-        let data = base64::decode(
+        let data = base64::decode::<Vec<u8>>(
             "AwEAAcFcGsaxxdgiuuGmCkVImy4h99CqT7jwY3pexPGcnUFtR2Fh36BponcwtkZ4cAgtvd4Qs8PkxUdp6p/DlUmObdk=",
         )
-        .unwrap()
-        .into();
+        .unwrap();
 
         let short_key = Dnskey::new(256, 3, SecAlg::RsaSha256, data);
         let err = rrsig
@@ -510,23 +506,21 @@ mod test {
                 257,
                 3,
                 SecAlg::EcdsaP256Sha256,
-                base64::decode(
+                base64::decode::<Vec<u8>>(
                     "mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAe\
                     F+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
                 )
-                .unwrap()
-                .into(),
+                .unwrap(),
             ),
             Dnskey::new(
                 256,
                 3,
                 SecAlg::EcdsaP256Sha256,
-                base64::decode(
+                base64::decode::<Vec<u8>>(
                     "oJMRESz5E4gYzS/q6XDrvU1qMPYIjCWzJaOau8XNEZeqCYKD5ar0IR\
                     d8KqXXFJkqmVfRvMGPmM1x8fGAa2XhSA==",
                 )
-                .unwrap()
-                .into(),
+                .unwrap(),
             ),
         );
 
@@ -539,13 +533,12 @@ mod test {
             1560314494.into(),
             1555130494.into(),
             2371,
-            owner.clone(),
-            base64::decode(
+            owner,
+            base64::decode::<Vec<u8>>(
                 "8jnAGhG7O52wmL065je10XQztRX1vK8P8KBSyo71Z6h5wAT9+GFxKBaE\
                 zcJBLvRmofYFDAhju21p1uTfLaYHrg==",
             )
-            .unwrap()
-            .into(),
+            .unwrap(),
         );
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
@@ -557,28 +550,25 @@ mod test {
                 257,
                 3,
                 SecAlg::Ed25519,
-                base64::decode(
+                base64::decode::<Vec<u8>>(
                     "m1NELLVVQKl4fHVn/KKdeNO0PrYKGT3IGbYseT8XcKo=",
                 )
-                .unwrap()
-                .into(),
+                .unwrap(),
             ),
             Dnskey::new(
                 256,
                 3,
                 SecAlg::Ed25519,
-                base64::decode(
+                base64::decode::<Vec<u8>>(
                     "2tstZAjgmlDTePn0NVXrAHBJmg84LoaFVxzLl1anjGI=",
                 )
-                .unwrap()
-                .into(),
+                .unwrap(),
             ),
         );
 
-        let owner = Dname::from_octets(Bytes::from(
-            b"\x07ED25519\x02nl\x00".as_ref(),
-        ))
-        .unwrap();
+        let owner =
+            Dname::from_octets(Vec::from(b"\x07ED25519\x02nl\x00".as_ref()))
+                .unwrap();
         let rrsig = Rrsig::new(
             Rtype::Dnskey,
             SecAlg::Ed25519,
@@ -587,13 +577,12 @@ mod test {
             1559174400.into(),
             1557360000.into(),
             45515,
-            owner.clone(),
-            base64::decode(
+            owner,
+            base64::decode::<Vec<u8>>(
                 "hvPSS3E9Mx7lMARqtv6IGiw0NE0uz0mZewndJCHTkhwSYqlasUq7KfO5\
                 QdtgPXja7YkTaqzrYUbYk01J8ICsAA==",
             )
-            .unwrap()
-            .into(),
+            .unwrap(),
         );
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
@@ -610,7 +599,7 @@ mod test {
             1558396800.into(),
             20326,
             Dname::root(),
-            base64::decode(
+            base64::decode::<Vec<u8>>(
                 "otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZ\
                 OdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gq\
                 xthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooE\
@@ -618,11 +607,10 @@ mod test {
                 /yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQ\
                 dg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==",
             )
-            .unwrap()
-            .into(),
+            .unwrap(),
         );
 
-        let mut records: Vec<Record<Dname, ZoneRecordData<Bytes, Dname>>> =
+        let mut records: Vec<Record<Dname, ZoneRecordData<Vec<u8>, Dname>>> =
             [&ksk, &zsk]
                 .iter()
                 .cloned()
@@ -658,14 +646,13 @@ mod test {
             256,
             3,
             SecAlg::RsaSha1,
-            base64::decode(
+            base64::decode::<Vec<u8>>(
                 "AQOy1bZVvpPqhg4j7EJoM9rI3ZmyEx2OzDBVrZy/lvI5CQePxX\
                 HZS4i8dANH4DX3tbHol61ek8EFMcsGXxKciJFHyhl94C+NwILQd\
                 zsUlSFovBZsyl/NX6yEbtw/xN9ZNcrbYvgjjZ/UVPZIySFNsgEY\
                 vh0z2542lzMKR4Dh8uZffQ==",
             )
-            .unwrap()
-            .into(),
+            .unwrap(),
         );
         let rrsig = Rrsig::new(
             Rtype::Mx,
@@ -676,14 +663,13 @@ mod test {
             rrsig_serial("20040409183619"),
             38519,
             Dname::from_str("example.").unwrap(),
-            base64::decode(
+            base64::decode::<Vec<u8>>(
                 "OMK8rAZlepfzLWW75Dxd63jy2wswESzxDKG2f9AMN1CytCd10cYI\
                  SAxfAdvXSZ7xujKAtPbctvOQ2ofO7AZJ+d01EeeQTVBPq4/6KCWhq\
                  e2XTjnkVLNvvhnc0u28aoSsG0+4InvkkOHknKxw4kX18MMR34i8lC\
                  36SR5xBni8vHI=",
             )
-            .unwrap()
-            .into(),
+            .unwrap(),
         );
         let record = Record::new(
             Dname::from_str("a.z.w.example.").unwrap(),

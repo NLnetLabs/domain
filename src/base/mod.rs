@@ -130,3 +130,7 @@ pub mod rdata;
 pub mod record;
 pub mod serial;
 pub mod str;
+
+//--- Private Helper Modules
+
+mod serde;

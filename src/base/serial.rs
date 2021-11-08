@@ -48,6 +48,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// [RFC 1982]: https://tools.ietf.org/html/rfc1982
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Serial(pub u32);
 
 impl Serial {

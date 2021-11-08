@@ -8,7 +8,6 @@ use std::boxed::Box;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use std::vec::Vec;
 use std::{char, error, fmt, io};
 
 //------------ str -----------------------------------------------------------
@@ -39,11 +38,7 @@ impl AsciiFile {
     pub fn new(file: File) -> Self {
         AsciiFile {
             file,
-            buf: unsafe {
-                let mut buffer = Vec::with_capacity(CAP);
-                buffer.set_len(CAP);
-                Some((buffer.into_boxed_slice(), 0, 0))
-            },
+            buf: Some((vec![0u8; CAP].into_boxed_slice(), 0, 0)),
         }
     }
 
@@ -203,11 +198,7 @@ impl OctetFile {
     pub fn new(file: File) -> Self {
         OctetFile {
             file,
-            buf: unsafe {
-                let mut buffer = Vec::with_capacity(CAP);
-                buffer.set_len(CAP);
-                Some((buffer.into_boxed_slice(), 0, 0))
-            },
+            buf: Some((vec![0u8; CAP].into_boxed_slice(), 0, 0)),
         }
     }
 

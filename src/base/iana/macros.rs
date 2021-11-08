@@ -179,6 +179,54 @@ macro_rules! int_enum {
                 self.to_int().hash(state)
             }
         }
+
+
+        //--- Serialize and Deserialize
+
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for $ianatype {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                serializer.serialize_newtype_struct(
+                    stringify!($ianatype),
+                    &self.to_int()
+                )
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for $ianatype {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                struct Visitor;
+
+                impl<'de> serde::de::Visitor<'de> for Visitor {
+                    type Value = $ianatype;
+
+                    fn expecting(
+                        &self, f: &mut core::fmt::Formatter
+                    ) -> core::fmt::Result {
+                        f.write_str(concat!("a ", stringify!($ianatype)))
+                    }
+
+                    fn visit_newtype_struct<D: serde::Deserializer<'de>>(
+                        self,
+                        deserializer: D
+                    ) -> Result<Self::Value, D::Error> {
+                        use serde::de::Deserialize;
+
+                        <$inttype>::deserialize(deserializer).map(Into::into)
+                    }
+                }
+
+                deserializer.deserialize_newtype_struct(
+                    stringify!($ianatype), Visitor
+                )
+            }
+        }
     }
 }
 

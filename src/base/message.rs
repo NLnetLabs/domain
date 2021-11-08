@@ -1225,7 +1225,7 @@ mod test {
                     return Some(rr);
                 }
             }
-            return None;
+            None
         });
 
         assert!(res.is_ok());

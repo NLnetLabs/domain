@@ -5,6 +5,9 @@
 Breaking Changes
 
 * The minimum supported Rust version is now 1.49. ([#107])
+* The `Display` implementation for `UncertainDname` now ends an absolute
+  name with a dot to match the behaviour of the `FromStr` implementation.
+  ([#XXX])
 
 New
 

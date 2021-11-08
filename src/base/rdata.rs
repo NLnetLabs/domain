@@ -156,11 +156,23 @@ where
 /// [RFC 3597]: https://tools.ietf.org/html/rfc3597
 /// [`domain::rdata::rfc1035]: ../../rdata/rfc1035/index.html
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnknownRecordData<Octets> {
     /// The record type of this data.
     rtype: Rtype,
 
     /// The record data.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
+            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            bound(
+                serialize = "Octets: crate::base::octets::SerializeOctets",
+                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+            )
+        )
+    )]
     data: Octets,
 }
 
