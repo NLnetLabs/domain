@@ -842,7 +842,8 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+                OctetsBuilder<Octets = Octets>
+                + crate::base::octets::EmptyBuilder,
         {
             type Value = RelativeDname<Octets>;
 
