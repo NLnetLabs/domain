@@ -14,6 +14,7 @@ New
   `Display` and `Debug`. ([#112])
 * `base::record::Record::into_owner_and_name` allows decomposing a record
   into its two parts that aren’t `Copy`. ([#114])
+* Initial support for SVCB and HTTPS record types. ([#115] by [@xofyarg])
 
 Bug Fixes
 
@@ -35,6 +36,7 @@ Other Changes
 [#110]: https://github.com/NLnetLabs/domain/pull/110
 [#112]: https://github.com/NLnetLabs/domain/pull/112
 [#114]: https://github.com/NLnetLabs/domain/pull/114
+[#115]: https://github.com/NLnetLabs/domain/pull/115
 [@tomaskrizek]: https://github.com/tomaskrizek
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
