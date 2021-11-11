@@ -35,6 +35,7 @@ pub mod rfc4034;
 pub mod rfc5155;
 pub mod rfc6672;
 pub mod rfc7344;
+pub mod svcb;
 
 // The rdata_types! macro (defined in self::macros) re-exports the record data
 // types here and creates the ZoneRecordData and AllRecordData enums
@@ -111,6 +112,12 @@ rdata_types! {
         zone {
             Cdnskey<O>,
             Cds<O>,
+        }
+    }
+    svcb::{
+        pseudo {
+            Svcb<O, N>,
+            Https<O, N>,
         }
     }
 }
