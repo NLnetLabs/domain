@@ -41,6 +41,7 @@ macro_rules! rdata_types {
         #[cfg_attr(
             feature = "serde",
             derive(serde::Serialize, serde::Deserialize),
+            serde(tag = "rtype"),
             serde(bound(
                 serialize = "
                     O: crate::base::octets::SerializeOctets + AsRef<[u8]>,
@@ -358,8 +359,9 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     _ => {
-                        $crate::base::rdata::UnknownRecordData::scan(rtype, scanner)
-                            .map(ZoneRecordData::Other)
+                        $crate::base::rdata::UnknownRecordData::scan(
+                            rtype, scanner
+                        ).map(ZoneRecordData::Other)
                     }
                 }
             }
