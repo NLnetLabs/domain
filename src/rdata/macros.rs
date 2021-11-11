@@ -41,7 +41,6 @@ macro_rules! rdata_types {
         #[cfg_attr(
             feature = "serde",
             derive(serde::Serialize, serde::Deserialize),
-            serde(tag = "rtype"),
             serde(bound(
                 serialize = "
                     O: crate::base::octets::SerializeOctets + AsRef<[u8]>,
