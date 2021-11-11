@@ -7,7 +7,9 @@ Breaking Changes
 * The minimum supported Rust version is now 1.49. ([#107])
 * The `Display` implementation for `UncertainDname` now ends an absolute
   name with a dot to match the behaviour of the `FromStr` implementation.
-  ([#XXX])
+  ([#116])
+* The salt and hash parameters of `Nsec3` and `Nsec3Param` have been
+  wrapped in newtypes. ([#116])
 
 New
 
@@ -18,6 +20,7 @@ New
 * `base::record::Record::into_owner_and_name` allows decomposing a record
   into its two parts that aren’t `Copy`. ([#114])
 * Initial support for SVCB and HTTPS record types. ([#115] by [@xofyarg])
+* Introduced Serde support for all relevant types. ([#116])
 
 Bug Fixes
 
@@ -40,6 +43,7 @@ Other Changes
 [#112]: https://github.com/NLnetLabs/domain/pull/112
 [#114]: https://github.com/NLnetLabs/domain/pull/114
 [#115]: https://github.com/NLnetLabs/domain/pull/115
+[#116]: https://github.com/NLnetLabs/domain/pull/116
 [@tomaskrizek]: https://github.com/tomaskrizek
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
