@@ -22,10 +22,10 @@ jobs:
     - if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
       run: cargo fmt --all -- --check
     - run: cargo build --no-default-features --verbose
-    - run: cargo test --features="master resolv resolv-sync sign tsig validate" --verbose
+    - run: cargo test --features=ci-test --verbose
     - if: matrix.rust == 'nightly'
       run: |
         cargo +nightly update -Z minimal-versions
-        cargo check --features="master resolv resolv-sync sign tsig validate" --verbose --all-targets
-        cargo test --features="master resolv resolv-sync sign tsig validate"
+        cargo check --features=ci-test --verbose --all-targets
+        cargo test --features=ci-test
       name: Check and test with minimal-versions
