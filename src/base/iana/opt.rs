@@ -171,3 +171,33 @@ int_enum! {
 }
 
 int_enum_str_with_decimal!(OptionCode, u16, "unknown option code");
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "serde")]
+    #[test]
+    fn ser_de() {
+        use super::OptionCode;
+        use serde_test::{assert_tokens, Configure, Token};
+
+        assert_tokens(
+            &OptionCode::ServerTag.readable(),
+            &[Token::Str("EDNS-Server-Tag")],
+        );
+        assert_tokens(
+            &OptionCode::Int(10_000).readable(),
+            &[Token::U16(10_000)],
+        );
+        assert_tokens(
+            &OptionCode::ServerTag.compact(),
+            &[Token::U16(17)],
+        );
+        assert_tokens(
+            &OptionCode::Int(10_000).compact(),
+            &[Token::U16(10_000)],
+        );
+    }
+}
+
