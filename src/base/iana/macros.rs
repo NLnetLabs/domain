@@ -374,14 +374,14 @@ macro_rules! int_enum_str_with_decimal {
                 serializer: S,
             ) -> Result<S::Ok, S::Error> {
                 if serializer.is_human_readable() {
-                    match self.to_mnemonic().and_then(|value| {
-                        core::str::from_utf8(value).ok()
-                    }) {
+                    match self
+                        .to_mnemonic()
+                        .and_then(|value| core::str::from_utf8(value).ok())
+                    {
                         Some(value) => value.serialize(serializer),
                         None => self.to_int().serialize(serializer),
                     }
-                }
-                else {
+                } else {
                     self.to_int().serialize(serializer)
                 }
             }
@@ -503,8 +503,7 @@ macro_rules! int_enum_str_with_prefix {
             ) -> Result<S::Ok, S::Error> {
                 if serializer.is_human_readable() {
                     serializer.collect_str(&format_args!("{}", self))
-                }
-                else {
+                } else {
                     self.to_int().serialize(serializer)
                 }
             }
@@ -544,4 +543,3 @@ macro_rules! from_str_error {
         }
     };
 }
-

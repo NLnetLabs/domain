@@ -54,14 +54,7 @@ mod test {
         use super::DigestAlg;
         use serde_test::{assert_tokens, Token};
 
-        assert_tokens(
-            &DigestAlg::Sha384,
-            &[Token::U8(4)],
-        );
-        assert_tokens(
-            &DigestAlg::Int(100),
-            &[Token::U8(100)],
-        );
+        assert_tokens(&DigestAlg::Sha384, &[Token::U8(4)]);
+        assert_tokens(&DigestAlg::Int(100), &[Token::U8(100)]);
     }
 }
-

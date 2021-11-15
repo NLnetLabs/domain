@@ -82,4 +82,3 @@ int_enum! {
 }
 
 int_enum_str_with_decimal!(Opcode, u8, "unknown opcode");
-

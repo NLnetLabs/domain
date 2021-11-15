@@ -190,14 +190,10 @@ mod test {
             &OptionCode::Int(10_000).readable(),
             &[Token::U16(10_000)],
         );
-        assert_tokens(
-            &OptionCode::ServerTag.compact(),
-            &[Token::U16(17)],
-        );
+        assert_tokens(&OptionCode::ServerTag.compact(), &[Token::U16(17)]);
         assert_tokens(
             &OptionCode::Int(10_000).compact(),
             &[Token::U16(10_000)],
         );
     }
 }
-
