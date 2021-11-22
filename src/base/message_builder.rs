@@ -254,6 +254,7 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
     ///
     /// Sets a random ID, pushes the domain and the AXFR record type into
     /// the question section, and converts the builder into an answer builder.
+    #[cfg(feature = "random")]
     pub fn request_axfr<N: ToDname>(
         mut self,
         apex: N,
