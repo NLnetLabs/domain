@@ -29,6 +29,7 @@ use core::{fmt, hash};
 /// [`ParsedDname`]: ../name/struct.ParsedDname.html
 /// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Question<N> {
     /// The domain name of the question.
     qname: N,

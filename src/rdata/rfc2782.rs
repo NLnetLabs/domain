@@ -20,6 +20,7 @@ use core::fmt;
 //------------ Srv ---------------------------------------------------------
 
 #[derive(Clone, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Srv<N> {
     priority: u16,
     weight: u16,

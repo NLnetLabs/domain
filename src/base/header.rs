@@ -958,6 +958,7 @@ mod test {
     }
 
     #[test]
+    #[allow(clippy::bool_assert_comparison)]
     fn header() {
         test_field!(id, set_id, 0, 0x1234);
         test_field!(qr, set_qr, false, true, false);
@@ -1054,6 +1055,7 @@ mod test {
         assert!(c.inc_arcount().is_err());
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn flags_display() {
         let f = Flags::new();
@@ -1074,6 +1076,7 @@ mod test {
         assert_eq!(format!("{}", f), "RD CD");
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn flags_from_str() {
         let f1 = Flags::from_str("").unwrap();

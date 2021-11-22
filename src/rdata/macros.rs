@@ -179,11 +179,13 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<O, OO, N, NN> $crate::base::cmp::CanonicalOrd<ZoneRecordData<OO, NN>>
+        impl<O, OO, N, NN>
+        $crate::base::cmp::CanonicalOrd<ZoneRecordData<OO, NN>>
         for ZoneRecordData<O, N>
         where
             O: AsRef<[u8]>, OO: AsRef<[u8]>,
-            N: $crate::base::cmp::CanonicalOrd<NN> + $crate::base::name::ToDname,
+            N: $crate::base::cmp::CanonicalOrd<NN>
+                + $crate::base::name::ToDname,
             NN: $crate::base::name::ToDname,
         {
             fn canonical_cmp(
@@ -275,7 +277,8 @@ macro_rules! rdata_types {
 
         //--- RecordData and ParseRecordData
 
-        impl<'a, O, N> $crate::base::rdata::RecordData for &'a ZoneRecordData<O, N>
+        impl<'a, O, N> $crate::base::rdata::RecordData
+        for &'a ZoneRecordData<O, N>
         where O: AsRef<[u8]>, N: $crate::base::name::ToDname
         {
             fn rtype(&self) -> $crate::base::iana::Rtype {
@@ -339,8 +342,9 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     _ => {
-                        $crate::base::rdata::UnknownRecordData::scan(rtype, scanner)
-                            .map(ZoneRecordData::Other)
+                        $crate::base::rdata::UnknownRecordData::scan(
+                            rtype, scanner
+                        ).map(ZoneRecordData::Other)
                     }
                 }
             }
@@ -396,6 +400,58 @@ macro_rules! rdata_types {
             }
         }
 
+        //--- Serialize and Deserialize
+
+        #[cfg(feature = "serde")]
+        impl<O, N> serde::Serialize for ZoneRecordData<O, N>
+        where
+            O: AsRef<[u8]> + crate::base::octets::SerializeOctets,
+            N: serde::Serialize,
+        {
+            fn serialize<S: serde::Serializer>(
+                &self, serializer: S
+            ) -> Result<S::Ok, S::Error> {
+                use crate::base::iana::Rtype;
+
+                match *self {
+                    $( $( $(
+                        ZoneRecordData::$mtype(ref inner) => {
+                            serializer.serialize_newtype_variant(
+                                "ZoneRecordData",
+                                Rtype::$mtype.to_int().into(),
+                                stringify!($mtype),
+                                inner
+                            )
+                        }
+                    )* )* )*
+                    ZoneRecordData::Other(ref inner) => {
+                        serializer.serialize_newtype_variant(
+                            "ZoneRecordData",
+                            u32::MAX,
+                            "Other",
+                            inner
+                        )
+                    }
+                }
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de, O, N> serde::Deserialize<'de> for ZoneRecordData<O, N>
+        where
+            O: crate::base::octets::FromBuilder
+                + crate::base::octets::DeserializeOctets<'de>,
+            <O as crate::base::octets::FromBuilder>::Builder:
+                crate::base::octets::OctetsBuilder<Octets = O>
+                + crate::base::octets::EmptyBuilder,
+            N: serde::Deserialize<'de>,
+        {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                _deserializer: D
+            ) -> Result<Self, D::Error> {
+                unimplemented!()
+            }
+        }
 
         //------------- AllRecordData ----------------------------------------
 
@@ -808,6 +864,10 @@ macro_rules! dname_type {
     ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
         $(#[$attr])*
         #[derive(Clone, Debug)]
+        #[cfg_attr(
+            feature = "serde",
+            derive(serde::Serialize, serde::Deserialize)
+        )]
         pub struct $target<N> {
             $field: N
         }

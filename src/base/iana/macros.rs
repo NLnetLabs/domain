@@ -22,7 +22,7 @@ macro_rules! int_enum {
 
         impl $ianatype {
             /// Returns a value from its raw integer value.
-            pub fn from_int(value: $inttype) -> Self {
+            pub const fn from_int(value: $inttype) -> Self {
                 match value {
                     $( $value => $ianatype::$variant ),*,
                     _ => $ianatype::Int(value)
@@ -30,7 +30,7 @@ macro_rules! int_enum {
             }
 
             /// Returns the raw integer value for a value.
-            pub fn to_int(self) -> $inttype {
+            pub const fn to_int(self) -> $inttype {
                 match self {
                     $( $ianatype::$variant => $value ),*,
                     $ianatype::Int(value) => value
@@ -51,7 +51,7 @@ macro_rules! int_enum {
             ///
             /// This will also return a mnemonic if a well-defined variant
             /// is hidden in a `Int` variant.
-            pub fn to_mnemonic(self) -> Option<&'static [u8]> {
+            pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
                 match self {
                     $( $ianatype::$variant => Some($mnemonic) ),*,
                     $ianatype::Int(value) => {
@@ -230,6 +230,9 @@ macro_rules! int_enum_str_mnemonics_only {
 ///
 /// For `FromStr`, recognizes only the decimal values. For `Display`, it will
 /// only print the decimal values.
+///
+/// If the `serde` feature is enabled, also adds implementation for
+/// `Serialize` and `Deserialize`, serializing values as their decimal values.
 macro_rules! int_enum_str_decimal {
     ($ianatype:ident, $inttype:ident) => {
         impl $ianatype {
@@ -267,6 +270,25 @@ macro_rules! int_enum_str_decimal {
                 write!(f, "{}", self.to_int())
             }
         }
+
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for $ianatype {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                self.to_int().serialize(serializer)
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for $ianatype {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                $inttype::deserialize(deserializer).map(Into::into)
+            }
+        }
     };
 }
 
@@ -277,6 +299,12 @@ macro_rules! int_enum_str_decimal {
 ///
 /// For `Display`, it will display a decimal number for values without
 /// mnemonic.
+///
+/// If the `serde` feature is enabled, also adds implementation for
+/// `Serialize` and `Deserialize`. Values will be serialized using the
+/// mnemonic if availbale or otherwise the integer value for human readable
+/// formats and the integer value for compact formats. Both mnemonics and
+/// integer values can be deserialized.
 macro_rules! int_enum_str_with_decimal {
     ($ianatype:ident, $inttype:ident, $error:expr) => {
         impl $ianatype {
@@ -336,6 +364,37 @@ macro_rules! int_enum_str_with_decimal {
                         $crate::master::scan::SyntaxError::UnknownMnemonic
                     })
                 })
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for $ianatype {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                if serializer.is_human_readable() {
+                    match self
+                        .to_mnemonic()
+                        .and_then(|value| core::str::from_utf8(value).ok())
+                    {
+                        Some(value) => value.serialize(serializer),
+                        None => self.to_int().serialize(serializer),
+                    }
+                } else {
+                    self.to_int().serialize(serializer)
+                }
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for $ianatype {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                use crate::base::serde::DeserializeNativeOrStr;
+
+                $inttype::deserialize_native_or_str(deserializer)
             }
         }
 
@@ -433,6 +492,31 @@ macro_rules! int_enum_str_with_prefix {
                         $crate::master::scan::SyntaxError::UnknownMnemonic
                     })
                 })
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for $ianatype {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                if serializer.is_human_readable() {
+                    serializer.collect_str(&format_args!("{}", self))
+                } else {
+                    self.to_int().serialize(serializer)
+                }
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for $ianatype {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                use crate::base::serde::DeserializeNativeOrStr;
+
+                $inttype::deserialize_native_or_str(deserializer)
             }
         }
 

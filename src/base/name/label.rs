@@ -6,6 +6,8 @@
 use super::super::octets::{
     Compose, FormError, OctetsBuilder, ParseError, ShortBuf,
 };
+use super::builder::{parse_escape, LabelFromStrError};
+use core::str::FromStr;
 use core::{borrow, cmp, fmt, hash, ops};
 
 //------------ Label ---------------------------------------------------------
@@ -409,10 +411,30 @@ pub struct OwnedLabel([u8; 64]);
 impl OwnedLabel {
     /// Creates a new owned label from an existing label.
     pub fn from_label(label: &Label) -> Self {
-        let mut res = [8; 64];
+        let mut res = [0; 64];
         res[0] = label.len() as u8;
         res[1..=label.len()].copy_from_slice(label.as_slice());
         OwnedLabel(res)
+    }
+
+    /// Creates a label from a sequence of chars.
+    pub fn from_chars(
+        mut chars: impl Iterator<Item = char>,
+    ) -> Result<Self, LabelFromStrError> {
+        let mut res = [0; 64];
+        while let Some(ch) = chars.next() {
+            if res[0] >= 63 {
+                return Err(LabelFromStrError::LongLabel);
+            }
+            let ch = match ch {
+                ' '..='-' | '/'..='[' | ']'..='~' => ch as u8,
+                '\\' => parse_escape(&mut chars, res[0] > 0)?,
+                _ => return Err(LabelFromStrError::IllegalCharacter(ch)),
+            };
+            res[(res[0] as usize) + 1] = ch;
+            res[0] += 1;
+        }
+        Ok(OwnedLabel(res))
     }
 
     /// Converts the label into the canonical form.
@@ -448,6 +470,16 @@ impl OwnedLabel {
 impl<'a> From<&'a Label> for OwnedLabel {
     fn from(label: &'a Label) -> Self {
         Self::from_label(label)
+    }
+}
+
+//--- FromStr
+
+impl FromStr for OwnedLabel {
+    type Err = LabelFromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_chars(s.chars())
     }
 }
 
@@ -546,6 +578,85 @@ impl fmt::Display for OwnedLabel {
 impl fmt::Debug for OwnedLabel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_tuple("OwnedLabel").field(&self.as_label()).finish()
+    }
+}
+
+//--- Serialize and Deserialize
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for OwnedLabel {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        use crate::base::octets::SerializeOctets;
+
+        if serializer.is_human_readable() {
+            serializer.serialize_newtype_struct(
+                "OwnedLabel",
+                &format_args!("{}", self),
+            )
+        } else {
+            serializer.serialize_newtype_struct(
+                "OwnedLabel",
+                &self.as_label().as_slice().as_serialized_octets(),
+            )
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for OwnedLabel {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        use serde::de::Error;
+
+        struct InnerVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for InnerVisitor {
+            type Value = OwnedLabel;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("an domain name label")
+            }
+
+            fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
+                OwnedLabel::from_str(v).map_err(E::custom)
+            }
+
+            fn visit_borrowed_bytes<E: serde::de::Error>(
+                self,
+                value: &'de [u8],
+            ) -> Result<Self::Value, E> {
+                Label::from_slice(value)
+                    .map(OwnedLabel::from_label)
+                    .map_err(E::custom)
+            }
+        }
+
+        struct NewtypeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for NewtypeVisitor {
+            type Value = OwnedLabel;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("an domain name label")
+            }
+
+            fn visit_newtype_struct<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                if deserializer.is_human_readable() {
+                    deserializer.deserialize_str(InnerVisitor)
+                } else {
+                    deserializer.deserialize_bytes(InnerVisitor)
+                }
+            }
+        }
+
+        deserializer.deserialize_newtype_struct("OwnedLabel", NewtypeVisitor)
     }
 }
 
@@ -815,22 +926,16 @@ mod test {
         ];
         for i in 0..labels.len() {
             for j in 0..labels.len() {
-                let ord = if i < j {
-                    Ordering::Less
-                } else if i == j {
-                    Ordering::Equal
-                } else {
-                    Ordering::Greater
-                };
-                assert_eq!(labels[i].partial_cmp(&labels[j]), Some(ord));
-                assert_eq!(labels[i].cmp(&labels[j]), ord);
+                let ord = i.cmp(&j);
+                assert_eq!(labels[i].partial_cmp(labels[j]), Some(ord));
+                assert_eq!(labels[i].cmp(labels[j]), ord);
             }
         }
 
         let l1 = Label::from_slice(b"example").unwrap();
         let l2 = Label::from_slice(b"eXAMple").unwrap();
-        assert_eq!(l1.partial_cmp(&l2), Some(Ordering::Equal));
-        assert_eq!(l1.cmp(&l2), Ordering::Equal);
+        assert_eq!(l1.partial_cmp(l2), Some(Ordering::Equal));
+        assert_eq!(l1.cmp(l2), Ordering::Equal);
     }
 
     #[test]
@@ -844,5 +949,30 @@ mod test {
         Label::from_slice(b"example").unwrap().hash(&mut s1);
         Label::from_slice(b"eXAMple").unwrap().hash(&mut s2);
         assert_eq!(s1.finish(), s2.finish());
+    }
+
+    // XXX OwnedLabel::from_str
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn owned_label_ser_de() {
+        use serde_test::{assert_tokens, Configure, Token};
+
+        let label =
+            OwnedLabel::from_label(Label::from_slice(b"fo.").unwrap());
+        assert_tokens(
+            &label.compact(),
+            &[
+                Token::NewtypeStruct { name: "OwnedLabel" },
+                Token::BorrowedBytes(b"fo."),
+            ],
+        );
+        assert_tokens(
+            &label.readable(),
+            &[
+                Token::NewtypeStruct { name: "OwnedLabel" },
+                Token::Str("fo\\."),
+            ],
+        );
     }
 }

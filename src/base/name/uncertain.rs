@@ -3,14 +3,17 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder, ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder,
+    ParseError, ShortBuf,
 };
+#[cfg(feature = "serde")]
+use super::super::octets::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "master")]
 use super::super::str::Symbol;
 use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
-use super::label::Label;
+use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToEitherDname, ToLabelIter};
 #[cfg(feature = "master")]
@@ -62,11 +65,53 @@ impl<Octets> UncertainDname<Octets> {
         UncertainDname::Relative(RelativeDname::empty())
     }
 
+    /// Creates a new domain name from its wire format representation.
+    ///
+    /// The returned name will correctly be identified as an absolute or
+    /// relative name.
+    pub fn from_octets(octets: Octets) -> Result<Self, UncertainDnameError>
+    where
+        Octets: AsRef<[u8]>,
+    {
+        if Self::is_slice_absolute(octets.as_ref())? {
+            Ok(UncertainDname::Absolute(unsafe {
+                Dname::from_octets_unchecked(octets)
+            }))
+        } else {
+            Ok(UncertainDname::Relative(unsafe {
+                RelativeDname::from_octets_unchecked(octets)
+            }))
+        }
+    }
+
+    /// Checks an octet slice for a name and returns whether it is absolute.
+    fn is_slice_absolute(
+        mut slice: &[u8],
+    ) -> Result<bool, UncertainDnameError> {
+        if slice.len() > 255 {
+            return Err(UncertainDnameError::LongName);
+        }
+        loop {
+            let (label, tail) = Label::split_from(slice)?;
+            if label.is_root() {
+                if tail.is_empty() {
+                    return Ok(true);
+                } else {
+                    return Err(UncertainDnameError::TrailingData);
+                }
+            }
+            if tail.is_empty() {
+                return Ok(false);
+            }
+            slice = tail;
+        }
+    }
+
     /// Creates a domain name from a sequence of characters.
     ///
-    /// The sequence must result in a domain name in master format
+    /// The sequence must result in a domain name in zone file
     /// representation. That is, its labels should be separated by dots,
-    /// actual dots, white space and backslashes should be escaped by a
+    /// while actual dots, white space and backslashes should be escaped by a
     /// preceeding backslash, and any byte value that is not a printable
     /// ASCII character should be encoded by a backslash followed by its
     /// three digit decimal value.
@@ -420,7 +465,9 @@ impl Scan for UncertainDname<Bytes> {
 impl<Octets: AsRef<[u8]>> fmt::Display for UncertainDname<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            UncertainDname::Absolute(ref name) => name.fmt(f),
+            UncertainDname::Absolute(ref name) => {
+                write!(f, "{}.", name)
+            }
             UncertainDname::Relative(ref name) => name.fmt(f),
         }
     }
@@ -438,6 +485,184 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for UncertainDname<Octets> {
         }
     }
 }
+
+//--- Serialize and Deserialize
+
+#[cfg(feature = "serde")]
+impl<Octets> serde::Serialize for UncertainDname<Octets>
+where
+    Octets: AsRef<[u8]> + SerializeOctets,
+{
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            serializer.serialize_newtype_struct(
+                "UncertainDname",
+                &format_args!("{}", self),
+            )
+        } else {
+            serializer.serialize_newtype_struct(
+                "UncertainDname",
+                &self.as_octets().as_serialized_octets(),
+            )
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, Octets> serde::Deserialize<'de> for UncertainDname<Octets>
+where
+    Octets: FromBuilder + DeserializeOctets<'de>,
+    <Octets as FromBuilder>::Builder: EmptyBuilder,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        use core::marker::PhantomData;
+
+        struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = UncertainDname<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a domain name")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> Result<Self::Value, E> {
+                use core::str::FromStr;
+
+                UncertainDname::from_str(v).map_err(E::custom)
+            }
+
+            fn visit_borrowed_bytes<E: serde::de::Error>(
+                self,
+                value: &'de [u8],
+            ) -> Result<Self::Value, E> {
+                self.0.visit_borrowed_bytes(value).and_then(|octets| {
+                    UncertainDname::from_octets(octets).map_err(E::custom)
+                })
+            }
+
+            #[cfg(feature = "std")]
+            fn visit_byte_buf<E: serde::de::Error>(
+                self,
+                value: std::vec::Vec<u8>,
+            ) -> Result<Self::Value, E> {
+                self.0.visit_byte_buf(value).and_then(|octets| {
+                    UncertainDname::from_octets(octets).map_err(E::custom)
+                })
+            }
+        }
+
+        struct NewtypeVisitor<T>(PhantomData<T>);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = UncertainDname<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a domain name")
+            }
+
+            fn visit_newtype_struct<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                if deserializer.is_human_readable() {
+                    deserializer
+                        .deserialize_str(InnerVisitor(Octets::visitor()))
+                } else {
+                    Octets::deserialize_with_visitor(
+                        deserializer,
+                        InnerVisitor(Octets::visitor()),
+                    )
+                }
+            }
+        }
+
+        deserializer.deserialize_newtype_struct(
+            "UncertainDname",
+            NewtypeVisitor(PhantomData),
+        )
+    }
+}
+
+//============ Error Types ===================================================
+
+//------------ UncertainDnameError -------------------------------------------
+
+/// A domain name wasn’t encoded correctly.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UncertainDnameError {
+    /// The encoding contained an unknown or disallowed label type.
+    BadLabel(LabelTypeError),
+
+    /// The encoding contained a compression pointer.
+    CompressedName,
+
+    /// The name was longer than 255 octets.
+    LongName,
+
+    /// There was more data after the root label was encountered.
+    TrailingData,
+
+    /// The input ended in the middle of a label.
+    ShortInput,
+}
+
+//--- From
+
+impl From<LabelTypeError> for UncertainDnameError {
+    fn from(err: LabelTypeError) -> UncertainDnameError {
+        UncertainDnameError::BadLabel(err)
+    }
+}
+
+impl From<SplitLabelError> for UncertainDnameError {
+    fn from(err: SplitLabelError) -> UncertainDnameError {
+        match err {
+            SplitLabelError::Pointer(_) => {
+                UncertainDnameError::CompressedName
+            }
+            SplitLabelError::BadType(t) => UncertainDnameError::BadLabel(t),
+            SplitLabelError::ShortInput => UncertainDnameError::ShortInput,
+        }
+    }
+}
+
+//--- Display and Error
+
+impl fmt::Display for UncertainDnameError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            UncertainDnameError::BadLabel(ref err) => err.fmt(f),
+            UncertainDnameError::CompressedName => {
+                f.write_str("compressed domain name")
+            }
+            UncertainDnameError::LongName => f.write_str("long domain name"),
+            UncertainDnameError::TrailingData => f.write_str("trailing data"),
+            UncertainDnameError::ShortInput => ParseError::ShortInput.fmt(f),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for UncertainDnameError {}
 
 //============ Testing =======================================================
 
@@ -552,5 +777,57 @@ mod test {
         let mut s1 = s.clone();
         s1.push_str("coma");
         assert_eq!(U::from_str(&s1), Err(FromStrError::LongName));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn ser_de() {
+        use serde_test::{assert_tokens, Configure, Token};
+
+        let abs_name =
+            UncertainDname::<Vec<u8>>::from_str("www.example.com.").unwrap();
+        assert!(abs_name.is_absolute());
+
+        assert_tokens(
+            &abs_name.clone().compact(),
+            &[
+                Token::NewtypeStruct {
+                    name: "UncertainDname",
+                },
+                Token::ByteBuf(b"\x03www\x07example\x03com\0"),
+            ],
+        );
+        assert_tokens(
+            &abs_name.readable(),
+            &[
+                Token::NewtypeStruct {
+                    name: "UncertainDname",
+                },
+                Token::Str("www.example.com."),
+            ],
+        );
+
+        let rel_name =
+            UncertainDname::<Vec<u8>>::from_str("www.example.com").unwrap();
+        assert!(rel_name.is_relative());
+
+        assert_tokens(
+            &rel_name.clone().compact(),
+            &[
+                Token::NewtypeStruct {
+                    name: "UncertainDname",
+                },
+                Token::ByteBuf(b"\x03www\x07example\x03com"),
+            ],
+        );
+        assert_tokens(
+            &rel_name.readable(),
+            &[
+                Token::NewtypeStruct {
+                    name: "UncertainDname",
+                },
+                Token::Str("www.example.com"),
+            ],
+        );
     }
 }

@@ -21,9 +21,10 @@ use std::time::SystemTime;
 //------------ Tsig ----------------------------------------------------------
 
 #[derive(Clone)]
-pub struct Tsig<O, N> {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Tsig<Octets, Name> {
     /// The signature algorithm as a domain name.
-    algorithm: N,
+    algorithm: Name,
 
     /// The Unix epoch time at which the signature was created.
     ///
@@ -37,7 +38,18 @@ pub struct Tsig<O, N> {
     ///
     /// In wire format, consists of a unsigned 16 bit integer containing the
     /// length followed by that many octets of actual MAC.
-    mac: O,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
+            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            bound(
+                serialize = "Octets: crate::base::octets::SerializeOctets",
+                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+            )
+        )
+    )]
+    mac: Octets,
 
     /// Original message ID.
     original_id: u16,
@@ -50,7 +62,18 @@ pub struct Tsig<O, N> {
     /// This is normally empty unless a BADTIME error happened. In wire
     /// format, it is encoded as a unsigned 16 bit integer followed by that
     /// many octets.
-    other: O,
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
+            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            bound(
+                serialize = "Octets: crate::base::octets::SerializeOctets",
+                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+            )
+        )
+    )]
+    other: Octets,
 }
 
 impl<O, N> Tsig<O, N> {
@@ -442,6 +465,7 @@ impl<O, N> RtypeRecordData for Tsig<O, N> {
 
 /// A 48-bit Unix timestamp.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Time48(u64);
 
 impl Time48 {

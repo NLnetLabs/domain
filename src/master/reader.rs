@@ -135,7 +135,7 @@ mod test {
     #[test]
     fn print() {
         let reader = Reader::new(
-            &"$ORIGIN ISI.EDU.
+            "$ORIGIN ISI.EDU.
 $TTL 86400
 @   IN  SOA     VENERA      Action\\.domains (
                                  20     ; SERIAL
@@ -159,7 +159,7 @@ VAXA    A       10.2.0.27
         A       128.9.0.33
 
 
-$INCLUDE <SUBSYS>ISI-MAILBOXES.TXT"[..],
+$INCLUDE <SUBSYS>ISI-MAILBOXES.TXT",
         );
 
         for item in reader {

@@ -23,6 +23,7 @@ chrono         = { version = "0.4.6", optional = true }
 futures        = { version = "0.3", optional = true }
 #openssl       = { version = "0.10", optional = true }
 ring           = { version = "0.16.14", optional = true }
+serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 smallvec       = { version = "1.0", optional = true }
 tokio          = { version = "1.0", optional = true, features = ["io-util", "macros", "net", "time"] }
 
@@ -31,8 +32,6 @@ tokio          = { version = "1.0", optional = true, features = ["io-util", "mac
 libc = { version = "0.2.71", default-features = false, optional = true }
 
 [features]
-# If you add a feature here, also add it to .github/workflows/ci.yml for the
-# cargo test run. Only interop must not be present.
 default     = ["std"]
 interop     = ["bytes", "ring"]
 master      = ["std", "bytes", "chrono"]
@@ -43,7 +42,12 @@ std         = []
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 
+# This feature should include all features that the CI should include for a
+# test run. Which is everything except interop.
+ci-test     = ["master", "resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate"]
+
 [dev-dependencies]
+serde_test         = "1.0.130"
 tokio-native-tls   = "0.3"
 tokio              = { version = "1", features = ["rt-multi-thread", "io-util", "net"] }
 

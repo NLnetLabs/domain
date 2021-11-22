@@ -79,6 +79,7 @@ use core::{fmt, hash};
 /// [`Rtype`]: ../../iana/enum.Rtype.html
 /// [`domain::master`]: ../../master/index.html
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Record<Name, Data> {
     /// The owner of the record.
     owner: Name,
@@ -546,6 +547,7 @@ impl<Name: ToDname, Data: RecordData> AsRecord for (Name, u32, Data) {
 ///
 /// See [`Record`] for more details about resource records.
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RecordHeader<Name> {
     owner: Name,
     rtype: Rtype,

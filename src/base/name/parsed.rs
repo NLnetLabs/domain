@@ -708,18 +708,18 @@ mod test {
 
     #[test]
     fn is_compressed() {
-        assert_eq!(name!(root).is_compressed(), false);
-        assert_eq!(name!(flat).is_compressed(), false);
-        assert_eq!(name!(once).is_compressed(), true);
-        assert_eq!(name!(twice).is_compressed(), true);
+        assert!(!name!(root).is_compressed());
+        assert!(!name!(flat).is_compressed());
+        assert!(name!(once).is_compressed());
+        assert!(name!(twice).is_compressed());
     }
 
     #[test]
     fn is_root() {
-        assert_eq!(name!(root).is_root(), true);
-        assert_eq!(name!(flat).is_root(), false);
-        assert_eq!(name!(once).is_root(), false);
-        assert_eq!(name!(twice).is_root(), false);
+        assert!(name!(root).is_root());
+        assert!(!name!(flat).is_root());
+        assert!(!name!(once).is_root());
+        assert!(!name!(twice).is_root());
     }
 
     #[test]
@@ -925,14 +925,14 @@ mod test {
                 name.to_vec().as_slice(),
                 b"\x03www\x07example\x03com\0"
             );
-            assert_eq!(name.parent(), true);
+            assert!(name.parent());
             assert_eq!(name.to_vec().as_slice(), b"\x07example\x03com\0");
-            assert_eq!(name.parent(), true);
+            assert!(name.parent());
             assert_eq!(name.to_vec().as_slice(), b"\x03com\0");
-            assert_eq!(name.parent(), true);
+            assert!(name.parent());
             assert_eq!(name.to_vec().as_slice(), b"\0");
-            assert_eq!(name.parent(), false);
-            assert_eq!(name.parent(), false);
+            assert!(!name.parent());
+            assert!(!name.parent());
         }
 
         parent_wec(name!(flat));

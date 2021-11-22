@@ -13,6 +13,8 @@ use crate::base::octets::{
     Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom,
     OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
+#[cfg(feature = "serde")]
+use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::RtypeRecordData;
 use crate::base::serial::Serial;
 #[cfg(feature = "master")]
@@ -29,10 +31,28 @@ use std::vec::Vec;
 //------------ Dnskey --------------------------------------------------------
 
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>
+        ",
+        deserialize = "
+            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        ",
+    ))
+)]
 pub struct Dnskey<Octets> {
     flags: u16,
     protocol: u8,
     algorithm: SecAlg,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "crate::utils::base64::serde")
+    )]
     public_key: Octets,
 }
 
@@ -437,6 +457,22 @@ impl<Name: Compose> Compose for ProtoRrsig<Name> {
 //------------ Rrsig ---------------------------------------------------------
 
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Name: serde::Serialize,
+        ",
+        deserialize = "
+            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Name: serde::Deserialize<'de>,
+        ",
+    ))
+)]
 pub struct Rrsig<Octets, Name> {
     type_covered: Rtype,
     algorithm: SecAlg,
@@ -446,6 +482,10 @@ pub struct Rrsig<Octets, Name> {
     inception: Serial,
     key_tag: u16,
     signer_name: Name,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "crate::utils::base64::serde")
+    )]
     signature: Octets,
 }
 
@@ -835,6 +875,22 @@ impl<Octets, Name> RtypeRecordData for Rrsig<Octets, Name> {
 //------------ Nsec ----------------------------------------------------------
 
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Name: serde::Serialize,
+        ",
+        deserialize = "
+            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Name: serde::Deserialize<'de>,
+        ",
+    ))
+)]
 pub struct Nsec<Octets, Name> {
     next_name: Name,
     types: RtypeBitmap<Octets>,
@@ -1027,10 +1083,28 @@ impl<Octets, Name> RtypeRecordData for Nsec<Octets, Name> {
 //------------ Ds -----------------------------------------------------------
 
 #[derive(Clone)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>
+        ",
+        deserialize = "
+            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        ",
+    ))
+)]
 pub struct Ds<Octets> {
     key_tag: u16,
     algorithm: SecAlg,
     digest_type: DigestAlg,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "crate::utils::base64::serde")
+    )]
     digest: Octets,
 }
 
@@ -1476,6 +1550,144 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for RtypeBitmap<Octets> {
     }
 }
 
+//--- Serialize and Deserialize
+
+#[cfg(feature = "serde")]
+impl<Octets> serde::Serialize for RtypeBitmap<Octets>
+where
+    Octets: AsRef<[u8]> + SerializeOctets,
+{
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            struct Inner<'a>(&'a [u8]);
+
+            impl<'a> serde::Serialize for Inner<'a> {
+                fn serialize<S: serde::Serializer>(
+                    &self,
+                    serializer: S,
+                ) -> Result<S::Ok, S::Error> {
+                    use serde::ser::SerializeSeq;
+
+                    let mut serializer = serializer.serialize_seq(None)?;
+                    for item in RtypeBitmapIter::new(self.0) {
+                        serializer.serialize_element(&item)?;
+                    }
+                    serializer.end()
+                }
+            }
+
+            serializer.serialize_newtype_struct(
+                "RtypeBitmap",
+                &Inner(self.0.as_ref()),
+            )
+        } else {
+            serializer.serialize_newtype_struct(
+                "RtypeBitmap",
+                &self.0.as_serialized_octets(),
+            )
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, Octets> serde::Deserialize<'de> for RtypeBitmap<Octets>
+where
+    Octets: FromBuilder + DeserializeOctets<'de>,
+    <Octets as FromBuilder>::Builder: EmptyBuilder,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        use core::marker::PhantomData;
+
+        struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = RtypeBitmap<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a record type bitmap")
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Self::Value, A::Error> {
+                use serde::de::Error;
+
+                let mut builder = RtypeBitmap::<Octets>::builder();
+                while let Some(element) = seq.next_element()? {
+                    builder.add(element).map_err(A::Error::custom)?;
+                }
+
+                Ok(builder.finalize())
+            }
+
+            fn visit_borrowed_bytes<E: serde::de::Error>(
+                self,
+                value: &'de [u8],
+            ) -> Result<Self::Value, E> {
+                self.0.visit_borrowed_bytes(value).and_then(|octets| {
+                    RtypeBitmap::from_octets(octets).map_err(E::custom)
+                })
+            }
+
+            #[cfg(feature = "std")]
+            fn visit_byte_buf<E: serde::de::Error>(
+                self,
+                value: std::vec::Vec<u8>,
+            ) -> Result<Self::Value, E> {
+                self.0.visit_byte_buf(value).and_then(|octets| {
+                    RtypeBitmap::from_octets(octets).map_err(E::custom)
+                })
+            }
+        }
+
+        struct NewtypeVisitor<T>(PhantomData<T>);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = RtypeBitmap<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a record type bitmap")
+            }
+
+            fn visit_newtype_struct<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                if deserializer.is_human_readable() {
+                    deserializer
+                        .deserialize_seq(InnerVisitor(Octets::visitor()))
+                } else {
+                    Octets::deserialize_with_visitor(
+                        deserializer,
+                        InnerVisitor(Octets::visitor()),
+                    )
+                }
+            }
+        }
+
+        deserializer.deserialize_newtype_struct(
+            "RtypeBitmap",
+            NewtypeVisitor(PhantomData),
+        )
+    }
+}
+
 //------------ RtypeBitmapBuilder --------------------------------------------
 
 /// A builder for a record type bitmap.
@@ -1821,14 +2033,14 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "bytes")]
+    #[cfg(feature = "std")]
     fn dnskey_key_tag() {
         assert_eq!(
             Dnskey::new(
                 256,
                 3,
                 SecAlg::RsaSha256,
-                base64::decode(
+                base64::decode::<Vec<u8>>(
                     "AwEAAcTQyaIe6nt3xSPOG2L/YfwBkOVTJN6mlnZ249O5Rtt3ZSRQHxQS\
                      W61AODYw6bvgxrrGq8eeOuenFjcSYgNAMcBYoEYYmKDW6e9EryW4ZaT/\
                      MCq+8Am06oR40xAA3fClOM6QjRcT85tP41Go946AicBGP8XOP/Aj1aI/\
@@ -1847,7 +2059,7 @@ mod test {
                 257,
                 3,
                 SecAlg::RsaSha256,
-                base64::decode(
+                base64::decode::<Vec<u8>>(
                     "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO\
                     iW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN\
                     7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5\
@@ -1867,7 +2079,7 @@ mod test {
                 257,
                 3,
                 SecAlg::RsaMd5,
-                base64::decode(
+                base64::decode::<Vec<u8>>(
                     "AwEAAcVaA4jSBIGRrSzpecoJELvKE9+OMuFnL8mmUBsY\
                     lB6epN1CqX7NzwjDpi6VySiEXr0C4uTYkU/L1uMv2mHE\
                     AljThFDJ1GuozJ6gA7jf3lnaGppRg2IoVQ9IVmLORmjw\
@@ -1885,8 +2097,8 @@ mod test {
     fn dnskey_flags() {
         let dnskey =
             Dnskey::new(257, 3, SecAlg::RsaSha256, bytes::Bytes::new());
-        assert_eq!(dnskey.is_zsk(), true);
-        assert_eq!(dnskey.is_secure_entry_point(), true);
-        assert_eq!(dnskey.is_revoked(), false);
+        assert!(dnskey.is_zsk());
+        assert!(dnskey.is_secure_entry_point());
+        assert!(!dnskey.is_revoked());
     }
 }

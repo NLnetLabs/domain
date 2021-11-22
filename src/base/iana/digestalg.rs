@@ -43,3 +43,18 @@ int_enum! {
 }
 
 int_enum_str_decimal!(DigestAlg, u8);
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    #[cfg(feature = "serde")]
+    #[test]
+    fn ser_de() {
+        use super::DigestAlg;
+        use serde_test::{assert_tokens, Token};
+
+        assert_tokens(&DigestAlg::Sha384, &[Token::U8(4)]);
+        assert_tokens(&DigestAlg::Int(100), &[Token::U8(100)]);
+    }
+}

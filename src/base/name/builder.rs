@@ -341,21 +341,31 @@ impl<Builder: OctetsBuilder> AsRef<[u8]> for DnameBuilder<Builder> {
 /// Parses the contents of an escape sequence from `chars`.
 ///
 /// The backslash should already have been taken out of `chars`.
-fn parse_escape<C>(chars: &mut C, in_label: bool) -> Result<u8, FromStrError>
+pub(super) fn parse_escape<C>(
+    chars: &mut C,
+    in_label: bool,
+) -> Result<u8, LabelFromStrError>
 where
     C: Iterator<Item = char>,
 {
-    let ch = chars.next().ok_or(FromStrError::UnexpectedEnd)?;
+    let ch = chars.next().ok_or(LabelFromStrError::UnexpectedEnd)?;
     if ('0'..='9').contains(&ch) {
         let v = ch.to_digit(10).unwrap() * 100
-            + chars.next().ok_or(FromStrError::UnexpectedEnd).and_then(
-                |c| c.to_digit(10).ok_or(FromStrError::IllegalEscape),
-            )? * 10
-            + chars.next().ok_or(FromStrError::UnexpectedEnd).and_then(
-                |c| c.to_digit(10).ok_or(FromStrError::IllegalEscape),
-            )?;
+            + chars
+                .next()
+                .ok_or(LabelFromStrError::UnexpectedEnd)
+                .and_then(|c| {
+                    c.to_digit(10).ok_or(LabelFromStrError::IllegalEscape)
+                })?
+                * 10
+            + chars
+                .next()
+                .ok_or(LabelFromStrError::UnexpectedEnd)
+                .and_then(|c| {
+                    c.to_digit(10).ok_or(LabelFromStrError::IllegalEscape)
+                })?;
         if v > 255 {
-            return Err(FromStrError::IllegalEscape);
+            return Err(LabelFromStrError::IllegalEscape);
         }
         Ok(v as u8)
     } else if ch == '[' {
@@ -364,7 +374,7 @@ where
         if in_label {
             Ok(b'[')
         } else {
-            Err(FromStrError::BinaryLabel)
+            Err(LabelFromStrError::BinaryLabel)
         }
     } else {
         Ok(ch as u8)
@@ -445,6 +455,62 @@ impl fmt::Display for PushNameError {
 #[cfg(feature = "std")]
 impl std::error::Error for PushNameError {}
 
+//------------ LabelFromStrError ---------------------------------------------
+
+/// An error occured while reading a label from a string.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LabelFromStrError {
+    /// The string ended when there should have been more characters.
+    ///
+    /// This most likely happens inside escape sequences and quoting.
+    UnexpectedEnd,
+
+    /// A binary label was encountered.
+    BinaryLabel,
+
+    /// The label would exceed the limit of 63 bytes.
+    LongLabel,
+
+    /// An illegal escape sequence was encountered.
+    ///
+    /// Escape sequences are a backslash character followed by either a
+    /// three decimal digit sequence encoding a byte value or a single
+    /// other printable ASCII character.
+    IllegalEscape,
+
+    /// An illegal character was encountered.
+    ///
+    /// Only printable ASCII characters are allowed.
+    IllegalCharacter(char),
+}
+
+//--- Display and Error
+
+impl fmt::Display for LabelFromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            LabelFromStrError::UnexpectedEnd => {
+                f.write_str("unexpected end of input")
+            }
+            LabelFromStrError::BinaryLabel => {
+                f.write_str("a binary label was encountered")
+            }
+            LabelFromStrError::LongLabel => {
+                f.write_str("label length limit exceeded")
+            }
+            LabelFromStrError::IllegalEscape => {
+                f.write_str("illegal escape sequence")
+            }
+            LabelFromStrError::IllegalCharacter(char) => {
+                write!(f, "illegal character '{}'", char)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for LabelFromStrError {}
+
 //------------ FromStrError --------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -500,6 +566,20 @@ impl From<PushNameError> for FromStrError {
         match err {
             PushNameError::LongName => FromStrError::LongName,
             PushNameError::ShortBuf => FromStrError::ShortBuf,
+        }
+    }
+}
+
+impl From<LabelFromStrError> for FromStrError {
+    fn from(err: LabelFromStrError) -> FromStrError {
+        match err {
+            LabelFromStrError::UnexpectedEnd => FromStrError::UnexpectedEnd,
+            LabelFromStrError::BinaryLabel => FromStrError::BinaryLabel,
+            LabelFromStrError::LongLabel => FromStrError::LongLabel,
+            LabelFromStrError::IllegalEscape => FromStrError::IllegalEscape,
+            LabelFromStrError::IllegalCharacter(ch) => {
+                FromStrError::IllegalCharacter(ch)
+            }
         }
     }
 }

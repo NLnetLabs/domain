@@ -3,6 +3,8 @@ use super::super::octets::{
     Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsExt,
     OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
+#[cfg(feature = "serde")]
+use super::super::octets::{DeserializeOctets, SerializeOctets};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
@@ -850,6 +852,116 @@ impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug for Dname<Octets> {
     }
 }
 
+//--- Serialize and Deserialize
+
+#[cfg(feature = "serde")]
+impl<Octets> serde::Serialize for Dname<Octets>
+where
+    Octets: AsRef<[u8]> + SerializeOctets,
+{
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            serializer
+                .serialize_newtype_struct("Dname", &format_args!("{}", self))
+        } else {
+            serializer.serialize_newtype_struct(
+                "Dname",
+                &self.0.as_serialized_octets(),
+            )
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, Octets> serde::Deserialize<'de> for Dname<Octets>
+where
+    Octets: FromBuilder + DeserializeOctets<'de>,
+    <Octets as FromBuilder>::Builder: EmptyBuilder,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        use core::marker::PhantomData;
+
+        struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = Dname<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("an absolute domain name")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                v: &str,
+            ) -> Result<Self::Value, E> {
+                Dname::from_str(v).map_err(E::custom)
+            }
+
+            fn visit_borrowed_bytes<E: serde::de::Error>(
+                self,
+                value: &'de [u8],
+            ) -> Result<Self::Value, E> {
+                self.0.visit_borrowed_bytes(value).and_then(|octets| {
+                    Dname::from_octets(octets).map_err(E::custom)
+                })
+            }
+
+            #[cfg(feature = "std")]
+            fn visit_byte_buf<E: serde::de::Error>(
+                self,
+                value: std::vec::Vec<u8>,
+            ) -> Result<Self::Value, E> {
+                self.0.visit_byte_buf(value).and_then(|octets| {
+                    Dname::from_octets(octets).map_err(E::custom)
+                })
+            }
+        }
+
+        struct NewtypeVisitor<T>(PhantomData<T>);
+
+        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        where
+            Octets: FromBuilder + DeserializeOctets<'de>,
+            <Octets as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+        {
+            type Value = Dname<Octets>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("an absolute domain name")
+            }
+
+            fn visit_newtype_struct<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                if deserializer.is_human_readable() {
+                    deserializer
+                        .deserialize_str(InnerVisitor(Octets::visitor()))
+                } else {
+                    Octets::deserialize_with_visitor(
+                        deserializer,
+                        InnerVisitor(Octets::visitor()),
+                    )
+                }
+            }
+        }
+
+        deserializer
+            .deserialize_newtype_struct("Dname", NewtypeVisitor(PhantomData))
+    }
+}
+
 //------------ SuffixIter ----------------------------------------------------
 
 /// An iterator over ever shorter suffixes of a domain name.
@@ -1090,7 +1202,7 @@ pub(crate) mod test {
         );
         assert_eq!(
             Dname::from_slice(b"\xccasdasds"),
-            Err(DnameError::CompressedName.into())
+            Err(DnameError::CompressedName)
         );
 
         // empty input
@@ -1114,9 +1226,9 @@ pub(crate) mod test {
 
     #[test]
     fn is_root() {
-        assert_eq!(Dname::from_slice(b"\0").unwrap().is_root(), true);
-        assert_eq!(Dname::from_slice(b"\x03www\0").unwrap().is_root(), false);
-        assert_eq!(Dname::root_ref().is_root(), true);
+        assert!(Dname::from_slice(b"\0").unwrap().is_root());
+        assert!(!Dname::from_slice(b"\x03www\0").unwrap().is_root());
+        assert!(Dname::root_ref().is_root());
     }
 
     pub fn cmp_iter<I>(mut iter: I, labels: &[&[u8]])
@@ -1759,22 +1871,16 @@ pub(crate) mod test {
         ];
         for i in 0..names.len() {
             for j in 0..names.len() {
-                let ord = if i < j {
-                    Ordering::Less
-                } else if i == j {
-                    Ordering::Equal
-                } else {
-                    Ordering::Greater
-                };
-                assert_eq!(names[i].partial_cmp(&names[j]), Some(ord));
-                assert_eq!(names[i].cmp(&names[j]), ord);
+                let ord = i.cmp(&j);
+                assert_eq!(names[i].partial_cmp(names[j]), Some(ord));
+                assert_eq!(names[i].cmp(names[j]), ord);
             }
         }
 
         let n1 = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
         let n2 = Dname::from_slice(b"\x03wWw\x07eXAMple\x03Com\0").unwrap();
-        assert_eq!(n1.partial_cmp(&n2), Some(Ordering::Equal));
-        assert_eq!(n1.cmp(&n2), Ordering::Equal);
+        assert_eq!(n1.partial_cmp(n2), Some(Ordering::Equal));
+        assert_eq!(n1.cmp(n2), Ordering::Equal);
     }
 
     #[test]
@@ -1795,4 +1901,26 @@ pub(crate) mod test {
     }
 
     // Scan and Display skipped for now.
+
+    #[cfg(all(feature = "serde", feature = "std"))]
+    #[test]
+    fn ser_de() {
+        use serde_test::{assert_tokens, Configure, Token};
+
+        let name = Dname::<Vec<u8>>::from_str("www.example.com.").unwrap();
+        assert_tokens(
+            &name.clone().compact(),
+            &[
+                Token::NewtypeStruct { name: "Dname" },
+                Token::ByteBuf(b"\x03www\x07example\x03com\0"),
+            ],
+        );
+        assert_tokens(
+            &name.readable(),
+            &[
+                Token::NewtypeStruct { name: "Dname" },
+                Token::Str("www.example.com"),
+            ],
+        );
+    }
 }

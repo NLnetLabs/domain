@@ -19,6 +19,7 @@ use core::{fmt, ops};
 //------------ Aaaa ---------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Aaaa {
     addr: Ipv6Addr,
 }
