@@ -1,6 +1,5 @@
 //! EDNS Options from RFC 7830
 
-use rand::random;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
@@ -14,6 +13,7 @@ use super::CodeOptData;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum PaddingMode {
     Zero,
+    #[cfg(feature = "random")]
     Random,
 }
 
@@ -27,16 +27,27 @@ pub struct Padding {
 }
 
 impl Padding {
-    pub fn new(len: u16, mode: PaddingMode) -> Self {
+    pub fn new(len: u16) -> Self {
+        Self::new_with_mode(len, PaddingMode::Zero)
+    }
+
+    pub fn new_with_mode(len: u16, mode: PaddingMode) -> Self {
         Padding { len, mode }
     }
-    
+
     pub fn push<Target: OctetsBuilder>(
+        builder: &mut OptBuilder<Target>,
+        len: u16,
+    ) -> Result<(), ShortBuf> {
+        Self::push_with_mode(builder, len, PaddingMode::Zero)
+    }
+
+    pub fn push_with_mode<Target: OctetsBuilder>(
         builder: &mut OptBuilder<Target>,
         len: u16,
         mode: PaddingMode
     ) -> Result<(), ShortBuf> {
-        builder.push(&Self::new(len, mode))
+        builder.push(&Self::new_with_mode(len, mode))
     }
 
     pub fn len(self) -> u16 {
@@ -60,7 +71,7 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for Padding {
         // XXX Check whether there really are all zeros.
         let len = parser.remaining();
         parser.advance(len)?;
-        Ok(Padding::new(len as u16, PaddingMode::Zero))
+        Ok(Padding::new_with_mode(len as u16, PaddingMode::Zero))
     }
 
     fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
@@ -81,9 +92,10 @@ impl Compose for Padding {
                         0u8.compose(target)?
                     }
                 }
+                #[cfg(feature = "random")]
                 PaddingMode::Random => {
                     for _ in 0..self.len {
-                        random::<u8>().compose(target)?
+                        ::rand::random::<u8>().compose(target)?
                     }
                 }
             }

@@ -126,6 +126,7 @@ impl Header {
     }
 
     /// Sets the value of the ID field to a randomly chosen number.
+    #[cfg(feature = "random")]
     pub fn set_random_id(&mut self) {
         self.set_id(::rand::random())
     }
@@ -407,15 +408,15 @@ impl FromStr for Flags {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut flags = Flags::new();
-        for token in s.to_uppercase().split(' ') {
+        for token in s.split(' ') {
             match token {
-                "QR" => flags.qr = true,
-                "AA" => flags.aa = true,
-                "TC" => flags.tc = true,
-                "RD" => flags.rd = true,
-                "RA" => flags.ra = true,
-                "AD" => flags.ad = true,
-                "CD" => flags.cd = true,
+                "QR" | "Qr" | "qR" | "qr" => flags.qr = true,
+                "AA" | "Aa" | "aA" | "aa" => flags.aa = true,
+                "TC" | "Tc" | "tC" | "tc" => flags.tc = true,
+                "RD" | "Rd" | "rD" | "rd" => flags.rd = true,
+                "RA" | "Ra" | "rA" | "ra" => flags.ra = true,
+                "AD" | "Ad" | "aD" | "ad" => flags.ad = true,
+                "CD" | "Cd" | "cD" | "cd" => flags.cd = true,
                 "" => {}
                 _ => return Err(FlagsFromStrError),
             }
