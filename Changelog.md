@@ -10,6 +10,13 @@ Breaking Changes
   ([#116])
 * The salt and hash parameters of `Nsec3` and `Nsec3Param` have been
   wrapped in newtypes. ([#116])
+* Functions depending on the `rand` crate have been moved behind a new
+  `random` feature as `rand` is not available on all systems, even with
+  std support. The feature is, however, part of the default features.
+
+  In particular, this means that `Header::set_random_id`,
+  `MessageBuilder::request_axfr`, and `opt::rfc7830::PaddingMode::Random`
+  are only available if the feature is enabled. ([#117] by @Jezza)
 
 New
 
@@ -28,6 +35,7 @@ Bug Fixes
   number of bits isn’t divisible by 8. ([#101] and [#102] by [@xofyarg])
 * `validate`: Check for the correct public key size instead of infering if
   from the RRSIG length. ([#110] by [@vavrusa])
+* Support for no-std environments now actually works. ([#117] by @Jezza)
 
 Other Changes
 
@@ -44,6 +52,8 @@ Other Changes
 [#114]: https://github.com/NLnetLabs/domain/pull/114
 [#115]: https://github.com/NLnetLabs/domain/pull/115
 [#116]: https://github.com/NLnetLabs/domain/pull/116
+[#117]: https://github.com/NLnetLabs/domain/pull/117
+[@Jezza]: https://github.com/Jezza
 [@tomaskrizek]: https://github.com/tomaskrizek
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
