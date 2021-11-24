@@ -543,6 +543,22 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     }
 }
 
+impl<'a, T: OctetsBuilder<Octets = T>> OctetsBuilder for &'a mut T {
+    type Octets = &'a mut T;
+
+    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
+        (*self).append_slice(slice)
+    }
+
+    fn truncate(&mut self, len: usize) {
+        (*self).truncate(len)
+    }
+
+    fn freeze(self) -> Self::Octets {
+        self
+    }
+}
+
 #[cfg(feature = "std")]
 impl OctetsBuilder for Vec<u8> {
     type Octets = Self;
