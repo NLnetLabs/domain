@@ -4,7 +4,7 @@
 
 Breaking Changes
 
-* The minimum supported Rust version is now 1.49. ([#107])
+* The minimum supported Rust version is now 1.52. ([#120])
 * The `Display` implementation for `UncertainDname` now ends an absolute
   name with a dot to match the behaviour of the `FromStr` implementation.
   ([#116])
@@ -28,6 +28,9 @@ New
   into its two parts that aren’t `Copy`. ([#114])
 * Initial support for SVCB and HTTPS record types. ([#115] by [@xofyarg])
 * Introduced Serde support for all relevant types. ([#116])
+* The `OctetsBuilder` trait is now also implemented for mutable references
+  of types that are octet builders and turn into themselves when frozen
+  (i.e., `OctetsBuilder::Octets = Self`). ([#121])
 
 Bug Fixes
 
@@ -45,7 +48,6 @@ Other Changes
 [#101]: https://github.com/NLnetLabs/domain/pull/101
 [#102]: https://github.com/NLnetLabs/domain/pull/102
 [#104]: https://github.com/NLnetLabs/domain/pull/104
-[#107]: https://github.com/NLnetLabs/domain/pull/107
 [#109]: https://github.com/NLnetLabs/domain/pull/109
 [#110]: https://github.com/NLnetLabs/domain/pull/110
 [#112]: https://github.com/NLnetLabs/domain/pull/112
@@ -53,6 +55,8 @@ Other Changes
 [#115]: https://github.com/NLnetLabs/domain/pull/115
 [#116]: https://github.com/NLnetLabs/domain/pull/116
 [#117]: https://github.com/NLnetLabs/domain/pull/117
+[#120]: https://github.com/NLnetLabs/domain/pull/120
+[#121]: https://github.com/NLnetLabs/domain/pull/121
 [@Jezza]: https://github.com/Jezza
 [@tomaskrizek]: https://github.com/tomaskrizek
 [@vavrusa]: https://github.com/vavrusa
