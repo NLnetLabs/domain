@@ -20,6 +20,7 @@ rand           = { version = "0.8", optional = true }
 bytes          = { version = "1.0", optional = true }
 chrono         = { version = "0.4.6", optional = true }
 futures        = { version = "0.3", optional = true }
+heapless       = { version = "0.7", optional = true }
 #openssl       = { version = "0.10", optional = true }
 ring           = { version = "0.16.14", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
