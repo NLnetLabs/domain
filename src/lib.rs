@@ -47,6 +47,9 @@
 //! * `chrono`: Adds the [chrono](https://github.com/chronotope/chrono)
 //!   crate as a dependency. This adds support for generating serial numbers
 //!   from time stamps.
+//! * `heapless`: enables the use of the `Vec` type from the
+//!   [heapless](https://github.com/japaric/heapless) crate as octet
+//!   sequences.
 //! * `master`: Zone file parsing and construction. This will enable the
 //!   [master] module and currently enables the `bytes`, `chrono`, and `std`
 //!   features. Note that feature and module are experimental and will soon
