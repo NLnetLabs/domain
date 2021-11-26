@@ -1237,7 +1237,7 @@ mod serde {
 
         fn visit_bytes<E: serde::de::Error>(
             self,
-            value: &'de [u8],
+            value: &[u8],
         ) -> Result<Self::Value, E> {
             use core::iter::FromIterator;
 
