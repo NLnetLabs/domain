@@ -1235,23 +1235,9 @@ mod serde {
             ))
         }
 
-        fn visit_borrowed_bytes<E: serde::de::Error>(
+        fn visit_bytes<E: serde::de::Error>(
             self,
             value: &'de [u8],
-        ) -> Result<Self::Value, E> {
-            use core::iter::FromIterator;
-
-            if value.len() > N {
-                return Err(E::invalid_length(value.len(), &self));
-            }
-
-            Ok(heapless::Vec::from_iter(value.iter().copied()))
-        }
-
-        #[cfg(feature = "std")]
-        fn visit_byte_buf<E: serde::de::Error>(
-            self,
-            value: std::vec::Vec<u8>,
         ) -> Result<Self::Value, E> {
             use core::iter::FromIterator;
 
