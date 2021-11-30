@@ -159,6 +159,8 @@ use super::net::{Ipv4Addr, Ipv6Addr};
 use bytes::{Bytes, BytesMut};
 use core::cmp::Ordering;
 use core::convert::TryFrom;
+#[cfg(feature = "heapless")]
+use core::iter::FromIterator;
 use core::{borrow, fmt, hash};
 #[cfg(feature = "smallvec")]
 use smallvec::{Array, SmallVec};
@@ -217,6 +219,13 @@ impl OctetsExt for Bytes {
 
 #[cfg(feature = "smallvec")]
 impl<A: Array<Item = u8>> OctetsExt for SmallVec<A> {
+    fn truncate(&mut self, len: usize) {
+        self.truncate(len)
+    }
+}
+
+#[cfg(feature = "heapless")]
+impl<const N: usize> OctetsExt for heapless::Vec<u8, N> {
     fn truncate(&mut self, len: usize) {
         self.truncate(len)
     }
@@ -323,6 +332,15 @@ impl<'a, A: Array<Item = u8>> OctetsRef for &'a SmallVec<A> {
     }
 }
 
+#[cfg(feature = "heapless")]
+impl<'a, const N: usize> OctetsRef for &'a heapless::Vec<u8, N> {
+    type Range = &'a [u8];
+
+    fn range(self, start: usize, end: usize) -> Self::Range {
+        &self[start..end]
+    }
+}
+
 //------------ OctetsFrom ----------------------------------------------------
 
 /// Convert a type from one octets type to another.
@@ -374,14 +392,30 @@ where
     }
 }
 
-#[cfg(features = "smallvec")]
+#[cfg(feature = "smallvec")]
 impl<Source, A> OctetsFrom<Source> for SmallVec<A>
 where
-    Source: AsRef<u8>,
+    Source: AsRef<[u8]>,
     A: Array<Item = u8>,
 {
     fn octets_from(source: Source) -> Result<Self, ShortBuf> {
         Ok(smallvec::ToSmallVec::to_smallvec(source.as_ref()))
+    }
+}
+
+#[cfg(feature = "heapless")]
+impl<Source, const N: usize> OctetsFrom<Source> for heapless::Vec<u8, N>
+where
+    Source: AsRef<[u8]>,
+{
+    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
+        let source_ref = source.as_ref();
+
+        if source_ref.len() > N {
+            return Err(ShortBuf);
+        }
+
+        Ok(heapless::Vec::from_iter(source_ref.iter().copied()))
     }
 }
 
@@ -613,6 +647,23 @@ impl<A: Array<Item = u8>> OctetsBuilder for SmallVec<A> {
     }
 }
 
+#[cfg(feature = "heapless")]
+impl<const N: usize> OctetsBuilder for heapless::Vec<u8, N> {
+    type Octets = Self;
+
+    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
+        self.extend_from_slice(slice).map_err(|_| ShortBuf)
+    }
+
+    fn truncate(&mut self, len: usize) {
+        heapless::Vec::truncate(self, len)
+    }
+
+    fn freeze(self) -> Self::Octets {
+        self
+    }
+}
+
 //------------ EmptyBuilder --------------------------------------------------
 
 /// An octets builder that can be newly created empty.
@@ -660,6 +711,18 @@ impl<A: Array<Item = u8>> EmptyBuilder for SmallVec<A> {
 
     fn with_capacity(capacity: usize) -> Self {
         SmallVec::with_capacity(capacity)
+    }
+}
+
+#[cfg(feature = "heapless")]
+impl<const N: usize> EmptyBuilder for heapless::Vec<u8, N> {
+    fn empty() -> Self {
+        heapless::Vec::new()
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        debug_assert!(capacity <= N);
+        heapless::Vec::new()
     }
 }
 
@@ -722,6 +785,15 @@ impl<A: Array<Item = u8>> IntoBuilder for SmallVec<A> {
     }
 }
 
+#[cfg(feature = "heapless")]
+impl<const N: usize> IntoBuilder for heapless::Vec<u8, N> {
+    type Builder = Self;
+
+    fn into_builder(self) -> Self::Builder {
+        self
+    }
+}
+
 //------------ FromBuilder ---------------------------------------------------
 
 /// An octets type that can be created from an octets builder.
@@ -753,6 +825,15 @@ impl FromBuilder for Bytes {
 
 #[cfg(feature = "smallvec")]
 impl<A: Array<Item = u8>> FromBuilder for SmallVec<A> {
+    type Builder = Self;
+
+    fn from_builder(builder: Self::Builder) -> Self {
+        builder
+    }
+}
+
+#[cfg(feature = "heapless")]
+impl<const N: usize> FromBuilder for heapless::Vec<u8, N> {
     type Builder = Self;
 
     fn from_builder(builder: Self::Builder) -> Self {
@@ -828,6 +909,16 @@ mod serde {
     where
         A: smallvec::Array<Item = u8>,
     {
+        fn serialize_octets<S: serde::Serializer>(
+            &self,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error> {
+            serializer.serialize_bytes(self.as_ref())
+        }
+    }
+
+    #[cfg(feature = "heapless")]
+    impl<const N: usize> SerializeOctets for heapless::Vec<u8, N> {
         fn serialize_octets<S: serde::Serializer>(
             &self,
             serializer: S,
@@ -1004,6 +1095,32 @@ mod serde {
         }
     }
 
+    #[cfg(feature = "heapless")]
+    impl<'de, const N: usize> DeserializeOctets<'de> for heapless::Vec<u8, N> {
+        type Visitor = HeaplessVecVisitor<N>;
+
+        fn deserialize_octets<D: serde::Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Self, D::Error> {
+            Self::visitor().deserialize(deserializer)
+        }
+
+        fn deserialize_with_visitor<D, V>(
+            deserializer: D,
+            visitor: V,
+        ) -> Result<V::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+            V: serde::de::Visitor<'de>,
+        {
+            deserializer.deserialize_byte_buf(visitor)
+        }
+
+        fn visitor() -> Self::Visitor {
+            HeaplessVecVisitor::new()
+        }
+    }
+
     //------------ BorrowedVisitor -------------------------------------------
 
     pub struct BorrowedVisitor<T>(PhantomData<T>);
@@ -1087,6 +1204,48 @@ mod serde {
             value: std::vec::Vec<u8>,
         ) -> Result<Self::Value, E> {
             Ok(value.into())
+        }
+    }
+
+    #[cfg(feature = "heapless")]
+    pub struct HeaplessVecVisitor<const N: usize>;
+
+    #[cfg(feature = "heapless")]
+    impl<const N: usize> HeaplessVecVisitor<N> {
+        fn new() -> Self {
+            Self
+        }
+
+        pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+            self,
+            deserializer: D,
+        ) -> Result<heapless::Vec<u8, N>, D::Error> {
+            deserializer.deserialize_byte_buf(self)
+        }
+    }
+
+    #[cfg(feature = "heapless")]
+    impl<'de, const N: usize> serde::de::Visitor<'de> for HeaplessVecVisitor<N> {
+        type Value = heapless::Vec<u8, N>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_fmt(format_args!(
+                "an octet sequence of length {} of shorter",
+                N
+            ))
+        }
+
+        fn visit_bytes<E: serde::de::Error>(
+            self,
+            value: &[u8],
+        ) -> Result<Self::Value, E> {
+            use core::iter::FromIterator;
+
+            if value.len() > N {
+                return Err(E::invalid_length(value.len(), &self));
+            }
+
+            Ok(heapless::Vec::from_iter(value.iter().copied()))
         }
     }
 }
