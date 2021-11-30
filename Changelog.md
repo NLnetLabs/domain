@@ -31,6 +31,8 @@ New
 * The `OctetsBuilder` trait is now also implemented for mutable references
   of types that are octet builders and turn into themselves when frozen
   (i.e., `OctetsBuilder::Octets = Self`). ([#121])
+* Support for [`heapless::Vec<u8, N>`] as an octets sequence via the new
+  `heapless` feature. ([#122] by [@bugadani])
 
 Bug Fixes
 
@@ -57,6 +59,8 @@ Other Changes
 [#117]: https://github.com/NLnetLabs/domain/pull/117
 [#120]: https://github.com/NLnetLabs/domain/pull/120
 [#121]: https://github.com/NLnetLabs/domain/pull/121
+[#122]: https://github.com/NLnetLabs/domain/pull/122
+[@bugadani]: https://github.com/bugadani
 [@Jezza]: https://github.com/Jezza
 [@tomaskrizek]: https://github.com/tomaskrizek
 [@vavrusa]: https://github.com/vavrusa
