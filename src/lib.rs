@@ -1,6 +1,6 @@
 //! A DNS library for Rust.
 //!
-//! This crates provides a number of bulding blocks for developing
+//! This crates provides a number of building blocks for developing
 //! functionality related to the DNS. It provides fundamental types, traits,
 //! and code as well as a wide range of optional features. The intent is to
 //! eventually cover all aspects of modern DNS.
@@ -42,7 +42,7 @@
 //!
 //! The following is the complete list of the feature flags available.
 //!
-//! * `bytes`: Rnables using the types `Bytes` and `BytesMut` from the
+//! * `bytes`: Enables using the types `Bytes` and `BytesMut` from the
 //!    [bytes](https://github.com/tokio-rs/bytes) crate as octet sequences.
 //! * `chrono`: Adds the [chrono](https://github.com/chronotope/chrono)
 //!   crate as a dependency. This adds support for generating serial numbers

@@ -2,7 +2,7 @@
 //!
 //! This module provides the basic traits that allow defining types that are
 //! generic over a variable length sequence of octets. It implements these
-//! traits for most comonly used types of such sequences and provides a few
+//! traits for most commonly used types of such sequences and provides a few
 //! additional types for use in a no-std environment. In addition, it provides
 //! a few types and traits that make it easier to access data contained in
 //! such sequences.
@@ -18,7 +18,7 @@
 //! ## Octets and Octets References
 //!
 //! There is no special trait for octets, we simply use `AsRef<[u8]>` for
-//! imutable octets or `AsMut<[u8]>` if the octets of the sequence can be
+//! immutable octets or `AsMut<[u8]>` if the octets of the sequence can be
 //! manipulated (but the length is still fixed). This way, any type
 //! implementing these traits can be used already. The trait [`OctetsExt`]
 //! has been defined to collect additional methods that aren’t available via
@@ -1415,7 +1415,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
 impl<Ref: AsRef<[u8]>> Parser<Ref> {
     /// Takes and returns the next `len` octets.
     ///
-    /// Advances the parser by `len` octets. If there aren’t enough octats
+    /// Advances the parser by `len` octets. If there aren’t enough octets
     /// left, leaves the parser untouched and returns an error instead.
     pub fn parse_octets(
         &mut self,
