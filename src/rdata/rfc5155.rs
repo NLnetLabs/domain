@@ -17,7 +17,7 @@ use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "master")]
 use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
 use crate::utils::{base16, base32};
-#[cfg(feature = "master")]
+#[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
 use core::{fmt, hash, ops, str};
