@@ -204,7 +204,7 @@ impl<'a> Resolver for &'a StubResolver {
     type Octets = Bytes;
     type Answer = Answer;
     type Query =
-        Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + 'a>>;
+        Pin<Box<dyn Future<Output = Result<Answer, io::Error>> + Send + 'a>>;
 
     fn query<N, Q>(&self, question: Q) -> Self::Query
     where
