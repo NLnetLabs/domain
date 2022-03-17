@@ -1027,7 +1027,7 @@ mod test {
         for _ in 0..25 {
             buf.extend_from_slice(b"\x09123456789");
         }
-        buf.extend_from_slice(b"\xc0\012");
+        buf.extend_from_slice(b"\xc0\x0012");
         let mut parser = Parser::from_ref(buf.as_slice());
         parser.advance(5).unwrap();
         let name = ParsedDname::parse(&mut parser.clone()).unwrap();
@@ -1036,11 +1036,11 @@ mod test {
         assert_eq!(parser.remaining(), 2);
 
         // Long name: 256 bytes are bad.
-        let mut buf = Vec::from(&b"\x041234\0"[..]);
+        let mut buf = Vec::from(&b"\x041234\x00"[..]);
         for _ in 0..25 {
             buf.extend_from_slice(b"\x09123456789");
         }
-        buf.extend_from_slice(b"\xc0\012");
+        buf.extend_from_slice(b"\xc0\x0012");
         let mut parser = Parser::from_ref(buf.as_slice());
         parser.advance(6).unwrap();
         assert!(ParsedDname::parse(&mut parser.clone()).is_err());
@@ -1048,19 +1048,19 @@ mod test {
         assert_eq!(parser.remaining(), 2);
 
         // Long name through recursion
-        let mut parser = p(b"\x03www\xc0\012", 0);
+        let mut parser = p(b"\x03www\xc0\x0012", 0);
         assert!(ParsedDname::parse(&mut parser.clone()).is_err());
         assert_eq!(ParsedDname::skip(&mut parser), Ok(()));
         assert_eq!(parser.remaining(), 2);
 
         // Single-step infinite recursion
-        let mut parser = p(b"\xc0\012", 0);
+        let mut parser = p(b"\xc0\x0012", 0);
         assert!(ParsedDname::parse(&mut parser.clone()).is_err());
         assert_eq!(ParsedDname::skip(&mut parser), Ok(()));
         assert_eq!(parser.remaining(), 2);
 
         // Two-step infinite recursion
-        let mut parser = p(b"\xc0\x02\xc0\012", 2);
+        let mut parser = p(b"\xc0\x02\xc0\x0012", 2);
         assert!(ParsedDname::parse(&mut parser.clone()).is_err());
         assert_eq!(ParsedDname::skip(&mut parser), Ok(()));
         assert_eq!(parser.remaining(), 2);
@@ -1077,7 +1077,7 @@ mod test {
             assert_eq!(buf.as_slice(), result);
         }
 
-        step(name!(root), b"\0");
+        step(name!(root), b"\x00");
         step(name!(flat), WECR);
         step(name!(once), WECR);
         step(name!(twice), WECR);
@@ -1087,7 +1087,7 @@ mod test {
 
     #[test]
     fn as_flat_slice() {
-        assert_eq!(name!(root).as_flat_slice(), Some(b"\0".as_ref()));
+        assert_eq!(name!(root).as_flat_slice(), Some(b"\x00".as_ref()));
         assert_eq!(name!(flat).as_flat_slice(), Some(WECR));
         assert_eq!(name!(once).as_flat_slice(), None);
         assert_eq!(name!(twice).as_flat_slice(), None);
@@ -1111,8 +1111,8 @@ mod test {
         step(name!(once));
         step(name!(twice));
 
-        step(Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap());
-        step(Dname::from_slice(b"\x03wWw\x07EXAMPLE\x03com\0").unwrap());
+        step(Dname::from_slice(b"\x03www\x07example\x03com\x00").unwrap());
+        step(Dname::from_slice(b"\x03wWw\x07EXAMPLE\x03com\x00").unwrap());
         step(
             RelativeDname::from_octets(b"\x03www\x07example\x03com")
                 .unwrap()
@@ -1121,11 +1121,11 @@ mod test {
         step(
             RelativeDname::from_octets(b"\x03www\x07example")
                 .unwrap()
-                .chain(Dname::from_octets(b"\x03com\0").unwrap())
+                .chain(Dname::from_octets(b"\x03com\x00").unwrap())
                 .unwrap(),
         );
 
-        ne_step(Dname::from_slice(b"\x03ww4\x07EXAMPLE\x03com\0").unwrap());
+        ne_step(Dname::from_slice(b"\x03ww4\x07EXAMPLE\x03com\x00").unwrap());
     }
 
     // XXX TODO Test for cmp and hash.
