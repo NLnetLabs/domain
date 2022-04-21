@@ -4,7 +4,7 @@
 
 Breaking Changes
 
-* The minimum supported Rust version is now 1.52. ([#120])
+* The minimum supported Rust version is now 1.56.1. ([#128])
 * The `Display` implementation for `UncertainDname` now ends an absolute
   name with a dot to match the behaviour of the `FromStr` implementation.
   ([#116])
@@ -17,6 +17,12 @@ Breaking Changes
   In particular, this means that `Header::set_random_id`,
   `MessageBuilder::request_axfr`, and `opt::rfc7830::PaddingMode::Random`
   are only available if the feature is enabled. ([#117] by @Jezza)
+* `resolv::Resolver::Query` now has to be `Send`. This will allow the
+  resolver to be used in async functions spawned onto a Tokio runtime.
+
+  The stub resolver’s query struct is already Send, so no actual changes
+  are necessary. However, because this changes the definition of the Resolver
+  trait, this is a breaking change, anyway. ([#125])
 
 New
 
@@ -57,9 +63,10 @@ Other Changes
 [#115]: https://github.com/NLnetLabs/domain/pull/115
 [#116]: https://github.com/NLnetLabs/domain/pull/116
 [#117]: https://github.com/NLnetLabs/domain/pull/117
-[#120]: https://github.com/NLnetLabs/domain/pull/120
 [#121]: https://github.com/NLnetLabs/domain/pull/121
 [#122]: https://github.com/NLnetLabs/domain/pull/122
+[#125]: https://github.com/NLnetLabs/domain/pull/125
+[#128]: https://github.com/NLnetLabs/domain/pull/128
 [@bugadani]: https://github.com/bugadani
 [@Jezza]: https://github.com/Jezza
 [@tomaskrizek]: https://github.com/tomaskrizek
