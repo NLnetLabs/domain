@@ -27,15 +27,25 @@
 //!
 //! Currently, there are the following modules:
 //!
-//! * [master]: Experimental reading and writing of master files – also known
+#![cfg_attr(feature = "master", doc="* [master]:")]
+#![cfg_attr(not(feature = "master"), doc="* master:")]
+//!   Experimental reading and writing of master files – also known
 //!   as zone files –, i.e., the textual representation of DNS data. This
 //!   module will be re-implemented in the near future and will be renamed to
 //!   _zonefiles._
-//! * [resolv]: An asynchronous DNS resolver based on the
+#![cfg_attr(feature = "resolv", doc="* [resolv]:")]
+#![cfg_attr(not(feature = "resolv"), doc="* resolv:")]
+//!   An asynchronous DNS resolver based on the
 //!   [Tokio](https://tokio.rs/) async runtime.
-//! * [sign]: Experimental support for DNSSEC signing.
-//! * [tsig]: Support for securing DNS transactions with TSIG records.
-//! * [validate]: Experimental support for DNSSEC validation.
+#![cfg_attr(feature = "sign", doc="* [sign]:")]
+#![cfg_attr(not(feature = "sign"), doc="* sign:")]
+//!   Experimental support for DNSSEC signing.
+#![cfg_attr(feature = "tsig", doc="* [tsig]:")]
+#![cfg_attr(not(feature = "tsig"), doc="* tsig:")]
+//!   Support for securing DNS transactions with TSIG records.
+#![cfg_attr(feature = "validate", doc="* [validate]:")]
+#![cfg_attr(not(feature = "validate"), doc="* validate:")]
+//!   Experimental support for DNSSEC validation.
 //!
 //!
 //! # Reference of Feature Flags
@@ -51,16 +61,22 @@
 //!   [heapless](https://github.com/japaric/heapless) crate as octet
 //!   sequences.
 //! * `master`: Zone file parsing and construction. This will enable the
-//!   [master] module and currently enables the `bytes`, `chrono`, and `std`
+#![cfg_attr(feature = "master", doc="  [master]")]
+#![cfg_attr(not(feature = "master"), doc="  master")]
+//!   module and currently enables the `bytes`, `chrono`, and `std`
 //!   features. Note that feature and module are experimental and will soon
 //!   be replaced.
-//! * `resolv`: Enables the asynchronous stub resolver via the [resolv]
+#![cfg_attr(feature = "resolv", doc="  [resolv]")]
+#![cfg_attr(not(feature = "resolv"), doc="  resolv")]
+//! * `resolv`: Enables the asynchronous stub resolver via the
 //!   module.
 //! * `ring`: Enables crypto functionality via the
 //!   [ring](https://github.com/briansmith/ring) crate.
-//! * `sign`: basic DNSSEC signing support. This will enable the [sign]
+//! * `sign`: basic DNSSEC signing support. This will enable the
+#![cfg_attr(feature = "sign", doc="  [sign]")]
+#![cfg_attr(not(feature = "sign"), doc="  sign")]
 //!   module and requires the `std` feature. Note that this will not directly
-//!   enable actually signing. For that you will also need to pick a crypto
+//!   enable actual signing. For that you will also need to pick a crypto
 //!   module via an additional feature. Currently we only support the `ring`
 //!   module, but support for OpenSSL is coming soon.
 //! * `smallvec`: enables the use of the `Smallvec` type from the
@@ -69,10 +85,15 @@
 //! * `std`: support for the Rust std library. This feature is enabled by
 //!   default.
 //! * `tsig`: support for signing and validating message exchanges via TSIG
-//!   signatures. This enables the [tsig] module and currently pulls in the
+//!   signatures. This enables the
+#![cfg_attr(feature = "tsig", doc="  [tsig]")]
+#![cfg_attr(not(feature = "tsig"), doc="  tsig")]
+//!   module and currently pulls in the
 //!   `bytes`, `ring`, and `smallvec` features.
 //! * `validate`: basic DNSSEC validation support. This feature enables the
-//!   [validate] module and currently also enables the `std` and `ring`
+#![cfg_attr(feature = "validate", doc="  [validate]")]
+#![cfg_attr(not(feature = "validate"), doc="  validate")]
+//!   module and currently also enables the `std` and `ring`
 //!   features.
 
 #![no_std]

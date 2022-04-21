@@ -104,8 +104,14 @@
 //! [Serde](https://serde.rs/) supports native serialization of octets
 //! sequences. However, because of missing specialization, it has to
 //! serialize the octets slices and vec as literal sequences of `u8`s. If
-//! built with the `serde` feature enable, the two traits [`SerializeOctets`]
-//! and [`DeserializeOctets`] let types define serialization into octets
+//! built with the `serde` feature enable, the two traits
+#![cfg_attr(feature = "serde",
+   doc = "  [`SerializeOctets`] and [`DeserializeOctets`]"
+)]
+#![cfg_attr(not(feature = "serde"),
+   doc = "  `SerializeOctets` and `DeserializeOctets`"
+)]
+//!  let types define serialization into octets
 //! sequences. Types that are generic over octets sequences can use these to
 //! implement serde’s `Serialize` and `Deserialize` traits.
 //!
