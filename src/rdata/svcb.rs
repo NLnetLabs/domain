@@ -996,6 +996,7 @@ mod test {
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn test_vectors_ipv6hint() {
         let rdata =
@@ -1064,6 +1065,7 @@ mod test {
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn test_vectors_ipv6hint_v4mapped() {
         let rdata =
@@ -1118,6 +1120,7 @@ mod test {
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn test_vectors_key_sorting() {
         let rdata =
@@ -1258,6 +1261,7 @@ mod test {
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn test_representation() {
         use crate::base::iana::svcb::SVCB_PARAM_KEY_PRIVATE_RANGE_BEGIN;

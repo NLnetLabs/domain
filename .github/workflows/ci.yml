@@ -21,7 +21,7 @@ jobs:
       run: cargo clippy --all-features -- -D warnings
     - if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
       run: cargo fmt --all -- --check
-    - run: cargo build --no-default-features --verbose
+    - run: cargo build --tests --no-default-features --verbose
     - run: cargo test --features=ci-test --verbose
     - if: matrix.rust == 'nightly'
       run: |
