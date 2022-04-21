@@ -129,7 +129,8 @@
 //! [octets builder]: ../octets/trait.OctetsBuilder.html
 
 use super::header::{Header, HeaderCounts, HeaderSection};
-use super::iana::{OptRcode, OptionCode, Rcode, Rtype};
+use super::iana::{OptRcode, OptionCode, Rcode};
+#[cfg(feature = "random")] use super::iana::Rtype;
 use super::message::Message;
 use super::name::{Label, ToDname};
 #[cfg(feature = "std")]
