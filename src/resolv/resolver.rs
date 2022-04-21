@@ -25,7 +25,7 @@ pub trait Resolver {
     type Answer: AsRef<Message<Self::Octets>>;
 
     /// The future resolving into an answer.
-    type Query: Future<Output = Result<Self::Answer, io::Error>>;
+    type Query: Future<Output = Result<Self::Answer, io::Error>> + Send;
 
     /// Returns a future answering a question.
     ///
