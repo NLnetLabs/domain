@@ -116,8 +116,11 @@ impl Header {
     /// When choosing an ID for an outgoing message, make sure it is random
     /// to avoid spoofing by guessing the message ID. If `std` support
     /// is enabled, the method
-    #[cfg_attr(feature = "std", doc="[`set_random_id`][Self::set_random_id]")]
-    #[cfg_attr(not(feature = "std"), doc="`set_random_id`")]
+    #[cfg_attr(
+        feature = "std",
+        doc = "[`set_random_id`][Self::set_random_id]"
+    )]
+    #[cfg_attr(not(feature = "std"), doc = "`set_random_id`")]
     /// can be used for this purpose.
     pub fn id(self) -> u16 {
         u16::from_be_bytes(self.inner[..2].try_into().unwrap())
