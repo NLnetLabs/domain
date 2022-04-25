@@ -360,9 +360,11 @@ macro_rules! int_enum_str_with_decimal {
                 scanner: &mut $crate::master::scan::Scanner<C>,
             ) -> Result<Self, $crate::master::scan::ScanError> {
                 scanner.scan_string_word(|word| {
-                    core::str::FromStr::from_str(&word).map_err(|_| {
-                        $crate::master::scan::SyntaxError::UnknownMnemonic
-                    })
+                    core::str::FromStr::from_str(&word)
+                        .map_err(|_| {
+                            $crate::master::scan::SyntaxError::UnknownMnemonic
+                        })
+                        .map($ianatype::from_int)
                 })
             }
         }

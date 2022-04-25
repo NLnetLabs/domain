@@ -209,12 +209,19 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
         let signature = self.signature().as_ref();
         let signed_data = signed_data.as_ref();
 
-        match self.algorithm() {
+        // Caller needs to ensure that the signature matches the key, but enforce the algorithm match
+        if self.algorithm() != dnskey.algorithm() {
+            return Err(AlgorithmError::InvalidData);
+        }
+
+        // Note: Canonicalize the algorithm, otherwise matching named variants against Int(_) is not going to work
+        let sec_alg = SecAlg::from_int(self.algorithm().to_int());
+        match sec_alg {
             SecAlg::RsaSha1
             | SecAlg::RsaSha1Nsec3Sha1
             | SecAlg::RsaSha256
             | SecAlg::RsaSha512 => {
-                let (algorithm, min_bytes) = match self.algorithm() {
+                let (algorithm, min_bytes) = match sec_alg {
                     SecAlg::RsaSha1 | SecAlg::RsaSha1Nsec3Sha1 => (
                         &signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
                         1024 / 8,
@@ -240,7 +247,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                     .map_err(|_| AlgorithmError::BadSig)
             }
             SecAlg::EcdsaP256Sha256 | SecAlg::EcdsaP384Sha384 => {
-                let algorithm = match self.algorithm() {
+                let algorithm = match sec_alg {
                     SecAlg::EcdsaP256Sha256 => {
                         &signature::ECDSA_P256_SHA256_FIXED
                     }
