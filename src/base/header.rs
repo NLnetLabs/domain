@@ -781,19 +781,17 @@ impl HeaderSection {
     ///
     /// # Panics
     ///
-    /// This function panics if the the octets slice is shorter than 24
-    /// octets.
+    /// This function panics if the octets slice is shorter than 12 octets.
     pub fn for_message_slice(s: &[u8]) -> &HeaderSection {
         assert!(s.len() >= mem::size_of::<HeaderSection>());
         unsafe { &*(s.as_ptr() as *const HeaderSection) }
     }
 
-    /// Creates a mutable reference from the ocetets slice of a message.
+    /// Creates a mutable reference from the octets slice of a message.
     ///
     /// # Panics
     ///
-    /// This function panics if the the octets slice is shorter than 24
-    /// octets.
+    /// This function panics if the octets slice is shorter than 12 octets.
     pub fn for_message_slice_mut(s: &mut [u8]) -> &mut HeaderSection {
         assert!(s.len() >= mem::size_of::<HeaderSection>());
         unsafe { &mut *(s.as_ptr() as *mut HeaderSection) }
