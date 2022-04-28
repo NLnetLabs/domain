@@ -35,7 +35,8 @@ use core::{fmt, hash, ops, str};
         deserialize = "
             Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder
+                + AsRef<[u8]> + AsMut<[u8]>,
         ",
     ))
 )]
@@ -246,7 +247,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Nsec3<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -494,7 +495,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Nsec3param<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -752,7 +753,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Nsec3Salt<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]> + ?Sized> Compose for Nsec3Salt<Octets> {
-    fn compose<Target: OctetsBuilder>(
+    fn compose<Target: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut Target,
     ) -> Result<(), ShortBuf> {
@@ -1097,7 +1098,7 @@ impl<Ref: OctetsRef> Parse<Ref> for OwnerHash<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]> + ?Sized> Compose for OwnerHash<Octets> {
-    fn compose<Target: OctetsBuilder>(
+    fn compose<Target: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut Target,
     ) -> Result<(), ShortBuf> {

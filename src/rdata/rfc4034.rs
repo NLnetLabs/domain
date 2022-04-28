@@ -286,7 +286,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -421,7 +421,7 @@ where
 //--- Compose
 
 impl<Name: Compose> Compose for ProtoRrsig<Name> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -437,7 +437,7 @@ impl<Name: Compose> Compose for ProtoRrsig<Name> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -766,7 +766,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
 }
 
 impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -783,7 +783,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -886,7 +886,8 @@ impl<Octets, Name> RtypeRecordData for Rrsig<Octets, Name> {
         deserialize = "
             Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder
+                + AsRef<[u8]> + AsMut<[u8]>,
             Name: serde::Deserialize<'de>,
         ",
     ))
@@ -1025,7 +1026,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Nsec<Ref::Range, ParsedDname<Ref>> {
 }
 
 impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1266,7 +1267,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1504,7 +1505,7 @@ impl<Ref: OctetsRef> Parse<Ref> for RtypeBitmap<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1596,7 +1597,8 @@ where
 impl<'de, Octets> serde::Deserialize<'de> for RtypeBitmap<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: EmptyBuilder,
+    <Octets as FromBuilder>::Builder:
+        EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -1608,8 +1610,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            <Octets as FromBuilder>::Builder: OctetsBuilder<Octets = Octets>
+                + EmptyBuilder
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = RtypeBitmap<Octets>;
 
@@ -1656,8 +1660,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            <Octets as FromBuilder>::Builder: OctetsBuilder<Octets = Octets>
+                + EmptyBuilder
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = RtypeBitmap<Octets>;
 
@@ -1723,7 +1729,10 @@ impl RtypeBitmapBuilder<Vec<u8>> {
     }
 }
 
-impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
+impl<Builder> RtypeBitmapBuilder<Builder>
+where
+    Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
     pub fn add(&mut self, rtype: Rtype) -> Result<(), ShortBuf> {
         let (block, octet, bit) = split_rtype(rtype);
         let block = self.get_block(block)?;
@@ -1736,7 +1745,7 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
 
     fn get_block(&mut self, block: u8) -> Result<&mut [u8], ShortBuf> {
         let mut pos = 0;
-        while pos < self.buf.as_ref().len() {
+        while pos < self.buf.len() {
             match self.buf.as_ref()[pos].cmp(&block) {
                 Ordering::Equal => {
                     return Ok(&mut self.buf.as_mut()[pos..pos + 34])

@@ -175,7 +175,7 @@ impl<N, D> SortedRecords<N, D> {
         N: ToDname + Clone,
         D: RecordData,
         Octets: FromBuilder,
-        Octets::Builder: EmptyBuilder,
+        Octets::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
         ApexName: ToDname,
     {
         let mut res = Vec::new();

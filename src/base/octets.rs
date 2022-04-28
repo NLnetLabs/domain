@@ -175,6 +175,8 @@ use smallvec::{Array, SmallVec};
 #[cfg(feature = "std")]
 use std::borrow::Cow;
 #[cfg(feature = "std")]
+use std::mem;
+#[cfg(feature = "std")]
 use std::vec::Vec;
 
 //============ Octets and Octet Builders =====================================
@@ -459,17 +461,19 @@ impl<Source, Target: OctetsFrom<Source>> OctetsInto<Target> for Source {
 /// octets sequence by appending the contents of octet slices. The buffers
 /// may consist of a predefined amount of space or grow as needed.
 ///
-/// Octet builders provide access to the already assembled data through
-/// octet slices via their implementations of `AsRef<[u8]>` and
-/// `AsMut<[u8]>`.
-pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
+/// The trait does not require octet builder to provide access to the already
+/// assembled data. However, implementations are likely to do so, anyway, via
+/// implementations of `AsRef<[u8]>` and `AsMut<[u8]>`. If access becomes
+/// necessary when using an octets builder, simply add these as extra trait
+/// bounds.
+pub trait OctetsBuilder: Sized {
     /// The type of the octets the builder can be converted into.
     ///
     /// If `Octets` implements [`IntoBuilder`], the `Builder` associated
     /// type of that trait must be `Self`.
     ///
     /// [`IntoBuilder`]: trait.IntoBuilder.html
-    type Octets: AsRef<[u8]>;
+    type Octets;
 
     /// Appends the content of a slice to the builder.
     ///
@@ -484,19 +488,10 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     fn freeze(self) -> Self::Octets;
 
     /// Returns the length of the already assembled data.
-    ///
-    /// This is a convenience method and identical to `self.as_ref().len()`.
-    fn len(&self) -> usize {
-        self.as_ref().len()
-    }
+    fn len(&self) -> usize;
 
     /// Returns whether the builder is currently empty.
-    ///
-    /// This is a convenience method and identical to
-    /// `self.as_ref().is_empty()`.
-    fn is_empty(&self) -> bool {
-        self.as_ref().is_empty()
-    }
+    fn is_empty(&self) -> bool;
 
     /// Appends all data or nothing.
     ///
@@ -561,6 +556,7 @@ pub trait OctetsBuilder: AsRef<[u8]> + AsMut<[u8]> + Sized {
     /// builder will be truncated to its previous length.
     fn u16_len_prefixed<F>(&mut self, op: F) -> Result<(), ShortBuf>
     where
+        Self: AsMut<[u8]>,
         F: FnOnce(&mut Self) -> Result<(), ShortBuf>,
     {
         let pos = self.len();
@@ -599,6 +595,14 @@ impl<'a, T: OctetsBuilder<Octets = T>> OctetsBuilder for &'a mut T {
     fn freeze(self) -> Self::Octets {
         self
     }
+
+    fn len(&self) -> usize {
+        OctetsBuilder::len(*self)
+    }
+
+    fn is_empty(&self) -> bool {
+        OctetsBuilder::is_empty(*self)
+    }
 }
 
 #[cfg(feature = "std")]
@@ -616,6 +620,53 @@ impl OctetsBuilder for Vec<u8> {
 
     fn freeze(self) -> Self::Octets {
         self
+    }
+
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+
+    fn is_empty(&self) -> bool {
+        Vec::is_empty(self)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<'a> OctetsBuilder for Cow<'a, [u8]> {
+    type Octets = Self;
+
+    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
+        if let Cow::Owned(ref mut vec) = *self {
+            vec.extend_from_slice(slice);
+        } else {
+            let mut vec = mem::replace(self, Cow::Borrowed(b"")).into_owned();
+            vec.extend_from_slice(slice);
+            *self = Cow::Owned(vec);
+        }
+        Ok(())
+    }
+
+    fn truncate(&mut self, len: usize) {
+        match *self {
+            Cow::Owned(ref mut vec) => vec.truncate(len),
+            Cow::Borrowed(ref mut slice) => {
+                if len < slice.len() {
+                    *slice = &slice[..len]
+                }
+            }
+        }
+    }
+
+    fn freeze(self) -> Self::Octets {
+        self
+    }
+
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.as_ref().is_empty()
     }
 }
 
@@ -635,6 +686,14 @@ impl OctetsBuilder for BytesMut {
     fn freeze(self) -> Self::Octets {
         self.freeze()
     }
+
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
+
+    fn is_empty(&self) -> bool {
+        Self::is_empty(self)
+    }
 }
 
 #[cfg(feature = "smallvec")]
@@ -653,6 +712,14 @@ impl<A: Array<Item = u8>> OctetsBuilder for SmallVec<A> {
     fn freeze(self) -> Self::Octets {
         self
     }
+
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
+
+    fn is_empty(&self) -> bool {
+        Self::is_empty(self)
+    }
 }
 
 #[cfg(feature = "heapless")]
@@ -669,6 +736,14 @@ impl<const N: usize> OctetsBuilder for heapless::Vec<u8, N> {
 
     fn freeze(self) -> Self::Octets {
         self
+    }
+
+    fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
     }
 }
 
@@ -1720,7 +1795,7 @@ pub trait Compose {
     /// If the representation doesn’t fit into the builder, returns an error.
     /// In this case the target is considered undefined. If it is supposed to
     /// be reused, it needs to be reset specifically.
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf>;
@@ -1730,7 +1805,7 @@ pub trait Compose {
     /// If the representation doesn’t fit into the builder, returns an error.
     /// In this case the target is considered undefined. If it is supposed to
     /// be reused, it needs to be reset specifically.
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1739,14 +1814,14 @@ pub trait Compose {
 }
 
 impl<'a, C: Compose + ?Sized> Compose for &'a C {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
         (*self).compose(target)
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1755,7 +1830,7 @@ impl<'a, C: Compose + ?Sized> Compose for &'a C {
 }
 
 impl Compose for i8 {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1764,7 +1839,7 @@ impl Compose for i8 {
 }
 
 impl Compose for u8 {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1773,7 +1848,7 @@ impl Compose for u8 {
 }
 
 impl Compose for i16 {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1782,7 +1857,7 @@ impl Compose for i16 {
 }
 
 impl Compose for u16 {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1791,7 +1866,7 @@ impl Compose for u16 {
 }
 
 impl Compose for i32 {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1800,7 +1875,7 @@ impl Compose for i32 {
 }
 
 impl Compose for u32 {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1809,7 +1884,7 @@ impl Compose for u32 {
 }
 
 impl Compose for Ipv4Addr {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1818,7 +1893,7 @@ impl Compose for Ipv4Addr {
 }
 
 impl Compose for Ipv6Addr {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1945,6 +2020,14 @@ macro_rules! octets_array {
 
             fn freeze(self) -> Self::Octets {
                 self
+            }
+
+            fn len(&self) -> usize {
+                self.len
+            }
+
+            fn is_empty(&self) -> bool {
+                self.len == 0
             }
         }
 

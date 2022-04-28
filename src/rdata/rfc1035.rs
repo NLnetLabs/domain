@@ -116,7 +116,7 @@ impl<Octets: AsRef<[u8]>> Parse<Octets> for A {
 }
 
 impl Compose for A {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -324,7 +324,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Hinfo<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -551,7 +551,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Minfo<ParsedDname<Ref>> {
 }
 
 impl<N: ToDname> Compose for Minfo<N> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -561,7 +561,7 @@ impl<N: ToDname> Compose for Minfo<N> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -726,7 +726,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Mx<ParsedDname<Ref>> {
 }
 
 impl<N: ToDname> Compose for Mx<N> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -736,7 +736,7 @@ impl<N: ToDname> Compose for Mx<N> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -912,7 +912,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Null<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Null<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1223,7 +1223,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Soa<ParsedDname<Ref>> {
 }
 
 impl<N: ToDname> Compose for Soa<N> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1238,7 +1238,7 @@ impl<N: ToDname> Compose for Soa<N> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1309,7 +1309,7 @@ impl<Octets: FromBuilder> Txt<Octets> {
     /// Creates a new Txt record from a single character string.
     pub fn from_slice(text: &[u8]) -> Result<Self, ShortBuf>
     where
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
     {
         let mut builder = TxtBuilder::<Octets::Builder>::new();
         builder.append_slice(text)?;
@@ -1489,7 +1489,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Txt<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -1589,7 +1589,7 @@ where
 impl<'de, Octets> serde::Deserialize<'de> for Txt<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: EmptyBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -1602,7 +1602,7 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
         {
             type Value = Txt<Octets>;
 
@@ -1667,7 +1667,7 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
         {
             type Value = Txt<Octets>;
 
@@ -1756,7 +1756,7 @@ impl TxtBuilder<BytesMut> {
     }
 }
 
-impl<Builder: OctetsBuilder> TxtBuilder<Builder> {
+impl<Builder: OctetsBuilder + AsMut<[u8]>> TxtBuilder<Builder> {
     pub fn append_slice(&mut self, mut slice: &[u8]) -> Result<(), ShortBuf> {
         if let Some(start) = self.start {
             let left = 255 - (self.builder.len() - (start + 1));

@@ -6,6 +6,13 @@
 use super::octets::ParseError;
 use core::fmt;
 
+//------------ String --------------------------------------------------------
+
+/// An immutable, UTF-8 encoded string atop some octets sequence.
+pub struct String<Octets>(Octets);
+
+// XXX Add all the things!
+
 //------------ Symbol --------------------------------------------------------
 
 /// The master file representation of a single character.
@@ -174,6 +181,36 @@ impl fmt::Display for Symbol {
     }
 }
 
+//------------ Symbols -------------------------------------------------------
+
+/// An iterator over the symbols in a char sequence.
+#[derive(Clone, Debug)]
+pub struct Symbols<Chars> {
+    /// The chars of the sequence.
+    ///
+    /// This is an option so we can fuse the iterator on error.
+    chars: Option<Chars>,
+}
+
+impl<Chars> Symbols<Chars> {
+    /// Creates a new symbols iterator atop a char iterator.
+    pub fn new(chars: Chars) -> Self {
+        Symbols { chars: Some(chars) }
+    }
+}
+
+impl<Chars: Iterator<Item = char>> Iterator for Symbols<Chars> {
+    type Item = Symbol;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Ok(res) = Symbol::from_chars(self.chars.as_mut()?) {
+            return res;
+        }
+        self.chars = None;
+        None
+    }
+}
+
 //============ Error Types ===================================================
 
 //------------ SymbolError ---------------------------------------------------
@@ -220,3 +257,10 @@ impl fmt::Display for BadSymbol {
 
 #[cfg(feature = "std")]
 impl std::error::Error for BadSymbol {}
+
+#[cfg(feature = "std")]
+impl From<BadSymbol> for std::io::Error {
+    fn from(err: BadSymbol) -> Self {
+        std::io::Error::new(std::io::ErrorKind::Other, err)
+    }
+}

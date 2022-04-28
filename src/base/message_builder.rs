@@ -217,7 +217,7 @@ impl MessageBuilder<StreamTarget<BytesMut>> {
     }
 }
 
-impl<Target: OctetsBuilder> MessageBuilder<Target> {
+impl<Target: OctetsBuilder + AsMut<[u8]>> MessageBuilder<Target> {
     /// Starts creating an answer for the given message.
     ///
     /// Specifically, this sets the ID, QR, OPCODE, RD, and RCODE fields
@@ -268,20 +268,22 @@ impl<Target: OctetsBuilder> MessageBuilder<Target> {
 
 /// # Access to the Message Header
 ///
-impl<Target: OctetsBuilder> MessageBuilder<Target> {
+impl<Target: OctetsBuilder + AsRef<[u8]>> MessageBuilder<Target> {
     /// Return the current value of the message header.
     pub fn header(&self) -> Header {
         *Header::for_message_slice(self.target.as_ref())
     }
 
-    /// Returns a mutable reference to the message header for manipulations.
-    pub fn header_mut(&mut self) -> &mut Header {
-        Header::for_message_slice_mut(self.target.as_mut())
-    }
-
     /// Return the current value of the message header counts.
     pub fn counts(&self) -> HeaderCounts {
         *HeaderCounts::for_message_slice(self.target.as_ref())
+    }
+}
+
+impl<Target: OctetsBuilder + AsMut<[u8]>> MessageBuilder<Target> {
+    /// Returns a mutable reference to the message header for manipulations.
+    pub fn header_mut(&mut self) -> &mut Header {
+        Header::for_message_slice_mut(self.target.as_mut())
     }
 
     /// Returns a mutable reference to the message header counts.
@@ -380,7 +382,7 @@ impl<Target> MessageBuilder<Target> {
 
 impl<Target> From<QuestionBuilder<Target>> for MessageBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: QuestionBuilder<Target>) -> Self {
         src.builder()
@@ -389,7 +391,7 @@ where
 
 impl<Target> From<AnswerBuilder<Target>> for MessageBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: AnswerBuilder<Target>) -> Self {
         src.builder()
@@ -398,7 +400,7 @@ where
 
 impl<Target> From<AuthorityBuilder<Target>> for MessageBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: AuthorityBuilder<Target>) -> Self {
         src.builder()
@@ -407,7 +409,7 @@ where
 
 impl<Target> From<AdditionalBuilder<Target>> for MessageBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.builder()
@@ -463,7 +465,9 @@ impl<Target: OctetsBuilder> QuestionBuilder<Target> {
     fn new(builder: MessageBuilder<Target>) -> Self {
         Self { builder }
     }
+}
 
+impl<Target: OctetsBuilder + AsMut<[u8]>> QuestionBuilder<Target> {
     /// Appends a question to the question section.
     ///
     /// This method accepts anything that implements the [`AsQuestion`]
@@ -502,7 +506,7 @@ impl<Target: OctetsBuilder> QuestionBuilder<Target> {
 /// # Conversions
 ///
 /// Additional conversion are available via the `Deref` implementation.
-impl<Target: OctetsBuilder> QuestionBuilder<Target> {
+impl<Target: OctetsBuilder + AsMut<[u8]>> QuestionBuilder<Target> {
     /// Rewinds to an empty question section.
     ///
     /// All previously added questions will be lost.
@@ -519,7 +523,9 @@ impl<Target: OctetsBuilder> QuestionBuilder<Target> {
         self.rewind();
         self.builder
     }
+}
 
+impl<Target: OctetsBuilder> QuestionBuilder<Target> {
     /// Converts the question builder into a question builder.
     ///
     /// In other words, doesn’t do anything.
@@ -587,7 +593,7 @@ where
 
 impl<Target> From<AnswerBuilder<Target>> for QuestionBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: AnswerBuilder<Target>) -> Self {
         src.question()
@@ -596,7 +602,7 @@ where
 
 impl<Target> From<AuthorityBuilder<Target>> for QuestionBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: AuthorityBuilder<Target>) -> Self {
         src.question()
@@ -605,7 +611,7 @@ where
 
 impl<Target> From<AdditionalBuilder<Target>> for QuestionBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.question()
@@ -690,11 +696,13 @@ impl<Target: OctetsBuilder> AnswerBuilder<Target> {
     /// Assumes that all three record sections are empty.
     fn new(builder: MessageBuilder<Target>) -> Self {
         AnswerBuilder {
-            start: builder.target.as_ref().len(),
+            start: builder.target.len(),
             builder,
         }
     }
+}
 
+impl<Target: OctetsBuilder + AsMut<[u8]>> AnswerBuilder<Target> {
     /// Appends a record to the answer section.
     ///
     /// This methods accepts anything that implements the [`AsRecord`] trait.
@@ -736,7 +744,7 @@ impl<Target: OctetsBuilder> AnswerBuilder<Target> {
 /// # Conversions
 ///
 /// Additional conversion are available via the `Deref` implementation.
-impl<Target: OctetsBuilder> AnswerBuilder<Target> {
+impl<Target: OctetsBuilder + AsMut<[u8]>> AnswerBuilder<Target> {
     /// Rewinds to an empty answer section.
     ///
     /// All previously added answers will be lost.
@@ -761,7 +769,9 @@ impl<Target: OctetsBuilder> AnswerBuilder<Target> {
         self.rewind();
         QuestionBuilder::new(self.builder)
     }
+}
 
+impl<Target: OctetsBuilder> AnswerBuilder<Target> {
     /// Converts the answer builder into an answer builder.
     ///
     /// This doesn’t do anything, really.
@@ -831,7 +841,7 @@ where
 
 impl<Target> From<AuthorityBuilder<Target>> for AnswerBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: AuthorityBuilder<Target>) -> Self {
         src.answer()
@@ -840,7 +850,7 @@ where
 
 impl<Target> From<AdditionalBuilder<Target>> for AnswerBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.answer()
@@ -925,11 +935,13 @@ impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
     /// Assumes that the authority and additional sections are empty.
     fn new(answer: AnswerBuilder<Target>) -> Self {
         AuthorityBuilder {
-            start: answer.as_target().as_ref().len(),
+            start: answer.as_target().len(),
             answer,
         }
     }
+}
 
+impl<Target: OctetsBuilder + AsMut<[u8]>> AuthorityBuilder<Target> {
     /// Appends a record to the authority section.
     ///
     /// This methods accepts anything that implements the [`AsRecord`] trait.
@@ -971,7 +983,7 @@ impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
 ///
 /// Additional conversion methods are available via the `Deref`
 /// implementation.
-impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
+impl<Target: OctetsBuilder + AsMut<[u8]>> AuthorityBuilder<Target> {
     /// Rewinds to an empty authority section.
     ///
     /// All previously added authority records will be lost.
@@ -1004,7 +1016,9 @@ impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
         self.rewind();
         self.answer
     }
+}
 
+impl<Target: OctetsBuilder> AuthorityBuilder<Target> {
     /// Converts the authority builder into an authority builder.
     ///
     /// This is identical to the identity function.
@@ -1076,7 +1090,7 @@ where
 
 impl<Target> From<AdditionalBuilder<Target>> for AuthorityBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.authority()
@@ -1166,11 +1180,13 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
     /// Assumes that the additional section is currently empty.
     fn new(authority: AuthorityBuilder<Target>) -> Self {
         AdditionalBuilder {
-            start: authority.as_target().as_ref().len(),
+            start: authority.as_target().len(),
             authority,
         }
     }
+}
 
+impl<Target: OctetsBuilder + AsMut<[u8]>> AdditionalBuilder<Target> {
     /// Appends a record to the additional section.
     ///
     /// This methods accepts anything that implements the [`AsRecord`] trait.
@@ -1206,7 +1222,12 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
             err
         })
     }
+}
 
+impl<Target> AdditionalBuilder<Target>
+where
+    Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
     /// Appends and builds an OPT record.
     ///
     /// The actual building of the record is handled by a closure that
@@ -1229,7 +1250,7 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
 ///
 /// Additional conversion methods are available via the `Deref`
 /// implementation.
-impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
+impl<Target: OctetsBuilder + AsMut<[u8]>> AdditionalBuilder<Target> {
     /// Rewinds to an empty additional section.
     ///
     /// All previously added additional records will be lost.
@@ -1270,7 +1291,9 @@ impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
         self.rewind();
         self.authority
     }
+}
 
+impl<Target: OctetsBuilder> AdditionalBuilder<Target> {
     /// Converts the additional builder into an additional builder.
     ///
     /// In other words, does absolutely nothing.
@@ -1404,14 +1427,14 @@ pub trait RecordSectionBuilder {
 
 impl<Target> RecordSectionBuilder for AnswerBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn push(&mut self, record: impl AsRecord) -> Result<(), ShortBuf> {
         Self::push(self, record)
     }
 }
 
-impl<Target: OctetsBuilder> RecordSectionBuilder
+impl<Target: OctetsBuilder + AsMut<[u8]>> RecordSectionBuilder
     for AuthorityBuilder<Target>
 {
     fn push(&mut self, record: impl AsRecord) -> Result<(), ShortBuf> {
@@ -1421,7 +1444,7 @@ impl<Target: OctetsBuilder> RecordSectionBuilder
 
 impl<Target> RecordSectionBuilder for AdditionalBuilder<Target>
 where
-    Target: OctetsBuilder,
+    Target: OctetsBuilder + AsMut<[u8]>,
 {
     fn push(&mut self, record: impl AsRecord) -> Result<(), ShortBuf> {
         Self::push(self, record)
@@ -1450,12 +1473,15 @@ pub struct OptBuilder<'a, Target> {
     arcount: u16,
 }
 
-impl<'a, Target: OctetsBuilder> OptBuilder<'a, Target> {
+impl<'a, Target> OptBuilder<'a, Target>
+where
+    Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
     /// Creates a new opt builder atop an additional builder.
     fn new(
         additional: &'a mut AdditionalBuilder<Target>,
     ) -> Result<Self, ShortBuf> {
-        let start = additional.as_target().as_ref().len();
+        let start = additional.as_target().len();
         let arcount = additional.counts().arcount();
 
         let err = additional
@@ -1622,7 +1648,7 @@ pub struct StreamTarget<Target> {
     target: Target,
 }
 
-impl<Target: OctetsBuilder> StreamTarget<Target> {
+impl<Target: OctetsBuilder + AsMut<[u8]>> StreamTarget<Target> {
     /// Creates a new stream target wrapping an octets builder.
     ///
     /// The function will truncate the builder back to empty and appends the
@@ -1658,11 +1684,16 @@ impl<Target: OctetsBuilder> StreamTarget<Target> {
     }
 
     /// Updates the length value to the current length of the target.
-    fn update_shim(&mut self) {
+    fn update_shim(&mut self)
+    where
+        Target: AsMut<[u8]>,
+    {
         let len = (self.target.len() - 2) as u16;
         self.target.as_mut()[..2].copy_from_slice(&len.to_be_bytes())
     }
+}
 
+impl<Target: OctetsBuilder + AsRef<[u8]>> StreamTarget<Target> {
     /// Returns an octets slice of the message for stream transports.
     ///
     /// The slice will start with the length octets and can be send as is
@@ -1697,7 +1728,10 @@ impl<Target: AsMut<[u8]>> AsMut<[u8]> for StreamTarget<Target> {
 
 //--- OctetsBuilder
 
-impl<Target: OctetsBuilder> OctetsBuilder for StreamTarget<Target> {
+impl<Target> OctetsBuilder for StreamTarget<Target>
+where
+    Target: OctetsBuilder + AsMut<[u8]>,
+{
     type Octets = Target::Octets;
 
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
@@ -1717,6 +1751,14 @@ impl<Target: OctetsBuilder> OctetsBuilder for StreamTarget<Target> {
 
     fn freeze(self) -> Self::Octets {
         self.target.freeze()
+    }
+
+    fn len(&self) -> usize {
+        self.target.len() - 2
+    }
+
+    fn is_empty(&self) -> bool {
+        self.target.len() > 2
     }
 }
 
@@ -1833,7 +1875,10 @@ impl<Target: AsMut<[u8]>> AsMut<[u8]> for StaticCompressor<Target> {
 
 //--- OctetsBuilder
 
-impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
+impl<Target> OctetsBuilder for StaticCompressor<Target>
+where
+    Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
     type Octets = Target::Octets;
 
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
@@ -1892,6 +1937,14 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
 
     fn freeze(self) -> Self::Octets {
         self.target.freeze()
+    }
+
+    fn len(&self) -> usize {
+        self.target.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.target.is_empty()
     }
 }
 
@@ -2042,7 +2095,10 @@ impl<Target: AsMut<[u8]>> AsMut<[u8]> for TreeCompressor<Target> {
 }
 
 #[cfg(feature = "std")]
-impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
+impl<Target> OctetsBuilder for TreeCompressor<Target>
+where
+    Target: OctetsBuilder + AsMut<[u8]>,
+{
     type Octets = Target::Octets;
 
     fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
@@ -2098,6 +2154,14 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
     fn freeze(self) -> Self::Octets {
         self.target.freeze()
     }
+
+    fn len(&self) -> usize {
+        self.target.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.target.is_empty()
+    }
 }
 
 //============ Testing =======================================================
@@ -2149,6 +2213,8 @@ mod test {
 
         // Convert the builder into the actual message.
         let target = msg.finish().into_target();
+
+        eprintln!("target {}", target.len());
 
         // Reparse message and check contents
         let msg = Message::from_octets(target.as_dgram_slice()).unwrap();
@@ -2202,7 +2268,10 @@ mod test {
         assert_eq!(opts.next(), Some(Ok(nsid)));
     }
 
-    fn create_compressed<T: OctetsBuilder + AsRef<[u8]>>(target: T) -> T {
+    fn create_compressed<T>(target: T) -> T
+    where
+        T: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    {
         let mut msg = MessageBuilder::from_target(target).unwrap().question();
         msg.header_mut().set_rcode(Rcode::NXDomain);
         msg.header_mut().set_rd(true);

@@ -89,7 +89,9 @@ impl<OB: OctetsBuilder, N> $name<OB, N> {
             sorter: self.sorter,
         }
     }
+}
 
+impl<OB: OctetsBuilder + AsMut<[u8]>, N> $name<OB, N> {
     /// Push a parameter into the builder.
     pub fn push<O: AsRef<[u8]>>(
         &mut self,
@@ -123,7 +125,7 @@ impl<Ref: OctetsRef> Parse<Ref> for $name<Ref::Range, ParsedDname<Ref>> {
 }
 
 impl<O: AsRef<[u8]>, N: Compose> Compose for $name<O, N> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -151,7 +153,7 @@ impl<O: AsRef<[u8]>, N: Compose> Compose for $name<O, N> {
 
 impl<O: AsRef<[u8]>, N: Compose> $name<O, N> {
     /// Compose without checking for the order of parameters.
-    pub fn compose_unchecked<T: OctetsBuilder>(
+    pub fn compose_unchecked<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -355,7 +357,7 @@ pub mod param {
             }
 
             impl<O: AsRef<[u8]>> Compose for AllParams<O> {
-                fn compose<T: OctetsBuilder>(
+                fn compose<T: OctetsBuilder + AsMut<[u8]>>(
                     &self,
                     target: &mut T,
                 ) -> Result<(), ShortBuf> {
@@ -452,7 +454,7 @@ pub mod param {
             }
 
             impl<O: AsRef<[u8]>> Compose for $name<O> {
-                fn compose<T: OctetsBuilder>(
+                fn compose<T: OctetsBuilder + AsMut<[u8]>>(
                     &self,
                     target: &mut T,
                 ) -> Result<(), ShortBuf> {
@@ -535,7 +537,7 @@ pub mod param {
 
     octets_wrapper!(Mandatory, MandatoryIter);
 
-    impl<OB: OctetsBuilder> Mandatory<OB> {
+    impl<OB: OctetsBuilder + AsMut<[u8]>> Mandatory<OB> {
         pub fn push(&mut self, key: SvcbParamKey) -> Result<(), ShortBuf> {
             u16::from(key).compose(&mut self.0)
         }
@@ -572,7 +574,7 @@ pub mod param {
 
     octets_wrapper!(Alpn, AlpnIter);
 
-    impl<OB: OctetsBuilder> Alpn<OB> {
+    impl<OB: OctetsBuilder + AsMut<[u8]>> Alpn<OB> {
         pub fn push<O: AsRef<[u8]>>(
             &mut self,
             name: O,
@@ -636,7 +638,7 @@ pub mod param {
     }
 
     impl Compose for NoDefaultAlpn {
-        fn compose<T: OctetsBuilder>(
+        fn compose<T: OctetsBuilder + AsMut<[u8]>>(
             &self,
             _target: &mut T,
         ) -> Result<(), ShortBuf> {
@@ -676,7 +678,7 @@ pub mod param {
     }
 
     impl Compose for Port {
-        fn compose<T: OctetsBuilder>(
+        fn compose<T: OctetsBuilder + AsMut<[u8]>>(
             &self,
             target: &mut T,
         ) -> Result<(), ShortBuf> {
@@ -827,7 +829,7 @@ pub mod param {
     }
 
     impl<O: AsRef<[u8]>> Compose for Unknown<O> {
-        fn compose<T: OctetsBuilder>(
+        fn compose<T: OctetsBuilder + AsMut<[u8]>>(
             &self,
             target: &mut T,
         ) -> Result<(), ShortBuf> {

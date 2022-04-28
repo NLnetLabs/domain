@@ -95,7 +95,7 @@ impl<Octets> Dname<Octets> {
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
         C: IntoIterator<Item = char>,
     {
         let mut builder = DnameBuilder::<Octets::Builder>::new();
@@ -629,7 +629,7 @@ where
 impl<Octets> FromStr for Dname<Octets>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder: EmptyBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
 {
     type Err = FromStrError;
 
@@ -785,14 +785,14 @@ fn name_len<Source: AsRef<[u8]>>(
 }
 
 impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -879,7 +879,7 @@ where
 impl<'de, Octets> serde::Deserialize<'de> for Dname<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: EmptyBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -892,7 +892,7 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
         {
             type Value = Dname<Octets>;
 
@@ -933,7 +933,7 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
         {
             type Value = Dname<Octets>;
 

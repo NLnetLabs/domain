@@ -70,7 +70,7 @@ impl<Builder> DnameBuilder<Builder> {
     /// consititutes a correctly encoded relative domain name.
     pub fn from_builder(builder: Builder) -> Result<Self, RelativeDnameError>
     where
-        Builder: OctetsBuilder,
+        Builder: OctetsBuilder + AsRef<[u8]>,
     {
         RelativeDname::check_slice(builder.as_ref())?;
         Ok(unsafe { DnameBuilder::from_builder_unchecked(builder) })
@@ -110,6 +110,18 @@ impl DnameBuilder<BytesMut> {
 }
 
 impl<Builder: OctetsBuilder> DnameBuilder<Builder> {
+    /// Returns the length of the already assembled domain name.
+    pub fn len(&self) -> usize {
+        self.builder.len()
+    }
+
+    /// Returns whether the name is still empty.
+    pub fn is_empty(&self) -> bool {
+        self.builder.is_empty()
+    }
+}
+
+impl<Builder: OctetsBuilder + AsMut<[u8]>> DnameBuilder<Builder> {
     /// Returns whether there currently is a label under construction.
     ///
     /// This returns `false` if the name is still empty or if the last thing
@@ -322,7 +334,7 @@ impl<Builder: EmptyBuilder> Default for DnameBuilder<Builder> {
 
 //--- Deref and AsRef
 
-impl<Builder: OctetsBuilder> ops::Deref for DnameBuilder<Builder> {
+impl<Builder: AsRef<[u8]>> ops::Deref for DnameBuilder<Builder> {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
@@ -330,7 +342,7 @@ impl<Builder: OctetsBuilder> ops::Deref for DnameBuilder<Builder> {
     }
 }
 
-impl<Builder: OctetsBuilder> AsRef<[u8]> for DnameBuilder<Builder> {
+impl<Builder: AsRef<[u8]>> AsRef<[u8]> for DnameBuilder<Builder> {
     fn as_ref(&self) -> &[u8] {
         self.builder.as_ref()
     }

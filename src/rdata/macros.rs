@@ -241,7 +241,7 @@ macro_rules! rdata_types {
 
         impl<O, N> $crate::base::octets::Compose for ZoneRecordData<O, N>
         where O: AsRef<[u8]>, N: $crate::base::name::ToDname {
-            fn compose<T: $crate::base::octets::OctetsBuilder>(
+            fn compose<T: $crate::base::octets::OctetsBuilder + AsMut<[u8]>>(
                 &self,
                 target: &mut T
             ) -> Result<(), $crate::base::octets::ShortBuf> {
@@ -257,10 +257,11 @@ macro_rules! rdata_types {
                 }
             }
 
-            fn compose_canonical<T: $crate::base::octets::OctetsBuilder>(
+            fn compose_canonical<T>(
                 &self,
                 target: &mut T
-            ) -> Result<(), $crate::base::octets::ShortBuf> {
+            ) -> Result<(), $crate::base::octets::ShortBuf>
+            where T: $crate::base::octets::OctetsBuilder + AsMut<[u8]> {
                 match *self {
                     $( $( $(
                         ZoneRecordData::$mtype(ref inner) => {
@@ -664,7 +665,7 @@ macro_rules! rdata_types {
         impl<O, N> $crate::base::octets::Compose for AllRecordData<O, N>
         where O: AsRef<[u8]>, N: $crate::base::name::ToDname
         {
-            fn compose<T: $crate::base::octets::OctetsBuilder>(
+            fn compose<T: $crate::base::octets::OctetsBuilder + AsMut<[u8]>>(
                 &self,
                 buf: &mut T
             ) -> Result<(), $crate::base::octets::ShortBuf> {
@@ -684,10 +685,11 @@ macro_rules! rdata_types {
                 }
             }
 
-            fn compose_canonical<T: $crate::base::octets::OctetsBuilder>(
+            fn compose_canonical<T>(
                 &self,
                 buf: &mut T
-            ) -> Result<(), $crate::base::octets::ShortBuf> {
+            ) -> Result<(), $crate::base::octets::ShortBuf>
+            where T: $crate::base::octets::OctetsBuilder + AsMut<[u8]> {
                 match *self {
                     $( $( $(
                         AllRecordData::$mtype(ref inner) => {
@@ -967,14 +969,14 @@ macro_rules! dname_type {
         }
 
         impl<N: ToDname> Compose for $target<N> {
-            fn compose<T: OctetsBuilder>(
+            fn compose<T: OctetsBuilder + AsMut<[u8]>>(
                 &self,
                 target: &mut T
             ) -> Result<(), ShortBuf> {
                 target.append_compressed_dname(&self.$field)
             }
 
-            fn compose_canonical<T: OctetsBuilder>(
+            fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
                 &self,
                 target: &mut T
             ) -> Result<(), ShortBuf> {

@@ -40,7 +40,7 @@ macro_rules! opt_types {
         //--- Compose
 
         impl<Octets: AsRef<[u8]>> Compose for AllOptData<Octets> {
-            fn compose<T: $crate::base::octets::OctetsBuilder>(
+            fn compose<T: $crate::base::octets::OctetsBuilder + AsMut<[u8]>>(
                 &self, target: &mut T
             ) -> Result<(), ShortBuf> {
                 match *self {

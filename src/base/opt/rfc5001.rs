@@ -26,10 +26,14 @@ impl<Octets> Nsid<Octets> {
 }
 
 impl Nsid<()> {
-    pub fn push<Target: OctetsBuilder, Data: AsRef<[u8]>>(
+    pub fn push<Target, Data>(
         builder: &mut OptBuilder<Target>,
         data: &Data
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), ShortBuf>
+    where
+        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+        Data: AsRef<[u8]>,
+    {
         let data = data.as_ref();
         assert!(data.len() <= core::u16::MAX as usize);
         builder.push_raw_option(OptionCode::Nsid, |target| {
@@ -56,7 +60,7 @@ impl<Octets> CodeOptData for Nsid<Octets> {
 
 
 impl<Octets: AsRef<[u8]>> Compose for Nsid<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T
     ) -> Result<(), ShortBuf> {

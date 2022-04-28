@@ -30,7 +30,7 @@ macro_rules! option_type {
         }
 
         impl $name<()> {
-            pub fn push<Target: OctetsBuilder>(
+            pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
                 builder: &mut OptBuilder<Target>,
                 algs: &[SecAlg]
             ) -> Result<(), ShortBuf> {
@@ -61,7 +61,7 @@ macro_rules! option_type {
         }
 
         impl<Octets: AsRef<[u8]>> Compose for $name<Octets> {
-            fn compose<T: OctetsBuilder>(
+            fn compose<T: OctetsBuilder + AsMut<[u8]>>(
                 &self,
                 target: &mut T
             ) -> Result<(), ShortBuf> {

@@ -18,7 +18,7 @@ impl Expire {
         Expire(expire)
     }
 
-    pub fn push<Target: OctetsBuilder>(
+    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         builder: &mut OptBuilder<Target>,
         expire: Option<u32>
     ) -> Result<(), ShortBuf> {
@@ -54,7 +54,7 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for Expire {
 }
 
 impl Compose for Expire {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T
     ) -> Result<(), ShortBuf> {

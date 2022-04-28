@@ -334,7 +334,7 @@ where
 }
 
 impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -347,7 +347,7 @@ impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -434,7 +434,7 @@ pub trait AsRecord {
     fn data(&self) -> &Self::Data;
 
     /// Produces the encoded record.
-    fn compose_record<T: OctetsBuilder>(
+    fn compose_record<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -448,7 +448,7 @@ pub trait AsRecord {
     }
 
     /// Produces the canonically encoded record.
-    fn compose_record_canonical<T: OctetsBuilder>(
+    fn compose_record_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -775,7 +775,7 @@ impl<Ref: OctetsRef> Parse<Ref> for RecordHeader<ParsedDname<Ref>> {
 }
 
 impl<Name: Compose> Compose for RecordHeader<Name> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -788,7 +788,7 @@ impl<Name: Compose> Compose for RecordHeader<Name> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {

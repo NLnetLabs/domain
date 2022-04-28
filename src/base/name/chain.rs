@@ -100,7 +100,7 @@ impl<L, R> Chain<L, R> {
 //--- Compose
 
 impl<L: ToRelativeDname, R: ToEitherDname> Compose for Chain<L, R> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -110,7 +110,7 @@ impl<L: ToRelativeDname, R: ToEitherDname> Compose for Chain<L, R> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -126,7 +126,7 @@ where
     Octets: AsRef<[u8]>,
     R: ToDname,
 {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -141,7 +141,7 @@ where
         }
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {

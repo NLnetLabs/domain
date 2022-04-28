@@ -344,7 +344,7 @@ impl<Ref: OctetsRef> Parse<Ref> for CharStr<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
-    fn compose<Target: OctetsBuilder>(
+    fn compose<Target: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut Target,
     ) -> Result<(), ShortBuf> {
@@ -578,7 +578,7 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     /// If the octet sequence is longer than 255 octets, an error is
     /// returned.
     pub fn from_builder(builder: Builder) -> Result<Self, CharStrError> {
-        if builder.as_ref().len() > 255 {
+        if builder.len() > 255 {
             Err(CharStrError)
         } else {
             Ok(unsafe { Self::from_builder_unchecked(builder) })
@@ -614,7 +614,10 @@ impl CharStrBuilder<BytesMut> {
 
 impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     /// Returns an octet slice of the string assembled so far.
-    pub fn as_slice(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &[u8]
+    where
+        Builder: AsRef<[u8]>,
+    {
         self.0.as_ref()
     }
 
@@ -651,6 +654,14 @@ impl<Builder: OctetsBuilder> OctetsBuilder for CharStrBuilder<Builder> {
     fn freeze(self) -> Self::Octets {
         self.0.freeze()
     }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 //--- Deref and DerefMut
@@ -674,7 +685,7 @@ where
 
 //--- AsRef and AsMut
 
-impl<Builder: OctetsBuilder> AsRef<[u8]> for CharStrBuilder<Builder> {
+impl<Builder: AsRef<[u8]>> AsRef<[u8]> for CharStrBuilder<Builder> {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }

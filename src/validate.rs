@@ -106,7 +106,11 @@ pub trait RrsigExt: Compose {
     ///    the received RRset due to DNS name compression, decremented TTLs, or
     ///    wildcard expansion.
     /// ```
-    fn signed_data<N: ToDname, D: RecordData, B: OctetsBuilder>(
+    fn signed_data<
+        N: ToDname,
+        D: RecordData,
+        B: OctetsBuilder + AsMut<[u8]>,
+    >(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
@@ -143,7 +147,11 @@ pub trait RrsigExt: Compose {
 }
 
 impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
-    fn signed_data<N: ToDname, D: RecordData, B: OctetsBuilder>(
+    fn signed_data<
+        N: ToDname,
+        D: RecordData,
+        B: OctetsBuilder + AsMut<[u8]>,
+    >(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],

@@ -561,7 +561,7 @@ where
         R: AsRecord + 's,
         F: FnMut(ParsedRecord<&'s Octets>) -> Option<R>,
         T: Into<AnswerBuilder<O>>,
-        O: OctetsBuilder,
+        O: OctetsBuilder + AsMut<[u8]>,
     {
         let mut source = self.answer()?;
         let mut target = target.into();

@@ -36,7 +36,7 @@ impl ClientSubnet {
         }
     }
 
-    pub fn push<Target: OctetsBuilder>(
+    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         builder: &mut OptBuilder<Target>,
         source_prefix_len: u8,
         scope_prefix_len: u8,
@@ -134,7 +134,7 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
 }
 
 impl Compose for ClientSubnet {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {

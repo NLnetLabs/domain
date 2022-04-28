@@ -399,7 +399,7 @@ where
 }
 
 impl<Ref: AsRef<[u8]>> Compose for ParsedDname<Ref> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -415,7 +415,7 @@ impl<Ref: AsRef<[u8]>> Compose for ParsedDname<Ref> {
         }
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {

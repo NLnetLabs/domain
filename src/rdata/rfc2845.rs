@@ -407,7 +407,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Tsig<Ref::Range, ParsedDname<Ref>> {
 }
 
 impl<O: AsRef<[u8]>, N: Compose> Compose for Tsig<O, N> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -559,7 +559,7 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for Time48 {
 }
 
 impl Compose for Time48 {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {

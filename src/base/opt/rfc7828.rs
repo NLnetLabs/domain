@@ -18,7 +18,7 @@ impl TcpKeepalive {
         TcpKeepalive(timeout)
     }
 
-    pub fn push<Target: OctetsBuilder>(
+    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         builder: &mut OptBuilder<Target>,
         timeout: u16
     ) -> Result<(), ShortBuf> {
@@ -44,7 +44,7 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for TcpKeepalive {
 }
 
 impl Compose for TcpKeepalive {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T
     ) -> Result<(), ShortBuf> {
