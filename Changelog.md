@@ -44,9 +44,16 @@ Bug Fixes
 
 * Correctly encode and decode the address in EDNS client subnet when the
   number of bits isn’t divisible by 8. ([#101] and [#102] by [@xofyarg])
-* `validate`: Check for the correct public key size instead of infering if
-  from the RRSIG length. ([#110] by [@vavrusa])
+* `validate`:
+  * Check for the correct public key size instead of infering if
+    from the RRSIG length. ([#110] by [@vavrusa])
+  * Canonalize the security algorithm before evaluation to avoid missing
+    algorithm provided via the unknown integer variant. ([#127] by [@vavrusa])
 * Support for no-std environments now actually works. ([#117] by @Jezza)
+* Canonalize IANA types when scanning so that, e.g., `CLASS3` becomes
+  `Class::Ch` instead of `Class::Int(3)`. ([#127] by [@vavrusa])
+* `resolv`: Fixed generation of the domain name to be used for reverse
+  IPv6 lookups. ([#131])
 
 Other Changes
 
@@ -66,7 +73,9 @@ Other Changes
 [#121]: https://github.com/NLnetLabs/domain/pull/121
 [#122]: https://github.com/NLnetLabs/domain/pull/122
 [#125]: https://github.com/NLnetLabs/domain/pull/125
+[#127]: https://github.com/NLnetLabs/domain/pull/127
 [#128]: https://github.com/NLnetLabs/domain/pull/128
+[#131]: https://github.com/NLnetLabs/domain/pull/131
 [@bugadani]: https://github.com/bugadani
 [@Jezza]: https://github.com/Jezza
 [@tomaskrizek]: https://github.com/tomaskrizek
