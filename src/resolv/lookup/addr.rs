@@ -107,8 +107,8 @@ fn dname_from_addr(addr: IpAddr) -> Dname<Octets128> {
         IpAddr::V6(addr) => {
             let mut res = DnameBuilder::<Octets128>::new();
             for &item in addr.octets().iter().rev() {
-                res.append_label(&[hexdigit(item >> 4)]).unwrap();
                 res.append_label(&[hexdigit(item)]).unwrap();
+                res.append_label(&[hexdigit(item >> 4)]).unwrap();
             }
             res.append_label(b"ip6").unwrap();
             res.append_label(b"arpa").unwrap();
@@ -118,7 +118,7 @@ fn dname_from_addr(addr: IpAddr) -> Dname<Octets128> {
 }
 
 fn hexdigit(nibble: u8) -> u8 {
-    match nibble % 0x0F {
+    match nibble & 0x0F {
         0 => b'0',
         1 => b'1',
         2 => b'2',
@@ -128,6 +128,7 @@ fn hexdigit(nibble: u8) -> u8 {
         6 => b'6',
         7 => b'7',
         8 => b'8',
+        9 => b'9',
         10 => b'A',
         11 => b'B',
         12 => b'C',
@@ -135,5 +136,33 @@ fn hexdigit(nibble: u8) -> u8 {
         14 => b'E',
         15 => b'F',
         _ => unreachable!(),
+    }
+}
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use core::str::FromStr;
+
+    #[test]
+    fn test_dname_from_addr() {
+        assert_eq!(
+            dname_from_addr([192, 0, 2, 12].into()),
+            Dname::<Octets128>::from_str("12.2.0.192.in-addr.arpa").unwrap()
+        );
+        assert_eq!(
+            dname_from_addr(
+                [0x2001, 0xdb8, 0x2c88, 0x0, 0xfff, 0x1, 0x1200, 0xc032]
+                    .into()
+            ),
+            Dname::<Octets128>::from_str(
+                "2.3.0.c.0.0.2.1.1.0.0.0.f.f.f.0.\
+                 0.0.0.0.8.8.c.2.8.b.d.0.1.0.0.2.\
+                 ip6.arpa"
+            )
+            .unwrap()
+        );
     }
 }
