@@ -154,12 +154,12 @@ mod test {
         );
         assert_eq!(
             dname_from_addr(
-                [0x2001, 0xdb8, 0x2c88, 0x0, 0xfff, 0x1, 0x1200, 0xc032]
+                [0x2001, 0xdb8, 0x1234, 0x0, 0x5678, 0x1, 0x9abc, 0xdef]
                     .into()
             ),
             Dname::<Octets128>::from_str(
-                "2.3.0.c.0.0.2.1.1.0.0.0.f.f.f.0.\
-                 0.0.0.0.8.8.c.2.8.b.d.0.1.0.0.2.\
+                "f.e.d.0.c.b.a.9.1.0.0.0.8.7.6.5.\
+                 0.0.0.0.4.3.2.1.8.b.d.0.1.0.0.2.\
                  ip6.arpa"
             )
             .unwrap()
