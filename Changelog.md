@@ -43,6 +43,8 @@ New
   (i.e., `OctetsBuilder::Octets = Self`). ([#121])
 * Support for [`heapless::Vec<u8, N>`] as an octets sequence via the new
   `heapless` feature. ([#122] by [@bugadani])
+* The parameter types for SVCB record data now also implement `Eq`
+  ([#135])
 
 Bug Fixes
 
@@ -81,6 +83,7 @@ Other Changes
 [#128]: https://github.com/NLnetLabs/domain/pull/128
 [#130]: https://github.com/NLnetLabs/domain/pull/130
 [#131]: https://github.com/NLnetLabs/domain/pull/131
+[#135]: https://github.com/NLnetLabs/domain/pull/135
 [@bugadani]: https://github.com/bugadani
 [@Jezza]: https://github.com/Jezza
 [@tomaskrizek]: https://github.com/tomaskrizek
