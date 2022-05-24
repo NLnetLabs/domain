@@ -52,7 +52,7 @@ impl Symbol {
             return Ok(Some(Symbol::Char(ch)));
         }
         match chars.next() {
-            Some(ch) if ch.is_digit(10) => {
+            Some(ch) if ch.is_ascii_digit() => {
                 let ch = ch.to_digit(10).unwrap() * 100;
                 let ch2 = match chars.next() {
                     Some(ch) => match ch.to_digit(10) {

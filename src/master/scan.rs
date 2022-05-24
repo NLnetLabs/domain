@@ -645,7 +645,7 @@ impl<C: CharSource> Scanner<C> {
     /// Tries to read and return the content of an escape sequence.
     fn source_escape(&mut self) -> Result<bool, ScanError> {
         let ch = match self.chars_next()? {
-            Some(ch) if ch.is_digit(10) => {
+            Some(ch) if ch.is_ascii_digit() => {
                 let ch = ch.to_digit(10).unwrap() * 100;
                 let ch2 = match self.chars_next()? {
                     Some(ch) => match ch.to_digit(10) {

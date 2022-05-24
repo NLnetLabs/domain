@@ -702,7 +702,7 @@ mod test {
         );
 
         builder.append_slice(&[0u8; 60][..]).unwrap();
-        let _ = builder.clone().append_label(b"123").unwrap();
+        builder.clone().append_label(b"123").unwrap();
         assert_eq!(builder.append_slice(b"1234"), Err(PushError::LongLabel));
         builder.append_slice(b"12").unwrap();
         builder.push(b'3').unwrap();
