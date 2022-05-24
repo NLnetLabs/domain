@@ -5,6 +5,10 @@
 Breaking Changes
 
 * The minimum supported Rust version is now 1.56.1. ([#128])
+* The `OctetsBuilder` trait does not require `AsRef<[u8]>` and
+  `AsMut<[u8]>` any more. These have been added as explicit trait bounds
+  where needed. In return, `Cow<[u8]>` can now be used as an octets
+  builder where `AsMut<[u8]>` is not needed. ([#130]).
 * The `Display` implementation for `UncertainDname` now ends an absolute
   name with a dot to match the behaviour of the `FromStr` implementation.
   ([#116])
@@ -75,6 +79,7 @@ Other Changes
 [#125]: https://github.com/NLnetLabs/domain/pull/125
 [#127]: https://github.com/NLnetLabs/domain/pull/127
 [#128]: https://github.com/NLnetLabs/domain/pull/128
+[#130]: https://github.com/NLnetLabs/domain/pull/130
 [#131]: https://github.com/NLnetLabs/domain/pull/131
 [@bugadani]: https://github.com/bugadani
 [@Jezza]: https://github.com/Jezza
