@@ -329,7 +329,7 @@ pub mod param {
     macro_rules! param_enum {
         ($($name:ident($type:ty),)+) => {
             /// A enum to hold all the parameters.
-            #[derive(Debug, Clone, PartialEq)]
+            #[derive(Debug, Clone, Eq, PartialEq)]
             pub enum AllParams<Octets> {
                 $($name($type)),+
             }
@@ -434,7 +434,7 @@ pub mod param {
     macro_rules! octets_wrapper {
         ($name:ident) => {
             /// A SVCB parameter.
-            #[derive(Debug, Clone, PartialEq)]
+            #[derive(Debug, Clone, Eq, PartialEq)]
             pub struct $name<Octets>(Octets);
             impl<Ref: OctetsRef> Parse<Ref> for $name<Ref::Range> {
                 fn parse(
@@ -624,7 +624,7 @@ pub mod param {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct NoDefaultAlpn;
 
     impl<Ref: OctetsRef> Parse<Ref> for NoDefaultAlpn {
@@ -658,7 +658,7 @@ pub mod param {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Port(u16);
     impl Port {
         pub fn new(port: u16) -> Self {
@@ -806,7 +806,7 @@ pub mod param {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Unknown<Octets> {
         key: SvcbParamKey,
         val: Octets,
