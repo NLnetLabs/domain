@@ -303,7 +303,7 @@ impl Key {
     ///
     /// The method fails if the TSIG record doesn’t fit into the message
     /// anymore, in which case the builder is returned unharmed.
-    fn complete_message<Target: OctetsBuilder>(
+    fn complete_message<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         &self,
         message: &mut AdditionalBuilder<Target>,
         variables: &Variables,
@@ -431,7 +431,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// recommended default value for _fudge:_ 300 seconds.
     ///
     /// [`request_with_fudge`]: #method.request_with_fudge
-    pub fn request<Target: OctetsBuilder>(
+    pub fn request<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
     ) -> Result<Self, ShortBuf> {
@@ -457,11 +457,14 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// the untouched message.
     ///
     /// [`request`]: #method.request
-    pub fn request_with_fudge<Target: OctetsBuilder>(
+    pub fn request_with_fudge<Target>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
         fudge: u16,
-    ) -> Result<Self, ShortBuf> {
+    ) -> Result<Self, ShortBuf>
+    where
+        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    {
         let variables =
             Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
@@ -581,7 +584,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// If appending the TSIG record fails, which can only happen if there
     /// isn’t enough space left, it returns the builder unchanged as the
     /// error case.
-    pub fn answer<Target: OctetsBuilder>(
+    pub fn answer<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         self,
         message: &mut AdditionalBuilder<Target>,
     ) -> Result<(), ShortBuf> {
@@ -596,11 +599,14 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// The default, suggested by the RFC, is 300.
     ///
     /// [`answer`]: #method.answer
-    pub fn answer_with_fudge<Target: OctetsBuilder>(
+    pub fn answer_with_fudge<Target>(
         self,
         message: &mut AdditionalBuilder<Target>,
         fudge: u16,
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), ShortBuf>
+    where
+        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    {
         let variables =
             Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
         let (mac, key) =
@@ -661,7 +667,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// returns the builder untouched as the error case. Otherwise, it will
     /// freeze the message and return both it and a new value of a client
     /// sequence.
-    pub fn request<Target: OctetsBuilder>(
+    pub fn request<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
     ) -> Result<Self, ShortBuf> {
@@ -677,11 +683,14 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// seconds.
     ///
     /// [`request`]: #method.request
-    pub fn request_with_fudge<Target: OctetsBuilder>(
+    pub fn request_with_fudge<Target>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
         fudge: u16,
-    ) -> Result<Self, ShortBuf> {
+    ) -> Result<Self, ShortBuf>
+    where
+        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    {
         let variables =
             Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
@@ -889,7 +898,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// it attempts to add a TSIG record to the additional section, if that
     /// fails because there wasn’t enough space in the builder, returns the
     /// unchanged builder as an error.
-    pub fn answer<Target: OctetsBuilder>(
+    pub fn answer<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         &mut self,
         message: &mut AdditionalBuilder<Target>,
     ) -> Result<(), ShortBuf> {
@@ -901,11 +910,14 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// This is nearly identical to [`answer`][Self::answer] except that it
     /// allows to specify the ‘fudge’ which declares the number of seconds
     /// the receiver’s clock may be off from this systems current time.
-    pub fn answer_with_fudge<Target: OctetsBuilder>(
+    pub fn answer_with_fudge<Target>(
         &mut self,
         message: &mut AdditionalBuilder<Target>,
         fudge: u16,
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), ShortBuf>
+    where
+        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    {
         let variables =
             Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
         let mac = if self.first {
@@ -1383,7 +1395,7 @@ impl Variables {
     }
 
     /// Produces a TSIG record from this value and some more data.
-    fn push_tsig<Target: OctetsBuilder>(
+    fn push_tsig<Target: OctetsBuilder + AsMut<[u8]>>(
         &self,
         key: &Key,
         hmac: &[u8],
@@ -1628,13 +1640,15 @@ impl<K> ServerError<K> {
 }
 
 impl<K: AsRef<Key>> ServerError<K> {
-    pub fn build_message<Octets: AsRef<[u8]>, Target: OctetsBuilder>(
+    pub fn build_message<Octets, Target>(
         self,
         msg: &Message<Octets>,
         builder: MessageBuilder<Target>,
     ) -> Result<AdditionalBuilder<Target>, ShortBuf>
     where
+        Octets: AsRef<[u8]>,
         for<'a> &'a Octets: OctetsRef,
+        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
         let builder = builder.start_answer(msg, Rcode::NotAuth)?;
         let mut builder = builder.additional();

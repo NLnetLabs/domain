@@ -124,7 +124,7 @@ impl<Octets> UncertainDname<Octets> {
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
         C: IntoIterator<Item = char>,
     {
         let mut builder =
@@ -221,7 +221,8 @@ impl<Octets> UncertainDname<Octets> {
     >
     where
         Octets: AsRef<[u8]> + IntoBuilder,
-        <Octets as IntoBuilder>::Builder: OctetsBuilder<Octets = Octets>,
+        <Octets as IntoBuilder>::Builder:
+            OctetsBuilder<Octets = Octets> + AsMut<[u8]>,
     {
         match self {
             UncertainDname::Absolute(name) => Ok(name),
@@ -306,7 +307,7 @@ impl<Octets> From<RelativeDname<Octets>> for UncertainDname<Octets> {
 impl<Octets> str::FromStr for UncertainDname<Octets>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder: EmptyBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
 {
     type Err = FromStrError;
 
@@ -384,7 +385,7 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainDname<Octets> {
 //--- Compose
 
 impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -394,7 +395,7 @@ impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
         }
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -515,7 +516,7 @@ where
 impl<'de, Octets> serde::Deserialize<'de> for UncertainDname<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: EmptyBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -528,7 +529,7 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
         {
             type Value = UncertainDname<Octets>;
 
@@ -571,7 +572,7 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
         {
             type Value = UncertainDname<Octets>;
 

@@ -214,7 +214,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Question<ParsedDname<Ref>> {
 }
 
 impl<N: ToDname> Compose for Question<N> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -225,7 +225,7 @@ impl<N: ToDname> Compose for Question<N> {
         })
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -287,7 +287,7 @@ pub trait AsQuestion {
     fn qclass(&self) -> Class;
 
     /// Produces the encoding of the question.
-    fn compose_question<T: OctetsBuilder>(
+    fn compose_question<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf>
@@ -302,7 +302,7 @@ pub trait AsQuestion {
     }
 
     /// Produces the canoncial encoding of the question.
-    fn compose_question_canonical<T: OctetsBuilder>(
+    fn compose_question_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf>

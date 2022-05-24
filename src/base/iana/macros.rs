@@ -105,7 +105,7 @@ macro_rules! int_enum {
         }
 
         impl $crate::base::octets::Compose for $ianatype {
-            fn compose<T: $crate::base::octets::OctetsBuilder>(
+            fn compose<T: $crate::base::octets::OctetsBuilder + AsMut<[u8]>>(
                 &self,
                 target: &mut T
             ) -> Result<(), $crate::base::octets::ShortBuf> {

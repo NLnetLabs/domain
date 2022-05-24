@@ -23,10 +23,14 @@ impl<Octets> Chain<Octets> {
         Chain { start }
     }
 
-    pub fn push<Target: OctetsBuilder, N: ToDname>(
+    pub fn push<Target, N>(
         builder: &mut OptBuilder<Target>,
         start: &N
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), ShortBuf>
+    where
+        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+        N: ToDname,
+    {
         builder.push_raw_option(OptionCode::Chain, |target| {
             target.append_all(|target| {
                 for label in start.iter_labels() {
@@ -56,7 +60,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Chain<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Chain<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T
     ) -> Result<(), ShortBuf> {

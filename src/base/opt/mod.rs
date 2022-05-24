@@ -169,7 +169,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Opt<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Opt<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -314,7 +314,7 @@ impl Default for OptHeader {
 }
 
 impl Compose for OptHeader {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -498,7 +498,7 @@ impl<Octets: AsRef<[u8]>> Parse<Octets> for OptionHeader {
 }
 
 impl Compose for OptionHeader {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -748,7 +748,7 @@ impl<Octets: AsMut<[u8]>> AsMut<[u8]> for UnknownOptData<Octets> {
 //--- Compose
 
 impl<Octets: AsRef<[u8]>> Compose for UnknownOptData<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {

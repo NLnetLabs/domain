@@ -18,7 +18,7 @@ impl Cookie {
         Cookie(cookie)
     }
 
-    pub fn push<Target: OctetsBuilder>(
+    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         builder: &mut OptBuilder<Target>,
         cookie: [u8; 8]
     ) -> Result<(), ShortBuf> {
@@ -47,7 +47,7 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for Cookie {
 
 
 impl Compose for Cookie {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T
     ) -> Result<(), ShortBuf> {

@@ -3,7 +3,9 @@ use super::super::octets::{
     ParseError, ShortBuf,
 };
 #[cfg(feature = "serde")]
-use super::super::octets::{DeserializeOctets, FromBuilder, SerializeOctets};
+use super::super::octets::{
+    DeserializeOctets, EmptyBuilder, FromBuilder, SerializeOctets,
+};
 use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -240,6 +242,7 @@ impl<Octets> RelativeDname<Octets> {
     >
     where
         Octets: IntoBuilder,
+        <Octets as IntoBuilder>::Builder: AsMut<[u8]>,
     {
         self.into_builder().into_dname()
     }
@@ -657,14 +660,14 @@ impl<Octets: AsRef<[u8]> + ?Sized> ToRelativeDname for RelativeDname<Octets> {
 //--- Compose
 
 impl<Octets: AsRef<[u8]> + ?Sized> Compose for RelativeDname<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
         target.append_slice(self.0.as_ref())
     }
 
-    fn compose_canonical<T: OctetsBuilder>(
+    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -785,7 +788,7 @@ where
 impl<'de, Octets> serde::Deserialize<'de> for RelativeDname<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: crate::base::octets::EmptyBuilder,
+    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -798,8 +801,7 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets>
-                    + crate::base::octets::EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
         {
             type Value = RelativeDname<Octets>;
 
@@ -842,8 +844,7 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets>
-                    + crate::base::octets::EmptyBuilder,
+                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
         {
             type Value = RelativeDname<Octets>;
 

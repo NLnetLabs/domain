@@ -89,7 +89,7 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for Aaaa {
 }
 
 impl Compose for Aaaa {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {

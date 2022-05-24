@@ -189,7 +189,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
@@ -433,7 +433,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
 }
 
 impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
-    fn compose<T: OctetsBuilder>(
+    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
     ) -> Result<(), ShortBuf> {
