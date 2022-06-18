@@ -3,7 +3,7 @@
 use crate::base::message::Message;
 use crate::base::name::ToDname;
 use crate::base::question::Question;
-use futures::future::Future;
+use std::future::Future;
 use std::io;
 
 //----------- Resolver -------------------------------------------------------

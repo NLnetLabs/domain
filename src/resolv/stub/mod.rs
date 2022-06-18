@@ -25,7 +25,6 @@ use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
 use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
 use crate::resolv::resolver::{Resolver, SearchNames};
 use bytes::Bytes;
-use futures::future::FutureExt;
 use std::boxed::Box;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
@@ -213,7 +212,7 @@ impl<'a> Resolver for &'a StubResolver {
         Q: Into<Question<N>>,
     {
         let message = Query::create_message(question.into());
-        self.query_message(message).boxed()
+        Box::pin(self.query_message(message))
     }
 }
 
