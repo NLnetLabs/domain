@@ -109,7 +109,7 @@ impl Symbol {
     pub fn into_octet(self) -> Result<u8, BadSymbol> {
         match self {
             Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
-                if ch.is_ascii() && ch >= '\u{20}' && ch <= '\u{7E}' {
+                if ch.is_ascii() && ('\u{20}'..='\u{7E}').contains(&ch) {
                     Ok(ch as u8)
                 } else {
                     Err(BadSymbol(self))

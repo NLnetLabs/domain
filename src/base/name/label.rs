@@ -104,7 +104,7 @@ impl Label {
     pub fn split_from(
         slice: &[u8],
     ) -> Result<(&Self, &[u8]), SplitLabelError> {
-        let head = match slice.get(0) {
+        let head = match slice.first() {
             Some(ch) => *ch,
             None => return Err(SplitLabelError::ShortInput),
         };
