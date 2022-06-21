@@ -1,3 +1,14 @@
+//! A stub resolver.
+//!
+//! The most simple resolver possible simply relays all messages to one of a
+//! set of pre-configured resolvers that will do the actual work. This is
+//! equivalent to what the resolver part of the C library does. This module
+//! provides such a stub resolver that emulates this C resolver as closely
+//! as possible, in particular in the way it is being configured.
+//!
+//! The main type is [`StubResolver`] that implements the [`Resolver`] trait
+//! and thus can be used with the various lookup functions.
+
 use self::conf::{
     ResolvConf, ResolvOptions, SearchSuffix, ServerConf, Transport,
 };
@@ -14,7 +25,6 @@ use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
 use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
 use crate::resolv::resolver::{Resolver, SearchNames};
 use bytes::Bytes;
-use futures::future::FutureExt;
 use std::boxed::Box;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
@@ -22,16 +32,6 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::vec::Vec;
-/// A stub resolver.
-///
-/// The most simple resolver possible simply relays all messages to one of a
-/// set of pre-configured resolvers that will do the actual work. This is
-/// equivalent to what the resolver part of the C library does. This module
-/// provides such a stub resolver that emulates this C resolver as closely
-/// as possible, in particular in the way it is being configured.
-///
-/// The main type is [`StubResolver`] that implements the [`Resolver`] trait
-/// and thus can be used with the various lookup functions.
 use std::{io, ops};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
@@ -212,7 +212,7 @@ impl<'a> Resolver for &'a StubResolver {
         Q: Into<Question<N>>,
     {
         let message = Query::create_message(question.into());
-        self.query_message(message).boxed()
+        Box::pin(self.query_message(message))
     }
 }
 
