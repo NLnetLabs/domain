@@ -15,6 +15,7 @@
 use crate::base::octets::{
     EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf,
 };
+use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
 #[cfg(feature = "std")]
 use std::string::String;
@@ -304,6 +305,115 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
 impl<Builder: EmptyBuilder> Default for Decoder<Builder> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+//------------ SymbolConverter -----------------------------------------------
+
+/// A Base 64 decoder that can be used as a converter with a scanner.
+#[derive(Clone, Debug, Default)]
+pub struct SymbolConverter {
+    /// A buffer for up to four input characters.
+    ///
+    /// We only keep `u8`s here because only ASCII characters are used by
+    /// Base64.
+    input: [u8; 4],
+
+    /// The index in `input` where we place the next character.
+    ///
+    /// We also abuse this to mark when we are done (because there was
+    /// padding, in which case we set it to 0xF0).
+    next: usize,
+
+    /// A buffer to return a slice for the output.
+    output: [u8; 3],
+}
+
+impl SymbolConverter {
+    /// Creates a new symbol converter.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    fn process_char<Error: ScannerError>(
+        &mut self, ch: char
+    ) -> Result<Option<&[u8]>, Error> {
+        if self.next == 0xF0 {
+            return Err(Error::custom("trailing Base 64 data"))
+        }
+
+        let val = if ch == PAD {
+            // Only up to two padding characters possible.
+            if self.next < 2 {
+                return Err(Error::custom("illegal Base 64 data"))
+            }
+            0x80 // Acts as a marker later on.
+        } else {
+            if ch > (127 as char) {
+                return Err(Error::custom("illegal Base 64 data"))
+            }
+            let val = DECODE_ALPHABET[ch as usize];
+            if val == 0xFF {
+                return Err(Error::custom("illegal Base 64 data"))
+            }
+            val
+        };
+        self.input[self.next] = val;
+        self.next += 1;
+
+        if self.next == 4 {
+            self.output[0] = self.input[0] << 2 | self.input[1] >> 4;
+            if self.input[2] != 0x80 {
+                self.output[1] = self.input[1] << 4 | self.input[2] >> 2;
+            }
+            if self.input[3] != 0x80 {
+                if self.input[2] == 0x80 {
+                    return Err(Error::custom("trailing Base 64 data"))
+                }
+                self.output[2] = (self.input[2] << 6) | self.input[3];
+                self.next = 0
+            }
+            else {
+                self.next = 0xF0
+            }
+            Ok(Some(&self.output))
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Sym, Error> ConvertSymbols<Sym, Error> for SymbolConverter
+where
+    Sym: Into<EntrySymbol>,
+    Error: ScannerError,
+{
+    fn process_symbol(
+        &mut self, symbol: Sym,
+    ) -> Result<Option<&[u8]>, Error> {
+        match symbol.into() {
+            EntrySymbol::Symbol(symbol) => {
+                self.process_char(
+                    symbol.into_char().map_err(|_| {
+                        Error::custom("illegal Base 64 data")
+                    })?
+                )
+             }
+            EntrySymbol::EndOfToken => {
+                Ok(None)
+            }
+        }
+    }
+
+    fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
+        // next is either 0 or 0xF0 for a completed group.
+        if self.next & 0xF0 != 0 {
+            Err(Error::custom("incomplete Base 64 data"))
+        }
+        else {
+            Ok(None)
+        }
     }
 }
 

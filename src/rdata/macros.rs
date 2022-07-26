@@ -324,12 +324,39 @@ macro_rules! rdata_types {
 
         //--- (Scan) and Display
 
+        impl<Octets: AsRef<[u8]>, Name> ZoneRecordData<Octets, Name> {
+            pub fn scan<S>(
+                rtype: $crate::base::iana::Rtype,
+                scanner: &mut S
+            ) -> Result<Self, S::Error>
+            where
+                S: $crate::base::scan::Scanner<Octets = Octets, Dname = Name>
+            {
+                use $crate::base::scan::Scan;
+
+                match rtype {
+                    $( $( $(
+                        $crate::base::iana::Rtype::$mtype => {
+                            $mtype::scan(
+                                scanner
+                            ).map(ZoneRecordData::$mtype)
+                        }
+                    )* )* )*
+                    _ => {
+                        $crate::base::rdata::UnknownRecordData::scan(
+                            rtype, scanner
+                        ).map(ZoneRecordData::Other)
+                    }
+                }
+            }
+        }
+
         #[cfg(feature="master")]
         #[cfg_attr(docsrs, doc(cfg(feature = "master")))]
         impl ZoneRecordData<
             bytes::Bytes, $crate::base::name::Dname<bytes::Bytes>
         > {
-            pub fn scan<C>(rtype: $crate::base::iana::Rtype,
+            pub fn old_scan<C>(rtype: $crate::base::iana::Rtype,
                            scanner: &mut $crate::master::scan::Scanner<C>)
                            -> Result<Self, $crate::master::scan::ScanError>
                         where C: $crate::master::scan::CharSource {
@@ -343,7 +370,7 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     _ => {
-                        $crate::base::rdata::UnknownRecordData::scan(
+                        $crate::base::rdata::UnknownRecordData::old_scan(
                             rtype, scanner
                         ).map(ZoneRecordData::Other)
                     }
@@ -987,10 +1014,22 @@ macro_rules! dname_type {
 
         //--- Scan and Display
 
+        impl<N, S> crate::base::scan::Scan<S> for $target<N>
+        where S: crate::base::scan::Scanner<Dname = N> {
+            fn scan_opt(
+                scanner: &mut S,
+            ) -> Result<Option<Self>, S::Error> {
+                scanner.scan_dname().map(|opt| opt.map(Self::new))
+            }
+        }
+
         #[cfg(feature="master")]
-        impl<N: Scan> Scan for $target<N> {
-            fn scan<C: CharSource>(scanner: &mut Scanner<C>)
-                                   -> Result<Self, ScanError> {
+        impl<N: crate::master::scan::Scan>
+        crate::master::scan::Scan for $target<N>
+        {
+            fn scan<C: CharSource>(
+                scanner: &mut crate::master::scan::Scanner<C>
+            ) -> Result<Self, ScanError> {
                 N::scan(scanner).map(Self::new)
             }
         }

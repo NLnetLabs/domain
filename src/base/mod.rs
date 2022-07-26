@@ -128,6 +128,7 @@ pub mod opt;
 pub mod question;
 pub mod rdata;
 pub mod record;
+pub mod scan;
 pub mod serial;
 pub mod str;
 

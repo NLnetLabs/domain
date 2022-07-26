@@ -11,10 +11,13 @@ use crate::base::octets::{
     Compose, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
+use crate::base::scan::{Scan, Scanner, ScannerError};
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+use crate::master::scan::{self as old_scan, CharSource, ScanError};
+use crate::try_opt;
 use core::cmp::Ordering;
-use core::{fmt, ops};
+use core::str::FromStr;
+use core::{fmt, ops, str};
 
 //------------ Aaaa ---------------------------------------------------------
 
@@ -51,8 +54,7 @@ impl From<Aaaa> for Ipv6Addr {
     }
 }
 
-#[cfg(feature = "std")]
-impl core::str::FromStr for Aaaa {
+impl FromStr for Aaaa {
     type Err = <Ipv6Addr as core::str::FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -99,10 +101,24 @@ impl Compose for Aaaa {
 
 //--- Scan and Display
 
+impl<S: Scanner> Scan<S> for Aaaa {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        let token = try_opt!(scanner.scan_octets());
+        let token = str::from_utf8(token.as_ref()).map_err(|_| {
+            S::Error::custom("expected IPv6 address")
+        })?;
+        Ok(Some(
+            Aaaa::from_str(token).map_err(|_| {
+                S::Error::custom("expected IPv6 address")
+            })?
+        ))
+    }
+}
+
 #[cfg(feature = "master")]
-impl Scan for Aaaa {
+impl old_scan::Scan for Aaaa {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut old_scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         scanner.scan_string_phrase(|res| {
             core::str::FromStr::from_str(&res).map_err(Into::into)

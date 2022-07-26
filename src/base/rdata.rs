@@ -28,10 +28,12 @@ use super::octets::{
     Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
     ShortBuf,
 };
+use super::scan::{Scan, Scanner, ScannerError, Symbol};
 #[cfg(feature = "master")]
 use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
+    self as old_scan, CharSource, ScanError, SyntaxError,
 };
+use crate::utils::base16;
 #[cfg(feature = "master")]
 use bytes::{BufMut, Bytes, BytesMut};
 use core::cmp::Ordering;
@@ -191,6 +193,36 @@ impl<Octets> UnknownRecordData<Octets> {
     pub fn data(&self) -> &Octets {
         &self.data
     }
+
+    /// Scans the record data.
+    ///
+    /// This isn’t implemented via `Scan`, because we need the record type.
+    pub fn scan<S: Scanner<Octets = Octets>>(
+        rtype: Rtype,
+        scanner: &mut S,
+    ) -> Result<Self, S::Error>
+    where Octets: AsRef<[u8]> {
+        // First token is literal "\#".
+        let mut token = S::Error::expected(scanner.scan_symbols())?;
+        if !matches!(token.next(), Some(Symbol::SimpleEscape(b'#'))) {
+            return Err(S::Error::custom("'\\#' expected"))
+        }
+        if token.next().is_some() {
+            return Err(S::Error::custom("'\\#' expected"))
+        }
+
+        // Second token is the rdata length.
+        let len = u16::scan(scanner)?;
+
+        // The rest is the actual data.
+        let data = scanner.convert_entry(base16::SymbolConverter::new())?;
+
+        if data.as_ref().len() != usize::from(len) {
+            return Err(S::Error::custom("generic data has incorrect length"))
+        }
+
+        Ok(UnknownRecordData { rtype, data })
+    }
 }
 
 #[cfg(feature = "master")]
@@ -198,12 +230,12 @@ impl UnknownRecordData<Bytes> {
     /// Scans the record data.
     ///
     /// This isn’t implemented via `Scan`, because we need the record type.
-    pub fn scan<C: CharSource>(
+    pub fn old_scan<C: CharSource>(
         rtype: Rtype,
-        scanner: &mut Scanner<C>,
+        scanner: &mut old_scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         scanner.skip_literal("\\#")?;
-        let mut len = u16::scan(scanner)? as usize;
+        let mut len = <u16 as old_scan::Scan>::scan(scanner)? as usize;
         let mut res = BytesMut::with_capacity(len);
         while len > 0 {
             len = scanner.scan_word(

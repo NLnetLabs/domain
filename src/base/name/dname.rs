@@ -5,6 +5,7 @@ use super::super::octets::{
 };
 #[cfg(feature = "serde")]
 use super::super::octets::{DeserializeOctets, SerializeOctets};
+use super::super::scan::{Scan, Scanner};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
@@ -13,7 +14,7 @@ use super::traits::{ToDname, ToLabelIter};
 use super::uncertain::UncertainDname;
 #[cfg(feature = "master")]
 use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
+    self as old_scan, CharSource, ScanError, SyntaxError,
 };
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
@@ -807,13 +808,21 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
 
 //--- Scan and Display
 
+impl<Octets, S: Scanner<Dname = Self>> Scan<S> for Dname<Octets> {
+    fn scan_opt(
+        scanner: &mut S,
+    ) -> Result<Option<Self>, S::Error> {
+        scanner.scan_dname()
+    }
+}
+
 #[cfg(feature = "master")]
-impl Scan for Dname<Bytes> {
+impl old_scan::Scan for Dname<Bytes> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut old_scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         let pos = scanner.pos();
-        let name = match UncertainDname::scan(scanner)? {
+        let name = match old_scan::Scan::scan(scanner)? {
             UncertainDname::Relative(name) => name,
             UncertainDname::Absolute(name) => return Ok(name),
         };

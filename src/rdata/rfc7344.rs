@@ -8,9 +8,11 @@ use crate::base::octets::{
     ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
+use crate::base::scan::{Scan, Scanner};
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
-use crate::utils::base64;
+use crate::master::scan::{self as old_scan, CharSource, ScanError};
+use crate::utils::{base16, base64};
+use crate::try_opt;
 #[cfg(feature = "master")]
 use bytes::Bytes;
 use core::cmp::Ordering;
@@ -204,15 +206,26 @@ impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
-impl Scan for Cdnskey<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cdnskey<Octets> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        Ok(Some(Self::new(
+            try_opt!(u16::scan_opt(scanner)),
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
+            scanner.convert_entry(base64::SymbolConverter::new())?,
+        )))
+    }
+}
+
+#[cfg(feature = "master")]
+impl old_scan::Scan for Cdnskey<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut old_scan::Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        Ok(Self::new(
+            <u16 as old_scan::Scan>::scan(scanner)?,
+            <u8 as old_scan::Scan>::scan(scanner)?,
+            <SecAlg as old_scan::Scan>::scan(scanner)?,
             scanner.scan_base64_phrases(Ok)?,
         ))
     }
@@ -448,15 +461,26 @@ impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
-impl Scan for Cds<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cds<Octets> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        Ok(Some(Self::new(
+            try_opt!(u16::scan_opt(scanner)),
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
+            scanner.convert_entry(base16::SymbolConverter::new())?,
+        )))
+    }
+}
+
+#[cfg(feature = "master")]
+impl old_scan::Scan for Cds<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut old_scan::Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        Ok(Self::new(
+            <u16 as old_scan::Scan>::scan(scanner)?,
+            <SecAlg as old_scan::Scan>::scan(scanner)?,
+            <DigestAlg as old_scan::Scan>::scan(scanner)?,
             scanner.scan_hex_words(Ok)?,
         ))
     }

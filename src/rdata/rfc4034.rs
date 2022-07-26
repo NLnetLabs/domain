@@ -16,10 +16,12 @@ use crate::base::octets::{
 #[cfg(feature = "serde")]
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::RtypeRecordData;
+use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
-use crate::utils::base64;
+use crate::master::scan::{self as old_scan, CharSource, ScanError};
+use crate::utils::{base16, base64};
+use crate::try_opt;
 #[cfg(feature = "master")]
 use bytes::{Bytes, BytesMut};
 use core::cmp::Ordering;
@@ -302,15 +304,26 @@ impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
-impl Scan for Dnskey<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Dnskey<Octets> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        Ok(Some(Self::new(
+            try_opt!(u16::scan_opt(scanner)),
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
+            scanner.convert_entry(base64::SymbolConverter::new())?,
+        )))
+    }
+}
+
+#[cfg(feature = "master")]
+impl old_scan::Scan for Dnskey<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut old_scan::Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        Ok(Self::new(
+            <u16 as old_scan::Scan>::scan(scanner)?,
+            <u8 as old_scan::Scan>::scan(scanner)?,
+            <SecAlg as old_scan::Scan>::scan(scanner)?,
             scanner.scan_base64_phrases(Ok)?,
         ))
     }
@@ -804,20 +817,37 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
-impl Scan for Rrsig<Bytes, Dname<Bytes>> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            Rtype::scan(scanner)?,
+impl<Octets, Name, S> Scan<S> for Rrsig<Octets, Name>
+where S: Scanner<Octets = Octets, Dname = Name> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        Ok(Some(Self::new(
+            try_opt!(Rtype::scan_opt(scanner)),
             SecAlg::scan(scanner)?,
             u8::scan(scanner)?,
             u32::scan(scanner)?,
             Serial::scan_rrsig(scanner)?,
             Serial::scan_rrsig(scanner)?,
             u16::scan(scanner)?,
-            Dname::scan(scanner)?,
+            S::Error::expected(scanner.scan_dname())?,
+            scanner.convert_entry(base64::SymbolConverter::new())?,
+        )))
+    }
+}
+
+#[cfg(feature = "master")]
+impl old_scan::Scan for Rrsig<Bytes, Dname<Bytes>> {
+    fn scan<C: CharSource>(
+        scanner: &mut old_scan::Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        Ok(Self::new(
+            <Rtype as old_scan::Scan>::scan(scanner)?,
+            <SecAlg as old_scan::Scan>::scan(scanner)?,
+            <u8 as old_scan::Scan>::scan(scanner)?,
+            <u32 as old_scan::Scan>::scan(scanner)?,
+            Serial::old_scan_rrsig(scanner)?,
+            Serial::old_scan_rrsig(scanner)?,
+            <u16 as old_scan::Scan>::scan(scanner)?,
+            <Dname<_> as old_scan::Scan>::scan(scanner)?,
             scanner.scan_base64_phrases(Ok)?,
         ))
     }
@@ -1042,12 +1072,25 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
 
 //--- Scan and Display
 
+impl<Octets, Name, S> Scan<S> for Nsec<Octets, Name>
+where S: Scanner<Octets = Octets, Dname = Name> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        Ok(Some(Self::new(
+            try_opt!(scanner.scan_dname()),
+            RtypeBitmap::scan(scanner)?,
+        )))
+    }
+}
+
 #[cfg(feature = "master")]
-impl<N: Scan> Scan for Nsec<Bytes, N> {
+impl<N: old_scan::Scan> old_scan::Scan for Nsec<Bytes, N> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut old_scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
-        Ok(Self::new(N::scan(scanner)?, RtypeBitmap::scan(scanner)?))
+        Ok(Self::new(
+            <N as old_scan::Scan>::scan(scanner)?,
+            <RtypeBitmap<_> as old_scan::Scan>::scan(scanner)?
+        ))
     }
 }
 
@@ -1283,15 +1326,26 @@ impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
-impl Scan for Ds<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Ds<Octets> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        Ok(Some(Self::new(
+            try_opt!(u16::scan_opt(scanner)),
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
+            scanner.convert_entry(base16::SymbolConverter::new())?,
+        )))
+    }
+}
+
+#[cfg(feature = "master")]
+impl old_scan::Scan for Ds<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut old_scan::Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        Ok(Self::new(
+            <u16 as old_scan::Scan>::scan(scanner)?,
+            <SecAlg as old_scan::Scan>::scan(scanner)?,
+            <DigestAlg as old_scan::Scan>::scan(scanner)?,
             scanner.scan_hex_words(Ok)?,
         ))
     }
@@ -1516,13 +1570,27 @@ impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
 
 //--- Scan and Display
 
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for RtypeBitmap<Octets> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        let first = try_opt!(Rtype::scan_opt(scanner));
+        let mut builder = RtypeBitmapBuilder::with_builder(
+            scanner.octets_builder()?
+        );
+        builder.add(first).map_err(|_| S::Error::short_buf())?;
+        while let Some(rtype) = Rtype::scan_opt(scanner)? {
+            builder.add(rtype).map_err(|_| S::Error::short_buf())?;
+        }
+        Ok(Some(builder.finalize()))
+    }
+}
+
 #[cfg(feature = "master")]
-impl Scan for RtypeBitmap<Bytes> {
+impl old_scan::Scan for RtypeBitmap<Bytes> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut old_scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         let mut builder = RtypeBitmapBuilder::<BytesMut>::new();
-        while let Ok(rtype) = Rtype::scan(scanner) {
+        while let Ok(rtype) = <Rtype as old_scan::Scan>::scan(scanner) {
             builder.add(rtype).unwrap()
         }
         Ok(builder.finalize())
@@ -1719,6 +1787,12 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
         RtypeBitmapBuilder {
             // Start out with the capacity for one block.
             buf: Builder::with_capacity(34),
+        }
+    }
+
+    pub fn with_builder(builder: Builder) -> Self {
+        RtypeBitmapBuilder {
+            buf: builder
         }
     }
 }

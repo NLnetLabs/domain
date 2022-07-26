@@ -3,264 +3,192 @@
 //! This module contains helper types for converting from and to string
 //! representation of types.
 
-use super::octets::ParseError;
-use core::fmt;
+use core::{borrow, cmp, fmt, hash, ops, str};
 
 //------------ String --------------------------------------------------------
 
 /// An immutable, UTF-8 encoded string atop some octets sequence.
+#[derive(Clone)]
 pub struct String<Octets>(Octets);
 
-// XXX Add all the things!
-
-//------------ Symbol --------------------------------------------------------
-
-/// The master file representation of a single character.
-///
-/// This is either a regular character or an escape sequence. See the variants
-/// for more details.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Symbol {
-    /// An unescaped Unicode character.
-    Char(char),
-
-    /// A character escaped via a preceding backslash.
-    SimpleEscape(char),
-
-    /// A raw octet escaped using the decimal escape sequence.
-    ///
-    /// This escape sequence consists of a backslash followed by exactly three
-    /// decimal digits with the value of the octets.
-    DecimalEscape(u8),
-}
-
-impl Symbol {
-    /// Reads a symbol from a character source.
-    ///
-    /// Returns the next symbol in the source, `Ok(None)` if the source has
-    /// been exhausted, or an error if there wasn’t a valid symbol.
-    pub fn from_chars<C>(chars: C) -> Result<Option<Self>, SymbolError>
-    where
-        C: IntoIterator<Item = char>,
-    {
-        let mut chars = chars.into_iter();
-        let ch = match chars.next() {
-            Some(ch) => ch,
-            None => return Ok(None),
-        };
-        if ch != '\\' {
-            return Ok(Some(Symbol::Char(ch)));
+impl<Octets> String<Octets> {
+    /// Converts a sequence of octets into a string.
+    pub fn from_utf8(octets: Octets) -> Result<Self, FromUtf8Error<Octets>>
+    where Octets: AsRef<[u8]> {
+        if let Err(error) = str::from_utf8(octets.as_ref()) {
+            Err(FromUtf8Error { octets, error })
         }
-        match chars.next() {
-            Some(ch) if ch.is_ascii_digit() => {
-                let ch = ch.to_digit(10).unwrap() * 100;
-                let ch2 = match chars.next() {
-                    Some(ch) => match ch.to_digit(10) {
-                        Some(ch) => ch * 10,
-                        None => return Err(SymbolError::BadEscape),
-                    },
-                    None => return Err(SymbolError::ShortInput),
-                };
-                let ch3 = match chars.next() {
-                    Some(ch) => match ch.to_digit(10) {
-                        Some(ch) => ch,
-                        None => return Err(SymbolError::BadEscape),
-                    },
-                    None => return Err(SymbolError::ShortInput),
-                };
-                let res = ch + ch2 + ch3;
-                if res > 255 {
-                    return Err(SymbolError::BadEscape);
-                }
-                Ok(Some(Symbol::DecimalEscape(res as u8)))
-            }
-            Some(ch) => Ok(Some(Symbol::SimpleEscape(ch))),
-            None => Err(SymbolError::ShortInput),
+        else {
+            Ok(String(octets))
         }
     }
 
-    /// Provides the best symbol for an octet.
-    ///
-    /// The function will use the simple escape sequence for octet values that
-    /// represent ASCII spaces, quotes, backslashes, and semicolons and the
-    /// plain ASCII value for all other printable ASCII characters. Any other
-    /// value is escaped using the decimal escape sequence.
-    pub fn from_octet(ch: u8) -> Self {
-        if ch == b' ' || ch == b'"' || ch == b'\\' || ch == b';' {
-            Symbol::SimpleEscape(ch as char)
-        } else if !(0x20..0x7F).contains(&ch) {
-            Symbol::DecimalEscape(ch)
-        } else {
-            Symbol::Char(ch as char)
-        }
+    /// Converts a sequence of octets into a string without checking.
+    pub unsafe fn from_utf8_unchecked(octets: Octets) -> Self {
+        String(octets)
     }
 
-    /// Converts the symbol into an octet if it represents one.
-    ///
-    /// Both domain names and character strings operate on bytes instead of
-    /// (Unicode) characters. These bytes can be represented by printable
-    /// ASCII characters (that is, U+0020 to U+007E), both plain or through
-    /// a simple escape, or by a decimal escape.
-    ///
-    /// This method returns such an octet or an error if the symbol doesn’t
-    /// have value representing an octet. Note that it will succeed for an
-    /// ASCII space character U+0020 which may be used as a word separator
-    /// in some cases.
-    pub fn into_octet(self) -> Result<u8, BadSymbol> {
-        match self {
-            Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
-                if ch.is_ascii() && ('\u{20}'..='\u{7E}').contains(&ch) {
-                    Ok(ch as u8)
-                } else {
-                    Err(BadSymbol(self))
-                }
-            }
-            Symbol::DecimalEscape(ch) => Ok(ch),
-        }
+    /// Converts the string into its raw octets.
+    pub fn into_octets(self) -> Octets {
+        self.0
     }
 
-    /// Converts the symbol into a `char`.
-    ///
-    /// This will fail for a decimal escape sequence which doesn’t actually
-    /// represent a character.
-    pub fn into_char(self) -> Result<char, BadSymbol> {
-        match self {
-            Symbol::Char(ch) | Symbol::SimpleEscape(ch) => Ok(ch),
-            Symbol::DecimalEscape(_) => Err(BadSymbol(self)),
-        }
+    /// Returns the string as a string slice.
+    pub fn as_str(&self) -> &str
+    where Octets: AsRef<[u8]> {
+        unsafe { str::from_utf8_unchecked(self.0.as_ref()) }
     }
 
-    /// Converts the symbol representing a digit into its integer value.
-    pub fn into_digit(self, base: u32) -> Result<u32, BadSymbol> {
-        if let Symbol::Char(ch) = self {
-            match ch.to_digit(base) {
-                Some(ch) => Ok(ch),
-                None => Err(BadSymbol(self)),
-            }
-        } else {
-            Err(BadSymbol(self))
-        }
+    /// Returns the string’s octets as a slice.
+    pub fn as_slice(&self) -> &[u8]
+    where Octets: AsRef<[u8]> {
+        self.0.as_ref()
     }
 
-    /// Returns whether the symbol can occur as part of a word.
-    ///
-    /// This is true apart for unescaped ASCII space and horizontal tabs,
-    /// opening and closing parantheses, the semicolon, and double quote.
-    pub fn is_word_char(self) -> bool {
-        match self {
-            Symbol::Char(ch) => {
-                ch != ' '
-                    && ch != '\t'
-                    && ch != '('
-                    && ch != ')'
-                    && ch != ';'
-                    && ch != '"'
-            }
-            _ => true,
-        }
+    /// Returns the length of the string in octets.
+    pub fn len(&self) -> usize
+    where Octets: AsRef<[u8]> {
+        self.0.as_ref().len()
+    }
+
+    /// Returns whether the string is empty.
+    pub fn is_empty(&self) -> bool
+    where Octets: AsRef<[u8]> {
+        self.0.as_ref().is_empty()
     }
 }
 
-//--- From
+//--- Deref, AsRef, Borrow
 
-impl From<char> for Symbol {
-    fn from(ch: char) -> Symbol {
-        Symbol::Char(ch)
+impl<Octets: AsRef<[u8]>> ops::Deref for String<Octets> {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
     }
 }
 
-//--- Display
+impl<Octets: AsRef<[u8]>> AsRef<str> for String<Octets>{
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
 
-impl fmt::Display for Symbol {
+impl<Octets: AsRef<[u8]>> AsRef<[u8]> for String<Octets>{
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl<Octets: AsRef<[u8]>> borrow::Borrow<str> for String<Octets>{
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<Octets: AsRef<[u8]>> borrow::Borrow<[u8]> for String<Octets>{
+    fn borrow(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+//--- Debug and Display
+
+impl<Octets: AsRef<[u8]>> fmt::Debug for String<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Symbol::Char(ch) => write!(f, "{}", ch),
-            Symbol::SimpleEscape(ch) => write!(f, "\\{}", ch),
-            Symbol::DecimalEscape(ch) => write!(f, "\\{:03}", ch),
-        }
+        fmt::Debug::fmt(self.as_str(), f)
     }
 }
 
-//------------ Symbols -------------------------------------------------------
-
-/// An iterator over the symbols in a char sequence.
-#[derive(Clone, Debug)]
-pub struct Symbols<Chars> {
-    /// The chars of the sequence.
-    ///
-    /// This is an option so we can fuse the iterator on error.
-    chars: Option<Chars>,
-}
-
-impl<Chars> Symbols<Chars> {
-    /// Creates a new symbols iterator atop a char iterator.
-    pub fn new(chars: Chars) -> Self {
-        Symbols { chars: Some(chars) }
+impl<Octets: AsRef<[u8]>> fmt::Display for String<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self.as_str(), f)
     }
 }
 
-impl<Chars: Iterator<Item = char>> Iterator for Symbols<Chars> {
-    type Item = Symbol;
+//--- PartialEq and Eq
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Ok(res) = Symbol::from_chars(self.chars.as_mut()?) {
-            return res;
-        }
-        self.chars = None;
-        None
+impl<Octets, Other> PartialEq<Other> for String<Octets>
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<str>,
+{
+    fn eq(&self, other: &Other) -> bool {
+        self.as_str().eq(other.as_ref())
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Eq for String<Octets> { }
+
+//--- Hash
+
+impl<Octets: AsRef<[u8]>> hash::Hash for String<Octets> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state)
+    }
+}
+
+//--- PartialOrd and Ord
+
+impl<Octets, Other> PartialOrd<Other> for String<Octets>
+where
+    Octets: AsRef<[u8]>,
+    Other: AsRef<str>,
+{
+    fn partial_cmp(&self, other: &Other) -> Option<cmp::Ordering> {
+        self.as_str().partial_cmp(other.as_ref())
+    }
+}
+
+impl<Octets: AsRef<[u8]>> Ord for String<Octets> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.as_str().cmp(other.as_str())
     }
 }
 
 //============ Error Types ===================================================
 
-//------------ SymbolError ---------------------------------------------------
+//------------ FromUtf8Error -------------------------------------------------
 
-/// An error happened when reading a symbol.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SymbolError {
-    /// An illegal escape sequence was encountered.
-    BadEscape,
-
-    /// Unexpected end of input.
-    ///
-    /// This can only happen in a decimal escape sequence.
-    ShortInput,
+/// An error happened when converting octets into a string.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct FromUtf8Error<Octets> {
+    octets: Octets,
+    error: str::Utf8Error,
 }
 
-//--- Display and Error
+impl<Octets> FromUtf8Error<Octets> {
+    /// Returns an octets slice of the data that failed to convert.
+    pub fn as_slice(&self) -> &[u8]
+    where Octets: AsRef<[u8]> {
+        self.octets.as_ref()
+    }
 
-impl fmt::Display for SymbolError {
+    /// Returns the octets sequence that failed to convert.
+    pub fn into_octets(self) -> Octets {
+        self.octets
+    }
+
+    /// Returns the reason for the conversion error.
+    pub fn utf8_error(&self) -> str::Utf8Error {
+        self.error
+    }
+}
+
+impl<Octets> fmt::Debug for FromUtf8Error<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SymbolError::BadEscape => f.write_str("illegal escape sequence"),
-            SymbolError::ShortInput => ParseError::ShortInput.fmt(f),
-        }
+        f.debug_struct("FromUtf8Error")
+            .field("error", &self.error)
+            .finish_non_exhaustive()
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for SymbolError {}
-
-//------------ BadSymbol -----------------------------------------------------
-
-/// A symbol with an unexpected value was encountered.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BadSymbol(pub Symbol);
-
-//--- Display and Error
-
-impl fmt::Display for BadSymbol {
+impl<Octets> fmt::Display for FromUtf8Error<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "unexpected symbol '{}'", self.0)
+        fmt::Display::fmt(&self.error, f)
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for BadSymbol {}
+impl<Octets> std::error::Error for FromUtf8Error<Octets> {}
 
-#[cfg(feature = "std")]
-impl From<BadSymbol> for std::io::Error {
-    fn from(err: BadSymbol) -> Self {
-        std::io::Error::new(std::io::ErrorKind::Other, err)
-    }
-}
