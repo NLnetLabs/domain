@@ -652,7 +652,7 @@ mod test {
     // Parse RRSIG serial from text.
     fn rrsig_serial(x: &str) -> Serial {
         let mut s = Scanner::new(x);
-        Serial::scan_rrsig(&mut s).unwrap()
+        Serial::old_scan_rrsig(&mut s).unwrap()
     }
 
     #[test]

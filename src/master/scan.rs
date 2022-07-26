@@ -3,13 +3,14 @@
 use crate::base::name;
 use crate::base::name::Dname;
 use crate::base::net::AddrParseError;
-use crate::base::str::{BadSymbol, Symbol};
+use crate::base::scan::{BadSymbol, Symbol};
 use crate::utils::{base32, base64};
 use bytes::{BufMut, Bytes, BytesMut};
 use std::boxed::Box;
 use std::string::String;
 use std::vec::Vec;
 use std::{error, fmt, io};
+use core::convert::TryFrom;
 
 //------------ CharSource ----------------------------------------------------
 
@@ -195,8 +196,10 @@ impl<C: CharSource> Scanner<C> {
             String::new(),
             |res, ch| {
                 let ch = match ch {
-                    Symbol::Char(ch) | Symbol::SimpleEscape(ch) => ch,
-                    Symbol::DecimalEscape(ch) => ch as char,
+                    Symbol::Char(ch) => ch,
+                    Symbol::SimpleEscape(ch) | Symbol::DecimalEscape(ch) => {
+                        ch as char
+                    }
                 };
                 res.push(ch);
                 Ok(())
@@ -333,8 +336,10 @@ impl<C: CharSource> Scanner<C> {
             String::new(),
             |res, ch| {
                 let ch = match ch {
-                    Symbol::Char(ch) | Symbol::SimpleEscape(ch) => ch,
-                    Symbol::DecimalEscape(ch) => ch as char,
+                    Symbol::Char(ch)  => ch,
+                    Symbol::SimpleEscape(ch) | Symbol::DecimalEscape(ch) => {
+                        ch as char
+                    }
                 };
                 res.push(ch);
                 Ok(())
@@ -672,7 +677,14 @@ impl<C: CharSource> Scanner<C> {
                     Symbol::DecimalEscape(res as u8)
                 }
             }
-            Some(ch) => Symbol::SimpleEscape(ch),
+            Some(ch) => {
+                match u8::try_from(ch) {
+                    Ok(ch) if ch >= 0x20 && ch < 0x7F => {
+                        Symbol::SimpleEscape(ch)
+                    }
+                    _ => return self.err_cur(SyntaxError::IllegalEscape)
+                }
+            }
             None => return self.err_cur(SyntaxError::UnexpectedEof),
         };
         self.buf.push(Token::Symbol(ch));

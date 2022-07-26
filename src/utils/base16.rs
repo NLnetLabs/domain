@@ -11,6 +11,7 @@
 //! [RFC 4648]: https://tools.ietf.org/html/rfc4648
 
 use crate::base::octets::{EmptyBuilder, FromBuilder, OctetsBuilder};
+use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
 #[cfg(feature = "std")]
 use std::string::String;
@@ -247,6 +248,71 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
 impl<Builder: EmptyBuilder> Default for Decoder<Builder> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+//------------ SymbolConverter -----------------------------------------------
+
+/// A Base 16 decoder that can be used as a converter for a scanner.
+#[derive(Clone, Debug, Default)]
+pub struct SymbolConverter {
+    /// A buffer for the returned data.
+    buf: [u8; 1],
+
+    /// Do we already have the upper half in `buf`?
+    pending: bool,
+}
+
+impl SymbolConverter {
+    /// Creates a new symbol converter.
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl<Sym, Error> ConvertSymbols<Sym, Error> for SymbolConverter
+where
+    Sym: Into<EntrySymbol>,
+    Error: ScannerError,
+{
+    fn process_symbol(
+        &mut self, symbol: Sym,
+    ) -> Result<Option<&[u8]>, Error> {
+        match symbol.into() {
+            EntrySymbol::Symbol(symbol) => {
+                let symbol = symbol.into_char().map_err(|_| {
+                    Error::custom("expected hex digits")
+                })?.to_digit(16).ok_or_else(|| {
+                    Error::custom("expected hex digits")
+                })?;
+
+                if self.pending {
+                    self.buf[0] |= symbol as u8;
+                    self.pending = false;
+                    Ok(Some(&self.buf))
+                }
+                else {
+                    self.buf[0] = (symbol << 4) as u8;
+                    self.pending = true;
+                    Ok(None)
+                }
+             }
+            EntrySymbol::EndOfToken => {
+                Ok(None)
+            }
+        }
+    }
+
+    /// Process the end of token.
+    ///
+    /// The method may return data to be added to the output octets sequence.
+    fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
+        if self.pending {
+            Err(Error::custom("uneven number of hex digits"))
+        }
+        else {
+            Ok(None)
+        }
     }
 }
 

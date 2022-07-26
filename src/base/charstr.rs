@@ -30,11 +30,9 @@ use super::octets::{
 };
 #[cfg(feature = "serde")]
 use super::octets::{DeserializeOctets, SerializeOctets};
-use super::str::{BadSymbol, Symbol, SymbolError};
+use super::scan::{BadSymbol, Scan, Scanner, Symbol, SymbolCharsError};
 #[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
+use crate::master::scan::{CharSource, ScanError, SyntaxError};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
@@ -84,7 +82,7 @@ impl<Octets: ?Sized> CharStr<Octets> {
     /// Creates a character string from octets without length check.
     ///
     /// As this can break the guarantees made by the type, it is unsafe.
-    unsafe fn from_octets_unchecked(octets: Octets) -> Self
+    pub unsafe fn from_octets_unchecked(octets: Octets) -> Self
     where
         Octets: Sized,
     {
@@ -172,7 +170,7 @@ impl CharStr<Bytes> {
     #[cfg(feature = "master")]
     #[cfg_attr(docsrs, doc(cfg(feature = "master")))]
     pub fn scan_hex<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut crate::master::scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         scanner.scan_hex_word(|b| unsafe {
             Ok(CharStr::from_octets_unchecked(b))
@@ -357,10 +355,18 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
 
 //--- Scan and Display
 
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for CharStr<Octets> {
+    fn scan_opt(
+        scanner: &mut S,
+    ) -> Result<Option<Self>, S::Error> {
+        scanner.scan_charstr()
+    }
+}
+
 #[cfg(feature = "master")]
-impl Scan for CharStr<Bytes> {
+impl crate::master::scan::Scan for CharStr<Bytes> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut crate::master::scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         scanner.scan_byte_phrase(|res| {
             if res.len() > 255 {
@@ -804,11 +810,11 @@ pub enum FromStrError {
 
 //--- From
 
-impl From<SymbolError> for FromStrError {
-    fn from(err: SymbolError) -> FromStrError {
+impl From<SymbolCharsError> for FromStrError {
+    fn from(err: SymbolCharsError) -> FromStrError {
         match err {
-            SymbolError::BadEscape => FromStrError::BadEscape,
-            SymbolError::ShortInput => FromStrError::ShortInput,
+            SymbolCharsError::BadEscape => FromStrError::BadEscape,
+            SymbolCharsError::ShortInput => FromStrError::ShortInput,
         }
     }
 }

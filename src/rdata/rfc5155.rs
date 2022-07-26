@@ -14,9 +14,13 @@ use crate::base::octets::{
 #[cfg(feature = "serde")]
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::RtypeRecordData;
+use crate::base::scan::{
+    ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError
+};
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+use crate::master::scan::{self as old_scan, CharSource, ScanError};
 use crate::utils::{base16, base32};
+use crate::try_opt;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
@@ -264,18 +268,31 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
 
 //--- Scan, Display, and Debug
 
-#[cfg(feature = "master")]
-impl Scan for Nsec3<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3<Octets> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        Ok(Some(Self::new(
+            try_opt!(Nsec3HashAlg::scan_opt(scanner)),
             u8::scan(scanner)?,
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
             OwnerHash::scan(scanner)?,
             RtypeBitmap::scan(scanner)?,
+        )))
+    }
+}
+
+#[cfg(feature = "master")]
+impl old_scan::Scan for Nsec3<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut old_scan::Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        Ok(Self::new(
+            <Nsec3HashAlg as old_scan::Scan>::scan(scanner)?,
+            <u8 as old_scan::Scan>::scan(scanner)?,
+            <u16 as old_scan::Scan>::scan(scanner)?,
+            <Nsec3Salt<_> as old_scan::Scan>::scan(scanner)?,
+            <OwnerHash<_> as old_scan::Scan>::scan(scanner)?,
+            <RtypeBitmap<_> as old_scan::Scan>::scan(scanner)?,
         ))
     }
 }
@@ -510,16 +527,27 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
 
 //--- Scan, Display, and Debug
 
-#[cfg(feature = "master")]
-impl Scan for Nsec3param<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3param<Octets> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        Ok(Some(Self::new(
+            try_opt!(Nsec3HashAlg::scan_opt(scanner)),
             u8::scan(scanner)?,
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
+        )))
+    }
+}
+
+#[cfg(feature = "master")]
+impl old_scan::Scan for Nsec3param<Bytes> {
+    fn scan<C: CharSource>(
+        scanner: &mut old_scan::Scanner<C>,
+    ) -> Result<Self, ScanError> {
+        Ok(Self::new(
+            <Nsec3HashAlg as old_scan::Scan>::scan(scanner)?,
+            <u8 as old_scan::Scan>::scan(scanner)?,
+            <u16 as old_scan::Scan>::scan(scanner)?,
+            <Nsec3Salt<_> as old_scan::Scan>::scan(scanner)?,
         ))
     }
 }
@@ -766,10 +794,71 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Nsec3Salt<Octets> {
 
 //--- Scan and Display
 
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3Salt<Octets> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        #[derive(Default)]
+        struct Converter(Option<Option<base16::SymbolConverter>>);
+
+        impl<Sym, Error> ConvertSymbols<Sym, Error> for Converter
+        where
+            Sym: Into<EntrySymbol>,
+            Error: ScannerError,
+        {
+            fn process_symbol(
+                &mut self, symbol: Sym,
+            ) -> Result<Option<&[u8]>, Error> {
+                let symbol = symbol.into();
+                // If we are none, this is the first symbol. A '-' means
+                // empty. Anything else means Base 16.
+                if self.0.is_none() {
+                    match symbol {
+                        EntrySymbol::Symbol(symbol)
+                            if symbol.into_char() == Ok('-')
+                        => {
+                            self.0 = Some(None);
+                            return Ok(None)
+                        }
+                        _ => {
+                            self.0 = Some(Some(
+                                base16::SymbolConverter::new()
+                            ));
+                        }
+                    }
+                }
+
+                match self.0.as_mut() {
+                    None => unreachable!(),
+                    Some(None) => {
+                        Err(Error::custom("illegal NSEC3 salt"))
+                    }
+                    Some(Some(ref mut base16)) => {
+                        base16.process_symbol(symbol)
+                    }
+                }
+            }
+
+            fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
+                if let Some(Some(ref mut base16)) = self.0 {
+                    <base16::SymbolConverter
+                        as ConvertSymbols<Sym, Error>
+                    >::process_tail(base16)
+                }
+                else {
+                    Ok(None)
+                }
+            }
+        }
+
+        scanner.convert_token(Converter::default()).map(|opt| opt.map(|res| {
+            unsafe { Self::from_octets_unchecked(res) }
+        }))
+    }
+}
+
 #[cfg(feature = "master")]
-impl Scan for Nsec3Salt<Bytes> {
+impl old_scan::Scan for Nsec3Salt<Bytes> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut old_scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         if let Ok(()) = scanner.skip_literal("-") {
             Ok(Self::empty())
@@ -1111,10 +1200,22 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for OwnerHash<Octets> {
 
 //--- Scan and Display
 
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for OwnerHash<Octets> {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        scanner.convert_token(
+            base32::SymbolConverter::new()
+        ).map(|opt| {
+            opt.map(|octets| {
+                unsafe { Self::from_octets_unchecked(octets) }
+            })
+        })
+    }
+}
+
 #[cfg(feature = "master")]
-impl Scan for OwnerHash<Bytes> {
+impl old_scan::Scan for OwnerHash<Bytes> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut old_scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         scanner.scan_base32hex_phrase(|b| unsafe {
             Ok(Self::from_octets_unchecked(b))

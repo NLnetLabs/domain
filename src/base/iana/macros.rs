@@ -251,6 +251,8 @@ macro_rules! int_enum_str_decimal {
             }
         }
 
+        scan_impl!($ianatype);
+
         #[cfg(feature = "master")]
         impl $crate::master::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
@@ -327,7 +329,7 @@ macro_rules! int_enum_str_with_decimal {
                     Some(res) => Ok(res),
                     None => {
                         if let Ok(res) = s.parse() {
-                            Ok($ianatype::Int(res))
+                            Ok($ianatype::from_int(res))
                         } else {
                             Err(FromStrError)
                         }
@@ -353,6 +355,8 @@ macro_rules! int_enum_str_with_decimal {
                 }
             }
         }
+
+        scan_impl!($ianatype);
 
         #[cfg(feature = "master")]
         impl $crate::master::scan::Scan for $ianatype {
@@ -482,6 +486,8 @@ macro_rules! int_enum_str_with_prefix {
             }
         }
 
+        scan_impl!($ianatype);
+
         #[cfg(feature = "master")]
         impl $crate::master::scan::Scan for $ianatype {
             fn scan<C: $crate::master::scan::CharSource>(
@@ -526,6 +532,27 @@ macro_rules! int_enum_str_with_prefix {
     };
 }
 
+macro_rules! scan_impl {
+    ($ianatype:ident) => {
+        impl<S> $crate::base::scan::Scan<S> for $ianatype
+        where S: $crate::base::scan::Scanner {
+            fn scan_opt(
+                scanner: &mut S,
+            ) -> Result<Option<Self>, S::Error> {
+                let token = $crate::try_opt!(
+                    scanner.scan_string()
+                );
+
+                core::str::FromStr::from_str(&token).map(Some).map_err(|_| {
+                    $crate::base::scan::ScannerError::custom(
+                        concat!("expected ", stringify!($ianatype))
+                    )
+                })
+            }
+        }
+    }
+}
+
 macro_rules! from_str_error {
     ($description:expr) => {
         #[derive(Clone, Debug)]
@@ -545,3 +572,4 @@ macro_rules! from_str_error {
         }
     };
 }
+

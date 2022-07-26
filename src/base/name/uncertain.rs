@@ -8,8 +8,8 @@ use super::super::octets::{
 };
 #[cfg(feature = "serde")]
 use super::super::octets::{DeserializeOctets, SerializeOctets};
+use super::super::scan::{Scan, Scanner, Symbol};
 #[cfg(feature = "master")]
-use super::super::str::Symbol;
 use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -17,7 +17,7 @@ use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToEitherDname, ToLabelIter};
 #[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+use crate::master::scan::{self, CharSource, ScanError};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 #[cfg(feature = "master")]
@@ -412,10 +412,19 @@ impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
 
 //--- Scan
 
+impl<Octets, S> Scan<S> for UncertainDname<Octets>
+where S: Scanner<Dname = Dname<Octets>> {
+    fn scan_opt(
+        scanner: &mut S,
+    ) -> Result<Option<Self>, S::Error> {
+        scanner.scan_dname().map(|opt| opt.map(UncertainDname::Absolute))
+    }
+}
+
 #[cfg(feature = "master")]
-impl Scan for UncertainDname<Bytes> {
+impl scan::Scan for UncertainDname<Bytes> {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         if let Ok(()) = scanner.skip_literal(".") {
             return Ok(UncertainDname::root());
@@ -431,7 +440,7 @@ impl Scan for UncertainDname<Bytes> {
                             return Err(FromStrError::EmptyLabel.into());
                         }
                     }
-                    Symbol::Char(ch) | Symbol::SimpleEscape(ch) => {
+                    Symbol::Char(ch) => {
                         if ch.is_ascii() {
                             if let Err(err) = name.push(ch as u8) {
                                 return Err(FromStrError::from(err).into());
@@ -442,7 +451,7 @@ impl Scan for UncertainDname<Bytes> {
                             );
                         }
                     }
-                    Symbol::DecimalEscape(ch) => {
+                    Symbol::SimpleEscape(ch) | Symbol::DecimalEscape(ch) => {
                         if let Err(err) = name.push(ch) {
                             return Err(FromStrError::from(err).into());
                         }

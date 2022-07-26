@@ -158,7 +158,7 @@ impl Entry {
         let (ttl, class) =
             Self::scan_ttl_class(scanner, last_class, default_ttl)?;
         let rtype = Rtype::scan(scanner)?;
-        let rdata = ZoneRecordData::scan(rtype, scanner)?;
+        let rdata = ZoneRecordData::old_scan(rtype, scanner)?;
         scanner.scan_newline()?;
         Ok(Record::new(owner, class, ttl, rdata))
     }

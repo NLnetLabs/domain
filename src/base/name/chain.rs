@@ -4,6 +4,7 @@
 //! crate.
 
 use super::super::octets::{Compose, OctetsBuilder, ShortBuf};
+use super::super::scan::{Scan, Scanner};
 use super::label::Label;
 use super::relative::DnameIter;
 use super::traits::{ToDname, ToEitherDname, ToLabelIter, ToRelativeDname};
@@ -203,7 +204,15 @@ where
 {
 }
 
-//--- Display
+//--- Scan and Display
+
+impl<L, R, S: Scanner<Dname = Self>> Scan<S> for Chain<L, R> {
+    fn scan_opt(
+        scanner: &mut S,
+    ) -> Result<Option<Self>, S::Error> {
+        scanner.scan_dname()
+    }
+}
 
 impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

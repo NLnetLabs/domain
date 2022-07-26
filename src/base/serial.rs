@@ -11,13 +11,17 @@ use super::cmp::CanonicalOrd;
 use super::octets::{
     Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
 };
+use super::scan::{Scan, Scanner, ScannerError};
+use crate::try_opt;
 #[cfg(feature = "master")]
 use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
+    self as old_scan, CharSource, ScanError, SyntaxError,
 };
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone, Utc};
+use time::{Date, Month, PrimitiveDateTime, Time};
 use core::cmp::Ordering;
+use core::convert::TryFrom;
 use core::{cmp, fmt, str};
 #[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -87,13 +91,89 @@ impl Serial {
     /// Scan a serial represention signature time value.
     ///
     /// In [RRSIG] records, the expiration and inception times are given as
+    /// serial values. Their representation format can either be the
+    /// value or a specific date in `YYYYMMDDHHmmSS` format.
+    ///
+    /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
+    pub fn scan_rrsig<S: Scanner>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        S::Error::expected(Self::scan_opt_rrsig(scanner))
+    }
+
+    /// Scans a serial represention signature time value.
+    ///
+    /// In [RRSIG] records, the expiration and inception times are given as
+    /// serial values. Their representation format can either be the
+    /// value or a specific date in `YYYYMMDDHHmmSS` format.
+    ///
+    /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
+    pub fn scan_opt_rrsig<S: Scanner>(
+        scanner: &mut S,
+    ) -> Result<Option<Self>, S::Error> {
+        let mut symbols = try_opt!(scanner.scan_symbols());
+        let mut pos = 0;
+        let mut buf = [0u8; 14];
+        while let Some(symbol) = symbols.next() {
+            if pos >= 14 {
+                return Err(S::Error::custom("illegal signature time"));
+            }
+            buf[pos] = symbol.into_digit(10).map_err(|_| {
+                S::Error::custom("illegal signature time")
+            })? as u8;
+            pos += 1;
+        }
+        if pos <= 10 {
+            // We have an integer. We generate it into a u64 to deal
+            // with possible overflows.
+            let mut res = 0u64;
+            for ch in &buf[..pos] {
+                res = res * 10 + (u64::from(*ch));
+            }
+            if res > u64::from(::std::u32::MAX) {
+                Err(S::Error::custom("illegal signature time"))
+            } else {
+                Ok(Some(Serial(res as u32)))
+            }
+        }
+        else if pos == 14 {
+            let year = u32_from_buf(&buf[0..4]) as i32;
+            let month = Month::try_from(
+                u8_from_buf(&buf[4..6])
+            ).map_err(|_| S::Error::custom("illegal signature time"))?;
+            let day = u8_from_buf(&buf[6..8]);
+            let hour = u8_from_buf(&buf[8..10]);
+            let minute = u8_from_buf(&buf[10..12]);
+            let second = u8_from_buf(&buf[12..14]);
+            Ok(Some(Serial(
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(
+                        year, month, day,
+                    ).map_err(|_| S::Error::custom(
+                        "illegal signature time"
+                    ))?,
+                    Time::from_hms(
+                        hour, minute, second,
+                    ).map_err(|_| S::Error::custom(
+                        "illegal signature time"
+                    ))?,
+                ).assume_utc().unix_timestamp() as u32
+            )))
+        } else {
+            Err(S::Error::custom("illegal signature time"))
+        }
+    }
+
+    /// Scan a serial represention signature time value.
+    ///
+    /// In [RRSIG] records, the expiration and inception times are given as
     /// serial values. Their master file format can either be the signature
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
     ///
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
     #[cfg(feature = "master")]
-    pub fn scan_rrsig<C: CharSource>(
-        scanner: &mut Scanner<C>,
+    pub fn old_scan_rrsig<C: CharSource>(
+        scanner: &mut old_scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
         scanner.scan_phrase(
             (0, [0u8; 14]),
@@ -217,12 +297,18 @@ impl Compose for Serial {
 
 //--- Scan and Display
 
+impl<S: Scanner> Scan<S> for Serial {
+    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+        u32::scan_opt(scanner).map(|ok| ok.map(Into::into))
+    }
+}
+
 #[cfg(feature = "master")]
-impl Scan for Serial {
+impl old_scan::Scan for Serial {
     fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
+        scanner: &mut old_scan::Scanner<C>,
     ) -> Result<Self, ScanError> {
-        u32::scan(scanner).map(Into::into)
+        <u32 as old_scan::Scan>::scan(scanner).map(Into::into)
     }
 }
 
@@ -266,7 +352,14 @@ impl CanonicalOrd for Serial {
 
 //------------ Helper Functions ----------------------------------------------
 
-#[cfg(feature = "master")]
+fn u8_from_buf(buf: &[u8]) -> u8 {
+    let mut res = 0;
+    for ch in buf {
+        res = res * 10 + *ch;
+    }
+    res
+}
+
 fn u32_from_buf(buf: &[u8]) -> u32 {
     let mut res = 0;
     for ch in buf {

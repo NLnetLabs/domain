@@ -30,7 +30,7 @@
 #![cfg_attr(feature = "master", doc = "* [master]:")]
 #![cfg_attr(not(feature = "master"), doc = "* master:")]
 //!   Experimental reading and writing of master files – also known
-//!   as zone files –, i.e., the textual representation of DNS data. This
+//!   as zonefiles –, i.e., the textual representation of DNS data. This
 //!   module will be re-implemented in the near future and will be renamed to
 //!   _zonefiles._
 #![cfg_attr(feature = "resolv", doc = "* [resolv]:")]
@@ -95,6 +95,10 @@
 #![cfg_attr(not(feature = "validate"), doc = "  validate")]
 //!   module and currently also enables the `std` and `ring`
 //!   features.
+//! * `zonefile`: reading and writing of zonefiles. This feature enables the
+#![cfg_attr(feature = "zonefile", doc = "  [zonefile]")]
+#![cfg_attr(not(feature = "zonefile"), doc = "  zonefile")]
+//!   module and currently also enables the `bytes` and `std` features.
 
 #![no_std]
 #![allow(renamed_and_removed_lints)]
@@ -118,3 +122,6 @@ pub mod test;
 pub mod tsig;
 pub mod utils;
 pub mod validate;
+pub mod zonefile;
+
+mod macros;
