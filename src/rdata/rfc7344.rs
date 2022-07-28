@@ -12,7 +12,6 @@ use crate::base::scan::{Scan, Scanner};
 #[cfg(feature = "master")]
 use crate::master::scan::{self as old_scan, CharSource, ScanError};
 use crate::utils::{base16, base64};
-use crate::try_opt;
 #[cfg(feature = "master")]
 use bytes::Bytes;
 use core::cmp::Ordering;
@@ -207,13 +206,13 @@ impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
 //--- Scan and Display
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cdnskey<Octets> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        Ok(Some(Self::new(
-            try_opt!(u16::scan_opt(scanner)),
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        )))
+        ))
     }
 }
 
@@ -462,13 +461,13 @@ impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
 //--- Scan and Display
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cds<Octets> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        Ok(Some(Self::new(
-            try_opt!(u16::scan_opt(scanner)),
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
-        )))
+        ))
     }
 }
 

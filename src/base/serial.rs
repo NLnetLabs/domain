@@ -12,7 +12,6 @@ use super::octets::{
     Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
 };
 use super::scan::{Scan, Scanner, ScannerError};
-use crate::try_opt;
 #[cfg(feature = "master")]
 use crate::master::scan::{
     self as old_scan, CharSource, ScanError, SyntaxError,
@@ -98,20 +97,7 @@ impl Serial {
     pub fn scan_rrsig<S: Scanner>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        S::Error::expected(Self::scan_opt_rrsig(scanner))
-    }
-
-    /// Scans a serial represention signature time value.
-    ///
-    /// In [RRSIG] records, the expiration and inception times are given as
-    /// serial values. Their representation format can either be the
-    /// value or a specific date in `YYYYMMDDHHmmSS` format.
-    ///
-    /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
-    pub fn scan_opt_rrsig<S: Scanner>(
-        scanner: &mut S,
-    ) -> Result<Option<Self>, S::Error> {
-        let mut symbols = try_opt!(scanner.scan_symbols());
+        let mut symbols = scanner.scan_symbols()?;
         let mut pos = 0;
         let mut buf = [0u8; 14];
         while let Some(symbol) = symbols.next() {
@@ -133,7 +119,7 @@ impl Serial {
             if res > u64::from(::std::u32::MAX) {
                 Err(S::Error::custom("illegal signature time"))
             } else {
-                Ok(Some(Serial(res as u32)))
+                Ok(Serial(res as u32))
             }
         }
         else if pos == 14 {
@@ -145,7 +131,7 @@ impl Serial {
             let hour = u8_from_buf(&buf[8..10]);
             let minute = u8_from_buf(&buf[10..12]);
             let second = u8_from_buf(&buf[12..14]);
-            Ok(Some(Serial(
+            Ok(Serial(
                 PrimitiveDateTime::new(
                     Date::from_calendar_date(
                         year, month, day,
@@ -158,7 +144,7 @@ impl Serial {
                         "illegal signature time"
                     ))?,
                 ).assume_utc().unix_timestamp() as u32
-            )))
+            ))
         } else {
             Err(S::Error::custom("illegal signature time"))
         }
@@ -298,8 +284,8 @@ impl Compose for Serial {
 //--- Scan and Display
 
 impl<S: Scanner> Scan<S> for Serial {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        u32::scan_opt(scanner).map(|ok| ok.map(Into::into))
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        u32::scan(scanner).map(Into::into)
     }
 }
 

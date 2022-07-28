@@ -22,7 +22,6 @@ use crate::base::serial::Serial;
 use crate::master::scan::{
     self as old_scan, CharSource, ScanError, SyntaxError,
 };
-use crate::try_opt;
 #[cfg(feature = "master")]
 use bytes::Bytes;
 #[cfg(feature = "bytes")]
@@ -128,16 +127,16 @@ impl Compose for A {
 //--- Scan and Display
 
 impl<S: Scanner> Scan<S> for A {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        let token = try_opt!(scanner.scan_octets());
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        let token = scanner.scan_octets()?;
         let token = str::from_utf8(token.as_ref()).map_err(|_| {
             S::Error::custom("expected IPv4 address")
         })?;
-        Ok(Some(
+        Ok(
             A::from_str(token).map_err(|_| {
                 S::Error::custom("expected IPv4 address")
             })?
-        ))
+        )
     }
 }
 
@@ -353,11 +352,8 @@ impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
 //--- Scan and Display
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Hinfo<Octets> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        Ok(Some(Self::new(
-            try_opt!(scanner.scan_charstr()),
-            S::Error::expected(scanner.scan_charstr())?,
-        )))
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(Self::new(scanner.scan_charstr()?, scanner.scan_charstr()?))
     }
 }
 
@@ -602,11 +598,8 @@ impl<N: ToDname> Compose for Minfo<N> {
 //--- Scan and Display
 
 impl<N, S: Scanner<Dname = N>> Scan<S> for Minfo<N> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        Ok(Some(Self::new(
-            try_opt!(scanner.scan_dname()),
-            S::Error::expected(scanner.scan_dname())?
-        )))
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(Self::new(scanner.scan_dname()?, scanner.scan_dname()?))
     }
 }
 
@@ -786,11 +779,8 @@ impl<N: ToDname> Compose for Mx<N> {
 //--- Scan and Display
 
 impl<N, S: Scanner<Dname = N>> Scan<S> for Mx<N> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        Ok(Some(Self::new(
-            try_opt!(u16::scan_opt(scanner)),
-            S::Error::expected(scanner.scan_dname())?,
-        )))
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(Self::new(u16::scan(scanner)?, scanner.scan_dname()?))
     }
 }
 
@@ -1305,16 +1295,16 @@ impl<N: ToDname> Compose for Soa<N> {
 //--- Scan and Display
 
 impl<N, S: Scanner<Dname = N>> Scan<S> for Soa<N> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        Ok(Some(Self::new(
-            try_opt!(scanner.scan_dname()),
-            S::Error::expected(scanner.scan_dname())?,
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            scanner.scan_dname()?,
+            scanner.scan_dname()?,
             Serial::scan(scanner)?,
             u32::scan(scanner)?,
             u32::scan(scanner)?,
             u32::scan(scanner)?,
             u32::scan(scanner)?,
-        )))
+        ))
     }
 }
 
@@ -1564,8 +1554,8 @@ impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
 //--- Scan and Display
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Txt<Octets> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        scanner.scan_charstr_entry().map(|opt| opt.map(Txt))
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        scanner.scan_charstr_entry().map(Txt)
     }
 }
 

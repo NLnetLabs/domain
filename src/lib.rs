@@ -124,4 +124,3 @@ pub mod utils;
 pub mod validate;
 pub mod zonefile;
 
-mod macros;

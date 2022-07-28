@@ -408,7 +408,7 @@ where
 
     fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
         // next is either 0 or 0xF0 for a completed group.
-        if self.next & 0xF0 != 0 {
+        if self.next & 0x0F != 0 {
             Err(Error::custom("incomplete Base 64 data"))
         }
         else {

@@ -1016,10 +1016,8 @@ macro_rules! dname_type {
 
         impl<N, S> crate::base::scan::Scan<S> for $target<N>
         where S: crate::base::scan::Scanner<Dname = N> {
-            fn scan_opt(
-                scanner: &mut S,
-            ) -> Result<Option<Self>, S::Error> {
-                scanner.scan_dname().map(|opt| opt.map(Self::new))
+            fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+                scanner.scan_dname().map(Self::new)
             }
         }
 

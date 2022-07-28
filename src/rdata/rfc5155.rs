@@ -20,7 +20,6 @@ use crate::base::scan::{
 #[cfg(feature = "master")]
 use crate::master::scan::{self as old_scan, CharSource, ScanError};
 use crate::utils::{base16, base32};
-use crate::try_opt;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
@@ -269,15 +268,15 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
 //--- Scan, Display, and Debug
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3<Octets> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        Ok(Some(Self::new(
-            try_opt!(Nsec3HashAlg::scan_opt(scanner)),
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            Nsec3HashAlg::scan(scanner)?,
             u8::scan(scanner)?,
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
             OwnerHash::scan(scanner)?,
             RtypeBitmap::scan(scanner)?,
-        )))
+        ))
     }
 }
 
@@ -528,13 +527,13 @@ impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
 //--- Scan, Display, and Debug
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3param<Octets> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        Ok(Some(Self::new(
-            try_opt!(Nsec3HashAlg::scan_opt(scanner)),
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            Nsec3HashAlg::scan(scanner)?,
             u8::scan(scanner)?,
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
-        )))
+        ))
     }
 }
 
@@ -795,7 +794,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Nsec3Salt<Octets> {
 //--- Scan and Display
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3Salt<Octets> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         #[derive(Default)]
         struct Converter(Option<Option<base16::SymbolConverter>>);
 
@@ -849,9 +848,9 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3Salt<Octets> {
             }
         }
 
-        scanner.convert_token(Converter::default()).map(|opt| opt.map(|res| {
-            unsafe { Self::from_octets_unchecked(res) }
-        }))
+        scanner.convert_token(Converter::default()).map(|res| {
+            unsafe { Self::from_octets_unchecked(res) } 
+        })
     }
 }
 
@@ -1201,13 +1200,11 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for OwnerHash<Octets> {
 //--- Scan and Display
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for OwnerHash<Octets> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         scanner.convert_token(
             base32::SymbolConverter::new()
-        ).map(|opt| {
-            opt.map(|octets| {
-                unsafe { Self::from_octets_unchecked(octets) }
-            })
+        ).map(|octets| {
+            unsafe { Self::from_octets_unchecked(octets) }
         })
     }
 }
