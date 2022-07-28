@@ -17,8 +17,6 @@ use crate::base::rdata::RtypeRecordData;
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError
 };
-#[cfg(feature = "master")]
-use crate::master::scan::{self as old_scan, CharSource, ScanError};
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
@@ -280,22 +278,6 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3<Octets> {
     }
 }
 
-#[cfg(feature = "master")]
-impl old_scan::Scan for Nsec3<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <Nsec3HashAlg as old_scan::Scan>::scan(scanner)?,
-            <u8 as old_scan::Scan>::scan(scanner)?,
-            <u16 as old_scan::Scan>::scan(scanner)?,
-            <Nsec3Salt<_> as old_scan::Scan>::scan(scanner)?,
-            <OwnerHash<_> as old_scan::Scan>::scan(scanner)?,
-            <RtypeBitmap<_> as old_scan::Scan>::scan(scanner)?,
-        ))
-    }
-}
-
 impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -533,20 +515,6 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3param<Octets> {
             u8::scan(scanner)?,
             u16::scan(scanner)?,
             Nsec3Salt::scan(scanner)?,
-        ))
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for Nsec3param<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <Nsec3HashAlg as old_scan::Scan>::scan(scanner)?,
-            <u8 as old_scan::Scan>::scan(scanner)?,
-            <u16 as old_scan::Scan>::scan(scanner)?,
-            <Nsec3Salt<_> as old_scan::Scan>::scan(scanner)?,
         ))
     }
 }
@@ -851,21 +819,6 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3Salt<Octets> {
         scanner.convert_token(Converter::default()).map(|res| {
             unsafe { Self::from_octets_unchecked(res) } 
         })
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for Nsec3Salt<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        if let Ok(()) = scanner.skip_literal("-") {
-            Ok(Self::empty())
-        } else {
-            scanner.scan_hex_word(|b| unsafe {
-                Ok(Self::from_octets_unchecked(b))
-            })
-        }
     }
 }
 
@@ -1205,17 +1158,6 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for OwnerHash<Octets> {
             base32::SymbolConverter::new()
         ).map(|octets| {
             unsafe { Self::from_octets_unchecked(octets) }
-        })
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for OwnerHash<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_base32hex_phrase(|b| unsafe {
-            Ok(Self::from_octets_unchecked(b))
         })
     }
 }

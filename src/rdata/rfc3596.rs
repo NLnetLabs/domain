@@ -12,8 +12,6 @@ use crate::base::octets::{
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::base::scan::{Scan, Scanner, ScannerError};
-#[cfg(feature = "master")]
-use crate::master::scan::{self as old_scan, CharSource, ScanError};
 use core::cmp::Ordering;
 use core::str::FromStr;
 use core::{fmt, ops, str};
@@ -109,17 +107,6 @@ impl<S: Scanner> Scan<S> for Aaaa {
         Ok(Aaaa::from_str(token).map_err(|_| {
             S::Error::custom("expected IPv6 address")
         })?)
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for Aaaa {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_string_phrase(|res| {
-            core::str::FromStr::from_str(&res).map_err(Into::into)
-        })
     }
 }
 

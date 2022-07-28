@@ -253,20 +253,6 @@ macro_rules! int_enum_str_decimal {
 
         scan_impl!($ianatype);
 
-        #[cfg(feature = "master")]
-        impl $crate::master::scan::Scan for $ianatype {
-            fn scan<C: $crate::master::scan::CharSource>(
-                scanner: &mut $crate::master::scan::Scanner<C>,
-            ) -> Result<Self, $crate::master::scan::ScanError> {
-                scanner.scan_string_word(|word| {
-                    use ::std::str::FromStr;
-
-                    Self::from_str(&word)
-                        .map_err($crate::master::scan::SyntaxError::content)
-                })
-            }
-        }
-
         impl core::fmt::Display for $ianatype {
             fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
                 write!(f, "{}", self.to_int())
@@ -357,21 +343,6 @@ macro_rules! int_enum_str_with_decimal {
         }
 
         scan_impl!($ianatype);
-
-        #[cfg(feature = "master")]
-        impl $crate::master::scan::Scan for $ianatype {
-            fn scan<C: $crate::master::scan::CharSource>(
-                scanner: &mut $crate::master::scan::Scanner<C>,
-            ) -> Result<Self, $crate::master::scan::ScanError> {
-                scanner.scan_string_word(|word| {
-                    core::str::FromStr::from_str(&word)
-                        .map_err(|_| {
-                            $crate::master::scan::SyntaxError::UnknownMnemonic
-                        })
-                        .map($ianatype::from_int)
-                })
-            }
-        }
 
         #[cfg(feature = "serde")]
         impl serde::Serialize for $ianatype {
@@ -487,21 +458,6 @@ macro_rules! int_enum_str_with_prefix {
         }
 
         scan_impl!($ianatype);
-
-        #[cfg(feature = "master")]
-        impl $crate::master::scan::Scan for $ianatype {
-            fn scan<C: $crate::master::scan::CharSource>(
-                scanner: &mut $crate::master::scan::Scanner<C>,
-            ) -> Result<Self, $crate::master::scan::ScanError> {
-                scanner.scan_string_word(|word| {
-                    use ::std::str::FromStr;
-
-                    Self::from_str(&word).map_err(|_| {
-                        $crate::master::scan::SyntaxError::UnknownMnemonic
-                    })
-                })
-            }
-        }
 
         #[cfg(feature = "serde")]
         impl serde::Serialize for $ianatype {

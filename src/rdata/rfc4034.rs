@@ -6,8 +6,6 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-#[cfg(feature = "master")]
-use crate::base::name::Dname;
 use crate::base::name::{ParsedDname, ToDname};
 use crate::base::octets::{
     Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom,
@@ -18,11 +16,7 @@ use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::RtypeRecordData;
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
-#[cfg(feature = "master")]
-use crate::master::scan::{self as old_scan, CharSource, ScanError};
 use crate::utils::{base16, base64};
-#[cfg(feature = "master")]
-use bytes::{Bytes, BytesMut};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::{fmt, hash, ptr};
@@ -309,20 +303,6 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Dnskey<Octets> {
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ))
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for Dnskey<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <u16 as old_scan::Scan>::scan(scanner)?,
-            <u8 as old_scan::Scan>::scan(scanner)?,
-            <SecAlg as old_scan::Scan>::scan(scanner)?,
-            scanner.scan_base64_phrases(Ok)?,
         ))
     }
 }
@@ -832,25 +812,6 @@ where S: Scanner<Octets = Octets, Dname = Name> {
     }
 }
 
-#[cfg(feature = "master")]
-impl old_scan::Scan for Rrsig<Bytes, Dname<Bytes>> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <Rtype as old_scan::Scan>::scan(scanner)?,
-            <SecAlg as old_scan::Scan>::scan(scanner)?,
-            <u8 as old_scan::Scan>::scan(scanner)?,
-            <u32 as old_scan::Scan>::scan(scanner)?,
-            Serial::old_scan_rrsig(scanner)?,
-            Serial::old_scan_rrsig(scanner)?,
-            <u16 as old_scan::Scan>::scan(scanner)?,
-            <Dname<_> as old_scan::Scan>::scan(scanner)?,
-            scanner.scan_base64_phrases(Ok)?,
-        ))
-    }
-}
-
 impl<Octets, Name> fmt::Display for Rrsig<Octets, Name>
 where
     Octets: AsRef<[u8]>,
@@ -1076,18 +1037,6 @@ where S: Scanner<Octets = Octets, Dname = Name> {
         Ok(Self::new(
             scanner.scan_dname()?,
             RtypeBitmap::scan(scanner)?,
-        ))
-    }
-}
-
-#[cfg(feature = "master")]
-impl<N: old_scan::Scan> old_scan::Scan for Nsec<Bytes, N> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <N as old_scan::Scan>::scan(scanner)?,
-            <RtypeBitmap<_> as old_scan::Scan>::scan(scanner)?
         ))
     }
 }
@@ -1335,20 +1284,6 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Ds<Octets> {
     }
 }
 
-#[cfg(feature = "master")]
-impl old_scan::Scan for Ds<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <u16 as old_scan::Scan>::scan(scanner)?,
-            <SecAlg as old_scan::Scan>::scan(scanner)?,
-            <DigestAlg as old_scan::Scan>::scan(scanner)?,
-            scanner.scan_hex_words(Ok)?,
-        ))
-    }
-}
-
 impl<Octets: AsRef<[u8]>> fmt::Display for Ds<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -1579,19 +1514,6 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for RtypeBitmap<Octets> {
             builder.add(
                 Rtype::scan(scanner)?
             ).map_err(|_| S::Error::short_buf())?;
-        }
-        Ok(builder.finalize())
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for RtypeBitmap<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        let mut builder = RtypeBitmapBuilder::<BytesMut>::new();
-        while let Ok(rtype) = <Rtype as old_scan::Scan>::scan(scanner) {
-            builder.add(rtype).unwrap()
         }
         Ok(builder.finalize())
     }

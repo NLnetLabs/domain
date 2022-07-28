@@ -18,12 +18,6 @@ use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::RtypeRecordData;
 use crate::base::scan::{Scan, Scanner, ScannerError, Symbol};
 use crate::base::serial::Serial;
-#[cfg(feature = "master")]
-use crate::master::scan::{
-    self as old_scan, CharSource, ScanError, SyntaxError,
-};
-#[cfg(feature = "master")]
-use bytes::Bytes;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::cmp::Ordering;
@@ -35,8 +29,8 @@ use core::{fmt, hash, ops, str};
 /// A record data.
 ///
 /// A records convey the IPv4 address of a host. The wire format is the 32
-/// bit IPv4 address in network byte order. The master file format is the
-/// usual dotted notation.
+/// bit IPv4 address in network byte order. The representation file format
+/// is the usual dotted notation.
 ///
 /// The A record type is defined in RFC 1035, section 3.4.1.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -137,16 +131,6 @@ impl<S: Scanner> Scan<S> for A {
                 S::Error::custom("expected IPv4 address")
             })?
         )
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for A {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner
-            .scan_string_phrase(|res| A::from_str(&res).map_err(Into::into))
     }
 }
 
@@ -354,18 +338,6 @@ impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Hinfo<Octets> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(scanner.scan_charstr()?, scanner.scan_charstr()?))
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for Hinfo<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <CharStr<_> as old_scan::Scan>::scan(scanner)?,
-            <CharStr<_> as old_scan::Scan>::scan(scanner)?
-        ))
     }
 }
 
@@ -603,15 +575,6 @@ impl<N, S: Scanner<Dname = N>> Scan<S> for Minfo<N> {
     }
 }
 
-#[cfg(feature = "master")]
-impl<N: old_scan::Scan> old_scan::Scan for Minfo<N> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(N::scan(scanner)?, N::scan(scanner)?))
-    }
-}
-
 impl<N: fmt::Display> fmt::Display for Minfo<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}. {}.", self.rmailbx, self.emailbx)
@@ -784,18 +747,6 @@ impl<N, S: Scanner<Dname = N>> Scan<S> for Mx<N> {
     }
 }
 
-#[cfg(feature = "master")]
-impl<N: old_scan::Scan> old_scan::Scan for Mx<N> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <u16 as old_scan::Scan>::scan(scanner)?,
-            <N as old_scan::Scan>::scan(scanner)?
-        ))
-    }
-}
-
 impl<N: fmt::Display> fmt::Display for Mx<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}.", self.preference, self.exchange)
@@ -824,7 +775,7 @@ dname_type! {
 /// Null record data.
 ///
 /// Null records can contain whatever data. They are experimental and not
-/// allowed in master files.
+/// allowed in zone files.
 ///
 /// The Null record type is defined in RFC 1035, section 3.3.10.
 #[derive(Clone)]
@@ -1308,23 +1259,6 @@ impl<N, S: Scanner<Dname = N>> Scan<S> for Soa<N> {
     }
 }
 
-#[cfg(feature = "master")]
-impl<N: old_scan::Scan> old_scan::Scan for Soa<N> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <N as old_scan::Scan>::scan(scanner)?,
-            <N as old_scan::Scan>::scan(scanner)?,
-            <Serial as old_scan::Scan>::scan(scanner)?,
-            <u32 as old_scan::Scan>::scan(scanner)?,
-            <u32 as old_scan::Scan>::scan(scanner)?,
-            <u32 as old_scan::Scan>::scan(scanner)?,
-            <u32 as old_scan::Scan>::scan(scanner)?,
-        ))
-    }
-}
-
 impl<N: fmt::Display> fmt::Display for Soa<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -1556,22 +1490,6 @@ impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Txt<Octets> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         scanner.scan_charstr_entry().map(Txt)
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for Txt<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_byte_phrase(|res| {
-            let mut builder = TxtBuilder::new_bytes();
-            if builder.append_slice(res.as_ref()).is_err() {
-                Err(SyntaxError::LongCharStr)
-            } else {
-                Ok(builder.finish())
-            }
-        })
     }
 }
 

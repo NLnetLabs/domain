@@ -36,7 +36,6 @@ libc = { version = "0.2.71", default-features = false, optional = true }
 [features]
 default     = ["std", "random"]
 interop     = ["bytes", "ring"]
-master      = ["std", "bytes", "chrono"]
 resolv      = ["bytes", "futures", "smallvec", "std", "tokio", "libc", "random"]
 resolv-sync = ["resolv", "tokio/rt"]
 sign        = ["std"]
@@ -48,7 +47,7 @@ zonefile    = ["bytes", "std"]
 
 # This feature should include all features that the CI should include for a
 # test run. Which is everything except interop.
-ci-test     = ["master", "resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate"]
+ci-test     = ["resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]
 
 [dev-dependencies]
 serde_test         = "1.0.130"
@@ -61,7 +60,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
 name = "readzone"
-required-features = ["master"]
+required-features = ["zonefile"]
 
 [[example]]
 name = "download-rust-lang"
