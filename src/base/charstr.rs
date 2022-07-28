@@ -31,8 +31,6 @@ use super::octets::{
 #[cfg(feature = "serde")]
 use super::octets::{DeserializeOctets, SerializeOctets};
 use super::scan::{BadSymbol, Scan, Scanner, Symbol, SymbolCharsError};
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, ScanError, SyntaxError};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
@@ -164,17 +162,6 @@ impl CharStr<Bytes> {
         } else {
             Ok(unsafe { Self::from_octets_unchecked(bytes) })
         }
-    }
-
-    /// Scans a character string given as a word of hexadecimal digits.
-    #[cfg(feature = "master")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "master")))]
-    pub fn scan_hex<C: CharSource>(
-        scanner: &mut crate::master::scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_hex_word(|b| unsafe {
-            Ok(CharStr::from_octets_unchecked(b))
-        })
     }
 }
 
@@ -358,21 +345,6 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for CharStr<Octets> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         scanner.scan_charstr()
-    }
-}
-
-#[cfg(feature = "master")]
-impl crate::master::scan::Scan for CharStr<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut crate::master::scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_byte_phrase(|res| {
-            if res.len() > 255 {
-                Err(SyntaxError::LongCharStr)
-            } else {
-                Ok(unsafe { CharStr::from_octets_unchecked(res) })
-            }
-        })
     }
 }
 

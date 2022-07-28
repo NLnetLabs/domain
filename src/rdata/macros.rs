@@ -351,33 +351,6 @@ macro_rules! rdata_types {
             }
         }
 
-        #[cfg(feature="master")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "master")))]
-        impl ZoneRecordData<
-            bytes::Bytes, $crate::base::name::Dname<bytes::Bytes>
-        > {
-            pub fn old_scan<C>(rtype: $crate::base::iana::Rtype,
-                           scanner: &mut $crate::master::scan::Scanner<C>)
-                           -> Result<Self, $crate::master::scan::ScanError>
-                        where C: $crate::master::scan::CharSource {
-                use $crate::master::scan::Scan;
-
-                match rtype {
-                    $( $( $(
-                        $crate::base::iana::Rtype::$mtype => {
-                            $mtype::scan(scanner)
-                                   .map(ZoneRecordData::$mtype)
-                        }
-                    )* )* )*
-                    _ => {
-                        $crate::base::rdata::UnknownRecordData::old_scan(
-                            rtype, scanner
-                        ).map(ZoneRecordData::Other)
-                    }
-                }
-            }
-        }
-
         impl<O, N> core::fmt::Display for ZoneRecordData<O, N>
         where
             O: AsRef<[u8]>,
@@ -1018,17 +991,6 @@ macro_rules! dname_type {
         where S: crate::base::scan::Scanner<Dname = N> {
             fn scan(scanner: &mut S) -> Result<Self, S::Error> {
                 scanner.scan_dname().map(Self::new)
-            }
-        }
-
-        #[cfg(feature="master")]
-        impl<N: crate::master::scan::Scan>
-        crate::master::scan::Scan for $target<N>
-        {
-            fn scan<C: CharSource>(
-                scanner: &mut crate::master::scan::Scanner<C>
-            ) -> Result<Self, ScanError> {
-                N::scan(scanner).map(Self::new)
             }
         }
 

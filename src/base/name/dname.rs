@@ -10,12 +10,6 @@ use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
-#[cfg(feature = "master")]
-use super::uncertain::UncertainDname;
-#[cfg(feature = "master")]
-use crate::master::scan::{
-    self as old_scan, CharSource, ScanError, SyntaxError,
-};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::str::FromStr;
@@ -80,8 +74,8 @@ impl<Octets> Dname<Octets> {
 
     /// Creates a domain name from a sequence of characters.
     ///
-    /// The sequence must result in a domain name in master format
-    /// representation. That is, its labels should be separated by dots.
+    /// The sequence must result in a domain name in representation format.
+    /// That is, its labels should be separated by dots.
     /// Actual dots, white space and backslashes should be escaped by a
     /// preceeding backslash, and any byte value that is not a printable
     /// ASCII character should be encoded by a backslash followed by its
@@ -811,26 +805,6 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
 impl<Octets, S: Scanner<Dname = Self>> Scan<S> for Dname<Octets> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         scanner.scan_dname()
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for Dname<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        let pos = scanner.pos();
-        let name = match old_scan::Scan::scan(scanner)? {
-            UncertainDname::Relative(name) => name,
-            UncertainDname::Absolute(name) => return Ok(name),
-        };
-        let origin = match *scanner.origin() {
-            Some(ref origin) => origin,
-            None => return Err((SyntaxError::NoOrigin, pos).into()),
-        };
-        name.into_builder()
-            .append_origin(origin)
-            .map_err(|err| (SyntaxError::from(err), pos).into())
     }
 }
 

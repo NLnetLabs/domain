@@ -70,14 +70,13 @@ use core::{fmt, hash};
 /// the generics through type inference. Secondly, you can parse a record
 /// from an existing message. [`Message`] and its friends provide a way to
 /// do that; see there for all the details. Finally, you can scan a record
-/// from master data (aka zonefiles). See the [`domain::master`] module for
+/// from zone file format. See the [`domain::zonefile`] module for
 /// that.
 ///
 /// [`new`]: #method.new
 /// [`Message`]: ../message/struct.Message.html
 /// [`MessageBuilder`]: ../message_builder/struct.MessageBuilder.html
 /// [`Rtype`]: ../../iana/enum.Rtype.html
-/// [`domain::master`]: ../../master/index.html
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Record<Name, Data> {

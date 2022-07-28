@@ -27,12 +27,6 @@
 //!
 //! Currently, there are the following modules:
 //!
-#![cfg_attr(feature = "master", doc = "* [master]:")]
-#![cfg_attr(not(feature = "master"), doc = "* master:")]
-//!   Experimental reading and writing of master files – also known
-//!   as zonefiles –, i.e., the textual representation of DNS data. This
-//!   module will be re-implemented in the near future and will be renamed to
-//!   _zonefiles._
 #![cfg_attr(feature = "resolv", doc = "* [resolv]:")]
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
@@ -46,6 +40,10 @@
 #![cfg_attr(feature = "validate", doc = "* [validate]:")]
 #![cfg_attr(not(feature = "validate"), doc = "* validate:")]
 //!   Experimental support for DNSSEC validation.
+#![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
+#![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
+//!   Experimental reading and writing of zone files, i.e., the textual
+//!   representation of DNS data.
 //!
 //!
 //! # Reference of Feature Flags
@@ -60,12 +58,6 @@
 //! * `heapless`: enables the use of the `Vec` type from the
 //!   [heapless](https://github.com/japaric/heapless) crate as octet
 //!   sequences.
-//! * `master`: Zone file parsing and construction. This will enable the
-#![cfg_attr(feature = "master", doc = "  [master]")]
-#![cfg_attr(not(feature = "master"), doc = "  master")]
-//!   module and currently enables the `bytes`, `chrono`, and `std`
-//!   features. Note that feature and module are experimental and will soon
-//!   be replaced.
 #![cfg_attr(feature = "resolv", doc = "  [resolv]")]
 #![cfg_attr(not(feature = "resolv"), doc = "  resolv")]
 //! * `resolv`: Enables the asynchronous stub resolver via the
@@ -114,7 +106,6 @@ extern crate std;
 extern crate core;
 
 pub mod base;
-pub mod master;
 pub mod rdata;
 pub mod resolv;
 pub mod sign;

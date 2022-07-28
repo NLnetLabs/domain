@@ -9,11 +9,7 @@ use crate::base::octets::{
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::base::scan::{Scan, Scanner};
-#[cfg(feature = "master")]
-use crate::master::scan::{self as old_scan, CharSource, ScanError};
 use crate::utils::{base16, base64};
-#[cfg(feature = "master")]
-use bytes::Bytes;
 use core::cmp::Ordering;
 use core::{fmt, hash};
 
@@ -212,20 +208,6 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cdnskey<Octets> {
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ))
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for Cdnskey<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <u16 as old_scan::Scan>::scan(scanner)?,
-            <u8 as old_scan::Scan>::scan(scanner)?,
-            <SecAlg as old_scan::Scan>::scan(scanner)?,
-            scanner.scan_base64_phrases(Ok)?,
         ))
     }
 }
@@ -467,20 +449,6 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cds<Octets> {
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
-        ))
-    }
-}
-
-#[cfg(feature = "master")]
-impl old_scan::Scan for Cds<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut old_scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        Ok(Self::new(
-            <u16 as old_scan::Scan>::scan(scanner)?,
-            <SecAlg as old_scan::Scan>::scan(scanner)?,
-            <DigestAlg as old_scan::Scan>::scan(scanner)?,
-            scanner.scan_hex_words(Ok)?,
         ))
     }
 }

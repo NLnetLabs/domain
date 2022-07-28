@@ -8,20 +8,15 @@ use super::super::octets::{
 };
 #[cfg(feature = "serde")]
 use super::super::octets::{DeserializeOctets, SerializeOctets};
-use super::super::scan::{Scan, Scanner, Symbol};
-#[cfg(feature = "master")]
+use super::super::scan::{Scan, Scanner};
 use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToEitherDname, ToLabelIter};
-#[cfg(feature = "master")]
-use crate::master::scan::{self, CharSource, ScanError};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-#[cfg(feature = "master")]
-use bytes::BytesMut;
 use core::{fmt, hash, str};
 #[cfg(feature = "std")]
 use std::vec::Vec;
@@ -416,55 +411,6 @@ impl<Octets, S> Scan<S> for UncertainDname<Octets>
 where S: Scanner<Dname = Dname<Octets>> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         scanner.scan_dname().map(UncertainDname::Absolute)
-    }
-}
-
-#[cfg(feature = "master")]
-impl scan::Scan for UncertainDname<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut scan::Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        if let Ok(()) = scanner.skip_literal(".") {
-            return Ok(UncertainDname::root());
-        }
-        scanner.scan_word(
-            DnameBuilder::<BytesMut>::new(),
-            |name, symbol| {
-                match symbol {
-                    Symbol::Char('.') => {
-                        if name.in_label() {
-                            name.end_label();
-                        } else {
-                            return Err(FromStrError::EmptyLabel.into());
-                        }
-                    }
-                    Symbol::Char(ch) => {
-                        if ch.is_ascii() {
-                            if let Err(err) = name.push(ch as u8) {
-                                return Err(FromStrError::from(err).into());
-                            }
-                        } else {
-                            return Err(
-                                FromStrError::IllegalCharacter(ch).into()
-                            );
-                        }
-                    }
-                    Symbol::SimpleEscape(ch) | Symbol::DecimalEscape(ch) => {
-                        if let Err(err) = name.push(ch) {
-                            return Err(FromStrError::from(err).into());
-                        }
-                    }
-                }
-                Ok(())
-            },
-            |name| {
-                if name.in_label() || name.is_empty() {
-                    Ok(UncertainDname::from(name.finish()))
-                } else {
-                    Ok(UncertainDname::from(name.into_dname().unwrap()))
-                }
-            },
-        )
     }
 }
 
