@@ -409,6 +409,14 @@ pub struct SourceBuf {
     /// Where in `buf` are we currently?
     start: usize,
 
+    /// The line number of the current line.
+    line_num: usize,
+
+    /// The position of the first character of the current line.
+    ///
+    /// This may be negative if we cut off bits of the current line.
+    line_start: isize,
+
     /// How many unclosed opening parentheses did we see at `start`?
     parens: usize,
 }
@@ -433,6 +441,8 @@ impl<'a> From<&'a [u8]> for SourceBuf {
         SourceBuf {
             buf,
             start: 1,
+            line_num: 1,
+            line_start: 1,
             parens: 0
         }
     }
@@ -452,6 +462,8 @@ impl SourceBuf {
         SourceBuf {
             buf,
             start: 1,
+            line_num: 1,
+            line_start: 1,
             parens: 0,
         }
     }
@@ -459,24 +471,15 @@ impl SourceBuf {
     pub fn len(&self) -> usize {
         self.buf.len()
     }
-
-    pub fn split_near(&mut self, mut pos: usize) -> Option<SourceBuf> {
-        // Go backwards until you find an LF:
-        while self.buf[pos] != b'\n' {
-            if pos == 1 {
-                return None
-            }
-            pos -= 1;
-        }
-        
-        let buf = self.buf.split_off(pos);
-        Some(SourceBuf { buf, start: 1, parens: 0 })
-    }
 }
 
 impl SourceBuf {
     fn error(&self, err: EntryError) -> Error {
-        Error { err }
+        Error {
+            err,
+            line: self.line_num,
+            col: ((self.start as isize) + 1 - self.line_start) as usize,
+        }
     }
 
     fn next_item(&mut self) -> Result<ItemRef, EntryError> {
@@ -509,9 +512,12 @@ impl SourceBuf {
         let buf = SourceBuf {
             buf: self.buf.split_to(last.end),
             start: first.end,
+            line_num: self.line_num,
+            line_start: self.line_start,
             parens: first.parens,
         };
         self.start -= last.end;
+        self.line_start -= last.end as isize;
         Ok(Tail::new(buf, first))
     }
 }
@@ -557,6 +563,8 @@ impl SourceBuf {
             // Line end: skip only if we are inside a paren group.
             else if ch == b'\n' && self.parens > 0 {
                 self.start += 1;
+                self.line_num += 1;
+                self.line_start = self.start as isize;
             }
             // Otherwise we found the end of the white space.
             else {
@@ -568,6 +576,8 @@ impl SourceBuf {
 
     fn lf_token(&mut self) -> Result<ItemRef, EntryError> {
         self.start += 1;
+        self.line_num += 1;
+        self.line_start = self.start as isize;
         Ok(ItemRef::LineFeed)
     }
 
@@ -1361,11 +1371,13 @@ impl error::Error for EntryError { }
 #[derive(Debug)]
 pub struct Error {
     err: EntryError,
+    line: usize,
+    col: usize,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.err.fmt(f)
+        write!(f, "{}:{}: {}", self.line, self.col, self.err)
     }
 }
 
@@ -1387,6 +1399,37 @@ mod test {
         );
         while zone.next_entry().unwrap().is_some() {
         }
+    }
+
+    #[test]
+    fn giant_zone() {
+        use std::time::SystemTime;
+
+        let start = SystemTime::now();
+        let mut buf = SourceBuf::new().writer();
+        std::io::copy(
+            &mut std::fs::File::open(
+                "/home/m/dns-test-data/com.zone"
+            ).unwrap(),
+            &mut buf
+        ).unwrap();
+
+        eprintln!("Data loaded ({:.03}s).",
+            start.elapsed().unwrap().as_secs_f32()
+        );
+        let mut zone = Zonefile::with_buf(buf.into_inner());
+        let mut i = 0;
+        while let Some(_) = zone.next_entry().unwrap() {
+            i += 1;
+            if i % 1_000_000 == 0 {
+                eprintln!("Processed {} records ({:.03}s)",
+                    i, start.elapsed().unwrap().as_secs_f32()
+                );
+            }
+        }
+        eprintln!("Complete with {} records ({:.03}s)",
+            i, start.elapsed().unwrap().as_secs_f32()
+        );
     }
 }
 
