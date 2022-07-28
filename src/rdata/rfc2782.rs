@@ -12,8 +12,7 @@ use crate::base::octets::{
     ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
-use crate::base::scan::{Scan, Scanner, ScannerError};
-use crate::try_opt;
+use crate::base::scan::{Scan, Scanner};
 #[cfg(feature = "master")]
 use crate::master::scan::{self as old_scan, CharSource, ScanError};
 use core::cmp::Ordering;
@@ -211,13 +210,13 @@ impl<N> RtypeRecordData for Srv<N> {
 //--- Scan and Display
 
 impl<N, S: Scanner<Dname = N>> Scan<S> for Srv<N> {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        Ok(Some(Self::new(
-            try_opt!(u16::scan_opt(scanner)),
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        Ok(Self::new(
             u16::scan(scanner)?,
             u16::scan(scanner)?,
-            S::Error::expected(scanner.scan_dname())?,
-        )))
+            u16::scan(scanner)?,
+            scanner.scan_dname()?,
+        ))
     }
 }
 

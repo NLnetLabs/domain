@@ -536,14 +536,9 @@ macro_rules! scan_impl {
     ($ianatype:ident) => {
         impl<S> $crate::base::scan::Scan<S> for $ianatype
         where S: $crate::base::scan::Scanner {
-            fn scan_opt(
-                scanner: &mut S,
-            ) -> Result<Option<Self>, S::Error> {
-                let token = $crate::try_opt!(
-                    scanner.scan_string()
-                );
-
-                core::str::FromStr::from_str(&token).map(Some).map_err(|_| {
+            fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+                let token = scanner.scan_string()?;
+                core::str::FromStr::from_str(&token).map_err(|_| {
                     $crate::base::scan::ScannerError::custom(
                         concat!("expected ", stringify!($ianatype))
                     )

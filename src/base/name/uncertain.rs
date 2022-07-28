@@ -414,10 +414,8 @@ impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
 
 impl<Octets, S> Scan<S> for UncertainDname<Octets>
 where S: Scanner<Dname = Dname<Octets>> {
-    fn scan_opt(
-        scanner: &mut S,
-    ) -> Result<Option<Self>, S::Error> {
-        scanner.scan_dname().map(|opt| opt.map(UncertainDname::Absolute))
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        scanner.scan_dname().map(UncertainDname::Absolute)
     }
 }
 

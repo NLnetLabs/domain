@@ -3,7 +3,6 @@
 use core::{fmt};
 use core::convert::{TryFrom, TryInto};
 #[cfg(feature = "std")] use std::error;
-use crate::try_opt;
 use crate::base::charstr::CharStr;
 use crate::base::name::ToDname;
 use crate::base::octets::{OctetsBuilder, ParseError, ShortBuf};
@@ -16,27 +15,16 @@ use crate::base::str::String;
 
 /// A type that can be scanned from its representation format.
 pub trait Scan<S: Scanner>: Sized {
-    fn scan_opt(
-        scanner: &mut S,
-    ) -> Result<Option<Self>, S::Error>;
-
-    fn scan(
-        scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        match Self::scan_opt(scanner)? {
-            Some(res) => Ok(res),
-            None => Err(S::Error::unexpected_end_of_entry())
-        }
-    }
+    fn scan(scanner: &mut S) -> Result<Self, S::Error>;
 }
 
 macro_rules! impl_scan_unsigned {
     ( $type:ident) => {
         impl<S: Scanner> Scan<S> for $type {
-            fn scan_opt(
+            fn scan(
                 scanner: &mut S,
-            ) -> Result<Option<Self>, S::Error> {
-                let token = try_opt!(scanner.scan_symbols());
+            ) -> Result<Self, S::Error> {
+                let token = scanner.scan_symbols()?;
                 let mut res: $type = 0;
                 for ch in token {
                     res = res.checked_mul(10).ok_or_else(|| {
@@ -46,7 +34,7 @@ macro_rules! impl_scan_unsigned {
                         S::Error::custom("expected decimal number")
                     })? as $type;
                 }
-                Ok(Some(res))
+                Ok(res)
             }
         }
     }
@@ -73,8 +61,11 @@ pub trait Scanner {
     /// Returns whether the next token is preceded by white space.
     fn has_space(&self) -> bool;
 
+    /// Returns whether there are more tokens in the entry.
+    fn continues(&self) -> bool;
+
     /// Scans a token into a sequence of symbols.
-    fn scan_symbols(&mut self) -> Result<Option<Self::Symbols>, Self::Error>;
+    fn scan_symbols(&mut self) -> Result<Self::Symbols, Self::Error>;
 
     /// Scans the remainder of the entry as symbols.
     fn scan_entry_symbols(
@@ -84,7 +75,7 @@ pub trait Scanner {
     /// Converts the symbols of a token into an octets sequence.
     fn convert_token<C: ConvertSymbols<Symbol, Self::Error>>(
         &mut self, convert: C,
-    ) -> Result<Option<Self::Octets>, Self::Error>;
+    ) -> Result<Self::Octets, Self::Error>;
 
     /// Converts the symbols of a token into an octets sequence.
     fn convert_entry<C: ConvertSymbols<EntrySymbol, Self::Error>>(
@@ -92,34 +83,26 @@ pub trait Scanner {
     ) -> Result<Self::Octets, Self::Error>;
 
     /// Scans a token into an octets sequence.
-    fn scan_octets(&mut self) -> Result<Option<Self::Octets>, Self::Error>;
+    fn scan_octets(&mut self) -> Result<Self::Octets, Self::Error>;
 
     /// Scans a token into a domain name.
-    fn scan_dname(&mut self) -> Result<Option<Self::Dname>, Self::Error>;
+    fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error>;
 
     /// Scans a token into a character string.
     ///
     /// Note that character strings have a length limit.  If you want a
     /// sequence of indefinite length, use [`scan_octets`][Self::scan_octets]
     /// instead.
-    fn scan_charstr(
-        &mut self
-    ) -> Result<Option<CharStr<Self::Octets>>, Self::Error>;
+    fn scan_charstr(&mut self) -> Result<CharStr<Self::Octets>, Self::Error>;
 
     /// Scans a token as a UTF-8 string.
-    fn scan_string(
-        &mut self
-    ) -> Result<Option<String<Self::Octets>>, Self::Error>;
+    fn scan_string(&mut self) -> Result<String<Self::Octets>, Self::Error>;
 
     /// Scans a sequence of character strings until the end of the entry.
     ///
     /// The returned octets will contain the sequence of character string in
     /// wire format.
-    ///
-    /// Returns `Ok(None)` if there are no more tokens.
-    fn scan_charstr_entry(
-        &mut self
-    ) -> Result<Option<Self::Octets>, Self::Error>;
+    fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error>;
 
     /// Returns an empty octets builder.
     ///
@@ -139,23 +122,13 @@ macro_rules! declare_error_trait {
             fn custom<T: fmt::Display>(msg: T) -> Self;
 
             /// Creates an error when more tokens were expected in the entry.
-            fn unexpected_end_of_entry() -> Self;
+            fn end_of_entry() -> Self;
 
             /// Creates an error when a octets buffer is too short.
             fn short_buf() -> Self;
 
             /// Creates an error when there are trailing tokens.
             fn trailing_tokens() -> Self;
-
-            /// Creates an error if there isn’t a next token.
-            fn expected<T>(
-                value: Result<Option<T>, Self>,
-            ) -> Result<T, Self> {
-                match value? {
-                    Some(value) => Ok(value),
-                    None => Err(Self::unexpected_end_of_entry())
-                }
-            }
         }
     }
 }
@@ -175,7 +148,7 @@ impl ScannerError for std::io::Error {
         )
     }
 
-    fn unexpected_end_of_entry() -> Self {
+    fn end_of_entry() -> Self {
         std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
             "unexpected end of entry"

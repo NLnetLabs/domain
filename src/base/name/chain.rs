@@ -207,9 +207,7 @@ where
 //--- Scan and Display
 
 impl<L, R, S: Scanner<Dname = Self>> Scan<S> for Chain<L, R> {
-    fn scan_opt(
-        scanner: &mut S,
-    ) -> Result<Option<Self>, S::Error> {
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         scanner.scan_dname()
     }
 }

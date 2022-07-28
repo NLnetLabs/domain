@@ -14,7 +14,6 @@ use crate::base::rdata::RtypeRecordData;
 use crate::base::scan::{Scan, Scanner, ScannerError};
 #[cfg(feature = "master")]
 use crate::master::scan::{self as old_scan, CharSource, ScanError};
-use crate::try_opt;
 use core::cmp::Ordering;
 use core::str::FromStr;
 use core::{fmt, ops, str};
@@ -102,16 +101,14 @@ impl Compose for Aaaa {
 //--- Scan and Display
 
 impl<S: Scanner> Scan<S> for Aaaa {
-    fn scan_opt(scanner: &mut S) -> Result<Option<Self>, S::Error> {
-        let token = try_opt!(scanner.scan_octets());
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        let token = scanner.scan_octets()?;
         let token = str::from_utf8(token.as_ref()).map_err(|_| {
             S::Error::custom("expected IPv6 address")
         })?;
-        Ok(Some(
-            Aaaa::from_str(token).map_err(|_| {
-                S::Error::custom("expected IPv6 address")
-            })?
-        ))
+        Ok(Aaaa::from_str(token).map_err(|_| {
+            S::Error::custom("expected IPv6 address")
+        })?)
     }
 }
 

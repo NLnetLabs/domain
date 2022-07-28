@@ -1,9 +1,10 @@
 //! Reading zone files.
 
-use std::{error, fmt, io, mem};
-use std::convert::TryFrom;
-use std::str::FromStr;
-use bytes::{Buf, Bytes, BytesMut};
+use core::convert::TryFrom;
+use core::str::FromStr;
+use std::{error, fmt};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::buf::UninitSlice;
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Chain, Dname, RelativeDname, ToDname};
@@ -13,25 +14,23 @@ use crate::base::scan::{
     Symbol, SymbolOctetsError,
 };
 use crate::base::str::String;
-use crate::rdata::{A, ZoneRecordData};
+use crate::rdata::ZoneRecordData;
 
 
 //------------ Type Aliases --------------------------------------------------
 
 pub type ScannedDname = Chain<RelativeDname<Bytes>, Dname<Bytes>>;
-pub type ScannedRecord = Record<
-    ScannedDname, ZoneRecordData<Bytes, ScannedDname>
->;
+pub type ScannedRecordData = ZoneRecordData<Bytes, ScannedDname>;
+pub type ScannedRecord = Record<ScannedDname, ScannedRecordData>;
+pub type ScannedString = String<Bytes>;
 
 
 //------------ Zonefile ------------------------------------------------------
 
+#[derive(Clone, Debug)]
 pub struct Zonefile {
     /// This is where we keep the data of the next entry.
     buf: SourceBuf,
-
-    /// Have we been marked as complete?
-    complete: bool,
 
     /// The current origin.
     origin: Option<Dname<Bytes>>,
@@ -48,17 +47,16 @@ pub struct Zonefile {
 
 impl Zonefile {
     pub fn new() -> Self {
-        Zonefile::with_buf(Default::default())
+        Self::with_buf(SourceBuf::default())
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
-        Zonefile::with_buf(BytesMut::with_capacity(capacity))
+        Self::with_buf(SourceBuf::with_capacity(capacity))
     }
 
-    pub fn with_buf(buf: BytesMut) -> Self {
+    pub fn with_buf(buf: SourceBuf) -> Self {
         Zonefile {
-            buf: SourceBuf::with_buf(buf),
-            complete: false,
+            buf,
             origin: None,
             last_owner: None,
             last_ttl: None,
@@ -66,102 +64,113 @@ impl Zonefile {
         }
     }
 
-    /// Extends the buffer with additional data.
-    ///
-    /// The caller gains access to the buffer itself via the provided
-    /// closure. They should be aware of their power and not mess up the
-    /// buffer.
-    ///
-    /// The closure should return `Ok(true)` if there is more data to be
-    /// added later and `Ok(false)` if there is no more data.
-    pub fn extend<Op>(&mut self, op: Op) -> Result<(), io::Error>
-    where Op: FnOnce(&mut BytesMut) -> Result<bool, io::Error> {
-        self.complete = !op(&mut self.buf.buf)?;
-        Ok(())
+    pub fn buf_mut(&mut self) -> &mut SourceBuf {
+        &mut self.buf
     }
 
-    /// Returns the next entry.
-    ///
-    /// If there isn’t a complete entry available, returns `None`. In this
-    /// case, you can add more data via [`Zonefile::extend`].
-    pub fn next_entry(&mut self) -> Result<Option<Entry>, EntryError> {
-        let start = self.buf.start;
-        while let Some(token) = self.buf.next_item()? {
-            if matches!(token, ItemRef::LineFeed) {
-                let buf = self.buf.get_entry(start);
-                return Ok(Some(Entry::new(buf, self.origin.clone())))
+    pub fn set_origin(&mut self, origin: Dname<Bytes>) {
+        self.origin = Some(origin)
+    }
+
+    pub fn set_class(&mut self, class: Class) {
+        self.last_class = Some(class)
+    }
+
+    pub fn set_ttl(&mut self, ttl: u32) {
+        self.last_ttl = Some(ttl)
+    }
+
+    pub fn next_entry(&mut self) -> Result<Option<Entry>, Error> {
+        loop {
+            match EntryScanner::new(self)?.scan()? {
+                ScannedEntry::Entry(entry) => return Ok(Some(entry)),
+                ScannedEntry::Origin(origin) => self.origin = Some(origin),
+                ScannedEntry::Ttl(ttl) => self.last_ttl = Some(ttl),
+                ScannedEntry::Empty => { }
+                ScannedEntry::Eof => return Ok(None),
             }
         }
+    }
+}
 
-        if self.complete {
-            let buf = self.buf.get_entry(start);
-            Ok(Some(Entry::new(buf, self.origin.clone())))
-        }
-        else {
-            Ok(None)
-        }
+
+//------------ EntryScanner --------------------------------------------------
+
+#[derive(Debug)]
+struct EntryScanner<'a> {
+    /// The zonefile we are working on.
+    zonefile: &'a mut Zonefile,
+
+    /// The next item to be processed.
+    next_item: ItemRef,
+}
+
+impl<'a> EntryScanner<'a> {
+    fn new(zonefile: &'a mut Zonefile) -> Result<Self, Error> {
+        Ok(EntryScanner {
+            next_item: zonefile.buf.next_item().map_err(|err| {
+                zonefile.buf.error(err)
+            })?,
+            zonefile,
+        })
     }
 
-    pub fn scan_record(
-        &mut self
-    ) -> Result<Option<ScannedRecord>, EntryError> {
-        loop {
-            match self.scan_entry()? {
-                Some(ScannedEntry::Record(record)) => return Ok(Some(record)),
-                Some(ScannedEntry::Control(ctrl, entry)) => {
-                    self.process_control(ctrl, entry)?;
+    fn scan(&mut self) -> Result<ScannedEntry, Error> {
+        self._scan().map_err(|err| self.zonefile.buf.error(err))
+    }
+
+    fn _scan(&mut self) -> Result<ScannedEntry, EntryError> {
+        match self.next_item {
+            ItemRef::Token(_) => {
+                if self.has_space() {
+                    // Indented entry: a record with the last owner as the
+                    // owner.
+                    self.scan_record(
+                        match self.zonefile.last_owner.as_ref() {
+                            Some(owner) => owner.clone(),
+                            None => {
+                                return Err( EntryError::missing_last_owner())
+                            }
+                        }
+                    )
                 }
-                None => {
-                    eprintln!("empty");
-                    if self.buf.start == self.buf.buf.len() {
-                        return Ok(None)
+                else {
+                    // We know this is a token so unwrap is fine. But we need
+                    // to call the method to progress to the next token
+                    // internally.
+                    let token = self.next_token().unwrap();
+                    
+                    if token.peek() == Some(Symbol::Char('$')) {
+                        self.scan_control(token)
+                    }
+                    else {
+                        self.scan_record(
+                            token.into_dname(
+                                self.zonefile.origin.as_ref()
+                            )?
+                        )
                     }
                 }
             }
+            ItemRef::LineFeed => Ok(ScannedEntry::Empty),
+            ItemRef::Eof => Ok(ScannedEntry::Eof),
         }
     }
 
-    fn scan_entry(
-        &mut self
-    ) -> Result<Option<ScannedEntry>, EntryError> {
-        let mut entry = match self.next_entry()? {
-            Some(entry) => entry,
-            None => return Ok(None)
-        };
+    fn scan_record(
+        &mut self, owner: ScannedDname,
+    ) -> Result<ScannedEntry, EntryError> {
+        let (class, ttl, rtype) = self.scan_ctr()?;
 
-        let owner = if entry.has_space() {
-            // Indented entry, we need to use the last owner.
-            match self.last_owner.as_ref() {
-                Some(last_owner) => last_owner.clone(),
-                None => return Err(EntryError::missing_last_owner())
-            }
-        }
-        else {
-            let token = match entry.next_token() {
-                Some(token) => token,
-                None => return Ok(None),
-            };
-
-            if token.peek() == Some(Symbol::Char('$')) {
-                return Ok(Some(ScannedEntry::Control(
-                    token.into_string()?, entry
-                )))
-            }
-
-            let owner = token.into_dname(entry.origin())?;
-            self.last_owner = Some(owner.clone());
-            owner
-        };
-
-        let (class, ttl, rtype) = entry.scan_ctr()?;
+        self.zonefile.last_owner = Some(owner.clone());
 
         let class = match class {
             Some(class) => {
-                self.last_class = Some(class);
+                self.zonefile.last_class = Some(class);
                 class
             }
             None => {
-                match self.last_class {
+                match self.zonefile.last_class {
                     Some(class) => class,
                     None => return Err(EntryError::missing_last_class())
                 }
@@ -170,99 +179,27 @@ impl Zonefile {
 
         let ttl = match ttl {
             Some(ttl) => {
-                self.last_ttl = Some(ttl);
+                self.zonefile.last_ttl = Some(ttl);
                 ttl
             }
             None => {
-                match self.last_ttl {
+                match self.zonefile.last_ttl {
                     Some(ttl) => ttl,
                     None => return Err(EntryError::missing_last_ttl())
                 }
             }
         };
 
-        let data = match ZoneRecordData::scan(rtype, &mut entry) {
-            Ok(data) => data,
-            Err(_) => {
-                // XXX
-                A::from_octets(0,0,0,0).into()
-            }
-        };
-        Ok(Some(ScannedEntry::Record(Record::new(owner, class, ttl, data))))
-    }
+        let data = ZoneRecordData::scan(rtype, self)?;
 
-    fn process_control(
-        &mut self, ctrl: String<Bytes>, mut entry: Entry
-    ) -> Result<(), EntryError> {
-        if ctrl.eq_ignore_ascii_case("$ORIGIN") {
-            self.origin = Some(entry.scan_dname()?.ok_or_else(||
-                EntryError::unexpected_end_of_entry()
-            )?.to_dname().unwrap());
-            Ok(())
+        // There shouldn’t be any tokens left now.
+        if matches!(self.next_item, ItemRef::Token(_)) {
+            return Err(EntryError::trailing_tokens())
         }
-        else if ctrl.eq_ignore_ascii_case("$INCLUDE") {
-            // XXX
-            Ok(())
-        }
-        else if ctrl.eq_ignore_ascii_case("$TTL") {
-            self.last_ttl = Some(u32::scan(&mut entry)?);
-            Ok(())
-        }
-        else {
-            Err(EntryError::unknown_control())
-        }
-    }
-}
-
-
-//------------ Entry ---------------------------------------------------------
-
-#[derive(Clone)]
-pub struct Entry {
-    /// The buffer to take tokens from.
-    buf: SourceBuf,
-
-    /// The location of the next token.
-    ///
-    /// We need to know so we can answer `Scanner::has_space`.
-    ///
-    /// If this is `None`, we’ve reached the end of the entry.
-    next_token: Option<TokenRef>,
-
-    /// The origin for relative domain names.
-    origin: Option<Dname<Bytes>>,
-}
-
-impl Entry {
-    fn new(mut buf: SourceBuf, origin: Option<Dname<Bytes>>) -> Self {
-        let next_token = buf.next_token();
-        Entry { buf, next_token, origin }
-    }
-
-    /// Returns the next token in the entry.
-    fn next_token(&mut self) -> Option<Token> {
-        if let Some(token) = self.next_token.take() {
-            let res = token.apply(&mut self.buf);
-            self.next_token = self.buf.next_token();
-            Some(res)
-        }
-        else {
-            None
-        }
-   }
-
-    /// Returns the rest of the entry.
-    ///
-    /// After calling this method, there will be nothing left in `self`.
-    fn next_tail(&mut self) -> Tail {
-        Tail::new(
-            mem::replace(&mut self.buf, SourceBuf::default()),
-            self.next_token.take()
-        )
-    }
-
-    fn origin(&self) -> Option<&Dname<Bytes>> {
-        self.origin.as_ref()
+        
+        Ok(ScannedEntry::Entry(Entry::Record(
+            Record::new(owner, class, ttl, data)
+        )))
     }
 
     fn scan_ctr(
@@ -272,10 +209,10 @@ impl Entry {
         //
         //   [<TTL>] [<class>] <type>
         //   [<class>] [<TTL>] <type>
-        let first = self.scan_mandatory_string()?;
+        let first = self.scan_string()?;
         if let Ok(ttl) = u32::from_str(&first) {
             // We have a TTL. Now there may be a class.
-            let second = self.scan_mandatory_string()?;
+            let second = self.scan_string()?;
             if let Ok(class) = Class::from_str(&second) {
                 // We also have class. Now for the rtype.
                 Ok((Some(class), Some(ttl), Rtype::scan(self)?))
@@ -289,7 +226,7 @@ impl Entry {
         }
         else if let Ok(class) = Class::from_str(&first) {
             // We have a class. A ttl may be next.
-            let second = self.scan_mandatory_string()?;
+            let second = self.scan_string()?;
             if let Ok(ttl) = u32::from_str(&second) {
                 // We also have a TTL. Then rtype must be next.
                 Ok((Some(class), Some(ttl), Rtype::scan(self)?))
@@ -309,15 +246,62 @@ impl Entry {
         }
     }
 
-    fn scan_mandatory_string(&mut self) -> Result<String<Bytes>, EntryError> {
-        match self.scan_string()? {
-            Some(res) => Ok(res),
-            None => Err(EntryError::unexpected_end_of_entry())
+    fn scan_control(
+        &mut self, ctrl: Token,
+    ) -> Result<ScannedEntry, EntryError> {
+        let ctrl = ctrl.into_string()?;
+        if ctrl.eq_ignore_ascii_case("$ORIGIN") {
+            Ok(ScannedEntry::Origin(
+                self.next_token()?.into_origin_dname()?
+            ))
+        }
+        else if ctrl.eq_ignore_ascii_case("$INCLUDE") {
+            Ok(ScannedEntry::Entry(Entry::Include {
+                path: self.scan_string()?,
+                origin:  if self.continues() {
+                Some(self.next_token()?.into_origin_dname()?)
+                }
+                else {
+                    None
+                },
+            }))
+        }
+        else if ctrl.eq_ignore_ascii_case("$TTL") {
+            Ok(ScannedEntry::Ttl(u32::scan(self)?))
+        }
+        else {
+            Err(EntryError::unknown_control())
         }
     }
 }
 
-impl Scanner for Entry {
+impl<'a> EntryScanner<'a> {
+    fn next_token(&mut self) -> Result<Token, EntryError> {
+        let res = self.zonefile.buf.item_to_token(self.next_item)?;
+        self.next_item = self.zonefile.buf.next_item()?;
+        Ok(res)
+    }
+
+    fn tail(&mut self) -> Result<Tail, EntryError> {
+        let first = match self.next_item {
+            ItemRef::Token(token) => token,
+            ItemRef::LineFeed | ItemRef::Eof => {
+                return Err(EntryError::end_of_entry());
+            }
+        };
+        let mut last = None;
+        while matches!(self.next_item, ItemRef::Token(_)) {
+            self.next_item = self.zonefile.buf.next_item()?;
+            if let ItemRef::Token(token) = self.next_item {
+                last = Some(token)
+            }
+        }
+        let last = last.unwrap_or(first);
+        self.zonefile.buf.tokens_to_tail(first, last)
+    }
+}
+
+impl<'a> Scanner for EntryScanner<'a> {
     type Symbols = Symbols;
     type EntrySymbols = EntrySymbols;
     type Octets = Bytes;
@@ -326,132 +310,213 @@ impl Scanner for Entry {
     type Error = EntryError;
 
     fn has_space(&self) -> bool {
-        self.next_token.map(|tok| tok.has_space).unwrap_or(false)
+        match self.next_item {
+            ItemRef::Token(tok) => tok.has_space,
+            ItemRef::LineFeed | ItemRef::Eof => false,
+        }
     }
 
-    fn scan_symbols(&mut self) -> Result<Option<Symbols>, EntryError> {
-        Ok(self.next_token().map(Symbols))
+    fn continues(&self) -> bool {
+        match self.next_item {
+            ItemRef::Token(_) => true,
+            ItemRef::LineFeed | ItemRef::Eof => false,
+        }
+    }
+
+    fn scan_symbols(&mut self) -> Result<Self::Symbols, Self::Error> {
+        self.next_token().and_then(Token::into_symbols)
     }
 
     fn scan_entry_symbols(
         &mut self
-    ) -> Result<EntrySymbols, EntryError> {
-        Ok(EntrySymbols(self.next_tail()))
+    ) -> Result<Self::EntrySymbols, Self::Error> {
+        self.tail().and_then(Tail::into_symbols)
     }
 
     fn convert_token<C: ConvertSymbols<Symbol, Self::Error>>(
         &mut self, convert: C,
-    ) -> Result<Option<Self::Octets>, Self::Error> {
-        self.next_token().map(|tok| tok.convert(convert)).transpose()
+    ) -> Result<Self::Octets, Self::Error> {
+        self.next_token().and_then(|tok| tok.convert(convert))
     }
 
     fn convert_entry<C: ConvertSymbols<EntrySymbol, Self::Error>>(
         &mut self, convert: C,
     ) -> Result<Self::Octets, Self::Error> {
-        self.next_tail().convert(convert)
+        let res = self.tail().and_then(|tail| tail.convert(convert));
+        res
     }
 
-    /// Scans a token into an octets sequence.
-    fn scan_octets(&mut self) -> Result<Option<Self::Octets>, Self::Error> {
-        self.next_token().map(Token::into_octets).transpose()
+    fn scan_octets(&mut self) -> Result<Self::Octets, Self::Error> {
+        self.next_token().and_then(Token::into_octets)
     }
 
-    /// Scans a token into a domain name.
-    fn scan_dname(&mut self) -> Result<Option<Self::Dname>, Self::Error> {
-        self.next_token().map(|tok| {
-            tok.into_dname(self.origin())
-        }).transpose()
+    fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error> {
+        self.next_token().and_then(|tok| {
+            tok.into_dname(self.zonefile.origin.as_ref())
+        })
     }
 
-    /// Scans a token into a character string.
-    ///
-    /// Note that character strings have a length limit.  If you want a
-    /// sequence of indefinite length, use [`scan_octets`][Self::scan_octets]
-    /// instead.
-    fn scan_charstr(
-        &mut self
-    ) -> Result<Option<CharStr<Self::Octets>>, Self::Error> {
-        self.next_token().map(Token::into_charstr).transpose()
+    fn scan_charstr(&mut self) -> Result<CharStr<Self::Octets>, Self::Error> {
+        self.next_token().and_then(Token::into_charstr)
     }
 
-    /// Scans a token as a UTF-8 string.
-    fn scan_string(
-        &mut self
-    ) -> Result<Option<String<Self::Octets>>, Self::Error> {
-        self.next_token().map(Token::into_string).transpose()
+    fn scan_string(&mut self) -> Result<String<Self::Octets>, Self::Error> {
+        self.next_token().and_then(Token::into_string)
     }
 
-    /// Scans a sequence of character strings until the end of the entry.
-    ///
-    /// The returned octets will contain the sequence of character string in
-    /// wire format.
-    ///
-    /// Returns `Ok(None)` if there are no more tokens.
-    fn scan_charstr_entry(
-        &mut self
-    ) -> Result<Option<Self::Octets>, Self::Error> {
-        Err(EntryError::custom("unimplemented"))
-        //unimplemented!()
+    fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error> {
+        self.tail().and_then(Tail::into_charstrs)
     }
 
-    /// Returns an empty octets builder.
-    ///
-    /// This builder can be used to create octets sequences in cases where
-    /// the other methods can’t be used.
     fn octets_builder(&mut self) -> Result<Self::OctetsBuilder, Self::Error> {
         Ok(BytesMut::new())
     }
 }
 
 
+//------------ Entry ---------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub enum Entry {
+    Record(ScannedRecord),
+    Include {
+        path: ScannedString,
+        origin: Option<Dname<Bytes>>,
+    }
+}
+
+
+//------------ ScannedEntry --------------------------------------------------
+
+#[allow(dead_code)] // XXX
+#[derive(Clone, Debug)]
+enum ScannedEntry {
+    Entry(Entry),
+    Origin(Dname<Bytes>),
+    Ttl(u32),
+    Empty,
+    Eof,
+}
+
+
 //------------ SourceBuf -----------------------------------------------------
 
-#[derive(Clone, Debug, Default)]
-struct SourceBuf {
+#[derive(Clone, Debug)]
+pub struct SourceBuf {
+    /// The underlying real buffer.
     buf: BytesMut,
+
+    /// Where in `buf` are we currently?
     start: usize,
+
+    /// How many unclosed opening parentheses did we see at `start`?
     parens: usize,
 }
 
-impl SourceBuf {
-    fn with_buf(buf: BytesMut) -> Self {
+impl Default for SourceBuf {
+    fn default() -> Self {
+        Self::with_empty_buf(BytesMut::default())
+    }
+}
+
+impl<'a> From<&'a str> for SourceBuf {
+    fn from(src: &'a str) -> Self {
+        Self::from(src.as_bytes())
+    }
+}
+
+impl<'a> From<&'a [u8]> for SourceBuf {
+    fn from(src: &'a [u8]) -> Self {
+        let mut buf = BytesMut::with_capacity(src.len() + 1);
+        buf.put_u8(0);
+        buf.extend_from_slice(src);
         SourceBuf {
             buf,
-            start: 0,
+            start: 1,
+            parens: 0
+        }
+    }
+}
+
+impl SourceBuf {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self::with_empty_buf(BytesMut::with_capacity(capacity + 1))
+    }
+
+    fn with_empty_buf(mut buf: BytesMut) -> Self {
+        buf.put_u8(0);
+        SourceBuf {
+            buf,
+            start: 1,
             parens: 0,
         }
     }
 
-    /// Returns the next item.
-    fn next_item(&mut self) -> Result<Option<ItemRef>, EntryError> {
+    pub fn len(&self) -> usize {
+        self.buf.len()
+    }
+
+    pub fn split_near(&mut self, mut pos: usize) -> Option<SourceBuf> {
+        // Go backwards until you find an LF:
+        while self.buf[pos] != b'\n' {
+            if pos == 1 {
+                return None
+            }
+            pos -= 1;
+        }
+        
+        let buf = self.buf.split_off(pos);
+        Some(SourceBuf { buf, start: 1, parens: 0 })
+    }
+}
+
+impl SourceBuf {
+    fn error(&self, err: EntryError) -> Error {
+        Error { err }
+    }
+
+    fn next_item(&mut self) -> Result<ItemRef, EntryError> {
         let ws = self.skip_leading_ws()?;
 
         match self.buf.get(self.start) {
             Some(b'\n') => self.lf_token(),
             Some(b'"') => self.next_quoted_token(ws),
             Some(_) => self.next_unquoted_token(ws),
-            None => Ok(None),
+            None => Ok(ItemRef::Eof),
         }
     }
 
-    /// Returns the next token.
-    ///
-    /// This should only every be called on a source buffer that has been
-    /// limited to a single entry and was cleaned via calls to
-    /// `SourceBuf::next_item` before.
-    ///
-    /// Returns `None` if it encounters end-of-entry or end-of-data.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if it encounters invalid data in the buffer.
-    fn next_token(&mut self) -> Option<TokenRef> {
-        self.next_item().unwrap().and_then(|item| match item {
-            ItemRef::Token(token) => Some(token),
-            ItemRef::LineFeed => None,
-        })
+    fn item_to_token(&mut self, item: ItemRef) -> Result<Token, EntryError> {
+        match item {
+            ItemRef::Token(token) => {
+                let buf = self.buf.split_to(token.end);
+                self.start -= token.end;
+                Ok(Token::new(buf, token.start, token.escapes))
+            }
+            ItemRef::LineFeed | ItemRef::Eof => {
+                Err(EntryError::end_of_entry())
+            }
+        }
     }
 
+    fn tokens_to_tail(
+        &mut self, first: TokenRef, last: TokenRef
+    ) -> Result<Tail, EntryError> {
+        let buf = SourceBuf {
+            buf: self.buf.split_to(last.end),
+            start: first.end,
+            parens: first.parens,
+        };
+        self.start -= last.end;
+        Ok(Tail::new(buf, first))
+    }
+}
+
+impl SourceBuf {
     fn skip_leading_ws(&mut self) -> Result<bool, EntryError> {
         let mut ws = false;
 
@@ -501,15 +566,16 @@ impl SourceBuf {
         Ok(ws)
     }
 
-    fn lf_token(&mut self) -> Result<Option<ItemRef>, EntryError> {
+    fn lf_token(&mut self) -> Result<ItemRef, EntryError> {
         self.start += 1;
-        Ok(Some(ItemRef::LineFeed))
+        Ok(ItemRef::LineFeed)
     }
 
     fn next_quoted_token(
         &mut self, has_space: bool,
-    ) -> Result<Option<ItemRef>, EntryError> {
+    ) -> Result<ItemRef, EntryError> {
         let start = self.start + 1;
+        let parens = self.parens;
         let mut end = start;
         let mut escapes = false;
 
@@ -524,9 +590,9 @@ impl SourceBuf {
 
             if sym == Symbol::Char('"') {
                 self.start = sym_end;
-                return Ok(Some(ItemRef::Token(TokenRef {
-                    start, end, has_space, escapes,
-                })))
+                return Ok(ItemRef::Token(TokenRef {
+                    start, end, has_space, escapes, parens,
+                }))
             }
 
             if !matches!(sym, Symbol::Char(_)) {
@@ -538,8 +604,9 @@ impl SourceBuf {
 
     fn next_unquoted_token(
         &mut self, has_space: bool,
-    ) -> Result<Option<ItemRef>, EntryError> {
+    ) -> Result<ItemRef, EntryError> {
         let start = self.start;
+        let parens = self.parens;
         let mut end = start;
         let mut escapes = false;
 
@@ -562,64 +629,23 @@ impl SourceBuf {
         }
 
         self.start = end;
-        Ok(Some(ItemRef::Token(TokenRef { start, end, has_space, escapes })))
-    }
-
-    /// Returns an entry from the data before the current position.
-    ///
-    /// This will only produce a legit entry if the last token looked at was
-    /// a line feed token or if the end of the buffer was reached.
-    ///
-    /// Return the source buffer to be used with the entry, not the entry
-    /// itself.
-    pub fn get_entry(&mut self, start: usize) -> SourceBuf {
-        // The last character was a line feed. It needs to go into the next
-        // entry as the prefix space for converting domain names.
-        let res = SourceBuf {
-            buf: self.buf.split_to(self.start - 1),
-            start,
-            parens: 0,
-        };
-        self.start = 1;
-        res
+        Ok(ItemRef::Token(TokenRef {
+            start, end, has_space, escapes, parens
+        }))
     }
 }
 
+unsafe impl BufMut for SourceBuf {
+    fn remaining_mut(&self) -> usize {
+        self.buf.remaining_mut()
+    }
 
-//------------ ItemRef -------------------------------------------------------
+    unsafe fn advance_mut(&mut self, cnt: usize) {
+        self.buf.advance_mut(cnt)
+    }
 
-/// Information about the next item in a buffer.
-#[derive(Clone, Copy, Debug)]
-enum ItemRef {
-    Token(TokenRef),
-    LineFeed
-}
-
-
-//------------ TokenRef ------------------------------------------------------
-
-/// Reference to a token within a buffer.
-#[derive(Clone, Copy, Debug)]
-struct TokenRef {
-    /// The index of the start of the token’s content.
-    start: usize,
-
-    /// The index of the first octet that is not part of the content.
-    end: usize,
-
-    /// Is the token preceded by white space?
-    has_space: bool,
-
-    /// Does the token contain escape sequences?
-    escapes: bool,
-}
-
-impl TokenRef {
-    fn apply(self, source: &mut SourceBuf) -> Token {
-        let mut buf = source.buf.split_to(source.start);
-        source.start = 0;
-        buf.truncate(self.end);
-        Token::new(buf, self.start, self.escapes)
+    fn chunk_mut(&mut self) -> &mut UninitSlice {
+        self.buf.chunk_mut()
     }
 }
 
@@ -650,9 +676,7 @@ struct Token {
 }
 
 impl Token {
-    fn new(
-        buf: BytesMut, start: usize, escapes: bool
-    ) -> Self {
+    fn new(buf: BytesMut, start: usize, escapes: bool) -> Self {
         Token {
             buf,
             read: start,
@@ -661,55 +685,58 @@ impl Token {
         }
     }
 
-    /// Removes any leading space before `self.read`.
-    fn trim(&mut self) {
-        self.buf.advance(self.read);
-        self.write = 0;
-        self.read = 0;
-    }
-
     fn peek(&self) -> Option<Symbol> {
         Symbol::from_slice_index(&self.buf, self.read).unwrap().map(|s| s.0)
     }
 
-    fn next_symbol(&mut self) -> Option<Symbol> {
-        let (sym, pos) = match Symbol::from_slice_index(
-            &self.buf, self.read
-        ).unwrap() {
-            Some(some) => some,
-            None => return None
-        };
-        self.read = pos;
-        Some(sym)
+    fn into_symbols(self) -> Result<Symbols, EntryError> {
+        Ok(Symbols(self))
     }
 
-    fn write(&mut self, ch: u8) {
-        self.buf[self.write] = ch;
-        self.write += 1;
-    }
-
-    fn append_data(&mut self, data: &[u8], alt: &mut Option<BytesMut>) {
-        if let Some(ref mut buf) = alt.as_mut() {
-            buf.extend_from_slice(data);
-            return
-        }
-
-        let len = data.len();
-        if self.read - self.write < len {
-            *alt = Some(BytesMut::new());
-            self.append_data(data, alt)
+    fn into_octets(mut self) -> Result<Bytes, EntryError> {
+        if self.escapes {
+            while let Some(sym) = self.next_symbol() {
+                self.write(sym.into_octet()?);
+            }
+            self.buf.truncate(self.write);
+            Ok(self.buf.freeze())
         }
         else {
-            let new_write = self.write + len;
-            self.buf[self.write..new_write].copy_from_slice(data);
-            self.write = new_write;
+            self.trim();
+            Ok(self.buf.freeze())
         }
     }
 
-    /// Converts the token into a charstr.
-    fn into_charstr(
-        mut self
-    ) -> Result<CharStr<Bytes>, EntryError> {
+    fn into_dname(
+        mut self, origin: Option<&Dname<Bytes>>
+    ) -> Result<ScannedDname, EntryError> {
+        // If we flip the last byte of the prefix into a dot, we can treat
+        // this as a sequence of labels prefixed by a dot.
+        match self.read {
+            0 => panic!("missing token prefix space"),
+            1 => {},
+            pos => {
+                let _ = self.buf.advance(pos - 1);
+            }
+        }
+        self.buf[0] = b'.';
+
+        // If there are no escape sequences, we don’t need to convert symbols
+        // so a special version is warranted.
+        if self.escapes {
+            self.escaped_into_dname(origin)
+        }
+        else {
+            self.unescaped_into_dname(origin)
+        }
+    }
+
+    fn into_origin_dname(self) -> Result<Dname<Bytes>, EntryError> {
+        // XXX This should probably have a better impl.
+        self.into_dname(None).map(|name| name.to_dname().unwrap())
+    }
+
+    fn into_charstr(mut self) -> Result<CharStr<Bytes>, EntryError> {
         // Since the representation format of a charstr is never shorter than
         // the wire format, we only need the actual content.
         self.trim();
@@ -767,6 +794,32 @@ impl Token {
         })
     }
 
+    fn into_string(mut self) -> Result<String<Bytes>, EntryError> {
+        let buf = if self.escapes {
+            while let Some(sym) = self.next_symbol() {
+                let ch = sym.into_char()?;
+                if let Ok(ch) = u8::try_from(ch) {
+                    self.write(ch);
+                }
+                else {
+                    let buf = &mut self.buf[self.write..(self.write + 4)];
+                    let len = ch.encode_utf8(buf).len();
+                    self.write += len;
+                    debug_assert!(self.write <= self.read);
+                }
+            }
+            self.buf.truncate(self.write);
+            self.buf.freeze()
+        }
+        else {
+            self.buf.split_off(self.read).freeze()
+        };
+
+        unsafe {
+            Ok(String::from_utf8_unchecked(buf))
+        }
+    }
+
     fn convert<C: ConvertSymbols<Symbol, EntryError>>(
         mut self, mut convert: C,
     ) -> Result<Bytes, EntryError> {
@@ -787,42 +840,50 @@ impl Token {
             }
         }
     }
+}
 
-    fn into_octets(mut self) -> Result<Bytes, EntryError> {
-        if self.escapes {
-            while let Some(sym) = self.next_symbol() {
-                self.write(sym.into_octet()?);
-            }
-            self.buf.truncate(self.write);
-            Ok(self.buf.freeze())
-        }
-        else {
-            self.trim();
-            Ok(self.buf.freeze())
-        }
+impl Token {
+    /// Removes any leading space before `self.read`.
+    ///
+    /// This wipes out anything before `self.read` so should probably only
+    /// be called while `self.write` is still 0.
+    fn trim(&mut self) {
+        self.buf.advance(self.read);
+        self.write = 0;
+        self.read = 0;
     }
 
-    fn into_dname(
-        mut self, origin: Option<&Dname<Bytes>>,
-    ) -> Result<Chain<RelativeDname<Bytes>, Dname<Bytes>>, EntryError> {
-        // If we flip the last byte of the prefix into a dot, we can treat
-        // this as a sequence of labels prefixed by a dot.
-        match self.read {
-            0 => panic!("missing token prefix space"),
-            1 => {},
-            pos => {
-                let _ = self.buf.advance(pos - 1);
-            }
-        }
-        self.buf[0] = b'.';
+    fn next_symbol(&mut self) -> Option<Symbol> {
+        let (sym, pos) = match Symbol::from_slice_index(
+            &self.buf, self.read
+        ).unwrap() {
+            Some(some) => some,
+            None => return None
+        };
+        self.read = pos;
+        Some(sym)
+    }
 
-        // If there are no escape sequences, we don’t need to convert symbols
-        // so a special version is warranted.
-        if self.escapes {
-            self.escaped_into_dname(origin)
+    fn write(&mut self, ch: u8) {
+        self.buf[self.write] = ch;
+        self.write += 1;
+    }
+
+    fn append_data(&mut self, data: &[u8], alt: &mut Option<BytesMut>) {
+        if let Some(ref mut buf) = alt.as_mut() {
+            buf.extend_from_slice(data);
+            return
+        }
+
+        let len = data.len();
+        if self.read - self.write < len {
+            *alt = Some(BytesMut::new());
+            self.append_data(data, alt)
         }
         else {
-            self.unescaped_into_dname(origin)
+            let new_write = self.write + len;
+            self.buf[self.write..new_write].copy_from_slice(data);
+            self.write = new_write;
         }
     }
 
@@ -945,55 +1006,11 @@ impl Token {
             RelativeDname::from_octets_unchecked(self.buf.freeze())
         }.chain(origin.clone()).map_err(|_| EntryError::bad_dname())
     }
-
-
-    fn into_string(mut self) -> Result<String<Bytes>, EntryError> {
-        let buf = if self.escapes {
-            while let Some(sym) = self.next_symbol() {
-                let ch = sym.into_char()?;
-                if let Ok(ch) = u8::try_from(ch) {
-                    self.write(ch);
-                }
-                else {
-                    let buf = &mut self.buf[self.write..(self.write + 4)];
-                    let len = ch.encode_utf8(buf).len();
-                    self.write += len;
-                    debug_assert!(self.write <= self.read);
-                }
-            }
-            self.buf.truncate(self.write);
-            self.buf.freeze()
-        }
-        else {
-            self.buf.split_off(self.read).freeze()
-        };
-
-        unsafe {
-            Ok(String::from_utf8_unchecked(buf))
-        }
-    }
-}
-
-
-//------------ Symbols ------------------------------------------------------
-
-pub struct Symbols(Token);
-
-impl Iterator for Symbols {
-    type Item = Symbol;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next_symbol()
-    }
 }
 
 
 //------------ Tail ----------------------------------------------------------
 
-/// All the remaining tokens of an entry.
-///
-/// This is very similar to  [`Token`] but the buffer contains multiple
-/// tokens.
 #[derive(Clone, Debug)]
 struct Tail {
     /// The buffer we work on.
@@ -1023,13 +1040,41 @@ struct Tail {
 }
 
 impl Tail {
-    fn new(buf: SourceBuf, token: Option<TokenRef>) -> Self {
+    fn new(buf: SourceBuf, first: TokenRef) -> Self {
         Tail {
-            read: token.map(|tok| tok.start).unwrap_or(buf.start),
+            read: first.start,
             buf,
-            token,
-            write: Ok(0)
+            token: Some(first),
+            write: Ok(0),
         }
+    }
+
+    fn into_symbols(self) -> Result<EntrySymbols, EntryError> {
+        Ok(EntrySymbols(self))
+    }
+
+    fn into_charstrs(mut self) -> Result<Bytes, EntryError> {
+        // Because char-strings are never longer than their representation
+        // format, we can definitely do this in place. Specifically, we move
+        // the content around in such a way that by the end we have the result
+        // in the space of buf before buf.start.
+
+        // Reminder: char-string are one length byte followed by that many
+        // content bytes. We use the byte just before self.read as the length
+        // byte of the first char-string. This way, if there is only one and
+        // it isn’t escaped, we don’t need to move anything at all.
+
+        let start = self.read - 1;
+        let mut write = start;
+        while self.process_charstr(&mut write)? {
+            match self.buf.next_item()? {
+                ItemRef::Token(token) => self.token = Some(token),
+                ItemRef::LineFeed | ItemRef::Eof => self.token = None,
+            }
+        }
+        self.buf.buf.truncate(write);
+        self.buf.buf.advance(start);
+        Ok(self.buf.buf.freeze())
     }
 
     fn convert<C: ConvertSymbols<EntrySymbol, EntryError>>(
@@ -1051,9 +1096,14 @@ impl Tail {
             Err(buf) => Ok(buf.freeze()),
         }
     }
+}
 
+impl Tail {
     fn next_symbol(&mut self) -> Option<EntrySymbol> {
-        let token = self.token?;
+        let token = match self.token {
+            Some(token) => token,
+            None => return None
+        };
 
         if self.read < token.end {
             // There must be a symbol or else this is all very kaputt.
@@ -1065,11 +1115,11 @@ impl Tail {
         }
 
         match self.buf.next_item().unwrap() {
-            Some(ItemRef::Token(token)) => {
+            ItemRef::Token(token) => {
                 self.read = token.start;
                 self.token = Some(token);
             }
-            Some(ItemRef::LineFeed) | None => {
+            ItemRef::LineFeed | ItemRef::Eof => {
                 self.token = None;
             }
         }
@@ -1095,12 +1145,117 @@ impl Tail {
             }
         }
     }
+
+    fn process_charstr(
+        &mut self, write: &mut usize
+    ) -> Result<bool, EntryError> {
+        let token = match self.token {
+            Some(token) => token,
+            None => return Ok(false),
+        };
+
+        if !token.escapes {
+            if token.start == *write + 1 {
+                // The content is already where it should be. We don’t need
+                // to do anything other than check and fill out the length.
+                match u8::try_from(token.end - token.start) {
+                    Ok(len) => self.buf.buf[*write] = len,
+                    Err(_) => return Err(EntryError::bad_charstr()),
+                }
+                *write = token.end;
+            }
+            else {
+                // The content is not escaped so we can just
+                // move it .. move it.
+                let len = u8::try_from(token.end - token.start).map_err(|_| {
+                    EntryError::bad_charstr()
+                })?;
+                self.buf.buf.copy_within(
+                    token.start..token.end,
+                    *write + 1,
+                );
+                self.buf.buf[*write] = len;
+                *write += (len as usize) + 1;
+            }
+        }
+        else {
+            let start = *write;
+            *write += 1;
+            let mut read = token.start;
+            let mut len = 0u8;
+            loop {
+                let (sym, sym_len) = match Symbol::from_slice_index(
+                    &self.buf.buf, read
+                )? {
+                    Some(some) => some,
+                    None => break,
+                };
+                let sym = sym.into_octet()?;
+
+                self.buf.buf[*write] = sym;
+                *write += 1;
+                read += sym_len;
+                len = len.checked_add(1).ok_or_else(|| {
+                    EntryError::bad_charstr()
+                })?;
+            }
+            self.buf.buf[start] = len;
+        }
+        Ok(true)
+    }
+}
+
+
+//------------ ItemRef -------------------------------------------------------
+
+/// Information about the next item in a buffer.
+#[derive(Clone, Copy, Debug)]
+enum ItemRef {
+    Token(TokenRef),
+    LineFeed,
+    Eof,
+}
+
+
+//------------ TokenRef ------------------------------------------------------
+
+/// Reference to a token within a buffer.
+#[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // XXX
+struct TokenRef {
+    /// The index of the start of the token’s content.
+    start: usize,
+
+    /// The index of the first octet that is not part of the content.
+    end: usize,
+
+    /// Is the token preceded by white space?
+    has_space: bool,
+
+    /// Does the token contain escape sequences?
+    escapes: bool,
+
+    /// Number of unclosed opening parentheses at the start.
+    parens: usize,
+}
+
+
+//------------ Symbols ------------------------------------------------------
+
+struct Symbols(Token);
+
+impl Iterator for Symbols {
+    type Item = Symbol;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next_symbol()
+    }
 }
 
 
 //------------ EntrySymbols --------------------------------------------------
 
-pub struct EntrySymbols(Tail);
+struct EntrySymbols(Tail);
 
 impl Iterator for EntrySymbols {
     type Item = EntrySymbol;
@@ -1111,26 +1266,18 @@ impl Iterator for EntrySymbols {
 }
 
 
-//------------ ScannedEntry -------------------------------------------------
-
-enum ScannedEntry {
-    Record(ScannedRecord),
-    Control(String<Bytes>, Entry),
-}
-
-
-//------------ EntryError ---------------------------------------------------
+//------------ EntryError ----------------------------------------------------
 
 #[derive(Debug)]
-pub struct EntryError(std::string::String);
+struct EntryError(std::string::String);
 
 impl EntryError {
     fn string(s: impl Into<std::string::String>) -> Self {
         EntryError(s.into())
     }
 
-    fn bad_symbol(_: SymbolOctetsError) -> Self {
-        EntryError::string("bad symbol")
+    fn bad_symbol(err: SymbolOctetsError) -> Self {
+        EntryError::string(format!("{}", err))
     }
 
     fn bad_charstr() -> Self {
@@ -1175,7 +1322,7 @@ impl ScannerError for EntryError {
         EntryError::string(format!("{}", msg))
     }
 
-    fn unexpected_end_of_entry() -> Self {
+    fn end_of_entry() -> Self {
         Self::string("unexpected end of entry")
     }
 
@@ -1209,6 +1356,22 @@ impl fmt::Display for EntryError {
 impl error::Error for EntryError { }
 
 
+//------------ Error ---------------------------------------------------------
+
+#[derive(Debug)]
+pub struct Error {
+    err: EntryError,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.err.fmt(f)
+    }
+}
+
+impl error::Error for Error { }
+
+
 //============ Tests =========================================================
 
 #[cfg(test)]
@@ -1218,10 +1381,11 @@ mod test {
     #[test]
     fn example_com() {
         let mut zone = Zonefile::with_buf(
-            include_str!("../../test-data/zonefiles/example.com.txt").into()
+            SourceBuf::from(
+                include_str!("../../test-data/zonefiles/example.com.txt")
+            )
         );
-        while let Some(record) = zone.scan_record().unwrap() {
-            println!("{}", record)
+        while zone.next_entry().unwrap().is_some() {
         }
     }
 }

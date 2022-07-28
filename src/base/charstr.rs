@@ -356,9 +356,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
 //--- Scan and Display
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for CharStr<Octets> {
-    fn scan_opt(
-        scanner: &mut S,
-    ) -> Result<Option<Self>, S::Error> {
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         scanner.scan_charstr()
     }
 }

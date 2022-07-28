@@ -203,7 +203,7 @@ impl<Octets> UnknownRecordData<Octets> {
     ) -> Result<Self, S::Error>
     where Octets: AsRef<[u8]> {
         // First token is literal "\#".
-        let mut token = S::Error::expected(scanner.scan_symbols())?;
+        let mut token = scanner.scan_symbols()?;
         if !matches!(token.next(), Some(Symbol::SimpleEscape(b'#'))) {
             return Err(S::Error::custom("'\\#' expected"))
         }

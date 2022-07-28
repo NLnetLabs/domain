@@ -809,9 +809,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
 //--- Scan and Display
 
 impl<Octets, S: Scanner<Dname = Self>> Scan<S> for Dname<Octets> {
-    fn scan_opt(
-        scanner: &mut S,
-    ) -> Result<Option<Self>, S::Error> {
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         scanner.scan_dname()
     }
 }
