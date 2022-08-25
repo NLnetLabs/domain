@@ -3,8 +3,9 @@ use std::net::{UdpSocket};
 
 use domain::base::{
         Dname, MessageBuilder, Rtype, StaticCompressor, StreamTarget,
-        message::Message
+        message::Message, opt::AllOptData
 };
+use domain::rdata::AllRecordData;
 
 fn create_message() -> StreamTarget<Vec<u8>> {
     // Create a message builder wrapping a compressor wrapping a stream
@@ -60,9 +61,28 @@ fn main() {
         Ok(response) => Some(response),
         Err(_) => None,
     }.unwrap();
-    
-    // Left as an exercise to the implementer: break down the
-    // response into sections and print them
 
+    for question in response.question() {
+        println!("{}", question.unwrap());
+    }
+
+    // Unpack and parse with all known record types
+    for record in response.answer().unwrap().limit_to::<AllRecordData<_, _>>() {
+        println!("{}", record.unwrap());
+    }
+
+    for record in response.authority().unwrap().limit_to::<AllRecordData<_, _>>() {
+        println!("{}", record.unwrap());
+    }
+
+    // Display is only implemented for some OPTs at the time of writing
+    for option in response.opt().unwrap().iter::<AllOptData<_>>() {
+        let opt = option.unwrap();
+        match opt {
+            AllOptData::Nsid(nsid) => println!("{}", nsid),
+            AllOptData::ExtendedError(extendederror) => println!("{}", extendederror),
+            _ => println!("NO OPT!"),
+        }
+    }
 }
 
