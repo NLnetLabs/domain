@@ -251,6 +251,7 @@ impl<Builder: EmptyBuilder> Decoder<Builder> {
 
 impl<Builder: OctetsBuilder> Decoder<Builder> {
     /// Finalizes decoding and returns the decoded data.
+    #[allow(clippy::question_mark)] // false positive
     pub fn finalize(mut self) -> Result<Builder::Octets, DecodeError> {
         if let Err(err) = self.target {
             return Err(err);

@@ -625,7 +625,7 @@ impl ServerList {
             servers: {
                 conf.servers
                     .iter()
-                    .filter(|f| filter(*f))
+                    .filter(|f| filter(f))
                     .map(Into::into)
                     .collect()
             },
