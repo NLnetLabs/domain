@@ -134,6 +134,7 @@ impl<Octets> Dnskey<Octets> {
     }
 
     /// Returns the key tag for this DNSKEY data.
+    #[allow(clippy::while_let_loop)] // I find this clearer with a loop.
     pub fn key_tag(&self) -> u16
     where
         Octets: AsRef<[u8]>,

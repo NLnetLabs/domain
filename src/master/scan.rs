@@ -489,6 +489,7 @@ impl<C: CharSource> Scanner<C> {
         )
     }
 
+    #[allow(clippy::question_mark)]
     pub fn scan_hex_words<U, G>(&mut self, finalop: G) -> Result<U, ScanError>
     where
         G: FnOnce(Bytes) -> Result<U, SyntaxError>,
@@ -549,6 +550,7 @@ impl<C: CharSource> Scanner<C> {
     }
 
     /// Scans a sequence of phrases containing base64 encoded data.
+    #[allow(clippy::question_mark)]
     pub fn scan_base64_phrases<U, G>(
         &mut self,
         finalop: G,

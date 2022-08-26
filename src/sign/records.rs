@@ -59,12 +59,7 @@ impl<N, D> SortedRecords<N, D> {
         N: ToDname,
         D: RecordData,
     {
-        for rrset in self.rrsets() {
-            if rrset.rtype() == Rtype::Soa {
-                return Some(rrset);
-            }
-        }
-        None
+        self.rrsets().find(|rrset| rrset.rtype() == Rtype::Soa)
     }
 
     #[allow(clippy::type_complexity)]
