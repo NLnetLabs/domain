@@ -94,10 +94,9 @@ impl Serial {
     pub fn scan_rrsig<S: Scanner>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
-        let mut symbols = scanner.scan_symbols()?;
         let mut pos = 0;
         let mut buf = [0u8; 14];
-        while let Some(symbol) = symbols.next() {
+        scanner.scan_symbols(|symbol| {
             if pos >= 14 {
                 return Err(S::Error::custom("illegal signature time"));
             }
@@ -105,7 +104,8 @@ impl Serial {
                 S::Error::custom("illegal signature time")
             })? as u8;
             pos += 1;
-        }
+            Ok(())
+        })?;
         if pos <= 10 {
             // We have an integer. We generate it into a u64 to deal
             // with possible overflows.

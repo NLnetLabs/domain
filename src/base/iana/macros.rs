@@ -493,11 +493,12 @@ macro_rules! scan_impl {
         impl<S> $crate::base::scan::Scan<S> for $ianatype
         where S: $crate::base::scan::Scanner {
             fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-                let token = scanner.scan_string()?;
-                core::str::FromStr::from_str(&token).map_err(|_| {
-                    $crate::base::scan::ScannerError::custom(
-                        concat!("expected ", stringify!($ianatype))
-                    )
+                scanner.scan_ascii_str(|s| {
+                    core::str::FromStr::from_str(s).map_err(|_| {
+                        $crate::base::scan::ScannerError::custom(
+                            concat!("expected ", stringify!($ianatype))
+                        )
+                    })
                 })
             }
         }

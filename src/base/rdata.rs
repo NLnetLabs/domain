@@ -197,13 +197,19 @@ impl<Octets> UnknownRecordData<Octets> {
     ) -> Result<Self, S::Error>
     where Octets: AsRef<[u8]> {
         // First token is literal "\#".
-        let mut token = scanner.scan_symbols()?;
-        if !matches!(token.next(), Some(Symbol::SimpleEscape(b'#'))) {
-            return Err(S::Error::custom("'\\#' expected"))
-        }
-        if token.next().is_some() {
-            return Err(S::Error::custom("'\\#' expected"))
-        }
+        let mut first = true;
+        scanner.scan_symbols(|symbol| {
+            if first {
+                first = false;
+                match symbol {
+                    Symbol::SimpleEscape(b'#') => Ok(()),
+                    _ => Err(S::Error::custom("'\\#' expected")),
+                }
+            }
+            else {
+                Err(S::Error::custom("'\\#' expected"))
+            }
+        })?;
 
         // Second token is the rdata length.
         let len = u16::scan(scanner)?;
