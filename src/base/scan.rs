@@ -1,7 +1,8 @@
 //! Parsing of data from its representation format.
 
-use core::{fmt};
+use core::{fmt, str};
 use core::convert::{TryFrom, TryInto};
+//use core::iter::Peekable;
 #[cfg(feature = "std")] use std::error;
 use crate::base::charstr::CharStr;
 use crate::base::name::ToDname;
@@ -24,16 +25,16 @@ macro_rules! impl_scan_unsigned {
             fn scan(
                 scanner: &mut S,
             ) -> Result<Self, S::Error> {
-                let token = scanner.scan_symbols()?;
                 let mut res: $type = 0;
-                for ch in token {
+                scanner.scan_symbols(|ch| {
                     res = res.checked_mul(10).ok_or_else(|| {
                         S::Error::custom("decimal number overflow")
                     })?;
                     res += ch.into_digit(10).map_err(|_| {
                         S::Error::custom("expected decimal number")
                     })? as $type;
-                }
+                    Ok(())
+                })?;
                 Ok(res)
             }
         }
@@ -50,8 +51,6 @@ impl_scan_unsigned!(u128);
 
 /// A type that can produce tokens of data in representation format.
 pub trait Scanner {
-    type Symbols: Iterator<Item = Symbol>;
-    type EntrySymbols: Iterator<Item = EntrySymbol>;
     type Octets: AsRef<[u8]>;
     type OctetsBuilder:
         OctetsBuilder<Octets = Self::Octets> + AsRef<[u8]> + AsMut<[u8]>;
@@ -62,15 +61,20 @@ pub trait Scanner {
     fn has_space(&self) -> bool;
 
     /// Returns whether there are more tokens in the entry.
-    fn continues(&self) -> bool;
+    ///
+    /// This method takes a `&mut self` to allow implementations to peek on
+    /// request.
+    fn continues(&mut self) -> bool;
 
     /// Scans a token into a sequence of symbols.
-    fn scan_symbols(&mut self) -> Result<Self::Symbols, Self::Error>;
+    fn scan_symbols<F>(&mut self, op: F) -> Result<(), Self::Error>
+    where F: FnMut(Symbol) -> Result<(), Self::Error>;
 
     /// Scans the remainder of the entry as symbols.
-    fn scan_entry_symbols(
-        &mut self
-    ) -> Result<Self::EntrySymbols, Self::Error>;
+    fn scan_entry_symbols<F>(
+        self, op: F
+    ) -> Result<(), Self::Error>
+    where F: FnMut(EntrySymbol) -> Result<(), Self::Error>;
 
     /// Converts the symbols of a token into an octets sequence.
     fn convert_token<C: ConvertSymbols<Symbol, Self::Error>>(
@@ -109,6 +113,12 @@ pub trait Scanner {
     /// This builder can be used to create octets sequences in cases where
     /// the other methods can’t be used.
     fn octets_builder(&mut self) -> Result<Self::OctetsBuilder, Self::Error>;
+
+    /// Scans a token as a borrowed ASCII string.
+    ///
+    /// If the next token contains non-ascii characters, returns an error.
+    fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
+    where F: FnOnce(&str) -> Result<T, Self::Error>;
 }
 
 
@@ -119,7 +129,7 @@ macro_rules! declare_error_trait {
         /// A type providing error information for a scanner.
         pub trait ScannerError: Sized $(+ $($supertrait)::+)* {
             /// Creates a new error wrapping a supplied error message.
-            fn custom<T: fmt::Display>(msg: T) -> Self;
+            fn custom(msg: &'static str) -> Self;
 
             /// Creates an error when more tokens were expected in the entry.
             fn end_of_entry() -> Self;
@@ -141,7 +151,7 @@ declare_error_trait!(ScannerError: Sized + fmt::Debug + fmt::Display);
 
 #[cfg(feature = "std")]
 impl ScannerError for std::io::Error {
-    fn custom<T: fmt::Display>(msg: T) -> Self {
+    fn custom(msg: &'static str) -> Self {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("{}", msg)
@@ -452,6 +462,27 @@ impl Symbol {
         }
     }
 
+    pub fn into_ascii(self) -> Result<u8, BadSymbol> {
+        match self {
+            Symbol::Char(ch) => {
+                if ch.is_ascii() && ch >= '\u{20}' && ch <= '\u{7E}' {
+                    Ok(ch as u8)
+                }
+                else {
+                    Err(BadSymbol(self))
+                }
+            }
+            Symbol::SimpleEscape(ch) | Symbol::DecimalEscape(ch) => {
+                if ch >= 0x20 && ch <= 0x7E {
+                    Ok(ch)
+                }
+                else {
+                    Err(BadSymbol(self))
+                }
+            }
+        }
+    }
+
     /// Converts the symbol into a `char`.
     ///
     /// This will fail for a decimal escape sequence which doesn’t actually
@@ -541,6 +572,62 @@ impl From<Symbol> for EntrySymbol {
     }
 }
 
+//============ Simple Scanner Impl ===========================================
+
+/*
+/// A scanner reading tokens from an iterator over strings.
+///
+/// This is a very simple scanner implementation that assumes each string
+/// produced by an iterator is a token. White space within the string is
+/// allowed, escape sequences are interpreted.
+#[derive(Clone, Debug)]
+pub struct IterScanner<'a, I: Iterator<Item = &'a str>> {
+    iter: Peekable<I>,
+    origin: Dname<Cow<[u8]>>,
+}
+
+impl<'a, I: Iterator<Item = &'a str>> IterScanner<'a, I> {
+    /// Creates a new scanner using the given iterator.
+    pub fn new(iter: I, origin: Dname<Cow<[u8]>>) -> Self {
+        IterScanner { iter: iter.peekable(), origin, }
+    }
+
+    fn next_token(&mut self) -> Result<&'a str, &'static str> {
+        self.iter.next().ok_or("end of entry")
+    }
+}
+
+impl<'a, I: Iterator<Item = &'a str>> IterScanner<'a, I> {
+    type Octets = Cow<[u8]>;
+    type OctetsBuilder = Cow<[u8]>;
+    type Dname = Dname<Cow<[u8]>>,
+/*
+    type Symbols = Symbols<str::Chars<'a>>;
+    type EntrySymbols = EntrySymbols<'a>
+*/
+    fn has_space(&self) -> bool {
+        true
+    }
+
+    fn continues(&mut self) -> bool {
+        self.iter.peek().is_some()
+    }
+
+    fn scan_symbols(
+        &mut self
+    ) -> Result<Symbols<str::Chars<'a>>, &'static str> {
+        self.next_token().map(|s| Symbols::new(s.chars()))
+    }
+
+    fn scan_entry_symbols(
+        self
+    ) -> Result<EntrySymbols<'a, Peekable<I>>, &'static str> {
+        Ok(EntrySymbols::new(self.iter))
+    }
+}
+*/
+
+
 //------------ Symbols -------------------------------------------------------
 
 /// An iterator over the symbols in a char sequence.
@@ -570,6 +657,42 @@ impl<Chars: Iterator<Item = char>> Iterator for Symbols<Chars> {
         None
     }
 }
+
+
+//------------ EntrySymbols --------------------------------------------------
+
+/// An iterator over the symbols in an iterator over strings.
+#[derive(Debug)]
+pub struct EntrySymbols<'a, I> {
+    iter: I,
+    current: Option<Symbols<str::Chars<'a>>>,
+}
+
+impl<'a, I: Iterator<Item = &'a str>> EntrySymbols<'a, I> {
+    /*
+    fn new(iter: I) -> Self {
+        EntrySymbols { iter, current: None }
+    }
+    */
+}
+
+impl<'a, I: Iterator<Item = &'a str>> Iterator for EntrySymbols<'a, I> {
+    type Item = EntrySymbol;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(sym) = self.current.as_mut().and_then(Iterator::next) {
+            return Some(sym.into())
+        }
+        if let Some(current) = self.iter.next() {
+            self.current = Some(Symbols::new(current.chars()));
+            Some(EntrySymbol::EndOfToken)
+        }
+        else {
+            None
+        }
+    }
+}
+
 
 //============ Error Types ===================================================
 
@@ -662,6 +785,13 @@ impl From<BadSymbol> for std::io::Error {
         std::io::Error::new(std::io::ErrorKind::Other, err)
     }
 }
+
+
+//------------ IterScannerError ----------------------------------------------
+
+#[derive(Clone, Copy, Debug)]
+pub struct IterScannerError(&'static str);
+
 
 
 //============ Testing =======================================================
