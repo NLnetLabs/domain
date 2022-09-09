@@ -219,7 +219,9 @@ impl<Octets> UnknownRecordData<Octets> {
         let data = scanner.convert_entry(base16::SymbolConverter::new())?;
 
         if data.as_ref().len() != usize::from(len) {
-            return Err(S::Error::custom("generic data has incorrect length"));
+            return Err(S::Error::custom(
+                "generic data has incorrect length",
+            ));
         }
 
         Ok(UnknownRecordData { rtype, data })
