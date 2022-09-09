@@ -754,25 +754,15 @@ impl std::error::Error for CharStrError {}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FromStrError {
-    /// The string ended when there should have been more characters.
-    ///
-    /// This most likely happens inside escape sequences and quoting.
-    ShortInput,
-
     /// A character string has more than 255 octets.
     LongString,
 
-    /// An illegal escape sequence was encountered.
-    ///
-    /// Escape sequences are a backslash character followed by either a
-    /// three decimal digit sequence encoding a byte value or a single
-    /// other printable ASCII character.
-    BadEscape,
+    SymbolChars(SymbolCharsError),
 
     /// An illegal character was encountered.
     ///
     /// Only printable ASCII characters are allowed.
-    BadSymbol(Symbol),
+    BadSymbol(BadSymbol),
 
     /// The octet builder’s buffer was too short for the data.
     ShortBuf,
@@ -782,16 +772,13 @@ pub enum FromStrError {
 
 impl From<SymbolCharsError> for FromStrError {
     fn from(err: SymbolCharsError) -> FromStrError {
-        match err {
-            SymbolCharsError::BadEscape => FromStrError::BadEscape,
-            SymbolCharsError::ShortInput => FromStrError::ShortInput,
-        }
+        FromStrError::SymbolChars(err)
     }
 }
 
 impl From<BadSymbol> for FromStrError {
     fn from(err: BadSymbol) -> FromStrError {
-        FromStrError::BadSymbol(err.0)
+        FromStrError::BadSymbol(err)
     }
 }
 
@@ -806,16 +793,11 @@ impl From<ShortBuf> for FromStrError {
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::ShortInput => {
-                f.write_str("unexpected end of input")
-            }
             FromStrError::LongString => {
                 f.write_str("character string with more than 255 octets")
             }
-            FromStrError::BadEscape => f.write_str("illegal escape sequence"),
-            FromStrError::BadSymbol(symbol) => {
-                write!(f, "illegal character '{}'", symbol)
-            }
+            FromStrError::SymbolChars(ref err) => err.fmt(f),
+            FromStrError::BadSymbol(ref err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -878,17 +860,11 @@ mod test {
             b"\"foo\"2\""
         );
         assert_eq!(Cs::from_str("06 dii").unwrap().as_slice(), b"06 dii");
-        assert_eq!(Cs::from_str("0\\"), Err(FromStrError::ShortInput));
-        assert_eq!(Cs::from_str("0\\2"), Err(FromStrError::ShortInput));
-        assert_eq!(Cs::from_str("0\\2a"), Err(FromStrError::BadEscape));
-        assert_eq!(
-            Cs::from_str("ö"),
-            Err(FromStrError::BadSymbol(Symbol::Char('ö')))
-        );
-        assert_eq!(
-            Cs::from_str("\x06"),
-            Err(FromStrError::BadSymbol(Symbol::Char('\x06')))
-        );
+        assert!(Cs::from_str("0\\").is_err());
+        assert!(Cs::from_str("0\\2").is_err());
+        assert!(Cs::from_str("0\\2a").is_err());
+        assert!(Cs::from_str("ö").is_err());
+        assert!(Cs::from_str("\x06").is_err());
     }
 
     #[test]
@@ -901,9 +877,8 @@ mod test {
         assert_eq!(bar.as_slice(), b"ba");
         assert_eq!(parser.peek_all(), b"rtail");
 
-        assert_eq!(
-            CharStrRef::parse(&mut Parser::from_static(b"\x04foo")),
-            Err(ParseError::ShortInput)
+        assert!(
+            CharStrRef::parse(&mut Parser::from_static(b"\x04foo")).is_err(),
         )
     }
 

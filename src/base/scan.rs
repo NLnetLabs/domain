@@ -1,12 +1,28 @@
-//! Parsing of data from its representation format.
+//! Parsing of data from its presentation format.
+//!
+//! This module provides the basic machinery to parse DNS data from its
+//! standard textual representation, known as the presentation format or,
+//! perhaps more commonly, zonefile format. To distinguish this process from
+//! parsing data from its binary wire format, we call this process
+//! _scanning._
+//!
+//! The module provides two important traits which should sound familiar to
+//! anyone who has used Serde before: [`Scan`] and [`Scanner`]. A type that
+//! knows how to create a value from its presentation format implements
+//! `Scan`. It uses an implementation of the [`Scanner`] trait as the source
+//! of data in presentation format.
+//!
+//! This module does not provide any actual scanner implementations. See the
+#![cfg_attr(feature = "zonefile", doc = "[zonefile]")]
+#![cfg_attr(not(feature = "zonefile"), doc = "zonefile")]
+//! module for those.
 
 use core::{fmt, str};
 use core::convert::{TryFrom, TryInto};
-//use core::iter::Peekable;
 #[cfg(feature = "std")] use std::error;
 use crate::base::charstr::CharStr;
 use crate::base::name::ToDname;
-use crate::base::octets::{OctetsBuilder, ParseError, ShortBuf};
+use crate::base::octets::{OctetsBuilder, ShortBuf};
 use crate::base::str::String;
 
 
@@ -14,8 +30,28 @@ use crate::base::str::String;
 
 //------------ Scan ---------------------------------------------------------
 
-/// A type that can be scanned from its representation format.
+/// A type that can be scanned from its presentation format.
+///
+/// This trait is generic over the specific scanner, allowing types to limit
+/// their implementation to a scanners with certain properties.
 pub trait Scan<S: Scanner>: Sized {
+    /// Reads a value from the provided scanner.
+    ///
+    /// An implementation should read as many tokens as it needs from the
+    /// scanner. It can assume that they are all available – the scanner will
+    /// produce an error if it runs out of tokens prematurely.
+    ///
+    /// The implementation does not need to keep reading until the end of
+    /// tokens. It is the responsibility of the user to make sure there are
+    /// no stray tokens at the end of an entry.
+    ///
+    /// Finally, if an implementation needs to read tokens until the end of
+    /// the entry, it can use [`Scanner::continues`] to check if there are
+    /// still tokens left.
+    ///
+    /// If an implementation encounters an error in the presentation data,
+    /// it should report it using [`ScannerError::custom`] unless any of the
+    /// other methods of [`ScannerError`] seems more appropriate.
     fn scan(scanner: &mut S) -> Result<Self, S::Error>;
 }
 
@@ -49,12 +85,46 @@ impl_scan_unsigned!(u128);
 
 //------------ Scanner -------------------------------------------------------
 
-/// A type that can produce tokens of data in representation format.
+/// A type that can produce tokens of data in presentation format.
+///
+/// The presentation format is a relatively simple text format that provides
+/// a sequence of _entries_ each consisting of a sequence of _tokens._ An
+/// implementation of the `Scanner` trait provides access to the tokens of a
+/// single entry.
+///
+/// Most methods of the trait provide a single token to the caller. Exceptions
+/// are those methods suffixed with `_entry`, which provide all the remaining
+/// tokens of the entry. In addition, `has_space` reports whether the token
+/// was prefixed with white space (which is relevant in some cases), and
+/// `continues` reports whether there are more tokens in the entry. It it
+/// returns `false, all the other token and entry methods will return an
+/// error. That is, calling these methods assumes that the caller requires
+/// at least one more token.
+///
+/// Because an implementation may be able to optimize creating of the returned
+/// tokens, there are a number of methods for different tokens. Each of these
+/// methods assumes that the next token needs to be the presentation format of
+/// the given type and is allowed to produce an error if that is not the case.
+///
+/// This allows for instance to optimize the creation of domain names and
+/// avoid copying around data in the most usual cases.
+///
+/// As a consequence, an implementation gets to choose how to return tokens.
+/// This mostly concerns the octets types to be used, but also allows it to
+/// creatively employing the [name::Chain](crate::base::name::Chain) type to
+/// deal with a zone’s changing origin.
 pub trait Scanner {
+    /// The type of octet sequences returned by the scanner.
     type Octets: AsRef<[u8]>;
+
+    /// The octets builder used internally and returned upon request.
     type OctetsBuilder:
         OctetsBuilder<Octets = Self::Octets> + AsRef<[u8]> + AsMut<[u8]>;
+
+    /// The type of domain name returned by the scanner.
     type Dname: ToDname;
+
+    /// The error type of the scanner.
     type Error: ScannerError;
 
     /// Returns whether the next token is preceded by white space.
@@ -67,26 +137,45 @@ pub trait Scanner {
     fn continues(&mut self) -> bool;
 
     /// Scans a token into a sequence of symbols.
+    ///
+    /// Each symbol is passed to the caller via the closure and can be
+    /// processed there.
     fn scan_symbols<F>(&mut self, op: F) -> Result<(), Self::Error>
     where F: FnMut(Symbol) -> Result<(), Self::Error>;
 
     /// Scans the remainder of the entry as symbols.
+    ///
+    /// Each symbol is passed to the caller via the closure and can be
+    /// processed there.
     fn scan_entry_symbols<F>(
         self, op: F
     ) -> Result<(), Self::Error>
     where F: FnMut(EntrySymbol) -> Result<(), Self::Error>;
 
     /// Converts the symbols of a token into an octets sequence.
+    ///
+    /// Each symbol is passed to the provided converter which can return
+    /// octet slices to be used to construct the returned value. When the
+    /// token is complete, the converter is called again to ask for any
+    /// remaining data to be added.
     fn convert_token<C: ConvertSymbols<Symbol, Self::Error>>(
         &mut self, convert: C,
     ) -> Result<Self::Octets, Self::Error>;
 
     /// Converts the symbols of a token into an octets sequence.
+    ///
+    /// Each symbol is passed to the provided converter which can return
+    /// octet slices to be used to construct the returned value. When the
+    /// token is complete, the converter is called again to ask for any
+    /// remaining data to be added.
     fn convert_entry<C: ConvertSymbols<EntrySymbol, Self::Error>>(
         &mut self, convert: C,
     ) -> Result<Self::Octets, Self::Error>;
 
     /// Scans a token into an octets sequence.
+    ///
+    /// The returned sequence has all symbols converted into their octets.
+    /// It can be of any length.
     fn scan_octets(&mut self) -> Result<Self::Octets, Self::Error>;
 
     /// Scans a token into a domain name.
@@ -182,6 +271,14 @@ impl ScannerError for std::io::Error {
 
 //------------ ConvertSymbols ------------------------------------------------
 
+/// A type that helps convert the symbols in presentation format.
+///
+/// This trait is used by [`Scanner::convert_token`] with [`Symbol`]s and
+/// [`Scanner::convert_entry`] with [`EntrySymbol]`s.
+///
+/// For each symbol, [`process_symbol`][Self::process_symbol] is called. When
+/// the end of token or entry is reached, [`process_tail`][Self::process_tail]
+/// is called, giving the implementer a chance to return any remaining data.
 pub trait ConvertSymbols<Sym, Error> {
     /// Processes the next symbol.
     ///
@@ -230,7 +327,15 @@ impl Symbol {
     where
         C: IntoIterator<Item = char>,
     {
-        use self::SymbolCharsError::*;
+        #[inline]
+        fn bad_escape() -> SymbolCharsError {
+            SymbolCharsError(SymbolCharsEnum::BadEscape)
+        }
+
+        #[inline]
+        fn short_input() -> SymbolCharsError {
+            SymbolCharsError(SymbolCharsEnum::ShortInput)
+        }
 
         let mut chars = chars.into_iter();
         let ch = match chars.next() {
@@ -246,33 +351,33 @@ impl Symbol {
                 let ch2 = match chars.next() {
                     Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch * 10,
-                        None => return Err(BadEscape),
+                        None => return Err(bad_escape()),
                     },
-                    None => return Err(ShortInput),
+                    None => return Err(short_input()),
                 };
                 let ch3 = match chars.next() {
                     Some(ch) => match ch.to_digit(10) {
                         Some(ch) => ch,
-                        None => return Err(BadEscape),
+                        None => return Err(bad_escape()),
                     },
-                    None => return Err(ShortInput),
+                    None => return Err(short_input()),
                 };
                 let res = ch + ch2 + ch3;
                 if res > 255 {
-                    return Err(BadEscape);
+                    return Err(bad_escape());
                 }
                 Ok(Some(Symbol::DecimalEscape(res as u8)))
             }
             Some(ch) => {
-                let ch = u8::try_from(ch).map_err(|_| BadEscape)?;
+                let ch = u8::try_from(ch).map_err(|_| bad_escape())?;
                 if ch < 0x20 || ch > 0x7e {
-                    Err(BadEscape)
+                    Err(bad_escape())
                 }
                 else {
                     Ok(Some(Symbol::SimpleEscape(ch)))
                 }
             }
-            None => Err(ShortInput),
+            None => Err(short_input()),
         }
     }
 
@@ -283,7 +388,20 @@ impl Symbol {
     pub fn from_slice_index(
         octets: &[u8], pos: usize
     ) -> Result<Option<(Symbol, usize)>, SymbolOctetsError> {
-        use self::SymbolOctetsError::*;
+        #[inline]
+        fn bad_utf8() -> SymbolOctetsError {
+            SymbolOctetsError(SymbolOctetsEnum::BadUtf8)
+        }
+
+        #[inline]
+        fn bad_escape() -> SymbolOctetsError {
+            SymbolOctetsError(SymbolOctetsEnum::BadEscape)
+        }
+
+        #[inline]
+        fn short_input() -> SymbolOctetsError {
+            SymbolOctetsError(SymbolOctetsEnum::ShortInput)
+        }
 
         let c1 = match octets.get(pos) {
             Some(c1) => *c1,
@@ -297,13 +415,13 @@ impl Symbol {
             // Get the next octet.
             let c2 = match octets.get(pos) {
                 Some(c2) => *c2,
-                None => return Err(ShortInput),
+                None => return Err(short_input()),
             };
             let pos = pos + 1;
 
             if c2.is_ascii_control() {
                 // Only printable ASCII characters allowed.
-                return Err(BadEscape)
+                return Err(bad_escape())
             }
             else if !c2.is_ascii_digit() {
                 // Simple escape.
@@ -313,14 +431,14 @@ impl Symbol {
             // Get two more octets.
             let c3 = match octets.get(pos) {
                 Some(c) if c.is_ascii_digit() => *c,
-                Some(_) => return Err(BadEscape),
-                None => return Err(ShortInput),
+                Some(_) => return Err(bad_escape()),
+                None => return Err(short_input()),
             };
             let pos = pos + 1;
             let c4 = match octets.get(pos) {
                 Some(c) if c.is_ascii_digit() => *c,
-                Some(_) => return Err(BadEscape),
-                None => return Err(ShortInput),
+                Some(_) => return Err(bad_escape()),
+                None => return Err(short_input()),
             };
             let pos = pos + 1;
 
@@ -330,7 +448,7 @@ impl Symbol {
                           (u32::from(c2 - b'0') * 100)
                         + (u32::from(c3 - b'0') * 10)
                         + (u32::from(c4 - b'0'))
-                    ).map_err(|_| BadEscape)?.into()
+                    ).map_err(|_| bad_escape())?.into()
                 ),
                 pos
             )))
@@ -348,17 +466,17 @@ impl Symbol {
 
             // Second-to-left but must be 1.
             if c1 & 0b0100_0000 == 0 {
-                return Err(BadUtf8);
+                return Err(bad_utf8());
             }
 
             // Get the next octet, check that it is valid.
             let c2 = match octets.get(pos) {
                 Some(c2) => *c2,
-                None => return Err(ShortInput),
+                None => return Err(short_input()),
             };
             let pos = pos + 1;
             if c2 & 0b1100_0000 != 0b1000_0000 {
-                return Err(BadUtf8);
+                return Err(bad_utf8());
             }
 
             // If c1’s third-to-left bit is 0, we have the two octet case.
@@ -368,7 +486,7 @@ impl Symbol {
                         (
                                u32::from(c2 & 0b0011_1111)
                             | (u32::from(c1 & 0b0001_1111) << 6)
-                        ).try_into().map_err(|_| BadUtf8)?
+                        ).try_into().map_err(|_| bad_utf8())?
                     ),
                     pos
                 )))
@@ -377,11 +495,11 @@ impl Symbol {
             // Get the next octet, check that it is valid.
             let c3 = match octets.get(pos) {
                 Some(c3) => *c3,
-                None => return Err(ShortInput),
+                None => return Err(short_input()),
             };
             let pos = pos + 1;
             if c3 & 0b1100_0000 != 0b1000_0000 {
-                return Err(BadUtf8);
+                return Err(bad_utf8());
             }
 
             // If c1’s fourth-to-left bit is 0, we have the three octet case.
@@ -392,7 +510,7 @@ impl Symbol {
                                u32::from(c3 & 0b0011_1111)
                             | (u32::from(c2 & 0b0011_1111) << 6)
                             | (u32::from(c1 & 0b0001_1111) << 12)
-                        ).try_into().map_err(|_| BadUtf8)?
+                        ).try_into().map_err(|_| bad_utf8())?
                     ),
                     pos
                 )))
@@ -401,11 +519,11 @@ impl Symbol {
             // Get the next octet, check that it is valid.
             let c4 = match octets.get(pos) {
                 Some(c4) => *c4,
-                None => return Err(ShortInput),
+                None => return Err(short_input()),
             };
             let pos = pos + 1;
             if c4 & 0b1100_0000 != 0b1000_0000 {
-                return Err(BadUtf8);
+                return Err(bad_utf8());
             }
 
             Ok(Some((
@@ -415,7 +533,7 @@ impl Symbol {
                         | (u32::from(c3 & 0b0011_1111) << 6)
                         | (u32::from(c2 & 0b0011_1111) << 12)
                         | (u32::from(c1 & 0b0000_1111) << 18)
-                    ).try_into().map_err(|_| BadUtf8)?
+                    ).try_into().map_err(|_| bad_utf8())?
                 ),
                 pos
             )))
@@ -455,13 +573,18 @@ impl Symbol {
                 if ch.is_ascii() && ch >= '\u{20}' && ch <= '\u{7E}' {
                     Ok(ch as u8)
                 } else {
-                    Err(BadSymbol(self))
+                    Err(BadSymbol(BadSymbolEnum::NonAscii))
                 }
             }
             Symbol::SimpleEscape(ch) | Symbol::DecimalEscape(ch) => Ok(ch),
         }
     }
 
+    /// Converts the symbol into an octet if it is printable ASCII.
+    ///
+    /// This is similar to [`into_octet`][Self::into_octet] but returns an
+    /// error when the resulting octet is not a printable ASCII character,
+    /// i.e., an octet of value 0x20 up to and including 0x7E.
     pub fn into_ascii(self) -> Result<u8, BadSymbol> {
         match self {
             Symbol::Char(ch) => {
@@ -469,7 +592,7 @@ impl Symbol {
                     Ok(ch as u8)
                 }
                 else {
-                    Err(BadSymbol(self))
+                    Err(BadSymbol(BadSymbolEnum::NonAscii))
                 }
             }
             Symbol::SimpleEscape(ch) | Symbol::DecimalEscape(ch) => {
@@ -477,7 +600,7 @@ impl Symbol {
                     Ok(ch)
                 }
                 else {
-                    Err(BadSymbol(self))
+                    Err(BadSymbol(BadSymbolEnum::NonAscii))
                 }
             }
         }
@@ -493,7 +616,7 @@ impl Symbol {
             Symbol::SimpleEscape(ch) if ch >= 0x20 && ch < 0x7F => {
                 Ok(ch.into())
             }
-            _ => Err(BadSymbol(self)),
+            _ => Err(BadSymbol(BadSymbolEnum::NonUtf8)),
         }
     }
 
@@ -502,17 +625,18 @@ impl Symbol {
         if let Symbol::Char(ch) = self {
             match ch.to_digit(base) {
                 Some(ch) => Ok(ch),
-                None => Err(BadSymbol(self)),
+                None => Err(BadSymbol(BadSymbolEnum::NonDigit)),
             }
         } else {
-            Err(BadSymbol(self))
+            Err(BadSymbol(BadSymbolEnum::Escape))
         }
     }
 
     /// Returns whether the symbol can occur as part of a word.
     ///
-    /// This is true apart for unescaped ASCII space and horizontal tabs,
-    /// opening and closing parantheses, the semicolon, and double quote.
+    /// This is true for all symbols other than unescaped ASCII space and
+    /// horizontal tabs, opening and closing parentheses, semicolon, and
+    /// double quote.
     pub fn is_word_char(self) -> bool {
         match self {
             Symbol::Char(ch) => {
@@ -572,61 +696,6 @@ impl From<Symbol> for EntrySymbol {
     }
 }
 
-//============ Simple Scanner Impl ===========================================
-
-/*
-/// A scanner reading tokens from an iterator over strings.
-///
-/// This is a very simple scanner implementation that assumes each string
-/// produced by an iterator is a token. White space within the string is
-/// allowed, escape sequences are interpreted.
-#[derive(Clone, Debug)]
-pub struct IterScanner<'a, I: Iterator<Item = &'a str>> {
-    iter: Peekable<I>,
-    origin: Dname<Cow<[u8]>>,
-}
-
-impl<'a, I: Iterator<Item = &'a str>> IterScanner<'a, I> {
-    /// Creates a new scanner using the given iterator.
-    pub fn new(iter: I, origin: Dname<Cow<[u8]>>) -> Self {
-        IterScanner { iter: iter.peekable(), origin, }
-    }
-
-    fn next_token(&mut self) -> Result<&'a str, &'static str> {
-        self.iter.next().ok_or("end of entry")
-    }
-}
-
-impl<'a, I: Iterator<Item = &'a str>> IterScanner<'a, I> {
-    type Octets = Cow<[u8]>;
-    type OctetsBuilder = Cow<[u8]>;
-    type Dname = Dname<Cow<[u8]>>,
-/*
-    type Symbols = Symbols<str::Chars<'a>>;
-    type EntrySymbols = EntrySymbols<'a>
-*/
-    fn has_space(&self) -> bool {
-        true
-    }
-
-    fn continues(&mut self) -> bool {
-        self.iter.peek().is_some()
-    }
-
-    fn scan_symbols(
-        &mut self
-    ) -> Result<Symbols<str::Chars<'a>>, &'static str> {
-        self.next_token().map(|s| Symbols::new(s.chars()))
-    }
-
-    fn scan_entry_symbols(
-        self
-    ) -> Result<EntrySymbols<'a, Peekable<I>>, &'static str> {
-        Ok(EntrySymbols::new(self.iter))
-    }
-}
-*/
-
 
 //------------ Symbols -------------------------------------------------------
 
@@ -659,48 +728,16 @@ impl<Chars: Iterator<Item = char>> Iterator for Symbols<Chars> {
 }
 
 
-//------------ EntrySymbols --------------------------------------------------
-
-/// An iterator over the symbols in an iterator over strings.
-#[derive(Debug)]
-pub struct EntrySymbols<'a, I> {
-    iter: I,
-    current: Option<Symbols<str::Chars<'a>>>,
-}
-
-impl<'a, I: Iterator<Item = &'a str>> EntrySymbols<'a, I> {
-    /*
-    fn new(iter: I) -> Self {
-        EntrySymbols { iter, current: None }
-    }
-    */
-}
-
-impl<'a, I: Iterator<Item = &'a str>> Iterator for EntrySymbols<'a, I> {
-    type Item = EntrySymbol;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(sym) = self.current.as_mut().and_then(Iterator::next) {
-            return Some(sym.into())
-        }
-        if let Some(current) = self.iter.next() {
-            self.current = Some(Symbols::new(current.chars()));
-            Some(EntrySymbol::EndOfToken)
-        }
-        else {
-            None
-        }
-    }
-}
-
-
 //============ Error Types ===================================================
 
 //------------ SymbolCharsError ----------------------------------------------
 
 /// An error happened when reading a symbol.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SymbolCharsError {
+pub struct SymbolCharsError(SymbolCharsEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SymbolCharsEnum {
     /// An illegal escape sequence was encountered.
     BadEscape,
 
@@ -710,16 +747,21 @@ pub enum SymbolCharsError {
     ShortInput,
 }
 
+impl SymbolCharsError {
+    /// Returns a static description of the error.
+    pub fn as_str(self) -> &'static str {
+        match self.0 {
+            SymbolCharsEnum::BadEscape => "illegale escape sequence",
+            SymbolCharsEnum::ShortInput => "unexpected end of input",
+        }
+    }
+}
+
 //--- Display and Error
 
 impl fmt::Display for SymbolCharsError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SymbolCharsError::BadEscape => {
-                f.write_str("illegal escape sequence")
-            },
-            SymbolCharsError::ShortInput => ParseError::ShortInput.fmt(f),
-        }
+        f.write_str(self.as_str())
     }
 }
 
@@ -730,7 +772,10 @@ impl std::error::Error for SymbolCharsError {}
 
 /// An error happened when reading a symbol.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SymbolOctetsError {
+pub struct SymbolOctetsError(SymbolOctetsEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SymbolOctetsEnum {
     /// An illegal UTF-8 sequence was encountered.
     BadUtf8,
 
@@ -743,19 +788,21 @@ pub enum SymbolOctetsError {
     ShortInput,
 }
 
+impl SymbolOctetsError {
+    pub fn as_str(self) -> &'static str {
+        match self.0 {
+            SymbolOctetsEnum::BadUtf8 => "illegal UTF-8 sequence",
+            SymbolOctetsEnum::BadEscape => "illegal escape sequence",
+            SymbolOctetsEnum::ShortInput => "unexpected end of data",
+        }
+    }
+}
+
 //--- Display and Error
 
 impl fmt::Display for SymbolOctetsError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            SymbolOctetsError::BadUtf8 => {
-                f.write_str("illegal UTF-8 sequence")
-            }
-            SymbolOctetsError::BadEscape => {
-                f.write_str("illegal escape sequence")
-            }
-            SymbolOctetsError::ShortInput => ParseError::ShortInput.fmt(f),
-        }
+        f.write_str(self.as_str())
     }
 }
 
@@ -766,13 +813,40 @@ impl std::error::Error for SymbolOctetsError {}
 
 /// A symbol with an unexpected value was encountered.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BadSymbol(pub Symbol);
+pub struct BadSymbol(BadSymbolEnum);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BadSymbolEnum {
+    /// A non-ASCII character was encountered.
+    NonAscii,
+
+    /// A non-UTF8 character was encountered.
+    NonUtf8,
+
+    /// A non-digit character was encountered.
+    NonDigit,
+
+    /// An unexpected escape sequence was encountered.
+    Escape,
+}
+
+impl BadSymbol {
+    /// Returns a static description of the error.
+    pub fn as_str(self) -> &'static str {
+        match self.0 {
+            BadSymbolEnum::NonAscii => "non-ASCII symbol",
+            BadSymbolEnum::NonUtf8 => "invalid UTF-8 sequence",
+            BadSymbolEnum::NonDigit => "expected digit",
+            BadSymbolEnum::Escape => "unexpected escape sequence",
+        }
+    }
+}
 
 //--- Display and Error
 
 impl fmt::Display for BadSymbol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "unexpected symbol '{}'", self.0)
+        f.write_str(self.as_str())
     }
 }
 
@@ -785,13 +859,6 @@ impl From<BadSymbol> for std::io::Error {
         std::io::Error::new(std::io::ErrorKind::Other, err)
     }
 }
-
-
-//------------ IterScannerError ----------------------------------------------
-
-#[derive(Clone, Copy, Debug)]
-pub struct IterScannerError(&'static str);
-
 
 
 //============ Testing =======================================================
