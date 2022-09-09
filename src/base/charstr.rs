@@ -79,7 +79,10 @@ impl<Octets: ?Sized> CharStr<Octets> {
 
     /// Creates a character string from octets without length check.
     ///
-    /// As this can break the guarantees made by the type, it is unsafe.
+    /// # Safety
+    ///
+    /// The caller has to make sure that `octets` is at most 255 octets
+    /// long. Otherwise, the behaviour is undefined.
     pub unsafe fn from_octets_unchecked(octets: Octets) -> Self
     where
         Octets: Sized,

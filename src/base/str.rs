@@ -24,6 +24,12 @@ impl<Octets> String<Octets> {
     }
 
     /// Converts a sequence of octets into a string without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must make sure that octets is a sequence of correctly
+    /// encoded UTF-8 characters. Otherwise, the use of the returned value
+    /// is undefined.
     pub unsafe fn from_utf8_unchecked(octets: Octets) -> Self {
         String(octets)
     }

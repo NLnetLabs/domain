@@ -104,9 +104,9 @@ impl<S: Scanner> Scan<S> for Aaaa {
         let token = str::from_utf8(token.as_ref()).map_err(|_| {
             S::Error::custom("expected IPv6 address")
         })?;
-        Ok(Aaaa::from_str(token).map_err(|_| {
+        Aaaa::from_str(token).map_err(|_| {
             S::Error::custom("expected IPv6 address")
-        })?)
+        })
     }
 }
 

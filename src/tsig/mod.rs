@@ -558,6 +558,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// If anything is wrong with the message with regards to TSIG, the
     /// function returns the error message that should be returned to the
     /// client as the error case of the result.
+    #[allow(clippy::result_large_err)]
     pub fn request<Store, Octets>(
         store: &Store,
         message: &mut Message<Octets>,
@@ -874,6 +875,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// If anything is wrong with the message with regards to TSIG, the
     /// function returns the error message that should be returned to the
     /// client as the error case of the result.
+    #[allow(clippy::result_large_err)]
     pub fn request<Store, Octets>(
         store: &Store,
         message: &mut Message<Octets>,
@@ -979,6 +981,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// correctly signed with a known key. Returns `Ok(None)` if there was
     /// no TSIG record at all. Returns an error with a message to be returned
     /// to the client otherwise.
+    #[allow(clippy::result_large_err)]
     fn server_request<Store, Octets>(
         store: &Store,
         message: &mut Message<Octets>,

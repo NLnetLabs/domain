@@ -126,11 +126,9 @@ impl<S: Scanner> Scan<S> for A {
         let token = str::from_utf8(token.as_ref()).map_err(|_| {
             S::Error::custom("expected IPv4 address")
         })?;
-        Ok(
-            A::from_str(token).map_err(|_| {
-                S::Error::custom("expected IPv4 address")
-            })?
-        )
+        A::from_str(token).map_err(|_| {
+            S::Error::custom("expected IPv4 address")
+        })
     }
 }
 

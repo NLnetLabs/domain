@@ -16,6 +16,7 @@
 #![cfg_attr(feature = "zonefile", doc = "[zonefile]")]
 #![cfg_attr(not(feature = "zonefile"), doc = "zonefile")]
 //! module for those.
+#![allow(clippy::manual_range_contains)] // Hard disagree.
 
 use core::{fmt, str};
 use core::convert::{TryFrom, TryInto};
@@ -241,10 +242,7 @@ declare_error_trait!(ScannerError: Sized + fmt::Debug + fmt::Display);
 #[cfg(feature = "std")]
 impl ScannerError for std::io::Error {
     fn custom(msg: &'static str) -> Self {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("{}", msg)
-        )
+        std::io::Error::new(std::io::ErrorKind::Other, msg)
     }
 
     fn end_of_entry() -> Self {
@@ -425,7 +423,7 @@ impl Symbol {
             }
             else if !c2.is_ascii_digit() {
                 // Simple escape.
-                return Ok(Some((Symbol::SimpleEscape(c2.into()), pos)))
+                return Ok(Some((Symbol::SimpleEscape(c2), pos)))
             }
 
             // Get two more octets.
@@ -448,7 +446,7 @@ impl Symbol {
                           (u32::from(c2 - b'0') * 100)
                         + (u32::from(c3 - b'0') * 10)
                         + (u32::from(c4 - b'0'))
-                    ).map_err(|_| bad_escape())?.into()
+                    ).map_err(|_| bad_escape())?
                 ),
                 pos
             )))

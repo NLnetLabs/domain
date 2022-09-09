@@ -45,9 +45,15 @@ pub struct Zonefile {
     last_class: Option<Class>,
 }
 
+impl Default for Zonefile {
+    fn default() -> Self {
+        Self::with_buf(SourceBuf::default())
+    }
+}
+
 impl Zonefile {
     pub fn new() -> Self {
-        Self::with_buf(SourceBuf::default())
+        Self::default()
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
@@ -765,21 +771,10 @@ impl<'a> EntryScanner<'a> {
             // Reading and writing position is equal, so we don’t need to
             // convert char symbols. Read char symbols until the end of label
             // or an escape sequence.
-            loop {
-                match self.zonefile.buf.next_ascii_symbol()? {
-                    Some(_) => {
-                        // A char symbol. Just increase the write index.
-                        *write += 1;
-                        if *write >= latest {
-                            return Err(EntryError::bad_charstr())
-                        }
-                    }
-                    None => {
-                        // Either we got an escape sequence or we reached the
-                        // end of the token. Break out of the loop and decide
-                        // below.
-                        break;
-                    }
+            while self.zonefile.buf.next_ascii_symbol()?.is_some() {
+                *write += 1;
+                if *write >= latest {
+                    return Err(EntryError::bad_charstr())
                 }
             }
         }
@@ -1018,7 +1013,7 @@ impl SourceBuf {
                     self.start = sym_end;
                     self.cat = ItemCat::None;
                     self.next_item()?;
-                    return Ok(true)
+                    Ok(true)
                 }
                 else {
                     Ok(false)
@@ -1045,6 +1040,7 @@ impl SourceBuf {
     ///
     /// If it returns `Some(_)`, advances `self.start` to the start of the
     /// next symbol.
+    #[allow(clippy::manual_range_contains)] // Hard disagree.
     fn next_ascii_symbol(&mut self) -> Result<Option<u8>, EntryError> {
         if matches!(self.cat, ItemCat::None | ItemCat::LineFeed) {
             return Ok(None)
@@ -1158,7 +1154,7 @@ impl SourceBuf {
                 if sym == Symbol::Char('"') {
                     self.start = sym_end;
                     self.cat = ItemCat::None;
-                    return Ok(None)
+                    Ok(None)
                 }
                 else {
                     self.start = sym_end;
