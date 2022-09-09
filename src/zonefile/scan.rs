@@ -124,7 +124,7 @@ pub enum Entry {
 //------------ ScannedEntry --------------------------------------------------
 
 #[derive(Clone, Debug)]
-#[allow(clippy::large-enum-variant)]
+#[allow(clippy::large_enum_variant)]
 enum ScannedEntry {
     Entry(Entry),
     Origin(Dname<Bytes>),
