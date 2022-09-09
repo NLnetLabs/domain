@@ -106,7 +106,7 @@ impl Zonefile {
         self.origin
             .as_ref()
             .cloned()
-            .ok_or_else(|| EntryError::missing_origin())
+            .ok_or_else(EntryError::missing_origin)
     }
 }
 
@@ -123,8 +123,8 @@ pub enum Entry {
 
 //------------ ScannedEntry --------------------------------------------------
 
-#[allow(dead_code)] // XXX
 #[derive(Clone, Debug)]
+#[allow(clippy::large-enum-variant)]
 enum ScannedEntry {
     Entry(Entry),
     Origin(Dname<Bytes>),
