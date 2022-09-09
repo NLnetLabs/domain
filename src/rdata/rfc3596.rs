@@ -101,12 +101,10 @@ impl Compose for Aaaa {
 impl<S: Scanner> Scan<S> for Aaaa {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         let token = scanner.scan_octets()?;
-        let token = str::from_utf8(token.as_ref()).map_err(|_| {
-            S::Error::custom("expected IPv6 address")
-        })?;
-        Aaaa::from_str(token).map_err(|_| {
-            S::Error::custom("expected IPv6 address")
-        })
+        let token = str::from_utf8(token.as_ref())
+            .map_err(|_| S::Error::custom("expected IPv6 address"))?;
+        Aaaa::from_str(token)
+            .map_err(|_| S::Error::custom("expected IPv6 address"))
     }
 }
 

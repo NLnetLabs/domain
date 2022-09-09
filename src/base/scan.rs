@@ -18,14 +18,14 @@
 //! module for those.
 #![allow(clippy::manual_range_contains)] // Hard disagree.
 
-use core::{fmt, str};
-use core::convert::{TryFrom, TryInto};
-#[cfg(feature = "std")] use std::error;
 use crate::base::charstr::CharStr;
 use crate::base::name::ToDname;
 use crate::base::octets::OctetsBuilder;
 use crate::base::str::String;
-
+use core::convert::{TryFrom, TryInto};
+use core::{fmt, str};
+#[cfg(feature = "std")]
+use std::error;
 
 //============ Scanning Traits ===============================================
 
@@ -59,9 +59,7 @@ pub trait Scan<S: Scanner>: Sized {
 macro_rules! impl_scan_unsigned {
     ( $type:ident) => {
         impl<S: Scanner> Scan<S> for $type {
-            fn scan(
-                scanner: &mut S,
-            ) -> Result<Self, S::Error> {
+            fn scan(scanner: &mut S) -> Result<Self, S::Error> {
                 let mut res: $type = 0;
                 scanner.scan_symbols(|ch| {
                     res = res.checked_mul(10).ok_or_else(|| {
@@ -75,7 +73,7 @@ macro_rules! impl_scan_unsigned {
                 Ok(res)
             }
         }
-    }
+    };
 }
 
 impl_scan_unsigned!(u8);
@@ -119,8 +117,9 @@ pub trait Scanner {
     type Octets: AsRef<[u8]>;
 
     /// The octets builder used internally and returned upon request.
-    type OctetsBuilder:
-        OctetsBuilder<Octets = Self::Octets> + AsRef<[u8]> + AsMut<[u8]>;
+    type OctetsBuilder: OctetsBuilder<Octets = Self::Octets>
+        + AsRef<[u8]>
+        + AsMut<[u8]>;
 
     /// The type of domain name returned by the scanner.
     type Dname: ToDname;
@@ -142,16 +141,16 @@ pub trait Scanner {
     /// Each symbol is passed to the caller via the closure and can be
     /// processed there.
     fn scan_symbols<F>(&mut self, op: F) -> Result<(), Self::Error>
-    where F: FnMut(Symbol) -> Result<(), Self::Error>;
+    where
+        F: FnMut(Symbol) -> Result<(), Self::Error>;
 
     /// Scans the remainder of the entry as symbols.
     ///
     /// Each symbol is passed to the caller via the closure and can be
     /// processed there.
-    fn scan_entry_symbols<F>(
-        self, op: F
-    ) -> Result<(), Self::Error>
-    where F: FnMut(EntrySymbol) -> Result<(), Self::Error>;
+    fn scan_entry_symbols<F>(self, op: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(EntrySymbol) -> Result<(), Self::Error>;
 
     /// Converts the symbols of a token into an octets sequence.
     ///
@@ -160,7 +159,8 @@ pub trait Scanner {
     /// token is complete, the converter is called again to ask for any
     /// remaining data to be added.
     fn convert_token<C: ConvertSymbols<Symbol, Self::Error>>(
-        &mut self, convert: C,
+        &mut self,
+        convert: C,
     ) -> Result<Self::Octets, Self::Error>;
 
     /// Converts the symbols of a token into an octets sequence.
@@ -170,7 +170,8 @@ pub trait Scanner {
     /// token is complete, the converter is called again to ask for any
     /// remaining data to be added.
     fn convert_entry<C: ConvertSymbols<EntrySymbol, Self::Error>>(
-        &mut self, convert: C,
+        &mut self,
+        convert: C,
     ) -> Result<Self::Octets, Self::Error>;
 
     /// Scans a token into an octets sequence.
@@ -208,9 +209,9 @@ pub trait Scanner {
     ///
     /// If the next token contains non-ascii characters, returns an error.
     fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
-    where F: FnOnce(&str) -> Result<T, Self::Error>;
+    where
+        F: FnOnce(&str) -> Result<T, Self::Error>;
 }
-
 
 //------------ ScannerError --------------------------------------------------
 
@@ -248,22 +249,19 @@ impl ScannerError for std::io::Error {
     fn end_of_entry() -> Self {
         std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
-            "unexpected end of entry"
+            "unexpected end of entry",
         )
     }
 
     fn short_buf() -> Self {
         std::io::Error::new(
             std::io::ErrorKind::Other,
-            crate::base::octets::ShortBuf
+            crate::base::octets::ShortBuf,
         )
     }
 
     fn trailing_tokens() -> Self {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "trailing data"
-        )
+        std::io::Error::new(std::io::ErrorKind::Other, "trailing data")
     }
 }
 
@@ -281,9 +279,8 @@ pub trait ConvertSymbols<Sym, Error> {
     /// Processes the next symbol.
     ///
     /// The method may return data to be added to the output octets sequence.
-    fn process_symbol(
-        &mut self, symbol: Sym,
-    ) -> Result<Option<&[u8]>, Error>;
+    fn process_symbol(&mut self, symbol: Sym)
+        -> Result<Option<&[u8]>, Error>;
 
     /// Process the end of token.
     ///
@@ -370,8 +367,7 @@ impl Symbol {
                 let ch = u8::try_from(ch).map_err(|_| bad_escape())?;
                 if ch < 0x20 || ch > 0x7e {
                     Err(bad_escape())
-                }
-                else {
+                } else {
                     Ok(Some(Symbol::SimpleEscape(ch)))
                 }
             }
@@ -384,7 +380,8 @@ impl Symbol {
     /// Returns the symbol and the index of the end of the symbol in the
     /// slice.
     pub fn from_slice_index(
-        octets: &[u8], pos: usize
+        octets: &[u8],
+        pos: usize,
     ) -> Result<Option<(Symbol, usize)>, SymbolOctetsError> {
         #[inline]
         fn bad_utf8() -> SymbolOctetsError {
@@ -403,7 +400,7 @@ impl Symbol {
 
         let c1 = match octets.get(pos) {
             Some(c1) => *c1,
-            None => return Ok(None)
+            None => return Ok(None),
         };
         let pos = pos + 1;
 
@@ -419,11 +416,10 @@ impl Symbol {
 
             if c2.is_ascii_control() {
                 // Only printable ASCII characters allowed.
-                return Err(bad_escape())
-            }
-            else if !c2.is_ascii_digit() {
+                return Err(bad_escape());
+            } else if !c2.is_ascii_digit() {
                 // Simple escape.
-                return Ok(Some((Symbol::SimpleEscape(c2), pos)))
+                return Ok(Some((Symbol::SimpleEscape(c2), pos)));
             }
 
             // Get two more octets.
@@ -443,15 +439,15 @@ impl Symbol {
             Ok(Some((
                 Symbol::DecimalEscape(
                     u8::try_from(
-                          (u32::from(c2 - b'0') * 100)
-                        + (u32::from(c3 - b'0') * 10)
-                        + (u32::from(c4 - b'0'))
-                    ).map_err(|_| bad_escape())?
+                        (u32::from(c2 - b'0') * 100)
+                            + (u32::from(c3 - b'0') * 10)
+                            + (u32::from(c4 - b'0')),
+                    )
+                    .map_err(|_| bad_escape())?,
                 ),
-                pos
+                pos,
             )))
-        }
-        else {
+        } else {
             // UTF-8 encoded character.
             //
             // Looks like there’s nothing in the standard library to help us
@@ -459,7 +455,7 @@ impl Symbol {
 
             // ASCII is single byte.
             if c1 < 128 {
-                return Ok(Some((Symbol::Char(c1.into()), pos)))
+                return Ok(Some((Symbol::Char(c1.into()), pos)));
             }
 
             // Second-to-left but must be 1.
@@ -481,13 +477,13 @@ impl Symbol {
             if c1 & 0b0010_0000 == 0 {
                 return Ok(Some((
                     Symbol::Char(
-                        (
-                               u32::from(c2 & 0b0011_1111)
-                            | (u32::from(c1 & 0b0001_1111) << 6)
-                        ).try_into().map_err(|_| bad_utf8())?
+                        (u32::from(c2 & 0b0011_1111)
+                            | (u32::from(c1 & 0b0001_1111) << 6))
+                            .try_into()
+                            .map_err(|_| bad_utf8())?,
                     ),
-                    pos
-                )))
+                    pos,
+                )));
             }
 
             // Get the next octet, check that it is valid.
@@ -504,14 +500,14 @@ impl Symbol {
             if c1 & 0b0001_0000 == 0 {
                 return Ok(Some((
                     Symbol::Char(
-                        (
-                               u32::from(c3 & 0b0011_1111)
+                        (u32::from(c3 & 0b0011_1111)
                             | (u32::from(c2 & 0b0011_1111) << 6)
-                            | (u32::from(c1 & 0b0001_1111) << 12)
-                        ).try_into().map_err(|_| bad_utf8())?
+                            | (u32::from(c1 & 0b0001_1111) << 12))
+                            .try_into()
+                            .map_err(|_| bad_utf8())?,
                     ),
-                    pos
-                )))
+                    pos,
+                )));
             }
 
             // Get the next octet, check that it is valid.
@@ -526,14 +522,14 @@ impl Symbol {
 
             Ok(Some((
                 Symbol::Char(
-                    (
-                           u32::from(c4 & 0b0011_1111)
+                    (u32::from(c4 & 0b0011_1111)
                         | (u32::from(c3 & 0b0011_1111) << 6)
                         | (u32::from(c2 & 0b0011_1111) << 12)
-                        | (u32::from(c1 & 0b0000_1111) << 18)
-                    ).try_into().map_err(|_| bad_utf8())?
+                        | (u32::from(c1 & 0b0000_1111) << 18))
+                        .try_into()
+                        .map_err(|_| bad_utf8())?,
                 ),
-                pos
+                pos,
             )))
         }
     }
@@ -588,16 +584,14 @@ impl Symbol {
             Symbol::Char(ch) => {
                 if ch.is_ascii() && ch >= '\u{20}' && ch <= '\u{7E}' {
                     Ok(ch as u8)
-                }
-                else {
+                } else {
                     Err(BadSymbol(BadSymbolEnum::NonAscii))
                 }
             }
             Symbol::SimpleEscape(ch) | Symbol::DecimalEscape(ch) => {
                 if ch >= 0x20 && ch <= 0x7E {
                     Ok(ch)
-                }
-                else {
+                } else {
                     Err(BadSymbol(BadSymbolEnum::NonAscii))
                 }
             }
@@ -685,7 +679,6 @@ pub enum EntrySymbol {
     EndOfToken,
 }
 
-
 //--- From
 
 impl From<Symbol> for EntrySymbol {
@@ -693,7 +686,6 @@ impl From<Symbol> for EntrySymbol {
         EntrySymbol::Symbol(symbol)
     }
 }
-
 
 //------------ Symbols -------------------------------------------------------
 
@@ -724,7 +716,6 @@ impl<Chars: Iterator<Item = char>> Iterator for Symbols<Chars> {
         None
     }
 }
-
 
 //============ Error Types ===================================================
 
@@ -858,7 +849,6 @@ impl From<BadSymbol> for std::io::Error {
     }
 }
 
-
 //============ Testing =======================================================
 
 #[cfg(test)]
@@ -871,48 +861,39 @@ mod test {
         let mut buf = [0u8; 4];
         for ch in '\0'..char::MAX {
             if ch == '\\' {
-                continue
+                continue;
             }
             let slice = ch.encode_utf8(&mut buf).as_bytes();
             assert_eq!(
                 Symbol::from_slice_index(slice, 0),
-                Ok(Some((
-                    Symbol::Char(ch),
-                    ch.len_utf8()
-                ))),
-                "char '{}'", ch,
+                Ok(Some((Symbol::Char(ch), ch.len_utf8()))),
+                "char '{}'",
+                ch,
             );
         }
 
-        for ch in '0' .. '\x7f' {
+        for ch in '0'..'\x7f' {
             if ch.is_ascii_digit() {
                 continue;
             }
             assert_eq!(
-                Symbol::from_slice_index(
-                    format!("\\{}", ch).as_bytes(), 0
-                ),
-                Ok(Some((
-                    Symbol::SimpleEscape(ch as u8),
-                    2
-                ))),
-                "sequence \"\\{}\"", ch
+                Symbol::from_slice_index(format!("\\{}", ch).as_bytes(), 0),
+                Ok(Some((Symbol::SimpleEscape(ch as u8), 2))),
+                "sequence \"\\{}\"",
+                ch
             );
-
         }
 
         for ch in 0..256 {
             assert_eq!(
                 Symbol::from_slice_index(
-                    format!("\\{:03}", ch).as_bytes(), 0
+                    format!("\\{:03}", ch).as_bytes(),
+                    0
                 ),
-                Ok(Some((
-                    Symbol::DecimalEscape(ch as u8),
-                    4
-                ))),
-                "sequence \"\\{:03}\"", ch
+                Ok(Some((Symbol::DecimalEscape(ch as u8), 4))),
+                "sequence \"\\{:03}\"",
+                ch
             );
         }
     }
 }
-

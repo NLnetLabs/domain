@@ -1,10 +1,5 @@
 //! Reading zone files.
 
-use core::{fmt, str};
-use core::str::FromStr;
-use std::{io, error};
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-use bytes::buf::UninitSlice;
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Chain, Dname, RelativeDname, ToDname};
@@ -15,7 +10,11 @@ use crate::base::scan::{
 };
 use crate::base::str::String;
 use crate::rdata::ZoneRecordData;
-
+use bytes::buf::UninitSlice;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use core::str::FromStr;
+use core::{fmt, str};
+use std::{error, io};
 
 //------------ Type Aliases --------------------------------------------------
 
@@ -23,7 +22,6 @@ pub type ScannedDname = Chain<RelativeDname<Bytes>, Dname<Bytes>>;
 pub type ScannedRecordData = ZoneRecordData<Bytes, ScannedDname>;
 pub type ScannedRecord = Record<ScannedDname, ScannedRecordData>;
 pub type ScannedString = String<Bytes>;
-
 
 //------------ Zonefile ------------------------------------------------------
 
@@ -70,7 +68,7 @@ impl Zonefile {
         }
     }
 
-    pub fn load(read: &mut  impl io::Read) -> Result<Self, io::Error> {
+    pub fn load(read: &mut impl io::Read) -> Result<Self, io::Error> {
         let mut buf = SourceBuf::new().writer();
         io::copy(read, &mut buf)?;
         Ok(Self::with_buf(buf.into_inner()))
@@ -98,19 +96,19 @@ impl Zonefile {
                 ScannedEntry::Entry(entry) => return Ok(Some(entry)),
                 ScannedEntry::Origin(origin) => self.origin = Some(origin),
                 ScannedEntry::Ttl(ttl) => self.last_ttl = Some(ttl),
-                ScannedEntry::Empty => { }
+                ScannedEntry::Empty => {}
                 ScannedEntry::Eof => return Ok(None),
             }
         }
     }
 
     fn get_origin(&self) -> Result<Dname<Bytes>, EntryError> {
-        self.origin.as_ref().cloned().ok_or_else(|| {
-            EntryError::missing_origin()
-        })
+        self.origin
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| EntryError::missing_origin())
     }
 }
-
 
 //------------ Entry ---------------------------------------------------------
 
@@ -120,9 +118,8 @@ pub enum Entry {
     Include {
         path: ScannedString,
         origin: Option<Dname<Bytes>>,
-    }
+    },
 }
-
 
 //------------ ScannedEntry --------------------------------------------------
 
@@ -135,7 +132,6 @@ enum ScannedEntry {
     Empty,
     Eof,
 }
-
 
 //------------ EntryScanner --------------------------------------------------
 
@@ -151,7 +147,8 @@ impl<'a> EntryScanner<'a> {
     }
 
     fn scan_entry(&mut self) -> Result<ScannedEntry, Error> {
-        self._scan_entry().map_err(|err| self.zonefile.buf.error(err))
+        self._scan_entry()
+            .map_err(|err| self.zonefile.buf.error(err))
     }
 
     fn _scan_entry(&mut self) -> Result<ScannedEntry, EntryError> {
@@ -167,48 +164,43 @@ impl<'a> EntryScanner<'a> {
                         match self.zonefile.last_owner.as_ref() {
                             Some(owner) => owner.clone(),
                             None => {
-                                return Err( EntryError::missing_last_owner())
+                                return Err(EntryError::missing_last_owner())
                             }
                         },
-                        false
+                        false,
                     )
-                }
-                else if
-                    self.zonefile.buf.peek_symbol() == Some(Symbol::Char('$'))
+                } else if self.zonefile.buf.peek_symbol()
+                    == Some(Symbol::Char('$'))
                 {
                     self.scan_control()
-                }
-                else if self.zonefile.buf.skip_at_token()? {
+                } else if self.zonefile.buf.skip_at_token()? {
                     self.scan_at_record()
-                }
-                else {
+                } else {
                     self.scan_record()
                 }
             }
         }
     }
 
-    fn scan_record(
-        &mut self
-    ) -> Result<ScannedEntry, EntryError> {
+    fn scan_record(&mut self) -> Result<ScannedEntry, EntryError> {
         let owner = ScannedDname::scan(self)?;
         self.scan_owner_record(owner, true)
     }
 
-    fn scan_at_record(
-        &mut self
-    ) -> Result<ScannedEntry, EntryError> {
-        let owner = RelativeDname::empty_bytes().chain(
-            match self.zonefile.origin.as_ref().cloned() {
+    fn scan_at_record(&mut self) -> Result<ScannedEntry, EntryError> {
+        let owner = RelativeDname::empty_bytes()
+            .chain(match self.zonefile.origin.as_ref().cloned() {
                 Some(origin) => origin,
                 None => return Err(EntryError::missing_origin()),
-            }
-        ).unwrap(); // Chaining an empty name will always work.
+            })
+            .unwrap(); // Chaining an empty name will always work.
         self.scan_owner_record(owner, true)
     }
 
     fn scan_owner_record(
-        &mut self, owner: ScannedDname, new_owner: bool,
+        &mut self,
+        owner: ScannedDname,
+        new_owner: bool,
     ) -> Result<ScannedEntry, EntryError> {
         let (class, ttl, rtype) = self.scan_ctr()?;
 
@@ -221,12 +213,10 @@ impl<'a> EntryScanner<'a> {
                 self.zonefile.last_class = Some(class);
                 class
             }
-            None => {
-                match self.zonefile.last_class {
-                    Some(class) => class,
-                    None => return Err(EntryError::missing_last_class())
-                }
-            }
+            None => match self.zonefile.last_class {
+                Some(class) => class,
+                None => return Err(EntryError::missing_last_class()),
+            },
         };
 
         let ttl = match ttl {
@@ -234,25 +224,23 @@ impl<'a> EntryScanner<'a> {
                 self.zonefile.last_ttl = Some(ttl);
                 ttl
             }
-            None => {
-                match self.zonefile.last_ttl {
-                    Some(ttl) => ttl,
-                    None => return Err(EntryError::missing_last_ttl())
-                }
-            }
+            None => match self.zonefile.last_ttl {
+                Some(ttl) => ttl,
+                None => return Err(EntryError::missing_last_ttl()),
+            },
         };
 
         let data = ZoneRecordData::scan(rtype, self)?;
 
         self.zonefile.buf.require_line_feed()?;
 
-        Ok(ScannedEntry::Entry(Entry::Record(
-            Record::new(owner, class, ttl, data)
-        )))
+        Ok(ScannedEntry::Entry(Entry::Record(Record::new(
+            owner, class, ttl, data,
+        ))))
     }
 
     fn scan_ctr(
-        &mut self
+        &mut self,
     ) -> Result<(Option<Class>, Option<u32>, Rtype), EntryError> {
         // Possible options are:
         //
@@ -268,14 +256,11 @@ impl<'a> EntryScanner<'a> {
         let first = self.scan_ascii_str(|s| {
             if let Ok(ttl) = u32::from_str(s) {
                 Ok(Ctr::Ttl(ttl))
-            }
-            else if let Ok(rtype) = Rtype::from_str(s) {
+            } else if let Ok(rtype) = Rtype::from_str(s) {
                 Ok(Ctr::Rtype(rtype))
-            }
-            else if let Ok(class) = Class::from_str(s) {
+            } else if let Ok(class) = Class::from_str(s) {
                 Ok(Ctr::Class(class))
-            }
-            else {
+            } else {
                 Err(EntryError::expected_rtype())
             }
         })?;
@@ -287,11 +272,9 @@ impl<'a> EntryScanner<'a> {
                 let second = self.scan_ascii_str(|s| {
                     if let Ok(rtype) = Rtype::from_str(s) {
                         Ok(Ok(rtype))
-                    }
-                    else if let Ok(class) = Class::from_str(s) {
+                    } else if let Ok(class) = Class::from_str(s) {
                         Ok(Err(class))
-                    }
-                    else {
+                    } else {
                         Err(EntryError::expected_rtype())
                     }
                 })?;
@@ -300,16 +283,13 @@ impl<'a> EntryScanner<'a> {
                     Err(class) => {
                         // Rtype is next.
                         let rtype = self.scan_ascii_str(|s| {
-                            Rtype::from_str(s).map_err(|_| {
-                                EntryError::expected_rtype()
-                            })
+                            Rtype::from_str(s)
+                                .map_err(|_| EntryError::expected_rtype())
                         })?;
 
                         Ok((Some(class), Some(ttl), rtype))
                     }
-                    Ok(rtype) => {
-                        Ok((None, Some(ttl), rtype))
-                    }
+                    Ok(rtype) => Ok((None, Some(ttl), rtype)),
                 }
             }
             Ctr::Class(class) => {
@@ -318,11 +298,9 @@ impl<'a> EntryScanner<'a> {
                 let second = self.scan_ascii_str(|s| {
                     if let Ok(ttl) = u32::from_str(s) {
                         Ok(Err(ttl))
-                    }
-                    else if let Ok(rtype) = Rtype::from_str(s) {
+                    } else if let Ok(rtype) = Rtype::from_str(s) {
                         Ok(Ok(rtype))
-                    }
-                    else {
+                    } else {
                         Err(EntryError::expected_rtype())
                     }
                 })?;
@@ -331,50 +309,39 @@ impl<'a> EntryScanner<'a> {
                     Err(ttl) => {
                         // Rtype is next.
                         let rtype = self.scan_ascii_str(|s| {
-                            Rtype::from_str(s).map_err(|_| {
-                                EntryError::expected_rtype()
-                            })
+                            Rtype::from_str(s)
+                                .map_err(|_| EntryError::expected_rtype())
                         })?;
 
                         Ok((Some(class), Some(ttl), rtype))
                     }
-                    Ok(rtype) => {
-                        Ok((Some(class), None, rtype))
-                    }
+                    Ok(rtype) => Ok((Some(class), None, rtype)),
                 }
             }
-            Ctr::Rtype(rtype) => {
-                Ok((None, None, rtype))
-            }
+            Ctr::Rtype(rtype) => Ok((None, None, rtype)),
         }
     }
 
-    fn scan_control(
-        &mut self
-    ) -> Result<ScannedEntry, EntryError> {
+    fn scan_control(&mut self) -> Result<ScannedEntry, EntryError> {
         let ctrl = self.scan_string()?;
         if ctrl.eq_ignore_ascii_case("$ORIGIN") {
             let origin = self.scan_dname()?.to_dname().unwrap();
             self.zonefile.buf.require_line_feed()?;
             Ok(ScannedEntry::Origin(origin))
-        }
-        else if ctrl.eq_ignore_ascii_case("$INCLUDE") {
+        } else if ctrl.eq_ignore_ascii_case("$INCLUDE") {
             let path = self.scan_string()?;
             let origin = if !self.zonefile.buf.is_line_feed() {
                 Some(self.scan_dname()?.to_dname().unwrap())
-            }
-            else {
+            } else {
                 None
             };
             self.zonefile.buf.require_line_feed()?;
             Ok(ScannedEntry::Entry(Entry::Include { path, origin }))
-        }
-        else if ctrl.eq_ignore_ascii_case("$TTL") {
+        } else if ctrl.eq_ignore_ascii_case("$TTL") {
             let ttl = u32::scan(self)?;
             self.zonefile.buf.require_line_feed()?;
             Ok(ScannedEntry::Ttl(ttl))
-        }
-        else {
+        } else {
             Err(EntryError::unknown_control())
         }
     }
@@ -395,7 +362,9 @@ impl<'a> Scanner for EntryScanner<'a> {
     }
 
     fn scan_symbols<F>(&mut self, mut op: F) -> Result<(), Self::Error>
-    where F: FnMut(Symbol) -> Result<(), Self::Error> {
+    where
+        F: FnMut(Symbol) -> Result<(), Self::Error>,
+    {
         self.zonefile.buf.require_token()?;
         while let Some(sym) = self.zonefile.buf.next_symbol()? {
             op(sym)?;
@@ -403,10 +372,10 @@ impl<'a> Scanner for EntryScanner<'a> {
         self.zonefile.buf.next_item()
     }
 
-    fn scan_entry_symbols<F>(
-        self, mut op: F
-    ) -> Result<(), Self::Error>
-    where F: FnMut(EntrySymbol) -> Result<(), Self::Error> {
+    fn scan_entry_symbols<F>(self, mut op: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(EntrySymbol) -> Result<(), Self::Error>,
+    {
         loop {
             self.zonefile.buf.require_token()?;
             while let Some(sym) = self.zonefile.buf.next_symbol()? {
@@ -422,7 +391,8 @@ impl<'a> Scanner for EntryScanner<'a> {
     }
 
     fn convert_token<C: ConvertSymbols<Symbol, Self::Error>>(
-        &mut self, mut convert: C,
+        &mut self,
+        mut convert: C,
     ) -> Result<Self::Octets, Self::Error> {
         let mut write = 0;
         let mut builder = None;
@@ -437,14 +407,15 @@ impl<'a> Scanner for EntryScanner<'a> {
     }
 
     fn convert_entry<C: ConvertSymbols<EntrySymbol, Self::Error>>(
-        &mut self, mut convert: C,
+        &mut self,
+        mut convert: C,
     ) -> Result<Self::Octets, Self::Error> {
         let mut write = 0;
         let mut builder = None;
         loop {
             self.convert_one_token(&mut convert, &mut write, &mut builder)?;
             if self.zonefile.buf.is_line_feed() {
-                break
+                break;
             }
         }
         if let Some(data) = convert.process_tail()? {
@@ -464,7 +435,7 @@ impl<'a> Scanner for EntryScanner<'a> {
         self.zonefile.buf.trim_to(self.zonefile.buf.start);
 
         // Skip over symbols that don’t need converting at the beginning.
-        while self.zonefile.buf.next_ascii_symbol()?.is_some() { }
+        while self.zonefile.buf.next_ascii_symbol()?.is_some() {}
 
         // If we aren’t done yet, we have escaped characters to replace.
         let mut write = self.zonefile.buf.start;
@@ -479,7 +450,9 @@ impl<'a> Scanner for EntryScanner<'a> {
     }
 
     fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
-    where F: FnOnce(&str) -> Result<T, Self::Error> {
+    where
+        F: FnOnce(&str) -> Result<T, Self::Error>,
+    {
         self.zonefile.buf.require_token()?;
 
         // The result will never be longer than the encoded form, so we can
@@ -535,24 +508,23 @@ impl<'a> Scanner for EntryScanner<'a> {
                     // have an empty domain name which is just the origin.
                     self.zonefile.buf.next_item()?;
                     if start == 0 {
-                        return RelativeDname::empty_bytes().chain(
-                            self.zonefile.get_origin()?
-                        ).map_err(|_| EntryError::bad_dname())
-                    }
-                    else {
+                        return RelativeDname::empty_bytes()
+                            .chain(self.zonefile.get_origin()?)
+                            .map_err(|_| EntryError::bad_dname());
+                    } else {
                         return unsafe {
                             RelativeDname::from_octets_unchecked(
-                                self.zonefile.buf.split_to(write).freeze()
-                            ).chain(Dname::root()).map_err(|_| {
-                                EntryError::bad_dname()
-                            })
-                        }
+                                self.zonefile.buf.split_to(write).freeze(),
+                            )
+                            .chain(Dname::root())
+                            .map_err(|_| EntryError::bad_dname())
+                        };
                     }
                 }
                 Some(true) => {
                     // Last symbol was a dot: check length and continue.
                     if write > 254 {
-                        return Err(EntryError::bad_dname())
+                        return Err(EntryError::bad_dname());
                     }
                 }
                 Some(false) => {
@@ -561,11 +533,11 @@ impl<'a> Scanner for EntryScanner<'a> {
                     self.zonefile.buf.next_item()?;
                     return unsafe {
                         RelativeDname::from_octets_unchecked(
-                            self.zonefile.buf.split_to(write).freeze()
-                        ).chain(
-                            self.zonefile.get_origin()?
-                        ).map_err(|_| EntryError::bad_dname())
-                    }
+                            self.zonefile.buf.split_to(write).freeze(),
+                        )
+                        .chain(self.zonefile.get_origin()?)
+                        .map_err(|_| EntryError::bad_dname())
+                    };
                 }
             }
         }
@@ -573,9 +545,8 @@ impl<'a> Scanner for EntryScanner<'a> {
 
     fn scan_charstr(&mut self) -> Result<CharStr<Self::Octets>, Self::Error> {
         self.scan_octets().and_then(|octets| {
-            CharStr::from_octets(octets).map_err(|_| {
-               EntryError::bad_charstr()
-            })
+            CharStr::from_octets(octets)
+                .map_err(|_| EntryError::bad_charstr())
         })
     }
 
@@ -587,21 +558,27 @@ impl<'a> Scanner for EntryScanner<'a> {
         self.zonefile.buf.trim_to(self.zonefile.buf.start);
 
         // Skip over symbols that don’t need converting at the beginning.
-        while self.zonefile.buf.next_char_symbol()?.is_some() { }
+        while self.zonefile.buf.next_char_symbol()?.is_some() {}
 
         // If we aren’t done yet, we have escaped characters to replace.
         let mut write = self.zonefile.buf.start;
         while let Some(sym) = self.zonefile.buf.next_symbol()? {
-            write += sym.into_char()?.encode_utf8(
-                &mut self.zonefile.buf.buf[write..self.zonefile.buf.start]
-            ).len();
+            write += sym
+                .into_char()?
+                .encode_utf8(
+                    &mut self.zonefile.buf.buf
+                        [write..self.zonefile.buf.start],
+                )
+                .len();
         }
 
         // Done. `write` marks the end.
         self.zonefile.buf.next_item()?;
-        Ok(unsafe { String::from_utf8_unchecked(
-            self.zonefile.buf.split_to(write).freeze()
-        )})
+        Ok(unsafe {
+            String::from_utf8_unchecked(
+                self.zonefile.buf.split_to(write).freeze(),
+            )
+        })
     }
 
     fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error> {
@@ -628,7 +605,7 @@ impl<'a> Scanner for EntryScanner<'a> {
         loop {
             self.convert_charstr(&mut write)?;
             if self.zonefile.buf.is_line_feed() {
-                break
+                break;
             }
         }
 
@@ -641,7 +618,10 @@ impl<'a> Scanner for EntryScanner<'a> {
 }
 
 impl<'a> EntryScanner<'a> {
-    fn convert_one_token<S: From<Symbol>, C: ConvertSymbols<S, EntryError>>(
+    fn convert_one_token<
+        S: From<Symbol>,
+        C: ConvertSymbols<S, EntryError>,
+    >(
         &mut self,
         convert: &mut C,
         write: &mut usize,
@@ -664,7 +644,7 @@ impl<'a> EntryScanner<'a> {
     ) {
         if let Some(builder) = builder.as_mut() {
             builder.extend_from_slice(data);
-            return
+            return;
         }
 
         let new_write = *write + data.len();
@@ -673,8 +653,7 @@ impl<'a> EntryScanner<'a> {
             new_builder.extend_from_slice(&self.zonefile.buf.buf[..*write]);
             new_builder.extend_from_slice(data);
             *builder = Some(new_builder);
-        }
-        else {
+        } else {
             self.zonefile.buf.buf[*write..new_write].copy_from_slice(data);
             *write = new_write;
         }
@@ -693,7 +672,8 @@ impl<'a> EntryScanner<'a> {
     /// and `Some(false)` means the end of token was encountered right after
     /// the label.
     fn convert_label(
-        &mut self, write: &mut usize
+        &mut self,
+        write: &mut usize,
     ) -> Result<Option<bool>, EntryError> {
         let start = *write;
         *write += 1;
@@ -707,15 +687,15 @@ impl<'a> EntryScanner<'a> {
                     Some(b'.') => {
                         // We found an unescaped dot, ie., end of label.
                         // Update the length octet and return.
-                        self.zonefile.buf.buf[start]
-                            = (*write - start - 1) as u8;
-                        return Ok(Some(true))
+                        self.zonefile.buf.buf[start] =
+                            (*write - start - 1) as u8;
+                        return Ok(Some(true));
                     }
                     Some(_) => {
                         // A char symbol. Just increase the write index.
                         *write += 1;
                         if *write >= latest {
-                            return Err(EntryError::bad_dname())
+                            return Err(EntryError::bad_dname());
                         }
                     }
                     None => {
@@ -734,19 +714,18 @@ impl<'a> EntryScanner<'a> {
                 None => {
                     // We reached the end of the token.
                     if *write > start + 1 {
-                        self.zonefile.buf.buf[start]
-                            = (*write - start - 1) as u8;
-                        return Ok(Some(false))
-                    }
-                    else {
-                        return Ok(None)
+                        self.zonefile.buf.buf[start] =
+                            (*write - start - 1) as u8;
+                        return Ok(Some(false));
+                    } else {
+                        return Ok(None);
                     }
                 }
                 Some(Symbol::Char('.')) => {
                     // We found an unescaped dot, ie., end of label.
                     // Update the length octet and return.
                     self.zonefile.buf.buf[start] = (*write - start - 1) as u8;
-                    return Ok(Some(true))
+                    return Ok(Some(true));
                 }
                 Some(sym) => {
                     // Any other symbol: Decode it and proceed to the next
@@ -754,7 +733,7 @@ impl<'a> EntryScanner<'a> {
                     self.zonefile.buf.buf[*write] = sym.into_octet()?;
                     *write += 1;
                     if *write >= latest {
-                        return Err(EntryError::bad_dname())
+                        return Err(EntryError::bad_dname());
                     }
                 }
             }
@@ -762,7 +741,8 @@ impl<'a> EntryScanner<'a> {
     }
 
     fn convert_charstr(
-        &mut self, write: &mut usize
+        &mut self,
+        write: &mut usize,
     ) -> Result<(), EntryError> {
         let start = *write;
         *write += 1;
@@ -774,7 +754,7 @@ impl<'a> EntryScanner<'a> {
             while self.zonefile.buf.next_ascii_symbol()?.is_some() {
                 *write += 1;
                 if *write >= latest {
-                    return Err(EntryError::bad_charstr())
+                    return Err(EntryError::bad_charstr());
                 }
             }
         }
@@ -784,22 +764,20 @@ impl<'a> EntryScanner<'a> {
             match self.zonefile.buf.next_symbol()? {
                 None => {
                     self.zonefile.buf.next_item()?;
-                    self.zonefile.buf.buf[start]
-                        = (*write - start - 1) as u8;
-                    return Ok(())
+                    self.zonefile.buf.buf[start] = (*write - start - 1) as u8;
+                    return Ok(());
                 }
                 Some(sym) => {
                     self.zonefile.buf.buf[*write] = sym.into_octet()?;
                     *write += 1;
                     if *write >= latest {
-                        return Err(EntryError::bad_charstr())
+                        return Err(EntryError::bad_charstr());
                     }
                 }
             }
         }
     }
 }
-
 
 //------------ SourceBuf -----------------------------------------------------
 
@@ -833,7 +811,6 @@ pub struct SourceBuf {
     /// This may be negative if we cut off bits of the current line.
     line_start: isize,
 }
-
 
 //--- Public Interface
 
@@ -902,7 +879,6 @@ unsafe impl BufMut for SourceBuf {
     }
 }
 
-
 //--- Internal Interface
 
 impl SourceBuf {
@@ -920,7 +896,7 @@ impl SourceBuf {
         match self.cat {
             ItemCat::None => Err(EntryError::short_buf()),
             ItemCat::LineFeed => Err(EntryError::end_of_entry()),
-            ItemCat::Quoted | ItemCat::Unquoted => Ok(())
+            ItemCat::Quoted | ItemCat::Unquoted => Ok(()),
         }
     }
 
@@ -933,8 +909,7 @@ impl SourceBuf {
     fn require_line_feed(&self) -> Result<(), EntryError> {
         if self.is_line_feed() {
             Ok(())
-        }
-        else {
+        } else {
             Err(EntryError::trailing_tokens())
         }
     }
@@ -947,32 +922,28 @@ impl SourceBuf {
         match self.cat {
             ItemCat::None | ItemCat::LineFeed => None,
             ItemCat::Unquoted => {
-                let sym = match Symbol::from_slice_index(
-                    &self.buf, self.start
-                ) {
-                    Ok(Some((sym, _))) => sym,
-                    Ok(None) | Err(_) => return None
-                };
+                let sym =
+                    match Symbol::from_slice_index(&self.buf, self.start) {
+                        Ok(Some((sym, _))) => sym,
+                        Ok(None) | Err(_) => return None,
+                    };
 
                 if sym.is_word_char() {
                     Some(sym)
-                }
-                else {
+                } else {
                     None
                 }
             }
             ItemCat::Quoted => {
-                let sym = match Symbol::from_slice_index(
-                    &self.buf, self.start
-                ) {
-                    Ok(Some((sym, _))) => sym,
-                    Ok(None) | Err(_) => return None
-                };
+                let sym =
+                    match Symbol::from_slice_index(&self.buf, self.start) {
+                        Ok(Some((sym, _))) => sym,
+                        Ok(None) | Err(_) => return None,
+                    };
 
                 if sym == Symbol::Char('"') {
                     None
-                }
-                else {
+                } else {
                     Some(sym)
                 }
             }
@@ -984,16 +955,15 @@ impl SourceBuf {
     /// Returns whether it did skip the token.
     fn skip_at_token(&mut self) -> Result<bool, EntryError> {
         if self.peek_symbol() != Some(Symbol::Char('@')) {
-            return Ok(false)
+            return Ok(false);
         }
 
-        let (sym, sym_end) = match Symbol::from_slice_index(
-            &self.buf, self.start + 1
-        ) {
-            Ok(Some((sym, sym_end))) => (sym, sym_end),
-            Ok(None) => return Err(EntryError::short_buf()),
-            Err(err) => return Err(EntryError::bad_symbol(err)),
-        };
+        let (sym, sym_end) =
+            match Symbol::from_slice_index(&self.buf, self.start + 1) {
+                Ok(Some((sym, sym_end))) => (sym, sym_end),
+                Ok(None) => return Err(EntryError::short_buf()),
+                Err(err) => return Err(EntryError::bad_symbol(err)),
+            };
 
         match self.cat {
             ItemCat::None | ItemCat::LineFeed => unreachable!(),
@@ -1003,8 +973,7 @@ impl SourceBuf {
                     self.cat = ItemCat::None;
                     self.next_item()?;
                     Ok(true)
-                }
-                else {
+                } else {
                     Ok(false)
                 }
             }
@@ -1014,8 +983,7 @@ impl SourceBuf {
                     self.cat = ItemCat::None;
                     self.next_item()?;
                     Ok(true)
-                }
-                else {
+                } else {
                     Ok(false)
                 }
             }
@@ -1043,12 +1011,12 @@ impl SourceBuf {
     #[allow(clippy::manual_range_contains)] // Hard disagree.
     fn next_ascii_symbol(&mut self) -> Result<Option<u8>, EntryError> {
         if matches!(self.cat, ItemCat::None | ItemCat::LineFeed) {
-            return Ok(None)
+            return Ok(None);
         }
 
         let ch = match self.buf.get(self.start) {
             Some(ch) => *ch,
-            None =>  return Ok(None),
+            None => return Ok(None),
         };
 
         match self.cat {
@@ -1061,23 +1029,19 @@ impl SourceBuf {
                     || ch == b';'
                     || ch == b'\\'
                 {
-                    return Ok(None)
+                    return Ok(None);
                 }
             }
             ItemCat::Quoted => {
                 if ch == b'"' {
                     self.start += 1;
                     self.cat = ItemCat::None;
-                    return Ok(None)
-                }
-                else if ch < 0x21
-                    || ch > 0x7F
-                    || ch == b'\\'
-                {
-                    return Ok(None)
+                    return Ok(None);
+                } else if ch < 0x21 || ch > 0x7F || ch == b'\\' {
+                    return Ok(None);
                 }
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
         self.start += 1;
         Ok(Some(ch))
@@ -1094,8 +1058,7 @@ impl SourceBuf {
         self._next_symbol(|sym| {
             if let Symbol::Char(ch) = sym {
                 Ok(Some(ch))
-            }
-            else {
+            } else {
                 Ok(None)
             }
         })
@@ -1107,27 +1070,24 @@ impl SourceBuf {
     /// of the logic. It behaves like `next_symbol` but provides an option
     /// for the called to decide whether they want the symbol or not.
     #[inline]
-    fn _next_symbol<F, T>(
-        &mut self,
-        want: F,
-    ) -> Result<Option<T>, EntryError>
-    where F: Fn(Symbol) -> Result<Option<T>, EntryError> {
+    fn _next_symbol<F, T>(&mut self, want: F) -> Result<Option<T>, EntryError>
+    where
+        F: Fn(Symbol) -> Result<Option<T>, EntryError>,
+    {
         match self.cat {
             ItemCat::None | ItemCat::LineFeed => Ok(None),
             ItemCat::Unquoted => {
-                let (sym, sym_end) = match Symbol::from_slice_index(
-                    &self.buf, self.start
-                ) {
-                    Ok(Some((sym, sym_end))) => (sym, sym_end),
-                    Ok(None) => return Err(EntryError::short_buf()),
-                    Err(err) => return Err(EntryError::bad_symbol(err)),
-                };
+                let (sym, sym_end) =
+                    match Symbol::from_slice_index(&self.buf, self.start) {
+                        Ok(Some((sym, sym_end))) => (sym, sym_end),
+                        Ok(None) => return Err(EntryError::short_buf()),
+                        Err(err) => return Err(EntryError::bad_symbol(err)),
+                    };
 
                 if !sym.is_word_char() {
                     self.cat = ItemCat::None;
                     Ok(None)
-                }
-                else {
+                } else {
                     match want(sym)? {
                         Some(some) => {
                             self.start = sym_end;
@@ -1138,13 +1098,12 @@ impl SourceBuf {
                 }
             }
             ItemCat::Quoted => {
-                let (sym, sym_end) = match Symbol::from_slice_index(
-                    &self.buf, self.start
-                ) {
-                    Ok(Some((sym, sym_end))) => (sym, sym_end),
-                    Ok(None) => return Err(EntryError::short_buf()),
-                    Err(err) => return Err(EntryError::bad_symbol(err)),
-                };
+                let (sym, sym_end) =
+                    match Symbol::from_slice_index(&self.buf, self.start) {
+                        Ok(Some((sym, sym_end))) => (sym, sym_end),
+                        Ok(None) => return Err(EntryError::short_buf()),
+                        Err(err) => return Err(EntryError::bad_symbol(err)),
+                    };
 
                 let res = match want(sym)? {
                     Some(some) => some,
@@ -1155,8 +1114,7 @@ impl SourceBuf {
                     self.start = sym_end;
                     self.cat = ItemCat::None;
                     Ok(None)
-                }
-                else {
+                } else {
                     self.start = sym_end;
                     if sym == Symbol::Char('\n') {
                         self.line_num += 1;
@@ -1183,7 +1141,8 @@ impl SourceBuf {
         assert!(
             matches!(self.cat, ItemCat::None | ItemCat::LineFeed),
             "token not completely read ({:?} at {}:{})",
-            self.cat, self.line_num,
+            self.cat,
+            self.line_num,
             ((self.start as isize) + 1 - self.line_start) as usize,
         );
 
@@ -1194,7 +1153,7 @@ impl SourceBuf {
                 Some(&ch) => ch,
                 None => {
                     self.cat = ItemCat::None;
-                    return Ok(())
+                    return Ok(());
                 }
             };
 
@@ -1217,17 +1176,16 @@ impl SourceBuf {
                 if self.parens > 0 {
                     self.parens -= 1;
                     self.start += 1;
-                }
-                else {
-                    return Err(EntryError::unbalanced_parens())
+                } else {
+                    return Err(EntryError::unbalanced_parens());
                 }
             }
             // Semicolon: comment -- skip to line end.
             else if ch == b';' {
                 self.start += 1;
-                while let Some(true) = self.buf.get(self.start).map(|ch| {
-                    *ch != b'\n'
-                }) {
+                while let Some(true) =
+                    self.buf.get(self.start).map(|ch| *ch != b'\n')
+                {
                     self.start += 1;
                 }
                 // Next iteration deals with the LF.
@@ -1283,7 +1241,6 @@ impl SourceBuf {
     }
 }
 
-
 //------------ ItemCat -------------------------------------------------------
 
 /// The category of the current item in a source buffer.
@@ -1321,7 +1278,6 @@ enum ItemCat {
     /// line feed.
     LineFeed,
 }
-
 
 //------------ EntryError ----------------------------------------------------
 
@@ -1407,8 +1363,7 @@ impl fmt::Display for EntryError {
     }
 }
 
-impl error::Error for EntryError { }
-
+impl error::Error for EntryError {}
 
 //------------ Error ---------------------------------------------------------
 
@@ -1425,8 +1380,7 @@ impl fmt::Display for Error {
     }
 }
 
-impl error::Error for Error { }
-
+impl error::Error for Error {}
 
 //============ Tests =========================================================
 
@@ -1448,15 +1402,17 @@ mod test {
         fn test(zone: &str, tok: impl AsRef<[u8]>) {
             with_entry(zone, |mut entry| {
                 let mut tok = tok.as_ref();
-                entry.scan_symbols(|sym| {
-                    let sym = sym.into_octet().unwrap();
-                    assert_eq!(sym, tok[0]);
-                    tok = &tok[1..];
-                    Ok(())
-                }).unwrap();
+                entry
+                    .scan_symbols(|sym| {
+                        let sym = sym.into_octet().unwrap();
+                        assert_eq!(sym, tok[0]);
+                        tok = &tok[1..];
+                        Ok(())
+                    })
+                    .unwrap();
             });
         }
-        
+
         test(" unquoted\n", b"unquoted");
         test(" unquoted  ", b"unquoted");
         test("unquoted ", b"unquoted");
@@ -1467,4 +1423,3 @@ mod test {
         test("\"quoted\" ", b"quoted");
     }
 }
-

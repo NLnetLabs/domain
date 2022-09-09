@@ -400,7 +400,8 @@ impl SymbolConverter {
     }
 
     fn process_char<Error: ScannerError>(
-        &mut self, ch: char
+        &mut self,
+        ch: char,
     ) -> Result<Option<&[u8]>, Error> {
         if ch > (127 as char) {
             return Err(Error::custom("illegal Base 32 data"));
@@ -422,8 +423,7 @@ impl SymbolConverter {
             ];
             self.next = 0;
             Ok(Some(&self.output))
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -435,19 +435,16 @@ where
     Error: ScannerError,
 {
     fn process_symbol(
-        &mut self, symbol: Sym,
+        &mut self,
+        symbol: Sym,
     ) -> Result<Option<&[u8]>, Error> {
         match symbol.into() {
-            EntrySymbol::Symbol(symbol) => {
-                self.process_char(
-                    symbol.into_char().map_err(|_| {
-                        Error::custom("illegal Base 32 data")
-                    })?
-                )
-             }
-            EntrySymbol::EndOfToken => {
-                Ok(None)
-            }
+            EntrySymbol::Symbol(symbol) => self.process_char(
+                symbol
+                    .into_char()
+                    .map_err(|_| Error::custom("illegal Base 32 data"))?,
+            ),
+            EntrySymbol::EndOfToken => Ok(None),
         }
     }
 
@@ -456,12 +453,8 @@ where
     /// The method may return data to be added to the output octets sequence.
     fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
         match self.next {
-            0 => {
-                return Ok(None)
-            }
-            1 | 3 | 6 => {
-                return Err(Error::custom("short Base 32 input"))
-            }
+            0 => return Ok(None),
+            1 | 3 | 6 => return Err(Error::custom("short Base 32 input")),
             _ => {}
         }
         self.output[0] = self.input[0] << 3 | self.input[1] >> 2;
@@ -482,7 +475,6 @@ where
         Ok(Some(&self.output[0..4]))
     }
 }
-
 
 //------------ Constants -----------------------------------------------------
 

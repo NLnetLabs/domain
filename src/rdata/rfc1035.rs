@@ -122,12 +122,10 @@ impl Compose for A {
 impl<S: Scanner> Scan<S> for A {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         let token = scanner.scan_octets()?;
-        let token = str::from_utf8(token.as_ref()).map_err(|_| {
-            S::Error::custom("expected IPv4 address")
-        })?;
-        A::from_str(token).map_err(|_| {
-            S::Error::custom("expected IPv4 address")
-        })
+        let token = str::from_utf8(token.as_ref())
+            .map_err(|_| S::Error::custom("expected IPv4 address"))?;
+        A::from_str(token)
+            .map_err(|_| S::Error::custom("expected IPv4 address"))
     }
 }
 

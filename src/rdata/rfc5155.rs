@@ -15,7 +15,7 @@ use crate::base::octets::{
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::RtypeRecordData;
 use crate::base::scan::{
-    ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError
+    ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
@@ -772,7 +772,8 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3Salt<Octets> {
             Error: ScannerError,
         {
             fn process_symbol(
-                &mut self, symbol: Sym,
+                &mut self,
+                symbol: Sym,
             ) -> Result<Option<&[u8]>, Error> {
                 let symbol = symbol.into();
                 // If we are none, this is the first symbol. A '-' means
@@ -780,24 +781,21 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3Salt<Octets> {
                 if self.0.is_none() {
                     match symbol {
                         EntrySymbol::Symbol(symbol)
-                            if symbol.into_char() == Ok('-')
-                        => {
+                            if symbol.into_char() == Ok('-') =>
+                        {
                             self.0 = Some(None);
-                            return Ok(None)
+                            return Ok(None);
                         }
                         _ => {
-                            self.0 = Some(Some(
-                                base16::SymbolConverter::new()
-                            ));
+                            self.0 =
+                                Some(Some(base16::SymbolConverter::new()));
                         }
                     }
                 }
 
                 match self.0.as_mut() {
                     None => unreachable!(),
-                    Some(None) => {
-                        Err(Error::custom("illegal NSEC3 salt"))
-                    }
+                    Some(None) => Err(Error::custom("illegal NSEC3 salt")),
                     Some(Some(ref mut base16)) => {
                         base16.process_symbol(symbol)
                     }
@@ -809,16 +807,15 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3Salt<Octets> {
                     <base16::SymbolConverter
                         as ConvertSymbols<Sym, Error>
                     >::process_tail(base16)
-                }
-                else {
+                } else {
                     Ok(None)
                 }
             }
         }
 
-        scanner.convert_token(Converter::default()).map(|res| {
-            unsafe { Self::from_octets_unchecked(res) } 
-        })
+        scanner
+            .convert_token(Converter::default())
+            .map(|res| unsafe { Self::from_octets_unchecked(res) })
     }
 }
 
@@ -1154,11 +1151,9 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for OwnerHash<Octets> {
 
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for OwnerHash<Octets> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        scanner.convert_token(
-            base32::SymbolConverter::new()
-        ).map(|octets| {
-            unsafe { Self::from_octets_unchecked(octets) }
-        })
+        scanner
+            .convert_token(base32::SymbolConverter::new())
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
 

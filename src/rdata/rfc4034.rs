@@ -797,7 +797,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
 //--- Scan and Display
 
 impl<Octets, Name, S> Scan<S> for Rrsig<Octets, Name>
-where S: Scanner<Octets = Octets, Dname = Name> {
+where
+    S: Scanner<Octets = Octets, Dname = Name>,
+{
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(
             Rtype::scan(scanner)?,
@@ -1033,7 +1035,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
 //--- Scan and Display
 
 impl<Octets, Name, S> Scan<S> for Nsec<Octets, Name>
-where S: Scanner<Octets = Octets, Dname = Name> {
+where
+    S: Scanner<Octets = Octets, Dname = Name>,
+{
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(
             scanner.scan_dname()?,
@@ -1507,14 +1511,13 @@ impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
 impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for RtypeBitmap<Octets> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         let first = Rtype::scan(scanner)?;
-        let mut builder = RtypeBitmapBuilder::with_builder(
-            scanner.octets_builder()?
-        );
+        let mut builder =
+            RtypeBitmapBuilder::with_builder(scanner.octets_builder()?);
         builder.add(first).map_err(|_| S::Error::short_buf())?;
         while scanner.continues() {
-            builder.add(
-                Rtype::scan(scanner)?
-            ).map_err(|_| S::Error::short_buf())?;
+            builder
+                .add(Rtype::scan(scanner)?)
+                .map_err(|_| S::Error::short_buf())?;
         }
         Ok(builder.finalize())
     }
@@ -1714,9 +1717,7 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
     }
 
     pub fn with_builder(builder: Builder) -> Self {
-        RtypeBitmapBuilder {
-            buf: builder
-        }
+        RtypeBitmapBuilder { buf: builder }
     }
 }
 

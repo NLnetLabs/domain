@@ -276,30 +276,28 @@ where
     Error: ScannerError,
 {
     fn process_symbol(
-        &mut self, symbol: Sym,
+        &mut self,
+        symbol: Sym,
     ) -> Result<Option<&[u8]>, Error> {
         match symbol.into() {
             EntrySymbol::Symbol(symbol) => {
-                let symbol = symbol.into_char().map_err(|_| {
-                    Error::custom("expected hex digits")
-                })?.to_digit(16).ok_or_else(|| {
-                    Error::custom("expected hex digits")
-                })?;
+                let symbol = symbol
+                    .into_char()
+                    .map_err(|_| Error::custom("expected hex digits"))?
+                    .to_digit(16)
+                    .ok_or_else(|| Error::custom("expected hex digits"))?;
 
                 if self.pending {
                     self.buf[0] |= symbol as u8;
                     self.pending = false;
                     Ok(Some(&self.buf))
-                }
-                else {
+                } else {
                     self.buf[0] = (symbol << 4) as u8;
                     self.pending = true;
                     Ok(None)
                 }
-             }
-            EntrySymbol::EndOfToken => {
-                Ok(None)
             }
+            EntrySymbol::EndOfToken => Ok(None),
         }
     }
 
@@ -309,8 +307,7 @@ where
     fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
         if self.pending {
             Err(Error::custom("uneven number of hex digits"))
-        }
-        else {
+        } else {
             Ok(None)
         }
     }

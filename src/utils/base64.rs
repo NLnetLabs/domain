@@ -336,25 +336,26 @@ impl SymbolConverter {
     }
 
     fn process_char<Error: ScannerError>(
-        &mut self, ch: char
+        &mut self,
+        ch: char,
     ) -> Result<Option<&[u8]>, Error> {
         if self.next == 0xF0 {
-            return Err(Error::custom("trailing Base 64 data"))
+            return Err(Error::custom("trailing Base 64 data"));
         }
 
         let val = if ch == PAD {
             // Only up to two padding characters possible.
             if self.next < 2 {
-                return Err(Error::custom("illegal Base 64 data"))
+                return Err(Error::custom("illegal Base 64 data"));
             }
             0x80 // Acts as a marker later on.
         } else {
             if ch > (127 as char) {
-                return Err(Error::custom("illegal Base 64 data"))
+                return Err(Error::custom("illegal Base 64 data"));
             }
             let val = DECODE_ALPHABET[ch as usize];
             if val == 0xFF {
-                return Err(Error::custom("illegal Base 64 data"))
+                return Err(Error::custom("illegal Base 64 data"));
             }
             val
         };
@@ -368,17 +369,15 @@ impl SymbolConverter {
             }
             if self.input[3] != 0x80 {
                 if self.input[2] == 0x80 {
-                    return Err(Error::custom("trailing Base 64 data"))
+                    return Err(Error::custom("trailing Base 64 data"));
                 }
                 self.output[2] = (self.input[2] << 6) | self.input[3];
                 self.next = 0
-            }
-            else {
+            } else {
                 self.next = 0xF0
             }
             Ok(Some(&self.output))
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -390,19 +389,16 @@ where
     Error: ScannerError,
 {
     fn process_symbol(
-        &mut self, symbol: Sym,
+        &mut self,
+        symbol: Sym,
     ) -> Result<Option<&[u8]>, Error> {
         match symbol.into() {
-            EntrySymbol::Symbol(symbol) => {
-                self.process_char(
-                    symbol.into_char().map_err(|_| {
-                        Error::custom("illegal Base 64 data")
-                    })?
-                )
-             }
-            EntrySymbol::EndOfToken => {
-                Ok(None)
-            }
+            EntrySymbol::Symbol(symbol) => self.process_char(
+                symbol
+                    .into_char()
+                    .map_err(|_| Error::custom("illegal Base 64 data"))?,
+            ),
+            EntrySymbol::EndOfToken => Ok(None),
         }
     }
 
@@ -410,8 +406,7 @@ where
         // next is either 0 or 0xF0 for a completed group.
         if self.next & 0x0F != 0 {
             Err(Error::custom("incomplete Base 64 data"))
-        }
-        else {
+        } else {
             Ok(None)
         }
     }

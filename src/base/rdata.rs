@@ -195,7 +195,9 @@ impl<Octets> UnknownRecordData<Octets> {
         rtype: Rtype,
         scanner: &mut S,
     ) -> Result<Self, S::Error>
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         // First token is literal "\#".
         let mut first = true;
         scanner.scan_symbols(|symbol| {
@@ -205,8 +207,7 @@ impl<Octets> UnknownRecordData<Octets> {
                     Symbol::SimpleEscape(b'#') => Ok(()),
                     _ => Err(S::Error::custom("'\\#' expected")),
                 }
-            }
-            else {
+            } else {
                 Err(S::Error::custom("'\\#' expected"))
             }
         })?;
@@ -218,7 +219,7 @@ impl<Octets> UnknownRecordData<Octets> {
         let data = scanner.convert_entry(base16::SymbolConverter::new())?;
 
         if data.as_ref().len() != usize::from(len) {
-            return Err(S::Error::custom("generic data has incorrect length"))
+            return Err(S::Error::custom("generic data has incorrect length"));
         }
 
         Ok(UnknownRecordData { rtype, data })

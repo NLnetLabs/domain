@@ -14,13 +14,13 @@ use super::octets::{
 use super::scan::{Scan, Scanner, ScannerError};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone};
-use time::{Date, Month, PrimitiveDateTime, Time};
 use core::cmp::Ordering;
 use core::convert::TryFrom;
 use core::str::FromStr;
 use core::{cmp, fmt, str};
 #[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
+use time::{Date, Month, PrimitiveDateTime, Time};
 
 //------------ Serial --------------------------------------------------------
 
@@ -91,18 +91,17 @@ impl Serial {
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
     ///
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
-    pub fn scan_rrsig<S: Scanner>(
-        scanner: &mut S,
-    ) -> Result<Self, S::Error> {
+    pub fn scan_rrsig<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
         let mut pos = 0;
         let mut buf = [0u8; 14];
         scanner.scan_symbols(|symbol| {
             if pos >= 14 {
                 return Err(S::Error::custom("illegal signature time"));
             }
-            buf[pos] = symbol.into_digit(10).map_err(|_| {
-                S::Error::custom("illegal signature time")
-            })? as u8;
+            buf[pos] = symbol
+                .into_digit(10)
+                .map_err(|_| S::Error::custom("illegal signature time"))?
+                as u8;
             pos += 1;
             Ok(())
         })?;
@@ -118,29 +117,25 @@ impl Serial {
             } else {
                 Ok(Serial(res as u32))
             }
-        }
-        else if pos == 14 {
+        } else if pos == 14 {
             let year = u32_from_buf(&buf[0..4]) as i32;
-            let month = Month::try_from(
-                u8_from_buf(&buf[4..6])
-            ).map_err(|_| S::Error::custom("illegal signature time"))?;
+            let month = Month::try_from(u8_from_buf(&buf[4..6]))
+                .map_err(|_| S::Error::custom("illegal signature time"))?;
             let day = u8_from_buf(&buf[6..8]);
             let hour = u8_from_buf(&buf[8..10]);
             let minute = u8_from_buf(&buf[10..12]);
             let second = u8_from_buf(&buf[12..14]);
             Ok(Serial(
                 PrimitiveDateTime::new(
-                    Date::from_calendar_date(
-                        year, month, day,
-                    ).map_err(|_| S::Error::custom(
-                        "illegal signature time"
-                    ))?,
-                    Time::from_hms(
-                        hour, minute, second,
-                    ).map_err(|_| S::Error::custom(
-                        "illegal signature time"
-                    ))?,
-                ).assume_utc().unix_timestamp() as u32
+                    Date::from_calendar_date(year, month, day).map_err(
+                        |_| S::Error::custom("illegal signature time"),
+                    )?,
+                    Time::from_hms(hour, minute, second).map_err(|_| {
+                        S::Error::custom("illegal signature time")
+                    })?,
+                )
+                .assume_utc()
+                .unix_timestamp() as u32,
             ))
         } else {
             Err(S::Error::custom("illegal signature time"))
@@ -156,41 +151,35 @@ impl Serial {
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
     pub fn rrsig_from_str(src: &str) -> Result<Self, IllegalSignatureTime> {
         if !src.is_ascii() {
-            return Err(IllegalSignatureTime)
+            return Err(IllegalSignatureTime);
         }
         if src.len() == 14 {
-            let year = u32::from_str(
-                &src[0..4]
-            ).map_err(|_| IllegalSignatureTime)? as i32;
+            let year = u32::from_str(&src[0..4])
+                .map_err(|_| IllegalSignatureTime)?
+                as i32;
             let month = Month::try_from(
-                u8::from_str(
-                    &src[4..6]
-                ).map_err(|_| IllegalSignatureTime)?
-            ).map_err(|_| IllegalSignatureTime)?;
-            let day = u8::from_str(
-                &src[6..8]
-            ).map_err(|_| IllegalSignatureTime)?;
-            let hour = u8::from_str(
-                &src[8..10]
-            ).map_err(|_| IllegalSignatureTime)?;
-            let minute = u8::from_str(
-                &src[10..12]
-            ).map_err(|_| IllegalSignatureTime)?;
-            let second = u8::from_str(
-                &src[12..14]
-            ).map_err(|_| IllegalSignatureTime)?;
+                u8::from_str(&src[4..6]).map_err(|_| IllegalSignatureTime)?,
+            )
+            .map_err(|_| IllegalSignatureTime)?;
+            let day =
+                u8::from_str(&src[6..8]).map_err(|_| IllegalSignatureTime)?;
+            let hour = u8::from_str(&src[8..10])
+                .map_err(|_| IllegalSignatureTime)?;
+            let minute = u8::from_str(&src[10..12])
+                .map_err(|_| IllegalSignatureTime)?;
+            let second = u8::from_str(&src[12..14])
+                .map_err(|_| IllegalSignatureTime)?;
             Ok(Serial(
                 PrimitiveDateTime::new(
-                    Date::from_calendar_date(
-                        year, month, day,
-                    ).map_err(|_| IllegalSignatureTime)?,
-                    Time::from_hms(
-                        hour, minute, second,
-                    ).map_err(|_| IllegalSignatureTime)?,
-                ).assume_utc().unix_timestamp() as u32
+                    Date::from_calendar_date(year, month, day)
+                        .map_err(|_| IllegalSignatureTime)?,
+                    Time::from_hms(hour, minute, second)
+                        .map_err(|_| IllegalSignatureTime)?,
+                )
+                .assume_utc()
+                .unix_timestamp() as u32,
             ))
-        }
-        else {
+        } else {
             Serial::from_str(src).map_err(|_| IllegalSignatureTime)
         }
     }
@@ -323,7 +312,7 @@ impl fmt::Display for IllegalSignatureTime {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for IllegalSignatureTime { }
+impl std::error::Error for IllegalSignatureTime {}
 
 //============ Testing =======================================================
 

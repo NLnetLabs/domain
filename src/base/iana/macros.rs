@@ -491,18 +491,21 @@ macro_rules! int_enum_str_with_prefix {
 macro_rules! scan_impl {
     ($ianatype:ident) => {
         impl<S> $crate::base::scan::Scan<S> for $ianatype
-        where S: $crate::base::scan::Scanner {
+        where
+            S: $crate::base::scan::Scanner,
+        {
             fn scan(scanner: &mut S) -> Result<Self, S::Error> {
                 scanner.scan_ascii_str(|s| {
                     core::str::FromStr::from_str(s).map_err(|_| {
-                        $crate::base::scan::ScannerError::custom(
-                            concat!("expected ", stringify!($ianatype))
-                        )
+                        $crate::base::scan::ScannerError::custom(concat!(
+                            "expected ",
+                            stringify!($ianatype)
+                        ))
                     })
                 })
             }
         }
-    }
+    };
 }
 
 macro_rules! from_str_error {
@@ -524,4 +527,3 @@ macro_rules! from_str_error {
         }
     };
 }
-

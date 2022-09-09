@@ -241,7 +241,7 @@ impl<Builder: OctetsBuilder + AsMut<[u8]>> DnameBuilder<Builder> {
     /// If there currently is a label under construction, it will be ended
     /// before appending `chars`.
     ///
-    /// The character sequence must result in a domain name in representation 
+    /// The character sequence must result in a domain name in representation
     /// format. That is, its labels should be separated by dots,
     /// actual dots, white space and backslashes should be escaped by a
     /// preceeding backslash, and any byte value that is not a printable

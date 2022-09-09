@@ -14,11 +14,12 @@ pub struct String<Octets>(Octets);
 impl<Octets> String<Octets> {
     /// Converts a sequence of octets into a string.
     pub fn from_utf8(octets: Octets) -> Result<Self, FromUtf8Error<Octets>>
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         if let Err(error) = str::from_utf8(octets.as_ref()) {
             Err(FromUtf8Error { octets, error })
-        }
-        else {
+        } else {
             Ok(String(octets))
         }
     }
@@ -41,25 +42,33 @@ impl<Octets> String<Octets> {
 
     /// Returns the string as a string slice.
     pub fn as_str(&self) -> &str
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         unsafe { str::from_utf8_unchecked(self.0.as_ref()) }
     }
 
     /// Returns the string’s octets as a slice.
     pub fn as_slice(&self) -> &[u8]
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         self.0.as_ref()
     }
 
     /// Returns the length of the string in octets.
     pub fn len(&self) -> usize
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         self.0.as_ref().len()
     }
 
     /// Returns whether the string is empty.
     pub fn is_empty(&self) -> bool
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         self.0.as_ref().is_empty()
     }
 }
@@ -74,25 +83,25 @@ impl<Octets: AsRef<[u8]>> ops::Deref for String<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> AsRef<str> for String<Octets>{
+impl<Octets: AsRef<[u8]>> AsRef<str> for String<Octets> {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl<Octets: AsRef<[u8]>> AsRef<[u8]> for String<Octets>{
+impl<Octets: AsRef<[u8]>> AsRef<[u8]> for String<Octets> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-impl<Octets: AsRef<[u8]>> borrow::Borrow<str> for String<Octets>{
+impl<Octets: AsRef<[u8]>> borrow::Borrow<str> for String<Octets> {
     fn borrow(&self) -> &str {
         self.as_str()
     }
 }
 
-impl<Octets: AsRef<[u8]>> borrow::Borrow<[u8]> for String<Octets>{
+impl<Octets: AsRef<[u8]>> borrow::Borrow<[u8]> for String<Octets> {
     fn borrow(&self) -> &[u8] {
         self.as_slice()
     }
@@ -124,7 +133,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for String<Octets> { }
+impl<Octets: AsRef<[u8]>> Eq for String<Octets> {}
 
 //--- Hash
 
@@ -166,7 +175,9 @@ pub struct FromUtf8Error<Octets> {
 impl<Octets> FromUtf8Error<Octets> {
     /// Returns an octets slice of the data that failed to convert.
     pub fn as_slice(&self) -> &[u8]
-    where Octets: AsRef<[u8]> {
+    where
+        Octets: AsRef<[u8]>,
+    {
         self.octets.as_ref()
     }
 
@@ -197,4 +208,3 @@ impl<Octets> fmt::Display for FromUtf8Error<Octets> {
 
 #[cfg(feature = "std")]
 impl<Octets> std::error::Error for FromUtf8Error<Octets> {}
-
