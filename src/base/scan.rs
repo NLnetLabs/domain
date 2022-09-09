@@ -23,7 +23,7 @@ use core::convert::{TryFrom, TryInto};
 #[cfg(feature = "std")] use std::error;
 use crate::base::charstr::CharStr;
 use crate::base::name::ToDname;
-use crate::base::octets::{OctetsBuilder, ShortBuf};
+use crate::base::octets::OctetsBuilder;
 use crate::base::str::String;
 
 
@@ -255,7 +255,7 @@ impl ScannerError for std::io::Error {
     fn short_buf() -> Self {
         std::io::Error::new(
             std::io::ErrorKind::Other,
-            ShortBuf
+            crate::base::octets::ShortBuf
         )
     }
 
@@ -862,6 +862,7 @@ impl From<BadSymbol> for std::io::Error {
 //============ Testing =======================================================
 
 #[cfg(test)]
+#[cfg(feature = "std")]
 mod test {
     use super::*;
 

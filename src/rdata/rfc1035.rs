@@ -80,7 +80,6 @@ impl From<A> for Ipv4Addr {
     }
 }
 
-#[cfg(feature = "std")]
 impl FromStr for A {
     type Err = <Ipv4Addr as FromStr>::Err;
 

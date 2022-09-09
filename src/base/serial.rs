@@ -113,7 +113,7 @@ impl Serial {
             for ch in &buf[..pos] {
                 res = res * 10 + (u64::from(*ch));
             }
-            if res > u64::from(::std::u32::MAX) {
+            if res > u64::from(u32::MAX) {
                 Err(S::Error::custom("illegal signature time"))
             } else {
                 Ok(Serial(res as u32))
