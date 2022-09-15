@@ -60,18 +60,25 @@
 //! * `heapless`: enables the use of the `Vec` type from the
 //!   [heapless](https://github.com/japaric/heapless) crate as octet
 //!   sequences.
+//! * `interop`: Activate interoperability tests that rely on other software
+//!   to be installed in the system (currently NSD and dig) and will fail if
+//!   it isn’t. This feature is not meaningful for users of the crate.
 //! * `master`: Zone file parsing and construction. This will enable the
 #![cfg_attr(feature = "master", doc = "  [master]")]
 #![cfg_attr(not(feature = "master"), doc = "  master")]
 //!   module and currently enables the `bytes`, `chrono`, and `std`
 //!   features. Note that feature and module are experimental and will soon
 //!   be replaced.
+//! * `random`: Enables a number of methods that rely on a random number
+//!   generator being available in the system.
+//! * `resolv`: Enables the asynchronous stub resolver via the
 #![cfg_attr(feature = "resolv", doc = "  [resolv]")]
 #![cfg_attr(not(feature = "resolv"), doc = "  resolv")]
-//! * `resolv`: Enables the asynchronous stub resolver via the
 //!   module.
+//! * `resolv-sync`: Enables the synchronous version of the stub resolver.
 //! * `ring`: Enables crypto functionality via the
 //!   [ring](https://github.com/briansmith/ring) crate.
+//! * `serde`: Enables serde serialization for a number of basic types.
 //! * `sign`: basic DNSSEC signing support. This will enable the
 #![cfg_attr(feature = "sign", doc = "  [sign]")]
 #![cfg_attr(not(feature = "sign"), doc = "  sign")]

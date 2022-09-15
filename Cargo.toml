@@ -35,11 +35,11 @@ libc = { version = "0.2.71", default-features = false, optional = true }
 default     = ["std", "random"]
 interop     = ["bytes", "ring"]
 master      = ["std", "bytes", "chrono"]
+random      = ["rand"]
 resolv      = ["bytes", "futures", "smallvec", "std", "tokio", "libc", "random"]
 resolv-sync = ["resolv", "tokio/rt"]
 sign        = ["std"]
 std         = []
-random      = ["rand"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 
