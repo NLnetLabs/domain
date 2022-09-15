@@ -1,6 +1,8 @@
 # Change Log
 
-## Unreleased future version
+## 0.7.0
+
+Released 2022-09-15.
 
 Breaking Changes
 
