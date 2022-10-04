@@ -2,10 +2,10 @@
 // https://datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https-08#section-8
 
 use crate::base::iana::{Rtype, SvcbParamKey};
-use crate::base::name::{ParsedDname, ToDname};
+use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, Octets512, OctetsBuilder, OctetsFrom, OctetsRef, Parse,
-    ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, Octets512, OctetsBuilder, OctetsFrom,
+    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 use core::{fmt, hash};
@@ -62,6 +62,31 @@ impl<O, N> $name<O, N> {
     /// automatically in service mode if it equals to root.
     pub fn target(&self) -> &N {
         &self.target
+    }
+}
+
+impl<Ref> $name<Ref::Range, ParsedDname<Ref>>
+where
+    Ref: OctetsRef,
+{
+    pub fn flatten_into<Octets>(
+        self,
+    ) -> Result<$name<Octets, Dname<Octets>>, PushError>
+    where
+        Octets: OctetsFrom<Ref::Range> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let Self {
+            priority,
+            target,
+            params,
+            ..
+        } = self;
+        Ok($name::new(
+            priority,
+            target.flatten_into()?,
+            params.octets_into()?,
+        ))
     }
 }
 
