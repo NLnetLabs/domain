@@ -18,7 +18,7 @@ path = "src/lib.rs"
 [dependencies]
 rand           = { version = "0.8", optional = true }
 bytes          = { version = "1.0", optional = true }
-chrono         = { version = "0.4.6", optional = true }
+chrono         = { version = "0.4.6", optional = true, default-features = false }
 futures        = { version = "0.3", optional = true }
 heapless       = { version = "0.7", optional = true }
 #openssl       = { version = "0.10", optional = true }
