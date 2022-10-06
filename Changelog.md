@@ -4,6 +4,10 @@
 
 Breaking Changes
 
+* Various functions and methods of the `tsig` module now expect the
+  current time as an argument to allow use of the module in a no-std
+  environment. ([#152])
+
 New
 
 * Added a method `flatten_into` to record data types that  converts a
@@ -18,6 +22,7 @@ Other Changes
 
 [#149]: https://github.com/NLnetLabs/domain/pull/149
 [#151]: https://github.com/NLnetLabs/domain/pull/151
+[#152]: https://github.com/NLnetLabs/domain/pull/152
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
 
