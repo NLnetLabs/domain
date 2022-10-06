@@ -10,11 +10,22 @@ Breaking Changes
 
 New
 
+Bug Fixes
+
+Other Changes
+
+[#152]: https://github.com/NLnetLabs/domain/pull/152
+
+
+## 0.7.1
+
+Released 2022-10-06.
+
+New
+
 * Added a method `flatten_into` to record data types that  converts a
   value with a parsed (and thus possibly compressed) domain name into a one
   with a normal domain name. ([#151] by [@xofyarg])
-
-Bug Fixes
 
 Other Changes
 
@@ -22,7 +33,6 @@ Other Changes
 
 [#149]: https://github.com/NLnetLabs/domain/pull/149
 [#151]: https://github.com/NLnetLabs/domain/pull/151
-[#152]: https://github.com/NLnetLabs/domain/pull/152
 [@vavrusa]: https://github.com/vavrusa
 [@xofyarg]: https://github.com/xofyarg
 
