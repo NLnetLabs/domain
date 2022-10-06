@@ -5,13 +5,14 @@
 
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
-    Compose, FormError, OctetsBuilder, OctetsRef, Parse, ParseError, Parser,
-    ShortBuf,
+    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom,
+    OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError};
 use super::relative::RelativeDname;
 use super::traits::{ToDname, ToLabelIter};
+use super::PushError;
 use core::{cmp, fmt, hash};
 
 //------------ ParsedDname ---------------------------------------------------
@@ -182,6 +183,28 @@ impl<Ref: AsRef<[u8]>> ParsedDname<Ref> {
         self.len -= len;
         self.parser.advance(len).unwrap();
         true
+    }
+}
+
+impl<Ref: OctetsRef> ParsedDname<Ref> {
+    /// Flatten `ParsedDname` into a `Dname` in case it is compressed,
+    /// otherwise cheap copy the underlying octets.
+    pub fn flatten_into<Octets>(mut self) -> Result<Dname<Octets>, PushError>
+    where
+        Octets: OctetsFrom<Ref::Range> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        if self.is_compressed() {
+            self.to_dname()
+        } else {
+            let range = self
+                .parser
+                .parse_octets(self.len)
+                .map_err(|_| PushError::ShortBuf)?;
+            let octets = OctetsFrom::octets_from(range)
+                .map_err(|_| PushError::ShortBuf)?;
+            Ok(unsafe { Dname::from_octets_unchecked(octets) })
+        }
     }
 }
 

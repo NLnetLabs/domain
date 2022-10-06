@@ -6,10 +6,10 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
-use crate::base::name::{ParsedDname, ToDname};
+use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
-    ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom,
+    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::utils::base64;
@@ -194,6 +194,39 @@ impl<O, N> Tsig<O, N> {
     #[cfg(feature = "std")]
     pub fn is_valid_now(&self) -> bool {
         Time48::now().eq_fudged(self.time_signed, self.fudge.into())
+    }
+}
+
+impl<Ref> Tsig<Ref::Range, ParsedDname<Ref>>
+where
+    Ref: OctetsRef,
+{
+    pub fn flatten_into<Octets>(
+        self,
+    ) -> Result<Tsig<Octets, Dname<Octets>>, PushError>
+    where
+        Octets: OctetsFrom<Ref::Range> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let Self {
+            algorithm,
+            time_signed,
+            fudge,
+            mac,
+            original_id,
+            error,
+            other,
+        } = self;
+
+        Ok(Tsig::new(
+            algorithm.flatten_into()?,
+            time_signed,
+            fudge,
+            mac.octets_into()?,
+            original_id,
+            error,
+            other.octets_into()?,
+        ))
     }
 }
 
@@ -533,6 +566,10 @@ impl Time48 {
     pub fn eq_fudged(self, other: Self, fudge: u64) -> bool {
         self.0.saturating_sub(fudge) <= other.0
             && self.0.saturating_add(fudge) >= other.0
+    }
+
+    pub fn flatten_into(self) -> Result<Self, PushError> {
+        Ok(self)
     }
 }
 

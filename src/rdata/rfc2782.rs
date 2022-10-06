@@ -6,10 +6,10 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::{ParsedDname, ToDname};
+use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
-    ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef,
+    Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 #[cfg(feature = "master")]
@@ -58,6 +58,25 @@ impl<N> Srv<N> {
 
     pub fn target(&self) -> &N {
         &self.target
+    }
+}
+
+impl<Ref> Srv<ParsedDname<Ref>>
+where
+    Ref: OctetsRef,
+{
+    pub fn flatten_into<Octets>(self) -> Result<Srv<Dname<Octets>>, PushError>
+    where
+        Octets: OctetsFrom<Ref::Range> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let Self {
+            priority,
+            weight,
+            port,
+            target,
+        } = self;
+        Ok(Srv::new(priority, weight, port, target.to_dname()?))
     }
 }
 
