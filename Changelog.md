@@ -6,9 +6,20 @@ Breaking Changes
 
 New
 
+* Added a method `flatten_into` to record data types that  converts a
+  value with a parsed (and thus possibly compressed) domain name into a one
+  with a normal domain name. ([#151] by [@xofyarg])
+
 Bug Fixes
 
 Other Changes
+
+* Disable default features for chrono. ([#149] by [@vavrusa])
+
+[#149]: https://github.com/NLnetLabs/domain/pull/149
+[#151]: https://github.com/NLnetLabs/domain/pull/151
+[@vavrusa]: https://github.com/vavrusa
+[@xofyarg]: https://github.com/xofyarg
 
 
 ## 0.7.0
