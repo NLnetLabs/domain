@@ -1,16 +1,14 @@
 # Change Log
 
-## Unreleased future version
+## 0.7.1
 
-Breaking Changes
+Released 2022-10-06.
 
 New
 
 * Added a method `flatten_into` to record data types that  converts a
   value with a parsed (and thus possibly compressed) domain name into a one
   with a normal domain name. ([#151] by [@xofyarg])
-
-Bug Fixes
 
 Other Changes
 
