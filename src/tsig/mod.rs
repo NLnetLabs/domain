@@ -67,8 +67,8 @@ use crate::base::octets::{
 use crate::base::record::Record;
 use crate::rdata::rfc2845::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
-use ring::{constant_time, hkdf::KeyType, hmac, rand};
 use core::{cmp, fmt, mem, ops, str};
+use ring::{constant_time, hkdf::KeyType, hmac, rand};
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
@@ -469,8 +469,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     where
         Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
-        let variables =
-            Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
             key,
             message.as_slice(),
@@ -616,8 +615,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     where
         Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
-        let variables =
-            Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let (mac, key) =
             self.context
                 .final_answer(message.as_slice(), None, &variables);
@@ -702,8 +700,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     where
         Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
-        let variables =
-            Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
             key,
             message.as_slice(),
@@ -936,8 +933,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     where
         Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
-        let variables =
-            Variables::new(now, fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let mac = if self.first {
             self.first = false;
             self.context

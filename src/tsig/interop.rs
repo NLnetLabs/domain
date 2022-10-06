@@ -7,8 +7,8 @@ use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
 use crate::base::name::Dname;
-use crate::rdata::{Soa, A};
 use crate::rdata::rfc2845::Time48;
+use crate::rdata::{Soa, A};
 use crate::test::nsd;
 use crate::tsig;
 use crate::utils::base64;
@@ -86,8 +86,11 @@ fn tsig_client_nsd() {
             .unwrap()
             .additional();
         let tran = tsig::ClientTransaction::request(
-            &key, &mut request, Time48::now(),
-        ).unwrap();
+            &key,
+            &mut request,
+            Time48::now(),
+        )
+        .unwrap();
         let sock = UdpSocket::bind("127.0.0.1:54320").unwrap();
         sock.send_to(request.as_target().as_dgram_slice(), "127.0.0.1:54321")
             .unwrap();
@@ -143,24 +146,26 @@ fn tsig_server_drill() {
             let answer =
                 answer.start_answer(&request, Rcode::NoError).unwrap();
             let tran = match tsig::ServerTransaction::request(
-                &&key, &mut request, Time48::now()
+                &&key,
+                &mut request,
+                Time48::now(),
             ) {
-                    Ok(Some(tran)) => tran,
-                    Ok(None) => {
-                        sock.send_to(answer.as_slice(), addr).unwrap();
-                        continue;
-                    }
-                    Err(error) => {
-                        let answer = error
-                            .build_message(
-                                &request,
-                                TestBuilder::new_stream_vec(),
-                            )
-                            .unwrap();
-                        sock.send_to(answer.as_slice(), addr).unwrap();
-                        continue;
-                    }
-                };
+                Ok(Some(tran)) => tran,
+                Ok(None) => {
+                    sock.send_to(answer.as_slice(), addr).unwrap();
+                    continue;
+                }
+                Err(error) => {
+                    let answer = error
+                        .build_message(
+                            &request,
+                            TestBuilder::new_stream_vec(),
+                        )
+                        .unwrap();
+                    sock.send_to(answer.as_slice(), addr).unwrap();
+                    continue;
+                }
+            };
             let mut answer = answer.additional();
             tran.answer(&mut answer, Time48::now()).unwrap();
             sock.send_to(answer.as_slice(), addr).unwrap();
@@ -229,9 +234,9 @@ fn tsig_client_sequence_nsd() {
             .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
-        let mut tran = tsig::ClientSequence::request(
-            &key, &mut request, Time48::now(),
-        ).unwrap();
+        let mut tran =
+            tsig::ClientSequence::request(&key, &mut request, Time48::now())
+                .unwrap();
         sock.write_all(request.as_target().as_stream_slice())
             .unwrap();
         loop {
@@ -287,8 +292,12 @@ fn tsig_server_sequence_drill() {
             sock.read_exact(&mut buf).unwrap();
             let mut request = Message::from_octets(buf).unwrap();
             let mut tran = tsig::ServerSequence::request(
-                &&key, &mut request, Time48::now()
-            ).unwrap().unwrap();
+                &&key,
+                &mut request,
+                Time48::now(),
+            )
+            .unwrap()
+            .unwrap();
             let mut answer = make_first_axfr(&request);
             tran.answer(&mut answer, Time48::now()).unwrap();
             send_tcp(&mut sock, answer.as_target().as_stream_slice())
