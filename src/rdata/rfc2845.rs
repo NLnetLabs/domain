@@ -184,6 +184,17 @@ impl<O, N> Tsig<O, N> {
         }
     }
 
+    /// Returns whether the record is valid at the given time.
+    ///
+    /// The method checks whether the given time is within [`fudge`]
+    /// seconds of the [`time_signed`].
+    ///
+    /// [`fudge`]: #method.fudge
+    /// [`time_signed`]: #method.time_signed
+    pub fn is_valid_at(&self, now: Time48) -> bool {
+        now.eq_fudged(self.time_signed, self.fudge.into())
+    }
+
     /// Returns whether the record is valid right now.
     ///
     /// The method checks whether the current system time is within [`fudge`]
@@ -193,7 +204,7 @@ impl<O, N> Tsig<O, N> {
     /// [`time_signed`]: #method.time_signed
     #[cfg(feature = "std")]
     pub fn is_valid_now(&self) -> bool {
-        Time48::now().eq_fudged(self.time_signed, self.fudge.into())
+        self.is_valid_at(Time48::now())
     }
 }
 
