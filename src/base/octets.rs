@@ -1322,8 +1322,6 @@ mod serde {
             self,
             value: &[u8],
         ) -> Result<Self::Value, E> {
-            use core::iter::FromIterator;
-
             if value.len() > N {
                 return Err(E::invalid_length(value.len(), &self));
             }
