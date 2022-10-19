@@ -7,6 +7,7 @@ use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
 use crate::base::name::Dname;
+use crate::rdata::rfc2845::Time48;
 use crate::rdata::{Soa, A};
 use crate::test::nsd;
 use crate::tsig;
@@ -84,8 +85,12 @@ fn tsig_client_nsd() {
             .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
-        let tran =
-            tsig::ClientTransaction::request(&key, &mut request).unwrap();
+        let tran = tsig::ClientTransaction::request(
+            &key,
+            &mut request,
+            Time48::now(),
+        )
+        .unwrap();
         let sock = UdpSocket::bind("127.0.0.1:54320").unwrap();
         sock.send_to(request.as_target().as_dgram_slice(), "127.0.0.1:54321")
             .unwrap();
@@ -101,7 +106,7 @@ fn tsig_client_nsd() {
                 break answer;
             }
         };
-        if let Err(err) = tran.answer(&mut answer) {
+        if let Err(err) = tran.answer(&mut answer, Time48::now()) {
             panic!("{:?}", err);
         }
     })
@@ -140,26 +145,29 @@ fn tsig_server_drill() {
             let answer = TestBuilder::new_stream_vec();
             let answer =
                 answer.start_answer(&request, Rcode::NoError).unwrap();
-            let tran =
-                match tsig::ServerTransaction::request(&&key, &mut request) {
-                    Ok(Some(tran)) => tran,
-                    Ok(None) => {
-                        sock.send_to(answer.as_slice(), addr).unwrap();
-                        continue;
-                    }
-                    Err(error) => {
-                        let answer = error
-                            .build_message(
-                                &request,
-                                TestBuilder::new_stream_vec(),
-                            )
-                            .unwrap();
-                        sock.send_to(answer.as_slice(), addr).unwrap();
-                        continue;
-                    }
-                };
+            let tran = match tsig::ServerTransaction::request(
+                &&key,
+                &mut request,
+                Time48::now(),
+            ) {
+                Ok(Some(tran)) => tran,
+                Ok(None) => {
+                    sock.send_to(answer.as_slice(), addr).unwrap();
+                    continue;
+                }
+                Err(error) => {
+                    let answer = error
+                        .build_message(
+                            &request,
+                            TestBuilder::new_stream_vec(),
+                        )
+                        .unwrap();
+                    sock.send_to(answer.as_slice(), addr).unwrap();
+                    continue;
+                }
+            };
             let mut answer = answer.additional();
-            tran.answer(&mut answer).unwrap();
+            tran.answer(&mut answer, Time48::now()).unwrap();
             sock.send_to(answer.as_slice(), addr).unwrap();
         }
     });
@@ -227,7 +235,8 @@ fn tsig_client_sequence_nsd() {
             .unwrap()
             .additional();
         let mut tran =
-            tsig::ClientSequence::request(&key, &mut request).unwrap();
+            tsig::ClientSequence::request(&key, &mut request, Time48::now())
+                .unwrap();
         sock.write_all(request.as_target().as_stream_slice())
             .unwrap();
         loop {
@@ -238,7 +247,7 @@ fn tsig_client_sequence_nsd() {
             let mut buf = vec![0; len];
             sock.read_exact(&mut buf).unwrap();
             let mut answer = Message::from_octets(buf).unwrap();
-            tran.answer(&mut answer).unwrap();
+            tran.answer(&mut answer, Time48::now()).unwrap();
             // Last message has SOA as last record in answer section.
             // We don’t care about details.
             if answer.answer().unwrap().last().unwrap().unwrap().rtype()
@@ -282,23 +291,27 @@ fn tsig_server_sequence_drill() {
             let mut buf = vec![0; len];
             sock.read_exact(&mut buf).unwrap();
             let mut request = Message::from_octets(buf).unwrap();
-            let mut tran = tsig::ServerSequence::request(&&key, &mut request)
-                .unwrap()
-                .unwrap();
+            let mut tran = tsig::ServerSequence::request(
+                &&key,
+                &mut request,
+                Time48::now(),
+            )
+            .unwrap()
+            .unwrap();
             let mut answer = make_first_axfr(&request);
-            tran.answer(&mut answer).unwrap();
+            tran.answer(&mut answer, Time48::now()).unwrap();
             send_tcp(&mut sock, answer.as_target().as_stream_slice())
                 .unwrap();
             for two in 0..10u8 {
                 for one in 0..10u8 {
                     let mut answer = make_middle_axfr(&request, one, two);
-                    tran.answer(&mut answer).unwrap();
+                    tran.answer(&mut answer, Time48::now()).unwrap();
                     send_tcp(&mut sock, answer.as_target().as_stream_slice())
                         .unwrap();
                 }
             }
             let mut answer = make_last_axfr(&request);
-            tran.answer(&mut answer).unwrap();
+            tran.answer(&mut answer, Time48::now()).unwrap();
             send_tcp(&mut sock, answer.as_target().as_stream_slice())
                 .unwrap();
         }

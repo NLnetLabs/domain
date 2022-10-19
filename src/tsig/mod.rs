@@ -67,9 +67,10 @@ use crate::base::octets::{
 use crate::base::record::Record;
 use crate::rdata::rfc2845::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
+use core::{cmp, fmt, mem, ops, str};
 use ring::{constant_time, hkdf::KeyType, hmac, rand};
+#[cfg(feature = "std")]
 use std::collections::HashMap;
-use std::{cmp, error, fmt, hash, mem, str};
 
 //------------ Key -----------------------------------------------------------
 
@@ -374,10 +375,11 @@ impl<K: AsRef<Key> + Clone> KeyStore for K {
     }
 }
 
+#[cfg(feature = "std")]
 impl<K, S> KeyStore for HashMap<(Dname<OctetsVec>, Algorithm), K, S>
 where
     K: AsRef<Key> + Clone,
-    S: hash::BuildHasher,
+    S: core::hash::BuildHasher,
 {
     type Key = K;
 
@@ -434,8 +436,9 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     pub fn request<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
+        now: Time48,
     ) -> Result<Self, ShortBuf> {
-        Self::request_with_fudge(key, message, 300)
+        Self::request_with_fudge(key, message, now, 300)
     }
 
     /// Creates a transaction for a request with provided fudge.
@@ -460,13 +463,13 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     pub fn request_with_fudge<Target>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
+        now: Time48,
         fudge: u16,
     ) -> Result<Self, ShortBuf>
     where
         Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
-        let variables =
-            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
             key,
             message.as_slice(),
@@ -492,6 +495,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     pub fn answer<Octets>(
         &self,
         message: &mut Message<Octets>,
+        now: Time48,
     ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
@@ -515,7 +519,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         self.context
             .key()
             .compare_signatures(&signature, tsig.data().mac().as_ref())?;
-        self.context.check_answer_time(message, &tsig)?;
+        self.context.check_answer_time(message, &tsig, now)?;
         remove_tsig(tsig.into_original_id(), message);
         Ok(())
     }
@@ -562,13 +566,14 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     pub fn request<Store, Octets>(
         store: &Store,
         message: &mut Message<Octets>,
+        now: Time48,
     ) -> Result<Option<Self>, ServerError<K>>
     where
         Store: KeyStore<Key = K>,
         Octets: AsRef<[u8]> + AsMut<[u8]>,
         for<'o> &'o Octets: OctetsRef,
     {
-        SigningContext::server_request(store, message).map(|context| {
+        SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerTransaction { context })
         })
     }
@@ -588,8 +593,9 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     pub fn answer<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         self,
         message: &mut AdditionalBuilder<Target>,
+        now: Time48,
     ) -> Result<(), ShortBuf> {
-        self.answer_with_fudge(message, 300)
+        self.answer_with_fudge(message, now, 300)
     }
 
     /// Produces a signed answer with a given fudge.
@@ -603,13 +609,13 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     pub fn answer_with_fudge<Target>(
         self,
         message: &mut AdditionalBuilder<Target>,
+        now: Time48,
         fudge: u16,
     ) -> Result<(), ShortBuf>
     where
         Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
-        let variables =
-            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let (mac, key) =
             self.context
                 .final_answer(message.as_slice(), None, &variables);
@@ -671,8 +677,9 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     pub fn request<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
+        now: Time48,
     ) -> Result<Self, ShortBuf> {
-        Self::request_with_fudge(key, message, 300)
+        Self::request_with_fudge(key, message, now, 300)
     }
 
     /// Creates a sequence for a request with a specific fudge.
@@ -687,13 +694,13 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     pub fn request_with_fudge<Target>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
+        now: Time48,
         fudge: u16,
     ) -> Result<Self, ShortBuf>
     where
         Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
-        let variables =
-            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
             key,
             message.as_slice(),
@@ -721,15 +728,16 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     pub fn answer<Octets>(
         &mut self,
         message: &mut Message<Octets>,
+        now: Time48,
     ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
         for<'a> &'a Octets: OctetsRef,
     {
         if self.first {
-            self.answer_first(message)
+            self.answer_first(message, now)
         } else {
-            self.answer_subsequent(message)
+            self.answer_subsequent(message, now)
         }
     }
 
@@ -752,6 +760,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     fn answer_first<Octets>(
         &mut self,
         message: &mut Message<Octets>,
+        now: Time48,
     ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
@@ -776,7 +785,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
             .key()
             .compare_signatures(&signature, tsig.data().mac().as_ref())?;
         self.context.apply_signature(tsig.data().mac().as_ref());
-        self.context.check_answer_time(message, &tsig)?;
+        self.context.check_answer_time(message, &tsig, now)?;
         self.first = false;
         remove_tsig(tsig.into_original_id(), message);
         Ok(())
@@ -786,6 +795,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     fn answer_subsequent<Octets>(
         &mut self,
         message: &mut Message<Octets>,
+        now: Time48,
     ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]> + AsMut<[u8]>,
@@ -820,7 +830,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
             .key()
             .compare_signatures(&signature, tsig.data().mac().as_ref())?;
         self.context.apply_signature(tsig.data().mac().as_ref());
-        self.context.check_answer_time(message, &tsig)?;
+        self.context.check_answer_time(message, &tsig, now)?;
         self.unsigned = 0;
         remove_tsig(tsig.into_original_id(), message);
         Ok(())
@@ -879,13 +889,14 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     pub fn request<Store, Octets>(
         store: &Store,
         message: &mut Message<Octets>,
+        now: Time48,
     ) -> Result<Option<Self>, ServerError<K>>
     where
         Store: KeyStore<Key = K>,
         Octets: AsRef<[u8]> + AsMut<[u8]>,
         for<'o> &'o Octets: OctetsRef,
     {
-        SigningContext::server_request(store, message).map(|context| {
+        SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerSequence {
                 context,
                 first: false,
@@ -903,8 +914,9 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     pub fn answer<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
         &mut self,
         message: &mut AdditionalBuilder<Target>,
+        now: Time48,
     ) -> Result<(), ShortBuf> {
-        self.answer_with_fudge(message, 300)
+        self.answer_with_fudge(message, now, 300)
     }
 
     /// Produces a signed answer with a given fudge.
@@ -915,13 +927,13 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     pub fn answer_with_fudge<Target>(
         &mut self,
         message: &mut AdditionalBuilder<Target>,
+        now: Time48,
         fudge: u16,
     ) -> Result<(), ShortBuf>
     where
         Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
-        let variables =
-            Variables::new(Time48::now(), fudge, TsigRcode::NoError, None);
+        let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let mac = if self.first {
             self.first = false;
             self.context
@@ -985,6 +997,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     fn server_request<Store, Octets>(
         store: &Store,
         message: &mut Message<Octets>,
+        now: Time48,
     ) -> Result<Option<Self>, ServerError<Store::Key>>
     where
         Store: KeyStore<Key = K>,
@@ -1044,14 +1057,14 @@ impl<K: AsRef<Key>> SigningContext<K> {
         //
         // Note that we are not doing the caching of the most recent
         // time_signed because, well, that’ll require mutexes and stuff.
-        if !tsig.data().is_valid_now() {
+        if !tsig.data().is_valid_at(now) {
             return Err(ServerError::signed(
                 context,
                 Variables::new(
                     variables.time_signed,
                     variables.fudge,
                     TsigRcode::BadTime,
-                    Some(Time48::now()),
+                    Some(now),
                 ),
             ));
         }
@@ -1114,6 +1127,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         &self,
         message: &'a Message<Octets>,
         tsig: &MessageTsig<'a, Octets>,
+        now: Time48,
     ) -> Result<(), ValidationError>
     where
         Octets: AsRef<[u8]>,
@@ -1133,7 +1147,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         }
 
         // Check the time.
-        if !tsig.data().is_valid_now() {
+        if !tsig.data().is_valid_at(now) {
             return Err(ValidationError::BadTime);
         }
 
@@ -1342,7 +1356,7 @@ where
     }
 }
 
-impl<'a, Octets> std::ops::Deref for MessageTsig<'a, Octets>
+impl<'a, Octets> ops::Deref for MessageTsig<'a, Octets>
 where
     for<'o> &'o Octets: OctetsRef,
 {
@@ -1610,6 +1624,7 @@ where
 #[derive(Clone)]
 pub struct ServerError<K>(ServerErrorInner<K>);
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 enum ServerErrorInner<K> {
     /// Return an unsigned error message.
@@ -1722,7 +1737,8 @@ impl<K> fmt::Display for ServerError<K> {
     }
 }
 
-impl<K> error::Error for ServerError<K> {}
+#[cfg(feature = "std")]
+impl<K> std::error::Error for ServerError<K> {}
 
 //------------ NewKeyError ---------------------------------------------------
 
@@ -1748,7 +1764,8 @@ impl fmt::Display for NewKeyError {
     }
 }
 
-impl error::Error for NewKeyError {}
+#[cfg(feature = "std")]
+impl std::error::Error for NewKeyError {}
 
 //------------ GenerateKeyError ----------------------------------------------
 
@@ -1795,7 +1812,8 @@ impl fmt::Display for GenerateKeyError {
     }
 }
 
-impl error::Error for GenerateKeyError {}
+#[cfg(feature = "std")]
+impl std::error::Error for GenerateKeyError {}
 
 //------------ AlgorithmError ------------------------------------------------
 
@@ -1811,7 +1829,8 @@ impl fmt::Display for AlgorithmError {
     }
 }
 
-impl error::Error for AlgorithmError {}
+#[cfg(feature = "std")]
+impl std::error::Error for AlgorithmError {}
 
 //------------ ValidationError -----------------------------------------------
 
@@ -1871,4 +1890,5 @@ impl fmt::Display for ValidationError {
     }
 }
 
-impl error::Error for ValidationError {}
+#[cfg(feature = "std")]
+impl std::error::Error for ValidationError {}

@@ -7,11 +7,11 @@
 use crate::base::charstr::{CharStr, CharStrError};
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::{ParsedDname, ToDname};
+use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef,
-    Parse, ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom,
+    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 #[cfg(feature = "serde")]
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
@@ -55,6 +55,10 @@ impl A {
     }
     pub fn set_addr(&mut self, addr: Ipv4Addr) {
         self.addr = addr
+    }
+
+    pub fn flatten_into(self) -> Result<A, PushError> {
+        Ok(self)
     }
 }
 
@@ -222,6 +226,16 @@ impl<Octets> Hinfo<Octets> {
     /// The operating system type of the host.
     pub fn os(&self) -> &CharStr<Octets> {
         &self.os
+    }
+}
+
+impl<SrcOctets> Hinfo<SrcOctets> {
+    pub fn flatten_into<Octets>(self) -> Result<Hinfo<Octets>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets>,
+    {
+        let Self { cpu, os } = self;
+        Ok(Hinfo::new(cpu.octets_into()?, os.octets_into()?))
     }
 }
 
@@ -458,6 +472,22 @@ impl<N> Minfo<N> {
     }
 }
 
+impl<Ref> Minfo<ParsedDname<Ref>>
+where
+    Ref: OctetsRef,
+{
+    pub fn flatten_into<Octets>(
+        self,
+    ) -> Result<Minfo<Dname<Octets>>, PushError>
+    where
+        Octets: OctetsFrom<Ref::Range> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let Self { rmailbx, emailbx } = self;
+        Ok(Minfo::new(rmailbx.flatten_into()?, emailbx.flatten_into()?))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Minfo<SrcName>> for Minfo<Name>
@@ -631,6 +661,23 @@ impl<N> Mx<N> {
     /// The name of the host that is the exchange.
     pub fn exchange(&self) -> &N {
         &self.exchange
+    }
+}
+
+impl<Ref> Mx<ParsedDname<Ref>>
+where
+    Ref: OctetsRef,
+{
+    pub fn flatten_into<Octets>(self) -> Result<Mx<Dname<Octets>>, PushError>
+    where
+        Octets: OctetsFrom<<Ref as OctetsRef>::Range> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let Self {
+            preference,
+            exchange,
+        } = self;
+        Ok(Mx::new(preference, exchange.flatten_into()?))
     }
 }
 
@@ -809,6 +856,15 @@ impl<Octets: AsRef<[u8]>> Null<Octets> {
 
     pub fn is_empty(&self) -> bool {
         self.data.as_ref().is_empty()
+    }
+}
+
+impl<SrcOctets> Null<SrcOctets> {
+    pub fn flatten_into<Octets>(self) -> Result<Null<Octets>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets>,
+    {
+        Ok(Null::new(self.data.octets_into()?))
     }
 }
 
@@ -1041,6 +1097,37 @@ impl<N> Soa<N> {
     /// The minimum TTL to be exported with any RR from this zone.
     pub fn minimum(&self) -> u32 {
         self.minimum
+    }
+}
+
+impl<Ref> Soa<ParsedDname<Ref>>
+where
+    Ref: OctetsRef,
+{
+    pub fn flatten_into<Octets>(self) -> Result<Soa<Dname<Octets>>, PushError>
+    where
+        Octets: OctetsFrom<Ref::Range> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let Self {
+            mname,
+            rname,
+            serial,
+            refresh,
+            retry,
+            expire,
+            minimum,
+        } = self;
+
+        Ok(Soa::new(
+            mname.flatten_into()?,
+            rname.flatten_into()?,
+            serial,
+            refresh,
+            retry,
+            expire,
+            minimum,
+        ))
     }
 }
 
@@ -1358,6 +1445,15 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
             res.append_slice(item)?;
         }
         Ok(res.freeze())
+    }
+}
+
+impl<SrcOctets> Txt<SrcOctets> {
+    pub fn flatten_into<Octets>(self) -> Result<Txt<Octets>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets>,
+    {
+        Ok(Txt(self.0.octets_into()?))
     }
 }
 

@@ -26,7 +26,8 @@ macro_rules! rdata_types {
             };
         )*
 
-        use crate::base::name::ParsedDname;
+        use crate::base::name::{ParsedDname, PushError};
+        use crate::base::octets::{EmptyBuilder, FromBuilder, OctetsFrom, OctetsInto};
 
 
         //------------- ZoneRecordData ---------------------------------------
@@ -59,6 +60,30 @@ macro_rules! rdata_types {
             }
         }
 
+        impl<Ref> ZoneRecordData<Ref::Range, ParsedDname<Ref>>
+        where
+            Ref: crate::base::octets::OctetsRef,
+        {
+            pub fn flatten_into<Octets>(
+                self,
+            ) -> Result<ZoneRecordData<Octets, crate::base::Dname<Octets>>, PushError>
+            where
+                Octets: OctetsFrom<Ref::Range> + FromBuilder,
+                <Octets as FromBuilder>::Builder: EmptyBuilder,
+            {
+                match self {
+                    $( $( $(
+                        ZoneRecordData::$mtype(inner) => {
+                            Ok(ZoneRecordData::$mtype(inner.flatten_into()?))
+                        }
+                    )* )* )*
+                        ZoneRecordData::Other(inner) => {
+                            Ok(ZoneRecordData::Other(inner.octets_into()?))
+                        }
+                }
+
+            }
+        }
 
         //--- OctetsFrom
 
@@ -495,6 +520,38 @@ macro_rules! rdata_types {
             }
         }
 
+        impl<Ref> AllRecordData<Ref::Range, ParsedDname<Ref>>
+        where
+            Ref: crate::base::octets::OctetsRef,
+        {
+            pub fn flatten_into<Octets>(
+                self,
+            ) -> Result<AllRecordData<Octets, crate::base::Dname<Octets>>, PushError>
+            where
+                Octets: OctetsFrom<Ref::Range> + FromBuilder,
+                <Octets as FromBuilder>::Builder: EmptyBuilder,
+            {
+                match self {
+                    $( $( $(
+                        AllRecordData::$mtype(inner) => {
+                            Ok(AllRecordData::$mtype(inner.flatten_into()?))
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(inner) => {
+                            Ok(AllRecordData::$ptype(inner.flatten_into()?))
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(inner) => {
+                        Ok(AllRecordData::Opt(inner.octets_into()?))
+                    }
+                    AllRecordData::Other(inner) => {
+                        Ok(AllRecordData::Other(inner.octets_into()?))
+                    }
+                }
+            }
+        }
+
         //--- From and Into
 
         $( $( $(
@@ -881,6 +938,21 @@ macro_rules! dname_type {
 
             pub fn $field(&self) -> &N {
                 &self.$field
+            }
+        }
+
+        impl<Ref> $target<ParsedDname<Ref>>
+        where
+            Ref: OctetsRef,
+        {
+            pub fn flatten_into<Octets>(
+                self,
+            ) -> Result<$target<crate::base::Dname<Octets>>, PushError>
+            where
+                Octets: OctetsFrom<Ref::Range> + FromBuilder,
+                <Octets as FromBuilder>::Builder: EmptyBuilder,
+            {
+                Ok($target::new(self.$field.flatten_into()?))
             }
         }
 

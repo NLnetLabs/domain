@@ -6,10 +6,10 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-use crate::base::name::{ParsedDname, ToDname};
+use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
     Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom,
-    OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 #[cfg(feature = "serde")]
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
@@ -169,6 +169,27 @@ impl<Octets> Dnskey<Octets> {
             res += (res >> 16) & 0xFFFF;
             (res & 0xFFFF) as u16
         }
+    }
+}
+
+impl<SrcOctets> Dnskey<SrcOctets> {
+    pub fn flatten_into<Octets>(self) -> Result<Dnskey<Octets>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets>,
+    {
+        let Self {
+            flags,
+            protocol,
+            algorithm,
+            public_key,
+        } = self;
+
+        Ok(Dnskey::new(
+            flags,
+            protocol,
+            algorithm,
+            public_key.octets_into()?,
+        ))
     }
 }
 
@@ -391,6 +412,41 @@ impl<Name> ProtoRrsig<Name> {
     }
 }
 
+impl<Ref> ProtoRrsig<ParsedDname<Ref>>
+where
+    Ref: OctetsRef,
+{
+    pub fn flatten_into<Octets>(
+        self,
+    ) -> Result<ProtoRrsig<Dname<Octets>>, PushError>
+    where
+        Octets: OctetsFrom<Ref::Range> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let Self {
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name,
+        } = self;
+
+        Ok(ProtoRrsig::new(
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name.flatten_into()?,
+        ))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<ProtoRrsig<SrcName>> for ProtoRrsig<Name>
@@ -546,6 +602,44 @@ impl<Octets, Name> Rrsig<Octets, Name> {
 
     pub fn set_signature(&mut self, signature: Octets) {
         self.signature = signature
+    }
+}
+
+impl<SrcOctets, Ref> Rrsig<SrcOctets, ParsedDname<Ref>>
+where
+    SrcOctets: AsRef<[u8]>,
+    Ref: OctetsRef,
+{
+    pub fn flatten_into<Octets>(
+        self,
+    ) -> Result<Rrsig<Octets, Dname<Octets>>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let Self {
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name,
+            signature,
+        } = self;
+
+        Ok(Rrsig::new(
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name.to_dname()?,
+            Octets::octets_from(signature)?,
+        ))
     }
 }
 
@@ -908,6 +1002,23 @@ impl<Octets, Name> Nsec<Octets, Name> {
     }
 }
 
+impl<SrcOctets, Ref> Nsec<SrcOctets, ParsedDname<Ref>>
+where
+    SrcOctets: AsRef<[u8]>,
+    Ref: OctetsRef,
+{
+    pub fn flatten_into<Octets>(
+        self,
+    ) -> Result<Nsec<Octets, Dname<Octets>>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets> + FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let Self { next_name, types } = self;
+        Ok(Nsec::new(next_name.to_dname()?, types.octets_into()?))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Nsec<SrcOctets, SrcName>>
@@ -1138,6 +1249,26 @@ impl<Octets> Ds<Octets> {
 
     pub fn into_digest(self) -> Octets {
         self.digest
+    }
+}
+
+impl<SrcOctets> Ds<SrcOctets> {
+    pub fn flatten_into<Octets>(self) -> Result<Ds<Octets>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets>,
+    {
+        let Self {
+            key_tag,
+            algorithm,
+            digest_type,
+            digest,
+        } = self;
+        Ok(Ds::new(
+            key_tag,
+            algorithm,
+            digest_type,
+            digest.octets_into()?,
+        ))
     }
 }
 

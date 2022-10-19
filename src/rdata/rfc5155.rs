@@ -7,9 +7,10 @@
 use super::rfc4034::RtypeBitmap;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Nsec3HashAlg, Rtype};
+use crate::base::name::PushError;
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef,
-    Parse, ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom,
+    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
 };
 #[cfg(feature = "serde")]
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
@@ -95,6 +96,30 @@ impl<Octets> Nsec3<Octets> {
 
     pub fn types(&self) -> &RtypeBitmap<Octets> {
         &self.types
+    }
+}
+
+impl<SrcOctets> Nsec3<SrcOctets> {
+    pub fn flatten_into<Octets>(self) -> Result<Nsec3<Octets>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets>,
+    {
+        let Self {
+            hash_algorithm,
+            flags,
+            iterations,
+            salt,
+            next_owner,
+            types,
+        } = self;
+        Ok(Nsec3::new(
+            hash_algorithm,
+            flags,
+            iterations,
+            salt.octets_into()?,
+            next_owner.octets_into()?,
+            types.octets_into()?,
+        ))
     }
 }
 
@@ -362,6 +387,26 @@ impl<Octets> Nsec3param<Octets> {
 
     pub fn salt(&self) -> &Nsec3Salt<Octets> {
         &self.salt
+    }
+}
+
+impl<SrcOctets> Nsec3param<SrcOctets> {
+    pub fn flatten_into<Octets>(self) -> Result<Nsec3param<Octets>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets>,
+    {
+        let Self {
+            hash_algorithm,
+            flags,
+            iterations,
+            salt,
+        } = self;
+        Ok(Nsec3param::new(
+            hash_algorithm,
+            flags,
+            iterations,
+            salt.octets_into()?,
+        ))
     }
 }
 

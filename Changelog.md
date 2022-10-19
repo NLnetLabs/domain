@@ -4,6 +4,45 @@
 
 Breaking Changes
 
+* Various functions and methods of the `tsig` module now expect the
+  current time as an argument to allow use of the module in a no-std
+  environment. ([#152])
+
+New
+
+Bug Fixes
+
+Other Changes
+
+[#152]: https://github.com/NLnetLabs/domain/pull/152
+
+
+## 0.7.1
+
+Released 2022-10-06.
+
+New
+
+* Added a method `flatten_into` to record data types that  converts a
+  value with a parsed (and thus possibly compressed) domain name into a one
+  with a normal domain name. ([#151] by [@xofyarg])
+
+Other Changes
+
+* Disable default features for chrono. ([#149] by [@vavrusa])
+
+[#149]: https://github.com/NLnetLabs/domain/pull/149
+[#151]: https://github.com/NLnetLabs/domain/pull/151
+[@vavrusa]: https://github.com/vavrusa
+[@xofyarg]: https://github.com/xofyarg
+
+
+## 0.7.0
+
+Released 2022-09-15.
+
+Breaking Changes
+
 * The minimum supported Rust version is now 1.56.1. ([#128])
 * The `OctetsBuilder` trait does not require `AsRef<[u8]>` and
   `AsMut<[u8]>` any more. These have been added as explicit trait bounds

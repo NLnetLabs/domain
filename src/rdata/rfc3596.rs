@@ -6,6 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
+use crate::base::name::PushError;
 use crate::base::net::Ipv6Addr;
 use crate::base::octets::{
     Compose, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
@@ -34,6 +35,10 @@ impl Aaaa {
     }
     pub fn set_addr(&mut self, addr: Ipv6Addr) {
         self.addr = addr
+    }
+
+    pub fn flatten_into(self) -> Result<Aaaa, PushError> {
+        Ok(self)
     }
 }
 

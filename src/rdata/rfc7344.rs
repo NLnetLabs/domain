@@ -3,9 +3,10 @@
 //! [RFC 7344]: https://tools.ietf.org/html/rfc7344
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
+use crate::base::name::PushError;
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
-    ShortBuf,
+    Compose, OctetsBuilder, OctetsFrom, OctetsInto, OctetsRef, Parse,
+    ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::base::scan::{Scan, Scanner};
@@ -73,6 +74,26 @@ impl<Octets> Cdnskey<Octets> {
 
     pub fn public_key(&self) -> &Octets {
         &self.public_key
+    }
+}
+
+impl<SrcOctets> Cdnskey<SrcOctets> {
+    pub fn flatten_into<Octets>(self) -> Result<Cdnskey<Octets>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets>,
+    {
+        let Self {
+            flags,
+            protocol,
+            algorithm,
+            public_key,
+        } = self;
+        Ok(Cdnskey::new(
+            flags,
+            protocol,
+            algorithm,
+            public_key.octets_into()?,
+        ))
     }
 }
 
@@ -302,6 +323,26 @@ impl<Octets> Cds<Octets> {
 
     pub fn into_digest(self) -> Octets {
         self.digest
+    }
+}
+
+impl<SrcOctets> Cds<SrcOctets> {
+    pub fn flatten_into<Octets>(self) -> Result<Cds<Octets>, PushError>
+    where
+        Octets: OctetsFrom<SrcOctets>,
+    {
+        let Self {
+            key_tag,
+            algorithm,
+            digest_type,
+            digest,
+        } = self;
+        Ok(Cds::new(
+            key_tag,
+            algorithm,
+            digest_type,
+            digest.octets_into()?,
+        ))
     }
 }
 

@@ -1,8 +1,8 @@
 [package]
 name = "domain"
-version = "0.7.0-dev"
+version = "0.8.0-dev"
 rust-version = "1.59.0"
-edition = "2018"
+edition = "2021"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust."
 documentation = "https://docs.rs/domain"
@@ -21,7 +21,7 @@ time           = "0.3.1"
 
 rand           = { version = "0.8", optional = true }
 bytes          = { version = "1.0", optional = true }
-chrono         = { version = "0.4.6", optional = true }
+chrono         = { version = "0.4.6", optional = true, default-features = false }
 futures        = { version = "0.3", optional = true }
 heapless       = { version = "0.7", optional = true }
 #openssl       = { version = "0.10", optional = true }
@@ -37,11 +37,12 @@ libc = { version = "0.2.71", default-features = false, optional = true }
 [features]
 default     = ["std", "random"]
 interop     = ["bytes", "ring"]
+master      = ["std", "bytes", "chrono"]
+random      = ["rand"]
 resolv      = ["bytes", "futures", "smallvec", "std", "tokio", "libc", "random"]
 resolv-sync = ["resolv", "tokio/rt"]
 sign        = ["std"]
 std         = []
-random      = ["rand"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
