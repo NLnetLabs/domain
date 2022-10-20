@@ -18,11 +18,15 @@
 //! module for those.
 #![allow(clippy::manual_range_contains)] // Hard disagree.
 
-use crate::base::charstr::CharStr;
-use crate::base::name::ToDname;
-use crate::base::octets::OctetsBuilder;
+use crate::base::charstr::{CharStr, CharStrBuilder};
+use crate::base::name::{Dname, ToDname};
+use crate::base::octets::{
+    Compose, OctetsBuilder, EmptyBuilder, FromBuilder, ShortBuf
+};
 use crate::base::str::String;
 use core::convert::{TryFrom, TryInto};
+use core::iter::Peekable;
+use core::marker::PhantomData;
 use core::{fmt, str};
 #[cfg(feature = "std")]
 use std::error;
@@ -148,7 +152,7 @@ pub trait Scanner {
     ///
     /// Each symbol is passed to the caller via the closure and can be
     /// processed there.
-    fn scan_entry_symbols<F>(self, op: F) -> Result<(), Self::Error>
+    fn scan_entry_symbols<F>(&mut self, op: F) -> Result<(), Self::Error>
     where
         F: FnMut(EntrySymbol) -> Result<(), Self::Error>;
 
@@ -725,6 +729,208 @@ impl<Chars: Iterator<Item = char>> Iterator for Symbols<Chars> {
     }
 }
 
+//------------ IterScanner ---------------------------------------------------
+
+/// A simple scanner atop an iterator of strings.
+pub struct IterScanner<Iter: Iterator, Octets> {
+    iter: Peekable<Iter>,
+    marker: PhantomData<Octets>,
+}
+
+impl<Iter: Iterator, Octets> IterScanner<Iter, Octets> {
+    pub fn new(iter: Iter) -> Self {
+        IterScanner {
+            iter: iter.peekable(),
+            marker: PhantomData
+        }
+    }
+}
+
+impl<Iter, Str, Octets> Scanner for IterScanner<Iter, Octets>
+where
+    Str: AsRef<str>,
+    Iter: Iterator<Item = Str>,
+    Octets: FromBuilder,
+    <Octets as FromBuilder>::Builder:
+        EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
+    type Octets = Octets;
+    type OctetsBuilder = <Octets as FromBuilder>::Builder;
+    type Dname = Dname<Octets>;
+    type Error = StrError;
+
+    fn has_space(&self) -> bool {
+        false
+    }
+
+    fn continues(&mut self) -> bool {
+        self.iter.peek().is_some()
+    }
+
+    fn scan_symbols<F>(&mut self, mut op: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(Symbol) -> Result<(), Self::Error>
+    {
+        let token = match self.iter.next() {
+            Some(token) => token,
+            None => return Err(StrError::end_of_entry())
+        };
+        for sym in Symbols::new(token.as_ref().chars()) {
+            op(sym)?;
+        }
+        Ok(())
+    }
+
+    fn scan_entry_symbols<F>(&mut self, mut op: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(EntrySymbol) -> Result<(), Self::Error>
+    {
+        while let Some(token) = self.iter.next() {
+            for sym in Symbols::new(token.as_ref().chars()) {
+                op(sym.into())?;
+            }
+            op(EntrySymbol::EndOfToken)?;
+        }
+        Ok(())
+    }
+
+    fn convert_token<C: ConvertSymbols<Symbol, Self::Error>>(
+        &mut self,
+        mut convert: C,
+    ) -> Result<Self::Octets, Self::Error> {
+        let token = match self.iter.next() {
+            Some(token) => token,
+            None => return Err(StrError::end_of_entry())
+        };
+        let mut res = <Octets as FromBuilder>::Builder::empty();
+
+        for sym in Symbols::new(token.as_ref().chars()) {
+            if let Some(data) = convert.process_symbol(sym)? {
+                res.append_slice(data)?;
+            }
+        }
+
+        if let Some(data) = convert.process_tail()? {
+            res.append_slice(data)?;
+        }
+
+        Ok(<Octets as FromBuilder>::from_builder(res))
+    }
+
+    fn convert_entry<C: ConvertSymbols<EntrySymbol, Self::Error>>(
+        &mut self,
+        mut convert: C,
+    ) -> Result<Self::Octets, Self::Error> {
+        let mut res = <Octets as FromBuilder>::Builder::empty();
+        while let Some(token) = self.iter.next() {
+            for sym in Symbols::new(token.as_ref().chars()) {
+                if let Some(data) = convert.process_symbol(sym.into())? {
+                    res.append_slice(data)?;
+                }
+            }
+        }
+        if let Some(data) = convert.process_tail()? {
+            res.append_slice(data)?;
+        }
+        Ok(<Octets as FromBuilder>::from_builder(res))
+        
+    }
+
+    fn scan_octets(&mut self) -> Result<Self::Octets, Self::Error> {
+        let token = match self.iter.next() {
+            Some(token) => token,
+            None => return Err(StrError::end_of_entry())
+        };
+        let mut res = <Octets as FromBuilder>::Builder::empty();
+        for sym in Symbols::new(token.as_ref().chars()) {
+            match sym.into_octet() {
+                Ok(ch) => res.append_slice(&[ch])?,
+                Err(_) => return Err(StrError::custom("bad symbol"))
+            }
+        }
+        Ok(<Octets as FromBuilder>::from_builder(res))
+    }
+
+    fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
+    where
+        F: FnOnce(&str) -> Result<T, Self::Error>
+    {
+        let res = self.scan_string()?;
+        if res.is_ascii() {
+            op(&res)
+        }
+        else {
+            Err(StrError::custom("non-ASCII characters"))
+        }
+    }
+
+    fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error> {
+        let token = match self.iter.next() {
+            Some(token) => token,
+            None => return Err(StrError::end_of_entry())
+        };
+        Dname::from_symbols(Symbols::new(token.as_ref().chars())).map_err(|_| {
+            StrError::custom("invalid domain name")
+        })
+    }
+
+    fn scan_charstr(&mut self) -> Result<CharStr<Self::Octets>, Self::Error> {
+        let token = match self.iter.next() {
+            Some(token) => token,
+            None => return Err(StrError::end_of_entry())
+        };
+        let mut res = CharStrBuilder::<<Octets as FromBuilder>::Builder>::new();
+        for sym in Symbols::new(token.as_ref().chars()) {
+            match sym.into_octet() {
+                Ok(ch) => res.append_slice(&[ch])?,
+                Err(_) => return Err(StrError::custom("bad symbol"))
+            }
+        }
+        Ok(res.finish())
+
+    }
+
+    fn scan_string(&mut self) -> Result<String<Self::Octets>, Self::Error> {
+        let token = match self.iter.next() {
+            Some(token) => token,
+            None => return Err(StrError::end_of_entry())
+        };
+        let mut res = <Octets as FromBuilder>::Builder::empty();
+        let mut buf = [0u8; 4];
+        for sym in Symbols::new(token.as_ref().chars()) {
+            match sym.into_char() {
+                Ok(ch) => {
+                    res.append_slice(ch.encode_utf8(&mut buf).as_bytes())?
+                }
+                Err(_) => return Err(StrError::custom("bad symbol"))
+            }
+        }
+        Ok(String::from_utf8(
+            <Octets as FromBuilder>::from_builder(res)
+        ).unwrap())
+    }
+
+    fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error> {
+        // XXX This implementation is probably a bit too lazy.
+        let mut res = <Octets as FromBuilder>::Builder::empty();
+        while self.iter.peek().is_some() {
+            self.scan_charstr()?.compose(&mut res)?;
+        }
+        Ok(<Octets as FromBuilder>::from_builder(res))
+    }
+
+    fn scan_opt_unknown_marker(&mut self) -> Result<bool, Self::Error> {
+        match self.iter.peek() {
+            Some(token) if token.as_ref() == "\\#" => Ok(true),
+            _ => Ok(false)
+        }
+    }
+
+    fn octets_builder(&mut self) -> Result<Self::OctetsBuilder, Self::Error> {
+        Ok(<Octets as FromBuilder>::Builder::empty())
+    }
+}
+
 //============ Error Types ===================================================
 
 //------------ SymbolCharsError ----------------------------------------------
@@ -856,6 +1062,45 @@ impl From<BadSymbol> for std::io::Error {
         std::io::Error::new(std::io::ErrorKind::Other, err)
     }
 }
+
+//------------ StrError ------------------------------------------------------
+
+#[derive(Debug)]
+pub struct StrError(&'static str);
+
+impl ScannerError for StrError {
+    fn custom(msg: &'static str) -> Self {
+        StrError(msg)
+    }
+
+    fn end_of_entry() -> Self {
+        Self::custom("unexpected end of entry")
+    }
+
+    fn short_buf() -> Self {
+        Self::custom("short buffer")
+    }
+
+    fn trailing_tokens() -> Self {
+        Self::custom("trailing data")
+    }
+}
+
+impl From<ShortBuf> for StrError {
+    fn from(_: ShortBuf) -> Self {
+        Self::short_buf()
+    }
+}
+
+impl fmt::Display for StrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for StrError {}
+
 
 //============ Testing =======================================================
 

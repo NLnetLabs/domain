@@ -5,7 +5,7 @@ use super::super::octets::{
 };
 #[cfg(feature = "serde")]
 use super::super::octets::{DeserializeOctets, SerializeOctets};
-use super::super::scan::{Scan, Scanner};
+use super::super::scan::{Scan, Scanner, Symbol};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
@@ -70,6 +70,17 @@ impl<Octets> Dname<Octets> {
     {
         Dname::check_slice(octets.as_ref())?;
         Ok(unsafe { Dname::from_octets_unchecked(octets) })
+    }
+
+    pub fn from_symbols<Sym>(symbols: Sym) -> Result<Self, FromStrError>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+        Sym: IntoIterator<Item = Symbol>,
+    {
+        let mut builder = DnameBuilder::<Octets::Builder>::new();
+        builder.append_symbols(symbols)?;
+        builder.into_dname().map_err(Into::into)
     }
 
     /// Creates a domain name from a sequence of characters.

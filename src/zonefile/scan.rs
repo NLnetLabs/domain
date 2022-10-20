@@ -372,7 +372,7 @@ impl<'a> Scanner for EntryScanner<'a> {
         self.zonefile.buf.next_item()
     }
 
-    fn scan_entry_symbols<F>(self, mut op: F) -> Result<(), Self::Error>
+    fn scan_entry_symbols<F>(&mut self, mut op: F) -> Result<(), Self::Error>
     where
         F: FnMut(EntrySymbol) -> Result<(), Self::Error>,
     {
