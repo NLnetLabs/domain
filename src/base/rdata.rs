@@ -211,7 +211,17 @@ impl<Octets> UnknownRecordData<Octets> {
                 Err(S::Error::custom("'\\#' expected"))
             }
         })?;
+        Self::scan_without_marker(rtype, scanner)
+    }
 
+    /// Scans the record data assuming that the marker has been skipped.
+    pub fn scan_without_marker<S: Scanner<Octets = Octets>>(
+        rtype: Rtype,
+        scanner: &mut S,
+    ) -> Result<Self, S::Error>
+    where
+        Octets: AsRef<[u8]>,
+    {
         // Second token is the rdata length.
         let len = u16::scan(scanner)?;
 

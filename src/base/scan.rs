@@ -180,6 +180,13 @@ pub trait Scanner {
     /// It can be of any length.
     fn scan_octets(&mut self) -> Result<Self::Octets, Self::Error>;
 
+    /// Scans a token as a borrowed ASCII string.
+    ///
+    /// If the next token contains non-ascii characters, returns an error.
+    fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
+    where
+        F: FnOnce(&str) -> Result<T, Self::Error>;
+
     /// Scans a token into a domain name.
     fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error>;
 
@@ -199,18 +206,19 @@ pub trait Scanner {
     /// wire format.
     fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error>;
 
+    /// Scans an optional unknown rdata marker.
+    ///
+    /// If the next token is `\#`, i.e., an unquoted, escaped hash sign,
+    /// consumes the token and returns `Ok(true)`. If the next token is
+    /// anything else or if there is no next token, does nothing and returns
+    /// `Ok(false)`. If there is an error, returns an error.
+    fn scan_opt_unknown_marker(&mut self) -> Result<bool, Self::Error>;
+
     /// Returns an empty octets builder.
     ///
     /// This builder can be used to create octets sequences in cases where
     /// the other methods can’t be used.
     fn octets_builder(&mut self) -> Result<Self::OctetsBuilder, Self::Error>;
-
-    /// Scans a token as a borrowed ASCII string.
-    ///
-    /// If the next token contains non-ascii characters, returns an error.
-    fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
-    where
-        F: FnOnce(&str) -> Result<T, Self::Error>;
 }
 
 //------------ ScannerError --------------------------------------------------

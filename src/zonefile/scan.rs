@@ -612,6 +612,10 @@ impl<'a> Scanner for EntryScanner<'a> {
         Ok(self.zonefile.buf.split_to(write).freeze())
     }
 
+    fn scan_opt_unknown_marker(&mut self) -> Result<bool, Self::Error> {
+        self.zonefile.buf.skip_unknown_marker()
+    }
+
     fn octets_builder(&mut self) -> Result<Self::OctetsBuilder, Self::Error> {
         Ok(BytesMut::new())
     }
@@ -990,6 +994,39 @@ impl SourceBuf {
         }
     }
 
+    /// Skips over the unknown marker token.
+    ///
+    /// Returns whether it didskip the token.
+    fn skip_unknown_marker(&mut self) -> Result<bool, EntryError> {
+        if !matches!(self.cat, ItemCat::Unquoted) {
+            return Ok(false);
+        }
+
+        let (sym, sym_end) =
+            match Symbol::from_slice_index(&self.buf, self.start) {
+                Ok(Some(some)) => some,
+                _ => return Ok(false),
+            };
+
+        if sym != Symbol::SimpleEscape(b'#') {
+            return Ok(false);
+        }
+
+        let (sym, sym_end) =
+            match Symbol::from_slice_index(&self.buf, sym_end) {
+                Ok(Some(some)) => some,
+                _ => return Ok(false),
+            };
+        if sym.is_word_char() {
+            return Ok(false);
+        }
+
+        self.start = sym_end;
+        self.cat = ItemCat::None;
+        self.next_item()?;
+        Ok(true)
+    }
+
     /// Returns the next symbol of the current token.
     ///
     /// Returns `None` if the current item is a line feed or end-of-file
@@ -1284,7 +1321,6 @@ enum ItemCat {
 #[derive(Debug)]
 struct EntryError(&'static str);
 
-#[allow(dead_code)] // XXX
 impl EntryError {
     fn bad_symbol(_err: SymbolOctetsError) -> Self {
         EntryError("bad symbol")
