@@ -1421,8 +1421,10 @@ impl error::Error for Error {}
 //============ Tests =========================================================
 
 #[cfg(test)]
+#[cfg(feature = "std")]
 mod test {
     use super::*;
+    use std::vec::Vec;
 
     fn with_entry(s: &str, op: impl FnOnce(EntryScanner)) {
         let mut buf = SourceBuf::with_capacity(s.len());
@@ -1457,5 +1459,36 @@ mod test {
         test(" \"quoted\"\n", b"quoted");
         test(" \"quoted\" ", b"quoted");
         test("\"quoted\" ", b"quoted");
+    }
+
+    #[derive(serde::Deserialize)]
+    struct TestCase {
+        origin: Dname<Bytes>,
+        zonefile: std::string::String,
+        result: Vec<Record<Dname<Bytes>, ZoneRecordData<Bytes, Dname<Bytes>>>>,
+    }
+
+    impl TestCase {
+        fn test(yaml: &str) {
+            let case = serde_yaml::from_str::<Self>(yaml).unwrap();
+            let mut input = case.zonefile.as_bytes();
+            let mut zone = Zonefile::load(&mut input).unwrap();
+            zone.set_origin(case.origin);
+            let mut result = case.result.as_slice();
+            while let Some(entry) = zone.next_entry().unwrap() {
+                match entry {
+                    Entry::Record(record) => {
+                        let (first, tail) = result.split_first().unwrap();
+                        assert_eq!(first, &record);
+                        result = tail;
+                    }
+                    _ => panic!()
+                }
+            }
+        }
+    }
+
+    #[test] fn basic() {
+        TestCase::test(include_str!("../../test-data/zonefiles/basic.yaml"))
     }
 }

@@ -38,6 +38,28 @@ macro_rules! rdata_types {
         /// implemented record types that are allowed to be included in zone
         /// files.
         #[derive(Clone)]
+        #[cfg_attr(
+            feature = "serde",
+            derive(serde::Serialize, serde::Deserialize)
+        )]
+        #[cfg_attr(
+            feature = "serde",
+            serde(bound(
+                serialize = "
+                    O: AsRef<[u8]> + crate::base::octets::SerializeOctets,
+                    N: serde::Serialize,
+                ",
+                deserialize = "
+                    O: crate::base::octets::FromBuilder
+                        + crate::base::octets::DeserializeOctets<'de>,
+                    <O as crate::base::octets::FromBuilder>::Builder:
+                        crate::base::octets::OctetsBuilder<Octets = O>
+                        + crate::base::octets::EmptyBuilder
+                        + AsRef<[u8]> + AsMut<[u8]>,
+                    N: serde::Deserialize<'de>,
+                ",
+            ))
+        )]
         #[non_exhaustive]
         pub enum ZoneRecordData<O, N> {
             $( $( $(
@@ -442,6 +464,7 @@ macro_rules! rdata_types {
             }
         }
 
+        /*
         //--- Serialize and Deserialize
 
         #[cfg(feature = "serde")]
@@ -494,6 +517,7 @@ macro_rules! rdata_types {
                 unimplemented!()
             }
         }
+        */
 
         //------------- AllRecordData ----------------------------------------
 
