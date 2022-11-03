@@ -161,11 +161,17 @@ pub struct UnknownRecordData<Octets> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
-            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            serialize_with = "crate::utils::base16::serde::serialize",
+            deserialize_with = "crate::utils::base16::serde::deserialize",
             bound(
-                serialize = "Octets: crate::base::octets::SerializeOctets",
-                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octets: AsRef<[u8]> + crate::base::octets::SerializeOctets",
+                deserialize = "\
+                    Octets: \
+                        crate::base::octets::FromBuilder + \
+                        crate::base::octets::DeserializeOctets<'de>, \
+                    <Octets as crate::base::octets::FromBuilder>::Builder: \
+                        crate::base::octets::EmptyBuilder, \
+                ",
             )
         )
     )]

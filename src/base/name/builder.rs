@@ -237,9 +237,9 @@ impl<Builder: OctetsBuilder + AsMut<[u8]>> DnameBuilder<Builder> {
         Ok(())
     }
 
-    pub fn append_symbols<Sym: IntoIterator<Item = Symbol>> (
+    pub fn append_symbols<Sym: IntoIterator<Item = Symbol>>(
         &mut self,
-        symbols: Sym
+        symbols: Sym,
     ) -> Result<(), FromStrError> {
         for sym in symbols {
             if matches!(sym, Symbol::Char('.')) {
@@ -247,29 +247,21 @@ impl<Builder: OctetsBuilder + AsMut<[u8]>> DnameBuilder<Builder> {
                     return Err(FromStrError::EmptyLabel);
                 }
                 self.end_label();
-            }
-            else if
-                matches!(sym, Symbol::SimpleEscape(b'[')) && !self.in_label()
+            } else if matches!(sym, Symbol::SimpleEscape(b'['))
+                && !self.in_label()
             {
-                return Err(LabelFromStrError::BinaryLabel.into())
-            }
-            else if let Ok(ch) = sym.into_octet() {
+                return Err(LabelFromStrError::BinaryLabel.into());
+            } else if let Ok(ch) = sym.into_octet() {
                 self.push(ch)?;
-            }
-            else {
-                return Err(
-                    match sym {
-                        Symbol::Char(ch) => {
-                            FromStrError::IllegalCharacter(ch)
-                        }
-                        _ => FromStrError::IllegalEscape
-                    }
-                )
+            } else {
+                return Err(match sym {
+                    Symbol::Char(ch) => FromStrError::IllegalCharacter(ch),
+                    _ => FromStrError::IllegalEscape,
+                });
             }
         }
         Ok(())
     }
-
 
     /// Appends a name from a sequence of characters.
     ///

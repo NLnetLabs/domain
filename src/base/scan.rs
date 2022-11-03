@@ -21,7 +21,7 @@
 use crate::base::charstr::{CharStr, CharStrBuilder};
 use crate::base::name::{Dname, ToDname};
 use crate::base::octets::{
-    Compose, OctetsBuilder, EmptyBuilder, FromBuilder, ShortBuf
+    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf,
 };
 use crate::base::str::String;
 use core::convert::{TryFrom, TryInto};
@@ -741,7 +741,7 @@ impl<Iter: Iterator, Octets> IterScanner<Iter, Octets> {
     pub fn new(iter: Iter) -> Self {
         IterScanner {
             iter: iter.peekable(),
-            marker: PhantomData
+            marker: PhantomData,
         }
     }
 }
@@ -769,11 +769,11 @@ where
 
     fn scan_symbols<F>(&mut self, mut op: F) -> Result<(), Self::Error>
     where
-        F: FnMut(Symbol) -> Result<(), Self::Error>
+        F: FnMut(Symbol) -> Result<(), Self::Error>,
     {
         let token = match self.iter.next() {
             Some(token) => token,
-            None => return Err(StrError::end_of_entry())
+            None => return Err(StrError::end_of_entry()),
         };
         for sym in Symbols::new(token.as_ref().chars()) {
             op(sym)?;
@@ -783,7 +783,7 @@ where
 
     fn scan_entry_symbols<F>(&mut self, mut op: F) -> Result<(), Self::Error>
     where
-        F: FnMut(EntrySymbol) -> Result<(), Self::Error>
+        F: FnMut(EntrySymbol) -> Result<(), Self::Error>,
     {
         for token in &mut self.iter {
             for sym in Symbols::new(token.as_ref().chars()) {
@@ -800,7 +800,7 @@ where
     ) -> Result<Self::Octets, Self::Error> {
         let token = match self.iter.next() {
             Some(token) => token,
-            None => return Err(StrError::end_of_entry())
+            None => return Err(StrError::end_of_entry()),
         };
         let mut res = <Octets as FromBuilder>::Builder::empty();
 
@@ -833,19 +833,18 @@ where
             res.append_slice(data)?;
         }
         Ok(<Octets as FromBuilder>::from_builder(res))
-        
     }
 
     fn scan_octets(&mut self) -> Result<Self::Octets, Self::Error> {
         let token = match self.iter.next() {
             Some(token) => token,
-            None => return Err(StrError::end_of_entry())
+            None => return Err(StrError::end_of_entry()),
         };
         let mut res = <Octets as FromBuilder>::Builder::empty();
         for sym in Symbols::new(token.as_ref().chars()) {
             match sym.into_octet() {
                 Ok(ch) => res.append_slice(&[ch])?,
-                Err(_) => return Err(StrError::custom("bad symbol"))
+                Err(_) => return Err(StrError::custom("bad symbol")),
             }
         }
         Ok(<Octets as FromBuilder>::from_builder(res))
@@ -853,13 +852,12 @@ where
 
     fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
     where
-        F: FnOnce(&str) -> Result<T, Self::Error>
+        F: FnOnce(&str) -> Result<T, Self::Error>,
     {
         let res = self.scan_string()?;
         if res.is_ascii() {
             op(&res)
-        }
-        else {
+        } else {
             Err(StrError::custom("non-ASCII characters"))
         }
     }
@@ -867,33 +865,32 @@ where
     fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error> {
         let token = match self.iter.next() {
             Some(token) => token,
-            None => return Err(StrError::end_of_entry())
+            None => return Err(StrError::end_of_entry()),
         };
-        Dname::from_symbols(Symbols::new(token.as_ref().chars())).map_err(|_| {
-            StrError::custom("invalid domain name")
-        })
+        Dname::from_symbols(Symbols::new(token.as_ref().chars()))
+            .map_err(|_| StrError::custom("invalid domain name"))
     }
 
     fn scan_charstr(&mut self) -> Result<CharStr<Self::Octets>, Self::Error> {
         let token = match self.iter.next() {
             Some(token) => token,
-            None => return Err(StrError::end_of_entry())
+            None => return Err(StrError::end_of_entry()),
         };
-        let mut res = CharStrBuilder::<<Octets as FromBuilder>::Builder>::new();
+        let mut res =
+            CharStrBuilder::<<Octets as FromBuilder>::Builder>::new();
         for sym in Symbols::new(token.as_ref().chars()) {
             match sym.into_octet() {
                 Ok(ch) => res.append_slice(&[ch])?,
-                Err(_) => return Err(StrError::custom("bad symbol"))
+                Err(_) => return Err(StrError::custom("bad symbol")),
             }
         }
         Ok(res.finish())
-
     }
 
     fn scan_string(&mut self) -> Result<String<Self::Octets>, Self::Error> {
         let token = match self.iter.next() {
             Some(token) => token,
-            None => return Err(StrError::end_of_entry())
+            None => return Err(StrError::end_of_entry()),
         };
         let mut res = <Octets as FromBuilder>::Builder::empty();
         let mut buf = [0u8; 4];
@@ -902,12 +899,13 @@ where
                 Ok(ch) => {
                     res.append_slice(ch.encode_utf8(&mut buf).as_bytes())?
                 }
-                Err(_) => return Err(StrError::custom("bad symbol"))
+                Err(_) => return Err(StrError::custom("bad symbol")),
             }
         }
-        Ok(String::from_utf8(
-            <Octets as FromBuilder>::from_builder(res)
-        ).unwrap())
+        Ok(
+            String::from_utf8(<Octets as FromBuilder>::from_builder(res))
+                .unwrap(),
+        )
     }
 
     fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error> {
@@ -922,7 +920,7 @@ where
     fn scan_opt_unknown_marker(&mut self) -> Result<bool, Self::Error> {
         match self.iter.peek() {
             Some(token) if token.as_ref() == "\\#" => Ok(true),
-            _ => Ok(false)
+            _ => Ok(false),
         }
     }
 
@@ -1100,7 +1098,6 @@ impl fmt::Display for StrError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for StrError {}
-
 
 //============ Testing =======================================================
 

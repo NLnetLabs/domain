@@ -1466,7 +1466,8 @@ mod test {
     struct TestCase {
         origin: Dname<Bytes>,
         zonefile: std::string::String,
-        result: Vec<Record<Dname<Bytes>, ZoneRecordData<Bytes, Dname<Bytes>>>>,
+        result:
+            Vec<Record<Dname<Bytes>, ZoneRecordData<Bytes, Dname<Bytes>>>>,
     }
 
     impl TestCase {
@@ -1483,13 +1484,18 @@ mod test {
                         assert_eq!(first, &record);
                         result = tail;
                     }
-                    _ => panic!()
+                    _ => panic!(),
                 }
             }
         }
     }
 
-    #[test] fn basic() {
-        TestCase::test(include_str!("../../test-data/zonefiles/basic.yaml"))
+    #[test]
+    fn test_data() {
+        TestCase::test(include_str!("../../test-data/zonefiles/basic.yaml"));
+        TestCase::test(include_str!("../../test-data/zonefiles/escape.yaml"));
+        TestCase::test(include_str!(
+            "../../test-data/zonefiles/unknown.yaml"
+        ));
     }
 }

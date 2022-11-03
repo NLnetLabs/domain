@@ -2,7 +2,8 @@ origin: example.com.
 zonefile: |
   $ORIGIN com.
   example	345600	IN	SOA	ns0.Example.org. dingdong.Example.com. (
-      4 3600 28800 2419200 3600 )
+      4 3600 28800 2419200 ; comment
+      3600 )
     3600	IN	NS	bigserv.example.net.
     3600	IN	A	192.0.2.11
   www.example.com. A 192.0.2.12

@@ -1748,6 +1748,8 @@ where
                 self,
                 deserializer: D,
             ) -> Result<Self::Value, D::Error> {
+                deserializer.deserialize_any(InnerVisitor(Octets::visitor()))
+                /*
                 if deserializer.is_human_readable() {
                     deserializer
                         .deserialize_str(InnerVisitor(Octets::visitor()))
@@ -1757,6 +1759,7 @@ where
                         InnerVisitor(Octets::visitor()),
                     )
                 }
+                */
             }
         }
 
