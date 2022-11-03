@@ -241,8 +241,7 @@ impl<Builder: OctetsBuilder + AsMut<[u8]>> DnameBuilder<Builder> {
         &mut self,
         symbols: Sym
     ) -> Result<(), FromStrError> {
-        let mut symbols = symbols.into_iter();
-        while let Some(sym) = symbols.next() {
+        for sym in symbols {
             if matches!(sym, Symbol::Char('.')) {
                 if !self.in_label() {
                     return Err(FromStrError::EmptyLabel);

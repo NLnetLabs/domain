@@ -1462,6 +1462,7 @@ mod test {
     }
 
     #[derive(serde::Deserialize)]
+    #[allow(clippy::type_complexity)]
     struct TestCase {
         origin: Dname<Bytes>,
         zonefile: std::string::String,

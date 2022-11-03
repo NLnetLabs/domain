@@ -785,7 +785,7 @@ where
     where
         F: FnMut(EntrySymbol) -> Result<(), Self::Error>
     {
-        while let Some(token) = self.iter.next() {
+        for token in &mut self.iter {
             for sym in Symbols::new(token.as_ref().chars()) {
                 op(sym.into())?;
             }
@@ -822,7 +822,7 @@ where
         mut convert: C,
     ) -> Result<Self::Octets, Self::Error> {
         let mut res = <Octets as FromBuilder>::Builder::empty();
-        while let Some(token) = self.iter.next() {
+        for token in &mut self.iter {
             for sym in Symbols::new(token.as_ref().chars()) {
                 if let Some(data) = convert.process_symbol(sym.into())? {
                     res.append_slice(data)?;
