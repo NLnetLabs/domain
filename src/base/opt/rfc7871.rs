@@ -235,16 +235,30 @@ impl CodeOptData for ClientSubnet {
 
 impl fmt::Display for ClientSubnet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.scope_prefix_len != 0 {
-            write!(f, "{}/{}/{}", self.addr, self.source_prefix_len,
-                self.scope_prefix_len)?;
-        } else {
-            write!(f, "{}/{}", self.addr, self.source_prefix_len)?;
+        match self.addr {
+            IpAddr::V4(a) => {
+                if self.scope_prefix_len != 0 {
+                    write!(f, "{}/{}/{}", a, self.source_prefix_len,
+                        self.scope_prefix_len)?;
+                } else {
+                    write!(f, "{}/{}", a, self.source_prefix_len)?;
+                }
+            }
+            IpAddr::V6(a) => {
+                if self.scope_prefix_len != 0 {
+                    write!(f, "{}/{}/{}", a, self.source_prefix_len,
+                        self.scope_prefix_len)?;
+                } else {
+                    write!(f, "{}/{}", a, self.source_prefix_len)?;
+                }
+            }
         }
-            
+
         Ok(())
     }
 }
+
+
 
 
 #[cfg(test)]
