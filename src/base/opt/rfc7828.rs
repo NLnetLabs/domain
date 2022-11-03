@@ -1,5 +1,6 @@
 //! EDNS Options from RFC 7828
 
+use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
@@ -59,3 +60,10 @@ impl CodeOptData for TcpKeepalive {
     const CODE: OptionCode = OptionCode::TcpKeepalive;
 }
 
+impl fmt::Display for TcpKeepalive {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)?;
+
+        Ok(())
+    }
+}

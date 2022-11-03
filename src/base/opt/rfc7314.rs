@@ -61,3 +61,11 @@ impl CodeOptData for Expire {
     const CODE: OptionCode = OptionCode::Expire;
 }
 
+impl fmt::Display for Expire {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)?;
+
+        Ok(())
+    }
+}
+

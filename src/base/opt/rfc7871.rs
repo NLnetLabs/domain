@@ -1,5 +1,6 @@
 //! EDNS Options from RFC 7871
 
+use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::net::IpAddr;
@@ -231,6 +232,20 @@ fn normalize_prefix_len(addr: IpAddr, len: u8) -> u8 {
 impl CodeOptData for ClientSubnet {
     const CODE: OptionCode = OptionCode::ClientSubnet;
 }
+
+impl fmt::Display for ClientSubnet {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.scope_prefix_len != 0 {
+            write!(f, "{}/{}/{}", self.addr, self.source_prefix_len,
+                self.scope_prefix_len)?;
+        } else {
+            write!(f, "{}/{}", self.addr, self.source_prefix_len)?;
+        }
+            
+        Ok(())
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

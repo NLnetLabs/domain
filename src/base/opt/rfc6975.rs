@@ -1,6 +1,6 @@
 //! EDNS Options from RFC 6975.
 
-use core::slice;
+use core::{slice, fmt};
 use super::super::iana::{OptionCode, SecAlg};
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
@@ -87,6 +87,26 @@ macro_rules! option_type {
                 self.iter()
             }
         }
+
+
+        //--- Display
+
+        impl<Octets: AsRef<[u8]>> fmt::Display for $name<Octets> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                let mut first = true;
+
+                for v in self.octets.as_ref() {
+                    if first {
+                        write!(f, "{:X}", *v)?;
+                        first = false;
+                    } else {
+                        write!(f, ", {:X}", *v)?
+                    }
+                }
+                Ok(())
+            }
+        }
+
     }
 }
 

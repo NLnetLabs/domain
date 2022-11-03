@@ -1,5 +1,6 @@
 //! EDNS Options from RFC 7830
 
+use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
@@ -20,10 +21,13 @@ pub enum PaddingMode {
 
 //------------ Padding -------------------------------------------------------
 
+
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Padding {
     len: u16,
     mode: PaddingMode
+    // @TODO we're not storing the octets where the padding is non-zero.
 }
 
 impl Padding {
@@ -108,3 +112,18 @@ impl CodeOptData for Padding {
     const CODE: OptionCode = OptionCode::Padding;
 }
 
+impl fmt::Display for Padding {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.mode {
+            PaddingMode::Zero => {
+                write!(f, "{}", self.len)?;
+            }
+            #[cfg(feature = "random")]
+            PaddingMode::Random => {
+            // @TODO fix when we're  storing the octets where
+            // the padding is non-zero.
+            }
+        }
+        Ok(())
+    }
+}
