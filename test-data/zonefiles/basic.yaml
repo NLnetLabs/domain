@@ -1,0 +1,44 @@
+origin: example.com.
+zonefile: |
+  $ORIGIN com.
+  example	345600	IN	SOA	ns0.Example.org. dingdong.Example.com. (
+      4 3600 28800 2419200 ; comment
+      3600 )
+    3600	IN	NS	bigserv.example.net.
+    3600	IN	A	192.0.2.11
+  www.example.com. A 192.0.2.12
+  $ORIGIN example.com.
+  @ A 192.0.2.13
+result:
+  - owner: example.com.
+    class: IN
+    ttl: 345600
+    data: !Soa
+      mname: ns0.Example.org.
+      rname: dingdong.Example.com.
+      serial: 4
+      refresh: 3600
+      retry: 28800
+      expire: 2419200
+      minimum: 3600
+  - owner: example.com.
+    class: IN
+    ttl: 3600
+    data: !Ns
+      nsdname: bigserv.example.net.
+  - owner: example.com.
+    class: IN
+    ttl: 3600
+    data: !A
+      addr: 192.0.2.11
+  - owner: www.example.com.
+    class: IN
+    ttl: 3600
+    data: !A
+      addr: 192.0.2.12
+  - owner: example.com.
+    class: IN
+    ttl: 3600
+    data: !A
+      addr: 192.0.2.13
+

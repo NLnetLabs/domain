@@ -27,12 +27,6 @@
 //!
 //! Currently, there are the following modules:
 //!
-#![cfg_attr(feature = "master", doc = "* [master]:")]
-#![cfg_attr(not(feature = "master"), doc = "* master:")]
-//!   Experimental reading and writing of master files – also known
-//!   as zone files –, i.e., the textual representation of DNS data. This
-//!   module will be re-implemented in the near future and will be renamed to
-//!   _zonefiles._
 #![cfg_attr(feature = "resolv", doc = "* [resolv]:")]
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
@@ -46,6 +40,10 @@
 #![cfg_attr(feature = "validate", doc = "* [validate]:")]
 #![cfg_attr(not(feature = "validate"), doc = "* validate:")]
 //!   Experimental support for DNSSEC validation.
+#![cfg_attr(feature = "zonefile", doc = "* [zonefile]:")]
+#![cfg_attr(not(feature = "zonefile"), doc = "* zonefile:")]
+//!   Experimental reading and writing of zone files, i.e., the textual
+//!   representation of DNS data.
 //!
 //!
 //! # Reference of Feature Flags
@@ -63,12 +61,6 @@
 //! * `interop`: Activate interoperability tests that rely on other software
 //!   to be installed in the system (currently NSD and dig) and will fail if
 //!   it isn’t. This feature is not meaningful for users of the crate.
-//! * `master`: Zone file parsing and construction. This will enable the
-#![cfg_attr(feature = "master", doc = "  [master]")]
-#![cfg_attr(not(feature = "master"), doc = "  master")]
-//!   module and currently enables the `bytes`, `chrono`, and `std`
-//!   features. Note that feature and module are experimental and will soon
-//!   be replaced.
 //! * `random`: Enables a number of methods that rely on a random number
 //!   generator being available in the system.
 //! * `resolv`: Enables the asynchronous stub resolver via the
@@ -102,6 +94,10 @@
 #![cfg_attr(not(feature = "validate"), doc = "  validate")]
 //!   module and currently also enables the `std` and `ring`
 //!   features.
+//! * `zonefile`: reading and writing of zonefiles. This feature enables the
+#![cfg_attr(feature = "zonefile", doc = "  [zonefile]")]
+#![cfg_attr(not(feature = "zonefile"), doc = "  zonefile")]
+//!   module and currently also enables the `bytes` and `std` features.
 
 #![no_std]
 #![allow(renamed_and_removed_lints)]
@@ -117,7 +113,6 @@ extern crate std;
 extern crate core;
 
 pub mod base;
-pub mod master;
 pub mod rdata;
 pub mod resolv;
 pub mod sign;
@@ -125,3 +120,4 @@ pub mod test;
 pub mod tsig;
 pub mod utils;
 pub mod validate;
+pub mod zonefile;

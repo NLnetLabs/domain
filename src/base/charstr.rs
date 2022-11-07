@@ -30,11 +30,7 @@ use super::octets::{
 };
 #[cfg(feature = "serde")]
 use super::octets::{DeserializeOctets, SerializeOctets};
-use super::str::{BadSymbol, Symbol, SymbolError};
-#[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
+use super::scan::{BadSymbol, Scan, Scanner, Symbol, SymbolCharsError};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
@@ -83,8 +79,11 @@ impl<Octets: ?Sized> CharStr<Octets> {
 
     /// Creates a character string from octets without length check.
     ///
-    /// As this can break the guarantees made by the type, it is unsafe.
-    unsafe fn from_octets_unchecked(octets: Octets) -> Self
+    /// # Safety
+    ///
+    /// The caller has to make sure that `octets` is at most 255 octets
+    /// long. Otherwise, the behaviour is undefined.
+    pub unsafe fn from_octets_unchecked(octets: Octets) -> Self
     where
         Octets: Sized,
     {
@@ -166,17 +165,6 @@ impl CharStr<Bytes> {
         } else {
             Ok(unsafe { Self::from_octets_unchecked(bytes) })
         }
-    }
-
-    /// Scans a character string given as a word of hexadecimal digits.
-    #[cfg(feature = "master")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "master")))]
-    pub fn scan_hex<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_hex_word(|b| unsafe {
-            Ok(CharStr::from_octets_unchecked(b))
-        })
     }
 }
 
@@ -357,18 +345,9 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
-impl Scan for CharStr<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_byte_phrase(|res| {
-            if res.len() > 255 {
-                Err(SyntaxError::LongCharStr)
-            } else {
-                Ok(unsafe { CharStr::from_octets_unchecked(res) })
-            }
-        })
+impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for CharStr<Octets> {
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        scanner.scan_charstr()
     }
 }
 
@@ -778,25 +757,15 @@ impl std::error::Error for CharStrError {}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FromStrError {
-    /// The string ended when there should have been more characters.
-    ///
-    /// This most likely happens inside escape sequences and quoting.
-    ShortInput,
-
     /// A character string has more than 255 octets.
     LongString,
 
-    /// An illegal escape sequence was encountered.
-    ///
-    /// Escape sequences are a backslash character followed by either a
-    /// three decimal digit sequence encoding a byte value or a single
-    /// other printable ASCII character.
-    BadEscape,
+    SymbolChars(SymbolCharsError),
 
     /// An illegal character was encountered.
     ///
     /// Only printable ASCII characters are allowed.
-    BadSymbol(Symbol),
+    BadSymbol(BadSymbol),
 
     /// The octet builder’s buffer was too short for the data.
     ShortBuf,
@@ -804,18 +773,15 @@ pub enum FromStrError {
 
 //--- From
 
-impl From<SymbolError> for FromStrError {
-    fn from(err: SymbolError) -> FromStrError {
-        match err {
-            SymbolError::BadEscape => FromStrError::BadEscape,
-            SymbolError::ShortInput => FromStrError::ShortInput,
-        }
+impl From<SymbolCharsError> for FromStrError {
+    fn from(err: SymbolCharsError) -> FromStrError {
+        FromStrError::SymbolChars(err)
     }
 }
 
 impl From<BadSymbol> for FromStrError {
     fn from(err: BadSymbol) -> FromStrError {
-        FromStrError::BadSymbol(err.0)
+        FromStrError::BadSymbol(err)
     }
 }
 
@@ -830,16 +796,11 @@ impl From<ShortBuf> for FromStrError {
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::ShortInput => {
-                f.write_str("unexpected end of input")
-            }
             FromStrError::LongString => {
                 f.write_str("character string with more than 255 octets")
             }
-            FromStrError::BadEscape => f.write_str("illegal escape sequence"),
-            FromStrError::BadSymbol(symbol) => {
-                write!(f, "illegal character '{}'", symbol)
-            }
+            FromStrError::SymbolChars(ref err) => err.fmt(f),
+            FromStrError::BadSymbol(ref err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -902,17 +863,11 @@ mod test {
             b"\"foo\"2\""
         );
         assert_eq!(Cs::from_str("06 dii").unwrap().as_slice(), b"06 dii");
-        assert_eq!(Cs::from_str("0\\"), Err(FromStrError::ShortInput));
-        assert_eq!(Cs::from_str("0\\2"), Err(FromStrError::ShortInput));
-        assert_eq!(Cs::from_str("0\\2a"), Err(FromStrError::BadEscape));
-        assert_eq!(
-            Cs::from_str("ö"),
-            Err(FromStrError::BadSymbol(Symbol::Char('ö')))
-        );
-        assert_eq!(
-            Cs::from_str("\x06"),
-            Err(FromStrError::BadSymbol(Symbol::Char('\x06')))
-        );
+        assert!(Cs::from_str("0\\").is_err());
+        assert!(Cs::from_str("0\\2").is_err());
+        assert!(Cs::from_str("0\\2a").is_err());
+        assert!(Cs::from_str("ö").is_err());
+        assert!(Cs::from_str("\x06").is_err());
     }
 
     #[test]
@@ -925,9 +880,8 @@ mod test {
         assert_eq!(bar.as_slice(), b"ba");
         assert_eq!(parser.peek_all(), b"rtail");
 
-        assert_eq!(
-            CharStrRef::parse(&mut Parser::from_static(b"\x04foo")),
-            Err(ParseError::ShortInput)
+        assert!(
+            CharStrRef::parse(&mut Parser::from_static(b"\x04foo")).is_err(),
         )
     }
 

@@ -1,7 +1,7 @@
 [package]
 name = "domain"
 version = "0.8.0-dev"
-rust-version = "1.56"
+rust-version = "1.59.0"
 edition = "2021"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
 description = "A DNS library for Rust."
@@ -17,6 +17,8 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
+time           = "0.3.1"
+
 rand           = { version = "0.8", optional = true }
 bytes          = { version = "1.0", optional = true }
 chrono         = { version = "0.4.6", optional = true, default-features = false }
@@ -43,13 +45,15 @@ sign        = ["std"]
 std         = []
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
+zonefile    = ["bytes", "std"]
 
 # This feature should include all features that the CI should include for a
 # test run. Which is everything except interop.
-ci-test     = ["master", "resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate"]
+ci-test     = ["resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]
 
 [dev-dependencies]
 serde_test         = "1.0.130"
+serde_yaml         = "0.9"
 tokio-native-tls   = "0.3"
 tokio              = { version = "1", features = ["rt-multi-thread", "io-util", "net"] }
 
@@ -59,7 +63,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
 name = "readzone"
-required-features = ["master"]
+required-features = ["zonefile"]
 
 [[example]]
 name = "download-rust-lang"

@@ -5,16 +5,11 @@ use super::super::octets::{
 };
 #[cfg(feature = "serde")]
 use super::super::octets::{DeserializeOctets, SerializeOctets};
+use super::super::scan::{Scan, Scanner, Symbol};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
-#[cfg(feature = "master")]
-use super::uncertain::UncertainDname;
-#[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::str::FromStr;
@@ -77,10 +72,21 @@ impl<Octets> Dname<Octets> {
         Ok(unsafe { Dname::from_octets_unchecked(octets) })
     }
 
+    pub fn from_symbols<Sym>(symbols: Sym) -> Result<Self, FromStrError>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+        Sym: IntoIterator<Item = Symbol>,
+    {
+        let mut builder = DnameBuilder::<Octets::Builder>::new();
+        builder.append_symbols(symbols)?;
+        builder.into_dname().map_err(Into::into)
+    }
+
     /// Creates a domain name from a sequence of characters.
     ///
-    /// The sequence must result in a domain name in master format
-    /// representation. That is, its labels should be separated by dots.
+    /// The sequence must result in a domain name in representation format.
+    /// That is, its labels should be separated by dots.
     /// Actual dots, white space and backslashes should be escaped by a
     /// preceeding backslash, and any byte value that is not a printable
     /// ASCII character should be encoded by a backslash followed by its
@@ -807,23 +813,9 @@ impl<Octets: AsRef<[u8]> + ?Sized> Compose for Dname<Octets> {
 
 //--- Scan and Display
 
-#[cfg(feature = "master")]
-impl Scan for Dname<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        let pos = scanner.pos();
-        let name = match UncertainDname::scan(scanner)? {
-            UncertainDname::Relative(name) => name,
-            UncertainDname::Absolute(name) => return Ok(name),
-        };
-        let origin = match *scanner.origin() {
-            Some(ref origin) => origin,
-            None => return Err((SyntaxError::NoOrigin, pos).into()),
-        };
-        name.into_builder()
-            .append_origin(origin)
-            .map_err(|err| (SyntaxError::from(err), pos).into())
+impl<Octets, S: Scanner<Dname = Self>> Scan<S> for Dname<Octets> {
+    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        scanner.scan_dname()
     }
 }
 

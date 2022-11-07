@@ -18,8 +18,8 @@
 //! giant matches which may or may not be the smartest way to do this.
 //!
 //! Types also implement `parse()` and `scan()` functions for creation from
-//! wire format and master format, respectively, as well as a `compose()`
-//! method for composing into wire format data.
+//! wire format and representation format, respectively, as well as a
+//! `compose()` method for composing into wire format data.
 //!
 //! While each parameter type has a module of its own, they are all
 //! re-exported here. This is mostly so we can have associated types like

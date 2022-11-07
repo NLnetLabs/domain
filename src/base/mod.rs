@@ -26,7 +26,7 @@
 //!
 //! In order to easily distinguish the process of creating and disecting
 //! wire-format messages other forms of representation conversion such as
-//! reading from a master file, we use the term *parsing* for extracting data
+//! reading from a zone file, we use the term *parsing* for extracting data
 //! from a wire-format representation and *composing* for producing such a
 //! representation.
 //!
@@ -65,11 +65,10 @@
 //! * [rdata](rdata/index.html) for all the individual record types.
 //!
 //!
-//! # Master File Processing
+//! # Zone File Processing
 //!
-//! Handling for the text format for DNS data, sometimes called master files
-//! or zone files is available via the [master] module. See there for more
-//! information.
+//! Handling for the text format for DNS data from zone files is available
+//! via the [zonefile] module. See there for more information.
 //!
 //!
 //! # Support for `no_std`
@@ -84,7 +83,6 @@
 //! the default set, so you will have to disable the default features.
 //!
 //! [iana]: iana/index.html
-//! [master]: master/index.html
 //! [octets]: octets/index.html
 //! [rdata]: rdata/index.html
 //! [`Message`]: message/struct.Message.html
@@ -128,6 +126,7 @@ pub mod opt;
 pub mod question;
 pub mod rdata;
 pub mod record;
+pub mod scan;
 pub mod serial;
 pub mod str;
 

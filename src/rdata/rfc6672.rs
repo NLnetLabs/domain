@@ -6,8 +6,6 @@ use crate::base::octets::{
     Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
 use core::cmp::Ordering;
 use core::str::FromStr;
 use core::{fmt, hash, ops};

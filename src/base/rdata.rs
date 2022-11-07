@@ -28,12 +28,8 @@ use super::octets::{
     Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
     ShortBuf,
 };
-#[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
-#[cfg(feature = "master")]
-use bytes::{BufMut, Bytes, BytesMut};
+use super::scan::{Scan, Scanner, ScannerError, Symbol};
+use crate::utils::base16;
 use core::cmp::Ordering;
 use core::fmt;
 
@@ -165,11 +161,17 @@ pub struct UnknownRecordData<Octets> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
-            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            serialize_with = "crate::utils::base16::serde::serialize",
+            deserialize_with = "crate::utils::base16::serde::deserialize",
             bound(
-                serialize = "Octets: crate::base::octets::SerializeOctets",
-                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octets: AsRef<[u8]> + crate::base::octets::SerializeOctets",
+                deserialize = "\
+                    Octets: \
+                        crate::base::octets::FromBuilder + \
+                        crate::base::octets::DeserializeOctets<'de>, \
+                    <Octets as crate::base::octets::FromBuilder>::Builder: \
+                        crate::base::octets::EmptyBuilder, \
+                ",
             )
         )
     )]
@@ -191,46 +193,54 @@ impl<Octets> UnknownRecordData<Octets> {
     pub fn data(&self) -> &Octets {
         &self.data
     }
-}
 
-#[cfg(feature = "master")]
-impl UnknownRecordData<Bytes> {
     /// Scans the record data.
     ///
     /// This isn’t implemented via `Scan`, because we need the record type.
-    pub fn scan<C: CharSource>(
+    pub fn scan<S: Scanner<Octets = Octets>>(
         rtype: Rtype,
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.skip_literal("\\#")?;
-        let mut len = u16::scan(scanner)? as usize;
-        let mut res = BytesMut::with_capacity(len);
-        while len > 0 {
-            len = scanner.scan_word(
-                (&mut res, len, None), // buffer and optional first char
-                |&mut (ref mut res, ref mut len, ref mut first), symbol| {
-                    if *len == 0 {
-                        return Err(SyntaxError::LongGenericData);
-                    }
-                    let ch = symbol.into_digit(16)? as u8;
-                    if let Some(ch1) = *first {
-                        res.put_u8(ch1 << 4 | ch);
-                        *len -= 1;
-                    } else {
-                        *first = Some(ch)
-                    }
-                    Ok(())
-                },
-                |(_, len, first)| {
-                    if first.is_some() {
-                        Err(SyntaxError::UnevenHexString)
-                    } else {
-                        Ok(len)
-                    }
-                },
-            )?
+        scanner: &mut S,
+    ) -> Result<Self, S::Error>
+    where
+        Octets: AsRef<[u8]>,
+    {
+        // First token is literal "\#".
+        let mut first = true;
+        scanner.scan_symbols(|symbol| {
+            if first {
+                first = false;
+                match symbol {
+                    Symbol::SimpleEscape(b'#') => Ok(()),
+                    _ => Err(S::Error::custom("'\\#' expected")),
+                }
+            } else {
+                Err(S::Error::custom("'\\#' expected"))
+            }
+        })?;
+        Self::scan_without_marker(rtype, scanner)
+    }
+
+    /// Scans the record data assuming that the marker has been skipped.
+    pub fn scan_without_marker<S: Scanner<Octets = Octets>>(
+        rtype: Rtype,
+        scanner: &mut S,
+    ) -> Result<Self, S::Error>
+    where
+        Octets: AsRef<[u8]>,
+    {
+        // Second token is the rdata length.
+        let len = u16::scan(scanner)?;
+
+        // The rest is the actual data.
+        let data = scanner.convert_entry(base16::SymbolConverter::new())?;
+
+        if data.as_ref().len() != usize::from(len) {
+            return Err(S::Error::custom(
+                "generic data has incorrect length",
+            ));
         }
-        Ok(UnknownRecordData::from_octets(rtype, res.freeze()))
+
+        Ok(UnknownRecordData { rtype, data })
     }
 }
 

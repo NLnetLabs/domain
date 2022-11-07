@@ -353,7 +353,6 @@ mod test {
     use super::*;
     use crate::base::iana::{Class, Rtype, SecAlg};
     use crate::base::serial::Serial;
-    use crate::master::scan::Scanner;
     use crate::rdata::{Mx, ZoneRecordData};
     use crate::utils::base64;
     use bytes::Bytes;
@@ -490,8 +489,8 @@ mod test {
             SecAlg::RsaSha256,
             1,
             86400,
-            rrsig_serial("20210921162830"),
-            rrsig_serial("20210906162330"),
+            Serial::rrsig_from_str("20210921162830").unwrap(),
+            Serial::rrsig_from_str("20210906162330").unwrap(),
             35886,
             "net.".parse::<Dname>().unwrap(),
             base64::decode::<Vec<u8>>(
@@ -649,12 +648,6 @@ mod test {
         assert!(rrsig.verify_signed_data(&ksk, &signed_data).is_ok());
     }
 
-    // Parse RRSIG serial from text.
-    fn rrsig_serial(x: &str) -> Serial {
-        let mut s = Scanner::new(x);
-        Serial::scan_rrsig(&mut s).unwrap()
-    }
-
     #[test]
     fn rrsig_verify_wildcard() {
         let key = Dnskey::new(
@@ -674,8 +667,8 @@ mod test {
             SecAlg::RsaSha1,
             2,
             3600,
-            rrsig_serial("20040509183619"),
-            rrsig_serial("20040409183619"),
+            Serial::rrsig_from_str("20040509183619").unwrap(),
+            Serial::rrsig_from_str("20040409183619").unwrap(),
             38519,
             Dname::from_str("example.").unwrap(),
             base64::decode::<Vec<u8>>(

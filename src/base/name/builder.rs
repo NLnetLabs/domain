@@ -4,6 +4,7 @@
 //! are re-exported by the parent module.
 
 use super::super::octets::{EmptyBuilder, OctetsBuilder, ShortBuf};
+use super::super::scan::Symbol;
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
@@ -236,13 +237,39 @@ impl<Builder: OctetsBuilder + AsMut<[u8]>> DnameBuilder<Builder> {
         Ok(())
     }
 
+    pub fn append_symbols<Sym: IntoIterator<Item = Symbol>>(
+        &mut self,
+        symbols: Sym,
+    ) -> Result<(), FromStrError> {
+        for sym in symbols {
+            if matches!(sym, Symbol::Char('.')) {
+                if !self.in_label() {
+                    return Err(FromStrError::EmptyLabel);
+                }
+                self.end_label();
+            } else if matches!(sym, Symbol::SimpleEscape(b'['))
+                && !self.in_label()
+            {
+                return Err(LabelFromStrError::BinaryLabel.into());
+            } else if let Ok(ch) = sym.into_octet() {
+                self.push(ch)?;
+            } else {
+                return Err(match sym {
+                    Symbol::Char(ch) => FromStrError::IllegalCharacter(ch),
+                    _ => FromStrError::IllegalEscape,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Appends a name from a sequence of characters.
     ///
     /// If there currently is a label under construction, it will be ended
     /// before appending `chars`.
     ///
-    /// The character sequence must result in a domain name in master format
-    /// representation. That is, its labels should be separated by dots,
+    /// The character sequence must result in a domain name in representation
+    /// format. That is, its labels should be separated by dots,
     /// actual dots, white space and backslashes should be escaped by a
     /// preceeding backslash, and any byte value that is not a printable
     /// ASCII character should be encoded by a backslash followed by its
@@ -255,6 +282,8 @@ impl<Builder: OctetsBuilder + AsMut<[u8]>> DnameBuilder<Builder> {
         &mut self,
         chars: C,
     ) -> Result<(), FromStrError> {
+        // XXX Convert to use append_symbols.
+
         let mut chars = chars.into_iter();
         while let Some(ch) = chars.next() {
             match ch {
