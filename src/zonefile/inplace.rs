@@ -81,9 +81,9 @@ impl Zonefile {
 
     /// Creates a new, empty value with the given capacity.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self::with_buf(SourceBuf::with_empty_buf(
-            BytesMut::with_capacity(capacity + 1)
-        ))
+        Self::with_buf(SourceBuf::with_empty_buf(BytesMut::with_capacity(
+            capacity + 1,
+        )))
     }
 
     /// Creates a new value using the given buffer.
@@ -101,7 +101,7 @@ impl Zonefile {
     #[cfg(feature = "std")]
     #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
     pub fn load(
-        read: &mut impl std::io::Read
+        read: &mut impl std::io::Read,
     ) -> Result<Self, std::io::Error> {
         let mut buf = Self::new().writer();
         std::io::copy(read, &mut buf)?;
@@ -154,7 +154,6 @@ unsafe impl BufMut for Zonefile {
         self.buf.buf.chunk_mut()
     }
 }
-
 
 impl Zonefile {
     /// Sets the origin of the zonefile.
