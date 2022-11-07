@@ -1,7 +1,7 @@
 //! Reads a zone file.
 
 fn main() {
-    use domain::zonefile::scan::Zonefile;
+    use domain::zonefile::inplace::Zonefile;
     use std::env;
     use std::fs::File;
     use std::time::SystemTime;
