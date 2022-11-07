@@ -1,4 +1,16 @@
-//! Reading zone files.
+//! A zonefile scanner keeping data in place.
+//!
+//! The zonefile scanner provided by this module reads the entire zonefile
+//! into memory and tries as much as possible to modify re-use this memory
+//! when scanning data. It uses the `Bytes` family of types for safely
+//! storing, manipulating, and returning the data and thus requires the
+//! `bytes` feature to be enabled.
+//!
+//! This may or may not be a good strategy. It was primarily implemented to
+//! see that the [`Scan`] trait is powerful enough to build such an
+//! implementation.
+#![cfg(feature = "bytes")]
+#![cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
 
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
@@ -14,17 +26,35 @@ use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use core::str::FromStr;
 use core::{fmt, str};
-use std::{error, io};
 
 //------------ Type Aliases --------------------------------------------------
 
+/// The type used for scanned domain names.
 pub type ScannedDname = Chain<RelativeDname<Bytes>, Dname<Bytes>>;
+
+/// The type used for scanned record data.
 pub type ScannedRecordData = ZoneRecordData<Bytes, ScannedDname>;
+
+/// The type used for scanned records.
 pub type ScannedRecord = Record<ScannedDname, ScannedRecordData>;
+
+/// The type used for scanned strings.
 pub type ScannedString = String<Bytes>;
 
 //------------ Zonefile ------------------------------------------------------
 
+/// A zonefile to be scanned.
+///
+/// A value of this types holds data to be scanned in memory and allows
+/// fetching entries by acting as an iterator.
+///
+/// The type implements the `bytes::BufMut` trait for appending data directly
+/// into the memory buffer. The function [`load`][Self::load] can be used to
+/// create a value directly from a reader.
+///
+/// Once data has been added, you can simply iterate over the value to
+/// get entries. The [`next_entry`][Self::next_entry] method provides an
+/// alternative with a more question mark friendly signature.
 #[derive(Clone, Debug)]
 pub struct Zonefile {
     /// This is where we keep the data of the next entry.
@@ -43,22 +73,21 @@ pub struct Zonefile {
     last_class: Option<Class>,
 }
 
-impl Default for Zonefile {
-    fn default() -> Self {
-        Self::with_buf(SourceBuf::default())
-    }
-}
-
 impl Zonefile {
+    /// Creates a new, empty value.
     pub fn new() -> Self {
-        Self::default()
+        Self::with_buf(SourceBuf::with_empty_buf(BytesMut::new()))
     }
 
+    /// Creates a new, empty value with the given capacity.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self::with_buf(SourceBuf::with_capacity(capacity))
+        Self::with_buf(SourceBuf::with_empty_buf(
+            BytesMut::with_capacity(capacity + 1)
+        ))
     }
 
-    pub fn with_buf(buf: SourceBuf) -> Self {
+    /// Creates a new value using the given buffer.
+    fn with_buf(buf: SourceBuf) -> Self {
         Zonefile {
             buf,
             origin: None,
@@ -68,28 +97,83 @@ impl Zonefile {
         }
     }
 
-    pub fn load(read: &mut impl io::Read) -> Result<Self, io::Error> {
-        let mut buf = SourceBuf::new().writer();
-        io::copy(read, &mut buf)?;
-        Ok(Self::with_buf(buf.into_inner()))
+    /// Creates a value by loading the data from the given reader.
+    #[cfg(feature = "std")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
+    pub fn load(
+        read: &mut impl std::io::Read
+    ) -> Result<Self, std::io::Error> {
+        let mut buf = Self::new().writer();
+        std::io::copy(read, &mut buf)?;
+        Ok(buf.into_inner())
+    }
+}
+
+impl Default for Zonefile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a> From<&'a str> for Zonefile {
+    fn from(src: &'a str) -> Self {
+        Self::from(src.as_bytes())
+    }
+}
+
+impl<'a> From<&'a [u8]> for Zonefile {
+    fn from(src: &'a [u8]) -> Self {
+        let mut res = Self::with_capacity(src.len() + 1);
+        res.extend_from_slice(src);
+        res
+    }
+}
+
+impl Zonefile {
+    /// Reserves at least `len` additional bytes in the buffer.
+    pub fn reserve(&mut self, len: usize) {
+        self.buf.buf.reserve(len);
     }
 
-    pub fn buf_mut(&mut self) -> &mut SourceBuf {
-        &mut self.buf
+    /// Appends the given slice to the end of the buffer.
+    pub fn extend_from_slice(&mut self, slice: &[u8]) {
+        self.buf.buf.extend_from_slice(slice)
+    }
+}
+
+unsafe impl BufMut for Zonefile {
+    fn remaining_mut(&self) -> usize {
+        self.buf.buf.remaining_mut()
     }
 
+    unsafe fn advance_mut(&mut self, cnt: usize) {
+        self.buf.buf.advance_mut(cnt);
+    }
+
+    fn chunk_mut(&mut self) -> &mut UninitSlice {
+        self.buf.buf.chunk_mut()
+    }
+}
+
+
+impl Zonefile {
+    /// Sets the origin of the zonefile.
+    ///
+    /// The origin is append to relative domain names encountered in the
+    /// data. Ininitally, there is no origin set. If relative names are
+    /// encountered, an error happenes.
     pub fn set_origin(&mut self, origin: Dname<Bytes>) {
         self.origin = Some(origin)
     }
 
-    pub fn set_class(&mut self, class: Class) {
-        self.last_class = Some(class)
-    }
-
-    pub fn set_ttl(&mut self, ttl: u32) {
-        self.last_ttl = Some(ttl)
-    }
-
+    /// Returns the next entry in the zonefile.
+    ///
+    /// Returns `Ok(None)` if the end of the file has been reached. Returns
+    /// an error if scanning the next entry failed.
+    ///
+    /// This method is identical to the `next` method of the iterator
+    /// implementation but has the return type transposed for easier use
+    /// with the question mark operator.
     pub fn next_entry(&mut self) -> Result<Option<Entry>, Error> {
         loop {
             match EntryScanner::new(self)?.scan_entry()? {
@@ -102,6 +186,7 @@ impl Zonefile {
         }
     }
 
+    /// Returns the origin name of the zonefile.
     fn get_origin(&self) -> Result<Dname<Bytes>, EntryError> {
         self.origin
             .as_ref()
@@ -110,31 +195,67 @@ impl Zonefile {
     }
 }
 
+impl Iterator for Zonefile {
+    type Item = Result<Entry, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_entry().transpose()
+    }
+}
+
 //------------ Entry ---------------------------------------------------------
 
+/// An entry of a zonefile.
 #[derive(Clone, Debug)]
 pub enum Entry {
+    /// A DNS record.
     Record(ScannedRecord),
+
+    /// An include directive.
+    ///
+    /// When this entry is encountered, the referenced file should be scanned
+    /// next. If `origin` is given, this file should be scanned with it as the
+    /// initial origin name,
     Include {
+        /// The path to the file to be included.
         path: ScannedString,
+
+        /// The initial origin name of the included file, if provided.
         origin: Option<Dname<Bytes>>,
     },
 }
 
 //------------ ScannedEntry --------------------------------------------------
 
+/// A raw scanned entry of a zonefile.
+///
+/// This includes all the entry types that we can handle internally and don’t
+/// have to bubble up to the user.
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 enum ScannedEntry {
+    /// An entry that should be handed to the user.
     Entry(Entry),
+
+    /// An `$ORIGIN` directive changing the origin name.
     Origin(Dname<Bytes>),
+
+    /// A `$TTL` directive changing the default TTL if it isn’t given.
     Ttl(u32),
+
+    /// An empty entry.
     Empty,
+
+    /// The end of file was reached.
     Eof,
 }
 
 //------------ EntryScanner --------------------------------------------------
 
+/// The entry scanner for a zonefile.
+///
+/// A value of this type is created for each entry. It implements the
+/// [`Scanner`] interface.
 #[derive(Debug)]
 struct EntryScanner<'a> {
     /// The zonefile we are working on.
@@ -142,15 +263,21 @@ struct EntryScanner<'a> {
 }
 
 impl<'a> EntryScanner<'a> {
+    /// Creates a new entry scanner using the given zonefile.
     fn new(zonefile: &'a mut Zonefile) -> Result<Self, Error> {
         Ok(EntryScanner { zonefile })
     }
 
+    /// Scans a single entry from the zone file.
     fn scan_entry(&mut self) -> Result<ScannedEntry, Error> {
         self._scan_entry()
             .map_err(|err| self.zonefile.buf.error(err))
     }
 
+    /// Scans a single entry from the zone file.
+    ///
+    /// This is identical to `scan_entry` but with a more convenient error
+    /// type.
     fn _scan_entry(&mut self) -> Result<ScannedEntry, EntryError> {
         self.zonefile.buf.next_item()?;
         match self.zonefile.buf.cat {
@@ -182,11 +309,13 @@ impl<'a> EntryScanner<'a> {
         }
     }
 
+    /// Scans a regular record.
     fn scan_record(&mut self) -> Result<ScannedEntry, EntryError> {
         let owner = ScannedDname::scan(self)?;
         self.scan_owner_record(owner, true)
     }
 
+    /// Scans a regular record with an owner name of `@`.
     fn scan_at_record(&mut self) -> Result<ScannedEntry, EntryError> {
         let owner = RelativeDname::empty_bytes()
             .chain(match self.zonefile.origin.as_ref().cloned() {
@@ -197,6 +326,7 @@ impl<'a> EntryScanner<'a> {
         self.scan_owner_record(owner, true)
     }
 
+    /// Scans a regular record with an explicit owner name.
     fn scan_owner_record(
         &mut self,
         owner: ScannedDname,
@@ -239,6 +369,7 @@ impl<'a> EntryScanner<'a> {
         ))))
     }
 
+    /// Scans the TTL, class, and type portions of a regular record.
     fn scan_ctr(
         &mut self,
     ) -> Result<(Option<Class>, Option<u32>, Rtype), EntryError> {
@@ -322,6 +453,7 @@ impl<'a> EntryScanner<'a> {
         }
     }
 
+    /// Scans a control directive.
     fn scan_control(&mut self) -> Result<ScannedEntry, EntryError> {
         let ctrl = self.scan_string()?;
         if ctrl.eq_ignore_ascii_case("$ORIGIN") {
@@ -622,6 +754,7 @@ impl<'a> Scanner for EntryScanner<'a> {
 }
 
 impl<'a> EntryScanner<'a> {
+    /// Converts a single token using a token converter.
     fn convert_one_token<
         S: From<Symbol>,
         C: ConvertSymbols<S, EntryError>,
@@ -640,6 +773,12 @@ impl<'a> EntryScanner<'a> {
         self.zonefile.buf.next_item()
     }
 
+    /// Appends output data.
+    ///
+    /// If the data fits into the portion of the buffer before the current
+    /// read positiion, puts it there. Otherwise creates a new builder. If
+    /// it created a new builder or if one was passed in via `builder`,
+    /// appends the data to that.
     fn append_data(
         &mut self,
         data: &[u8],
@@ -744,6 +883,7 @@ impl<'a> EntryScanner<'a> {
         }
     }
 
+    /// Converts a character string.
     fn convert_charstr(
         &mut self,
         write: &mut usize,
@@ -785,8 +925,9 @@ impl<'a> EntryScanner<'a> {
 
 //------------ SourceBuf -----------------------------------------------------
 
+/// The buffer to read data from and also into if possible.
 #[derive(Clone, Debug)]
-pub struct SourceBuf {
+struct SourceBuf {
     /// The underlying ‘real’ buffer.
     ///
     /// This buffer contains the data we still need to process. This contains
@@ -816,37 +957,11 @@ pub struct SourceBuf {
     line_start: isize,
 }
 
-//--- Public Interface
-
-impl Default for SourceBuf {
-    fn default() -> Self {
-        Self::with_empty_buf(BytesMut::default())
-    }
-}
-
-impl<'a> From<&'a str> for SourceBuf {
-    fn from(src: &'a str) -> Self {
-        Self::from(src.as_bytes())
-    }
-}
-
-impl<'a> From<&'a [u8]> for SourceBuf {
-    fn from(src: &'a [u8]) -> Self {
-        let mut res = Self::with_capacity(src.len() + 1);
-        res.extend_from_slice(src);
-        res
-    }
-}
-
 impl SourceBuf {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self::with_empty_buf(BytesMut::with_capacity(capacity + 1))
-    }
-
+    /// Create a new empty buffer.
+    ///
+    /// Assumes that `buf` is empty. Adds a single byte to the buffer which
+    /// we would need for parsing if the first token is a domain name.
     fn with_empty_buf(mut buf: BytesMut) -> Self {
         buf.put_u8(0);
         SourceBuf {
@@ -860,32 +975,6 @@ impl SourceBuf {
         }
     }
 
-    pub fn reserve(&mut self, len: usize) {
-        self.buf.reserve(len);
-    }
-
-    pub fn extend_from_slice(&mut self, slice: &[u8]) {
-        self.buf.extend_from_slice(slice)
-    }
-}
-
-unsafe impl BufMut for SourceBuf {
-    fn remaining_mut(&self) -> usize {
-        self.buf.remaining_mut()
-    }
-
-    unsafe fn advance_mut(&mut self, cnt: usize) {
-        self.buf.advance_mut(cnt);
-    }
-
-    fn chunk_mut(&mut self) -> &mut UninitSlice {
-        self.buf.chunk_mut()
-    }
-}
-
-//--- Internal Interface
-
-impl SourceBuf {
     /// Enriches an entry error with position information.
     fn error(&self, err: EntryError) -> Error {
         Error {
@@ -1318,6 +1407,7 @@ enum ItemCat {
 
 //------------ EntryError ----------------------------------------------------
 
+/// An error returned by the entry scanner.
 #[derive(Debug)]
 struct EntryError(&'static str);
 
@@ -1399,7 +1489,8 @@ impl fmt::Display for EntryError {
     }
 }
 
-impl error::Error for EntryError {}
+#[cfg(feature = "std")]
+impl std::error::Error for EntryError {}
 
 //------------ Error ---------------------------------------------------------
 
@@ -1416,7 +1507,8 @@ impl fmt::Display for Error {
     }
 }
 
-impl error::Error for Error {}
+#[cfg(feature = "std")]
+impl std::error::Error for Error {}
 
 //============ Tests =========================================================
 
@@ -1427,9 +1519,8 @@ mod test {
     use std::vec::Vec;
 
     fn with_entry(s: &str, op: impl FnOnce(EntryScanner)) {
-        let mut buf = SourceBuf::with_capacity(s.len());
-        buf.extend_from_slice(s.as_bytes());
-        let mut zone = Zonefile::with_buf(buf);
+        let mut zone = Zonefile::with_capacity(s.len());
+        zone.extend_from_slice(s.as_bytes());
         let entry = EntryScanner::new(&mut zone).unwrap();
         entry.zonefile.buf.next_item().unwrap();
         op(entry)

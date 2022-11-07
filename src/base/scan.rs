@@ -9,13 +9,15 @@
 //! The module provides two important traits which should sound familiar to
 //! anyone who has used Serde before: [`Scan`] and [`Scanner`]. A type that
 //! knows how to create a value from its presentation format implements
-//! `Scan`. It uses an implementation of the [`Scanner`] trait as the source
+//! [`Scan`]. It uses an implementation of the [`Scanner`] trait as the source
 //! of data in presentation format.
 //!
-//! This module does not provide any actual scanner implementations. See the
+//! This module provides a simple scanner that uses a sequence of strings as
+//! its source and can be used to, for instance, read record data from
+//! command line arguments. A “proper” scanner is included in the
 #![cfg_attr(feature = "zonefile", doc = "[zonefile]")]
 #![cfg_attr(not(feature = "zonefile"), doc = "zonefile")]
-//! module for those.
+//! module.
 #![allow(clippy::manual_range_contains)] // Hard disagree.
 
 use crate::base::charstr::{CharStr, CharStrBuilder};
@@ -56,7 +58,7 @@ pub trait Scan<S: Scanner>: Sized {
     ///
     /// If an implementation encounters an error in the presentation data,
     /// it should report it using [`ScannerError::custom`] unless any of the
-    /// other methods of [`ScannerError`] seems more appropriate.
+    /// other methods of [`ScannerError`] seem more appropriate.
     fn scan(scanner: &mut S) -> Result<Self, S::Error>;
 }
 
@@ -95,19 +97,21 @@ impl_scan_unsigned!(u128);
 /// implementation of the `Scanner` trait provides access to the tokens of a
 /// single entry.
 ///
-/// Most methods of the trait provide a single token to the caller. Exceptions
-/// are those methods suffixed with `_entry`, which provide all the remaining
-/// tokens of the entry. In addition, `has_space` reports whether the token
-/// was prefixed with white space (which is relevant in some cases), and
-/// `continues` reports whether there are more tokens in the entry. It it
-/// returns `false, all the other token and entry methods will return an
-/// error. That is, calling these methods assumes that the caller requires
-/// at least one more token.
+/// Most methods of the trait process a single token to the caller. Exceptions
+/// are those methods suffixed with `_entry`, which process all the remaining
+/// tokens of the entry. In addition, [`has_space`][Scanner::has_space]
+/// reports whether the token was prefixed with white space (which is relevant
+/// in some cases), and [`continues`][Scanner::continues] reports whether
+/// there are more tokens in the entry. It it returns `false, all the other
+/// token and entry methods will return an error. That is, calling these
+/// methods assumes that the caller requires at least one more token.
 ///
-/// Because an implementation may be able to optimize creating of the returned
-/// tokens, there are a number of methods for different tokens. Each of these
-/// methods assumes that the next token needs to be the presentation format of
-/// the given type and is allowed to produce an error if that is not the case.
+/// Because an implementation may be able to optimize the process of
+/// converting tokens into output data types, there are a number of methods
+/// for different output. Each of these methods assumes that the next token
+/// (or the remaining tokens in the entry) is required to contain the
+/// presentation format of the given type and is should produce an error
+/// if that is not the case.
 ///
 /// This allows for instance to optimize the creation of domain names and
 /// avoid copying around data in the most usual cases.
@@ -125,7 +129,7 @@ pub trait Scanner {
         + AsRef<[u8]>
         + AsMut<[u8]>;
 
-    /// The type of domain name returned by the scanner.
+    /// The type of a domain name returned by the scanner.
     type Dname: ToDname;
 
     /// The error type of the scanner.
@@ -187,6 +191,7 @@ pub trait Scanner {
     /// Scans a token as a borrowed ASCII string.
     ///
     /// If the next token contains non-ascii characters, returns an error.
+    /// The string is given to the caller via the provided closure.
     fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
     where
         F: FnOnce(&str) -> Result<T, Self::Error>;
@@ -206,7 +211,7 @@ pub trait Scanner {
 
     /// Scans a sequence of character strings until the end of the entry.
     ///
-    /// The returned octets will contain the sequence of character string in
+    /// The returned octets will contain the sequence of character strings in
     /// wire format.
     fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error>;
 
@@ -290,13 +295,15 @@ impl ScannerError for std::io::Error {
 pub trait ConvertSymbols<Sym, Error> {
     /// Processes the next symbol.
     ///
-    /// The method may return data to be added to the output octets sequence.
+    /// If the method returns some data, it will be appended to the output
+    /// octets sequence.
     fn process_symbol(&mut self, symbol: Sym)
         -> Result<Option<&[u8]>, Error>;
 
     /// Process the end of token.
     ///
-    /// The method may return data to be added to the output octets sequence.
+    /// If the method returns some data, it will be appended to the output
+    /// octets sequence.
     fn process_tail(&mut self) -> Result<Option<&[u8]>, Error>;
 }
 
@@ -732,12 +739,20 @@ impl<Chars: Iterator<Item = char>> Iterator for Symbols<Chars> {
 //------------ IterScanner ---------------------------------------------------
 
 /// A simple scanner atop an iterator of strings.
+///
+/// The type is generic over the iterator as well as the octets sequence to
+/// use for returned data. The types associated octets builder is used to
+/// create values.
 pub struct IterScanner<Iter: Iterator, Octets> {
+    /// The source of tokens of the scanner.
     iter: Peekable<Iter>,
+
+    /// The marker for the output octets sequence type.
     marker: PhantomData<Octets>,
 }
 
 impl<Iter: Iterator, Octets> IterScanner<Iter, Octets> {
+    /// Creates a new scanner from an iterator.
     pub fn new(iter: Iter) -> Self {
         IterScanner {
             iter: iter.peekable(),
@@ -1063,6 +1078,7 @@ impl From<BadSymbol> for std::io::Error {
 
 //------------ StrError ------------------------------------------------------
 
+/// A simple scanner error that just wraps a static str.
 #[derive(Debug)]
 pub struct StrError(&'static str);
 
@@ -1147,3 +1163,4 @@ mod test {
         }
     }
 }
+
