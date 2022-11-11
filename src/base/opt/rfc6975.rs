@@ -97,10 +97,10 @@ macro_rules! option_type {
 
                 for v in self.octets.as_ref() {
                     if first {
-                        write!(f, "{:X}", *v)?;
+                        write!(f, "{}", *v)?;
                         first = false;
                     } else {
-                        write!(f, ", {:X}", *v)?
+                        write!(f, ", {}", *v)?
                     }
                 }
                 Ok(())
