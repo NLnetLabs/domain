@@ -1,6 +1,7 @@
 /// EDNS0 Options from RFC 5001.
 
 use core::fmt;
+use core::str::from_utf8;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
@@ -76,8 +77,14 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Nsid<Octets> {
         // | option as a sequence of hexadecimal digits, two digits per
         // | payload octet.
         for v in self.octets.as_ref() {
-            write!(f, "{:X}", *v)?
+            write!(f, "{:X} ", *v)?;
         }
+        if self.octets.as_ref().is_ascii() {
+            write!(f, "(")?;
+            write!(f, "{}", from_utf8(self.octets.as_ref()).unwrap())?;
+            write!(f, ")")?;
+        }
+
         Ok(())
     }
 }
