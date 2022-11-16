@@ -19,17 +19,17 @@ macro_rules! opt_types {
         // TODO Impl Debug.
         #[derive(Clone)]
         #[non_exhaustive]
-        pub enum AllOptData<Octets> {
+        pub enum AllOptData<Octs> {
             $( $(
                 $opt($module::$opt $( <$octets> )* ),
             )* )*
-            Other(UnknownOptData<Octets>),
+            Other(UnknownOptData<Octs>),
         }
 
         //--- From
 
         $( $(
-            impl<Octets> From<$opt $( <$octets> )*> for AllOptData<Octets> {
+            impl<Octs> From<$opt $( <$octets> )*> for AllOptData<Octs> {
                 fn from(value: $module::$opt$( <$octets> )*) -> Self {
                     AllOptData::$opt(value)
                 }
@@ -39,7 +39,7 @@ macro_rules! opt_types {
 
         //--- Compose
 
-        impl<Octets: AsRef<[u8]>> Compose for AllOptData<Octets> {
+        impl<Octs: AsRef<[u8]>> Compose for AllOptData<Octs> {
             fn compose<T: $crate::base::octets::OctetsBuilder + AsMut<[u8]>>(
                 &self, target: &mut T
             ) -> Result<(), ShortBuf> {
@@ -55,7 +55,7 @@ macro_rules! opt_types {
 
         //--- OptData
 
-        impl<Octets: AsRef<[u8]>> OptData for AllOptData<Octets> {
+        impl<Octs: AsRef<[u8]>> OptData for AllOptData<Octs> {
             fn code(&self) -> OptionCode {
                 match *self {
                     $( $(
@@ -66,10 +66,11 @@ macro_rules! opt_types {
             }
         }
 
-        impl<Ref: OctetsRef> ParseOptData<Ref> for AllOptData<Ref::Range> {
+        impl<'a, Octs: Octets> ParseOptData<'a, Octs>
+        for AllOptData<Octs::Range<'a>> {
             fn parse_option(
                 code: OptionCode,
-                parser: &mut Parser<Ref>,
+                parser: &mut Parser<'a, Octs>,
             ) -> Result<Option<Self>, ParseError> {
                 match code {
                     $( $(

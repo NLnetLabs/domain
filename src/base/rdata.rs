@@ -25,7 +25,7 @@
 use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    Compose, Octets, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser,
     ShortBuf,
 };
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
@@ -61,7 +61,7 @@ pub trait RecordData: Compose + Sized {
 /// data to be used when constructing the message.
 ///
 /// To reflect this asymmetry, parsing of record data has its own trait.
-pub trait ParseRecordData<Ref>: RecordData {
+pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData {
     /// Parses the record data.
     ///
     /// The record data is for a record of type `rtype`. The function may
@@ -77,7 +77,7 @@ pub trait ParseRecordData<Ref>: RecordData {
     /// the parser. In particual, it must not advance it.
     fn parse_data(
         rtype: Rtype,
-        parser: &mut Parser<Ref>,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError>;
 }
 
@@ -109,13 +109,14 @@ impl<T: RtypeRecordData + Compose + Sized> RecordData for T {
     }
 }
 
-impl<Octets, T> ParseRecordData<Octets> for T
+impl<'a, Octs, T> ParseRecordData<'a, Octs> for T
 where
-    T: RtypeRecordData + Parse<Octets> + Compose + Sized,
+    Octs: ?Sized,
+    T: RtypeRecordData + Parse<'a, Octs> + Compose + Sized,
 {
     fn parse_data(
         rtype: Rtype,
-        parser: &mut Parser<Octets>,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Self::RTYPE {
             Self::parse(parser).map(Some)
@@ -153,7 +154,7 @@ where
 /// [`domain::rdata::rfc1035]: ../../rdata/rfc1035/index.html
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct UnknownRecordData<Octets> {
+pub struct UnknownRecordData<Octs> {
     /// The record type of this data.
     rtype: Rtype,
 
@@ -164,23 +165,23 @@ pub struct UnknownRecordData<Octets> {
             serialize_with = "crate::utils::base16::serde::serialize",
             deserialize_with = "crate::utils::base16::serde::deserialize",
             bound(
-                serialize = "Octets: AsRef<[u8]> + crate::base::octets::SerializeOctets",
+                serialize = "Octs: AsRef<[u8]> + crate::base::octets::SerializeOctets",
                 deserialize = "\
-                    Octets: \
+                    Octs: \
                         crate::base::octets::FromBuilder + \
                         crate::base::octets::DeserializeOctets<'de>, \
-                    <Octets as crate::base::octets::FromBuilder>::Builder: \
+                    <Octs as crate::base::octets::FromBuilder>::Builder: \
                         crate::base::octets::EmptyBuilder, \
                 ",
             )
         )
     )]
-    data: Octets,
+    data: Octs,
 }
 
-impl<Octets> UnknownRecordData<Octets> {
+impl<Octs> UnknownRecordData<Octs> {
     /// Creates generic record data from a bytes value contain the data.
-    pub fn from_octets(rtype: Rtype, data: Octets) -> Self {
+    pub fn from_octets(rtype: Rtype, data: Octs) -> Self {
         UnknownRecordData { rtype, data }
     }
 
@@ -190,19 +191,19 @@ impl<Octets> UnknownRecordData<Octets> {
     }
 
     /// Returns a reference to the record data.
-    pub fn data(&self) -> &Octets {
+    pub fn data(&self) -> &Octs {
         &self.data
     }
 
     /// Scans the record data.
     ///
     /// This isn’t implemented via `Scan`, because we need the record type.
-    pub fn scan<S: Scanner<Octets = Octets>>(
+    pub fn scan<S: Scanner<Octets = Octs>>(
         rtype: Rtype,
         scanner: &mut S,
     ) -> Result<Self, S::Error>
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         // First token is literal "\#".
         let mut first = true;
@@ -221,12 +222,12 @@ impl<Octets> UnknownRecordData<Octets> {
     }
 
     /// Scans the record data assuming that the marker has been skipped.
-    pub fn scan_without_marker<S: Scanner<Octets = Octets>>(
+    pub fn scan_without_marker<S: Scanner<Octets = Octs>>(
         rtype: Rtype,
         scanner: &mut S,
     ) -> Result<Self, S::Error>
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         // Second token is the rdata length.
         let len = u16::scan(scanner)?;
@@ -246,27 +247,29 @@ impl<Octets> UnknownRecordData<Octets> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<UnknownRecordData<SrcOctets>>
-    for UnknownRecordData<Octets>
+impl<Octs, SrcOcts> OctetsFrom<UnknownRecordData<SrcOcts>>
+    for UnknownRecordData<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(
-        source: UnknownRecordData<SrcOctets>,
-    ) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: UnknownRecordData<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
         Ok(UnknownRecordData {
             rtype: source.rtype,
-            data: Octets::octets_from(source.data)?,
+            data: Octs::try_octets_from(source.data)?,
         })
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<UnknownRecordData<Other>>
-    for UnknownRecordData<Octets>
+impl<Octs, Other> PartialEq<UnknownRecordData<Other>>
+    for UnknownRecordData<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &UnknownRecordData<Other>) -> bool {
@@ -274,14 +277,14 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for UnknownRecordData<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for UnknownRecordData<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<UnknownRecordData<Other>>
-    for UnknownRecordData<Octets>
+impl<Octs, Other> PartialOrd<UnknownRecordData<Other>>
+    for UnknownRecordData<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(
@@ -292,10 +295,10 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<UnknownRecordData<Other>>
-    for UnknownRecordData<Octets>
+impl<Octs, Other> CanonicalOrd<UnknownRecordData<Other>>
+    for UnknownRecordData<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &UnknownRecordData<Other>) -> Ordering {
@@ -303,7 +306,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for UnknownRecordData<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for UnknownRecordData<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.data.as_ref().cmp(other.data.as_ref())
     }
@@ -311,7 +314,7 @@ impl<Octets: AsRef<[u8]>> Ord for UnknownRecordData<Octets> {
 
 //--- Compose, and Compress
 
-impl<Octets: AsRef<[u8]>> Compose for UnknownRecordData<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for UnknownRecordData<Octs> {
     fn compose<T: OctetsBuilder>(
         &self,
         target: &mut T,
@@ -322,31 +325,30 @@ impl<Octets: AsRef<[u8]>> Compose for UnknownRecordData<Octets> {
 
 //--- RecordData and ParseRecordData
 
-impl<Octets: AsRef<[u8]>> RecordData for UnknownRecordData<Octets> {
+impl<Octs: AsRef<[u8]>> RecordData for UnknownRecordData<Octs> {
     fn rtype(&self) -> Rtype {
         self.rtype
     }
 }
 
-impl<Octets, Ref> ParseRecordData<Ref> for UnknownRecordData<Octets>
-where
-    Octets: AsRef<[u8]>,
-    Ref: OctetsRef<Range = Octets>,
+impl<'a, Octs: Octets> ParseRecordData<'a, Octs>
+    for UnknownRecordData<Octs::Range<'a>>
 {
     fn parse_data(
         rtype: Rtype,
-        parser: &mut Parser<Ref>,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         let rdlen = parser.remaining();
         parser
             .parse_octets(rdlen)
             .map(|data| Some(Self::from_octets(rtype, data)))
+            .map_err(Into::into)
     }
 }
 
 //--- Display
 
-impl<Octets: AsRef<[u8]>> fmt::Display for UnknownRecordData<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for UnknownRecordData<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "\\# {}", self.data.as_ref().len())?;
         for ch in self.data.as_ref() {
@@ -358,7 +360,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for UnknownRecordData<Octets> {
 
 //--- Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("UnknownRecordData(")?;
         fmt::Display::fmt(self, f)?;

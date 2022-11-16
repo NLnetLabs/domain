@@ -162,24 +162,23 @@ where
 
 //--- ToLabelIter, ToRelativeDname, ToDname
 
-impl<'a, L: ToRelativeDname, R: ToEitherDname> ToLabelIter<'a>
-    for Chain<L, R>
-{
-    type LabelIter = ChainIter<'a, L, R>;
+impl<L: ToRelativeDname, R: ToEitherDname> ToLabelIter for Chain<L, R> {
+    type LabelIter<'a> = ChainIter<'a, L, R> where L: 'a, R: 'a;
 
-    fn iter_labels(&'a self) -> Self::LabelIter {
+    fn iter_labels(&self) -> Self::LabelIter<'_> {
         ChainIter(self.left.iter_labels().chain(self.right.iter_labels()))
     }
 }
 
-impl<'a, Octets, R> ToLabelIter<'a> for Chain<UncertainDname<Octets>, R>
+impl<Octs, R> ToLabelIter for Chain<UncertainDname<Octs>, R>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     R: ToDname,
 {
-    type LabelIter = UncertainChainIter<'a, Octets, R>;
+    type LabelIter<'a> = UncertainChainIter<'a, Octs, R>
+        where Octs: 'a, R: 'a;
 
-    fn iter_labels(&'a self) -> Self::LabelIter {
+    fn iter_labels(&self) -> Self::LabelIter<'_> {
         match self.left {
             UncertainDname::Absolute(ref name) => {
                 UncertainChainIter::Absolute(name.iter_labels())
@@ -222,14 +221,14 @@ impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
 
 /// The label iterator for chained domain names.
 #[derive(Debug)]
-pub struct ChainIter<'a, L: ToLabelIter<'a>, R: ToLabelIter<'a>>(
-    iter::Chain<L::LabelIter, R::LabelIter>,
+pub struct ChainIter<'a, L: ToLabelIter + 'a, R: ToLabelIter + 'a>(
+    iter::Chain<L::LabelIter<'a>, R::LabelIter<'a>>,
 );
 
 impl<'a, L, R> Clone for ChainIter<'a, L, R>
 where
-    L: ToLabelIter<'a>,
-    R: ToLabelIter<'a>,
+    L: ToLabelIter,
+    R: ToLabelIter,
 {
     fn clone(&self) -> Self {
         ChainIter(self.0.clone())
@@ -238,8 +237,8 @@ where
 
 impl<'a, L, R> Iterator for ChainIter<'a, L, R>
 where
-    L: ToLabelIter<'a>,
-    R: ToLabelIter<'a>,
+    L: ToLabelIter,
+    R: ToLabelIter,
 {
     type Item = &'a Label;
 
@@ -250,8 +249,8 @@ where
 
 impl<'a, L, R> DoubleEndedIterator for ChainIter<'a, L, R>
 where
-    L: ToLabelIter<'a>,
-    R: ToLabelIter<'a>,
+    L: ToLabelIter,
+    R: ToLabelIter,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.0.next_back()
@@ -261,7 +260,7 @@ where
 //------------ UncertainChainIter --------------------------------------------
 
 /// The label iterator for domain name chains with uncertain domain names.
-pub enum UncertainChainIter<'a, Octets: AsRef<[u8]>, R: ToLabelIter<'a>> {
+pub enum UncertainChainIter<'a, Octets: AsRef<[u8]>, R: ToLabelIter> {
     Absolute(DnameIter<'a>),
     Relative(ChainIter<'a, UncertainDname<Octets>, R>),
 }
@@ -269,7 +268,7 @@ pub enum UncertainChainIter<'a, Octets: AsRef<[u8]>, R: ToLabelIter<'a>> {
 impl<'a, Octets, R> Clone for UncertainChainIter<'a, Octets, R>
 where
     Octets: AsRef<[u8]>,
-    R: ToLabelIter<'a>,
+    R: ToLabelIter,
 {
     fn clone(&self) -> Self {
         use UncertainChainIter::*;
@@ -284,7 +283,7 @@ where
 impl<'a, Octets, R> Iterator for UncertainChainIter<'a, Octets, R>
 where
     Octets: AsRef<[u8]>,
-    R: ToLabelIter<'a>,
+    R: ToLabelIter,
 {
     type Item = &'a Label;
 
@@ -299,7 +298,7 @@ where
 impl<'a, Octets, R> DoubleEndedIterator for UncertainChainIter<'a, Octets, R>
 where
     Octets: AsRef<[u8]>,
-    R: ToLabelIter<'a>,
+    R: ToLabelIter,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         match *self {

@@ -62,7 +62,7 @@ use crate::base::message::Message;
 use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
 use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
 use crate::base::octets::{
-    OctetsBuilder, OctetsRef, OctetsVec, ParseError, ShortBuf,
+    Octets, OctetsBuilder, OctetsVec, ParseError, ShortBuf,
 };
 use crate::base::record::Record;
 use crate::rdata::rfc2845::{Time48, Tsig};
@@ -257,13 +257,10 @@ impl Key {
     }
 
     /// Checks whether the key in the record is this key.
-    fn check_tsig<Octets>(
+    fn check_tsig<Octs: Octets>(
         &self,
-        tsig: &MessageTsig<Octets>,
-    ) -> Result<(), ValidationError>
-    where
-        for<'o> &'o Octets: OctetsRef,
-    {
+        tsig: &MessageTsig<Octs>,
+    ) -> Result<(), ValidationError> {
         if *tsig.owner() != self.name
             || *tsig.data().algorithm() != self.algorithm().to_dname()
         {
@@ -492,15 +489,11 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// whether this record is a correct record for this transaction and if
     /// it correctly signs the answer for this transaction. If any of this
     /// fails, returns an error.
-    pub fn answer<Octets>(
+    pub fn answer<Octs: Octets + AsMut<[u8]>>(
         &self,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
-    ) -> Result<(), ValidationError>
-    where
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
-    {
+    ) -> Result<(), ValidationError> {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(some) => some,
             None => return Err(ValidationError::ServerUnsigned),
@@ -563,15 +556,14 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// function returns the error message that should be returned to the
     /// client as the error case of the result.
     #[allow(clippy::result_large_err)]
-    pub fn request<Store, Octets>(
+    pub fn request<Store, Octs>(
         store: &Store,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<Option<Self>, ServerError<K>>
     where
         Store: KeyStore<Key = K>,
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerTransaction { context })
@@ -725,14 +717,13 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     ///
     /// If it doesn’t or if there had been more than 99 unsigned messages in
     /// the sequence since the last signed one, returns an error.
-    pub fn answer<Octets>(
+    pub fn answer<Octs>(
         &mut self,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         if self.first {
             self.answer_first(message, now)
@@ -757,14 +748,13 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     }
 
     /// Checks the first answer in the sequence.
-    fn answer_first<Octets>(
+    fn answer_first<Octs>(
         &mut self,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(some) => some,
@@ -792,14 +782,13 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     }
 
     /// Checks any subsequent answer in the sequence.
-    fn answer_subsequent<Octets>(
+    fn answer_subsequent<Octs>(
         &mut self,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(tsig) => tsig,
@@ -886,15 +875,14 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// function returns the error message that should be returned to the
     /// client as the error case of the result.
     #[allow(clippy::result_large_err)]
-    pub fn request<Store, Octets>(
+    pub fn request<Store, Octs>(
         store: &Store,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<Option<Self>, ServerError<K>>
     where
         Store: KeyStore<Key = K>,
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerSequence {
@@ -994,15 +982,14 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// no TSIG record at all. Returns an error with a message to be returned
     /// to the client otherwise.
     #[allow(clippy::result_large_err)]
-    fn server_request<Store, Octets>(
+    fn server_request<Store, Octs>(
         store: &Store,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<Option<Self>, ServerError<Store::Key>>
     where
         Store: KeyStore<Key = K>,
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         // 4.5 Server TSIG checks
         //
@@ -1087,13 +1074,12 @@ impl<K: AsRef<Key>> SigningContext<K> {
     ///
     /// Because the returned TSIG record references the message, so it will
     /// later have to have the TSIG record stripped off and the ID updated.
-    fn get_answer_tsig<'a, Octets>(
+    fn get_answer_tsig<'a, Octs>(
         &self,
-        message: &'a Message<Octets>,
-    ) -> Result<Option<MessageTsig<'a, Octets>>, ValidationError>
+        message: &'a Message<Octs>,
+    ) -> Result<Option<MessageTsig<'a, Octs>>, ValidationError>
     where
-        Octets: AsRef<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
+        Octs: Octets,
     {
         // Extract TSIG or bail out.
         let tsig = match MessageTsig::from_message(message) {
@@ -1123,15 +1109,14 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// answer methods of `ClientTransaction` and `ClientSequence`. It
     /// checks for timing errors reported by the server as well as the
     /// time signed in the signature.
-    fn check_answer_time<'a, Octets>(
+    fn check_answer_time<'a, Octs>(
         &self,
-        message: &'a Message<Octets>,
-        tsig: &MessageTsig<'a, Octets>,
+        message: &'a Message<Octs>,
+        tsig: &MessageTsig<'a, Octs>,
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octets: AsRef<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
+        Octs: Octets,
     {
         if message.header().rcode() == Rcode::NotAuth
             && tsig.data().error() == TsigRcode::BadTime
@@ -1297,34 +1282,24 @@ impl<K: AsRef<Key>> SigningContext<K> {
 //------------ MessageTsig ---------------------------------------------------
 
 /// The TSIG record of a message.
-struct MessageTsig<'a, Octets>
-where
-    for<'o> &'o Octets: OctetsRef,
-{
+struct MessageTsig<'a, Octs: Octets> {
     /// The actual record.
     record: Record<
-        ParsedDname<&'a Octets>,
-        Tsig<<&'a Octets as OctetsRef>::Range, ParsedDname<&'a Octets>>,
+        ParsedDname<'a, Octs>,
+        Tsig<<Octs as Octets>::Range<'a>, ParsedDname<'a, Octs>>,
     >,
 
     /// The index of the start of the record.
     start: usize,
 }
 
-impl<'a, Octets> MessageTsig<'a, Octets>
-where
-    for<'o> &'o Octets: OctetsRef,
-{
+impl<'a, Octs: Octets> MessageTsig<'a, Octs> {
     /// Get the TSIG record from a message.
     ///
     /// Checks that there is exactly one TSIG record in the additional
     /// section, that it is the last record in this section. If that is true,
     /// returns the parsed TSIG records.
-    fn from_message(msg: &'a Message<Octets>) -> Option<Self>
-    where
-        Octets: AsRef<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
-    {
+    fn from_message(msg: &'a Message<Octs>) -> Option<Self> {
         let mut section = msg.additional().ok()?;
         let mut start = section.pos();
         let mut record = section.next()?;
@@ -1356,13 +1331,10 @@ where
     }
 }
 
-impl<'a, Octets> ops::Deref for MessageTsig<'a, Octets>
-where
-    for<'o> &'o Octets: OctetsRef,
-{
+impl<'a, Octs: Octets> ops::Deref for MessageTsig<'a, Octs> {
     type Target = Record<
-        ParsedDname<&'a Octets>,
-        Tsig<<&'a Octets as OctetsRef>::Range, ParsedDname<&'a Octets>>,
+        ParsedDname<'a, Octs>,
+        Tsig<<Octs as Octets>::Range<'a>, ParsedDname<'a, Octs>>,
     >;
 
     fn deref(&self) -> &Self::Target {
@@ -1604,10 +1576,9 @@ impl fmt::Display for Algorithm {
 
 //------------ Helper Functions ----------------------------------------------
 
-fn remove_tsig<Octets>(original_id: u16, message: &mut Message<Octets>)
+fn remove_tsig<Octs>(original_id: u16, message: &mut Message<Octs>)
 where
-    Octets: AsRef<[u8]> + AsMut<[u8]>,
-    for<'o> &'o Octets: OctetsRef,
+    Octs: Octets + AsMut<[u8]>,
 {
     message.header_mut().set_id(original_id);
     message.remove_last_additional();
@@ -1658,14 +1629,13 @@ impl<K> ServerError<K> {
 }
 
 impl<K: AsRef<Key>> ServerError<K> {
-    pub fn build_message<Octets, Target>(
+    pub fn build_message<Octs, Target>(
         self,
-        msg: &Message<Octets>,
+        msg: &Message<Octs>,
         builder: MessageBuilder<Target>,
     ) -> Result<AdditionalBuilder<Target>, ShortBuf>
     where
-        Octets: AsRef<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
+        Octs: Octets,
         Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     {
         let builder = builder.start_answer(msg, Rcode::NotAuth)?;

@@ -10,8 +10,8 @@ use crate::base::iana::Rtype;
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom,
-    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, Octets, OctetsBuilder, OctetsFrom,
+    OctetsInto, Parse, ParseError, Parser, ShortBuf,
 };
 #[cfg(feature = "serde")]
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
@@ -21,6 +21,7 @@ use crate::base::serial::Serial;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::cmp::Ordering;
+use core::convert::Infallible;
 use core::str::FromStr;
 use core::{fmt, hash, ops, str};
 
@@ -60,12 +61,18 @@ impl A {
     pub fn flatten_into(self) -> Result<A, PushError> {
         Ok(self)
     }
+
+    pub(super) fn convert_octets<E>(self) -> Result<Self, E> {
+        Ok(self)
+    }
 }
 
 //--- OctetsFrom
 
 impl OctetsFrom<A> for A {
-    fn octets_from(source: A) -> Result<Self, ShortBuf> {
+    type Error = Infallible;
+
+    fn try_octets_from(source: A) -> Result<Self, Self::Error> {
         Ok(source)
     }
 }
@@ -102,12 +109,12 @@ impl CanonicalOrd for A {
 
 //--- Parse and Compose
 
-impl<Octets: AsRef<[u8]>> Parse<Octets> for A {
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for A {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ipv4Addr::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<Octs>) -> Result<(), ParseError> {
         Ipv4Addr::skip(parser)
     }
 }
@@ -200,64 +207,76 @@ dname_type! {
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "Octets: AsRef<[u8]> + crate::base::octets::SerializeOctets",
-        deserialize = "Octets: \
+        serialize = "Octs: AsRef<[u8]> + crate::base::octets::SerializeOctets",
+        deserialize = "Octs: \
                 crate::base::octets::FromBuilder \
                 + crate::base::octets::DeserializeOctets<'de>, \
-            <Octets as FromBuilder>::Builder: EmptyBuilder ",
+            <Octs as FromBuilder>::Builder: EmptyBuilder ",
     ))
 )]
-pub struct Hinfo<Octets> {
-    cpu: CharStr<Octets>,
-    os: CharStr<Octets>,
+pub struct Hinfo<Octs> {
+    cpu: CharStr<Octs>,
+    os: CharStr<Octs>,
 }
 
-impl<Octets> Hinfo<Octets> {
+impl<Octs> Hinfo<Octs> {
     /// Creates a new Hinfo record data from the components.
-    pub fn new(cpu: CharStr<Octets>, os: CharStr<Octets>) -> Self {
+    pub fn new(cpu: CharStr<Octs>, os: CharStr<Octs>) -> Self {
         Hinfo { cpu, os }
     }
 
     /// The CPU type of the host.
-    pub fn cpu(&self) -> &CharStr<Octets> {
+    pub fn cpu(&self) -> &CharStr<Octs> {
         &self.cpu
     }
 
     /// The operating system type of the host.
-    pub fn os(&self) -> &CharStr<Octets> {
+    pub fn os(&self) -> &CharStr<Octs> {
         &self.os
+    }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Hinfo<Target>, Target::Error> {
+        Ok(Hinfo::new(
+            self.cpu.try_octets_into()?,
+            self.os.try_octets_into()?,
+        ))
     }
 }
 
-impl<SrcOctets> Hinfo<SrcOctets> {
-    pub fn flatten_into<Octets>(self) -> Result<Hinfo<Octets>, PushError>
+impl<SrcOcts> Hinfo<SrcOcts> {
+    pub fn flatten_into<Octs>(self) -> Result<Hinfo<Octs>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets>,
+        Octs: OctetsFrom<SrcOcts>,
+        PushError: From<Octs::Error>,
     {
         let Self { cpu, os } = self;
-        Ok(Hinfo::new(cpu.octets_into()?, os.octets_into()?))
+        Ok(Hinfo::new(cpu.try_octets_into()?, os.try_octets_into()?))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Hinfo<SrcOctets>> for Hinfo<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Hinfo<SrcOcts>> for Hinfo<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Hinfo<SrcOctets>) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(source: Hinfo<SrcOcts>) -> Result<Self, Self::Error> {
         Ok(Hinfo::new(
-            CharStr::octets_from(source.cpu)?,
-            CharStr::octets_from(source.os)?,
+            CharStr::try_octets_from(source.cpu)?,
+            CharStr::try_octets_from(source.os)?,
         ))
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Hinfo<Other>> for Hinfo<Octets>
+impl<Octs, Other> PartialEq<Hinfo<Other>> for Hinfo<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Hinfo<Other>) -> bool {
@@ -265,13 +284,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Hinfo<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Hinfo<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Hinfo<Other>> for Hinfo<Octets>
+impl<Octs, Other> PartialOrd<Hinfo<Other>> for Hinfo<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Hinfo<Other>) -> Option<Ordering> {
@@ -283,9 +302,9 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Hinfo<Other>> for Hinfo<Octets>
+impl<Octs, Other> CanonicalOrd<Hinfo<Other>> for Hinfo<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Hinfo<Other>) -> Ordering {
@@ -297,7 +316,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Hinfo<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Hinfo<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.cpu.cmp(&other.cpu) {
             Ordering::Equal => {}
@@ -309,7 +328,7 @@ impl<Octets: AsRef<[u8]>> Ord for Hinfo<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Hinfo<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Hinfo<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.cpu.hash(state);
         self.os.hash(state);
@@ -318,19 +337,19 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Hinfo<Octets> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Hinfo<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Hinfo<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Self::new(CharStr::parse(parser)?, CharStr::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         CharStr::skip(parser)?;
         CharStr::skip(parser)?;
         Ok(())
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for Hinfo<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -344,13 +363,13 @@ impl<Octets: AsRef<[u8]>> Compose for Hinfo<Octets> {
 
 //--- Scan and Display
 
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Hinfo<Octets> {
+impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Hinfo<Octs> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(scanner.scan_charstr()?, scanner.scan_charstr()?))
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Hinfo<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Hinfo<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.cpu, self.os)
     }
@@ -358,7 +377,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Hinfo<Octets> {
 
 //--- Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Hinfo<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Hinfo<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Hinfo")
             .field("cpu", &self.cpu)
@@ -369,7 +388,7 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Hinfo<Octets> {
 
 //--- RtypeRecordData
 
-impl<Octets> RtypeRecordData for Hinfo<Octets> {
+impl<Octs> RtypeRecordData for Hinfo<Octs> {
     const RTYPE: Rtype = Rtype::Hinfo;
 }
 
@@ -470,18 +489,24 @@ impl<N> Minfo<N> {
     pub fn emailbx(&self) -> &N {
         &self.emailbx
     }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<N>>(
+        self,
+    ) -> Result<Minfo<Target>, Target::Error> {
+        Ok(Minfo::new(
+            self.rmailbx.try_octets_into()?,
+            self.emailbx.try_octets_into()?,
+        ))
+    }
 }
 
-impl<Ref> Minfo<ParsedDname<Ref>>
-where
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(
+impl<'a, Octs: Octets> Minfo<ParsedDname<'a, Octs>> {
+    pub fn flatten_into<Target>(
         self,
-    ) -> Result<Minfo<Dname<Octets>>, PushError>
+    ) -> Result<Minfo<Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<Ref::Range> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self { rmailbx, emailbx } = self;
         Ok(Minfo::new(rmailbx.flatten_into()?, emailbx.flatten_into()?))
@@ -494,10 +519,12 @@ impl<Name, SrcName> OctetsFrom<Minfo<SrcName>> for Minfo<Name>
 where
     Name: OctetsFrom<SrcName>,
 {
-    fn octets_from(source: Minfo<SrcName>) -> Result<Self, ShortBuf> {
+    type Error = Name::Error;
+
+    fn try_octets_from(source: Minfo<SrcName>) -> Result<Self, Self::Error> {
         Ok(Minfo::new(
-            Name::octets_from(source.rmailbx)?,
-            Name::octets_from(source.emailbx)?,
+            Name::try_octets_from(source.rmailbx)?,
+            Name::try_octets_from(source.emailbx)?,
         ))
     }
 }
@@ -555,15 +582,15 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Minfo<NN>> for Minfo<N> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Minfo<ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Minfo<ParsedDname<'a, Octs>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Self::new(
             ParsedDname::parse(parser)?,
             ParsedDname::parse(parser)?,
         ))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         ParsedDname::skip(parser)?;
         ParsedDname::skip(parser)?;
         Ok(())
@@ -662,16 +689,19 @@ impl<N> Mx<N> {
     pub fn exchange(&self) -> &N {
         &self.exchange
     }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<N>>(
+        self,
+    ) -> Result<Mx<Target>, Target::Error> {
+        Ok(Mx::new(self.preference, self.exchange.try_octets_into()?))
+    }
 }
 
-impl<Ref> Mx<ParsedDname<Ref>>
-where
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(self) -> Result<Mx<Dname<Octets>>, PushError>
+impl<'a, Octs: Octets> Mx<ParsedDname<'a, Octs>> {
+    pub fn flatten_into<Target>(self) -> Result<Mx<Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<<Ref as OctetsRef>::Range> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self {
             preference,
@@ -687,10 +717,12 @@ impl<Name, SrcName> OctetsFrom<Mx<SrcName>> for Mx<Name>
 where
     Name: OctetsFrom<SrcName>,
 {
-    fn octets_from(source: Mx<SrcName>) -> Result<Self, ShortBuf> {
+    type Error = Name::Error;
+
+    fn try_octets_from(source: Mx<SrcName>) -> Result<Self, Self::Error> {
         Ok(Mx::new(
             source.preference,
-            Name::octets_from(source.exchange)?,
+            Name::try_octets_from(source.exchange)?,
         ))
     }
 }
@@ -748,12 +780,12 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Mx<NN>> for Mx<N> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Mx<ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Mx<ParsedDname<'a, Octs>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Self::new(u16::parse(parser)?, ParsedDname::parse(parser)?))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         u16::skip(parser)?;
         ParsedDname::skip(parser)
     }
@@ -822,34 +854,40 @@ dname_type! {
 /// The Null record type is defined in RFC 1035, section 3.3.10.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Null<Octets> {
+pub struct Null<Octs> {
     #[cfg_attr(
         feature = "serde",
         serde(
             serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
             deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octets: crate::base::octets::SerializeOctets",
-                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octs: crate::base::octets::SerializeOctets",
+                deserialize = "Octs: crate::base::octets::DeserializeOctets<'de>",
             )
         )
     )]
-    data: Octets,
+    data: Octs,
 }
 
-impl<Octets> Null<Octets> {
+impl<Octs> Null<Octs> {
     /// Creates new, empty owned Null record data.
-    pub fn new(data: Octets) -> Self {
+    pub fn new(data: Octs) -> Self {
         Null { data }
     }
 
     /// The raw content of the record.
-    pub fn data(&self) -> &Octets {
+    pub fn data(&self) -> &Octs {
         &self.data
+    }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Null<Target>, Target::Error> {
+        Ok(Null::new(self.data.try_octets_into()?))
     }
 }
 
-impl<Octets: AsRef<[u8]>> Null<Octets> {
+impl<Octs: AsRef<[u8]>> Null<Octs> {
     pub fn len(&self) -> usize {
         self.data.as_ref().len()
     }
@@ -859,39 +897,42 @@ impl<Octets: AsRef<[u8]>> Null<Octets> {
     }
 }
 
-impl<SrcOctets> Null<SrcOctets> {
-    pub fn flatten_into<Octets>(self) -> Result<Null<Octets>, PushError>
+impl<SrcOcts> Null<SrcOcts> {
+    pub fn flatten_into<Octs>(self) -> Result<Null<Octs>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets>,
+        Octs: OctetsFrom<SrcOcts>,
+        PushError: From<Octs::Error>,
     {
-        Ok(Null::new(self.data.octets_into()?))
+        Ok(Null::new(self.data.try_octets_into()?))
     }
 }
 
 //--- From
 
-impl<Octets> From<Octets> for Null<Octets> {
-    fn from(data: Octets) -> Self {
+impl<Octs> From<Octs> for Null<Octs> {
+    fn from(data: Octs) -> Self {
         Self::new(data)
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Null<SrcOctets>> for Null<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Null<SrcOcts>> for Null<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Null<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.data).map(Self::new)
+    type Error = Octs::Error;
+
+    fn try_octets_from(source: Null<SrcOcts>) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(source.data).map(Self::new)
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Null<Other>> for Null<Octets>
+impl<Octs, Other> PartialEq<Null<Other>> for Null<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Null<Other>) -> bool {
@@ -899,13 +940,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Null<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Null<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Null<Other>> for Null<Octets>
+impl<Octs, Other> PartialOrd<Null<Other>> for Null<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Null<Other>) -> Option<Ordering> {
@@ -913,9 +954,9 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Null<Other>> for Null<Octets>
+impl<Octs, Other> CanonicalOrd<Null<Other>> for Null<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Null<Other>) -> Ordering {
@@ -923,7 +964,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Null<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Null<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.data.as_ref().cmp(other.data.as_ref())
     }
@@ -931,7 +972,7 @@ impl<Octets: AsRef<[u8]>> Ord for Null<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Null<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Null<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.data.as_ref().hash(state)
     }
@@ -939,19 +980,19 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Null<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Null<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Null<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.remaining();
-        parser.parse_octets(len).map(Self::new)
+        parser.parse_octets(len).map(Self::new).map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance_to_end();
         Ok(())
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Null<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for Null<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -962,14 +1003,14 @@ impl<Octets: AsRef<[u8]>> Compose for Null<Octets> {
 
 //--- RtypeRecordData
 
-impl<Octets> RtypeRecordData for Null<Octets> {
+impl<Octs> RtypeRecordData for Null<Octs> {
     const RTYPE: Rtype = Rtype::Null;
 }
 
 //--- Deref
 
-impl<Octets> ops::Deref for Null<Octets> {
-    type Target = Octets;
+impl<Octs> ops::Deref for Null<Octs> {
+    type Target = Octs;
 
     fn deref(&self) -> &Self::Target {
         &self.data
@@ -978,7 +1019,7 @@ impl<Octets> ops::Deref for Null<Octets> {
 
 //--- AsRef
 
-impl<Octets: AsRef<Other>, Other> AsRef<Other> for Null<Octets> {
+impl<Octs: AsRef<Other>, Other> AsRef<Other> for Null<Octs> {
     fn as_ref(&self) -> &Other {
         self.data.as_ref()
     }
@@ -986,7 +1027,7 @@ impl<Octets: AsRef<Other>, Other> AsRef<Other> for Null<Octets> {
 
 //--- Display and Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Null<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Null<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "\\# {}", self.data.as_ref().len())?;
         for ch in self.data.as_ref().iter() {
@@ -996,7 +1037,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Null<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Null<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Null<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("Null(")?;
         fmt::Display::fmt(self, f)?;
@@ -1098,16 +1139,27 @@ impl<N> Soa<N> {
     pub fn minimum(&self) -> u32 {
         self.minimum
     }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<N>>(
+        self,
+    ) -> Result<Soa<Target>, Target::Error> {
+        Ok(Soa::new(
+            self.mname.try_octets_into()?,
+            self.rname.try_octets_into()?,
+            self.serial,
+            self.refresh,
+            self.retry,
+            self.expire,
+            self.minimum,
+        ))
+    }
 }
 
-impl<Ref> Soa<ParsedDname<Ref>>
-where
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(self) -> Result<Soa<Dname<Octets>>, PushError>
+impl<'a, Octs: Octets> Soa<ParsedDname<'a, Octs>> {
+    pub fn flatten_into<Target>(self) -> Result<Soa<Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<Ref::Range> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self {
             mname,
@@ -1137,10 +1189,12 @@ impl<Name, SrcName> OctetsFrom<Soa<SrcName>> for Soa<Name>
 where
     Name: OctetsFrom<SrcName>,
 {
-    fn octets_from(source: Soa<SrcName>) -> Result<Self, ShortBuf> {
+    type Error = Name::Error;
+
+    fn try_octets_from(source: Soa<SrcName>) -> Result<Self, Self::Error> {
         Ok(Soa::new(
-            Name::octets_from(source.mname)?,
-            Name::octets_from(source.rname)?,
+            Name::try_octets_from(source.mname)?,
+            Name::try_octets_from(source.rname)?,
             source.serial,
             source.refresh,
             source.retry,
@@ -1268,8 +1322,8 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Soa<ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Soa<ParsedDname<'a, Octs>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Self::new(
             ParsedDname::parse(parser)?,
             ParsedDname::parse(parser)?,
@@ -1281,7 +1335,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Soa<ParsedDname<Ref>> {
         ))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         ParsedDname::skip(parser)?;
         ParsedDname::skip(parser)?;
         Serial::skip(parser)?;
@@ -1371,23 +1425,23 @@ impl<N> RtypeRecordData for Soa<N> {
 ///
 /// The Txt record type is defined in RFC 1035, section 3.3.14.
 #[derive(Clone)]
-pub struct Txt<Octets>(Octets);
+pub struct Txt<Octs>(Octs);
 
-impl<Octets: FromBuilder> Txt<Octets> {
+impl<Octs: FromBuilder> Txt<Octs> {
     /// Creates a new Txt record from a single character string.
     pub fn from_slice(text: &[u8]) -> Result<Self, ShortBuf>
     where
-        <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+        <Octs as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
     {
-        let mut builder = TxtBuilder::<Octets::Builder>::new();
+        let mut builder = TxtBuilder::<Octs::Builder>::new();
         builder.append_slice(text)?;
         Ok(builder.finish())
     }
 }
 
-impl<Octets: AsRef<[u8]>> Txt<Octets> {
+impl<Octs: AsRef<[u8]>> Txt<Octs> {
     /// Creates a new TXT record from its encoded content.
-    pub fn from_octets(octets: Octets) -> Result<Self, CharStrError> {
+    pub fn from_octets(octets: Octs) -> Result<Self, CharStrError> {
         let mut tmp = octets.as_ref();
         while !tmp.is_empty() {
             if tmp.len() <= tmp[0] as usize {
@@ -1448,29 +1502,38 @@ impl<Octets: AsRef<[u8]>> Txt<Octets> {
     }
 }
 
-impl<SrcOctets> Txt<SrcOctets> {
-    pub fn flatten_into<Octets>(self) -> Result<Txt<Octets>, PushError>
+impl<SrcOcts> Txt<SrcOcts> {
+    pub(super) fn convert_octets<Target: OctetsFrom<SrcOcts>>(
+        self,
+    ) -> Result<Txt<Target>, Target::Error> {
+        Ok(Txt(self.0.try_octets_into()?))
+    }
+
+    pub fn flatten_into<Octs>(self) -> Result<Txt<Octs>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets>,
+        Octs: OctetsFrom<SrcOcts>,
+        PushError: From<Octs::Error>,
     {
-        Ok(Txt(self.0.octets_into()?))
+        Ok(Txt(self.0.try_octets_into()?))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Txt<SrcOctets>> for Txt<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Txt<SrcOcts>> for Txt<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Txt<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.0).map(Self)
+    type Error = Octs::Error;
+
+    fn try_octets_from(source: Txt<SrcOcts>) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(source.0).map(Self)
     }
 }
 
 //--- IntoIterator
 
-impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a Txt<Octets> {
+impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a Txt<Octs> {
     type Item = &'a [u8];
     type IntoIter = TxtIter<'a>;
 
@@ -1481,9 +1544,9 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a Txt<Octets> {
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Txt<Other>> for Txt<Octets>
+impl<Octs, Other> PartialEq<Txt<Other>> for Txt<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Txt<Other>) -> bool {
@@ -1493,13 +1556,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Txt<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Txt<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Txt<Other>> for Txt<Octets>
+impl<Octs, Other> PartialOrd<Txt<Other>> for Txt<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Txt<Other>) -> Option<Ordering> {
@@ -1509,9 +1572,9 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Txt<Other>> for Txt<Octets>
+impl<Octs, Other> CanonicalOrd<Txt<Other>> for Txt<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Txt<Other>) -> Ordering {
@@ -1530,7 +1593,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Txt<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Txt<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.iter()
             .flat_map(|s| s.iter().copied())
@@ -1540,7 +1603,7 @@ impl<Octets: AsRef<[u8]>> Ord for Txt<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Txt<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Txt<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.iter()
             .flat_map(|s| s.iter().copied())
@@ -1548,10 +1611,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Txt<Octets> {
     }
 }
 
-//--- ParseAll and Compose
+//--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Txt<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Txt<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.remaining();
         let text = parser.parse_octets(len)?;
         let mut tmp = Parser::from_ref(text.as_ref());
@@ -1561,13 +1624,13 @@ impl<Ref: OctetsRef> Parse<Ref> for Txt<Ref::Range> {
         Ok(Txt(text))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance_to_end();
         Ok(())
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for Txt<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -1578,13 +1641,13 @@ impl<Octets: AsRef<[u8]>> Compose for Txt<Octets> {
 
 //--- Scan and Display
 
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Txt<Octets> {
+impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Txt<Octs> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         scanner.scan_charstr_entry().map(Txt)
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Txt<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Txt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for slice in self.iter() {
             for ch in slice.iter() {
@@ -1597,7 +1660,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Txt<Octets> {
 
 //--- Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Txt<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Txt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("Txt(")?;
         fmt::Display::fmt(self, f)?;
@@ -1607,16 +1670,16 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Txt<Octets> {
 
 //--- RtypeRecordData
 
-impl<Octets> RtypeRecordData for Txt<Octets> {
+impl<Octs> RtypeRecordData for Txt<Octs> {
     const RTYPE: Rtype = Rtype::Txt;
 }
 
 //--- Serialize and Deserialize
 
 #[cfg(feature = "serde")]
-impl<Octets> serde::Serialize for Txt<Octets>
+impl<Octs> serde::Serialize for Txt<Octs>
 where
-    Octets: AsRef<[u8]> + SerializeOctets,
+    Octs: AsRef<[u8]> + SerializeOctets,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -1624,11 +1687,11 @@ where
     ) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeSeq;
 
-        struct TxtSeq<'a, Octets>(&'a Txt<Octets>);
+        struct TxtSeq<'a, Octs>(&'a Txt<Octs>);
 
-        impl<'a, Octets> serde::Serialize for TxtSeq<'a, Octets>
+        impl<'a, Octs> serde::Serialize for TxtSeq<'a, Octs>
         where
-            Octets: AsRef<[u8]> + SerializeOctets,
+            Octs: AsRef<[u8]> + SerializeOctets,
         {
             fn serialize<S: serde::Serializer>(
                 &self,
@@ -1655,10 +1718,10 @@ where
 }
 
 #[cfg(feature = "serde")]
-impl<'de, Octets> serde::Deserialize<'de> for Txt<Octets>
+impl<'de, Octs> serde::Deserialize<'de> for Txt<Octs>
 where
-    Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+    Octs: FromBuilder + DeserializeOctets<'de>,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -1667,13 +1730,13 @@ where
 
         struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octs> + EmptyBuilder + AsMut<[u8]>,
         {
-            type Value = Txt<Octets>;
+            type Value = Txt<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("TXT record data")
@@ -1686,7 +1749,7 @@ where
                 // This is a non-canonical serialization. We accept strings
                 // of any length and break them down into chunks.
                 let mut builder =
-                    TxtBuilder::<<Octets as FromBuilder>::Builder>::new();
+                    TxtBuilder::<<Octs as FromBuilder>::Builder>::new();
                 let mut chars = v.chars();
                 while let Some(ch) =
                     Symbol::from_chars(&mut chars).map_err(E::custom)?
@@ -1703,7 +1766,7 @@ where
                 mut seq: A,
             ) -> Result<Self::Value, A::Error> {
                 let mut builder =
-                    TxtBuilder::<<Octets as FromBuilder>::Builder>::new();
+                    TxtBuilder::<<Octs as FromBuilder>::Builder>::new();
                 while let Some(s) = seq.next_element::<&'de str>()? {
                     builder.append_zone_char_str(s)?;
                 }
@@ -1732,13 +1795,13 @@ where
 
         struct NewtypeVisitor<T>(PhantomData<T>);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octs> + EmptyBuilder + AsMut<[u8]>,
         {
-            type Value = Txt<Octets>;
+            type Value = Txt<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("TXT record data")
@@ -1748,15 +1811,15 @@ where
                 self,
                 deserializer: D,
             ) -> Result<Self::Value, D::Error> {
-                deserializer.deserialize_any(InnerVisitor(Octets::visitor()))
+                deserializer.deserialize_any(InnerVisitor(Octs::visitor()))
                 /*
                 if deserializer.is_human_readable() {
                     deserializer
-                        .deserialize_str(InnerVisitor(Octets::visitor()))
+                        .deserialize_str(InnerVisitor(Octs::visitor()))
                 } else {
-                    Octets::deserialize_with_visitor(
+                    Octs::deserialize_with_visitor(
                         deserializer,
-                        InnerVisitor(Octets::visitor()),
+                        InnerVisitor(Octs::visitor()),
                     )
                 }
                 */
@@ -1772,7 +1835,7 @@ where
 
 /// An iterator over the character strings of a Txt record.
 #[derive(Clone)]
-pub struct TxtCharStrIter<'a>(Parser<&'a [u8]>);
+pub struct TxtCharStrIter<'a>(Parser<'a, [u8]>);
 
 impl<'a> Iterator for TxtCharStrIter<'a> {
     type Item = CharStr<&'a [u8]>;
@@ -1869,11 +1932,11 @@ impl<Builder: OctetsBuilder + AsMut<[u8]>> TxtBuilder<Builder> {
         self.close_char_str();
         self.start = Some(self.builder.len());
         self.builder.append_slice(&[0]).map_err(E::custom)?;
-        let mut chars = s.chars();
         let mut len = 0;
-        while let Some(sym) =
-            Symbol::from_chars(&mut chars).map_err(E::custom)?
-        {
+        let mut chars = s.chars();
+        while let Some(sym) = Symbol::from_chars(
+            &mut chars
+        ).map_err(E::custom)? {
             if len == 255 {
                 return Err(E::custom(CharStrError));
             }

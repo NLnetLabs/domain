@@ -4,7 +4,7 @@ use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, Octets, Parse, ParseError, Parser, ShortBuf
 };
 use super::CodeOptData;
 
@@ -15,12 +15,12 @@ use super::CodeOptData;
 ///
 /// Specified in RFC 5001.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Nsid<Octets> {
-    octets: Octets,
+pub struct Nsid<Octs> {
+    octets: Octs,
 }
 
-impl<Octets> Nsid<Octets> {
-    pub fn from_octets(octets: Octets) -> Self {
+impl<Octs> Nsid<Octs> {
+    pub fn from_octets(octets: Octs) -> Self {
         Nsid { octets }
     }
 }
@@ -42,24 +42,24 @@ impl Nsid<()> {
     }
 }
 
-impl<Ref: OctetsRef> Parse<Ref> for Nsid<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Nsid<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.remaining();
-        parser.parse_octets(len).map(Nsid::from_octets)
+        parser.parse_octets(len).map(Nsid::from_octets).map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance_to_end();
         Ok(())
     }
 }
 
-impl<Octets> CodeOptData for Nsid<Octets> {
+impl<Octs> CodeOptData for Nsid<Octs> {
     const CODE: OptionCode = OptionCode::Nsid;
 }
 
 
-impl<Octets: AsRef<[u8]>> Compose for Nsid<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for Nsid<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T
@@ -69,7 +69,7 @@ impl<Octets: AsRef<[u8]>> Compose for Nsid<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Nsid<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Nsid<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // RFC 5001 § 2.4:
         // | User interfaces MUST read and write the contents of the NSID

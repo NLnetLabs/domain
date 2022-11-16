@@ -855,15 +855,15 @@ impl AsMut<HeaderCounts> for HeaderSection {
 
 //--- Parse and Compose
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for HeaderSection {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for HeaderSection {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let mut res = Self::default();
         parser.parse_buf(&mut res.inner)?;
         Ok(res)
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        parser.advance(12)
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
+        parser.advance(12).map_err(Into::into)
     }
 }
 

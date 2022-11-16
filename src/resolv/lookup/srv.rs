@@ -4,7 +4,7 @@ use super::host::lookup_host;
 use crate::base::iana::{Class, Rtype};
 use crate::base::message::Message;
 use crate::base::name::{Dname, ToDname, ToRelativeDname};
-use crate::base::octets::{OctetsRef, OctetsVec, ParseError};
+use crate::base::octets::{Octets, OctetsVec, ParseError};
 use crate::rdata::{Aaaa, Srv, A};
 use crate::resolv::resolver::Resolver;
 use futures::stream;
@@ -82,7 +82,7 @@ impl FoundSrvs {
         resolver: &R,
     ) -> impl Stream<Item = Result<ResolvedSrvItem, io::Error>> + '_
     where
-        R::Octets: OctetsRef,
+        R::Octets: Octets,
     {
         // Let’s make a somewhat elaborate single iterator from self.items
         // that we can use as the base for the stream: We turn the result into
@@ -277,7 +277,7 @@ impl SrvItem {
         resolver: &R,
     ) -> Result<ResolvedSrvItem, io::Error>
     where
-        for<'a> &'a R::Octets: OctetsRef,
+        R::Octets: Octets,
     {
         let port = self.port();
         if let Some(resolved) = self.resolved {

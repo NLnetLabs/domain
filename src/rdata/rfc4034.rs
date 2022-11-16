@@ -8,8 +8,8 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom,
-    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FormError, FromBuilder, Octets, OctetsBuilder,
+    OctetsFrom, OctetsInto, Parse, ParseError, Parser, ShortBuf,
 };
 #[cfg(feature = "serde")]
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
@@ -31,16 +31,16 @@ use std::vec::Vec;
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>
+            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>
         ",
         deserialize = "
-            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octs> + EmptyBuilder,
         ",
     ))
 )]
-pub struct Dnskey<Octets> {
+pub struct Dnskey<Octs> {
     flags: u16,
     protocol: u8,
     algorithm: SecAlg,
@@ -48,15 +48,15 @@ pub struct Dnskey<Octets> {
         feature = "serde",
         serde(with = "crate::utils::base64::serde")
     )]
-    public_key: Octets,
+    public_key: Octs,
 }
 
-impl<Octets> Dnskey<Octets> {
+impl<Octs> Dnskey<Octs> {
     pub fn new(
         flags: u16,
         protocol: u8,
         algorithm: SecAlg,
-        public_key: Octets,
+        public_key: Octs,
     ) -> Self {
         Dnskey {
             flags,
@@ -78,15 +78,15 @@ impl<Octets> Dnskey<Octets> {
         self.algorithm
     }
 
-    pub fn public_key(&self) -> &Octets {
+    pub fn public_key(&self) -> &Octs {
         &self.public_key
     }
 
-    pub fn into_public_key(self) -> Octets {
+    pub fn into_public_key(self) -> Octs {
         self.public_key
     }
 
-    pub fn convert<Other: From<Octets>>(self) -> Dnskey<Other> {
+    pub fn convert<Other: From<Octs>>(self) -> Dnskey<Other> {
         Dnskey {
             flags: self.flags,
             protocol: self.protocol,
@@ -132,7 +132,7 @@ impl<Octets> Dnskey<Octets> {
     #[allow(clippy::while_let_loop)] // I find this clearer with a loop.
     pub fn key_tag(&self) -> u16
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         if self.algorithm == SecAlg::RsaMd5 {
             // The key tag is third-to-last and second-to-last octets of the
@@ -170,12 +170,24 @@ impl<Octets> Dnskey<Octets> {
             (res & 0xFFFF) as u16
         }
     }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Dnskey<Target>, Target::Error> {
+        Ok(Dnskey::new(
+            self.flags,
+            self.protocol,
+            self.algorithm,
+            self.public_key.try_octets_into()?,
+        ))
+    }
 }
 
-impl<SrcOctets> Dnskey<SrcOctets> {
-    pub fn flatten_into<Octets>(self) -> Result<Dnskey<Octets>, PushError>
+impl<SrcOcts> Dnskey<SrcOcts> {
+    pub fn flatten_into<Octs>(self) -> Result<Dnskey<Octs>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets>,
+        Octs: OctetsFrom<SrcOcts>,
+        PushError: From<Octs::Error>,
     {
         let Self {
             flags,
@@ -188,32 +200,34 @@ impl<SrcOctets> Dnskey<SrcOctets> {
             flags,
             protocol,
             algorithm,
-            public_key.octets_into()?,
+            public_key.try_octets_into()?,
         ))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Dnskey<SrcOctets>> for Dnskey<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Dnskey<SrcOcts>> for Dnskey<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Dnskey<SrcOctets>) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(source: Dnskey<SrcOcts>) -> Result<Self, Self::Error> {
         Ok(Dnskey::new(
             source.flags,
             source.protocol,
             source.algorithm,
-            Octets::octets_from(source.public_key)?,
+            Octs::try_octets_from(source.public_key)?,
         ))
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Dnskey<Other>> for Dnskey<Octets>
+impl<Octs, Other> PartialEq<Dnskey<Other>> for Dnskey<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Dnskey<Other>) -> bool {
@@ -224,13 +238,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Dnskey<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Dnskey<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Dnskey<Other>> for Dnskey<Octets>
+impl<Octs, Other> PartialOrd<Dnskey<Other>> for Dnskey<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Dnskey<Other>) -> Option<Ordering> {
@@ -238,9 +252,9 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Dnskey<Other>> for Dnskey<Octets>
+impl<Octs, Other> CanonicalOrd<Dnskey<Other>> for Dnskey<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Dnskey<Other>) -> Ordering {
@@ -260,7 +274,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Dnskey<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Dnskey<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.canonical_cmp(other)
     }
@@ -268,7 +282,7 @@ impl<Octets: AsRef<[u8]>> Ord for Dnskey<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Dnskey<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Dnskey<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.flags.hash(state);
         self.protocol.hash(state);
@@ -279,8 +293,8 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Dnskey<Octets> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Dnskey<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
@@ -293,7 +307,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
         ))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
             return Err(ParseError::ShortInput);
         }
@@ -302,7 +316,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Dnskey<Ref::Range> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for Dnskey<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -318,7 +332,7 @@ impl<Octets: AsRef<[u8]>> Compose for Dnskey<Octets> {
 
 //--- Scan and Display
 
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Dnskey<Octets> {
+impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Dnskey<Octs> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(
             u16::scan(scanner)?,
@@ -329,7 +343,7 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Dnskey<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Dnskey<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Dnskey<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {} {} ", self.flags, self.protocol, self.algorithm)?;
         base64::display(&self.public_key, f)
@@ -338,7 +352,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Dnskey<Octets> {
 
 //--- Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Dnskey<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Dnskey")
             .field("flags", &self.flags)
@@ -351,7 +365,7 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Dnskey<Octets> {
 
 //--- RtypeRecordData
 
-impl<Octets> RtypeRecordData for Dnskey<Octets> {
+impl<Octs> RtypeRecordData for Dnskey<Octs> {
     const RTYPE: Rtype = Rtype::Dnskey;
 }
 
@@ -394,10 +408,7 @@ impl<Name> ProtoRrsig<Name> {
         }
     }
 
-    pub fn into_rrsig<Octets>(
-        self,
-        signature: Octets,
-    ) -> Rrsig<Octets, Name> {
+    pub fn into_rrsig<Octs>(self, signature: Octs) -> Rrsig<Octs, Name> {
         Rrsig::new(
             self.type_covered,
             self.algorithm,
@@ -412,16 +423,13 @@ impl<Name> ProtoRrsig<Name> {
     }
 }
 
-impl<Ref> ProtoRrsig<ParsedDname<Ref>>
-where
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(
+impl<'a, Octs: Octets> ProtoRrsig<ParsedDname<'a, Octs>> {
+    pub fn flatten_into<Target>(
         self,
-    ) -> Result<ProtoRrsig<Dname<Octets>>, PushError>
+    ) -> Result<ProtoRrsig<Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<Ref::Range> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self {
             type_covered,
@@ -453,7 +461,11 @@ impl<Name, SrcName> OctetsFrom<ProtoRrsig<SrcName>> for ProtoRrsig<Name>
 where
     Name: OctetsFrom<SrcName>,
 {
-    fn octets_from(source: ProtoRrsig<SrcName>) -> Result<Self, ShortBuf> {
+    type Error = Name::Error;
+
+    fn try_octets_from(
+        source: ProtoRrsig<SrcName>,
+    ) -> Result<Self, Self::Error> {
         Ok(ProtoRrsig::new(
             source.type_covered,
             source.algorithm,
@@ -462,7 +474,7 @@ where
             source.expiration,
             source.inception,
             source.key_tag,
-            Name::octets_from(source.signer_name)?,
+            Name::try_octets_from(source.signer_name)?,
         ))
     }
 }
@@ -511,18 +523,18 @@ impl<Name: Compose> Compose for ProtoRrsig<Name> {
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>,
             Name: serde::Serialize,
         ",
         deserialize = "
-            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octs> + EmptyBuilder,
             Name: serde::Deserialize<'de>,
         ",
     ))
 )]
-pub struct Rrsig<Octets, Name> {
+pub struct Rrsig<Octs, Name> {
     type_covered: Rtype,
     algorithm: SecAlg,
     labels: u8,
@@ -535,10 +547,10 @@ pub struct Rrsig<Octets, Name> {
         feature = "serde",
         serde(with = "crate::utils::base64::serde")
     )]
-    signature: Octets,
+    signature: Octs,
 }
 
-impl<Octets, Name> Rrsig<Octets, Name> {
+impl<Octs, Name> Rrsig<Octs, Name> {
     #[allow(clippy::too_many_arguments)] // XXX Consider changing.
     pub fn new(
         type_covered: Rtype,
@@ -549,7 +561,7 @@ impl<Octets, Name> Rrsig<Octets, Name> {
         inception: Serial,
         key_tag: u16,
         signer_name: Name,
-        signature: Octets,
+        signature: Octs,
     ) -> Self {
         Rrsig {
             type_covered,
@@ -596,26 +608,44 @@ impl<Octets, Name> Rrsig<Octets, Name> {
         &self.signer_name
     }
 
-    pub fn signature(&self) -> &Octets {
+    pub fn signature(&self) -> &Octs {
         &self.signature
     }
 
-    pub fn set_signature(&mut self, signature: Octets) {
+    pub fn set_signature(&mut self, signature: Octs) {
         self.signature = signature
+    }
+
+    pub(super) fn convert_octets<TOcts, TName>(
+        self,
+    ) -> Result<Rrsig<TOcts, TName>, TOcts::Error>
+    where
+        TOcts: OctetsFrom<Octs>,
+        TName: OctetsFrom<Name, Error = TOcts::Error>,
+    {
+        Ok(Rrsig::new(
+            self.type_covered,
+            self.algorithm,
+            self.labels,
+            self.original_ttl,
+            self.expiration,
+            self.inception,
+            self.key_tag,
+            TName::try_octets_from(self.signer_name)?,
+            TOcts::try_octets_from(self.signature)?,
+        ))
     }
 }
 
-impl<SrcOctets, Ref> Rrsig<SrcOctets, ParsedDname<Ref>>
-where
-    SrcOctets: AsRef<[u8]>,
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(
+impl<'a, Octs, NOcts: Octets> Rrsig<Octs, ParsedDname<'a, NOcts>> {
+    pub fn flatten_into<Target>(
         self,
-    ) -> Result<Rrsig<Octets, Dname<Octets>>, PushError>
+    ) -> Result<Rrsig<Target, Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs> + OctetsFrom<NOcts::Range<'a>>,
+        Target: FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
+        PushError: From<<Target as OctetsFrom<Octs>>::Error>,
     {
         let Self {
             type_covered,
@@ -637,23 +667,26 @@ where
             expiration,
             inception,
             key_tag,
-            signer_name.to_dname()?,
-            Octets::octets_from(signature)?,
+            signer_name.flatten_into()?,
+            Target::try_octets_from(signature)?,
         ))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Rrsig<SrcOctets, SrcName>>
-    for Rrsig<Octets, Name>
+impl<Octs, SrcOcts, Name, SrcName> OctetsFrom<Rrsig<SrcOcts, SrcName>>
+    for Rrsig<Octs, Name>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
     Name: OctetsFrom<SrcName>,
+    Octs::Error: From<Name::Error>,
 {
-    fn octets_from(
-        source: Rrsig<SrcOctets, SrcName>,
-    ) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: Rrsig<SrcOcts, SrcName>,
+    ) -> Result<Self, Self::Error> {
         Ok(Rrsig::new(
             source.type_covered,
             source.algorithm,
@@ -662,8 +695,8 @@ where
             source.expiration,
             source.inception,
             source.key_tag,
-            Name::octets_from(source.signer_name)?,
-            Octets::octets_from(source.signature)?,
+            Name::try_octets_from(source.signer_name)?,
+            Octs::try_octets_from(source.signature)?,
         ))
     }
 }
@@ -690,9 +723,9 @@ where
     }
 }
 
-impl<Octets, Name> Eq for Rrsig<Octets, Name>
+impl<Octs, Name> Eq for Rrsig<Octs, Name>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Name: ToDname,
 {
 }
@@ -813,8 +846,10 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs>
+    for Rrsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
+{
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let type_covered = Rtype::parse(parser)?;
         let algorithm = SecAlg::parse(parser)?;
         let labels = u8::parse(parser)?;
@@ -838,7 +873,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
         ))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         Rtype::skip(parser)?;
         SecAlg::skip(parser)?;
         u8::skip(parser)?;
@@ -852,7 +887,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Rrsig<Ref::Range, ParsedDname<Ref>> {
     }
 }
 
-impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
+impl<Octs: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octs, Name> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -890,9 +925,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octets, Name> {
 
 //--- Scan and Display
 
-impl<Octets, Name, S> Scan<S> for Rrsig<Octets, Name>
+impl<Octs, Name, S> Scan<S> for Rrsig<Octs, Name>
 where
-    S: Scanner<Octets = Octets, Dname = Name>,
+    S: Scanner<Octets = Octs, Dname = Name>,
 {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(
@@ -909,9 +944,9 @@ where
     }
 }
 
-impl<Octets, Name> fmt::Display for Rrsig<Octets, Name>
+impl<Octs, Name> fmt::Display for Rrsig<Octs, Name>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -933,9 +968,9 @@ where
 
 //--- Debug
 
-impl<Octets, Name> fmt::Debug for Rrsig<Octets, Name>
+impl<Octs, Name> fmt::Debug for Rrsig<Octs, Name>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -955,7 +990,7 @@ where
 
 //--- RtypeRecordData
 
-impl<Octets, Name> RtypeRecordData for Rrsig<Octets, Name> {
+impl<Octs, Name> RtypeRecordData for Rrsig<Octs, Name> {
     const RTYPE: Rtype = Rtype::Rrsig;
 }
 
@@ -967,25 +1002,25 @@ impl<Octets, Name> RtypeRecordData for Rrsig<Octets, Name> {
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>,
             Name: serde::Serialize,
         ",
         deserialize = "
-            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder
+            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octs> + EmptyBuilder
                 + AsRef<[u8]> + AsMut<[u8]>,
             Name: serde::Deserialize<'de>,
         ",
     ))
 )]
-pub struct Nsec<Octets, Name> {
+pub struct Nsec<Octs, Name> {
     next_name: Name,
-    types: RtypeBitmap<Octets>,
+    types: RtypeBitmap<Octs>,
 }
 
-impl<Octets, Name> Nsec<Octets, Name> {
-    pub fn new(next_name: Name, types: RtypeBitmap<Octets>) -> Self {
+impl<Octs, Name> Nsec<Octs, Name> {
+    pub fn new(next_name: Name, types: RtypeBitmap<Octs>) -> Self {
         Nsec { next_name, types }
     }
 
@@ -997,42 +1032,57 @@ impl<Octets, Name> Nsec<Octets, Name> {
         self.next_name = next_name
     }
 
-    pub fn types(&self) -> &RtypeBitmap<Octets> {
+    pub fn types(&self) -> &RtypeBitmap<Octs> {
         &self.types
+    }
+
+    pub(super) fn convert_octets<TOcts, TName>(
+        self,
+    ) -> Result<Nsec<TOcts, TName>, TOcts::Error>
+    where
+        TOcts: OctetsFrom<Octs>,
+        TName: OctetsFrom<Name, Error = TOcts::Error>,
+    {
+        Ok(Nsec::new(
+            self.next_name.try_octets_into()?,
+            self.types.convert_octets()?,
+        ))
     }
 }
 
-impl<SrcOctets, Ref> Nsec<SrcOctets, ParsedDname<Ref>>
-where
-    SrcOctets: AsRef<[u8]>,
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(
+impl<'a, Octs, NOcts: Octets> Nsec<Octs, ParsedDname<'a, NOcts>> {
+    pub fn flatten_into<Target>(
         self,
-    ) -> Result<Nsec<Octets, Dname<Octets>>, PushError>
+    ) -> Result<Nsec<Target, Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs> + OctetsFrom<NOcts::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
+        PushError: From<<Target as OctetsFrom<Octs>>::Error>,
     {
         let Self { next_name, types } = self;
-        Ok(Nsec::new(next_name.to_dname()?, types.octets_into()?))
+        Ok(Nsec::new(
+            next_name.flatten_into()?,
+            types.try_octets_into()?,
+        ))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Nsec<SrcOctets, SrcName>>
-    for Nsec<Octets, Name>
+impl<Octs, SrcOcts, Name, SrcName> OctetsFrom<Nsec<SrcOcts, SrcName>>
+    for Nsec<Octs, Name>
 where
-    Octets: OctetsFrom<SrcOctets>,
-    Name: OctetsFrom<SrcName>,
+    Octs: OctetsFrom<SrcOcts>,
+    Name: OctetsFrom<SrcName, Error = Octs::Error>,
 {
-    fn octets_from(
-        source: Nsec<SrcOctets, SrcName>,
-    ) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: Nsec<SrcOcts, SrcName>,
+    ) -> Result<Self, Self::Error> {
         Ok(Nsec::new(
-            Name::octets_from(source.next_name)?,
-            RtypeBitmap::octets_from(source.types)?,
+            Name::try_octets_from(source.next_name)?,
+            RtypeBitmap::try_octets_from(source.types)?,
         ))
     }
 }
@@ -1104,9 +1154,7 @@ where
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>, Name: hash::Hash> hash::Hash
-    for Nsec<Octets, Name>
-{
+impl<Octs: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octs, Name> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.next_name.hash(state);
         self.types.hash(state);
@@ -1115,21 +1163,23 @@ impl<Octets: AsRef<[u8]>, Name: hash::Hash> hash::Hash
 
 //--- ParseAll and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Nsec<Ref::Range, ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs>
+    for Nsec<Octs::Range<'a>, ParsedDname<'a, Octs>>
+{
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Nsec::new(
             ParsedDname::parse(parser)?,
             RtypeBitmap::parse(parser)?,
         ))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         ParsedDname::skip(parser)?;
         RtypeBitmap::skip(parser)
     }
 }
 
-impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
+impl<Octs: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octs, Name> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -1145,9 +1195,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octets, Name> {
 
 //--- Scan and Display
 
-impl<Octets, Name, S> Scan<S> for Nsec<Octets, Name>
+impl<Octs, Name, S> Scan<S> for Nsec<Octs, Name>
 where
-    S: Scanner<Octets = Octets, Dname = Name>,
+    S: Scanner<Octets = Octs, Dname = Name>,
 {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(
@@ -1157,9 +1207,9 @@ where
     }
 }
 
-impl<Octets, Name> fmt::Display for Nsec<Octets, Name>
+impl<Octs, Name> fmt::Display for Nsec<Octs, Name>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Name: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1169,9 +1219,9 @@ where
 
 //--- Debug
 
-impl<Octets, Name> fmt::Debug for Nsec<Octets, Name>
+impl<Octs, Name> fmt::Debug for Nsec<Octs, Name>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Name: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1184,7 +1234,7 @@ where
 
 //--- RtypeRecordData
 
-impl<Octets, Name> RtypeRecordData for Nsec<Octets, Name> {
+impl<Octs, Name> RtypeRecordData for Nsec<Octs, Name> {
     const RTYPE: Rtype = Rtype::Nsec;
 }
 
@@ -1196,16 +1246,16 @@ impl<Octets, Name> RtypeRecordData for Nsec<Octets, Name> {
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>
+            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>
         ",
         deserialize = "
-            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octs> + EmptyBuilder,
         ",
     ))
 )]
-pub struct Ds<Octets> {
+pub struct Ds<Octs> {
     key_tag: u16,
     algorithm: SecAlg,
     digest_type: DigestAlg,
@@ -1213,15 +1263,15 @@ pub struct Ds<Octets> {
         feature = "serde",
         serde(with = "crate::utils::base64::serde")
     )]
-    digest: Octets,
+    digest: Octs,
 }
 
-impl<Octets> Ds<Octets> {
+impl<Octs> Ds<Octs> {
     pub fn new(
         key_tag: u16,
         algorithm: SecAlg,
         digest_type: DigestAlg,
-        digest: Octets,
+        digest: Octs,
     ) -> Self {
         Ds {
             key_tag,
@@ -1243,19 +1293,31 @@ impl<Octets> Ds<Octets> {
         self.digest_type
     }
 
-    pub fn digest(&self) -> &Octets {
+    pub fn digest(&self) -> &Octs {
         &self.digest
     }
 
-    pub fn into_digest(self) -> Octets {
+    pub fn into_digest(self) -> Octs {
         self.digest
+    }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Ds<Target>, Target::Error> {
+        Ok(Ds::new(
+            self.key_tag,
+            self.algorithm,
+            self.digest_type,
+            self.digest.try_octets_into()?,
+        ))
     }
 }
 
-impl<SrcOctets> Ds<SrcOctets> {
-    pub fn flatten_into<Octets>(self) -> Result<Ds<Octets>, PushError>
+impl<SrcOcts> Ds<SrcOcts> {
+    pub fn flatten_into<Octs>(self) -> Result<Ds<Octs>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets>,
+        Octs: OctetsFrom<SrcOcts>,
+        PushError: From<Octs::Error>,
     {
         let Self {
             key_tag,
@@ -1267,32 +1329,34 @@ impl<SrcOctets> Ds<SrcOctets> {
             key_tag,
             algorithm,
             digest_type,
-            digest.octets_into()?,
+            digest.try_octets_into()?,
         ))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Ds<SrcOctets>> for Ds<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Ds<SrcOcts>> for Ds<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Ds<SrcOctets>) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(source: Ds<SrcOcts>) -> Result<Self, Self::Error> {
         Ok(Ds::new(
             source.key_tag,
             source.algorithm,
             source.digest_type,
-            Octets::octets_from(source.digest)?,
+            Octs::try_octets_from(source.digest)?,
         ))
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Ds<Other>> for Ds<Octets>
+impl<Octs, Other> PartialEq<Ds<Other>> for Ds<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Ds<Other>) -> bool {
@@ -1303,13 +1367,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Ds<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Ds<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Ds<Other>> for Ds<Octets>
+impl<Octs, Other> PartialOrd<Ds<Other>> for Ds<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Ds<Other>) -> Option<Ordering> {
@@ -1329,9 +1393,9 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Ds<Other>> for Ds<Octets>
+impl<Octs, Other> CanonicalOrd<Ds<Other>> for Ds<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Ds<Other>) -> Ordering {
@@ -1351,7 +1415,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Ds<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Ds<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.canonical_cmp(other)
     }
@@ -1359,7 +1423,7 @@ impl<Octets: AsRef<[u8]>> Ord for Ds<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Ds<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Ds<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.key_tag.hash(state);
         self.algorithm.hash(state);
@@ -1370,8 +1434,8 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Ds<Octets> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Ds<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
@@ -1384,7 +1448,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
         ))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
             return Err(ParseError::ShortInput);
         }
@@ -1393,7 +1457,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Ds<Ref::Range> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for Ds<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -1409,7 +1473,7 @@ impl<Octets: AsRef<[u8]>> Compose for Ds<Octets> {
 
 //--- Scan and Display
 
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Ds<Octets> {
+impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Ds<Octs> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(
             u16::scan(scanner)?,
@@ -1420,7 +1484,7 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Ds<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Ds<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -1436,7 +1500,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Ds<Octets> {
 
 //--- Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Ds<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Ds")
             .field("key_tag", &self.key_tag)
@@ -1449,19 +1513,19 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Ds<Octets> {
 
 //--- RtypeRecordData
 
-impl<Octets> RtypeRecordData for Ds<Octets> {
+impl<Octs> RtypeRecordData for Ds<Octs> {
     const RTYPE: Rtype = Rtype::Ds;
 }
 
 //------------ RtypeBitmap ---------------------------------------------------
 
 #[derive(Clone)]
-pub struct RtypeBitmap<Octets>(Octets);
+pub struct RtypeBitmap<Octs>(Octs);
 
-impl<Octets> RtypeBitmap<Octets> {
-    pub fn from_octets(octets: Octets) -> Result<Self, RtypeBitmapError>
+impl<Octs> RtypeBitmap<Octs> {
+    pub fn from_octets(octets: Octs) -> Result<Self, RtypeBitmapError>
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         {
             let mut data = octets.as_ref();
@@ -1489,23 +1553,29 @@ impl<Octets> RtypeBitmap<Octets> {
         Ok(RtypeBitmap(octets))
     }
 
-    pub fn builder() -> RtypeBitmapBuilder<Octets::Builder>
+    pub fn builder() -> RtypeBitmapBuilder<Octs::Builder>
     where
-        Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Octs: FromBuilder,
+        <Octs as FromBuilder>::Builder: EmptyBuilder,
     {
         RtypeBitmapBuilder::new()
     }
 
-    pub fn as_octets(&self) -> &Octets {
+    pub fn as_octets(&self) -> &Octs {
         &self.0
+    }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<RtypeBitmap<Target>, Target::Error> {
+        Ok(RtypeBitmap(self.0.try_octets_into()?))
     }
 }
 
-impl<Octets: AsRef<[u8]>> RtypeBitmap<Octets> {
+impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
     pub fn as_slice(&self) -> &[u8]
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         self.0.as_ref()
     }
@@ -1516,7 +1586,7 @@ impl<Octets: AsRef<[u8]>> RtypeBitmap<Octets> {
 
     pub fn contains(&self, rtype: Rtype) -> bool
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         let (block, octet, mask) = split_rtype(rtype);
         let mut data = self.0.as_ref();
@@ -1534,7 +1604,7 @@ impl<Octets: AsRef<[u8]>> RtypeBitmap<Octets> {
 
 //--- AsRef
 
-impl<T, Octets: AsRef<T>> AsRef<T> for RtypeBitmap<Octets> {
+impl<T, Octs: AsRef<T>> AsRef<T> for RtypeBitmap<Octs> {
     fn as_ref(&self) -> &T {
         self.0.as_ref()
     }
@@ -1542,13 +1612,16 @@ impl<T, Octets: AsRef<T>> AsRef<T> for RtypeBitmap<Octets> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<RtypeBitmap<SrcOctets>>
-    for RtypeBitmap<Octets>
+impl<Octs, SrcOcts> OctetsFrom<RtypeBitmap<SrcOcts>> for RtypeBitmap<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: RtypeBitmap<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.0).map(RtypeBitmap)
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: RtypeBitmap<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(source.0).map(RtypeBitmap)
     }
 }
 
@@ -1604,7 +1677,7 @@ impl<O: AsRef<[u8]>> hash::Hash for RtypeBitmap<O> {
 
 //--- IntoIterator
 
-impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octets> {
+impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octs> {
     type Item = Rtype;
     type IntoIter = RtypeBitmapIter<'a>;
 
@@ -1615,20 +1688,20 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octets> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for RtypeBitmap<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for RtypeBitmap<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.remaining();
         RtypeBitmap::from_octets(parser.parse_octets(len)?)
             .map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance_to_end();
         Ok(())
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for RtypeBitmap<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -1639,7 +1712,7 @@ impl<Octets: AsRef<[u8]>> Compose for RtypeBitmap<Octets> {
 
 //--- Scan and Display
 
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for RtypeBitmap<Octets> {
+impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for RtypeBitmap<Octs> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         let first = Rtype::scan(scanner)?;
         let mut builder =
@@ -1654,7 +1727,7 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for RtypeBitmap<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut iter = self.iter();
         if let Some(rtype) = iter.next() {
@@ -1669,7 +1742,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octets> {
 
 //--- Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for RtypeBitmap<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for RtypeBitmap<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("RtypeBitmap(")?;
         fmt::Display::fmt(self, f)?;
@@ -1680,9 +1753,9 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for RtypeBitmap<Octets> {
 //--- Serialize and Deserialize
 
 #[cfg(feature = "serde")]
-impl<Octets> serde::Serialize for RtypeBitmap<Octets>
+impl<Octs> serde::Serialize for RtypeBitmap<Octs>
 where
-    Octets: AsRef<[u8]> + SerializeOctets,
+    Octs: AsRef<[u8]> + SerializeOctets,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -1720,11 +1793,10 @@ where
 }
 
 #[cfg(feature = "serde")]
-impl<'de, Octets> serde::Deserialize<'de> for RtypeBitmap<Octets>
+impl<'de, Octs> serde::Deserialize<'de> for RtypeBitmap<Octs>
 where
-    Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder:
-        EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    Octs: FromBuilder + DeserializeOctets<'de>,
+    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -1733,15 +1805,15 @@ where
 
         struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder: OctetsBuilder<Octets = Octets>
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: OctetsBuilder<Octets = Octs>
                 + EmptyBuilder
                 + AsRef<[u8]>
                 + AsMut<[u8]>,
         {
-            type Value = RtypeBitmap<Octets>;
+            type Value = RtypeBitmap<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("a record type bitmap")
@@ -1753,7 +1825,7 @@ where
             ) -> Result<Self::Value, A::Error> {
                 use serde::de::Error;
 
-                let mut builder = RtypeBitmap::<Octets>::builder();
+                let mut builder = RtypeBitmap::<Octs>::builder();
                 while let Some(element) = seq.next_element()? {
                     builder.add(element).map_err(A::Error::custom)?;
                 }
@@ -1783,15 +1855,15 @@ where
 
         struct NewtypeVisitor<T>(PhantomData<T>);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder: OctetsBuilder<Octets = Octets>
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: OctetsBuilder<Octets = Octs>
                 + EmptyBuilder
                 + AsRef<[u8]>
                 + AsMut<[u8]>,
         {
-            type Value = RtypeBitmap<Octets>;
+            type Value = RtypeBitmap<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("a record type bitmap")
@@ -1803,11 +1875,11 @@ where
             ) -> Result<Self::Value, D::Error> {
                 if deserializer.is_human_readable() {
                     deserializer
-                        .deserialize_seq(InnerVisitor(Octets::visitor()))
+                        .deserialize_seq(InnerVisitor(Octs::visitor()))
                 } else {
-                    Octets::deserialize_with_visitor(
+                    Octs::deserialize_with_visitor(
                         deserializer,
-                        InnerVisitor(Octets::visitor()),
+                        InnerVisitor(Octs::visitor()),
                     )
                 }
             }

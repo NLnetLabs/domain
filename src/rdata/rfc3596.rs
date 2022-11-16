@@ -6,7 +6,6 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::PushError;
 use crate::base::net::Ipv6Addr;
 use crate::base::octets::{
     Compose, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
@@ -14,6 +13,7 @@ use crate::base::octets::{
 use crate::base::rdata::RtypeRecordData;
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use core::cmp::Ordering;
+use core::convert::Infallible;
 use core::str::FromStr;
 use core::{fmt, ops, str};
 
@@ -37,7 +37,11 @@ impl Aaaa {
         self.addr = addr
     }
 
-    pub fn flatten_into(self) -> Result<Aaaa, PushError> {
+    pub(super) fn flatten_into<E>(self) -> Result<Aaaa, E> {
+        Ok(self)
+    }
+
+    pub(super) fn convert_octets<E>(self) -> Result<Self, E> {
         Ok(self)
     }
 }
@@ -67,7 +71,9 @@ impl FromStr for Aaaa {
 //--- OctetsFrom
 
 impl OctetsFrom<Aaaa> for Aaaa {
-    fn octets_from(source: Aaaa) -> Result<Self, ShortBuf> {
+    type Error = Infallible;
+
+    fn try_octets_from(source: Aaaa) -> Result<Self, Self::Error> {
         Ok(source)
     }
 }
@@ -82,12 +88,12 @@ impl CanonicalOrd for Aaaa {
 
 //--- Parse, ParseAll, and Compose
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for Aaaa {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Aaaa {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ipv6Addr::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         Ipv6Addr::skip(parser)
     }
 }

@@ -5,7 +5,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::PushError;
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsInto, OctetsRef, Parse,
+    Compose, Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parse,
     ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
@@ -22,19 +22,19 @@ use core::{fmt, hash};
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>
+            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>
         ",
         deserialize = "
-            Octets:
+            Octs:
                 crate::base::octets::FromBuilder
                 + crate::base::octets::DeserializeOctets<'de>,
-            <Octets as crate::base::octets::FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets>
+            <Octs as crate::base::octets::FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octs>
                 + crate::base::octets::EmptyBuilder,
         ",
     ))
 )]
-pub struct Cdnskey<Octets> {
+pub struct Cdnskey<Octs> {
     flags: u16,
     protocol: u8,
     algorithm: SecAlg,
@@ -42,15 +42,15 @@ pub struct Cdnskey<Octets> {
         feature = "serde",
         serde(with = "crate::utils::base64::serde")
     )]
-    public_key: Octets,
+    public_key: Octs,
 }
 
-impl<Octets> Cdnskey<Octets> {
+impl<Octs> Cdnskey<Octs> {
     pub fn new(
         flags: u16,
         protocol: u8,
         algorithm: SecAlg,
-        public_key: Octets,
+        public_key: Octs,
     ) -> Self {
         Cdnskey {
             flags,
@@ -72,15 +72,27 @@ impl<Octets> Cdnskey<Octets> {
         self.algorithm
     }
 
-    pub fn public_key(&self) -> &Octets {
+    pub fn public_key(&self) -> &Octs {
         &self.public_key
+    }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Cdnskey<Target>, Target::Error> {
+        Ok(Cdnskey::new(
+            self.flags,
+            self.protocol,
+            self.algorithm,
+            self.public_key.try_octets_into()?,
+        ))
     }
 }
 
-impl<SrcOctets> Cdnskey<SrcOctets> {
-    pub fn flatten_into<Octets>(self) -> Result<Cdnskey<Octets>, PushError>
+impl<SrcOcts> Cdnskey<SrcOcts> {
+    pub fn flatten_into<Octs>(self) -> Result<Cdnskey<Octs>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets>,
+        Octs: OctetsFrom<SrcOcts>,
+        PushError: From<Octs::Error>,
     {
         let Self {
             flags,
@@ -92,32 +104,36 @@ impl<SrcOctets> Cdnskey<SrcOctets> {
             flags,
             protocol,
             algorithm,
-            public_key.octets_into()?,
+            public_key.try_octets_into()?,
         ))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Cdnskey<SrcOctets>> for Cdnskey<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Cdnskey<SrcOcts>> for Cdnskey<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Cdnskey<SrcOctets>) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: Cdnskey<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
         Ok(Cdnskey::new(
             source.flags,
             source.protocol,
             source.algorithm,
-            Octets::octets_from(source.public_key)?,
+            Octs::try_octets_from(source.public_key)?,
         ))
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Cdnskey<Other>> for Cdnskey<Octets>
+impl<Octs, Other> PartialEq<Cdnskey<Other>> for Cdnskey<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Cdnskey<Other>) -> bool {
@@ -128,13 +144,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Cdnskey<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Cdnskey<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Cdnskey<Other>> for Cdnskey<Octets>
+impl<Octs, Other> PartialOrd<Cdnskey<Other>> for Cdnskey<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Cdnskey<Other>) -> Option<Ordering> {
@@ -142,9 +158,9 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Cdnskey<Other>> for Cdnskey<Octets>
+impl<Octs, Other> CanonicalOrd<Cdnskey<Other>> for Cdnskey<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Cdnskey<Other>) -> Ordering {
@@ -164,7 +180,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Cdnskey<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Cdnskey<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.canonical_cmp(other)
     }
@@ -172,7 +188,7 @@ impl<Octets: AsRef<[u8]>> Ord for Cdnskey<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Cdnskey<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Cdnskey<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.flags.hash(state);
         self.protocol.hash(state);
@@ -183,8 +199,8 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cdnskey<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Cdnskey<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
@@ -197,7 +213,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
         ))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
             return Err(ParseError::ShortInput);
         }
@@ -206,7 +222,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cdnskey<Ref::Range> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for Cdnskey<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -222,7 +238,7 @@ impl<Octets: AsRef<[u8]>> Compose for Cdnskey<Octets> {
 
 //--- Scan and Display
 
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cdnskey<Octets> {
+impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Cdnskey<Octs> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(
             u16::scan(scanner)?,
@@ -233,7 +249,7 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cdnskey<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Cdnskey<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Cdnskey<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {} {} ", self.flags, self.protocol, self.algorithm)?;
         base64::display(&self.public_key, f)
@@ -242,7 +258,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Cdnskey<Octets> {
 
 //--- Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Cdnskey<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Cdnskey")
             .field("flags", &self.flags)
@@ -255,7 +271,7 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Cdnskey<Octets> {
 
 //--- RecordData
 
-impl<Octets> RtypeRecordData for Cdnskey<Octets> {
+impl<Octs> RtypeRecordData for Cdnskey<Octs> {
     const RTYPE: Rtype = Rtype::Cdnskey;
 }
 
@@ -267,19 +283,19 @@ impl<Octets> RtypeRecordData for Cdnskey<Octets> {
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>
+            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>
         ",
         deserialize = "
-            Octets:
+            Octs:
                 crate::base::octets::FromBuilder
                 + crate::base::octets::DeserializeOctets<'de>,
-            <Octets as crate::base::octets::FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets>
+            <Octs as crate::base::octets::FromBuilder>::Builder:
+                OctetsBuilder<Octets = Octs>
                 + crate::base::octets::EmptyBuilder,
         ",
     ))
 )]
-pub struct Cds<Octets> {
+pub struct Cds<Octs> {
     key_tag: u16,
     algorithm: SecAlg,
     digest_type: DigestAlg,
@@ -287,15 +303,15 @@ pub struct Cds<Octets> {
         feature = "serde",
         serde(with = "crate::utils::base64::serde")
     )]
-    digest: Octets,
+    digest: Octs,
 }
 
-impl<Octets> Cds<Octets> {
+impl<Octs> Cds<Octs> {
     pub fn new(
         key_tag: u16,
         algorithm: SecAlg,
         digest_type: DigestAlg,
-        digest: Octets,
+        digest: Octs,
     ) -> Self {
         Cds {
             key_tag,
@@ -317,19 +333,31 @@ impl<Octets> Cds<Octets> {
         self.digest_type
     }
 
-    pub fn digest(&self) -> &Octets {
+    pub fn digest(&self) -> &Octs {
         &self.digest
     }
 
-    pub fn into_digest(self) -> Octets {
+    pub fn into_digest(self) -> Octs {
         self.digest
+    }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Cds<Target>, Target::Error> {
+        Ok(Cds::new(
+            self.key_tag,
+            self.algorithm,
+            self.digest_type,
+            self.digest.try_octets_into()?,
+        ))
     }
 }
 
-impl<SrcOctets> Cds<SrcOctets> {
-    pub fn flatten_into<Octets>(self) -> Result<Cds<Octets>, PushError>
+impl<SrcOcts> Cds<SrcOcts> {
+    pub fn flatten_into<Octs>(self) -> Result<Cds<Octs>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets>,
+        Octs: OctetsFrom<SrcOcts>,
+        PushError: From<Octs::Error>,
     {
         let Self {
             key_tag,
@@ -341,32 +369,34 @@ impl<SrcOctets> Cds<SrcOctets> {
             key_tag,
             algorithm,
             digest_type,
-            digest.octets_into()?,
+            digest.try_octets_into()?,
         ))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Cds<SrcOctets>> for Cds<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Cds<SrcOcts>> for Cds<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Cds<SrcOctets>) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(source: Cds<SrcOcts>) -> Result<Self, Self::Error> {
         Ok(Cds::new(
             source.key_tag,
             source.algorithm,
             source.digest_type,
-            Octets::octets_from(source.digest)?,
+            Octs::try_octets_from(source.digest)?,
         ))
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Cds<Other>> for Cds<Octets>
+impl<Octs, Other> PartialEq<Cds<Other>> for Cds<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Cds<Other>) -> bool {
@@ -377,13 +407,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Cds<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Cds<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Cds<Other>> for Cds<Octets>
+impl<Octs, Other> PartialOrd<Cds<Other>> for Cds<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Cds<Other>) -> Option<Ordering> {
@@ -403,9 +433,9 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Cds<Other>> for Cds<Octets>
+impl<Octs, Other> CanonicalOrd<Cds<Other>> for Cds<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Cds<Other>) -> Ordering {
@@ -425,7 +455,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Cds<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Cds<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.canonical_cmp(other)
     }
@@ -433,7 +463,7 @@ impl<Octets: AsRef<[u8]>> Ord for Cds<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Cds<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Cds<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.key_tag.hash(state);
         self.algorithm.hash(state);
@@ -444,8 +474,8 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Cds<Octets> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Cds<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
@@ -458,7 +488,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
         ))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         if parser.remaining() < 4 {
             return Err(ParseError::ShortInput);
         }
@@ -467,7 +497,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Cds<Ref::Range> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for Cds<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -483,7 +513,7 @@ impl<Octets: AsRef<[u8]>> Compose for Cds<Octets> {
 
 //--- Scan and Display
 
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cds<Octets> {
+impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Cds<Octs> {
     fn scan(scanner: &mut S) -> Result<Self, S::Error> {
         Ok(Self::new(
             u16::scan(scanner)?,
@@ -494,7 +524,7 @@ impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Cds<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Cds<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Cds<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -510,7 +540,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Cds<Octets> {
 
 //--- Debug
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Cds<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Cds")
             .field("key_tag", &self.key_tag)
@@ -523,7 +553,7 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Cds<Octets> {
 
 //--- RtypeRecordData
 
-impl<Octets> RtypeRecordData for Cds<Octets> {
+impl<Octs> RtypeRecordData for Cds<Octs> {
     const RTYPE: Rtype = Rtype::Cds;
 }
 

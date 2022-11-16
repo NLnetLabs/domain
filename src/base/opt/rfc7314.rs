@@ -33,8 +33,8 @@ impl Expire {
 
 //--- Parse and Compose
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for Expire {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Expire {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         if parser.remaining() == 0 {
             Ok(Expire::new(None))
         }
@@ -43,12 +43,12 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for Expire {
         }
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         if parser.remaining() == 0 {
             Ok(())
         }
         else {
-            parser.advance(4)
+            parser.advance(4).map_err(Into::into)
         }
     }
 }

@@ -26,7 +26,7 @@
 use super::cmp::CanonicalOrd;
 use super::octets::{
     Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder,
-    OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    OctetsFrom, Parse, ParseError, Parser, ShortBuf,
 };
 #[cfg(feature = "serde")]
 use super::octets::{DeserializeOctets, SerializeOctets};
@@ -34,6 +34,7 @@ use super::scan::{BadSymbol, Scan, Scanner, Symbol, SymbolCharsError};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
+use octseq::Octets;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -184,12 +185,16 @@ impl CharStr<[u8]> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<CharStr<SrcOctets>> for CharStr<Octets>
+impl<Octs, SrcOcts> OctetsFrom<CharStr<SrcOcts>> for CharStr<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: CharStr<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.0)
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: CharStr<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(source.0)
             .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
@@ -212,6 +217,7 @@ where
             );
         let mut chars = s.chars();
         while let Some(symbol) = Symbol::from_chars(&mut chars)? {
+                eprintln!("{:?}", symbol);
             if builder.len() == 255 {
                 return Err(FromStrError::LongString);
             }
@@ -317,17 +323,18 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for CharStr<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for CharStr<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.parse_u8()? as usize;
         parser
             .parse_octets(len)
             .map(|bytes| unsafe { Self::from_octets_unchecked(bytes) })
+            .map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         let len = parser.parse_u8()? as usize;
-        parser.advance(len)
+        parser.advance(len).map_err(Into::into)
     }
 }
 

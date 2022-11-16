@@ -33,12 +33,12 @@ impl TcpKeepalive {
 
 //--- Parse and Compose
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for TcpKeepalive {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for TcpKeepalive {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         u16::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         u16::skip(parser)
     }
 }

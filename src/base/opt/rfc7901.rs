@@ -4,7 +4,7 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::name::{Dname, ToDname};
 use super::super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, Octets, Parse, ParseError, Parser, ShortBuf
 };
 use super::CodeOptData;
 
@@ -12,14 +12,14 @@ use super::CodeOptData;
 //------------ Chain --------------------------------------------------------
 
 // TODO Impl more traits. We can’t derive them because that would force
-//      trait boundaries on Octets.
+//      trait boundaries on Octs.
 #[derive(Clone)]
-pub struct Chain<Octets> {
-    start: Dname<Octets>,
+pub struct Chain<Octs> {
+    start: Dname<Octs>,
 }
 
-impl<Octets> Chain<Octets> {
-    pub fn new(start: Dname<Octets>) -> Self {
+impl<Octs> Chain<Octs> {
+    pub fn new(start: Dname<Octs>) -> Self {
         Chain { start }
     }
 
@@ -41,7 +41,7 @@ impl<Octets> Chain<Octets> {
         })
     }
 
-    pub fn start(&self) -> &Dname<Octets> {
+    pub fn start(&self) -> &Dname<Octs> {
         &self.start
     }
 }
@@ -49,17 +49,17 @@ impl<Octets> Chain<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Chain<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Chain<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Dname::parse(parser).map(Self::new)
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         Dname::skip(parser)
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Chain<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for Chain<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T
@@ -71,7 +71,7 @@ impl<Octets: AsRef<[u8]>> Compose for Chain<Octets> {
 
 //--- CodeOptData
 
-impl<Octets> CodeOptData for Chain<Octets> {
+impl<Octs> CodeOptData for Chain<Octs> {
     const CODE: OptionCode = OptionCode::Chain;
 }
 

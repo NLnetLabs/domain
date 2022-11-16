@@ -8,7 +8,7 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
+    Compose, Octets, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser,
     ShortBuf,
 };
 use core::cmp::Ordering;
@@ -107,9 +107,13 @@ impl<Name, SrcName> OctetsFrom<Question<SrcName>> for Question<Name>
 where
     Name: OctetsFrom<SrcName>,
 {
-    fn octets_from(source: Question<SrcName>) -> Result<Self, ShortBuf> {
+    type Error = Name::Error;
+
+    fn try_octets_from(
+        source: Question<SrcName>,
+    ) -> Result<Self, Self::Error> {
         Ok(Question::new(
-            Name::octets_from(source.qname)?,
+            Name::try_octets_from(source.qname)?,
             source.qtype,
             source.qclass,
         ))
@@ -196,8 +200,8 @@ impl<N: hash::Hash> hash::Hash for Question<N> {
 
 //--- Parse and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for Question<ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Question<ParsedDname<'a, Octs>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Question::new(
             ParsedDname::parse(parser)?,
             Rtype::parse(parser)?,
@@ -205,7 +209,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Question<ParsedDname<Ref>> {
         ))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         ParsedDname::skip(parser)?;
         Rtype::skip(parser)?;
         Class::skip(parser)?;

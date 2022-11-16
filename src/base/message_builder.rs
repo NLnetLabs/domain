@@ -136,7 +136,7 @@ use super::message::Message;
 use super::name::{Label, ToDname};
 #[cfg(feature = "std")]
 use super::octets::Octets64;
-use super::octets::{Compose, OctetsBuilder, OctetsRef, ShortBuf};
+use super::octets::{Compose, Octets, OctetsBuilder, ShortBuf};
 use super::opt::{OptData, OptHeader};
 use super::question::AsQuestion;
 use super::record::AsRecord;
@@ -228,15 +228,11 @@ impl<Target: OctetsBuilder + AsMut<[u8]>> MessageBuilder<Target> {
     ///
     /// The method converts the message builder into an answer builder ready
     /// to receive the answer for the question.
-    pub fn start_answer<Octets>(
+    pub fn start_answer<Octs: Octets>(
         mut self,
-        msg: &Message<Octets>,
+        msg: &Message<Octs>,
         rcode: Rcode,
-    ) -> Result<AnswerBuilder<Target>, ShortBuf>
-    where
-        Octets: AsRef<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
-    {
+    ) -> Result<AnswerBuilder<Target>, ShortBuf> {
         {
             let header = self.header_mut();
             header.set_id(msg.header().id());

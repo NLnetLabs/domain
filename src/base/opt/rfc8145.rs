@@ -4,7 +4,7 @@ use core::convert::TryInto;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, FormError, OctetsBuilder, OctetsRef, Parse, ParseError, Parser,
+    Compose, FormError, OctetsBuilder, Octets, Parse, ParseError, Parser,
     ShortBuf
 };
 use super::CodeOptData;
@@ -13,12 +13,12 @@ use super::CodeOptData;
 //------------ KeyTag -------------------------------------------------------
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct KeyTag<Octets> {
-    octets: Octets,
+pub struct KeyTag<Octs> {
+    octets: Octs,
 }
 
-impl<Octets> KeyTag<Octets> {
-    pub fn new(octets: Octets) -> Self {
+impl<Octs> KeyTag<Octs> {
+    pub fn new(octets: Octs) -> Self {
         KeyTag { octets }
     }
 
@@ -39,7 +39,7 @@ impl<Octets> KeyTag<Octets> {
     }
 
     pub fn iter(&self) -> KeyTagIter
-    where Octets: AsRef<[u8]> {
+    where Octs: AsRef<[u8]> {
         KeyTagIter(self.octets.as_ref())
     }
 }
@@ -47,8 +47,8 @@ impl<Octets> KeyTag<Octets> {
 
 //--- ParseAll and Compose
 
-impl<Ref: OctetsRef> Parse<Ref> for KeyTag<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for KeyTag<Octs::Range<'a>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.remaining();
         if len % 2 == 1 {
             Err(FormError::new("invalid keytag length").into())
@@ -58,7 +58,7 @@ impl<Ref: OctetsRef> Parse<Ref> for KeyTag<Ref::Range> {
         }
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         if parser.remaining() % 2 == 1 {
             Err(FormError::new("invalid keytag length").into())
         }
@@ -69,7 +69,7 @@ impl<Ref: OctetsRef> Parse<Ref> for KeyTag<Ref::Range> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for KeyTag<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for KeyTag<Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T
@@ -81,14 +81,14 @@ impl<Octets: AsRef<[u8]>> Compose for KeyTag<Octets> {
 
 //--- CodeOptData
 
-impl<Octets> CodeOptData for KeyTag<Octets> {
+impl<Octs> CodeOptData for KeyTag<Octs> {
     const CODE: OptionCode = OptionCode::KeyTag;
 }
 
 
 //--- IntoIterator
 
-impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a KeyTag<Octets> {
+impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a KeyTag<Octs> {
     type Item = u16;
     type IntoIter = KeyTagIter<'a>;
 

@@ -355,10 +355,10 @@ impl<Octets: AsRef<[u8]>> hash::Hash for UncertainDname<Octets> {
 
 //--- ToLabelIter
 
-impl<'a, Octets: AsRef<[u8]>> ToLabelIter<'a> for UncertainDname<Octets> {
-    type LabelIter = DnameIter<'a>;
+impl<Octs: AsRef<[u8]>> ToLabelIter for UncertainDname<Octs> {
+    type LabelIter<'a> = DnameIter<'a> where Octs: 'a;
 
-    fn iter_labels(&'a self) -> Self::LabelIter {
+    fn iter_labels(&self) -> Self::LabelIter<'_> {
         match *self {
             UncertainDname::Absolute(ref name) => name.iter_labels(),
             UncertainDname::Relative(ref name) => name.iter_labels(),

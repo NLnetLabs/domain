@@ -88,19 +88,21 @@ macro_rules! int_enum {
 
         //--- Parse and Compose
 
-        impl<Ref: AsRef<[u8]>> $crate::base::octets::Parse<Ref> for $ianatype {
+        impl<'a, Octs> $crate::base::octets::Parse<'a, Octs> for $ianatype
+        where Octs: AsRef<[u8]> + ?Sized {
             fn parse(
-                parser: &mut $crate::base::octets::Parser<Ref>
+                parser: &mut $crate::base::octets::Parser<'a, Octs>
             ) -> Result<Self, $crate::base::octets::ParseError> {
-                <$inttype as $crate::base::octets::Parse<Ref>>::parse(
+                <$inttype as $crate::base::octets::Parse<'a, Octs>>::parse(
                     parser
                 ).map(Self::from_int)
             }
 
             fn skip(
-                parser: &mut $crate::base::octets::Parser<Ref>
+                parser: &mut $crate::base::octets::Parser<'a, Octs>
             ) -> Result<(), $crate::base::octets::ParseError> {
-                <$inttype as $crate::base::octets::Parse<Ref>>::skip(parser)
+                <$inttype as $crate::base::octets::Parse<'a, Octs>>
+                    ::skip(parser)
             }
         }
 

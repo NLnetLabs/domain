@@ -4,7 +4,7 @@ use core::slice;
 use super::super::iana::{OptionCode, SecAlg};
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
+    Compose, OctetsBuilder, Octets, Parse, ParseError, Parser, ShortBuf
 };
 use super::CodeOptData;
 
@@ -14,17 +14,17 @@ use super::CodeOptData;
 macro_rules! option_type {
     ( $name:ident ) => {
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub struct $name<Octets> {
-            octets: Octets,
+        pub struct $name<Octs> {
+            octets: Octs,
         }
 
-        impl<Octets> $name<Octets> {
-            pub fn from_octets(octets: Octets) -> Self {
+        impl<Octs> $name<Octs> {
+            pub fn from_octets(octets: Octs) -> Self {
                 $name { octets }
             }
 
             pub fn iter(&self) -> SecAlgsIter
-            where Octets: AsRef<[u8]> {
+            where Octs: AsRef<[u8]> {
                 SecAlgsIter::new(self.octets.as_ref())
             }
         }
@@ -48,19 +48,23 @@ macro_rules! option_type {
 
         //--- Parse and Compose
 
-        impl<Ref: OctetsRef> Parse<Ref> for $name<Ref::Range> {
-            fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        impl<'a, Octs: Octets> Parse<'a, Octs> for $name<Octs::Range<'a>> {
+            fn parse(
+                parser: &mut Parser<'a, Octs>
+            ) -> Result<Self, ParseError> {
                 let len = parser.remaining();
-                parser.parse_octets(len).map(Self::from_octets)
+                parser.parse_octets(len).map(
+                    Self::from_octets
+                ).map_err(Into::into)
             }
 
-            fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+            fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
                 parser.advance_to_end();
                 Ok(())
             }
         }
 
-        impl<Octets: AsRef<[u8]>> Compose for $name<Octets> {
+        impl<Octs: AsRef<[u8]>> Compose for $name<Octs> {
             fn compose<T: OctetsBuilder + AsMut<[u8]>>(
                 &self,
                 target: &mut T
@@ -72,14 +76,14 @@ macro_rules! option_type {
 
         //--- CodeOptData
         
-        impl<Octets> CodeOptData for $name<Octets> {
+        impl<Octs> CodeOptData for $name<Octs> {
             const CODE: OptionCode = OptionCode::$name;
         }
 
         
         //--- IntoIter
 
-        impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a $name<Octets> {
+        impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a $name<Octs> {
             type Item = SecAlg;
             type IntoIter = SecAlgsIter<'a>;
 

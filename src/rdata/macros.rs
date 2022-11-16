@@ -82,19 +82,20 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<Ref> ZoneRecordData<Ref::Range, ParsedDname<Ref>>
+        impl<'a, Octs> ZoneRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>>
         where
-            Ref: crate::base::octets::OctetsRef,
+            Octs: crate::base::octets::Octets,
         {
-            pub fn flatten_into<Octets>(
+            pub fn flatten_into<Target>(
                 self,
             ) -> Result<
-                ZoneRecordData<Octets, crate::base::Dname<Octets>>,
+                ZoneRecordData<Target, crate::base::Dname<Target>>,
                 PushError
             >
             where
-                Octets: OctetsFrom<Ref::Range> + FromBuilder,
-                <Octets as FromBuilder>::Builder: EmptyBuilder,
+                Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+                <Target as FromBuilder>::Builder: EmptyBuilder,
+                PushError: From<<Target as OctetsFrom<Octs::Range<'a>>>::Error>
             {
                 match self {
                     $( $( $(
@@ -103,7 +104,9 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                         ZoneRecordData::Unknown(inner) => {
-                            Ok(ZoneRecordData::Unknown(inner.octets_into()?))
+                            Ok(ZoneRecordData::Unknown(
+                                inner.try_octets_into()?
+                            ))
                         }
                 }
 
@@ -119,24 +122,33 @@ macro_rules! rdata_types {
             for ZoneRecordData<Octets, Name>
         where
             Octets: $crate::base::octets::OctetsFrom<SrcOctets>,
-            Name: $crate::base::octets::OctetsFrom<SrcName>
+            Name: $crate::base::octets::OctetsFrom<
+                SrcName, Error = Octets::Error
+            >,
         {
-            fn octets_from(
+            type Error = Octets::Error;
+
+            fn try_octets_from(
                 source: ZoneRecordData<SrcOctets, SrcName>
-            ) -> Result<Self, $crate::base::octets::ShortBuf> {
+            ) -> Result<Self, Self::Error> {
                 match source {
                     $( $( $(
                         ZoneRecordData::$mtype(inner) => {
-                            $mtype::octets_from(inner).map(
+                            inner.convert_octets().map(
                                 ZoneRecordData::$mtype
                             )
                         }
                     )* )* )*
                     ZoneRecordData::Unknown(inner) => {
-                        $crate::base::rdata::
-                        UnknownRecordData::octets_from(inner).map(
-                            ZoneRecordData::Unknown
-                        )
+                        Ok(ZoneRecordData::Unknown(
+                            match
+                                $crate::base::rdata::
+                                UnknownRecordData::try_octets_from(inner)
+                            {
+                                Ok(ok) => ok,
+                                Err(err) => return Err(err.into())
+                            }
+                        ))
                     }
                 }
             }
@@ -345,12 +357,12 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<Ref: $crate::base::octets::OctetsRef>
-        $crate::base::rdata::ParseRecordData<Ref>
-        for ZoneRecordData<Ref::Range, ParsedDname<Ref>> {
+        impl<'a, Octs: $crate::base::octets::Octets>
+        $crate::base::rdata::ParseRecordData<'a, Octs>
+        for ZoneRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>> {
             fn parse_data(
                 rtype: $crate::base::iana::Rtype,
-                parser: &mut $crate::base::octets::Parser<Ref>,
+                parser: &mut $crate::base::octets::Parser<'a, Octs>,
             ) -> Result<Option<Self>, $crate::base::octets::ParseError> {
                 use $crate::base::octets::Parse;
 
@@ -560,16 +572,20 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<Ref> AllRecordData<Ref::Range, ParsedDname<Ref>>
+        impl<'a, Octs> AllRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>>
         where
-            Ref: crate::base::octets::OctetsRef,
+            Octs: crate::base::octets::Octets,
         {
-            pub fn flatten_into<Octets>(
+            pub fn flatten_into<Target>(
                 self,
-            ) -> Result<AllRecordData<Octets, crate::base::Dname<Octets>>, PushError>
+            ) -> Result<
+                AllRecordData<Target, crate::base::Dname<Target>>,
+                PushError
+            >
             where
-                Octets: OctetsFrom<Ref::Range> + FromBuilder,
-                <Octets as FromBuilder>::Builder: EmptyBuilder,
+                Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+                <Target as FromBuilder>::Builder: EmptyBuilder,
+                PushError: From<<Target as OctetsFrom<Octs::Range<'a>>>::Error>
             {
                 match self {
                     $( $( $(
@@ -583,10 +599,10 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     AllRecordData::Opt(inner) => {
-                        Ok(AllRecordData::Opt(inner.octets_into()?))
+                        Ok(AllRecordData::Opt(inner.try_octets_into()?))
                     }
                     AllRecordData::Unknown(inner) => {
-                        Ok(AllRecordData::Unknown(inner.octets_into()?))
+                        Ok(AllRecordData::Unknown(inner.try_octets_into()?))
                     }
                 }
             }
@@ -655,36 +671,40 @@ macro_rules! rdata_types {
             for AllRecordData<Octets, Name>
         where
             Octets: $crate::base::octets::OctetsFrom<SrcOctets>,
-            Name: $crate::base::octets::OctetsFrom<SrcName>
+            Name: $crate::base::octets::OctetsFrom<
+                SrcName, Error = Octets::Error,
+            >,
         {
-            fn octets_from(
+            type Error = Octets::Error;
+
+            fn try_octets_from(
                 source: AllRecordData<SrcOctets, SrcName>
-            ) -> Result<Self, $crate::base::octets::ShortBuf> {
+            ) -> Result<Self, Self::Error> {
                 match source {
                     $( $( $(
                         AllRecordData::$mtype(inner) => {
-                            $mtype::octets_from(inner).map(
+                            inner.convert_octets().map(
                                 AllRecordData::$mtype
                             )
                         }
                     )* )* )*
                     $( $( $(
                         AllRecordData::$ptype(inner) => {
-                            $ptype::octets_from(inner).map(
+                            inner.convert_octets().map(
                                 AllRecordData::$ptype
                             )
                         }
                     )* )* )*
                     AllRecordData::Opt(inner) => {
-                        $crate::base::opt::Opt::octets_from(inner).map(
-                            AllRecordData::Opt
-                        )
+                        Ok(AllRecordData::Opt(
+                            $crate::base::opt::Opt::try_octets_from(inner)?
+                        ))
                     }
                     AllRecordData::Unknown(inner) => {
-                        $crate::base::rdata::
-                        UnknownRecordData::octets_from(inner).map(
-                            AllRecordData::Unknown
-                        )
+                        Ok(AllRecordData::Unknown(
+                            $crate::base::rdata::UnknownRecordData
+                                ::try_octets_from(inner)?
+                        ))
                     }
                 }
             }
@@ -838,12 +858,12 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<Ref: $crate::base::octets::OctetsRef>
-        $crate::base::rdata::ParseRecordData<Ref>
-        for AllRecordData<Ref::Range, ParsedDname<Ref>> {
+        impl<'a, Octs: $crate::base::octets::Octets>
+        $crate::base::rdata::ParseRecordData<'a, Octs>
+        for AllRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>> {
             fn parse_data(
                 rtype: $crate::base::iana::Rtype,
-                parser: &mut $crate::base::octets::Parser<Ref>,
+                parser: &mut $crate::base::octets::Parser<'a, Octs>,
             ) -> Result<Option<Self>, $crate::base::octets::ParseError> {
                 use $crate::base::octets::Parse;
 
@@ -880,7 +900,7 @@ macro_rules! rdata_types {
         //--- Display and Debug
 
         impl<O, N> core::fmt::Display for AllRecordData<O, N>
-        where O: AsRef<[u8]>, N: core::fmt::Display {
+        where O: crate::base::octets::Octets, N: core::fmt::Display {
             fn fmt(
                 &self, f: &mut core::fmt::Formatter
             ) -> core::fmt::Result {
@@ -902,10 +922,7 @@ macro_rules! rdata_types {
         }
 
         impl<O, N> core::fmt::Debug for AllRecordData<O, N>
-        where
-            O: AsRef<[u8]>,
-            N: core::fmt::Debug
-        {
+        where O: crate::base::octets::Octets, N: core::fmt::Debug {
             fn fmt(
                 &self, f: &mut core::fmt::Formatter
             ) -> core::fmt::Result {
@@ -979,17 +996,23 @@ macro_rules! dname_type {
             pub fn $field(&self) -> &N {
                 &self.$field
             }
+
+            pub(super) fn convert_octets<Target: OctetsFrom<N>>(
+                self
+            ) -> Result<$target<Target>, Target::Error> {
+                Target::try_octets_from(self.$field).map($target::new)
+            }
         }
 
-        impl<Ref> $target<ParsedDname<Ref>>
+        impl<'a, Octs> $target<ParsedDname<'a, Octs>>
         where
-            Ref: OctetsRef,
+            Octs: crate::base::octets::Octets,
         {
             pub fn flatten_into<Octets>(
                 self,
             ) -> Result<$target<crate::base::Dname<Octets>>, PushError>
             where
-                Octets: OctetsFrom<Ref::Range> + FromBuilder,
+                Octets: OctetsFrom<Octs::Range<'a>> + FromBuilder,
                 <Octets as FromBuilder>::Builder: EmptyBuilder,
             {
                 Ok($target::new(self.$field.flatten_into()?))
@@ -1017,8 +1040,12 @@ macro_rules! dname_type {
 
         impl<Name, SrcName> OctetsFrom<$target<SrcName>> for $target<Name>
         where Name: OctetsFrom<SrcName> {
-            fn octets_from(source: $target<SrcName>) -> Result<Self, ShortBuf> {
-                Name::octets_from(source.$field).map(|name| {
+            type Error = Name::Error;
+
+            fn try_octets_from(
+                source: $target<SrcName>
+            ) -> Result<Self, Self::Error> {
+                Name::try_octets_from(source.$field).map(|name| {
                     Self::new(name)
                 })
             }
@@ -1070,12 +1097,15 @@ macro_rules! dname_type {
 
         //--- Parse and Compose
 
-        impl<Ref: OctetsRef> Parse<Ref> for $target<ParsedDname<Ref>> {
-            fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+        impl<'a, Octs: Octets> Parse<'a, Octs>
+        for $target<ParsedDname<'a, Octs>> {
+            fn parse(
+                parser: &mut Parser<'a, Octs>,
+            ) -> Result<Self, ParseError> {
                 ParsedDname::parse(parser).map(Self::new)
             }
 
-            fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+            fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
                 ParsedDname::skip(parser).map_err(Into::into)
             }
         }

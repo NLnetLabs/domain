@@ -66,15 +66,15 @@ impl Padding {
 
 //--- Parse and Compose
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for Padding {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Padding {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         // XXX Check whether there really are all zeros.
         let len = parser.remaining();
         parser.advance(len)?;
         Ok(Padding::new_with_mode(len as u16, PaddingMode::Zero))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance_to_end();
         Ok(())
     }

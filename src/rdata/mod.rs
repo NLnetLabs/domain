@@ -62,6 +62,7 @@ rdata_types! {
             Mb<N>,
             Md<N>,
             Mf<N>,
+            Mg<N>,
             Minfo<N>,
             Mr<N>,
             Mx<N>,

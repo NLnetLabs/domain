@@ -5,7 +5,7 @@ use super::super::{
         exterr::{ExtendedErrorCode, EDE_PRIVATE_RANGE_BEGIN},
         OptionCode,
     },
-    octets::{OctetsBuilder, OctetsRef, Parse, ParseError},
+    octets::{OctetsBuilder, Octets, Parse, ParseError},
     opt::CodeOptData,
     Compose, Parser, ShortBuf,
 };
@@ -13,28 +13,29 @@ use core::{convert::TryFrom, fmt, str};
 
 /// Extended Error data structure
 #[derive(Debug, Clone)]
-pub struct ExtendedError<Octets> {
+pub struct ExtendedError<Octs> {
     /// Info code provides the additional context for the
     /// RESPONSE-CODE of the DNS message.
     code: ExtendedErrorCode,
+
     /// Extra UTF-8 encoded text, which may hold additional textual
     /// information(optional).
-    text: Option<Octets>,
+    text: Option<Octs>,
 }
 
-impl<Octets: AsRef<[u8]>> ExtendedError<Octets> {
+impl<Octs: AsRef<[u8]>> ExtendedError<Octs> {
     /// Get INFO-CODE field.
     pub fn code(&self) -> ExtendedErrorCode {
         self.code
     }
 
     /// Get EXTRA-TEXT field.
-    pub fn text(&self) -> Option<&Octets> {
+    pub fn text(&self) -> Option<&Octs> {
         self.text.as_ref()
     }
 
     /// Set EXTRA-TEXT field. `text` must be UTF-8 encoded.
-    pub fn set_text(&mut self, text: Octets) -> Result<(), str::Utf8Error> {
+    pub fn set_text(&mut self, text: Octs) -> Result<(), str::Utf8Error> {
         // validate encoding
         let _ = str::from_utf8(text.as_ref())?;
         self.text = Some(text);
@@ -47,23 +48,23 @@ impl<Octets: AsRef<[u8]>> ExtendedError<Octets> {
     }
 }
 
-impl<Octets> From<ExtendedErrorCode> for ExtendedError<Octets> {
+impl<Octs> From<ExtendedErrorCode> for ExtendedError<Octs> {
     fn from(code: ExtendedErrorCode) -> Self {
         Self { code, text: None }
     }
 }
 
-impl<Octets: AsRef<[u8]>> TryFrom<(ExtendedErrorCode, Octets)> for ExtendedError<Octets> {
+impl<Octs: AsRef<[u8]>> TryFrom<(ExtendedErrorCode, Octs)> for ExtendedError<Octs> {
     type Error = str::Utf8Error;
 
-    fn try_from(v: (ExtendedErrorCode, Octets)) -> Result<Self, Self::Error> {
+    fn try_from(v: (ExtendedErrorCode, Octs)) -> Result<Self, Self::Error> {
         let mut ede: Self = v.0.into();
         ede.set_text(v.1)?;
         Ok(ede)
     }
 }
 
-impl<Octets> From<u16> for ExtendedError<Octets> {
+impl<Octs> From<u16> for ExtendedError<Octs> {
     fn from(code: u16) -> Self {
         Self {
             code: ExtendedErrorCode::from_int(code),
@@ -72,28 +73,32 @@ impl<Octets> From<u16> for ExtendedError<Octets> {
     }
 }
 
-impl<Ref: OctetsRef> Parse<Ref> for ExtendedError<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs> Parse<'a, Octs> for ExtendedError<Octs::Range<'a>> 
+where Octs: Octets + ?Sized {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let mut ede: Self = parser.parse_u16()?.into();
         let n = parser.remaining();
         if n > 0 {
-            ede.set_text(parser.parse_octets(n)?)
-                .map_err(|_| ParseError::form_error("invalid extended error text encoding"))?;
+            ede.set_text(parser.parse_octets(n)?).map_err(|_| {
+                ParseError::form_error(
+                    "invalid extended error text encoding"
+                )
+            })?;
         }
         Ok(ede)
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance_to_end();
         Ok(())
     }
 }
 
-impl<Octets> CodeOptData for ExtendedError<Octets> {
+impl<Octs> CodeOptData for ExtendedError<Octs> {
     const CODE: OptionCode = OptionCode::ExtendedError;
 }
 
-impl<Octets: AsRef<[u8]>> Compose for ExtendedError<Octets> {
+impl<Octs: AsRef<[u8]>> Compose for ExtendedError<Octs> {
     fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
         target.append_slice(&self.code.to_int().to_be_bytes())?;
         if let Some(text) = &self.text {
@@ -103,7 +108,7 @@ impl<Octets: AsRef<[u8]>> Compose for ExtendedError<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for ExtendedError<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for ExtendedError<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.code.fmt(f)?;
 

@@ -5,8 +5,8 @@
 
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, OctetsBuilder, OctetsFrom,
-    OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FormError, FromBuilder, Octets, OctetsBuilder,
+    OctetsFrom, Parse, ParseError, Parser, ShortBuf,
 };
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError};
@@ -49,10 +49,9 @@ use core::{cmp, fmt, hash};
 /// [`Parser`]: ../parse/struct.Parser.html
 /// [`ToDname`]: trait.ToDname.html
 /// [`ToDname::to_name`]: trait.ToDname.html#method.to_name
-#[derive(Clone, Copy)]
-pub struct ParsedDname<Ref> {
+pub struct ParsedDname<'a, Octs: ?Sized> {
     /// A parser positioned at the beginning of the name.
-    parser: Parser<Ref>,
+    parser: Parser<'a, Octs>,
 
     /// The length of the uncompressed name in octets.
     ///
@@ -67,7 +66,7 @@ pub struct ParsedDname<Ref> {
 
 /// # Properties
 ///
-impl<Ref> ParsedDname<Ref> {
+impl<'a, Octs: ?Sized> ParsedDname<'a, Octs> {
     /// Returns whether the name is compressed.
     pub fn is_compressed(&self) -> bool {
         self.compressed
@@ -81,10 +80,14 @@ impl<Ref> ParsedDname<Ref> {
 
 /// # Working with Labels
 ///
-impl<Ref: AsRef<[u8]>> ParsedDname<Ref> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> ParsedDname<'a, Octs> {
     /// Returns an iterator over the labels of the name.
     pub fn iter(&self) -> ParsedDnameIter {
-        ParsedDnameIter::new(&self.parser, self.len)
+        ParsedDnameIter::new(
+            self.parser.as_slice(),
+            self.parser.pos(),
+            self.len,
+        )
     }
 
     /// Returns an iterator over the suffixes of the name.
@@ -92,11 +95,8 @@ impl<Ref: AsRef<[u8]>> ParsedDname<Ref> {
     /// The returned iterator starts with the full name and then for each
     /// additional step returns a name with the left-most label stripped off
     /// until it reaches the root label.
-    pub fn iter_suffixes(&self) -> ParsedSuffixIter<Ref>
-    where
-        Ref: Clone,
-    {
-        ParsedSuffixIter::new(self.clone())
+    pub fn iter_suffixes(&self) -> ParsedSuffixIter<'a, Octs> {
+        ParsedSuffixIter::new(*self)
     }
 
     /// Returns the number of labels in the domain name.
@@ -119,15 +119,12 @@ impl<Ref: AsRef<[u8]>> ParsedDname<Ref> {
     }
 
     /// Determines whether `base` is a prefix of `self`.
-    pub fn starts_with<'a, N: ToLabelIter<'a>>(
-        &'a self,
-        base: &'a N,
-    ) -> bool {
+    pub fn starts_with<N: ToLabelIter>(&self, base: &N) -> bool {
         <Self as ToLabelIter>::starts_with(self, base)
     }
 
     /// Determines whether `base` is a suffix of `self`.
-    pub fn ends_with<'a, N: ToLabelIter<'a>>(&'a self, base: &'a N) -> bool {
+    pub fn ends_with<N: ToLabelIter>(&self, base: &N) -> bool {
         <Self as ToLabelIter>::ends_with(self, base)
     }
 
@@ -136,9 +133,9 @@ impl<Ref: AsRef<[u8]>> ParsedDname<Ref> {
     /// If this name is longer than just the root label, returns the first
     /// label as a relative name and removes it from the name itself. If the
     /// name is only the root label, returns `None` and does nothing.
-    pub fn split_first(&mut self) -> Option<RelativeDname<Ref::Range>>
+    pub fn split_first(&mut self) -> Option<RelativeDname<Octs::Range<'a>>>
     where
-        Ref: OctetsRef,
+        Octs: Octets,
     {
         if self.len == 1 {
             return None;
@@ -186,14 +183,16 @@ impl<Ref: AsRef<[u8]>> ParsedDname<Ref> {
     }
 }
 
-impl<Ref: OctetsRef> ParsedDname<Ref> {
+impl<'a, Octs: Octets + ?Sized> ParsedDname<'a, Octs> {
     /// Flatten `ParsedDname` into a `Dname` in case it is compressed,
     /// otherwise cheap copy the underlying octets.
-    pub fn flatten_into<Octets>(mut self) -> Result<Dname<Octets>, PushError>
+    pub fn flatten_into<Target>(self) -> Result<Dname<Target>, PushError>
     where
-        Octets: OctetsFrom<Ref::Range> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
     {
+        unimplemented!()
+        /*
         if self.is_compressed() {
             self.to_dname()
         } else {
@@ -201,17 +200,35 @@ impl<Ref: OctetsRef> ParsedDname<Ref> {
                 .parser
                 .parse_octets(self.len)
                 .map_err(|_| PushError::ShortBuf)?;
-            let octets = OctetsFrom::octets_from(range)
+            let octets = OctsFrom::octets_from(range)
                 .map_err(|_| PushError::ShortBuf)?;
             Ok(unsafe { Dname::from_octets_unchecked(octets) })
+        }
+        */
+    }
+}
+
+//--- Clone and Clone
+
+impl<'a, Octs: ?Sized> Clone for ParsedDname<'a, Octs> {
+    fn clone(&self) -> Self {
+        ParsedDname {
+            parser: self.parser,
+            len: self.len,
+            compressed: self.compressed,
         }
     }
 }
 
+impl<'a, Octs: ?Sized> Copy for ParsedDname<'a, Octs> {}
+
 //--- From
 
-impl<Ref: AsRef<[u8]>> From<Dname<Ref>> for ParsedDname<Ref> {
-    fn from(name: Dname<Ref>) -> ParsedDname<Ref> {
+impl<'a, Octs> From<Dname<&'a Octs>> for ParsedDname<'a, Octs>
+where
+    Octs: AsRef<[u8]> + ?Sized,
+{
+    fn from(name: Dname<&'a Octs>) -> ParsedDname<'a, Octs> {
         let parser = Parser::from_ref(name.into_octets());
         ParsedDname {
             len: parser.as_slice().len(),
@@ -223,9 +240,9 @@ impl<Ref: AsRef<[u8]>> From<Dname<Ref>> for ParsedDname<Ref> {
 
 //--- PartialEq and Eq
 
-impl<Ref, N> PartialEq<N> for ParsedDname<Ref>
+impl<'a, Octs, N> PartialEq<N> for ParsedDname<'a, Octs>
 where
-    Ref: AsRef<[u8]>,
+    Octs: AsRef<[u8]> + ?Sized,
     N: ToDname + ?Sized,
 {
     fn eq(&self, other: &N) -> bool {
@@ -233,13 +250,13 @@ where
     }
 }
 
-impl<Ref: AsRef<[u8]>> Eq for ParsedDname<Ref> {}
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Eq for ParsedDname<'a, Octs> {}
 
 //--- PartialOrd, Ord, and CanonicalOrd
 
-impl<Ref, N> PartialOrd<N> for ParsedDname<Ref>
+impl<'a, Octs, N> PartialOrd<N> for ParsedDname<'a, Octs>
 where
-    Ref: AsRef<[u8]>,
+    Octs: AsRef<[u8]> + ?Sized,
     N: ToDname + ?Sized,
 {
     fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
@@ -247,15 +264,15 @@ where
     }
 }
 
-impl<Ref: AsRef<[u8]>> Ord for ParsedDname<Ref> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Ord for ParsedDname<'a, Octs> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.name_cmp(other)
     }
 }
 
-impl<Ref, N> CanonicalOrd<N> for ParsedDname<Ref>
+impl<'a, Octs, N> CanonicalOrd<N> for ParsedDname<'a, Octs>
 where
-    Ref: AsRef<[u8]>,
+    Octs: AsRef<[u8]> + ?Sized,
     N: ToDname + ?Sized,
 {
     fn canonical_cmp(&self, other: &N) -> cmp::Ordering {
@@ -265,7 +282,7 @@ where
 
 //--- Hash
 
-impl<Ref: AsRef<[u8]>> hash::Hash for ParsedDname<Ref> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> hash::Hash for ParsedDname<'a, Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         for item in self.iter() {
             item.hash(state)
@@ -275,10 +292,10 @@ impl<Ref: AsRef<[u8]>> hash::Hash for ParsedDname<Ref> {
 
 //--- ToLabelIter and ToDname
 
-impl<'a, Ref: AsRef<[u8]>> ToLabelIter<'a> for ParsedDname<Ref> {
-    type LabelIter = ParsedDnameIter<'a>;
+impl<'a, Octs: AsRef<[u8]> + ?Sized> ToLabelIter for ParsedDname<'a, Octs> {
+    type LabelIter<'s> = ParsedDnameIter<'s> where 'a: 's, Octs: 's;
 
-    fn iter_labels(&'a self) -> Self::LabelIter {
+    fn iter_labels(&self) -> Self::LabelIter<'_> {
         self.iter()
     }
 
@@ -287,7 +304,7 @@ impl<'a, Ref: AsRef<[u8]>> ToLabelIter<'a> for ParsedDname<Ref> {
     }
 }
 
-impl<Ref: AsRef<[u8]>> ToDname for ParsedDname<Ref> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> ToDname for ParsedDname<'a, Octs> {
     fn as_flat_slice(&self) -> Option<&[u8]> {
         if self.compressed {
             None
@@ -299,7 +316,10 @@ impl<Ref: AsRef<[u8]>> ToDname for ParsedDname<Ref> {
 
 //--- IntoIterator
 
-impl<'a, Ref: AsRef<[u8]>> IntoIterator for &'a ParsedDname<Ref> {
+impl<'a, 'p, Octs> IntoIterator for &'a ParsedDname<'p, Octs>
+where
+    Octs: AsRef<[u8]> + ?Sized,
+{
     type Item = &'a Label;
     type IntoIter = ParsedDnameIter<'a>;
 
@@ -310,17 +330,17 @@ impl<'a, Ref: AsRef<[u8]>> IntoIterator for &'a ParsedDname<Ref> {
 
 //--- Parse and Compose
 
-impl<Ref> Parse<Ref> for ParsedDname<Ref>
+impl<'a, Octs> Parse<'a, Octs> for ParsedDname<'a, Octs>
 where
-    Ref: AsRef<[u8]> + Clone,
+    Octs: AsRef<[u8]> + ?Sized,
 {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         // We will walk over the entire name to ensure it is valid. Because
         // we need to clone the original parser for the result, anyway, it is
         // okay to clone the input parser into a temporary parser to do the
         // checking on.
-        let mut res = parser.clone();
-        let mut tmp = parser.clone();
+        let mut res = *parser;
+        let mut tmp = *parser;
 
         // Name compression can lead to infinite recursion. The easiest way
         // to protect against that is by limiting the number of compression
@@ -396,7 +416,7 @@ where
     ///
     /// If you need to check that the name you are skipping over is valid, you
     /// will have to use `parse` and drop the result.
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         let mut len = 0;
         loop {
             match LabelType::parse(parser) {
@@ -421,7 +441,7 @@ where
     }
 }
 
-impl<Ref: AsRef<[u8]>> Compose for ParsedDname<Ref> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Compose for ParsedDname<'a, Octs> {
     fn compose<T: OctetsBuilder + AsMut<[u8]>>(
         &self,
         target: &mut T,
@@ -453,7 +473,7 @@ impl<Ref: AsRef<[u8]>> Compose for ParsedDname<Ref> {
 
 //--- Display and Debug
 
-impl<Ref: AsRef<[u8]>> fmt::Display for ParsedDname<Ref> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> fmt::Display for ParsedDname<'a, Octs> {
     /// Formats the domain name.
     ///
     /// This will produce the domain name in common display format without
@@ -470,7 +490,7 @@ impl<Ref: AsRef<[u8]>> fmt::Display for ParsedDname<Ref> {
     }
 }
 
-impl<Ref: AsRef<[u8]>> fmt::Debug for ParsedDname<Ref> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> fmt::Debug for ParsedDname<'a, Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ParsedDname({}.)", self)
     }
@@ -490,15 +510,8 @@ impl<'a> ParsedDnameIter<'a> {
     /// Creates a new iterator from the parser and the name length.
     ///
     /// The parser must be positioned at the beginning of the name.
-    pub(crate) fn new<Ref>(parser: &'a Parser<Ref>, len: usize) -> Self
-    where
-        Ref: AsRef<[u8]>,
-    {
-        ParsedDnameIter {
-            slice: parser.as_slice(),
-            pos: parser.pos(),
-            len,
-        }
+    pub(crate) fn new(slice: &'a [u8], pos: usize, len: usize) -> Self {
+        ParsedDnameIter { slice, pos, len }
     }
 
     /// Returns the next label.
@@ -561,26 +574,26 @@ impl<'a> DoubleEndedIterator for ParsedDnameIter<'a> {
 
 /// An iterator over ever shorter suffixes of a parsed domain name.
 #[derive(Clone)]
-pub struct ParsedSuffixIter<Ref> {
-    name: Option<ParsedDname<Ref>>,
+pub struct ParsedSuffixIter<'a, Octs: ?Sized> {
+    name: Option<ParsedDname<'a, Octs>>,
 }
 
-impl<Ref> ParsedSuffixIter<Ref> {
+impl<'a, Octs: ?Sized> ParsedSuffixIter<'a, Octs> {
     /// Creates a new iterator cloning `name`.
-    fn new(name: ParsedDname<Ref>) -> Self {
+    fn new(name: ParsedDname<'a, Octs>) -> Self {
         ParsedSuffixIter { name: Some(name) }
     }
 }
 
-impl<Ref: AsRef<[u8]> + Clone> Iterator for ParsedSuffixIter<Ref> {
-    type Item = ParsedDname<Ref>;
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Iterator for ParsedSuffixIter<'a, Octs> {
+    type Item = ParsedDname<'a, Octs>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let name = match self.name {
             Some(ref mut name) => name,
             None => return None,
         };
-        let res = name.clone();
+        let res = *name;
         if !name.parent() {
             self.name = None
         }
@@ -602,7 +615,7 @@ enum LabelType {
 
 impl LabelType {
     /// Attempts to take a label type from the beginning of `parser`.
-    pub fn parse<Ref: AsRef<[u8]>>(
+    pub fn parse<Ref: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Ref>,
     ) -> Result<Self, ParseError> {
         let ltype = parser.parse_u8()?;
@@ -618,7 +631,7 @@ impl LabelType {
     }
 
     /// Returns the label type at the beginning of `parser` without advancing.
-    pub fn peek<Ref: AsRef<[u8]>>(
+    pub fn peek<Ref: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Ref>,
     ) -> Result<Self, ParseError> {
         let ltype = parser.peek(1)?[0];
@@ -769,7 +782,7 @@ mod test {
 
     fn cmp_iter_suffixes<I>(iter: I, labels: &[&[u8]])
     where
-        I: Iterator<Item = ParsedDname<&'static [u8]>>,
+        I: Iterator<Item = ParsedDname<'static, [u8]>>,
     {
         for (name, labels) in iter.zip(labels) {
             let mut iter = name.iter();
@@ -911,7 +924,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn split_first() {
-        fn split_first_wec(mut name: ParsedDname<&'static [u8]>) {
+        fn split_first_wec(mut name: ParsedDname<[u8]>) {
             assert_eq!(
                 name.to_vec().as_slice(),
                 b"\x03www\x07example\x03com\0"
@@ -943,7 +956,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn parent() {
-        fn parent_wec(mut name: ParsedDname<&'static [u8]>) {
+        fn parent_wec(mut name: ParsedDname<[u8]>) {
             assert_eq!(
                 name.to_vec().as_slice(),
                 b"\x03www\x07example\x03com\0"
@@ -968,7 +981,7 @@ mod test {
     fn parse_and_skip() {
         use std::vec::Vec;
 
-        fn name_eq(parsed: ParsedDname<&[u8]>, name: ParsedDname<&[u8]>) {
+        fn name_eq(parsed: ParsedDname<[u8]>, name: ParsedDname<[u8]>) {
             assert_eq!(parsed.parser.as_slice(), name.parser.as_slice());
             assert_eq!(parsed.parser.pos(), name.parser.pos());
             assert_eq!(parsed.len, name.len);
@@ -976,8 +989,8 @@ mod test {
         }
 
         fn parse(
-            mut parser: Parser<&[u8]>,
-            equals: ParsedDname<&[u8]>,
+            mut parser: Parser<[u8]>,
+            equals: ParsedDname<[u8]>,
             compose_len: usize,
         ) {
             let end = parser.pos() + compose_len;
@@ -985,13 +998,13 @@ mod test {
             assert_eq!(parser.pos(), end);
         }
 
-        fn skip(mut name: ParsedDname<&[u8]>, len: usize) {
+        fn skip(mut name: ParsedDname<[u8]>, len: usize) {
             let end = name.parser.pos() + len;
             assert_eq!(ParsedDname::skip(&mut name.parser), Ok(()));
             assert_eq!(name.parser.pos(), end);
         }
 
-        fn p(slice: &'static [u8], pos: usize) -> Parser<&'static [u8]> {
+        fn p(slice: &[u8], pos: usize) -> Parser<[u8]> {
             let mut res = Parser::from_ref(slice);
             res.advance(pos).unwrap();
             res
@@ -1094,7 +1107,7 @@ mod test {
     fn compose() {
         use std::vec::Vec;
 
-        fn step(name: ParsedDname<&[u8]>, result: &[u8]) {
+        fn step(name: ParsedDname<[u8]>, result: &[u8]) {
             let mut buf = Vec::new();
             name.compose(&mut buf).unwrap();
             assert_eq!(buf.as_slice(), result);

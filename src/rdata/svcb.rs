@@ -4,8 +4,9 @@
 use crate::base::iana::{Rtype, SvcbParamKey};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, Octets512, OctetsBuilder, OctetsFrom,
-    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FormError, FromBuilder, Octets, Octets512,
+    OctetsBuilder, OctetsFrom, OctetsInto, Parse, ParseError, Parser,
+    ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 use core::{fmt, hash};
@@ -63,18 +64,31 @@ impl<O, N> $name<O, N> {
     pub fn target(&self) -> &N {
         &self.target
     }
+
+    pub(super) fn convert_octets<TOcts, TName>(
+        self
+    ) -> Result<$name<TOcts, TName>, TOcts::Error>
+    where
+        TOcts: OctetsFrom<O>,
+        TName: OctetsFrom<N, Error = TOcts::Error>,
+    {
+        Ok($name {
+            priority: self.priority,
+            target: self.target.try_octets_into()?,
+            params: self.params.try_octets_into()?,
+            sorter: self.sorter,
+        })
+    }
 }
 
-impl<Ref> $name<Ref::Range, ParsedDname<Ref>>
-where
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(
+impl<'a, Octs: Octets> $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    pub fn flatten_into<Target>(
         self,
-    ) -> Result<$name<Octets, Dname<Octets>>, PushError>
+    ) -> Result<$name<Target, Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<Ref::Range> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
+        PushError: From<<Target as OctetsFrom<Octs::Range<'a>>>::Error>,
     {
         let Self {
             priority,
@@ -85,7 +99,7 @@ where
         Ok($name::new(
             priority,
             target.flatten_into()?,
-            params.octets_into()?,
+            params.try_octets_into()?,
         ))
     }
 }
@@ -94,12 +108,15 @@ impl<O, OO, N, NN> OctetsFrom<$name<O, N>> for $name<OO, NN>
 where
     OO: OctetsFrom<O>,
     NN: OctetsFrom<N>,
+    OO::Error: From<NN::Error>,
 {
-    fn octets_from(source: $name<O, N>) -> Result<Self, ShortBuf> {
+    type Error = OO::Error;
+
+    fn try_octets_from(source: $name<O, N>) -> Result<Self, Self::Error> {
         Ok($name::new(
             source.priority,
-            NN::octets_from(source.target)?,
-            OO::octets_from(source.params)?,
+            NN::try_octets_from(source.target)?,
+            OO::try_octets_from(source.params)?,
         ))
     }
 }
@@ -132,8 +149,9 @@ impl<OB: OctetsBuilder + AsMut<[u8]>, N> $name<OB, N> {
 
 //--- Parse, ParseAll, Compose and Compress
 
-impl<Ref: OctetsRef> Parse<Ref> for $name<Ref::Range, ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
+for $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let priority = u16::parse(parser)?;
         let target = ParsedDname::parse(parser)?;
         let len = parser.remaining();
@@ -141,7 +159,7 @@ impl<Ref: OctetsRef> Parse<Ref> for $name<Ref::Range, ParsedDname<Ref>> {
         Ok(Self::new(priority, target, params))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         u16::skip(parser)?;
         ParsedDname::skip(parser)?;
         parser.advance_to_end();
@@ -196,17 +214,16 @@ impl<O, N> RtypeRecordData for $name<O, N> {
     const RTYPE: Rtype = Rtype::$name;
 }
 
-impl<O: AsRef<[u8]>, N> $name<O, N> {
-    pub fn iter(&self) -> ParamIter<&[u8]> {
-        let parser = Parser::from_ref(self.params.as_ref());
-        ParamIter { parser }
+impl<O: Octets, N> $name<O, N> {
+    pub fn iter(&self) -> ParamIter<'_, O> {
+        ParamIter { parser: Parser::from_ref(&self.params) }
     }
 }
 
 //--- Display and Debug
 impl<O, N> fmt::Display for $name<O, N>
 where
-    O: AsRef<[u8]>,
+    O: Octets,
     N: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -220,7 +237,7 @@ where
 
 impl<O, N> fmt::Debug for $name<O, N>
 where
-    O: AsRef<[u8]>,
+    O: Octets,
     N: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -327,15 +344,12 @@ impl Sorter {
 }
 
 /// A iterator to parse each parameter.
-pub struct ParamIter<Ref> {
-    parser: Parser<Ref>,
+pub struct ParamIter<'a, Octs> {
+    parser: Parser<'a, Octs>,
 }
 
-impl<Ref> Iterator for ParamIter<Ref>
-where
-    Ref: OctetsRef,
-{
-    type Item = Result<AllParams<Ref::Range>, ParseError>;
+impl<'a, Octs: Octets> Iterator for ParamIter<'a, Octs> {
+    type Item = Result<AllParams<Octs::Range<'a>>, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.parser.remaining() == 0 {
@@ -352,14 +366,14 @@ pub mod param {
     use core::fmt::{self, Write};
 
     macro_rules! param_enum {
-        ($($name:ident($type:ty),)+) => {
+        ($($name:ident($type:ident $( < $( $type_arg:ident ),* > )*),)+) => {
             /// A enum to hold all the parameters.
             #[derive(Debug, Clone, Eq, PartialEq)]
-            pub enum AllParams<Octets> {
-                $($name($type)),+
+            pub enum AllParams<Octs> {
+                $($name( $type $( < $( $type_arg ),* > )* )),+
             }
 
-            impl<Octets> SvcbParam for AllParams<Octets> {
+            impl<Octs> SvcbParam for AllParams<Octs> {
                 fn key(&self) -> SvcbParamKey {
                     match self {
                         $(Self::$name(v) => v.key()),+
@@ -367,17 +381,29 @@ pub mod param {
                 }
             }
 
-            impl<Ref: OctetsRef> Parse<Ref> for AllParams<Ref::Range> {
-                fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+            impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
+            for AllParams<Octs::Range<'a>> {
+                fn parse(
+                    parser: &mut Parser<'a, Octs>,
+                ) -> Result<Self, ParseError> {
                     let key = parser.parse_u16()?.into();
                     let len = parser.parse_u16()?.into();
-                    parser.parse_block(len, |parser| AllParams::parse_value(parser, key))
+                    let mut parser = parser.parse_parser(len)?;
+                    let res = AllParams::parse_value(&mut parser, key)?;
+                    if parser.remaining() > 0 {
+                        return Err(ParseError::Form(
+                            FormError::new("trailing data in option")
+                        ))
+                    }
+                    Ok(res)
                 }
 
-                fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+                fn skip(
+                    parser: &mut Parser<'a, Octs>,
+                ) -> Result<(), ParseError> {
                     u16::skip(parser)?;
                     let len = parser.parse_u16()?;
-                    parser.advance(len.into())
+                    parser.advance(len.into()).map_err(Into::into)
                 }
             }
 
@@ -396,13 +422,16 @@ pub mod param {
                 }
             }
 
-            $(impl<Octets> From<$type> for AllParams<Octets> {
-                fn from(p: $type) -> Self {
-                    AllParams::$name(p)
+            $(
+                impl<Octs> From<$type $( < $( $type_arg ),* > )*>
+                for AllParams<Octs> {
+                    fn from(p: $type $( < $( $type_arg ),* > )*) -> Self {
+                        AllParams::$name(p)
+                    }
                 }
-            })+
+            )+
 
-            impl<O: OctetsRef> fmt::Display for AllParams<O> {
+            impl<O: Octets> fmt::Display for AllParams<O> {
                 fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                     match self {
                         $(Self::$name(v) => v.fmt(f)?),+
@@ -414,15 +443,15 @@ pub mod param {
     }
 
     param_enum!(
-        Mandatory(Mandatory<Octets>),
-        Alpn(Alpn<Octets>),
+        Mandatory(Mandatory<Octs>),
+        Alpn(Alpn<Octs>),
         NoDefaultAlpn(NoDefaultAlpn),
         Port(Port),
-        Ech(Ech<Octets>),
-        Ipv4Hint(Ipv4Hint<Octets>),
-        Ipv6Hint(Ipv6Hint<Octets>),
-        DohPath(DohPath<Octets>),
-        Unknown(Unknown<Octets>),
+        Ech(Ech<Octs>),
+        Ipv4Hint(Ipv4Hint<Octs>),
+        Ipv6Hint(Ipv6Hint<Octs>),
+        DohPath(DohPath<Octs>),
+        Unknown(Unknown<Octs>),
     );
 
     /// Basic trait for SVCB parameters.
@@ -430,11 +459,11 @@ pub mod param {
         fn key(&self) -> SvcbParamKey;
     }
 
-    impl<Ref: OctetsRef> AllParams<Ref> {
-        fn parse_value(
-            parser: &mut Parser<Ref>,
+    impl<Octs> AllParams<Octs> {
+        fn parse_value<'a, POcts: Octets<Range<'a> = Octs> + ?Sized>(
+            parser: &mut Parser<'a, POcts>,
             key: SvcbParamKey,
-        ) -> Result<AllParams<Ref::Range>, ParseError> {
+        ) -> Result<Self, ParseError> {
             let val = match key {
                 SvcbParamKey::Mandatory => Mandatory::parse(parser)?.into(),
                 SvcbParamKey::Alpn => Alpn::parse(parser)?.into(),
@@ -460,10 +489,14 @@ pub mod param {
         ($name:ident) => {
             /// A SVCB parameter.
             #[derive(Debug, Clone, Eq, PartialEq)]
-            pub struct $name<Octets>(Octets);
-            impl<Ref: OctetsRef> Parse<Ref> for $name<Ref::Range> {
+            pub struct $name<Octs>(Octs);
+
+            impl<'a, Octs> Parse<'a, Octs> for $name<Octs::Range<'a>>
+            where
+                Octs: Octets + ?Sized,
+            {
                 fn parse(
-                    parser: &mut Parser<Ref>,
+                    parser: &mut Parser<'a, Octs>,
                 ) -> Result<Self, ParseError> {
                     //let len = u16::parse(parser)?;
                     //let data = parser.parse_octets(len.into())?;
@@ -471,7 +504,9 @@ pub mod param {
                     Ok(Self(data))
                 }
 
-                fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+                fn skip(
+                    parser: &mut Parser<'a, Octs>,
+                ) -> Result<(), ParseError> {
                     //u16::skip(parser)?;
                     parser.advance_to_end();
                     Ok(())
@@ -496,9 +531,9 @@ pub mod param {
                     SvcbParamKey::$name
                 }
             }
-            impl<Octets> $name<Octets> {
+            impl<Octs> $name<Octs> {
                 /// Create a new parameter from octets.
-                pub fn new(o: Octets) -> Self {
+                pub fn new(o: Octs) -> Self {
                     Self(o)
                 }
             }
@@ -509,8 +544,8 @@ pub mod param {
                 }
             }
 
-            impl<Octets> $name<Octets> {
-                pub fn for_ref(&self) -> $name<&Octets> {
+            impl<Octs> $name<Octs> {
+                pub fn for_ref(&self) -> $name<&Octs> {
                     $name(&self.0)
                 }
             }
@@ -527,7 +562,7 @@ pub mod param {
                 }
             }
 
-            impl<Octets: AsRef<T>, T> AsRef<T> for $name<Octets> {
+            impl<Octs: AsRef<T>, T> AsRef<T> for $name<Octs> {
                 fn as_ref(&self) -> &T {
                     self.0.as_ref()
                 }
@@ -537,25 +572,30 @@ pub mod param {
             where
                 OO: OctetsFrom<O>,
             {
-                fn octets_from(source: $name<O>) -> Result<Self, ShortBuf> {
-                    Ok($name::new(OO::octets_from(source.0)?))
+                type Error = OO::Error;
+
+                fn try_octets_from(
+                    source: $name<O>,
+                ) -> Result<Self, Self::Error> {
+                    Ok($name::new(OO::try_octets_from(source.0)?))
                 }
             }
         };
         ($name:ident, $iter:ident) => {
             octets_wrapper!($name);
 
-            impl<Ref: OctetsRef> $name<Ref> {
+            impl<Octs: AsRef<[u8]>> $name<Octs> {
                 /// Iterate over the internal items.
-                pub fn iter(&self) -> $iter<Ref> {
-                    let parser = Parser::from_ref(self.0);
-                    $iter { parser }
+                pub fn iter(&self) -> $iter<'_, Octs> {
+                    $iter {
+                        parser: Parser::from_ref(&self.0),
+                    }
                 }
             }
 
             /// An iterator type to parse the internal items.
-            pub struct $iter<Ref: OctetsRef> {
-                parser: Parser<Ref>,
+            pub struct $iter<'a, Octs> {
+                parser: Parser<'a, Octs>,
             }
         };
     }
@@ -568,10 +608,7 @@ pub mod param {
         }
     }
 
-    impl<Ref> Iterator for MandatoryIter<Ref>
-    where
-        Ref: OctetsRef,
-    {
+    impl<'a, Octs: Octets> Iterator for MandatoryIter<'a, Octs> {
         type Item = Result<SvcbParamKey, ParseError>;
 
         fn next(&mut self) -> Option<Self::Item> {
@@ -579,11 +616,16 @@ pub mod param {
                 return None;
             }
 
-            Some(self.parser.parse_u16().map(|v| v.into()))
+            Some(
+                self.parser
+                    .parse_u16()
+                    .map(|v| v.into())
+                    .map_err(Into::into),
+            )
         }
     }
 
-    impl<Ref: OctetsRef> fmt::Display for Mandatory<Ref> {
+    impl<Octs: Octets> fmt::Display for Mandatory<Octs> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             for (i, v) in self.iter().enumerate() {
                 let v = v.map_err(|_| fmt::Error)?;
@@ -613,11 +655,8 @@ pub mod param {
         }
     }
 
-    impl<Ref: OctetsRef> Iterator for AlpnIter<Ref>
-    where
-        Ref: OctetsRef,
-    {
-        type Item = Result<Ref::Range, ParseError>;
+    impl<'a, Octs: Octets> Iterator for AlpnIter<'a, Octs> {
+        type Item = Result<Octs::Range<'a>, ParseError>;
 
         fn next(&mut self) -> Option<Self::Item> {
             if self.parser.remaining() == 0 {
@@ -627,12 +666,13 @@ pub mod param {
             Some(
                 self.parser
                     .parse_u8()
-                    .and_then(|len| self.parser.parse_octets(len.into())),
+                    .and_then(|len| self.parser.parse_octets(len.into()))
+                    .map_err(Into::into),
             )
         }
     }
 
-    impl<Ref: OctetsRef> fmt::Display for Alpn<Ref> {
+    impl<Octs: Octets> fmt::Display for Alpn<Octs> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             for (i, v) in self.iter().enumerate() {
                 let v = v.map_err(|_| fmt::Error)?;
@@ -652,12 +692,12 @@ pub mod param {
     #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct NoDefaultAlpn;
 
-    impl<Ref: OctetsRef> Parse<Ref> for NoDefaultAlpn {
-        fn parse(_parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+    impl<'a, Octs: ?Sized> Parse<'a, Octs> for NoDefaultAlpn {
+        fn parse(_parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
             Ok(Self)
         }
 
-        fn skip(_parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        fn skip(_parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
             Ok(())
         }
     }
@@ -690,13 +730,13 @@ pub mod param {
             Self(port)
         }
     }
-    impl<Ref: OctetsRef> Parse<Ref> for Port {
-        fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+    impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Port {
+        fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
             let port = u16::parse(parser)?;
             Ok(Self(port))
         }
 
-        fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+        fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
             u16::skip(parser)?;
             Ok(())
         }
@@ -741,10 +781,7 @@ pub mod param {
         }
     }
 
-    impl<Ref> Iterator for Ipv4HintIter<Ref>
-    where
-        Ref: OctetsRef,
-    {
+    impl<'a, Octs: AsRef<[u8]>> Iterator for Ipv4HintIter<'a, Octs> {
         type Item = Result<Ipv4Addr, ParseError>;
 
         fn next(&mut self) -> Option<Self::Item> {
@@ -755,13 +792,13 @@ pub mod param {
             let mut buf = [0u8; 4];
             //self.parser.check_len(buf.len())?;
             if let Err(e) = self.parser.parse_buf(&mut buf) {
-                return Some(Err(e));
+                return Some(Err(e.into()));
             }
             Some(Ok(buf.into()))
         }
     }
 
-    impl<Ref: OctetsRef> fmt::Display for Ipv4Hint<Ref> {
+    impl<Octs: AsRef<[u8]>> fmt::Display for Ipv4Hint<Octs> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             for (i, v) in self.iter().enumerate() {
                 let v = v.map_err(|_| fmt::Error)?;
@@ -784,10 +821,7 @@ pub mod param {
         }
     }
 
-    impl<Ref> Iterator for Ipv6HintIter<Ref>
-    where
-        Ref: OctetsRef,
-    {
+    impl<'a, Octs: AsRef<[u8]>> Iterator for Ipv6HintIter<'a, Octs> {
         type Item = Result<Ipv6Addr, ParseError>;
 
         fn next(&mut self) -> Option<Self::Item> {
@@ -798,13 +832,13 @@ pub mod param {
             let mut buf = [0u8; 16];
             //self.parser.check_len(buf.len())?;
             if let Err(e) = self.parser.parse_buf(&mut buf) {
-                return Some(Err(e));
+                return Some(Err(e.into()));
             }
             Some(Ok(buf.into()))
         }
     }
 
-    impl<Ref: OctetsRef> fmt::Display for Ipv6Hint<Ref> {
+    impl<Octs: AsRef<[u8]>> fmt::Display for Ipv6Hint<Octs> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             for (i, v) in self.iter().enumerate() {
                 let v = v.map_err(|_| fmt::Error)?;
@@ -821,7 +855,7 @@ pub mod param {
     // contains an URL template: https://datatracker.ietf.org/doc/html/rfc6570
     octets_wrapper!(DohPath);
 
-    impl<Ref: OctetsRef> fmt::Display for DohPath<Ref> {
+    impl<Octs: AsRef<[u8]>> fmt::Display for DohPath<Octs> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             f.write_str("dohpath=")?;
             for ch in self.0.as_ref() {
@@ -832,23 +866,23 @@ pub mod param {
     }
 
     #[derive(Debug, Clone, Eq, PartialEq)]
-    pub struct Unknown<Octets> {
+    pub struct Unknown<Octs> {
         key: SvcbParamKey,
-        val: Octets,
+        val: Octs,
     }
 
-    impl<Octets> SvcbParam for Unknown<Octets> {
+    impl<Octs> SvcbParam for Unknown<Octs> {
         fn key(&self) -> SvcbParamKey {
             self.key
         }
     }
 
-    impl<Octets> Unknown<Octets> {
-        pub fn new(key: SvcbParamKey, val: Octets) -> Self {
+    impl<Octs> Unknown<Octs> {
+        pub fn new(key: SvcbParamKey, val: Octs) -> Self {
             Self { key, val }
         }
 
-        pub fn value(&self) -> &Octets {
+        pub fn value(&self) -> &Octs {
             &self.val
         }
     }
@@ -862,7 +896,7 @@ pub mod param {
         }
     }
 
-    impl<Ref: OctetsRef> fmt::Display for Unknown<Ref> {
+    impl<Octs: AsRef<[u8]>> fmt::Display for Unknown<Octs> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "{}", self.key())
         }

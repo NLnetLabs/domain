@@ -1,165 +1,9 @@
-//! Variable length octet sequences.
-//!
-//! This module provides the basic traits that allow defining types that are
-//! generic over a variable length sequence of octets. It implements these
-//! traits for most commonly used types of such sequences and provides a few
-//! additional types for use in a no-std environment. In addition, it provides
-//! a few types and traits that make it easier to access data contained in
-//! such sequences.
-//!
-//!
-//! # Traits for Octet Sequences
-//!
-//! There are two fundamental types of octet sequences. If a sequence is of a
-//! given size, we call it simply ‘octets.’ If the sequence is actually a
-//! buffer into which octets can be placed, it is called an `octets builder.`
-//!
-//!
-//! ## Octets and Octets References
-//!
-//! There is no special trait for octets, we simply use `AsRef<[u8]>` for
-//! immutable octets or `AsMut<[u8]>` if the octets of the sequence can be
-//! manipulated (but the length is still fixed). This way, any type
-//! implementing these traits can be used already. The trait [`OctetsExt`]
-//! has been defined to collect additional methods that aren’t available via
-//! plain `AsRef<[u8]>`.
-//!
-//! A reference to an octets type implements [`OctetsRef`]. The main purpose
-//! of this trait is to allow cheaply taking a sub-sequence, called a ‘range’,
-//! out of the octets. For most types, ranges will be octet slices `&[u8]` but
-//! some shareable types (most notably `bytes::Bytes`) allow ranges to be
-//! owned values, thus avoiding the lifetime limitations a slice would
-//! bring.
-//!
-//! One type is special in that it is its own octets reference: `&[u8]`,
-//! referred to as an octets slice in the documentation. This means that you
-//! always use an octets slice irregardless whether a type is generic over
-//! an octets sequence or an octets reference. Because an octets slice is
-//! also a useful basis when only looking at some value without planning on
-//! keeping any ranges from it, most generic types provide a method
-//! `for_slice` that converts the value from whatever octets type it is
-//! currently generic over into an identical value atop a octets slice of
-//! that sequence.
-//!
-//! The trait is separate because of limitations of lifetimes in traits. It
-//! has an associated type `OctetsRef::Range` that defines the type of a
-//! range. When using the trait as a trait bound for a generic type, you will
-//! typically bound a reference to this type. For instance, a generic function
-//! taking part out of some octets and returning a reference to it could be
-//! defined like so:
-//!
-//! ```
-//! # use domain::base::octets::OctetsRef;
-//!
-//! fn take_part<'a, Octets>(
-//!     src: &'a Octets
-//! ) -> <&'a Octets as OctetsRef>::Range
-//! where &'a Octets: OctetsRef {
-//!     unimplemented!()
-//! }
-//! ```
-//!
-//! The where clause demands that whatever octets type is being used, a
-//! reference to it must be an octets ref. The return value refers to the
-//! range type defined for this octets ref. The lifetime argument is
-//! necessary to tie all these references together.
-//!
-//!
-//! ## Octets Builders
-//!
-//! Octets builders and their [`OctetsBuilder`] trait are comparatively
-//! straightforward. They represent a buffer to which octets can be appended.
-//! Whether the buffer can grow to accommodate appended data depends on the
-//! underlying type. Because it may not, all such operations may fail with a
-//! [`ShortBuf`] error.
-//!
-//! The [`EmptyBuilder`] trait marks a type as being able to create a new,
-//! empty builder.
-//!
-//!
-//! ## Conversion Traits
-//!
-//! A series of special traits allows converting octets into octets builder
-//! and vice versa. They pair octets with their natural builders via
-//! associated types. These conversions are always cyclic, i.e., if an
-//! octets value is converted into a builder and then that builder is
-//! converted back into an octets value, the initial and final octets value
-//! have the same type.
-//!
-//!
-//! ## Using Trait Bounds
-//!
-//! When using these traits as bounds for generic types, always limit yourself
-//! to the most loose bounds you can get away with. Not all types holding
-//! octet sequences can actually implement all these traits, so by being to
-//! eager you may paint yourself into a corner.
-//!
-//! In many cases you can get away with a simple `AsRef<[u8]>` bound. Only use
-//! an explicit `OctetsRef` bound when you need to return a range that may be
-//! kept around.
-//!
-//!
-//! # Serde Support
-//!
-//! [Serde](https://serde.rs/) supports native serialization of octets
-//! sequences. However, because of missing specialization, it has to
-//! serialize the octets slices and vec as literal sequences of `u8`s. If
-//! built with the `serde` feature enable, the two traits
-#![cfg_attr(
-    feature = "serde",
-    doc = "  [`SerializeOctets`] and [`DeserializeOctets`]"
-)]
-#![cfg_attr(
-    not(feature = "serde"),
-    doc = "  `SerializeOctets` and `DeserializeOctets`"
-)]
-//!  let types define serialization into octets
-//! sequences. Types that are generic over octets sequences can use these to
-//! implement serde’s `Serialize` and `Deserialize` traits.
-//!
-//!
-//! # Composing and Parsing
-//!
-//! Octet sequences are often used to encode data, such as with the DNS wire
-//! format. We call the process of converting data into its octet sequence
-//! encoding ‘composing’ and the reverse process of reading data out of its
-//! encoded form ‘parsing.’ In order to make implementing these functions
-//! easier, the module contains a traits for types that can be composed or
-//! parsed as well as helper types for parsing.
-//!
-//! ## Composing
-//!
-//! Composing encoded data always happens directly into an octets builder.
-//! Any type that can be encoded as DNS wire data implements the [`Compose`]
-//! trait through which its values can be appened to the builder.
-//!
-//! ## Parsing
-//!
-//! Parsing is a little more complicated since encoded data may very well be
-//! broken or ambiguously encoded. The helper type [`Parser`] wraps an octets
-//! ref and allows to parse values from the octets. The trait [`Parse`] is
-//! implemented by types that can decode values from octets.
-//!
-//!
-//! # Octet Sequences for `no_std` Use
-//!
-//! When using the crate without an allocator, creating octets sequences can
-//! be difficult. However, since DNS data is often limited in size, you can in
-//! many cases get away with using a octets array as the basis for an octets
-//! sequence. The crate provides a macro [`octets_array!`] to define such a
-//! type for specific array length. The octets module also contains a number
-//! of types defined via that module for typical array sizes.
-//!
-//!
-//! [`Compose`]: trait.Compose.html
-//! [`EmptyBuilder`]: trait.EmptyBuilder.html
-//! [`Octets`]: trait.Octets.html
-//! [`OctetsExt`]: trait.OctetsExt.html
-//! [`OctetsBuilder`]: trait.OctetsBuilder.html
-//! [`OctetsRef`]: trait.OctetsRef.html
-//! [`Parse`]: trait.Parse.html
-//! [`Parser`]: struct.Parser.html
-//! [`ShortBuf`]: struct.ShortBuf.html
+// XXX For transitioning to octseq, we re-export the relevant types here.
+//     If all looks nice, we drop the re-exports again and clean up.
+
+pub use octseq::{
+    Octets, OctetsFrom, OctetsInto, Parser, ShortInput, Truncate,
+};
 
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
@@ -168,7 +12,6 @@ use bytes::{Bytes, BytesMut};
 use core::cmp::Ordering;
 use core::convert::TryFrom;
 #[cfg(feature = "heapless")]
-use core::iter::FromIterator;
 use core::{borrow, fmt, hash};
 #[cfg(feature = "smallvec")]
 use smallvec::{Array, SmallVec};
@@ -180,278 +23,6 @@ use std::mem;
 use std::vec::Vec;
 
 //============ Octets and Octet Builders =====================================
-
-//------------ OctetsExt -----------------------------------------------------
-
-/// An extension trait for octet sequences.
-///
-/// This trait collects some additional functionality that is not available
-/// via the more general `AsRef<[u8]>`. Currently, that is only truncating
-/// the sequence to a given length.
-pub trait OctetsExt: AsRef<[u8]> {
-    /// Truncate the sequence to `len` octets.
-    ///
-    /// If `len` is larger than the length of the sequence, nothing happens.
-    fn truncate(&mut self, len: usize);
-}
-
-impl<'a> OctetsExt for &'a [u8] {
-    fn truncate(&mut self, len: usize) {
-        if len < self.len() {
-            *self = &self[..len]
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl<'a> OctetsExt for Cow<'a, [u8]> {
-    fn truncate(&mut self, len: usize) {
-        match *self {
-            Cow::Borrowed(ref mut slice) => *slice = &slice[..len],
-            Cow::Owned(ref mut vec) => vec.truncate(len),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl OctetsExt for Vec<u8> {
-    fn truncate(&mut self, len: usize) {
-        self.truncate(len)
-    }
-}
-
-#[cfg(feature = "bytes")]
-impl OctetsExt for Bytes {
-    fn truncate(&mut self, len: usize) {
-        self.truncate(len)
-    }
-}
-
-#[cfg(feature = "smallvec")]
-impl<A: Array<Item = u8>> OctetsExt for SmallVec<A> {
-    fn truncate(&mut self, len: usize) {
-        self.truncate(len)
-    }
-}
-
-#[cfg(feature = "heapless")]
-impl<const N: usize> OctetsExt for heapless::Vec<u8, N> {
-    fn truncate(&mut self, len: usize) {
-        self.truncate(len)
-    }
-}
-
-//------------ OctetsRef -----------------------------------------------------
-
-/// A reference to an octets sequence.
-///
-/// This trait is to be implemented for a (imutable) reference to a type of
-/// an octets sequence. I.e., it `T` is an octets sequence, `OctetsRef` needs
-/// to be implemented for `&T`.
-///
-/// The primary purpose of the trait is to allow access to a sub-sequence,
-/// called a ‘range.’ The type of this range is given via the `Range`
-/// associated type. For most types it will be a `&[u8]` with a lifetime equal
-/// to that of the reference itself. Only if an owned range can be created
-/// cheaply, it should be that type.
-///
-/// There is two basic ways of using the trait for a trait bound. You can
-/// either limit the octets sequence type itself by bounding references to it
-/// via a where clause. I.e., for an  octets sequence type argument `Octets`
-/// you can specify `where &'a Octets: OctetsRef` or, if you don’t have a
-/// lifetime argument available `where for<'a> &'a Octets: OctetsRef`. For
-/// this option, you’d typically refer to values as references to the
-/// octets type, i.e., `&Octets`.
-///
-/// Alternatively, you can refer to the reference itself as a owned value.
-/// This works out fine since all octets references are required to be
-/// `Copy`. For instance, a function can take a value of generic type `Oref`
-/// and that type can then be directly bounded via `Oref: OctetsRef`.
-pub trait OctetsRef: AsRef<[u8]> + Copy + Sized {
-    /// The type of a range of the sequence.
-    type Range: AsRef<[u8]>;
-
-    /// Returns a sub-sequence or ‘range’ of the sequence.
-    fn range(self, start: usize, end: usize) -> Self::Range;
-
-    /// Returns a range starting at index `start` and going to the end.
-    fn range_from(self, start: usize) -> Self::Range {
-        self.range(start, self.as_ref().len())
-    }
-
-    /// Returns a range from the start to before index `end`.
-    fn range_to(self, end: usize) -> Self::Range {
-        self.range(0, end)
-    }
-
-    /// Returns a range that covers the entire sequence.
-    fn range_all(self) -> Self::Range {
-        self.range(0, self.as_ref().len())
-    }
-}
-
-impl<'a, T: OctetsRef> OctetsRef for &'a T {
-    type Range = T::Range;
-
-    fn range(self, start: usize, end: usize) -> Self::Range {
-        (*self).range(start, end)
-    }
-}
-
-impl<'a> OctetsRef for &'a [u8] {
-    type Range = &'a [u8];
-
-    fn range(self, start: usize, end: usize) -> Self::Range {
-        &self[start..end]
-    }
-}
-
-#[cfg(feature = "std")]
-impl<'a, 's> OctetsRef for &'a Cow<'s, [u8]> {
-    type Range = &'a [u8];
-
-    fn range(self, start: usize, end: usize) -> Self::Range {
-        &self.as_ref()[start..end]
-    }
-}
-
-#[cfg(feature = "std")]
-impl<'a> OctetsRef for &'a Vec<u8> {
-    type Range = &'a [u8];
-
-    fn range(self, start: usize, end: usize) -> Self::Range {
-        &self[start..end]
-    }
-}
-
-#[cfg(feature = "bytes")]
-impl<'a> OctetsRef for &'a Bytes {
-    type Range = Bytes;
-
-    fn range(self, start: usize, end: usize) -> Self::Range {
-        self.slice(start..end)
-    }
-}
-
-#[cfg(feature = "smallvec")]
-impl<'a, A: Array<Item = u8>> OctetsRef for &'a SmallVec<A> {
-    type Range = &'a [u8];
-
-    fn range(self, start: usize, end: usize) -> Self::Range {
-        &self.as_slice()[start..end]
-    }
-}
-
-#[cfg(feature = "heapless")]
-impl<'a, const N: usize> OctetsRef for &'a heapless::Vec<u8, N> {
-    type Range = &'a [u8];
-
-    fn range(self, start: usize, end: usize) -> Self::Range {
-        &self[start..end]
-    }
-}
-
-//------------ OctetsFrom ----------------------------------------------------
-
-/// Convert a type from one octets type to another.
-///
-/// This trait allows creating a value of a type that is generic over an
-/// octets sequence from an identical value using a different type of octets
-/// sequence.
-///
-/// This is different from just `From` in that the conversion may fail if the
-/// source sequence is longer than the space available for the target type.
-pub trait OctetsFrom<Source>: Sized {
-    /// Performs the conversion.
-    fn octets_from(source: Source) -> Result<Self, ShortBuf>;
-}
-
-impl<'a, Source: AsRef<[u8]> + 'a> OctetsFrom<&'a Source> for &'a [u8] {
-    fn octets_from(source: &'a Source) -> Result<Self, ShortBuf> {
-        Ok(source.as_ref())
-    }
-}
-
-#[cfg(feature = "std")]
-impl<Source> OctetsFrom<Source> for Vec<u8>
-where
-    Self: From<Source>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(From::from(source))
-    }
-}
-
-#[cfg(feature = "bytes")]
-impl<Source> OctetsFrom<Source> for Bytes
-where
-    Self: From<Source>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(From::from(source))
-    }
-}
-
-#[cfg(feature = "bytes")]
-impl<Source> OctetsFrom<Source> for BytesMut
-where
-    Self: From<Source>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(From::from(source))
-    }
-}
-
-#[cfg(feature = "smallvec")]
-impl<Source, A> OctetsFrom<Source> for SmallVec<A>
-where
-    Source: AsRef<[u8]>,
-    A: Array<Item = u8>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        Ok(smallvec::ToSmallVec::to_smallvec(source.as_ref()))
-    }
-}
-
-#[cfg(feature = "heapless")]
-impl<Source, const N: usize> OctetsFrom<Source> for heapless::Vec<u8, N>
-where
-    Source: AsRef<[u8]>,
-{
-    fn octets_from(source: Source) -> Result<Self, ShortBuf> {
-        let source_ref = source.as_ref();
-
-        if source_ref.len() > N {
-            return Err(ShortBuf);
-        }
-
-        Ok(heapless::Vec::from_iter(source_ref.iter().copied()))
-    }
-}
-
-//------------ OctetsInto ----------------------------------------------------
-
-/// Convert a type from one octets type to another.
-///
-/// This trait allows trading in a value of a type that is generic over an
-/// octets sequence for an identical value using a different type of octets
-/// sequence.
-///
-/// This is different from just `Into` in that the conversion may fail if the
-/// source sequence is longer than the space available for the target type.
-///
-/// This trait has a blanket implementation for all pairs of types where
-/// `OctetsFrom` has been implemented.
-pub trait OctetsInto<Target> {
-    /// Performs the conversion.
-    fn octets_into(self) -> Result<Target, ShortBuf>;
-}
-
-impl<Source, Target: OctetsFrom<Source>> OctetsInto<Target> for Source {
-    fn octets_into(self) -> Result<Target, ShortBuf> {
-        Target::octets_from(self)
-    }
-}
 
 //------------ OctetsBuilder -------------------------------------------------
 
@@ -1331,6 +902,7 @@ mod serde {
     }
 }
 
+/*
 //============ Parsing =======================================================
 
 //------------ Parser --------------------------------------------------------
@@ -1639,6 +1211,7 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
         res
     }
 }
+*/
 
 //------------ Parse ------------------------------------------------------
 
@@ -1663,85 +1236,85 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
 /// ```
 ///
 /// [`Parser<Ref>`]: struct.Parser.html
-pub trait Parse<Ref>: Sized {
+pub trait Parse<'a, Octs: ?Sized>: Sized {
     /// Extracts a value from the beginning of `parser`.
     ///
     /// If parsing fails and an error is returned, the parser’s position
     /// should be considered to be undefined. If it is supposed to be reused
     /// in this case, you should store the position before attempting to parse
     /// and seek to that position again before continuing.
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError>;
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError>;
 
     /// Skips over a value of this type at the beginning of `parser`.
     ///
     /// This function is the same as `parse` but doesn’t return the result.
     /// It can be used to check if the content of `parser` is correct or to
     /// skip over unneeded parts of the parser.
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError>;
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError>;
 }
 
-impl<T: AsRef<[u8]>> Parse<T> for i8 {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i8 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_i8().map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(1).map_err(Into::into)
     }
 }
 
-impl<T: AsRef<[u8]>> Parse<T> for u8 {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u8 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_u8().map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(1).map_err(Into::into)
     }
 }
 
-impl<T: AsRef<[u8]>> Parse<T> for i16 {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i16 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_i16().map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(2).map_err(Into::into)
     }
 }
 
-impl<T: AsRef<[u8]>> Parse<T> for u16 {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u16 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_u16().map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(2).map_err(Into::into)
     }
 }
 
-impl<T: AsRef<[u8]>> Parse<T> for i32 {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i32 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_i32().map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(4).map_err(Into::into)
     }
 }
 
-impl<T: AsRef<[u8]>> Parse<T> for u32 {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u32 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_u32().map_err(Into::into)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(4).map_err(Into::into)
     }
 }
 
-impl<T: AsRef<[u8]>> Parse<T> for Ipv4Addr {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv4Addr {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Self::new(
             u8::parse(parser)?,
             u8::parse(parser)?,
@@ -1750,19 +1323,19 @@ impl<T: AsRef<[u8]>> Parse<T> for Ipv4Addr {
         ))
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(4).map_err(Into::into)
     }
 }
 
-impl<T: AsRef<[u8]>> Parse<T> for Ipv6Addr {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let mut buf = [0u8; 16];
         parser.parse_buf(&mut buf)?;
         Ok(buf.into())
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(16).map_err(Into::into)
     }
 }
@@ -2155,6 +1728,12 @@ impl ParseError {
 
 //--- From
 
+impl From<ShortInput> for ParseError {
+    fn from(_: ShortInput) -> Self {
+        ParseError::ShortInput
+    }
+}
+
 impl From<FormError> for ParseError {
     fn from(err: FormError) -> Self {
         ParseError::Form(err)
@@ -2203,6 +1782,7 @@ impl fmt::Display for FormError {
 #[cfg(feature = "std")]
 impl std::error::Error for FormError {}
 
+/*
 //============ Testing =======================================================
 
 #[cfg(test)]
@@ -2342,3 +1922,5 @@ mod test {
         assert_eq!(parser.parse_u32(), Err(ParseError::ShortInput));
     }
 }
+
+*/

@@ -8,8 +8,8 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom,
-    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
+    Compose, EmptyBuilder, FromBuilder, Octets, OctetsBuilder, OctetsFrom,
+    OctetsInto, Parse, ParseError, Parser, ShortBuf,
 };
 use crate::base::rdata::RtypeRecordData;
 use crate::utils::base64;
@@ -22,7 +22,7 @@ use std::time::SystemTime;
 
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Tsig<Octets, Name> {
+pub struct Tsig<Octs, Name> {
     /// The signature algorithm as a domain name.
     algorithm: Name,
 
@@ -44,12 +44,12 @@ pub struct Tsig<Octets, Name> {
             serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
             deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octets: crate::base::octets::SerializeOctets",
-                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octs: crate::base::octets::SerializeOctets",
+                deserialize = "Octs: crate::base::octets::DeserializeOctets<'de>",
             )
         )
     )]
-    mac: Octets,
+    mac: Octs,
 
     /// Original message ID.
     original_id: u16,
@@ -68,12 +68,12 @@ pub struct Tsig<Octets, Name> {
             serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
             deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octets: crate::base::octets::SerializeOctets",
-                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octs: crate::base::octets::SerializeOctets",
+                deserialize = "Octs: crate::base::octets::DeserializeOctets<'de>",
             )
         )
     )]
-    other: Octets,
+    other: Octs,
 }
 
 impl<O, N> Tsig<O, N> {
@@ -206,18 +206,34 @@ impl<O, N> Tsig<O, N> {
     pub fn is_valid_now(&self) -> bool {
         self.is_valid_at(Time48::now())
     }
+
+    pub(super) fn convert_octets<TOcts, TName>(
+        self,
+    ) -> Result<Tsig<TOcts, TName>, TOcts::Error>
+    where
+        TOcts: OctetsFrom<O>,
+        TName: OctetsFrom<N, Error = TOcts::Error>,
+    {
+        Ok(Tsig::new(
+            self.algorithm.try_octets_into()?,
+            self.time_signed,
+            self.fudge,
+            self.mac.try_octets_into()?,
+            self.original_id,
+            self.error,
+            self.other.try_octets_into()?,
+        ))
+    }
 }
 
-impl<Ref> Tsig<Ref::Range, ParsedDname<Ref>>
-where
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(
+impl<'a, Octs: Octets> Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    pub fn flatten_into<Target>(
         self,
-    ) -> Result<Tsig<Octets, Dname<Octets>>, PushError>
+    ) -> Result<Tsig<Target, Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<Ref::Range> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
+        PushError: From<Target::Error>,
     {
         let Self {
             algorithm,
@@ -233,33 +249,36 @@ where
             algorithm.flatten_into()?,
             time_signed,
             fudge,
-            mac.octets_into()?,
+            mac.try_octets_into()?,
             original_id,
             error,
-            other.octets_into()?,
+            other.try_octets_into()?,
         ))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Tsig<SrcOctets, SrcName>>
-    for Tsig<Octets, Name>
+impl<Octs, SrcOctets, Name, SrcName> OctetsFrom<Tsig<SrcOctets, SrcName>>
+    for Tsig<Octs, Name>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOctets>,
     Name: OctetsFrom<SrcName>,
+    Octs::Error: From<Name::Error>,
 {
-    fn octets_from(
+    type Error = Octs::Error;
+
+    fn try_octets_from(
         source: Tsig<SrcOctets, SrcName>,
-    ) -> Result<Self, ShortBuf> {
+    ) -> Result<Self, Self::Error> {
         Ok(Tsig::new(
-            Name::octets_from(source.algorithm)?,
+            Name::try_octets_from(source.algorithm)?,
             source.time_signed,
             source.fudge,
-            Octets::octets_from(source.mac)?,
+            Octs::try_octets_from(source.mac)?,
             source.original_id,
             source.error,
-            Octets::octets_from(source.other)?,
+            Octs::try_octets_from(source.other)?,
         ))
     }
 }
@@ -414,8 +433,10 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
 
 //--- Parse, ParseAll, Compose, and Compress
 
-impl<Ref: OctetsRef> Parse<Ref> for Tsig<Ref::Range, ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: Octets> Parse<'a, Octs>
+    for Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
+{
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let algorithm = ParsedDname::parse(parser)?;
         let time_signed = Time48::parse(parser)?;
         let fudge = u16::parse(parser)?;
@@ -436,7 +457,7 @@ impl<Ref: OctetsRef> Parse<Ref> for Tsig<Ref::Range, ParsedDname<Ref>> {
         })
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         ParsedDname::skip(parser)?;
         Time48::skip(parser)?;
         u16::skip(parser)?;
@@ -594,15 +615,15 @@ impl From<Time48> for u64 {
 
 //--- Parse and Compose
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for Time48 {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Time48 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let mut buf = [0u8; 6];
         parser.parse_buf(&mut buf)?;
         Ok(Time48::from_slice(&buf))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        parser.advance(6)
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
+        parser.advance(6).map_err(Into::into)
     }
 }
 

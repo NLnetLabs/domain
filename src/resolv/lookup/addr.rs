@@ -3,7 +3,7 @@
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
 use crate::base::name::{Dname, DnameBuilder, ParsedDname};
-use crate::base::octets::{Octets128, OctetsRef};
+use crate::base::octets::{Octets, Octets128};
 use crate::rdata::Ptr;
 use crate::resolv::resolver::Resolver;
 use std::io;
@@ -38,9 +38,9 @@ pub struct FoundAddrs<R: Resolver>(R::Answer);
 
 impl<R: Resolver> FoundAddrs<R> {
     /// Returns an iterator over the host names.
-    pub fn iter(&self) -> FoundAddrsIter<&R::Octets>
+    pub fn iter(&self) -> FoundAddrsIter<'_, R::Octets>
     where
-        for<'a> &'a R::Octets: OctetsRef,
+        R::Octets: Octets,
     {
         FoundAddrsIter {
             name: self.0.as_ref().canonical_name(),
@@ -57,10 +57,10 @@ impl<R: Resolver> FoundAddrs<R> {
 
 impl<'a, R: Resolver> IntoIterator for &'a FoundAddrs<R>
 where
-    for<'x> &'x R::Octets: OctetsRef,
+    R::Octets: Octets,
 {
-    type Item = ParsedDname<&'a R::Octets>;
-    type IntoIter = FoundAddrsIter<&'a R::Octets>;
+    type Item = ParsedDname<'a, R::Octets>;
+    type IntoIter = FoundAddrsIter<'a, R::Octets>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -70,13 +70,13 @@ where
 //------------ FoundAddrsIter ------------------------------------------------
 
 /// An iterator over host names returned by address lookup.
-pub struct FoundAddrsIter<Ref: OctetsRef> {
-    name: Option<ParsedDname<Ref>>,
-    answer: Option<RecordIter<Ref, Ptr<ParsedDname<Ref>>>>,
+pub struct FoundAddrsIter<'a, Octs: Octets> {
+    name: Option<ParsedDname<'a, Octs>>,
+    answer: Option<RecordIter<'a, Octs, Ptr<ParsedDname<'a, Octs>>>>,
 }
 
-impl<Ref: OctetsRef> Iterator for FoundAddrsIter<Ref> {
-    type Item = ParsedDname<Ref>;
+impl<'a, Octs: Octets> Iterator for FoundAddrsIter<'a, Octs> {
+    type Item = ParsedDname<'a, Octs>;
 
     #[allow(clippy::while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {

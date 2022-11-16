@@ -312,9 +312,9 @@ impl std::borrow::ToOwned for Label {
 
 //--- PartialEq and Eq
 
-impl PartialEq for Label {
-    fn eq(&self, other: &Self) -> bool {
-        self.eq_ignore_ascii_case(other)
+impl<T: AsRef<[u8]> + ?Sized> PartialEq<T> for Label {
+    fn eq(&self, other: &T) -> bool {
+        self.eq_ignore_ascii_case(other.as_ref())
     }
 }
 

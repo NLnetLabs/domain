@@ -313,8 +313,8 @@ impl ServerConf {
 /// parsing.
 ///
 /// The easiest way, however, to get the system resolver configuration is
-/// through `ResolvConf::default()`. This will parse the configuration file
-/// or return a default configuration if that fails.
+/// through `ResolvConf::system_default()`. This will parse the configuration
+/// file or return a default configuration if that fails.
 ///
 #[derive(Clone, Debug)]
 pub struct ResolvConf {
@@ -365,7 +365,7 @@ impl ResolvConf {
     /// Creates a default configuration for this system.
     ///
     /// XXX This currently only works for Unix-y systems.
-    pub fn default() -> Self {
+    pub fn system_default() -> Self {
         let mut res = ResolvConf::new();
         let _ = res.parse_file("/etc/resolv.conf");
         res.finalize();

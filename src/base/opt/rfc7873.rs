@@ -33,15 +33,15 @@ impl Cookie {
 
 //--- ParseAll and Compose
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for Cookie {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Cookie {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let mut res = [0u8; 8];
         parser.parse_buf(&mut res[..])?;
         Ok(Self::new(res))
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        parser.advance(8)
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
+        parser.advance(8).map_err(Into::into)
     }
 }
 

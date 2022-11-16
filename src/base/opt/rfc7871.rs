@@ -58,8 +58,8 @@ impl ClientSubnet {
 
 //--- Parse and Compose
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for ClientSubnet {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let family = parser.parse_u16()?;
         let source_prefix_len = parser.parse_u8()?;
         let scope_prefix_len = parser.parse_u8()?;
@@ -126,7 +126,7 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
         })
     }
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         // XXX Perhaps do a check?
         parser.advance_to_end();
         Ok(())

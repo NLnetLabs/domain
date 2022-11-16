@@ -337,10 +337,9 @@ impl Symbol {
     ///
     /// Returns the next symbol in the source, `Ok(None)` if the source has
     /// been exhausted, or an error if there wasn’t a valid symbol.
-    pub fn from_chars<C>(chars: C) -> Result<Option<Self>, SymbolCharsError>
-    where
-        C: IntoIterator<Item = char>,
-    {
+    pub fn from_chars<C: Iterator<Item = char>>(
+        chars: &mut C
+    ) -> Result<Option<Self>, SymbolCharsError> {
         #[inline]
         fn bad_escape() -> SymbolCharsError {
             SymbolCharsError(SymbolCharsEnum::BadEscape)
@@ -351,7 +350,6 @@ impl Symbol {
             SymbolCharsError(SymbolCharsEnum::ShortInput)
         }
 
-        let mut chars = chars.into_iter();
         let ch = match chars.next() {
             Some(ch) => ch,
             None => return Ok(None),

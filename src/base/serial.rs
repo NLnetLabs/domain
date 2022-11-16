@@ -217,12 +217,12 @@ impl str::FromStr for Serial {
 
 //--- Parse and Compose
 
-impl<T: AsRef<[u8]>> Parse<T> for Serial {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
+impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Serial {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         u32::parse(parser).map(Into::into)
     }
 
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
+    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         u32::skip(parser)
     }
 }
