@@ -54,7 +54,7 @@ fn main() {
 
     // Send message off to the server using our socket
     socket
-        .send_to(&message.as_dgram_slice(), (server, port))
+        .send_to(message.as_dgram_slice(), (server, port))
         .unwrap();
 
     // Create recv buffer
