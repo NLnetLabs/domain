@@ -230,7 +230,7 @@ impl<Octets> RelativeDname<Octets> {
     /// Converts the name into an absolute name by appending the root label.
     ///
     /// This manipulates the name itself and thus is only available for
-    /// octets sequences that can be converted into an octets builer and back
+    /// octets sequences that can be converted into an octets builder and back
     /// such as `Vec<u8>`.
     ///
     /// [`chain_root`]: #method.chain_root
