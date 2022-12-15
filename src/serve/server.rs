@@ -25,18 +25,29 @@ use crate::base::Message;
 
 pub enum Server {
     Udp(UdpServer),
+    Tcp(TcpServer),
 }
 
 impl Server {
+    // In theory this could be called from an async iterator so that one could
+    // do:
+    //
+    //   for req in Server {
+    //     ...
+    //   }
+    //
+    // But Rust async iterators are not yet stable.
     pub async fn get_request(&mut self) -> io::Result<Request> {
         match self {
             Server::Udp(s) => s.get_request().await.map(|r| Request::Udp(r)),
+            Server::Tcp(s) => s.get_request().await.map(|r| Request::Tcp(r)),
         }
     }
 }
 
 pub enum Request {
     Udp(UdpRequest),
+    Tcp(TcpRequest),
 }
 
 impl Request {
@@ -113,14 +124,6 @@ impl UdpServer {
         Ok(Self { socket, buf })
     }
 
-    // In theory this could be called from an async iterator so that one could
-    // do:
-    //
-    //   for req in Server {
-    //     ...
-    //   }
-    //
-    // But Rust async iterators are not yet stable.
     async fn get_request(&mut self) -> io::Result<UdpRequest> {
         let (len, addr) = self.socket.recv_from(&mut self.buf).await?;
         let msg = Message::from_octets(self.buf.copy_to_bytes(len))
