@@ -23,6 +23,8 @@ use std::sync::Arc;
 
 use crate::base::Message;
 
+// --- Transport independent types -------------------------------------------
+
 pub enum Server {
     Udp(UdpServer),
     Tcp(TcpServer),
@@ -57,21 +59,26 @@ impl Request {
     {
         match self {
             Request::Udp(r) => r.reply(msg).await,
+            Request::Tcp(r) => r.reply(msg).await,
         }
     }
 
     pub fn query_message(&self) -> &Message<Bytes> {
         match self {
             Request::Udp(r) => r.query_message(),
+            Request::Tcp(r) => r.query_message(),
         }
     }
 
     pub fn source_address(&self) -> SocketAddr {
         match self {
             Request::Udp(r) => r.source_address(),
+            Request::Tcp(r) => r.source_address(),
         }
     }
 }
+
+// --- UDP transport based server implementation -----------------------------
 
 pub struct UdpServer {
     socket: Arc<tokio::net::UdpSocket>,
@@ -82,6 +89,23 @@ pub struct UdpRequest {
     query_message: Message<Bytes>,
     source_address: SocketAddr,
     socket: Arc<tokio::net::UdpSocket>,
+}
+
+impl UdpServer {
+    pub fn new() -> io::Result<Self> {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:1853")?;
+        let socket = Arc::new(tokio::net::UdpSocket::from_std(socket)?);
+        let buf = BytesMut::zeroed(1024);
+        Ok(Self { socket, buf })
+    }
+
+    async fn get_request(&mut self) -> io::Result<UdpRequest> {
+        let (len, addr) = self.socket.recv_from(&mut self.buf).await?;
+        let msg = Message::from_octets(self.buf.copy_to_bytes(len))
+            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+        let req = UdpRequest::new(msg, addr, self.socket.clone());
+        Ok(req)
+    }
 }
 
 impl UdpRequest {
@@ -116,22 +140,36 @@ impl UdpRequest {
     }
 }
 
-impl UdpServer {
-    pub fn new() -> io::Result<Self> {
-        let socket = std::net::UdpSocket::bind("127.0.0.1:1853")?;
-        let socket = Arc::new(tokio::net::UdpSocket::from_std(socket)?);
-        let buf = BytesMut::zeroed(1024);
-        Ok(Self { socket, buf })
-    }
+// --- TCP transport based server implementation -----------------------------
 
-    async fn get_request(&mut self) -> io::Result<UdpRequest> {
-        let (len, addr) = self.socket.recv_from(&mut self.buf).await?;
-        let msg = Message::from_octets(self.buf.copy_to_bytes(len))
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
-        let req = UdpRequest::new(msg, addr, self.socket.clone());
-        Ok(req)
+pub struct TcpServer;
+
+pub struct TcpRequest;
+
+impl TcpServer {
+    async fn get_request(&mut self) -> io::Result<TcpRequest> {
+        todo!()
     }
 }
+
+impl TcpRequest {
+    pub async fn reply<T>(&self, msg: Message<T>) -> io::Result<()>
+    where
+        T: AsRef<[u8]>,
+    {
+        todo!()
+    }
+
+    pub fn query_message(&self) -> &Message<Bytes> {
+        todo!()
+    }
+
+    pub fn source_address(&self) -> SocketAddr {
+        todo!()
+    }
+}
+
+// --- Tests -----------------------------------------------------------------
 
 #[cfg(test)]
 mod test {
