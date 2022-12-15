@@ -41,8 +41,8 @@ impl Server {
     // But Rust async iterators are not yet stable.
     pub async fn get_request(&mut self) -> io::Result<Request> {
         match self {
-            Server::Udp(s) => s.get_request().await.map(|r| Request::Udp(r)),
-            Server::Tcp(s) => s.get_request().await.map(|r| Request::Tcp(r)),
+            Server::Udp(s) => s.get_request().await.map(Request::Udp),
+            Server::Tcp(s) => s.get_request().await.map(Request::Tcp),
         }
     }
 }
