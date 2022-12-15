@@ -83,7 +83,7 @@ impl Server {
     //
     // But Rust async iterators are not yet stable.
     async fn get_request(&mut self) -> io::Result<Request> {
-        let (len, addr) = self.socket.try_recv_from(&mut self.buf).await?;
+        let (len, addr) = self.socket.recv_from(&mut self.buf).await?;
         let msg = Message::from_octets(self.buf.copy_to_bytes(len))
             .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
         let req = Request::new(msg, addr, self.socket.clone());
