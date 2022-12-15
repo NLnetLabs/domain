@@ -142,18 +142,28 @@ impl UdpRequest {
 
 // --- TCP transport based server implementation -----------------------------
 
-pub struct TcpServer;
+pub struct TcpServer {
+    _listener: tokio::net::TcpListener,
+}
 
 pub struct TcpRequest;
 
 impl TcpServer {
+    pub fn new() -> io::Result<Self> {
+        let listener = std::net::TcpListener::bind("127.0.0.1:53")?;
+        let listener = tokio::net::TcpListener::from_std(listener)?;
+        Ok(Self {
+            _listener: listener,
+        })
+    }
+
     async fn get_request(&mut self) -> io::Result<TcpRequest> {
         todo!()
     }
 }
 
 impl TcpRequest {
-    pub async fn reply<T>(&self, msg: Message<T>) -> io::Result<()>
+    pub async fn reply<T>(&self, _msg: Message<T>) -> io::Result<()>
     where
         T: AsRef<[u8]>,
     {
@@ -201,12 +211,38 @@ mod test {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    pub async fn test_something() {
+    pub async fn udp_test() {
         // Create a new UDP DNS server hard-coded for now to listen on
         // 127.0.0.1:1853. Send a request with a command like:
         //
         //   dig @127.0.0.1 -p 1853 A nlnetlabs.nl
         let mut srv = Server::Udp(UdpServer::new().unwrap());
+
+        // Demonstrate answering requests in "background" tasks, i.e. without
+        // blocking the main request accepting task. This is just a trivial
+        // example, there are various ways to do this, for instance you could
+        // pass the Request via a queue to an already running task rather than
+        // spawn a new one.
+        loop {
+            let req = srv.get_request().await.unwrap();
+
+            tokio::task::spawn(async move {
+                let msg = mk_answer(&req);
+                req.reply(msg).await.unwrap();
+            });
+        }
+
+        // One can also reply using the Server rather than to the Request
+        //srv.reply(msg, req.source_address()).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn tcp_test() {
+        // Create a new UDP DNS server hard-coded for now to listen on
+        // 127.0.0.1:1853. Send a request with a command like:
+        //
+        //   dig @127.0.0.1 -p 1853 A nlnetlabs.nl
+        let mut srv = Server::Tcp(TcpServer::new().unwrap());
 
         // Demonstrate answering requests in "background" tasks, i.e. without
         // blocking the main request accepting task. This is just a trivial
