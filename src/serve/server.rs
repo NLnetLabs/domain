@@ -23,18 +23,57 @@ use std::sync::Arc;
 
 use crate::base::Message;
 
-pub struct Server {
+pub enum Server {
+    Udp(UdpServer),
+}
+
+impl Server {
+    pub async fn get_request(&mut self) -> io::Result<Request> {
+        match self {
+            Server::Udp(s) => s.get_request().await.map(|r| Request::Udp(r)),
+        }
+    }
+}
+
+pub enum Request {
+    Udp(UdpRequest),
+}
+
+impl Request {
+    pub async fn reply<T>(&self, msg: Message<T>) -> io::Result<()>
+    where
+        T: AsRef<[u8]>,
+    {
+        match self {
+            Request::Udp(r) => r.reply(msg).await,
+        }
+    }
+
+    pub fn query_message(&self) -> &Message<Bytes> {
+        match self {
+            Request::Udp(r) => r.query_message(),
+        }
+    }
+
+    pub fn source_address(&self) -> SocketAddr {
+        match self {
+            Request::Udp(r) => r.source_address(),
+        }
+    }
+}
+
+pub struct UdpServer {
     socket: Arc<tokio::net::UdpSocket>,
     buf: BytesMut,
 }
 
-pub struct Request {
+pub struct UdpRequest {
     query_message: Message<Bytes>,
     source_address: SocketAddr,
     socket: Arc<tokio::net::UdpSocket>,
 }
 
-impl Request {
+impl UdpRequest {
     pub fn new(
         msg: Message<Bytes>,
         addr: SocketAddr,
@@ -66,7 +105,7 @@ impl Request {
     }
 }
 
-impl Server {
+impl UdpServer {
     pub fn new() -> io::Result<Self> {
         let socket = std::net::UdpSocket::bind("127.0.0.1:1853")?;
         let socket = Arc::new(tokio::net::UdpSocket::from_std(socket)?);
@@ -82,21 +121,12 @@ impl Server {
     //   }
     //
     // But Rust async iterators are not yet stable.
-    async fn get_request(&mut self) -> io::Result<Request> {
+    async fn get_request(&mut self) -> io::Result<UdpRequest> {
         let (len, addr) = self.socket.recv_from(&mut self.buf).await?;
         let msg = Message::from_octets(self.buf.copy_to_bytes(len))
             .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
-        let req = Request::new(msg, addr, self.socket.clone());
+        let req = UdpRequest::new(msg, addr, self.socket.clone());
         Ok(req)
-    }
-
-    async fn reply<T: AsRef<[u8]>>(
-        &self,
-        msg: Message<T>,
-        addr: SocketAddr,
-    ) -> io::Result<()> {
-        self.socket.send_to(msg.as_slice(), addr).await?;
-        Ok(())
     }
 }
 
@@ -135,7 +165,7 @@ mod test {
         // 127.0.0.1:1853. Send a request with a command like:
         //
         //   dig @127.0.0.1 -p 1853 A nlnetlabs.nl
-        let mut srv = Server::new().unwrap();
+        let mut srv = Server::Udp(UdpServer::new().unwrap());
 
         // Demonstrate answering requests in "background" tasks, i.e. without
         // blocking the main request accepting task. This is just a trivial
