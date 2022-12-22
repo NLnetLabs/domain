@@ -5,6 +5,6 @@
 #![cfg(feature = "serve")]
 #![cfg_attr(docsrs, doc(cfg(feature = "serve")))]
 
-pub use self::server::Server;
+pub use self::server::{TcpServer, UdpServer};
 
 pub mod server;

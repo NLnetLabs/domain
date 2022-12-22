@@ -23,87 +23,7 @@ use bytes::{Buf, Bytes, BytesMut};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{
-    base::{
-        iana::{Class, Rcode},
-        Dname, Message, MessageBuilder,
-    },
-    rdata::A,
-};
-
-// --- Transport independent types -------------------------------------------
-
-pub enum Server {
-    Udp(UdpServer),
-    Tcp(TcpServer),
-}
-
-impl Server {
-    // In theory this could be called from an async iterator so that one could
-    // do:
-    //
-    //   for req in Server {
-    //     ...
-    //   }
-    //
-    // But Rust async iterators are not yet stable.
-    pub async fn get_request(&mut self) -> io::Result<Request> {
-        match self {
-            Server::Udp(s) => s.get_request().await.map(Request::Udp),
-            Server::Tcp(s) => s
-                .get_request(|req| {
-                    eprintln!("Building answer");
-                    let res = MessageBuilder::new_bytes();
-                    let mut answer = res
-                        .start_answer(req.query_message(), Rcode::NoError)
-                        .unwrap();
-                    answer
-                        .push((
-                            Dname::root_ref(),
-                            Class::In,
-                            86400,
-                            A::from_octets(192, 0, 2, 1),
-                        ))
-                        .unwrap();
-                    eprintln!("Built");
-                    Ok(answer.into_message())
-                })
-                .await
-                .map(Request::Tcp),
-        }
-    }
-}
-
-pub enum Request {
-    Udp(UdpRequest),
-    Tcp(TcpRequest),
-}
-
-impl Request {
-    pub async fn reply<T>(&self, msg: Message<T>) -> io::Result<()>
-    where
-        T: AsRef<[u8]>,
-    {
-        match self {
-            Request::Udp(r) => r.reply(msg).await,
-            Request::Tcp(r) => r.reply(msg).await,
-        }
-    }
-
-    pub fn query_message(&self) -> &Message<Bytes> {
-        match self {
-            Request::Udp(r) => r.query_message(),
-            Request::Tcp(r) => r.query_message(),
-        }
-    }
-
-    pub fn source_address(&self) -> SocketAddr {
-        match self {
-            Request::Udp(r) => r.source_address(),
-            Request::Tcp(r) => r.source_address(),
-        }
-    }
-}
+use crate::base::Message;
 
 // --- UDP transport based server implementation -----------------------------
 
@@ -191,7 +111,7 @@ impl TcpServer {
         &mut self,
         msg_handler: fn(TcpRequest) -> io::Result<Message<Bytes>>,
     ) -> io::Result<TcpRequest> {
-        let mut listener =
+        let listener =
             tokio::net::TcpListener::bind("127.0.0.1:1853").await?;
 
         loop {
@@ -200,13 +120,17 @@ impl TcpServer {
                     eprintln!("Connection received");
                     tokio::task::spawn(async move {
                         eprintln!("Reader started");
+                        let mut len_buf = [0u8; 2];
                         let mut buf = BytesMut::zeroed(1024);
                         loop {
                             eprintln!("Waiting for message bytes");
-                            match stream.read(&mut buf).await {
-                                Ok(len) if len > 0 => {
+                            match stream.read(&mut len_buf).await {
+                                Ok(len) if len >= 2 => {
+                                    let msg_len = u16::from_be_bytes(len_buf);
+                                    buf.resize(msg_len as usize, 0);
+                                    stream.read(&mut buf).await.unwrap();
                                     if let Ok(msg) = Message::from_octets(
-                                        buf.copy_to_bytes(len),
+                                        buf.copy_to_bytes(msg_len as usize),
                                     ) {
                                         eprintln!(
                                             "Sufficient bytes received"
@@ -295,11 +219,9 @@ mod test {
     use super::*;
 
     // Helper fn to create a dummy response to send back to the client
-    fn mk_answer(req: &Request) -> Message<Bytes> {
+    fn mk_answer(msg: &Message<Bytes>) -> Message<Bytes> {
         let res = MessageBuilder::new_bytes();
-        let mut answer = res
-            .start_answer(req.query_message(), Rcode::NoError)
-            .unwrap();
+        let mut answer = res.start_answer(msg, Rcode::NoError).unwrap();
         answer
             .push((
                 Dname::root_ref(),
@@ -317,7 +239,7 @@ mod test {
         // 127.0.0.1:1853. Send a request with a command like:
         //
         //   dig @127.0.0.1 -p 1853 A nlnetlabs.nl
-        let mut srv = Server::Udp(UdpServer::new().unwrap());
+        let mut srv = UdpServer::new().unwrap();
 
         // Demonstrate answering requests in "background" tasks, i.e. without
         // blocking the main request accepting task. This is just a trivial
@@ -325,12 +247,7 @@ mod test {
         // pass the Request via a queue to an already running task rather than
         // spawn a new one.
         loop {
-            let req = srv.get_request().await.unwrap();
-
-            tokio::task::spawn(async move {
-                let msg = mk_answer(&req);
-                req.reply(msg).await.unwrap();
-            });
+            srv.get_request().await.unwrap();
         }
     }
 
@@ -342,7 +259,7 @@ mod test {
         // 127.0.0.1:1853. Send a request with a command like:
         //
         //   dig @127.0.0.1 -p 1853 A nlnetlabs.nl
-        let mut srv = Server::Tcp(TcpServer::new().unwrap());
+        let mut srv = TcpServer::new().unwrap();
 
         // Demonstrate answering requests in "background" tasks, i.e. without
         // blocking the main request accepting task. This is just a trivial
@@ -351,12 +268,9 @@ mod test {
         // spawn a new one.
         loop {
             eprintln!("Getting request...");
-            let req = srv.get_request().await.unwrap();
-
-            tokio::task::spawn(async move {
-                let msg = mk_answer(&req);
-                req.reply(msg).await.unwrap();
-            });
+            srv.get_request(|req| Ok(mk_answer(&req.query_message())))
+                .await
+                .unwrap();
         }
     }
 }

@@ -5,18 +5,13 @@ use domain::{
         Dname, Message, MessageBuilder,
     },
     rdata::A,
-    serve::{
-        server::{Request, TcpServer},
-        Server,
-    },
+    serve::server::TcpServer,
 };
 
 // Helper fn to create a dummy response to send back to the client
-fn mk_answer(req: &Request) -> Message<Bytes> {
+fn mk_answer(msg: &Message<Bytes>) -> Message<Bytes> {
     let res = MessageBuilder::new_bytes();
-    let mut answer = res
-        .start_answer(req.query_message(), Rcode::NoError)
-        .unwrap();
+    let mut answer = res.start_answer(msg, Rcode::NoError).unwrap();
     answer
         .push((
             Dname::root_ref(),
@@ -30,15 +25,12 @@ fn mk_answer(req: &Request) -> Message<Bytes> {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
-    let mut srv = Server::Tcp(TcpServer::new().unwrap());
+    let mut srv = TcpServer::new().unwrap();
 
     loop {
         eprintln!("Getting request...");
-        let req = srv.get_request().await.unwrap();
-
-        tokio::task::spawn(async move {
-            let msg = mk_answer(&req);
-            req.reply(msg).await.unwrap();
-        });
+        srv.get_request(|req| Ok(mk_answer(&req.query_message())))
+            .await
+            .unwrap();
     }
 }
