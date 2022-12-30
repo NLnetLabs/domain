@@ -3,9 +3,10 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+    Compose, Composer, Parse, ParseError, Parser, ShortBuf
 };
-use super::CodeOptData;
+use super::{CodeOptData, ComposeOptData};
+use octseq::builder::OctetsBuilder;
 
 
 //------------ Expire --------------------------------------------------------
@@ -18,7 +19,7 @@ impl Expire {
         Expire(expire)
     }
 
-    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn push<Target: Composer>(
         builder: &mut OptBuilder<Target>,
         expire: Option<u32>
     ) -> Result<(), ShortBuf> {
@@ -30,8 +31,7 @@ impl Expire {
     }
 }
 
-
-//--- Parse and Compose
+//--- Parse
 
 impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Expire {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -53,22 +53,20 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Expire {
     }
 }
 
-impl Compose for Expire {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
+//--- OptData
+
+impl CodeOptData for Expire {
+    const CODE: OptionCode = OptionCode::Expire;
+}
+
+impl ComposeOptData for Expire {
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
         if let Some(value) = self.0 {
             value.compose(target)?;
         }
         Ok(())
     }
-}
-
-
-//--- OptData
-
-impl CodeOptData for Expire {
-    const CODE: OptionCode = OptionCode::Expire;
 }
 

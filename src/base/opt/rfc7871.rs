@@ -4,9 +4,11 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::net::IpAddr;
 use super::super::octets::{
-    Compose, FormError, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
+    Compose, Composer, FormError, Parse, ParseError, Parser,
+    ShortBuf,
 };
-use super::CodeOptData;
+use super::{CodeOptData, ComposeOptData};
+use octseq::builder::OctetsBuilder;
 
 //------------ ClientSubnet --------------------------------------------------
 
@@ -36,7 +38,7 @@ impl ClientSubnet {
         }
     }
 
-    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn push<Target: Composer>(
         builder: &mut OptBuilder<Target>,
         source_prefix_len: u8,
         scope_prefix_len: u8,
@@ -56,7 +58,7 @@ impl ClientSubnet {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
 impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for ClientSubnet {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -133,21 +135,24 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for ClientSubnet {
     }
 }
 
-impl Compose for ClientSubnet {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
+//--- CodeOptData and ComposeOptData
+
+impl CodeOptData for ClientSubnet {
+    const CODE: OptionCode = OptionCode::ClientSubnet;
+}
+
+impl ComposeOptData for ClientSubnet {
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
         let prefix_bytes = prefix_bytes(self.source_prefix_len as usize);
-        target.append_all(|target| match self.addr {
+        match self.addr {
             IpAddr::V4(addr) => {
                 1u16.compose(target)?;
                 self.source_prefix_len.compose(target)?;
                 self.scope_prefix_len.compose(target)?;
                 let array = addr.octets();
-                if prefix_bytes > array.len() {
-                    return Err(ShortBuf);
-                }
+                assert!(prefix_bytes <= array.len());
                 target.append_slice(&array[..prefix_bytes])
             }
             IpAddr::V6(addr) => {
@@ -155,12 +160,10 @@ impl Compose for ClientSubnet {
                 self.source_prefix_len.compose(target)?;
                 self.scope_prefix_len.compose(target)?;
                 let array = addr.octets();
-                if prefix_bytes > array.len() {
-                    return Err(ShortBuf);
-                }
+                assert!(prefix_bytes <= array.len());
                 target.append_slice(&array[..prefix_bytes])
             }
-        })
+        }
     }
 }
 
@@ -226,16 +229,11 @@ fn normalize_prefix_len(addr: IpAddr, len: u8) -> u8 {
     core::cmp::min(len, max)
 }
 
-//--- CodeOptData
-
-impl CodeOptData for ClientSubnet {
-    const CODE: OptionCode = OptionCode::ClientSubnet;
-}
-
-#[cfg(test)]
+#[cfg(all(test, feature="std"))]
 mod tests {
     use super::*;
-    use crate::base::octets::Octets512;
+    use octseq::builder::infallible;
+    use std::vec::Vec;
 
     macro_rules! check {
         ($name:ident, $addr:expr, $prefix:expr, $exp:expr, $ok:expr) => {
@@ -249,9 +247,9 @@ mod tests {
                 // generate maybe invalid buffer.
                 let mut opt_ = opt.clone();
                 opt_.addr = addr;
-                let mut buf = Octets512::new();
+                let mut buf = Vec::new();
 
-                opt_.compose(&mut buf).unwrap();
+                infallible(opt_.compose_option(&mut buf));
                 match ClientSubnet::parse(&mut Parser::from_ref(&buf)) {
                     Ok(v) => assert_eq!(opt, v),
                     Err(_) => assert!(!$ok),

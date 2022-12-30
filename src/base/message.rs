@@ -12,15 +12,15 @@
 
 use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, Rcode, Rtype};
-use super::message_builder::{AdditionalBuilder, AnswerBuilder};
+use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
 use super::name::ParsedDname;
 use super::octets::{
-    Octets, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
+    Composer, Octets, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
 };
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
 use super::rdata::ParseRecordData;
-use super::record::{AsRecord, ParsedRecord, Record};
+use super::record::{ComposeRecord, ParsedRecord, Record};
 use crate::rdata::rfc1035::Cname;
 use core::marker::PhantomData;
 use core::{fmt, mem};
@@ -549,17 +549,17 @@ impl<Octs: Octets> Message<Octs> {
     ) -> Result<AdditionalBuilder<O>, CopyRecordsError>
     where
         Octs: Octets,
-        R: AsRecord + 's,
+        R: ComposeRecord + 's,
         F: FnMut(ParsedRecord<'s, Octs>) -> Option<R>,
         T: Into<AnswerBuilder<O>>,
-        O: OctetsBuilder + AsMut<[u8]>,
+        O: Composer,
     {
         let mut source = self.answer()?;
         let mut target = target.into();
         for rr in &mut source {
             let rr = rr?;
             if let Some(rr) = op(rr) {
-                target.push(rr)?;
+                target.push(rr).map_err(CopyRecordsError::Push)?;
             }
         }
 
@@ -568,7 +568,7 @@ impl<Octs: Octets> Message<Octs> {
         for rr in &mut source {
             let rr = rr?;
             if let Some(rr) = op(rr) {
-                target.push(rr)?;
+                target.push(rr).map_err(CopyRecordsError::Push)?;
             }
         }
 
@@ -577,7 +577,7 @@ impl<Octs: Octets> Message<Octs> {
         for rr in source {
             let rr = rr?;
             if let Some(rr) = op(rr) {
-                target.push(rr)?;
+                target.push(rr).map_err(CopyRecordsError::Push)?;
             }
         }
 
@@ -1102,7 +1102,7 @@ pub enum CopyRecordsError {
     Parse(ParseError),
 
     /// Not enough space in the target.
-    ShortBuf,
+    Push(PushError),
 }
 
 //--- From
@@ -1113,19 +1113,13 @@ impl From<ParseError> for CopyRecordsError {
     }
 }
 
-impl From<ShortBuf> for CopyRecordsError {
-    fn from(_: ShortBuf) -> Self {
-        CopyRecordsError::ShortBuf
-    }
-}
-
 //--- Display and Error
 
 impl fmt::Display for CopyRecordsError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             CopyRecordsError::Parse(ref err) => err.fmt(f),
-            CopyRecordsError::ShortBuf => ShortBuf.fmt(f),
+            CopyRecordsError::Push(ref err) => err.fmt(f),
         }
     }
 }

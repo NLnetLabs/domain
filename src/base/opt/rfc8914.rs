@@ -1,15 +1,15 @@
 //! Extended DNS Error from RFC 8914
 
-use super::super::{
-    iana::{
-        exterr::{ExtendedErrorCode, EDE_PRIVATE_RANGE_BEGIN},
-        OptionCode,
-    },
-    octets::{OctetsBuilder, Octets, Parse, ParseError},
-    opt::CodeOptData,
-    Compose, Parser, ShortBuf,
+use super::super::iana::exterr::{ExtendedErrorCode, EDE_PRIVATE_RANGE_BEGIN};
+use super::super::iana::OptionCode;
+use super::super::octets::{
+    Octets, Parse, Parser, ParseError
 };
-use core::{convert::TryFrom, fmt, str};
+use super::super::wire::Compose;
+use super::{CodeOptData, ComposeOptData};
+use octseq::builder::OctetsBuilder;
+use core::convert::TryFrom;
+use core::{fmt, str};
 
 /// Extended Error data structure
 #[derive(Debug, Clone)]
@@ -98,9 +98,11 @@ impl<Octs> CodeOptData for ExtendedError<Octs> {
     const CODE: OptionCode = OptionCode::ExtendedError;
 }
 
-impl<Octs: AsRef<[u8]>> Compose for ExtendedError<Octs> {
-    fn compose<T: OctetsBuilder>(&self, target: &mut T) -> Result<(), ShortBuf> {
-        target.append_slice(&self.code.to_int().to_be_bytes())?;
+impl<Octs: AsRef<[u8]>> ComposeOptData for ExtendedError<Octs> {
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.code.to_int().compose(target)?;
         if let Some(text) = &self.text {
             target.append_slice(text.as_ref())?;
         }
@@ -120,21 +122,25 @@ impl<Octs: AsRef<[u8]>> fmt::Display for ExtendedError<Octs> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature="std"))]
 mod tests {
-    use super::{super::super::octets::Octets512, *};
+    use super::*;
+    use octseq::builder::infallible;
     use core::convert::TryInto;
+    use std::vec::Vec;
 
     #[test]
     fn compose() {
-        let ede: ExtendedError<&[u8]> = (ExtendedErrorCode::StaleAnswer, "some text".as_ref())
-            .try_into()
-            .unwrap();
+        let ede: ExtendedError<&[u8]> = (
+            ExtendedErrorCode::StaleAnswer, "some text".as_ref()
+        ).try_into().unwrap();
 
-        let mut buf = Octets512::new();
-        ede.compose(&mut buf).unwrap();
+        let mut buf = Vec::new();
+        infallible(ede.compose_option(&mut buf));
 
-        let parsed = ExtendedError::parse(&mut Parser::from_ref(buf.as_ref())).unwrap();
+        let parsed = ExtendedError::parse(
+            &mut Parser::from_ref(buf.as_slice())
+        ).unwrap();
         assert_eq!(ede.code, parsed.code);
         assert_eq!(ede.text, parsed.text);
     }

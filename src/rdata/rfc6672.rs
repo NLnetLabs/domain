@@ -1,18 +1,16 @@
 use crate::base::cmp::CanonicalOrd;
-use crate::base::iana::Rtype;
 use crate::base::name::{ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, Octets, OctetsBuilder, OctetsFrom,
-    Parse, ParseError, Parser, ShortBuf,
+    EmptyBuilder, FromBuilder, Octets, OctetsFrom,
+    Parse, ParseError, Parser,
 };
-use crate::base::rdata::RtypeRecordData;
 use core::cmp::Ordering;
 use core::str::FromStr;
 use core::{fmt, hash, ops};
 
 //------------ Dname --------------------------------------------------------
 
-dname_type! {
+dname_type_canonical! {
     /// DNAME record data.
     ///
     /// The DNAME record provides redirection for a subtree of the domain

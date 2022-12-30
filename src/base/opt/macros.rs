@@ -36,23 +36,6 @@ macro_rules! opt_types {
             }
         )* )*
 
-
-        //--- Compose
-
-        impl<Octs: AsRef<[u8]>> Compose for AllOptData<Octs> {
-            fn compose<T: $crate::base::octets::OctetsBuilder + AsMut<[u8]>>(
-                &self, target: &mut T
-            ) -> Result<(), ShortBuf> {
-                match *self {
-                    $( $(
-                        AllOptData::$opt(ref inner) => inner.compose(target),
-                    )* )*
-                    AllOptData::Other(ref inner) => inner.compose(target),
-                }
-            }
-        }
-
-
         //--- OptData
 
         impl<Octs: AsRef<[u8]>> OptData for AllOptData<Octs> {
@@ -84,6 +67,23 @@ macro_rules! opt_types {
                         Ok(UnknownOptData::parse_option(
                             code, parser
                         )?.map(AllOptData::Other))
+                    }
+                }
+            }
+        }
+
+        impl<Octs: AsRef<[u8]>> ComposeOptData for AllOptData<Octs> {
+            fn compose_option<Target: octseq::builder::OctetsBuilder + ?Sized>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                match *self {
+                    $( $(
+                        AllOptData::$opt(ref inner) => {
+                            inner.compose_option(target)
+                        }
+                    )* )*
+                    AllOptData::Other(ref inner) => {
+                        inner.compose_option(target)
                     }
                 }
             }

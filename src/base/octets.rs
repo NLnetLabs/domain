@@ -2,16 +2,22 @@
 //     If all looks nice, we drop the re-exports again and clean up.
 
 pub use octseq::{
-    Octets, OctetsFrom, OctetsInto, Parser, ShortInput, Truncate,
+    EmptyBuilder, FromBuilder, IntoBuilder, Octets, OctetsBuilder,
+    OctetsFrom, OctetsInto, Parser, ShortBuf, ShortInput, Truncate,
 };
+pub use super::wire::{
+    Compose, Composer, FormError, Parse, ParseError
+};
+#[cfg(feature = "serde")]
+pub use octseq::serde::{DeserializeOctets, SerializeOctets};
 
+/*
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::cmp::Ordering;
 use core::convert::TryFrom;
-#[cfg(feature = "heapless")]
 use core::{borrow, fmt, hash};
 #[cfg(feature = "smallvec")]
 use smallvec::{Array, SmallVec};
@@ -902,7 +908,6 @@ mod serde {
     }
 }
 
-/*
 //============ Parsing =======================================================
 
 //------------ Parser --------------------------------------------------------
@@ -1209,134 +1214,6 @@ impl<Ref: AsRef<[u8]>> Parser<Ref> {
         };
         self.pos = end;
         res
-    }
-}
-*/
-
-//------------ Parse ------------------------------------------------------
-
-/// A type that can extract a value from a parser.
-///
-/// The trait is a companion to [`Parser<Ref>`]: it allows a type to use a
-/// parser to create a value of itself. Because types may be generic over
-/// octets types, the trait is generic over the octets reference of the
-/// parser in question. Implementations should use minimal trait bounds
-/// matching the parser methods they use.
-///
-/// For types that are generic over an octets sequence, the reference type
-/// should be tied to the type’s own type argument. This will avoid having
-/// to provide type annotations when simply calling `Parse::parse` for the
-/// type. Typically this will happen via `OctetsRef::Range`. For instance,
-/// a type `Foo<Octets>` should provide:
-///
-/// ```ignore
-/// impl<Ref: OctetsRef> Parse<Ref> for Foo<Ref::Range> {
-///     // etc.
-/// }
-/// ```
-///
-/// [`Parser<Ref>`]: struct.Parser.html
-pub trait Parse<'a, Octs: ?Sized>: Sized {
-    /// Extracts a value from the beginning of `parser`.
-    ///
-    /// If parsing fails and an error is returned, the parser’s position
-    /// should be considered to be undefined. If it is supposed to be reused
-    /// in this case, you should store the position before attempting to parse
-    /// and seek to that position again before continuing.
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError>;
-
-    /// Skips over a value of this type at the beginning of `parser`.
-    ///
-    /// This function is the same as `parse` but doesn’t return the result.
-    /// It can be used to check if the content of `parser` is correct or to
-    /// skip over unneeded parts of the parser.
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError>;
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i8 {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_i8().map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(1).map_err(Into::into)
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u8 {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_u8().map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(1).map_err(Into::into)
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i16 {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_i16().map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(2).map_err(Into::into)
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u16 {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_u16().map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(2).map_err(Into::into)
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i32 {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_i32().map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(4).map_err(Into::into)
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u32 {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_u32().map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(4).map_err(Into::into)
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv4Addr {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(Self::new(
-            u8::parse(parser)?,
-            u8::parse(parser)?,
-            u8::parse(parser)?,
-            u8::parse(parser)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(4).map_err(Into::into)
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let mut buf = [0u8; 16];
-        parser.parse_buf(&mut buf)?;
-        Ok(buf.into())
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(16).map_err(Into::into)
     }
 }
 
@@ -1707,82 +1584,6 @@ impl fmt::Display for ShortBuf {
 #[cfg(feature = "std")]
 impl std::error::Error for ShortBuf {}
 
-//--------- ParseError -------------------------------------------------------
-
-/// An error happened while parsing data.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ParseError {
-    /// An attempt was made to go beyond the end of the parser.
-    ShortInput,
-
-    /// A formatting error occurred.
-    Form(FormError),
-}
-
-impl ParseError {
-    /// Creates a new parse error as a form error with the given message.
-    pub fn form_error(msg: &'static str) -> Self {
-        FormError::new(msg).into()
-    }
-}
-
-//--- From
-
-impl From<ShortInput> for ParseError {
-    fn from(_: ShortInput) -> Self {
-        ParseError::ShortInput
-    }
-}
-
-impl From<FormError> for ParseError {
-    fn from(err: FormError) -> Self {
-        ParseError::Form(err)
-    }
-}
-
-//--- Display and Error
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ParseError::ShortInput => f.write_str("unexpected end of input"),
-            ParseError::Form(ref err) => err.fmt(f),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for ParseError {}
-
-//------------ FormError -----------------------------------------------------
-
-/// A formatting error occured.
-///
-/// This is a generic error for all kinds of error cases that result in data
-/// not being accepted. For diagnostics, the error is being given a static
-/// string describing the error.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FormError(&'static str);
-
-impl FormError {
-    /// Creates a new form error value with the given diagnostics string.
-    pub fn new(msg: &'static str) -> Self {
-        FormError(msg)
-    }
-}
-
-//--- Display and Error
-
-impl fmt::Display for FormError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for FormError {}
-
-/*
 //============ Testing =======================================================
 
 #[cfg(test)]

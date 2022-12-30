@@ -8,9 +8,7 @@
 //! [`Serial`]: struct.Serial.html
 
 use super::cmp::CanonicalOrd;
-use super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
-};
+use super::octets::{Compose, Composer, Parse, ParseError, Parser};
 use super::scan::{Scan, Scanner, ScannerError};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone};
@@ -185,6 +183,16 @@ impl Serial {
     }
 }
 
+impl Serial {
+    pub const COMPOSE_LEN: u16 = u32::COMPOSE_LEN;
+
+    pub fn compose<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.0.compose(target)
+    }
+}
+
 //--- From and FromStr
 
 impl From<u32> for Serial {
@@ -215,24 +223,15 @@ impl str::FromStr for Serial {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
-impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Serial {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Serial {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         u32::parse(parser).map(Into::into)
     }
 
     fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         u32::skip(parser)
-    }
-}
-
-impl Compose for Serial {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        self.0.compose(target)
     }
 }
 

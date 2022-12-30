@@ -4,7 +4,7 @@ use super::host::lookup_host;
 use crate::base::iana::{Class, Rtype};
 use crate::base::message::Message;
 use crate::base::name::{Dname, ToDname, ToRelativeDname};
-use crate::base::octets::{Octets, OctetsVec, ParseError};
+use crate::base::octets::{Octets, ParseError};
 use crate::rdata::{Aaaa, Srv, A};
 use crate::resolv::resolver::Resolver;
 use futures::stream;
@@ -28,6 +28,14 @@ use std::{io, mem, ops};
 //
 // In the third case we have a single (target, port) pair with the original
 // host and the fallback port which we need to resolve further.
+
+//------------ OctetsVec -----------------------------------------------------
+
+#[cfg(feature = "smallvec")]
+type OctetsVec = octseq::octets::SmallOctets;
+
+#[cfg(not(feature = "smallvec"))]
+type OctetsVec = Vec<u8>;
 
 //------------ lookup_srv ----------------------------------------------------
 

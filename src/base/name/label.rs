@@ -4,7 +4,7 @@
 //! module.
 
 use super::super::octets::{
-    Compose, FormError, OctetsBuilder, ParseError, ShortBuf,
+    FormError, OctetsBuilder, ParseError,
 };
 use super::builder::{parse_escape, LabelFromStrError};
 use core::str::FromStr;
@@ -193,14 +193,12 @@ impl Label {
     ///
     /// The method builds the encoded form of the label that starts with a
     /// one octet length indicator.
-    pub fn build<Builder: OctetsBuilder>(
+    pub fn compose<Builder: OctetsBuilder + ?Sized>(
         &self,
         target: &mut Builder,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            target.append_slice(&[self.len() as u8])?;
-            target.append_slice(self.as_slice())
-        })
+    ) -> Result<(), Builder::AppendError> {
+        target.append_slice(&[self.len() as u8])?;
+        target.append_slice(self.as_slice())
     }
 
     /// Appends the lowercased label to an octets builder.
@@ -208,17 +206,15 @@ impl Label {
     /// The method builds the encoded form of the label that starts with a
     /// one octet length indicator. It also converts all ASCII letters into
     /// their lowercase form.
-    pub fn build_lowercase<Builder: OctetsBuilder>(
+    pub fn compose_canonical<Builder: OctetsBuilder + ?Sized>(
         &self,
         target: &mut Builder,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            target.append_slice(&[self.len() as u8])?;
-            for &ch in self.into_iter() {
-                target.append_slice(&[ch.to_ascii_lowercase()])?;
-            }
-            Ok(())
-        })
+    ) -> Result<(), Builder::AppendError> {
+        target.append_slice(&[self.len() as u8])?;
+        for &ch in self.into_iter() {
+            target.append_slice(&[ch.to_ascii_lowercase()])?;
+        }
+        Ok(())
     }
 }
 
@@ -239,35 +235,8 @@ impl Label {
     ///
     /// This length is one more than the length of the label as their is a
     /// leading length octet.
-    pub fn compose_len(&self) -> usize {
-        self.len() + 1
-    }
-}
-
-//--- Compose
-
-impl Compose for Label {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            (self.len() as u8).compose(target)?;
-            target.append_slice(self.as_ref())
-        })
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            (self.len() as u8).compose(target)?;
-            for &ch in self.into_iter() {
-                ch.to_ascii_lowercase().compose(target)?;
-            }
-            Ok(())
-        })
+    pub fn compose_len(&self) -> u16 {
+        u16::try_from(self.len()).expect("long label") + 1
     }
 }
 
@@ -692,7 +661,7 @@ impl<'a> Iterator for SliceLabelsIter<'a> {
                     if label.is_root() {
                         self.start = usize::max_value();
                     } else {
-                        self.start += label.compose_len();
+                        self.start += label.len();
                     }
                     return Some(label);
                 }
@@ -825,6 +794,7 @@ impl std::error::Error for SplitLabelError {}
 #[cfg(test)]
 mod test {
     use super::*;
+    use octseq::builder::infallible;
 
     #[test]
     fn from_slice() {
@@ -893,12 +863,12 @@ mod test {
         use std::vec::Vec;
 
         let mut buf = Vec::new();
-        Label::root().compose(&mut buf).unwrap();
+        infallible(Label::root().compose(&mut buf));
         assert_eq!(buf, &b"\0"[..]);
 
         let mut buf = Vec::new();
         let label = Label::from_slice(b"123").unwrap();
-        label.compose(&mut buf).unwrap();
+        infallible(label.compose(&mut buf));
         assert_eq!(buf, &b"\x03123"[..]);
     }
 

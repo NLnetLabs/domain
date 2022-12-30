@@ -8,15 +8,17 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, Octets, OctetsBuilder,
-    OctetsFrom, OctetsInto, Parse, ParseError, Parser, ShortBuf,
+    Compose, Composer, EmptyBuilder, FormError, FromBuilder,
+    Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parse, ParseError, Parser,
+    ShortBuf, Truncate
 };
 #[cfg(feature = "serde")]
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
-use crate::base::rdata::RtypeRecordData;
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 use crate::utils::{base16, base64};
+use octseq::builder::FreezeBuilder;
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::{fmt, hash, ptr};
@@ -36,7 +38,7 @@ use std::vec::Vec;
         deserialize = "
             Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder,
+                OctetsBuilder + EmptyBuilder,
         ",
     ))
 )]
@@ -291,9 +293,9 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Dnskey<Octs> {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for Dnskey<Octs::Range<'a>> {
+impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Dnskey<Octs::Range<'a>> {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
@@ -316,17 +318,52 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Dnskey<Octs::Range<'a>> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> Compose for Dnskey<Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.flags.compose(buf)?;
-            self.protocol.compose(buf)?;
-            self.algorithm.compose(buf)?;
-            buf.append_slice(self.public_key.as_ref())
-        })
+//--- RecordData, ParseRecordData, ComposeRecordData
+
+impl<Octs> RecordData for Dnskey<Octs> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Dnskey
+    }
+}
+
+impl<'a, Octs> ParseRecordData<'a, Octs> for Dnskey<Octs::Range<'a>>
+where Octs: Octets + ?Sized {
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Dnskey {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>> ComposeRecordData for Dnskey<Octs> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            u16::try_from(
+                self.public_key.as_ref().len()
+            ).expect("long key").checked_add(
+                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN
+            ).expect("long key")
+        )
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.flags.compose(target)?;
+        self.protocol.compose(target)?;
+        self.algorithm.compose(target)?;
+        target.append_slice(self.public_key.as_ref())
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
@@ -361,12 +398,6 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Dnskey<Octs> {
             .field("public_key", &self.public_key.as_ref())
             .finish()
     }
-}
-
-//--- RtypeRecordData
-
-impl<Octs> RtypeRecordData for Dnskey<Octs> {
-    const RTYPE: Rtype = Rtype::Dnskey;
 }
 
 //------------ ProtoRrsig ----------------------------------------------------
@@ -479,39 +510,38 @@ where
     }
 }
 
-//--- Compose
-
-impl<Name: Compose> Compose for ProtoRrsig<Name> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.type_covered.compose(buf)?;
-            self.algorithm.compose(buf)?;
-            self.labels.compose(buf)?;
-            self.original_ttl.compose(buf)?;
-            self.expiration.compose(buf)?;
-            self.inception.compose(buf)?;
-            self.key_tag.compose(buf)?;
-            self.signer_name.compose(buf)
-        })
+impl<Name: ToDname> ProtoRrsig<Name> {
+    pub fn compose<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_head(target)?;
+        self.signer_name.compose(target)
     }
 
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.type_covered.compose(buf)?;
-            self.algorithm.compose(buf)?;
-            self.labels.compose(buf)?;
-            self.original_ttl.compose(buf)?;
-            self.expiration.compose(buf)?;
-            self.inception.compose(buf)?;
-            self.key_tag.compose(buf)?;
-            self.signer_name.compose_canonical(buf)
-        })
+    pub fn compose_canonical<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_head(target)?;
+        self.signer_name.compose_canonical(target)
+    }
+
+    fn compose_len(&self) -> u16 {
+        Rtype::COMPOSE_LEN + SecAlg::COMPOSE_LEN + u8::COMPOSE_LEN
+        + u32::COMPOSE_LEN + Serial::COMPOSE_LEN + Serial::COMPOSE_LEN
+        + u16::COMPOSE_LEN + self.signer_name.compose_len()
+    }
+
+    fn compose_head<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_len().compose(target)?;
+        self.type_covered.compose(target)?;
+        self.algorithm.compose(target)?;
+        self.labels.compose(target)?;
+        self.original_ttl.compose(target)?;
+        self.expiration.compose(target)?;
+        self.inception.compose(target)?;
+        self.key_tag.compose(target)
     }
 }
 
@@ -529,7 +559,7 @@ impl<Name: Compose> Compose for ProtoRrsig<Name> {
         deserialize = "
             Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder,
+                OctetsBuilder + EmptyBuilder,
             Name: serde::Deserialize<'de>,
         ",
     ))
@@ -844,9 +874,9 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs>
+impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
     for Rrsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -887,39 +917,72 @@ impl<'a, Octs: Octets> Parse<'a, Octs>
     }
 }
 
-impl<Octs: AsRef<[u8]>, Name: Compose> Compose for Rrsig<Octs, Name> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.type_covered.compose(buf)?;
-            self.algorithm.compose(buf)?;
-            self.labels.compose(buf)?;
-            self.original_ttl.compose(buf)?;
-            self.expiration.compose(buf)?;
-            self.inception.compose(buf)?;
-            self.key_tag.compose(buf)?;
-            self.signer_name.compose(buf)?;
-            buf.append_slice(self.signature.as_ref())
-        })
+//--- RecordData, ParseRecordData, ComposeRecordData
+
+impl<Octs, Name> RecordData for Rrsig<Octs, Name> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Rrsig
+    }
+}
+
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
+for Rrsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Rrsig {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs, Name> ComposeRecordData for Rrsig<Octs, Name>
+where Octs: AsRef<[u8]>, Name: ToDname {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            (
+                Rtype::COMPOSE_LEN + SecAlg::COMPOSE_LEN + u8::COMPOSE_LEN
+                + u32::COMPOSE_LEN + Serial::COMPOSE_LEN + Serial::COMPOSE_LEN
+                + u16::COMPOSE_LEN + self.signer_name.compose_len()
+            ).checked_add(
+                u16::try_from(
+                    self.signature.as_ref().len()
+                ).expect("long signature")
+            ).expect("long signature")
+        )
     }
 
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.type_covered.compose(buf)?;
-            self.algorithm.compose(buf)?;
-            self.labels.compose(buf)?;
-            self.original_ttl.compose(buf)?;
-            self.expiration.compose(buf)?;
-            self.inception.compose(buf)?;
-            self.key_tag.compose(buf)?;
-            self.signer_name.compose_canonical(buf)?;
-            buf.append_slice(self.signature.as_ref())
-        })
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_head(target)?;
+        self.signer_name.compose(target)?;
+        target.append_slice(self.signature.as_ref())
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_head(target)?;
+        self.signer_name.compose_canonical(target)?;
+        target.append_slice(self.signature.as_ref())
+    }
+}
+
+impl<Octs: AsRef<[u8]>, Name: ToDname> Rrsig<Octs, Name> {
+    fn compose_head<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.type_covered.compose(target)?;
+        self.algorithm.compose(target)?;
+        self.labels.compose(target)?;
+        self.original_ttl.compose(target)?;
+        self.expiration.compose(target)?;
+        self.inception.compose(target)?;
+        self.key_tag.compose(target)
     }
 }
 
@@ -988,12 +1051,6 @@ where
     }
 }
 
-//--- RtypeRecordData
-
-impl<Octs, Name> RtypeRecordData for Rrsig<Octs, Name> {
-    const RTYPE: Rtype = Rtype::Rrsig;
-}
-
 //------------ Nsec ----------------------------------------------------------
 
 #[derive(Clone)]
@@ -1008,7 +1065,7 @@ impl<Octs, Name> RtypeRecordData for Rrsig<Octs, Name> {
         deserialize = "
             Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder
+                OctetsBuilder + EmptyBuilder + Truncate 
                 + AsRef<[u8]> + AsMut<[u8]>,
             Name: serde::Deserialize<'de>,
         ",
@@ -1161,9 +1218,9 @@ impl<Octs: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octs, Name> {
     }
 }
 
-//--- ParseAll and Compose
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs>
+impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
     for Nsec<Octs::Range<'a>, ParsedDname<'a, Octs>>
 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -1179,18 +1236,52 @@ impl<'a, Octs: Octets> Parse<'a, Octs>
     }
 }
 
-impl<Octs: AsRef<[u8]>, Name: Compose> Compose for Nsec<Octs, Name> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            self.next_name.compose(target)?;
-            self.types.compose(target)
-        })
+//--- RecordData, ParseRecordData, ComposeRecordData
+
+impl<Octs, Name> RecordData for Nsec<Octs, Name> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Nsec
+    }
+}
+
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
+for Nsec<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Nsec {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs, Name> ComposeRecordData for Nsec<Octs, Name>
+where Octs: AsRef<[u8]>, Name: ToDname {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            self.next_name.compose_len().checked_add(
+                self.types.compose_len()
+            ).expect("long type bitmap")
+        )
     }
 
-    // Default compose_canonical is correct as we keep the case.
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.next_name.compose(target)?;
+        self.types.compose(target)
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        // Deferring to compose_rdata is correct as we keep the case of the
+        // next name.
+        self.compose_rdata(target)
+    }
 }
 
 //--- Scan and Display
@@ -1232,12 +1323,6 @@ where
     }
 }
 
-//--- RtypeRecordData
-
-impl<Octs, Name> RtypeRecordData for Nsec<Octs, Name> {
-    const RTYPE: Rtype = Rtype::Nsec;
-}
-
 //------------ Ds -----------------------------------------------------------
 
 #[derive(Clone)]
@@ -1251,7 +1336,7 @@ impl<Octs, Name> RtypeRecordData for Nsec<Octs, Name> {
         deserialize = "
             Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder,
+                OctetsBuilder + EmptyBuilder,
         ",
     ))
 )]
@@ -1432,9 +1517,9 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Ds<Octs> {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for Ds<Octs::Range<'a>> {
+impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Ds<Octs::Range<'a>> {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
@@ -1457,17 +1542,50 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Ds<Octs::Range<'a>> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> Compose for Ds<Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.key_tag.compose(buf)?;
-            self.algorithm.compose(buf)?;
-            self.digest_type.compose(buf)?;
-            buf.append_slice(self.digest.as_ref())
-        })
+//--- RecordData, ParseRecordData, ComposeRecordData
+
+impl<Octs> RecordData for Ds<Octs> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Ds
+    }
+}
+
+impl<'a, Octs> ParseRecordData<'a, Octs> for Ds<Octs::Range<'a>>
+where Octs: Octets + ?Sized {
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Ds {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>> ComposeRecordData for Ds<Octs> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            u16::checked_add(
+                u16::COMPOSE_LEN + SecAlg::COMPOSE_LEN + DigestAlg::COMPOSE_LEN,
+                self.digest.as_ref().len().try_into().expect("long digest")
+            ).expect("long digest")
+        )
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.key_tag.compose(target)?;
+        self.digest_type.compose(target)?;
+        target.append_slice(self.digest.as_ref())
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
@@ -1509,12 +1627,6 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Ds<Octs> {
             .field("digest", &self.digest.as_ref())
             .finish()
     }
-}
-
-//--- RtypeRecordData
-
-impl<Octs> RtypeRecordData for Ds<Octs> {
-    const RTYPE: Rtype = Rtype::Ds;
 }
 
 //------------ RtypeBitmap ---------------------------------------------------
@@ -1599,6 +1711,16 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
             data = next_data;
         }
         false
+    }
+
+    pub fn compose_len(&self) -> u16 {
+        u16::try_from(self.0.as_ref().len()).expect("long rtype bitmap")
+    }
+
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.0.as_ref())
     }
 }
 
@@ -1686,9 +1808,10 @@ impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octs> {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for RtypeBitmap<Octs::Range<'a>> {
+impl<'a, Octs> Parse<'a, Octs> for RtypeBitmap<Octs::Range<'a>>
+where Octs: Octets + ?Sized {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.remaining();
         RtypeBitmap::from_octets(parser.parse_octets(len)?)
@@ -1698,15 +1821,6 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for RtypeBitmap<Octs::Range<'a>> {
     fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance_to_end();
         Ok(())
-    }
-}
-
-impl<Octs: AsRef<[u8]>> Compose for RtypeBitmap<Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(self.0.as_ref())
     }
 }
 
@@ -1796,7 +1910,8 @@ where
 impl<'de, Octs> serde::Deserialize<'de> for RtypeBitmap<Octs>
 where
     Octs: FromBuilder + DeserializeOctets<'de>,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    <Octs as FromBuilder>::Builder:
+        EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -1808,8 +1923,8 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder: OctetsBuilder<Octets = Octs>
-                + EmptyBuilder
+            <Octs as FromBuilder>::Builder: OctetsBuilder
+                + EmptyBuilder + Truncate
                 + AsRef<[u8]>
                 + AsMut<[u8]>,
         {
@@ -1827,7 +1942,9 @@ where
 
                 let mut builder = RtypeBitmap::<Octs>::builder();
                 while let Some(element) = seq.next_element()? {
-                    builder.add(element).map_err(A::Error::custom)?;
+                    builder.add(element).map_err(|_|
+                        A::Error::custom(ShortBuf)
+                    )?;
                 }
 
                 Ok(builder.finalize())
@@ -1858,8 +1975,8 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder: OctetsBuilder<Octets = Octs>
-                + EmptyBuilder
+            <Octs as FromBuilder>::Builder: OctetsBuilder
+                + EmptyBuilder + Truncate
                 + AsRef<[u8]>
                 + AsMut<[u8]>,
         {
@@ -1935,7 +2052,7 @@ impl<Builder> RtypeBitmapBuilder<Builder>
 where
     Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
 {
-    pub fn add(&mut self, rtype: Rtype) -> Result<(), ShortBuf> {
+    pub fn add(&mut self, rtype: Rtype) -> Result<(), Builder::AppendError> {
         let (block, octet, bit) = split_rtype(rtype);
         let block = self.get_block(block)?;
         if (block[1] as usize) < (octet + 1) {
@@ -1945,9 +2062,11 @@ where
         Ok(())
     }
 
-    fn get_block(&mut self, block: u8) -> Result<&mut [u8], ShortBuf> {
+    fn get_block(
+        &mut self, block: u8
+    ) -> Result<&mut [u8], Builder::AppendError> {
         let mut pos = 0;
-        while pos < self.buf.len() {
+        while pos < self.buf.as_ref().len() {
             match self.buf.as_ref()[pos].cmp(&block) {
                 Ordering::Equal => {
                     return Ok(&mut self.buf.as_mut()[pos..pos + 34])
@@ -1976,7 +2095,8 @@ where
         Ok(&mut self.buf.as_mut()[pos..pos + 34])
     }
 
-    pub fn finalize(mut self) -> RtypeBitmap<Builder::Octets> {
+    pub fn finalize(mut self) -> RtypeBitmap<Builder::Octets>
+    where Builder: FreezeBuilder + Truncate {
         let mut src_pos = 0;
         let mut dst_pos = 0;
         while src_pos < self.buf.as_ref().len() {

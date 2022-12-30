@@ -17,8 +17,9 @@
 
 use super::iana::{Opcode, Rcode};
 use super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
+    Parse, ParseError, Parser,
 };
+use octseq::builder::OctetsBuilder;
 use core::convert::TryInto;
 use core::{fmt, mem, str::FromStr};
 
@@ -547,13 +548,13 @@ impl HeaderCounts {
     ///
     /// If increasing the counter would result in an overflow, returns an
     /// error.
-    pub fn inc_qdcount(&mut self) -> Result<(), ShortBuf> {
+    pub fn inc_qdcount(&mut self) -> Result<(), CountOverflow> {
         match self.qdcount().checked_add(1) {
             Some(count) => {
                 self.set_qdcount(count);
                 Ok(())
             }
-            None => Err(ShortBuf),
+            None => Err(CountOverflow),
         }
     }
 
@@ -585,13 +586,13 @@ impl HeaderCounts {
     ///
     /// If increasing the counter would result in an overflow, returns an
     /// error.
-    pub fn inc_ancount(&mut self) -> Result<(), ShortBuf> {
+    pub fn inc_ancount(&mut self) -> Result<(), CountOverflow> {
         match self.ancount().checked_add(1) {
             Some(count) => {
                 self.set_ancount(count);
                 Ok(())
             }
-            None => Err(ShortBuf),
+            None => Err(CountOverflow),
         }
     }
 
@@ -623,13 +624,13 @@ impl HeaderCounts {
     ///
     /// If increasing the counter would result in an overflow, returns an
     /// error.
-    pub fn inc_nscount(&mut self) -> Result<(), ShortBuf> {
+    pub fn inc_nscount(&mut self) -> Result<(), CountOverflow> {
         match self.nscount().checked_add(1) {
             Some(count) => {
                 self.set_nscount(count);
                 Ok(())
             }
-            None => Err(ShortBuf),
+            None => Err(CountOverflow),
         }
     }
 
@@ -661,13 +662,13 @@ impl HeaderCounts {
     ///
     /// If increasing the counter would result in an overflow, returns an
     /// error.
-    pub fn inc_arcount(&mut self) -> Result<(), ShortBuf> {
+    pub fn inc_arcount(&mut self) -> Result<(), CountOverflow> {
         match self.arcount().checked_add(1) {
             Some(count) => {
                 self.set_arcount(count);
                 Ok(())
             }
-            None => Err(ShortBuf),
+            None => Err(CountOverflow),
         }
     }
 
@@ -867,11 +868,11 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for HeaderSection {
     }
 }
 
-impl Compose for HeaderSection {
-    fn compose<T: OctetsBuilder>(
+impl HeaderSection {
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
         &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
         target.append_slice(&self.inner)
     }
 }
@@ -892,6 +893,21 @@ impl fmt::Display for FlagsFromStrError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for FlagsFromStrError {}
+
+//------------ CountOverflow -------------------------------------------------
+
+/// An error happened while increasing a header count.
+#[derive(Debug)]
+pub struct CountOverflow;
+
+impl fmt::Display for CountOverflow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "increasing a header count lead to an overflow")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for CountOverflow {}
 
 //============ Testing ======================================================
 

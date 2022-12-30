@@ -8,10 +8,10 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, Octets, OctetsBuilder, OctetsFrom,
-    OctetsInto, Parse, ParseError, Parser, ShortBuf,
+    Compose, Composer, EmptyBuilder, FromBuilder, Octets,
+    OctetsFrom, OctetsInto, Parse, ParseError, Parser,
 };
-use crate::base::rdata::RtypeRecordData;
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use core::cmp::Ordering;
 use core::fmt;
@@ -183,9 +183,10 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
     }
 }
 
-//--- Parse, ParseAll, Compose and Compress
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for Srv<ParsedDname<'a, Octs>> {
+impl<'a, Octs> Parse<'a, Octs> for Srv<ParsedDname<'a, Octs>>
+where Octs: Octets + ?Sized {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Self::new(
             u16::parse(parser)?,
@@ -203,36 +204,57 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Srv<ParsedDname<'a, Octs>> {
     }
 }
 
-impl<N: Compose> Compose for Srv<N> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.priority.compose(buf)?;
-            self.weight.compose(buf)?;
-            self.port.compose(buf)?;
-            self.target.compose(buf)
-        })
-    }
+//--- RecordData, ParseRecordData, ComposeRecordData
 
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.priority.compose(buf)?;
-            self.weight.compose(buf)?;
-            self.port.compose(buf)?;
-            self.target.compose_canonical(buf)
-        })
+impl<N> RecordData for Srv<N> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Srv
     }
 }
 
-//--- RtypeRecordData
+impl<'a, Octs> ParseRecordData<'a, Octs> for Srv<ParsedDname<'a, Octs>>
+where Octs: Octets + ?Sized {
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Srv {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
 
-impl<N> RtypeRecordData for Srv<N> {
-    const RTYPE: Rtype = Rtype::Srv;
+impl<Name: ToDname> ComposeRecordData for Srv<Name> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        // SRV records are not compressed.
+        Some(self.target.compose_len() + 6)
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_head(target)?;
+        self.target.compose(target)
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_head(target)?;
+        self.target.compose_canonical(target) // ... but are lowercased.
+    }
+}
+
+impl<Name: ToDname> Srv<Name> {
+    fn compose_head<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.priority.compose(target)?;
+        self.weight.compose(target)?;
+        self.port.compose(target)
+    }
 }
 
 //--- Scan and Display

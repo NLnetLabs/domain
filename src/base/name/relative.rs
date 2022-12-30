@@ -3,8 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::octets::{
-    Compose, IntoBuilder, Octets, OctetsBuilder, OctetsFrom, ParseError,
-    ShortBuf, Truncate,
+    IntoBuilder, Octets, OctetsFrom, ParseError, Truncate,
 };
 #[cfg(feature = "serde")]
 use super::super::octets::{
@@ -14,9 +13,10 @@ use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError, SplitLabelError};
-use super::traits::{ToEitherDname, ToLabelIter, ToRelativeDname};
+use super::traits::{ ToLabelIter, ToRelativeDname};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
+use octseq::FreezeBuilder;
 use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
 use core::{cmp, fmt, hash, ops};
@@ -236,13 +236,11 @@ impl<Octs> RelativeDname<Octs> {
     /// [`chain_root`]: #method.chain_root
     pub fn into_absolute(
         self,
-    ) -> Result<
-        Dname<<<Octs as IntoBuilder>::Builder as OctetsBuilder>::Octets>,
-        PushError,
-    >
+    ) -> Result<Dname<Octs>, PushError>
     where
         Octs: IntoBuilder,
-        <Octs as IntoBuilder>::Builder: AsMut<[u8]>,
+        <Octs as IntoBuilder>::Builder:
+            FreezeBuilder<Octets = Octs> + AsRef<[u8]> + AsMut<[u8]>,
     {
         self.into_builder().into_dname()
     }
@@ -256,7 +254,7 @@ impl<Octs> RelativeDname<Octs> {
     /// greater than the size limit of 255. Note that in this case you will
     /// loose both `self` and `other`, so it might be worthwhile to check
     /// first.
-    pub fn chain<N: ToEitherDname>(
+    pub fn chain<N: ToLabelIter>(
         self,
         other: N,
     ) -> Result<Chain<Self, N>, LongChainError>
@@ -496,7 +494,7 @@ impl<Octs: AsRef<[u8]>> RelativeDname<Octs> {
         Octs: Truncate,
     {
         if self.ends_with(base) {
-            let idx = self.0.as_ref().len() - base.len();
+            let idx = self.0.as_ref().len() - usize::from(base.compose_len());
             self.0.truncate(idx);
             Ok(())
         } else {
@@ -549,8 +547,8 @@ where
         self.iter()
     }
 
-    fn len(&self) -> usize {
-        self.0.as_ref().len()
+    fn compose_len(&self) -> u16 {
+        u16::try_from(self.0.as_ref().len()).expect("long domain name")
     }
 }
 
@@ -561,29 +559,6 @@ impl<Octs: AsRef<[u8]> + ?Sized> ToRelativeDname for RelativeDname<Octs> {
 
     fn is_empty(&self) -> bool {
         self.0.as_ref().is_empty()
-    }
-}
-
-//--- Compose
-
-impl<Octs: AsRef<[u8]> + ?Sized> Compose for RelativeDname<Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(self.0.as_ref())
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            for label in self.iter_labels() {
-                label.compose_canonical(target)?;
-            }
-            Ok(())
-        })
     }
 }
 
@@ -695,7 +670,9 @@ where
 impl<'de, Octs> serde::Deserialize<'de> for RelativeDname<Octs>
 where
     Octs: FromBuilder + DeserializeOctets<'de>,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+    <Octs as FromBuilder>::Builder:
+        FreezeBuilder<Octets = Octs> + EmptyBuilder
+        + AsRef<[u8]> + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -708,7 +685,8 @@ where
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder + AsMut<[u8]>,
+                FreezeBuilder<Octets = Octs> + EmptyBuilder
+                + AsRef<[u8]> + AsMut<[u8]>,
         {
             type Value = RelativeDname<Octs>;
 
@@ -751,7 +729,8 @@ where
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder + AsMut<[u8]>,
+                FreezeBuilder<Octets = Octs> + EmptyBuilder
+                + AsRef<[u8]> + AsMut<[u8]>,
         {
             type Value = RelativeDname<Octs>;
 

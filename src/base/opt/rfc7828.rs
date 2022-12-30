@@ -3,9 +3,10 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+    Compose, Composer, Parse, ParseError, Parser, ShortBuf
 };
-use super::CodeOptData;
+use super::{CodeOptData, ComposeOptData};
+use octseq::builder::OctetsBuilder;
 
 
 //------------ TcpKeepalive --------------------------------------------------
@@ -18,7 +19,7 @@ impl TcpKeepalive {
         TcpKeepalive(timeout)
     }
 
-    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn push<Target: Composer>(
         builder: &mut OptBuilder<Target>,
         timeout: u16
     ) -> Result<(), ShortBuf> {
@@ -30,8 +31,7 @@ impl TcpKeepalive {
     }
 }
 
-
-//--- Parse and Compose
+//--- Parse
 
 impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for TcpKeepalive {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -43,19 +43,17 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for TcpKeepalive {
     }
 }
 
-impl Compose for TcpKeepalive {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
-        self.0.compose(target)
-    }
-}
-
-
 //--- CodeOptData
 
 impl CodeOptData for TcpKeepalive {
     const CODE: OptionCode = OptionCode::TcpKeepalive;
+}
+
+impl ComposeOptData for TcpKeepalive {
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.0.compose(target)
+    }
 }
 

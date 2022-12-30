@@ -7,7 +7,9 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
 use crate::base::name::ToDname;
-use crate::base::octets::{Compose, OctetsBuilder, ShortBuf};
+use crate::base::octets::{
+    Compose, ComposeCanonical, Composer, OctetsBuilder, ShortBuf
+};
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::rdata::{Dnskey, Rrsig};
@@ -72,8 +74,8 @@ where
         algorithm: DigestAlg,
     ) -> Result<digest::Digest, AlgorithmError> {
         let mut buf: Vec<u8> = Vec::new();
-        dname.compose_canonical(&mut buf).unwrap();
-        self.compose_canonical(&mut buf).unwrap();
+        dname.compose_canonical(&mut buf);
+        self.compose_canonical(&mut buf);
 
         let mut ctx = match algorithm {
             DigestAlg::Sha1 => {
@@ -150,12 +152,12 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
     fn signed_data<
         N: ToDname,
         D: RecordData,
-        B: OctetsBuilder + AsMut<[u8]>,
+        B: Composer,
     >(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
-    ) -> Result<(), ShortBuf>
+    ) -> Result<(), B::AppendError>
     where
         D: CanonicalOrd + Compose + Sized,
     {
@@ -164,14 +166,14 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
         // RRSIG_RDATA is the wire format of the RRSIG RDATA fields
         //    with the Signature field excluded and the Signer's Name
         //    in canonical form.
-        self.type_covered().compose(buf)?;
-        self.algorithm().compose(buf)?;
-        self.labels().compose(buf)?;
-        self.original_ttl().compose(buf)?;
-        self.expiration().compose(buf)?;
-        self.inception().compose(buf)?;
-        self.key_tag().compose(buf)?;
-        self.signer_name().compose_canonical(buf)?;
+        self.type_covered().try_compose(buf)?;
+        self.algorithm().try_compose(buf)?;
+        self.labels().try_compose(buf)?;
+        self.original_ttl().try_compose(buf)?;
+        self.expiration().try_compose(buf)?;
+        self.inception().try_compose(buf)?;
+        self.key_tag().try_compose(buf)?;
+        self.signer_name().try_compose_canonical(buf)?;
 
         // The set of all RR(i) is sorted into canonical order.
         // See https://tools.ietf.org/html/rfc4034#section-6.3
@@ -194,16 +196,16 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                     .iter_suffixes()
                     .nth(fqdn_labels - rrsig_labels)
                 {
-                    Some(name) => name.compose_canonical(buf),
-                    None => fqdn.compose_canonical(buf),
+                    Some(name) => name.try_compose_canonical(buf)?,
+                    None => fqdn.atry_compose_canonical(buf)?,
                 }?;
             } else {
                 fqdn.compose_canonical(buf)?;
             }
 
-            rr.rtype().compose(buf)?;
-            rr.class().compose(buf)?;
-            self.original_ttl().compose(buf)?;
+            rr.rtype().try_compose(buf)?;
+            rr.class().try_compose(buf)?;
+            self.original_ttl().try_compose(buf)?;
             buf.u16_len_prefixed(|buf| rr.data().compose_canonical(buf))?;
         }
         Ok(())

@@ -20,12 +20,15 @@
 //! module.
 #![allow(clippy::manual_range_contains)] // Hard disagree.
 
+#![allow(unused_imports)] // XXX
+
 use crate::base::charstr::{CharStr, CharStrBuilder};
 use crate::base::name::{Dname, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf,
+    Compose, Composer, FromBuilder, OctetsBuilder, ShortBuf, Truncate,
 };
 use crate::base::str::String;
+use octseq::{EmptyBuilder, FreezeBuilder};
 use core::convert::{TryFrom, TryInto};
 use core::iter::Peekable;
 use core::marker::PhantomData;
@@ -125,9 +128,11 @@ pub trait Scanner {
     type Octets: AsRef<[u8]>;
 
     /// The octets builder used internally and returned upon request.
-    type OctetsBuilder: OctetsBuilder<Octets = Self::Octets>
+    type OctetsBuilder: OctetsBuilder
         + AsRef<[u8]>
-        + AsMut<[u8]>;
+        + AsMut<[u8]>
+        + Truncate
+        + FreezeBuilder<Octets = Self::Octets>;
 
     /// The type of a domain name returned by the scanner.
     type Dname: ToDname;
@@ -765,7 +770,7 @@ where
     Iter: Iterator<Item = Str>,
     Octets: FromBuilder,
     <Octets as FromBuilder>::Builder:
-        EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+        EmptyBuilder + Composer,
 {
     type Octets = Octets;
     type OctetsBuilder = <Octets as FromBuilder>::Builder;
@@ -819,12 +824,12 @@ where
 
         for sym in Symbols::new(token.as_ref().chars()) {
             if let Some(data) = convert.process_symbol(sym)? {
-                res.append_slice(data)?;
+                res.append_slice(data).map_err(Into::into)?;
             }
         }
 
         if let Some(data) = convert.process_tail()? {
-            res.append_slice(data)?;
+            res.append_slice(data).map_err(Into::into)?;
         }
 
         Ok(<Octets as FromBuilder>::from_builder(res))
@@ -838,12 +843,12 @@ where
         for token in &mut self.iter {
             for sym in Symbols::new(token.as_ref().chars()) {
                 if let Some(data) = convert.process_symbol(sym.into())? {
-                    res.append_slice(data)?;
+                    res.append_slice(data).map_err(Into::into)?;
                 }
             }
         }
         if let Some(data) = convert.process_tail()? {
-            res.append_slice(data)?;
+            res.append_slice(data).map_err(Into::into)?;
         }
         Ok(<Octets as FromBuilder>::from_builder(res))
     }
@@ -856,7 +861,7 @@ where
         let mut res = <Octets as FromBuilder>::Builder::empty();
         for sym in Symbols::new(token.as_ref().chars()) {
             match sym.into_octet() {
-                Ok(ch) => res.append_slice(&[ch])?,
+                Ok(ch) => res.append_slice(&[ch]).map_err(Into::into)?,
                 Err(_) => return Err(StrError::custom("bad symbol")),
             }
         }
@@ -910,7 +915,9 @@ where
         for sym in Symbols::new(token.as_ref().chars()) {
             match sym.into_char() {
                 Ok(ch) => {
-                    res.append_slice(ch.encode_utf8(&mut buf).as_bytes())?
+                    res.append_slice(
+                        ch.encode_utf8(&mut buf).as_bytes()
+                    ).map_err(Into::into)?
                 }
                 Err(_) => return Err(StrError::custom("bad symbol")),
             }
@@ -925,7 +932,7 @@ where
         // XXX This implementation is probably a bit too lazy.
         let mut res = <Octets as FromBuilder>::Builder::empty();
         while self.iter.peek().is_some() {
-            self.scan_charstr()?.compose(&mut res)?;
+            self.scan_charstr()?.compose(&mut res).map_err(Into::into)?;
         }
         Ok(<Octets as FromBuilder>::from_builder(res))
     }

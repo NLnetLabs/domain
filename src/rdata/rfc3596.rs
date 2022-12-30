@@ -8,9 +8,9 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::net::Ipv6Addr;
 use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
+    Composer, OctetsFrom, Parse, ParseError, Parser,
 };
-use crate::base::rdata::RtypeRecordData;
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use core::cmp::Ordering;
 use core::convert::Infallible;
@@ -86,9 +86,9 @@ impl CanonicalOrd for Aaaa {
     }
 }
 
-//--- Parse, ParseAll, and Compose
+//--- Parse
 
-impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Aaaa {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Aaaa {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ipv6Addr::parse(parser).map(Self::new)
     }
@@ -98,12 +98,42 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Aaaa {
     }
 }
 
-impl Compose for Aaaa {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        self.addr.compose(target)
+//--- RecordData, ParseRecordData, ComposeRecordData
+
+impl RecordData for Aaaa {
+    fn rtype(&self) -> Rtype {
+        Rtype::Aaaa
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]> + ?Sized> ParseRecordData<'a, Octs> for Aaaa {
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Aaaa {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl ComposeRecordData for Aaaa {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(16)
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.octets())
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
@@ -123,12 +153,6 @@ impl fmt::Display for Aaaa {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.addr.fmt(f)
     }
-}
-
-//--- RecordData
-
-impl RtypeRecordData for Aaaa {
-    const RTYPE: Rtype = Rtype::Aaaa;
 }
 
 //--- Deref and DerefMut

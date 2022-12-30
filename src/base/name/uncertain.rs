@@ -3,8 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder,
-    ParseError, ShortBuf,
+    EmptyBuilder, FromBuilder, IntoBuilder, ParseError,
 };
 #[cfg(feature = "serde")]
 use super::super::octets::{DeserializeOctets, SerializeOctets};
@@ -14,9 +13,10 @@ use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
-use super::traits::{ToEitherDname, ToLabelIter};
+use super::traits::ToLabelIter;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
+use octseq::builder::FreezeBuilder;
 use core::{fmt, hash, str};
 #[cfg(feature = "std")]
 use std::vec::Vec;
@@ -119,7 +119,9 @@ impl<Octets> UncertainDname<Octets> {
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+        <Octets as FromBuilder>::Builder:
+            FreezeBuilder<Octets = Octets> + EmptyBuilder
+            + AsRef<[u8]> + AsMut<[u8]>,
         C: IntoIterator<Item = char>,
     {
         let mut builder =
@@ -210,14 +212,11 @@ impl<Octets> UncertainDname<Octets> {
     ///     struct.RelativeDname.html#method.into_absolute
     pub fn into_absolute(
         self,
-    ) -> Result<
-        Dname<<<Octets as IntoBuilder>::Builder as OctetsBuilder>::Octets>,
-        PushError,
-    >
+    ) -> Result<Dname<Octets>, PushError>
     where
         Octets: AsRef<[u8]> + IntoBuilder,
         <Octets as IntoBuilder>::Builder:
-            OctetsBuilder<Octets = Octets> + AsMut<[u8]>,
+            FreezeBuilder<Octets = Octets> + AsRef<[u8]> + AsMut<[u8]>
     {
         match self {
             UncertainDname::Absolute(name) => Ok(name),
@@ -272,7 +271,7 @@ impl<Octets> UncertainDname<Octets> {
     /// be absolute. If the name is already absolute, the chain will be the
     /// name itself. If it is relative, if will be the concatenation of the
     /// name and `suffix`.
-    pub fn chain<S: ToEitherDname>(
+    pub fn chain<S: ToLabelIter>(
         self,
         suffix: S,
     ) -> Result<Chain<Self, S>, LongChainError>
@@ -302,7 +301,9 @@ impl<Octets> From<RelativeDname<Octets>> for UncertainDname<Octets> {
 impl<Octets> str::FromStr for UncertainDname<Octets>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+    <Octets as FromBuilder>::Builder:
+        EmptyBuilder + FreezeBuilder<Octets = Octets>
+        + AsRef<[u8]> + AsMut<[u8]>,
 {
     type Err = FromStrError;
 
@@ -364,6 +365,13 @@ impl<Octs: AsRef<[u8]>> ToLabelIter for UncertainDname<Octs> {
             UncertainDname::Relative(ref name) => name.iter_labels(),
         }
     }
+
+    fn compose_len(&self) -> u16 {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.compose_len(),
+            UncertainDname::Relative(ref name) => name.compose_len(),
+        }
+    }
 }
 
 //--- IntoIterator
@@ -374,34 +382,6 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainDname<Octets> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_labels()
-    }
-}
-
-//--- Compose
-
-impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        match *self {
-            UncertainDname::Absolute(ref name) => name.compose(target),
-            UncertainDname::Relative(ref name) => name.compose(target),
-        }
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        match *self {
-            UncertainDname::Absolute(ref name) => {
-                name.compose_canonical(target)
-            }
-            UncertainDname::Relative(ref name) => {
-                name.compose_canonical(target)
-            }
-        }
     }
 }
 
@@ -471,7 +451,9 @@ where
 impl<'de, Octets> serde::Deserialize<'de> for UncertainDname<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+    <Octets as FromBuilder>::Builder:
+        EmptyBuilder + FreezeBuilder<Octets = Octets>
+        + AsRef<[u8]> + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -484,7 +466,8 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
+                EmptyBuilder + FreezeBuilder<Octets = Octets>
+                + AsRef<[u8]> + AsMut<[u8]>,
         {
             type Value = UncertainDname<Octets>;
 
@@ -527,7 +510,8 @@ where
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
             <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
+                EmptyBuilder + FreezeBuilder<Octets = Octets>
+                + AsRef<[u8]> + AsMut<[u8]>,
         {
             type Value = UncertainDname<Octets>;
 

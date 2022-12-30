@@ -19,10 +19,11 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, FormError, Octets, OctetsBuilder, OctetsFrom, Parse, ParseError,
-    Parser, ShortBuf,
+    Compose, Composer, FormError, Octets,
+    OctetsFrom, Parse, ParseError, Parser, ShortBuf,
 };
-use super::rdata::{ParseRecordData, RecordData};
+use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use super::wire::compose_len_prefixed_certain;
 use core::cmp::Ordering;
 use core::{fmt, hash};
 
@@ -180,6 +181,44 @@ impl<Name, Data> Record<Name, Data> {
     }
 }
 
+impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
+    pub fn compose<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        target.append_compressed_dname(&self.owner)?;
+        self.data.rtype().compose(target)?;
+        self.class.compose(target)?;
+        self.ttl.compose(target)?;
+        if let Some(rdlen) = self.data.rdlen(target.can_compress()) {
+            rdlen.compose(target)?;
+            self.data.compose_rdata(target)
+        }
+        else {
+            compose_len_prefixed_certain(target, |target| {
+                self.data.compose_rdata(target)
+            })
+        }
+    }
+
+    pub fn compose_canonical<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.owner.compose_canonical(target)?;
+        self.data.rtype().compose(target)?;
+        self.class.compose(target)?;
+        self.ttl.compose(target)?;
+        if let Some(rdlen) = self.data.rdlen(false) {
+            rdlen.compose(target)?;
+            self.data.compose_canonical_rdata(target)
+        }
+        else {
+            compose_len_prefixed_certain(target, |target| {
+                self.data.compose_canonical_rdata(target)
+            })
+        }
+    }
+}
+
 //--- From
 
 impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
@@ -318,7 +357,7 @@ where
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
 impl<'a, Octs, Data> Parse<'a, Octs>
     for Option<Record<ParsedDname<'a, Octs>, Data>>
@@ -333,36 +372,6 @@ where
 
     fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         ParsedRecord::skip(parser)
-    }
-}
-
-impl<N: ToDname, D: RecordData> Compose for Record<N, D> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            target.append_compressed_dname(&self.owner)?;
-            self.data.rtype().compose(target)?;
-            self.class.compose(target)?;
-            self.ttl.compose(target)?;
-            target.u16_len_prefixed(|target| self.data.compose(target))
-        })
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            self.owner.compose_canonical(target)?;
-            self.data.rtype().compose(target)?;
-            self.class.compose(target)?;
-            self.ttl.compose(target)?;
-            target.u16_len_prefixed(|target| {
-                self.data.compose_canonical(target)
-            })
-        })
     }
 }
 
@@ -401,7 +410,7 @@ where
     }
 }
 
-//------------ AsRecord ------------------------------------------------------
+//------------ ComposeRecord -------------------------------------------------
 
 /// A helper trait allowing construction of records on the fly.
 ///
@@ -417,125 +426,44 @@ where
 ///
 /// [`Class::In`]: ../iana/class/enum.Class.html#variant.In
 /// [`Record`]: struct.Record.html
-pub trait AsRecord {
-    /// The type of the record’s owner domain name.
-    type Name: ToDname;
+pub trait ComposeRecord {
+    fn compose_record<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError>;
+}
 
-    /// The type of the record data.
-    type Data: RecordData;
-
-    /// Returns a reference to the owner domain name.
-    fn owner(&self) -> &Self::Name;
-
-    /// Returns the record’s class.
-    fn class(&self) -> Class;
-
-    /// Returns the record’s TTL:
-    fn ttl(&self) -> u32;
-
-    /// Returns a reference to the record data.
-    fn data(&self) -> &Self::Data;
-
-    /// Produces the encoded record.
-    fn compose_record<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            target.append_compressed_dname(self.owner())?;
-            self.data().rtype().compose(target)?;
-            self.class().compose(target)?;
-            self.ttl().compose(target)?;
-            target.u16_len_prefixed(|target| self.data().compose(target))
-        })
-    }
-
-    /// Produces the canonically encoded record.
-    fn compose_record_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            self.owner().compose_canonical(target)?;
-            self.data().rtype().compose(target)?;
-            self.class().compose(target)?;
-            self.ttl().compose(target)?;
-            target.u16_len_prefixed(|target| {
-                self.data().compose_canonical(target)
-            })
-        })
+impl<'a, T: ComposeRecord> ComposeRecord for &'a T {
+    fn compose_record<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        (*self).compose_record(target)
     }
 }
 
-impl<'a, T: AsRecord> AsRecord for &'a T {
-    type Name = T::Name;
-    type Data = T::Data;
-
-    fn owner(&self) -> &Self::Name {
-        (*self).owner()
-    }
-    fn class(&self) -> Class {
-        (*self).class()
-    }
-    fn ttl(&self) -> u32 {
-        (*self).ttl()
-    }
-    fn data(&self) -> &Self::Data {
-        (*self).data()
+impl<Name, Data> ComposeRecord for Record<Name, Data>
+where Name: ToDname, Data: ComposeRecordData {
+    fn compose_record<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose(target)
     }
 }
 
-impl<Name: ToDname, Data: RecordData> AsRecord for Record<Name, Data> {
-    type Name = Name;
-    type Data = Data;
-
-    fn owner(&self) -> &Self::Name {
-        Self::owner(self)
-    }
-    fn class(&self) -> Class {
-        Self::class(self)
-    }
-    fn ttl(&self) -> u32 {
-        Self::ttl(self)
-    }
-    fn data(&self) -> &Self::Data {
-        Self::data(self)
+impl<Name, Data> ComposeRecord for (Name, Class, u32, Data)
+where Name: ToDname, Data: ComposeRecordData {
+    fn compose_record<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        Record::new(&self.0, self.1, self.2, &self.3).compose(target)
     }
 }
 
-impl<Name: ToDname, Data: RecordData> AsRecord for (Name, Class, u32, Data) {
-    type Name = Name;
-    type Data = Data;
-
-    fn owner(&self) -> &Self::Name {
-        &self.0
-    }
-    fn class(&self) -> Class {
-        self.1
-    }
-    fn ttl(&self) -> u32 {
-        self.2
-    }
-    fn data(&self) -> &Self::Data {
-        &self.3
-    }
-}
-
-impl<Name: ToDname, Data: RecordData> AsRecord for (Name, u32, Data) {
-    type Name = Name;
-    type Data = Data;
-
-    fn owner(&self) -> &Self::Name {
-        &self.0
-    }
-    fn class(&self) -> Class {
-        Class::In
-    }
-    fn ttl(&self) -> u32 {
-        self.1
-    }
-    fn data(&self) -> &Self::Data {
-        &self.2
+impl<Name, Data> ComposeRecord for (Name, u32, Data)
+where Name: ToDname, Data: ComposeRecordData {
+    fn compose_record<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        Record::new(&self.0, Class::In, self.1, &self.2).compose(target)
     }
 }
 
@@ -627,7 +555,7 @@ impl<'a, Octs: Octets + ?Sized> RecordHeader<ParsedDname<'a, Octs>> {
         Data: ParseRecordData<'a, Octs>,
     {
         let mut parser = parser.parse_parser(self.rdlen as usize)?;
-        let res = Data::parse_data(self.rtype, &mut parser)?
+        let res = Data::parse_rdata(self.rtype, &mut parser)?
             .map(|data| Record::new(self.owner, self.class, self.ttl, data));
         if res.is_some() && parser.remaining() > 0 {
             return Err(ParseError::Form(FormError::new(
@@ -667,6 +595,28 @@ impl<Name> RecordHeader<Name> {
     /// Converts the header into an actual record.
     pub fn into_record<Data>(self, data: Data) -> Record<Name, Data> {
         Record::new(self.owner, self.class, self.ttl, data)
+    }
+}
+
+impl<Name: ToDname> RecordHeader<Name> {
+    pub fn compose<Target: Composer + ?Sized>(
+        &self, buf: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        buf.append_compressed_dname(&self.owner)?;
+        self.rtype.compose(buf)?;
+        self.class.compose(buf)?;
+        self.ttl.compose(buf)?;
+        self.rdlen.compose(buf)
+    }
+
+    pub fn compose_canonical<Target: Composer + ?Sized>(
+        &self, buf: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.owner.compose_canonical(buf)?;
+        self.rtype.compose(buf)?;
+        self.class.compose(buf)?;
+        self.ttl.compose(buf)?;
+        self.rdlen.compose(buf)
     }
 }
 
@@ -752,7 +702,7 @@ impl<Name: hash::Hash> hash::Hash for RecordHeader<Name> {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
 impl<'a, Octs> Parse<'a, Octs> for RecordHeader<ParsedDname<'a, Octs>>
 where
@@ -775,34 +725,6 @@ where
         u32::skip(parser)?;
         u16::skip(parser)?;
         Ok(())
-    }
-}
-
-impl<Name: Compose> Compose for RecordHeader<Name> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.owner.compose(buf)?;
-            self.rtype.compose(buf)?;
-            self.class.compose(buf)?;
-            self.ttl.compose(buf)?;
-            self.rdlen.compose(buf)
-        })
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.owner.compose_canonical(buf)?;
-            self.rtype.compose(buf)?;
-            self.class.compose(buf)?;
-            self.ttl.compose(buf)?;
-            self.rdlen.compose(buf)
-        })
     }
 }
 
@@ -1005,6 +927,7 @@ impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
         RecordParseError::ShortBuf
     }
 }
+
 
 //============ Testing ======================================================
 

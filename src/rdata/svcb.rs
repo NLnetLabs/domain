@@ -4,11 +4,13 @@
 use crate::base::iana::{Rtype, SvcbParamKey};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, Octets, Octets512,
-    OctetsBuilder, OctetsFrom, OctetsInto, Parse, ParseError, Parser,
-    ShortBuf,
+    Compose, Composer, EmptyBuilder, FormError,
+    FromBuilder, Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parse,
+    ParseError, Parser, ShortBuf,
 };
-use crate::base::rdata::RtypeRecordData;
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use octseq::array::Array;
+use octseq::builder::FreezeBuilder;
 use core::{fmt, hash};
 use param::{AllParams, SvcbParam};
 
@@ -123,7 +125,8 @@ where
 
 impl<OB: OctetsBuilder, N> $name<OB, N> {
     /// Freeze the internal OctetsBuilder.
-    pub fn freeze(self) -> $name<OB::Octets, N> {
+    pub fn freeze(self) -> $name<OB::Octets, N>
+    where OB: FreezeBuilder {
         $name {
             priority: self.priority,
             target: self.target,
@@ -133,21 +136,21 @@ impl<OB: OctetsBuilder, N> $name<OB, N> {
     }
 }
 
-impl<OB: OctetsBuilder + AsMut<[u8]>, N> $name<OB, N> {
+impl<OB: Composer, N> $name<OB, N> {
     /// Push a parameter into the builder.
     pub fn push<O: AsRef<[u8]>>(
         &mut self,
         param: AllParams<O>,
     ) -> Result<(), ShortBuf> {
         let key = param.key().into();
-        let off = self.params.len();
-        param.compose(&mut self.params)?;
-        let len = self.params.len() - off;
+        let off = self.params.as_ref().len();
+        param.compose(&mut self.params).map_err(Into::into)?;
+        let len = self.params.as_ref().len() - off;
         self.sorter.insert(key, off as u16, len as u16)
     }
 }
 
-//--- Parse, ParseAll, Compose and Compress
+//--- Parse
 
 impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
 for $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
@@ -167,51 +170,77 @@ for $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
     }
 }
 
-impl<O: AsRef<[u8]>, N: Compose> Compose for $name<O, N> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.priority.compose(buf)?;
-            self.target.compose(buf)?;
+//--- RecordData, ParseRecordData, ComposeRecordData
 
-            let view = self.sorter.buf.as_slice();
-            let mut bytes = [0u8; 2];
-            for chunk in view.chunks_exact(Sorter::CHUNK_SIZE) {
-                bytes[0] = chunk[2];
-                bytes[1] = chunk[3];
-                let off = u16::from_ne_bytes(bytes).into();
-                bytes[0] = chunk[4];
-                bytes[1] = chunk[5];
-                let len: usize = u16::from_ne_bytes(bytes).into();
-                let slice = &self.params.as_ref()[off..off + len];
-                buf.append_slice(slice)?;
-            }
-
-            Ok(())
-        })
+impl<O, N> RecordData for $name<O, N> {
+    fn rtype(&self) -> Rtype {
+        Rtype::$name
     }
 }
 
-impl<O: AsRef<[u8]>, N: Compose> $name<O, N> {
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
+for $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::$name {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs, Name> ComposeRecordData for $name<Octs, Name>
+where Octs: AsRef<[u8]>, Name: ToDname {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            u16::checked_add(
+                u16::COMPOSE_LEN + self.target.compose_len(),
+                self.params.as_ref().len().try_into().expect("long params")
+            ).expect("long record data")
+        )
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.priority.compose(target)?;
+        self.target.compose(target)?;
+
+        let view = self.sorter.buf.as_slice();
+        let mut bytes = [0u8; 2];
+        for chunk in view.chunks_exact(Sorter::CHUNK_SIZE) {
+            bytes[0] = chunk[2];
+            bytes[1] = chunk[3];
+            let off = u16::from_ne_bytes(bytes).into();
+            bytes[0] = chunk[4];
+            bytes[1] = chunk[5];
+            let len: usize = u16::from_ne_bytes(bytes).into();
+            let slice = &self.params.as_ref()[off..off + len];
+            target.append_slice(slice)?;
+        }
+
+        Ok(())
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
+    }
+}
+
+impl<O: AsRef<[u8]>, N: ToDname> $name<O, N> {
     /// Compose without checking for the order of parameters.
-    pub fn compose_unchecked<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.priority.compose(buf)?;
-            self.target.compose(buf)?;
-            buf.append_slice(self.params.as_ref())
-        })
+    pub fn compose_unchecked<Target: Composer + ?Sized>(
+        &self, buf: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.priority.compose(buf)?;
+        self.target.compose(buf)?;
+        buf.append_slice(self.params.as_ref())
     }
-}
-
-//--- RtypeRecordData
-
-impl<O, N> RtypeRecordData for $name<O, N> {
-    const RTYPE: Rtype = Rtype::$name;
 }
 
 impl<O: Octets, N> $name<O, N> {
@@ -292,7 +321,7 @@ svcb_types!(Svcb, Https,);
 #[derive(Clone, Default)]
 struct Sorter {
     n: usize,
-    buf: Octets512,
+    buf: Array<512>,
 }
 
 impl Sorter {
@@ -373,10 +402,16 @@ pub mod param {
                 $($name( $type $( < $( $type_arg ),* > )* )),+
             }
 
-            impl<Octs> SvcbParam for AllParams<Octs> {
+            impl<Octs: AsRef<[u8]>> SvcbParam for AllParams<Octs> {
                 fn key(&self) -> SvcbParamKey {
                     match self {
                         $(Self::$name(v) => v.key()),+
+                    }
+                }
+
+                fn param_len(&self) -> u16 {
+                    match self {
+                        $(Self::$name(v) => v.param_len()),+
                     }
                 }
             }
@@ -407,18 +442,16 @@ pub mod param {
                 }
             }
 
-            impl<O: AsRef<[u8]>> Compose for AllParams<O> {
-                fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-                    &self,
-                    target: &mut T,
-                ) -> Result<(), ShortBuf> {
-                    target.append_all(|buf| {
-                        let key: u16 = self.key().into();
-                        key.compose(buf)?;
-                        buf.u16_len_prefixed(|buf| match self {
-                            $(Self::$name(v) => v.compose(buf)),+
-                        })
-                    })
+            impl<Octs: AsRef<[u8]>> AllParams<Octs> {
+                pub fn compose<Target: OctetsBuilder + ?Sized>(
+                    &self, buf: &mut Target
+                ) -> Result<(), Target::AppendError> {
+                    let key: u16 = self.key().into();
+                    key.compose(buf)?;
+                    self.param_len().compose(buf)?;
+                    match self {
+                        $(Self::$name(v) => v.compose(buf)),+
+                    }
                 }
             }
 
@@ -457,6 +490,8 @@ pub mod param {
     /// Basic trait for SVCB parameters.
     pub trait SvcbParam {
         fn key(&self) -> SvcbParamKey;
+
+        fn param_len(&self) -> u16;
     }
 
     impl<Octs> AllParams<Octs> {
@@ -513,31 +548,31 @@ pub mod param {
                 }
             }
 
-            impl<O: AsRef<[u8]>> Compose for $name<O> {
-                fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-                    &self,
-                    target: &mut T,
-                ) -> Result<(), ShortBuf> {
-                    // target.append_all(|buf| {
-                    //     let len = self.0.as_ref().len() as u16;
-                    //     len.compose(buf)?;
-                    // })
+            impl<O: AsRef<[u8]>> $name<O> {
+                fn compose<Target: OctetsBuilder + ?Sized>(
+                    &self, target: &mut Target
+                ) -> Result<(), Target::AppendError> {
                     target.append_slice(self.0.as_ref())
                 }
             }
 
-            impl<O> SvcbParam for $name<O> {
+            impl<O: AsRef<[u8]>> SvcbParam for $name<O> {
                 fn key(&self) -> SvcbParamKey {
                     SvcbParamKey::$name
                 }
+
+                fn param_len(&self) -> u16 {
+                    self.0.as_ref().len().try_into().expect("long param")
+                }
             }
+
             impl<Octs> $name<Octs> {
                 /// Create a new parameter from octets.
                 pub fn new(o: Octs) -> Self {
                     Self(o)
                 }
             }
-            impl<OB: OctetsBuilder> $name<OB> {
+            impl<OB: OctetsBuilder + FreezeBuilder> $name<OB> {
                 /// Freeze the internal OctetsBuilder.
                 pub fn freeze(self) -> $name<OB::Octets> {
                     $name(self.0.freeze())
@@ -602,8 +637,10 @@ pub mod param {
 
     octets_wrapper!(Mandatory, MandatoryIter);
 
-    impl<OB: OctetsBuilder + AsMut<[u8]>> Mandatory<OB> {
-        pub fn push(&mut self, key: SvcbParamKey) -> Result<(), ShortBuf> {
+    impl<OB: Composer> Mandatory<OB> {
+        pub fn push(
+            &mut self, key: SvcbParamKey
+        ) -> Result<(), OB::AppendError> {
             u16::from(key).compose(&mut self.0)
         }
     }
@@ -641,17 +678,15 @@ pub mod param {
 
     octets_wrapper!(Alpn, AlpnIter);
 
-    impl<OB: OctetsBuilder + AsMut<[u8]>> Alpn<OB> {
+    impl<OB: Composer> Alpn<OB> {
         pub fn push<O: AsRef<[u8]>>(
             &mut self,
             name: O,
         ) -> Result<(), ShortBuf> {
-            self.0.append_all(|buf| {
-                let name = name.as_ref();
-                let len: u8 = name.len().try_into().map_err(|_| ShortBuf)?;
-                len.compose(buf)?;
-                buf.append_slice(name)
-            })
+            let name = name.as_ref();
+            let len: u8 = name.len().try_into().map_err(|_| ShortBuf)?;
+            len.compose(&mut self.0).map_err(Into::into)?;
+            self.0.append_slice(name).map_err(Into::into)
         }
     }
 
@@ -702,11 +737,10 @@ pub mod param {
         }
     }
 
-    impl Compose for NoDefaultAlpn {
-        fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-            &self,
-            _target: &mut T,
-        ) -> Result<(), ShortBuf> {
+    impl NoDefaultAlpn {
+        fn compose<Target: OctetsBuilder + ?Sized>(
+            &self, _target: &mut Target,
+        ) -> Result<(), Target::AppendError> {
             Ok(())
         }
     }
@@ -714,6 +748,10 @@ pub mod param {
     impl SvcbParam for NoDefaultAlpn {
         fn key(&self) -> SvcbParamKey {
             SvcbParamKey::NoDefaultAlpn
+        }
+
+        fn param_len(&self) -> u16 {
+            0
         }
     }
 
@@ -742,11 +780,10 @@ pub mod param {
         }
     }
 
-    impl Compose for Port {
-        fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-            &self,
-            target: &mut T,
-        ) -> Result<(), ShortBuf> {
+    impl Port {
+        fn compose<Target: OctetsBuilder + ?Sized>(
+            &self, target: &mut Target
+        ) -> Result<(), Target::AppendError> {
             self.0.compose(target)
         }
     }
@@ -754,6 +791,10 @@ pub mod param {
     impl SvcbParam for Port {
         fn key(&self) -> SvcbParamKey {
             SvcbParamKey::Port
+        }
+
+        fn param_len(&self) -> u16 {
+            2
         }
     }
 
@@ -777,7 +818,7 @@ pub mod param {
     impl<OB: OctetsBuilder> Ipv4Hint<OB> {
         pub fn push(&mut self, addr: Ipv4Addr) -> Result<(), ShortBuf> {
             let octets = addr.octets();
-            self.0.append_slice(octets.as_ref())
+            self.0.append_slice(octets.as_ref()).map_err(Into::into)
         }
     }
 
@@ -817,7 +858,7 @@ pub mod param {
     impl<OB: OctetsBuilder> Ipv6Hint<OB> {
         pub fn push(&mut self, addr: Ipv6Addr) -> Result<(), ShortBuf> {
             let octets = addr.octets();
-            self.0.append_slice(octets.as_ref())
+            self.0.append_slice(octets.as_ref()).map_err(Into::into)
         }
     }
 
@@ -871,9 +912,13 @@ pub mod param {
         val: Octs,
     }
 
-    impl<Octs> SvcbParam for Unknown<Octs> {
+    impl<Octs: AsRef<[u8]>> SvcbParam for Unknown<Octs> {
         fn key(&self) -> SvcbParamKey {
             self.key
+        }
+
+        fn param_len(&self) -> u16 {
+            self.val.as_ref().len().try_into().expect("long param")
         }
     }
 
@@ -887,11 +932,10 @@ pub mod param {
         }
     }
 
-    impl<O: AsRef<[u8]>> Compose for Unknown<O> {
-        fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-            &self,
-            target: &mut T,
-        ) -> Result<(), ShortBuf> {
+    impl<Octs: AsRef<[u8]>> Unknown<Octs> {
+        fn compose<Target: OctetsBuilder + ?Sized>(
+            &self, target: &mut Target
+        ) -> Result<(), Target::AppendError> {
             target.append_slice(self.val.as_ref())
         }
     }
@@ -906,7 +950,9 @@ pub mod param {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::base::{octets::Octets512, Dname};
+    use crate::base::Dname;
+
+    type Octets512 = Array<512>;
 
     // Test parser and composer with test vectors from appendix D
     #[test]
@@ -930,7 +976,7 @@ mod test {
             Svcb::new(svcb.priority, svcb.target, Octets512::new());
 
         let mut buf = Octets512::new();
-        svcb_builder.freeze().compose(&mut buf).unwrap();
+        svcb_builder.freeze().compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
@@ -964,7 +1010,7 @@ mod test {
             .push::<&[u8]>(param::Port::new(53).into())
             .unwrap();
         let mut buf = Octets512::new();
-        svcb_builder.freeze().compose(&mut buf).unwrap();
+        svcb_builder.freeze().compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
@@ -1004,7 +1050,7 @@ mod test {
             .push(param::Unknown::new(0x029b.into(), b"hello").into())
             .unwrap();
         let mut buf = Octets512::new();
-        svcb_builder.freeze().compose(&mut buf).unwrap();
+        svcb_builder.freeze().compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
@@ -1053,7 +1099,7 @@ mod test {
             )
             .unwrap();
         let mut buf = Octets512::new();
-        svcb_builder.freeze().compose(&mut buf).unwrap();
+        svcb_builder.freeze().compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
@@ -1122,7 +1168,7 @@ mod test {
             .push(ipv6_hint_builder.freeze().into())
             .unwrap();
         let mut buf = Octets512::new();
-        svcb_builder.freeze().compose(&mut buf).unwrap();
+        svcb_builder.freeze().compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
@@ -1177,7 +1223,7 @@ mod test {
             .push(ipv6_hint_builder.freeze().into())
             .unwrap();
         let mut buf = Octets512::new();
-        svcb_builder.freeze().compose(&mut buf).unwrap();
+        svcb_builder.freeze().compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
@@ -1269,7 +1315,7 @@ mod test {
         svcb_builder.push(ipv4_hint.into()).unwrap();
 
         let mut buf = Octets512::new();
-        svcb_builder.freeze().compose(&mut buf).unwrap();
+        svcb_builder.freeze().compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
@@ -1318,7 +1364,7 @@ mod test {
 
         svcb_builder.push(alpn.into()).unwrap();
         let mut buf = Octets512::new();
-        svcb_builder.freeze().compose(&mut buf).unwrap();
+        svcb_builder.freeze().compose_rdata(&mut buf).unwrap();
         assert_eq!(rdata.as_ref(), buf.as_ref());
     }
 
@@ -1411,7 +1457,7 @@ mod test {
 
         // checked compose
         let mut buf = Octets512::new();
-        svcb.compose(&mut buf).unwrap();
+        svcb.compose_rdata(&mut buf).unwrap();
         let mut parser = Parser::from_ref(buf.as_ref());
         let parsed_svcb = Svcb::parse(&mut parser).unwrap();
         let mut iter = parsed_svcb.iter();

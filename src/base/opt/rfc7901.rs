@@ -4,9 +4,11 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::name::{Dname, ToDname};
 use super::super::octets::{
-    Compose, OctetsBuilder, Octets, Parse, ParseError, Parser, ShortBuf
+    Compose, Composer, Octets, Parse, ParseError, Parser,
+    ShortBuf
 };
-use super::CodeOptData;
+use super::{CodeOptData, ComposeOptData};
+use octseq::builder::OctetsBuilder;
 
 
 //------------ Chain --------------------------------------------------------
@@ -23,21 +25,15 @@ impl<Octs> Chain<Octs> {
         Chain { start }
     }
 
-    pub fn push<Target, N>(
+    pub fn push<Target: Composer, N: ToDname + Compose>(
         builder: &mut OptBuilder<Target>,
         start: &N
-    ) -> Result<(), ShortBuf>
-    where
-        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
-        N: ToDname,
-    {
+    ) -> Result<(), ShortBuf> {
         builder.push_raw_option(OptionCode::Chain, |target| {
-            target.append_all(|target| {
-                for label in start.iter_labels() {
-                    label.compose(target)?
-                }
-                Ok(())
-            })
+            for label in start.iter_labels() {
+                label.compose(target)?
+            }
+            Ok(())
         })
     }
 
@@ -47,7 +43,7 @@ impl<Octs> Chain<Octs> {
 }
 
 
-//--- ParseAll and Compose
+//--- ParseAll
 
 impl<'a, Octs: Octets> Parse<'a, Octs> for Chain<Octs::Range<'a>> {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -59,19 +55,17 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Chain<Octs::Range<'a>> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> Compose for Chain<Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
-        self.start.compose(target)
-    }
-}
-
-
-//--- CodeOptData
+//--- CodeOptData and ComposeOptData
 
 impl<Octs> CodeOptData for Chain<Octs> {
     const CODE: OptionCode = OptionCode::Chain;
+}
+
+impl<Octs: AsRef<[u8]>> ComposeOptData for Chain<Octs> {
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.start.compose(target)
+    }
 }
 

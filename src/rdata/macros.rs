@@ -26,8 +26,11 @@ macro_rules! rdata_types {
             };
         )*
 
-        use crate::base::name::{ParsedDname, PushError};
-        use crate::base::octets::{EmptyBuilder, FromBuilder, OctetsFrom, OctetsInto};
+        use crate::base::name::{ParsedDname, PushError, ToDname};
+        use crate::base::octets::{
+            Composer, EmptyBuilder, FromBuilder, OctetsFrom, OctetsInto
+        };
+        use crate::base::rdata::ComposeRecordData;
 
 
         //------------- ZoneRecordData ---------------------------------------
@@ -53,8 +56,8 @@ macro_rules! rdata_types {
                     O: crate::base::octets::FromBuilder
                         + crate::base::octets::DeserializeOctets<'de>,
                     <O as crate::base::octets::FromBuilder>::Builder:
-                        crate::base::octets::OctetsBuilder<Octets = O>
-                        + crate::base::octets::EmptyBuilder
+                          crate::base::octets::EmptyBuilder
+                        + octseq::builder::Truncate
                         + AsRef<[u8]> + AsMut<[u8]>,
                     N: serde::Deserialize<'de>,
                 ",
@@ -70,11 +73,16 @@ macro_rules! rdata_types {
 
         impl<O, N> ZoneRecordData<O, N> {
             fn rtype(&self) -> $crate::base::iana::Rtype {
+                use $crate::base::rdata::RecordData;
+
                 match *self {
                     $( $( $(
-                        ZoneRecordData::$mtype(_) => {
+                        ZoneRecordData::$mtype(ref inner) => {
+                            inner.rtype()
+                            /*
                             <$mtype $( < $( $mn ),* > )*
                                 as $crate::base::rdata::RtypeRecordData>::RTYPE
+                            */
                         }
                     )* )* )*
                     ZoneRecordData::Unknown(ref inner) => inner.rtype(),
@@ -295,63 +303,9 @@ macro_rules! rdata_types {
             }
         }
 
+        //--- RecordData, ParseRecordData, and ComposeRecordData
 
-        //--- Compose
-        //
-        //    No Parse or ParseAll because Unknown variant needs to know the
-        //    record type.
-
-        impl<O, N> $crate::base::octets::Compose for ZoneRecordData<O, N>
-        where O: AsRef<[u8]>, N: $crate::base::name::ToDname {
-            fn compose<T: $crate::base::octets::OctetsBuilder + AsMut<[u8]>>(
-                &self,
-                target: &mut T
-            ) -> Result<(), $crate::base::octets::ShortBuf> {
-                match *self {
-                    $( $( $(
-                        ZoneRecordData::$mtype(ref inner) => {
-                            inner.compose(target)
-                        }
-                    )* )* )*
-                    ZoneRecordData::Unknown(ref inner) => {
-                        inner.compose(target)
-                    }
-                }
-            }
-
-            fn compose_canonical<T>(
-                &self,
-                target: &mut T
-            ) -> Result<(), $crate::base::octets::ShortBuf>
-            where T: $crate::base::octets::OctetsBuilder + AsMut<[u8]> {
-                match *self {
-                    $( $( $(
-                        ZoneRecordData::$mtype(ref inner) => {
-                            inner.compose_canonical(target)
-                        }
-                    )* )* )*
-                    ZoneRecordData::Unknown(ref inner) => {
-                        inner.compose_canonical(target)
-                    }
-                }
-            }
-        }
-
-
-        //--- RecordData and ParseRecordData
-
-        impl<'a, O, N> $crate::base::rdata::RecordData
-        for &'a ZoneRecordData<O, N>
-        where O: AsRef<[u8]>, N: $crate::base::name::ToDname
-        {
-            fn rtype(&self) -> $crate::base::iana::Rtype {
-                ZoneRecordData::rtype(self)
-            }
-        }
-
-        impl<O, N> $crate::base::rdata::RecordData for ZoneRecordData<O, N>
-        where O: AsRef<[u8]>, N: $crate::base::name::ToDname
-        {
+        impl<O, N> $crate::base::rdata::RecordData for ZoneRecordData<O, N> {
             fn rtype(&self) -> $crate::base::iana::Rtype {
                 ZoneRecordData::rtype(self)
             }
@@ -360,7 +314,7 @@ macro_rules! rdata_types {
         impl<'a, Octs: $crate::base::octets::Octets>
         $crate::base::rdata::ParseRecordData<'a, Octs>
         for ZoneRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>> {
-            fn parse_data(
+            fn parse_rdata(
                 rtype: $crate::base::iana::Rtype,
                 parser: &mut $crate::base::octets::Parser<'a, Octs>,
             ) -> Result<Option<Self>, $crate::base::octets::ParseError> {
@@ -375,9 +329,55 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     _ => {
-                        Ok($crate::base::rdata::UnknownRecordData::parse_data(
+                        Ok($crate::base::rdata::UnknownRecordData::parse_rdata(
                             rtype, parser
                         )?.map(ZoneRecordData::Unknown))
+                    }
+                }
+            }
+        }
+
+        impl<Octs, Name> ComposeRecordData for ZoneRecordData<Octs, Name>
+        where Octs: AsRef<[u8]>, Name: ToDname {
+            fn rdlen(&self, compress: bool) -> Option<u16> {
+                match *self {
+                    $( $( $(
+                        ZoneRecordData::$mtype(ref inner) => {
+                            inner.rdlen(compress)
+                        }
+                    )* )* )*
+                    ZoneRecordData::Unknown(ref inner) => {
+                        inner.rdlen(compress)
+                    }
+                }
+            }
+
+            fn compose_rdata<Target: Composer + ?Sized>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                match *self {
+                    $( $( $(
+                        ZoneRecordData::$mtype(ref inner) => {
+                            inner.compose_rdata(target)
+                        }
+                    )* )* )*
+                    ZoneRecordData::Unknown(ref inner) => {
+                        inner.compose_rdata(target)
+                    }
+                }
+            }
+
+            fn compose_canonical_rdata<Target: Composer + ?Sized>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                match *self {
+                    $( $( $(
+                        ZoneRecordData::$mtype(ref inner) => {
+                            inner.compose_canonical_rdata(target)
+                        }
+                    )* )* )*
+                    ZoneRecordData::Unknown(ref inner) => {
+                        inner.compose_canonical_rdata(target)
                     }
                 }
             }
@@ -552,7 +552,21 @@ macro_rules! rdata_types {
 
         impl<O, N> AllRecordData<O, N> {
             fn rtype(&self) -> $crate::base::iana::Rtype {
+                use $crate::base::rdata::RecordData;
+
                 match *self {
+                    $( $( $(
+                        AllRecordData::$mtype(ref inner) => {
+                            inner.rtype()
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(ref inner) => {
+                            inner.rtype()
+                        }
+                    )* )* )*
+
+                    /*
                     $( $( $(
                         AllRecordData::$mtype(_) => {
                             <$mtype $( < $( $mn ),* > )*
@@ -565,6 +579,7 @@ macro_rules! rdata_types {
                                 as $crate::base::rdata::RtypeRecordData>::RTYPE
                         }
                     )* )* )*
+                    */
 
                     AllRecordData::Opt(_) => $crate::base::iana::Rtype::Opt,
                     AllRecordData::Unknown(ref inner) => inner.rtype(),
@@ -773,73 +788,9 @@ macro_rules! rdata_types {
             }
         }
 
-
-        //--- Compose
-        //
-        //    No Parse or ParseAll because Unknown variant needs to know the
-        //    record type.
-
-        impl<O, N> $crate::base::octets::Compose for AllRecordData<O, N>
-        where O: AsRef<[u8]>, N: $crate::base::name::ToDname
-        {
-            fn compose<T: $crate::base::octets::OctetsBuilder + AsMut<[u8]>>(
-                &self,
-                buf: &mut T
-            ) -> Result<(), $crate::base::octets::ShortBuf> {
-                match *self {
-                    $( $( $(
-                        AllRecordData::$mtype(ref inner) => {
-                            inner.compose(buf)
-                        }
-                    )* )* )*
-                    $( $( $(
-                        AllRecordData::$ptype(ref inner) => {
-                            inner.compose(buf)
-                        }
-                    )* )* )*
-                    AllRecordData::Opt(ref inner) => inner.compose(buf),
-                    AllRecordData::Unknown(ref inner) => inner.compose(buf),
-                }
-            }
-
-            fn compose_canonical<T>(
-                &self,
-                buf: &mut T
-            ) -> Result<(), $crate::base::octets::ShortBuf>
-            where T: $crate::base::octets::OctetsBuilder + AsMut<[u8]> {
-                match *self {
-                    $( $( $(
-                        AllRecordData::$mtype(ref inner) => {
-                            inner.compose_canonical(buf)
-                        }
-                    )* )* )*
-                    $( $( $(
-                        AllRecordData::$ptype(ref inner) => {
-                            inner.compose_canonical(buf)
-                        }
-                    )* )* )*
-                    AllRecordData::Opt(ref inner) => {
-                        inner.compose_canonical(buf)
-                    }
-                    AllRecordData::Unknown(ref inner) => {
-                        inner.compose_canonical(buf)
-                    }
-                }
-            }
-        }
-
-
         //--- RecordData and ParseRecordData
 
-        impl<O, N> $crate::base::rdata::RecordData for AllRecordData<O, N>
-        where O: AsRef<[u8]>, N: $crate::base::name::ToDname {
-            fn rtype(&self) -> $crate::base::iana::Rtype {
-                self.rtype()
-            }
-        }
-
-        impl<'a, O, N> $crate::base::rdata::RecordData for &'a AllRecordData<O, N>
-        where O: AsRef<[u8]>, N: $crate::base::name::ToDname {
+        impl<O, N> $crate::base::rdata::RecordData for AllRecordData<O, N> {
             fn rtype(&self) -> $crate::base::iana::Rtype {
                 match *self {
                     $( $( $(
@@ -861,7 +812,7 @@ macro_rules! rdata_types {
         impl<'a, Octs: $crate::base::octets::Octets>
         $crate::base::rdata::ParseRecordData<'a, Octs>
         for AllRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>> {
-            fn parse_data(
+            fn parse_rdata(
                 rtype: $crate::base::iana::Rtype,
                 parser: &mut $crate::base::octets::Parser<'a, Octs>,
             ) -> Result<Option<Self>, $crate::base::octets::ParseError> {
@@ -888,9 +839,79 @@ macro_rules! rdata_types {
                         )))
                     }
                     _ => {
-                        Ok($crate::base::rdata::UnknownRecordData::parse_data(
+                        Ok($crate::base::rdata::UnknownRecordData::parse_rdata(
                             rtype, parser
                         )?.map(AllRecordData::Unknown))
+                    }
+                }
+            }
+        }
+
+        impl<Octs, Name> ComposeRecordData for AllRecordData<Octs, Name>
+        where Octs: AsRef<[u8]>, Name: ToDname {
+            fn rdlen(&self, compress: bool) -> Option<u16> {
+                match *self {
+                    $( $( $(
+                        AllRecordData::$mtype(ref inner) => {
+                            inner.rdlen(compress)
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(ref inner) => {
+                            inner.rdlen(compress)
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(ref inner) => {
+                        inner.rdlen(compress)
+                    }
+                    AllRecordData::Unknown(ref inner) => {
+                        inner.rdlen(compress)
+                    }
+                }
+            }
+
+            fn compose_rdata<Target: Composer + ?Sized>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                match *self {
+                    $( $( $(
+                        AllRecordData::$mtype(ref inner) => {
+                            inner.compose_rdata(target)
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(ref inner) => {
+                            inner.compose_rdata(target)
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(ref inner) => {
+                        inner.compose_rdata(target)
+                    }
+                    AllRecordData::Unknown(ref inner) => {
+                        inner.compose_rdata(target)
+                    }
+                }
+            }
+
+            fn compose_canonical_rdata<Target: Composer + ?Sized>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                match *self {
+                    $( $( $(
+                        AllRecordData::$mtype(ref inner) => {
+                            inner.compose_canonical_rdata(target)
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(ref inner) => {
+                            inner.compose_canonical_rdata(target)
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(ref inner) => {
+                        inner.compose_canonical_rdata(target)
+                    }
+                    AllRecordData::Unknown(ref inner) => {
+                        inner.compose_canonical_rdata(target)
                     }
                 }
             }
@@ -976,7 +997,7 @@ macro_rules! rdata_types {
 ///
 /// Implements some basic methods plus the `RecordData`, `FlatRecordData`,
 /// and `Display` traits.
-macro_rules! dname_type {
+macro_rules! dname_type_base {
     ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
         $(#[$attr])*
         #[derive(Clone, Debug)]
@@ -984,7 +1005,7 @@ macro_rules! dname_type {
             feature = "serde",
             derive(serde::Serialize, serde::Deserialize)
         )]
-        pub struct $target<N> {
+        pub struct $target<N: ?Sized> {
             $field: N
         }
 
@@ -1064,7 +1085,9 @@ macro_rules! dname_type {
         impl<N: ToDname> Eq for $target<N> { }
 
 
-        //--- PartialOrd, Ord, and CanonicalOrd
+        //--- PartialOrd and Ord
+        //
+        // For CanonicalOrd, see below.
 
         impl<N, NN> PartialOrd<$target<NN>> for $target<N>
         where N: ToDname, NN: ToDname {
@@ -1079,13 +1102,6 @@ macro_rules! dname_type {
             }
         }
 
-        impl<N: ToDname, NN: ToDname> CanonicalOrd<$target<NN>> for $target<N> {
-            fn canonical_cmp(&self, other: &$target<NN>) -> Ordering {
-                self.$field.lowercase_composed_cmp(&other.$field)
-            }
-        }
-
-
         //--- Hash
 
         impl<N: hash::Hash> hash::Hash for $target<N> {
@@ -1094,10 +1110,9 @@ macro_rules! dname_type {
             }
         }
 
+        //--- Parse
 
-        //--- Parse and Compose
-
-        impl<'a, Octs: Octets> Parse<'a, Octs>
+        impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
         for $target<ParsedDname<'a, Octs>> {
             fn parse(
                 parser: &mut Parser<'a, Octs>,
@@ -1110,22 +1125,29 @@ macro_rules! dname_type {
             }
         }
 
-        impl<N: ToDname> Compose for $target<N> {
-            fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-                &self,
-                target: &mut T
-            ) -> Result<(), ShortBuf> {
-                target.append_compressed_dname(&self.$field)
-            }
+        //--- RecordData, ParseRecordData
 
-            fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-                &self,
-                target: &mut T
-            ) -> Result<(), ShortBuf> {
-                self.$field.compose_canonical(target)
+        impl<N> $crate::base::rdata::RecordData for $target<N> {
+            fn rtype(&self) -> $crate::base::iana::Rtype {
+                $crate::base::iana::Rtype::$rtype
             }
         }
 
+        impl<'a, Octs> $crate::base::rdata::ParseRecordData<'a, Octs>
+        for $target<$crate::base::name::ParsedDname<'a, Octs>>
+        where Octs: octseq::octets::Octets + ?Sized{
+            fn parse_rdata(
+                rtype: $crate::base::iana::Rtype,
+                parser: &mut octseq::parse::Parser<'a, Octs>,
+            ) -> Result<Option<Self>, $crate::base::wire::ParseError> {
+                if rtype == $crate::base::iana::Rtype::$rtype {
+                    Self::parse(parser).map(Some)
+                }
+                else {
+                    Ok(None)
+                }
+            }
+        }
 
         //--- Scan and Display
 
@@ -1142,14 +1164,6 @@ macro_rules! dname_type {
             }
         }
 
-
-        //--- RtypeRecordData
-
-        impl<N> RtypeRecordData for $target<N> {
-            const RTYPE: Rtype = Rtype::$rtype;
-        }
-
-
         //--- Deref
 
         impl<N> ops::Deref for $target<N> {
@@ -1161,3 +1175,120 @@ macro_rules! dname_type {
         }
     }
 }
+
+macro_rules! dname_type_well_known {
+    ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
+        dname_type_base! {
+            $( #[$attr] )*
+            ($target, $rtype, $field)
+        }
+
+        impl<N: ToDname> $crate::base::rdata::ComposeRecordData
+        for $target<N> {
+            fn rdlen(&self, compress: bool) -> Option<u16> {
+                if compress {
+                    None
+                }
+                else {
+                    Some(self.compose_len())
+                }
+            }
+
+            fn compose_rdata<Target: $crate::base::wire::Composer + ?Sized>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                if target.can_compress() {
+                    target.append_compressed_dname(&self.$field)
+                }
+                else {
+                    self.$field.compose(target)
+                }
+            }
+
+            fn compose_canonical_rdata<Target>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError>
+            where Target: $crate::base::wire::Composer + ?Sized {
+                self.$field.compose_canonical(target)
+            }
+        }
+
+        impl<N: ToDname, NN: ToDname> CanonicalOrd<$target<NN>> for $target<N> {
+            fn canonical_cmp(&self, other: &$target<NN>) -> Ordering {
+                self.$field.lowercase_composed_cmp(&other.$field)
+            }
+        }
+    }
+}
+
+macro_rules! dname_type_canonical {
+    ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
+        dname_type_base! {
+            $( #[$attr] )*
+            ($target, $rtype, $field)
+        }
+
+        impl<N: ToDname> $crate::base::rdata::ComposeRecordData
+        for $target<N> {
+            fn rdlen(&self, _compress: bool) -> Option<u16> {
+                Some(self.compose_len())
+            }
+
+            fn compose_rdata<Target: $crate::base::wire::Composer + ?Sized>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                self.$field.compose(target)
+            }
+
+            fn compose_canonical_rdata<Target>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError>
+            where Target: $crate::base::wire::Composer + ?Sized {
+                self.$field.compose_canonical(target)
+            }
+        }
+
+        impl<N: ToDname, NN: ToDname> CanonicalOrd<$target<NN>> for $target<N> {
+            fn canonical_cmp(&self, other: &$target<NN>) -> Ordering {
+                self.$field.lowercase_composed_cmp(&other.$field)
+            }
+        }
+    }
+}
+
+#[allow(unused_macros)]
+macro_rules! dname_type {
+    ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
+        dname_type_base! {
+            $( #[$attr] )*
+            ($target, $rtype, $field)
+        }
+
+        impl<N: ToDname> $crate::base::rdata::ComposeRecordData
+        for $target<N> {
+            fn rdlen(&self, _compress: bool) -> Option<u16> {
+                Some(self.compose_len)
+            }
+
+            fn compose_rdata<Target: $crate::base::wire::Composer + ?Sized>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                self.$field.compose(target)
+            }
+
+            fn compose_canonical_rdata<Target>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError>
+            where Target: $crate::base::wire::Composer + ?Sized {
+                self.$field.compose(target)
+            }
+        }
+
+        impl<N: ToDname, NN: ToDname> CanonicalOrd<$target<NN>> for $target<N> {
+            fn canonical_cmp(&self, other: &$target<NN>) -> Ordering {
+                self.$field.name_cmp(&other.$field)
+            }
+        }
+    }
+}
+

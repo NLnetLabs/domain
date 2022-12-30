@@ -4,11 +4,10 @@
 
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, Octets, OctetsBuilder,
-    OctetsFrom, Parse, ParseError, Parser, ShortBuf, Truncate,
+    EmptyBuilder, FormError,
+    FromBuilder, Octets, OctetsFrom, Parse, ParseError,
+    Parser, Truncate,
 };
-#[cfg(feature = "serde")]
-use super::super::octets::{DeserializeOctets, SerializeOctets};
 use super::super::scan::{Scan, Scanner, Symbol};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
@@ -16,6 +15,9 @@ use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
+use octseq::builder::FreezeBuilder;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
 use core::{cmp, fmt, hash, ops, str};
@@ -77,7 +79,9 @@ impl<Octs> Dname<Octs> {
     pub fn from_symbols<Sym>(symbols: Sym) -> Result<Self, FromStrError>
     where
         Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+        <Octs as FromBuilder>::Builder:
+            EmptyBuilder + FreezeBuilder<Octets = Octs>
+            + AsRef<[u8]> + AsMut<[u8]>,
         Sym: IntoIterator<Item = Symbol>,
     {
         let mut builder = DnameBuilder::<Octs::Builder>::new();
@@ -103,7 +107,9 @@ impl<Octs> Dname<Octs> {
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+        <Octs as FromBuilder>::Builder:
+            EmptyBuilder + FreezeBuilder<Octets = Octs>
+            + AsRef<[u8]> + AsMut<[u8]>,
         C: IntoIterator<Item = char>,
     {
         let mut builder = DnameBuilder::<Octs::Builder>::new();
@@ -522,7 +528,7 @@ impl<Octs: AsRef<[u8]>> Dname<Octs> {
     where
         Octs: Octets,
     {
-        if self.len() == 1 {
+        if self.compose_len() == 1 {
             return None;
         }
         let label = self.iter().next().unwrap();
@@ -552,7 +558,7 @@ impl<Octs: AsRef<[u8]>> Dname<Octs> {
         Octs: Truncate,
     {
         if self.ends_with(base) {
-            let len = self.0.as_ref().len() - base.len();
+            let len = self.0.as_ref().len() - usize::from(base.compose_len());
             Ok(self.truncate(len))
         } else {
             Err(self)
@@ -595,7 +601,9 @@ where
 impl<Octs> FromStr for Dname<Octs>
 where
     Octs: FromBuilder,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+    <Octs as FromBuilder>::Builder:
+        EmptyBuilder + FreezeBuilder<Octets = Octs>
+        + AsRef<[u8]> + AsMut<[u8]>,
 {
     type Err = FromStrError;
 
@@ -687,8 +695,8 @@ where
         self.iter()
     }
 
-    fn len(&self) -> usize {
-        self.0.as_ref().len()
+    fn compose_len(&self) -> u16 {
+        u16::try_from(self.0.as_ref().len()).expect("long domain name")
     }
 }
 
@@ -712,7 +720,7 @@ where
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
 impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Dname<Octs::Range<'a>> {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -747,27 +755,6 @@ fn name_len<Source: AsRef<[u8]> + ?Sized>(
         Err(DnameError::LongName.into())
     } else {
         Ok(len)
-    }
-}
-
-impl<Octs: AsRef<[u8]> + ?Sized> Compose for Dname<Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(self.0.as_ref())
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            for label in self.iter_labels() {
-                label.compose_canonical(target)?;
-            }
-            Ok(())
-        })
     }
 }
 
@@ -831,7 +818,9 @@ where
 impl<'de, Octs> serde::Deserialize<'de> for Dname<Octs>
 where
     Octs: FromBuilder + DeserializeOctets<'de>,
-    <Octs as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+    <Octs as FromBuilder>::Builder: 
+        FreezeBuilder<Octets = Octs> + EmptyBuilder
+        + AsRef<[u8]> + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -844,7 +833,8 @@ where
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder + AsMut<[u8]>,
+                FreezeBuilder<Octets = Octs> + EmptyBuilder
+                + AsRef<[u8]> + AsMut<[u8]>,
         {
             type Value = Dname<Octs>;
 
@@ -885,7 +875,8 @@ where
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder + AsMut<[u8]>,
+                EmptyBuilder + FreezeBuilder<Octets = Octs>
+                + AsRef<[u8]> + AsMut<[u8]>,
         {
             type Value = Dname<Octs>;
 
@@ -946,7 +937,7 @@ impl<'a, Octs: Octets + ?Sized> Iterator for SuffixIter<'a, Octs> {
         if label.is_root() {
             self.start = None;
         } else {
-            self.start = Some(start + label.compose_len())
+            self.start = Some(start + label.len())
         }
         Some(res)
     }
@@ -1046,6 +1037,7 @@ impl std::error::Error for DnameError {}
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
+    use octseq::builder::infallible;
 
     #[cfg(feature = "std")]
     macro_rules! assert_panic {
@@ -1650,10 +1642,11 @@ pub(crate) mod test {
     #[cfg(feature = "std")]
     fn compose_canonical() {
         let mut buf = Vec::new();
-        Dname::from_slice(b"\x03wWw\x07exaMPle\x03com\0")
-            .unwrap()
-            .compose_canonical(&mut buf)
-            .unwrap();
+        infallible(
+            Dname::from_slice(
+                b"\x03wWw\x07exaMPle\x03com\0"
+            ).unwrap().compose_canonical(&mut buf)
+        );
         assert_eq!(buf.as_slice(), b"\x03www\x07example\x03com\0");
     }
 

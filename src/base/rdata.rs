@@ -25,8 +25,7 @@
 use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::octets::{
-    Compose, Octets, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser,
-    ShortBuf,
+    Composer, Octets, OctetsFrom, ParseError, Parser,
 };
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
 use crate::utils::base16;
@@ -37,19 +36,64 @@ use core::fmt;
 
 /// A type that represents record data.
 ///
-/// The type needs to be able to encode the record data into a DNS message
-/// via the [`Compose`] trait. In addition, it needs to be
-/// able to provide the record type of a record with a value’s data via the
-/// [`rtype`] method.
-///
-/// [`Compose`]: ../compose/trait.Compose.html
-/// [`rtype`]: #method.rtype
-pub trait RecordData: Compose + Sized {
+/// The type needs to be able to to be able to provide the record type of a
+/// record with a value’s data via the [`rtype`][Self::rtype] method.
+pub trait RecordData {
     /// Returns the record type associated with this record data instance.
     ///
     /// This is a method rather than an associated function to allow one
     /// type to be used for several real record types.
     fn rtype(&self) -> Rtype;
+}
+
+impl<'a, T: RecordData> RecordData for &'a T {
+    fn rtype(&self) -> Rtype {
+        (*self).rtype()
+    }
+}
+
+//----------- ComposeRecordData ----------------------------------------------
+
+/// A type of record data that can be composed.
+pub trait ComposeRecordData: RecordData {
+    /// Returns the length of the record data if available.
+    ///
+    /// The method should return `None`, if the length is not known or is not
+    /// the same for all targets.
+    ///
+    /// If `compress` is `true`, name compression is available in the target.
+    /// If name compression would be used in `compose_rdata`, the method
+    /// should `None` if `compress` is `true` since it can’t know the final
+    /// size.
+    fn rdlen(&self, compress: bool) -> Option<u16>;
+
+    /// Appends the wire format of the record data into `target`.
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError>;
+
+    /// Appends the canonical wire format of the record data into `target`.
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError>;
+}
+
+impl<'a, T: ComposeRecordData> ComposeRecordData for &'a T {
+    fn rdlen(&self, compress: bool) -> Option<u16> {
+        (*self).rdlen(compress)
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        (*self).compose_rdata(target)
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        (*self).compose_canonical_rdata(target)
+    }
 }
 
 //------------ ParseRecordData -----------------------------------------------
@@ -61,7 +105,7 @@ pub trait RecordData: Compose + Sized {
 /// data to be used when constructing the message.
 ///
 /// To reflect this asymmetry, parsing of record data has its own trait.
-pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData {
+pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData + Sized {
     /// Parses the record data.
     ///
     /// The record data is for a record of type `rtype`. The function may
@@ -75,56 +119,12 @@ pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData {
     ///
     /// If the function doesn’t want to process the data, it must not touch
     /// the parser. In particual, it must not advance it.
-    fn parse_data(
+    fn parse_rdata(
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError>;
 }
 
-//------------ RtypeRecordData -----------------------------------------------
-
-/// A type for record data for a single specific record type.
-///
-/// If a record data type only ever processes one single record type, things
-/// can be a lot simpler. The type can be given as an associated constant
-/// which can be used to implement [`RecordData`]. In addition, parsing can
-/// be done atop an implementation of the [`Parse`] trait.
-///
-/// This trait provides such a simplification by providing [`RecordData`]
-/// for all types implementing it and the other requirements for
-/// [`RecordData`]. If the type additionally implements [`Parse`], it will
-/// also receive a [`ParseRecordData`] implementation.
-///
-/// [`RecordData`]: trait.RecordData.html
-/// [`ParseRecordData`]: trait.ParseRecordData.html
-/// [`Parse`]: ../parse/trait.Parse.html
-pub trait RtypeRecordData {
-    /// The record type of a value of this type.
-    const RTYPE: Rtype;
-}
-
-impl<T: RtypeRecordData + Compose + Sized> RecordData for T {
-    fn rtype(&self) -> Rtype {
-        Self::RTYPE
-    }
-}
-
-impl<'a, Octs, T> ParseRecordData<'a, Octs> for T
-where
-    Octs: ?Sized,
-    T: RtypeRecordData + Parse<'a, Octs> + Compose + Sized,
-{
-    fn parse_data(
-        rtype: Rtype,
-        parser: &mut Parser<'a, Octs>,
-    ) -> Result<Option<Self>, ParseError> {
-        if rtype == Self::RTYPE {
-            Self::parse(parser).map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-}
 
 //------------ UnknownRecordData ---------------------------------------------
 
@@ -181,8 +181,16 @@ pub struct UnknownRecordData<Octs> {
 
 impl<Octs> UnknownRecordData<Octs> {
     /// Creates generic record data from a bytes value contain the data.
-    pub fn from_octets(rtype: Rtype, data: Octs) -> Self {
-        UnknownRecordData { rtype, data }
+    pub fn from_octets(
+        rtype: Rtype, data: Octs
+    ) -> Result<Self, LongRecordData>
+    where Octs: AsRef<[u8]> {
+        if data.as_ref().len() > 0xFFFF {
+            Err(LongRecordData())
+        }
+        else {
+            Ok(UnknownRecordData { rtype, data })
+        }
     }
 
     /// Returns the record type this data is for.
@@ -312,14 +320,23 @@ impl<Octs: AsRef<[u8]>> Ord for UnknownRecordData<Octs> {
     }
 }
 
-//--- Compose, and Compress
+//--- ComposeRecordData
 
-impl<Octs: AsRef<[u8]>> Compose for UnknownRecordData<Octs> {
-    fn compose<T: OctetsBuilder>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
+impl<Octs: AsRef<[u8]>> ComposeRecordData for UnknownRecordData<Octs> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(u16::try_from(self.data.as_ref().len()).expect("long rdata"))
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
         target.append_slice(self.data.as_ref())
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
@@ -334,14 +351,14 @@ impl<Octs: AsRef<[u8]>> RecordData for UnknownRecordData<Octs> {
 impl<'a, Octs: Octets> ParseRecordData<'a, Octs>
     for UnknownRecordData<Octs::Range<'a>>
 {
-    fn parse_data(
+    fn parse_rdata(
         rtype: Rtype,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         let rdlen = parser.remaining();
         parser
             .parse_octets(rdlen)
-            .map(|data| Some(Self::from_octets(rtype, data)))
+            .map(|data| Some(Self { rtype, data }))
             .map_err(Into::into)
     }
 }
@@ -367,3 +384,19 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
         f.write_str(")")
     }
 }
+
+//------------ LongRecordData ------------------------------------------------
+
+/// The octets sequence to be used for record data is too long.
+#[derive(Clone, Copy, Debug)]
+pub struct LongRecordData();
+
+impl fmt::Display for LongRecordData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("record data too long")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for LongRecordData {}
+

@@ -23,6 +23,7 @@
 use crate::base::octets::{EmptyBuilder, FromBuilder, OctetsBuilder};
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
+use octseq::builder::FreezeBuilder;
 #[cfg(feature = "std")]
 use std::string::String;
 
@@ -39,8 +40,7 @@ pub use super::base64::DecodeError;
 pub fn decode_hex<Octets>(s: &str) -> Result<Octets, DecodeError>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     let mut decoder = Decoder::<<Octets as FromBuilder>::Builder>::new_hex();
     for ch in s.chars() {
@@ -167,8 +167,7 @@ pub mod serde {
         impl<'de, Octets> serde::de::Visitor<'de> for Visitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
             type Value = Octets;
 
@@ -253,7 +252,8 @@ impl<Builder: EmptyBuilder> Decoder<Builder> {
 impl<Builder: OctetsBuilder> Decoder<Builder> {
     /// Finalizes decoding and returns the decoded data.
     #[allow(clippy::question_mark)] // false positive
-    pub fn finalize(mut self) -> Result<Builder::Octets, DecodeError> {
+    pub fn finalize(mut self) -> Result<Builder::Octets, DecodeError>
+    where Builder: FreezeBuilder {
         if let Err(err) = self.target {
             return Err(err);
         }
@@ -281,7 +281,7 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
             }
             _ => unreachable!(),
         }
-        self.target.map(OctetsBuilder::freeze)
+        self.target.map(FreezeBuilder::freeze)
     }
 
     /// Decodes one more character of data.
@@ -353,7 +353,7 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
             Err(_) => return,
         };
         if let Err(err) = target.append_slice(&[value]) {
-            self.target = Err(err.into());
+            self.target = Err(err.into().into());
         }
     }
 }

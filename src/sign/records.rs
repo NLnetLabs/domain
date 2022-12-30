@@ -4,12 +4,13 @@ use super::key::SigningKey;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::ToDname;
-use crate::base::octets::{Compose, EmptyBuilder, FromBuilder};
-use crate::base::rdata::RecordData;
+use crate::base::octets::{EmptyBuilder, FromBuilder};
+use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::serial::Serial;
 use crate::rdata::rfc4034::{ProtoRrsig, RtypeBitmap};
 use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
+use octseq::builder::{OctetsBuilder, Truncate};
 use std::iter::FromIterator;
 use std::vec::Vec;
 use std::{fmt, io, slice};
@@ -72,7 +73,7 @@ impl<N, D> SortedRecords<N, D> {
     ) -> Result<Vec<Record<N, Rrsig<Octets, ApexName>>>, Key::Error>
     where
         N: ToDname + Clone,
-        D: RecordData,
+        D: RecordData + ComposeRecordData,
         Key: SigningKey,
         Octets: From<Key::Signature>,
         ApexName: ToDname + Clone,
@@ -170,7 +171,8 @@ impl<N, D> SortedRecords<N, D> {
         N: ToDname + Clone,
         D: RecordData,
         Octets: FromBuilder,
-        Octets::Builder: EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
+        Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
+        <Octets::Builder as OctetsBuilder>::AppendError: fmt::Debug,
         ApexName: ToDname,
     {
         let mut res = Vec::new();

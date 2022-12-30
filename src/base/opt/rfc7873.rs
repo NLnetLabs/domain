@@ -3,9 +3,10 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+    Composer, Parse, ParseError, Parser, ShortBuf
 };
-use super::CodeOptData;
+use super::{CodeOptData, ComposeOptData};
+use octseq::builder::OctetsBuilder;
 
 
 //------------ Cookie --------------------------------------------------------
@@ -18,7 +19,7 @@ impl Cookie {
         Cookie(cookie)
     }
 
-    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn push<Target: Composer>(
         builder: &mut OptBuilder<Target>,
         cookie: [u8; 8]
     ) -> Result<(), ShortBuf> {
@@ -46,19 +47,17 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Cookie {
 }
 
 
-impl Compose for Cookie {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(&self.0[..])
-    }
-}
-
-
 //--- OptData
 
 impl CodeOptData for Cookie {
     const CODE: OptionCode = OptionCode::Cookie;
+}
+
+impl ComposeOptData for Cookie {
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.0[..])
+    }
 }
 

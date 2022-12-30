@@ -70,9 +70,7 @@ pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedSuffixIter};
 pub use self::relative::{
     DnameIter, RelativeDname, RelativeDnameError, StripSuffixError,
 };
-pub use self::traits::{
-    ToDname, ToEitherDname, ToLabelIter, ToRelativeDname,
-};
+pub use self::traits::{ToDname, ToLabelIter, ToRelativeDname};
 pub use self::uncertain::UncertainDname;
 
 mod builder;

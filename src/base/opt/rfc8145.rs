@@ -4,10 +4,11 @@ use core::convert::TryInto;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, FormError, OctetsBuilder, Octets, Parse, ParseError, Parser,
-    ShortBuf
+    Compose, Composer, FormError, Octets, Parse, ParseError,
+    Parser, ShortBuf
 };
-use super::CodeOptData;
+use super::{CodeOptData, ComposeOptData};
+use octseq::builder::OctetsBuilder;
 
 
 //------------ KeyTag -------------------------------------------------------
@@ -22,19 +23,17 @@ impl<Octs> KeyTag<Octs> {
         KeyTag { octets }
     }
 
-    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn push<Target: Composer>(
         builder: &mut OptBuilder<Target>,
         tags: &[u16]
     ) -> Result<(), ShortBuf> {
         let len = tags.len() * 2;
         assert!(len <= core::u16::MAX as usize);
         builder.push_raw_option(OptionCode::KeyTag, |target| {
-            target.append_all(|target| {
-                for tag in tags {
-                    tag.compose(target)?;
-                }
-                Ok(())
-            })
+            for tag in tags {
+                tag.compose(target)?;
+            }
+            Ok(())
         })
     }
 
@@ -45,7 +44,7 @@ impl<Octs> KeyTag<Octs> {
 }
 
 
-//--- ParseAll and Compose
+//--- ParseAll
 
 impl<'a, Octs: Octets> Parse<'a, Octs> for KeyTag<Octs::Range<'a>> {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -69,20 +68,19 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for KeyTag<Octs::Range<'a>> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> Compose for KeyTag<Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(self.octets.as_ref())
-    }
-}
 
-
-//--- CodeOptData
+//--- CodeOptData and ComposeOptData
 
 impl<Octs> CodeOptData for KeyTag<Octs> {
     const CODE: OptionCode = OptionCode::KeyTag;
+}
+
+impl<Octs: AsRef<[u8]>> ComposeOptData for KeyTag<Octs> {
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.octets.as_ref())
+    }
 }
 
 

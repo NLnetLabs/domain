@@ -1,12 +1,14 @@
 //! EDNS Options from RFC 6975.
 
-use core::slice;
 use super::super::iana::{OptionCode, SecAlg};
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, OctetsBuilder, Octets, Parse, ParseError, Parser, ShortBuf
+    Compose, Composer, Octets, Parse, ParseError, Parser,
+    ShortBuf
 };
-use super::CodeOptData;
+use super::{CodeOptData, ComposeOptData};
+use octseq::builder::OctetsBuilder;
+use core::slice;
 
 
 //------------ Dau, Dhu, N3u -------------------------------------------------
@@ -30,23 +32,21 @@ macro_rules! option_type {
         }
 
         impl $name<()> {
-            pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+            pub fn push<Target: Composer>(
                 builder: &mut OptBuilder<Target>,
                 algs: &[SecAlg]
             ) -> Result<(), ShortBuf> {
                 assert!(algs.len() <= core::u16::MAX as usize);
                 builder.push_raw_option(OptionCode::$name, |target| {
-                    target.append_all(|target| {
-                        for alg in algs {
-                            alg.to_int().compose(target)?;
-                        }
-                        Ok(())
-                    })
+                    for alg in algs {
+                        alg.to_int().compose(target)?;
+                    }
+                    Ok(())
                 })
             }
         }
 
-        //--- Parse and Compose
+        //--- Parse
 
         impl<'a, Octs: Octets> Parse<'a, Octs> for $name<Octs::Range<'a>> {
             fn parse(
@@ -64,20 +64,18 @@ macro_rules! option_type {
             }
         }
 
-        impl<Octs: AsRef<[u8]>> Compose for $name<Octs> {
-            fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-                &self,
-                target: &mut T
-            ) -> Result<(), ShortBuf> {
-                target.append_slice(self.octets.as_ref())
-            }
-        }
-
-
-        //--- CodeOptData
+        //--- CodeOptData and ComposeOptData
         
         impl<Octs> CodeOptData for $name<Octs> {
             const CODE: OptionCode = OptionCode::$name;
+        }
+
+        impl<Octs: AsRef<[u8]>> ComposeOptData for $name<Octs> {
+            fn compose_option<Target: OctetsBuilder + ?Sized>(
+                &self, target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                target.append_slice(self.octets.as_ref())
+            }
         }
 
         

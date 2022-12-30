@@ -3,9 +3,10 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
+    Compose, Composer, Parse, ParseError, Parser, ShortBuf
 };
-use super::CodeOptData;
+use super::{CodeOptData, ComposeOptData};
+use octseq::builder::OctetsBuilder;
 
 
 //------------ PaddingMode ---------------------------------------------------
@@ -35,14 +36,14 @@ impl Padding {
         Padding { len, mode }
     }
 
-    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn push<Target: Composer>(
         builder: &mut OptBuilder<Target>,
         len: u16,
     ) -> Result<(), ShortBuf> {
         Self::push_with_mode(builder, len, PaddingMode::Zero)
     }
 
-    pub fn push_with_mode<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn push_with_mode<Target: Composer>(
         builder: &mut OptBuilder<Target>,
         len: u16,
         mode: PaddingMode
@@ -80,31 +81,30 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Padding {
     }
 }
 
-impl Compose for Padding {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            match self.mode {
-                PaddingMode::Zero => {
-                    for _ in 0..self.len {
-                        0u8.compose(target)?
-                    }
-                }
-                #[cfg(feature = "random")]
-                PaddingMode::Random => {
-                    for _ in 0..self.len {
-                        ::rand::random::<u8>().compose(target)?
-                    }
-                }
-            }
-            Ok(())
-        })
-    }
-}
+//--- CodeOptData and ComposeOptData
 
 impl CodeOptData for Padding {
     const CODE: OptionCode = OptionCode::Padding;
+}
+
+impl ComposeOptData for Padding {
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        match self.mode {
+            PaddingMode::Zero => {
+                for _ in 0..self.len {
+                    0u8.compose(target)?
+                }
+            }
+            #[cfg(feature = "random")]
+            PaddingMode::Random => {
+                for _ in 0..self.len {
+                    ::rand::random::<u8>().compose(target)?
+                }
+            }
+        }
+        Ok(())
+    }
 }
 

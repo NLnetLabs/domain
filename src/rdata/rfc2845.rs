@@ -8,11 +8,12 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, Octets, OctetsBuilder, OctetsFrom,
-    OctetsInto, Parse, ParseError, Parser, ShortBuf,
+    Compose, Composer, EmptyBuilder, FromBuilder, Octets,
+    OctetsFrom, OctetsInto, Parse, ParseError, Parser,
 };
-use crate::base::rdata::RtypeRecordData;
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::utils::base64;
+use octseq::builder::OctetsBuilder;
 use core::cmp::Ordering;
 use core::{fmt, hash};
 #[cfg(feature = "std")]
@@ -431,9 +432,9 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
     }
 }
 
-//--- Parse, ParseAll, Compose, and Compress
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs>
+impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
     for Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -471,22 +472,68 @@ impl<'a, Octs: Octets> Parse<'a, Octs>
     }
 }
 
-impl<O: AsRef<[u8]>, N: Compose> Compose for Tsig<O, N> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.algorithm.compose(buf)?;
-            self.time_signed.compose(buf)?;
-            self.fudge.compose(buf)?;
-            (self.mac.as_ref().len() as u16).compose(buf)?;
-            buf.append_slice(self.mac.as_ref())?;
-            self.original_id.compose(buf)?;
-            self.error.compose(buf)?;
-            (self.other.as_ref().len() as u16).compose(buf)?;
-            buf.append_slice(self.other.as_ref())
-        })
+//--- RecordData, ParseRecordData, ComposeRecordData
+
+impl<O, N> RecordData for Tsig<O, N> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Tsig
+    }
+}
+
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
+    for Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
+{
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Tsig {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>, Name: ToDname> ComposeRecordData for Tsig<Octs, Name> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+              6 // time_signed
+            + 2 // fudge
+            + 2 // MAC length
+            + 2 // original ID
+            + 2 // error
+            + 2 // other length
+            + self.algorithm.compose_len().checked_add(
+                u16::try_from(self.mac.as_ref().len()).expect("long MAC")
+            ).expect("long MAC").checked_add(
+                u16::try_from(self.other.as_ref().len()).expect("long TSIG")
+            ).expect("long TSIG")
+        )
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.algorithm.compose(target)?;
+        self.time_signed.compose(target)?;
+        self.fudge.compose(target)?;
+        u16::try_from(self.mac.as_ref().len()).expect("long MAC").compose(
+            target
+        )?;
+        target.append_slice(self.mac.as_ref())?;
+        self.original_id.compose(target)?;
+        self.error.compose(target)?;
+        u16::try_from(self.other.as_ref().len()).expect("long MAC").compose(
+            target
+        )?;
+        target.append_slice(self.other.as_ref())
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
@@ -518,12 +565,6 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
             .field("other", &self.other.as_ref())
             .finish()
     }
-}
-
-//--- RtypeRecordData
-
-impl<O, N> RtypeRecordData for Tsig<O, N> {
-    const RTYPE: Rtype = Rtype::Tsig;
 }
 
 //------------ Time48 --------------------------------------------------------
@@ -603,6 +644,12 @@ impl Time48 {
     pub fn flatten_into(self) -> Result<Self, PushError> {
         Ok(self)
     }
+
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.into_octets())
+    }
 }
 
 //--- From
@@ -613,9 +660,9 @@ impl From<Time48> for u64 {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
-impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Time48 {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Time48 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let mut buf = [0u8; 6];
         parser.parse_buf(&mut buf)?;
@@ -624,15 +671,6 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Time48 {
 
     fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(6).map_err(Into::into)
-    }
-}
-
-impl Compose for Time48 {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(&self.into_octets())
     }
 }
 

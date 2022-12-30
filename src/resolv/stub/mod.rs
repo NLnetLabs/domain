@@ -18,13 +18,13 @@ use crate::base::message_builder::{
     AdditionalBuilder, MessageBuilder, StreamTarget,
 };
 use crate::base::name::{ToDname, ToRelativeDname};
-use crate::base::octets::Octets512;
 use crate::base::question::Question;
 use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
 use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
 use crate::resolv::resolver::{Resolver, SearchNames};
 use bytes::Bytes;
+use octseq::array::Array;
 use std::boxed::Box;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
@@ -321,8 +321,8 @@ impl<'a> Query<'a> {
     }
 
     fn create_message(question: Question<impl ToDname>) -> QueryMessage {
-        let mut message = MessageBuilder::from_target(
-            StreamTarget::new(Octets512::new()).unwrap(),
+        let mut message = MessageBuilder::try_from_target(
+            StreamTarget::try_new(Default::default()).unwrap(),
         )
         .unwrap();
         message.header_mut().set_rd(true);
@@ -396,7 +396,7 @@ impl<'a> Query<'a> {
 //------------ QueryMessage --------------------------------------------------
 
 // XXX This needs to be re-evaluated if we start adding OPTtions to the query.
-pub(super) type QueryMessage = AdditionalBuilder<StreamTarget<Octets512>>;
+pub(super) type QueryMessage = AdditionalBuilder<StreamTarget<Array<512>>>;
 
 //------------ Answer --------------------------------------------------------
 

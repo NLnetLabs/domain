@@ -9,18 +9,20 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Nsec3HashAlg, Rtype};
 use crate::base::name::PushError;
 use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, Octets, OctetsBuilder, OctetsFrom,
-    OctetsInto, Parse, ParseError, Parser, ShortBuf,
+    Compose, Composer, EmptyBuilder,
+    FromBuilder, Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parse,
+    ParseError, Parser, Truncate
 };
 #[cfg(feature = "serde")]
 use crate::base::octets::{DeserializeOctets, SerializeOctets};
-use crate::base::rdata::RtypeRecordData;
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
+use octseq::builder::FreezeBuilder;
 use core::cmp::Ordering;
 use core::{fmt, hash, ops, str};
 
@@ -37,7 +39,7 @@ use core::{fmt, hash, ops, str};
         deserialize = "
             Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder
+                EmptyBuilder + Truncate
                 + AsRef<[u8]> + AsMut<[u8]>,
         ",
     ))
@@ -260,9 +262,9 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Nsec3<Octs> {
     }
 }
 
-//--- ParseAll and Compose
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for Nsec3<Octs::Range<'a>> {
+impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Nsec3<Octs::Range<'a>> {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let hash_algorithm = Nsec3HashAlg::parse(parser)?;
         let flags = u8::parse(parser)?;
@@ -291,19 +293,57 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Nsec3<Octs::Range<'a>> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> Compose for Nsec3<Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.hash_algorithm.compose(buf)?;
-            self.flags.compose(buf)?;
-            self.iterations.compose(buf)?;
-            self.salt.compose(buf)?;
-            self.next_owner.compose(buf)?;
-            self.types.compose(buf)
-        })
+//--- RecordData
+
+impl<Octs> RecordData for Nsec3<Octs> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Nsec3
+    }
+}
+
+impl<'a, Octs> ParseRecordData<'a, Octs> for Nsec3<Octs::Range<'a>>
+where Octs: Octets + ?Sized {
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Nsec3 {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            u16::checked_add(
+                Nsec3HashAlg::COMPOSE_LEN + u8::COMPOSE_LEN + u16::COMPOSE_LEN,
+                self.salt.compose_len().into()
+            ).expect("long NSEC3").checked_add(
+                self.next_owner.compose_len().into()
+            ).expect("long NSEC3").checked_add(
+                self.types.compose_len().into()
+            ).expect("long NSEC3")
+        )
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.hash_algorithm.compose(target)?;
+        self.flags.compose(target)?;
+        self.iterations.compose(target)?;
+        self.salt.compose(target)?;
+        self.next_owner.compose(target)?;
+        self.types.compose(target)
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
@@ -347,12 +387,6 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     }
 }
 
-//--- RtypeRecordData
-
-impl<Octs> RtypeRecordData for Nsec3<Octs> {
-    const RTYPE: Rtype = Rtype::Nsec3;
-}
-
 //------------ Nsec3Param ----------------------------------------------------
 
 #[derive(Clone)]
@@ -365,8 +399,7 @@ impl<Octs> RtypeRecordData for Nsec3<Octs> {
         ",
         deserialize = "
             Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         ",
     ))
 )]
@@ -556,9 +589,10 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Nsec3param<Octs> {
     }
 }
 
-//--- Parse, ParseAll, and Compose
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for Nsec3param<Octs::Range<'a>> {
+impl<'a, Octs> Parse<'a, Octs> for Nsec3param<Octs::Range<'a>>
+where Octs: Octets + ?Sized {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Self::new(
             Nsec3HashAlg::parse(parser)?,
@@ -574,17 +608,51 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Nsec3param<Octs::Range<'a>> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> Compose for Nsec3param<Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.hash_algorithm.compose(buf)?;
-            self.flags.compose(buf)?;
-            self.iterations.compose(buf)?;
-            self.salt.compose(buf)
-        })
+//--- RecordData, ParseRecordData, ComposeRecordData
+
+impl<Octs> RecordData for Nsec3param<Octs> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Nsec3param
+    }
+}
+
+impl<'a, Octs> ParseRecordData<'a, Octs> for Nsec3param<Octs::Range<'a>>
+where Octs: Octets + ?Sized {
+    fn parse_rdata(
+        rtype: Rtype, parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Nsec3param {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            u16::checked_add(
+                Nsec3HashAlg::COMPOSE_LEN + u8::COMPOSE_LEN + u16::COMPOSE_LEN,
+                self.salt.compose_len().into()
+            ).expect("long NSEC3")
+        )
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.hash_algorithm.compose(target)?;
+        self.flags.compose(target)?;
+        self.iterations.compose(target)?;
+        self.salt.compose(target)
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
@@ -620,12 +688,6 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
             .field("salt", &self.salt)
             .finish()
     }
-}
-
-//--- RtypeRecordData
-
-impl<Octs> RtypeRecordData for Nsec3param<Octs> {
-    const RTYPE: Rtype = Rtype::Nsec3param;
 }
 
 //------------ Nsec3Salt -----------------------------------------------------
@@ -689,6 +751,23 @@ impl<Octs: ?Sized> Nsec3Salt<Octs> {
     {
         self.0.as_ref()
     }
+
+    fn compose_len(&self) -> u8
+    where
+        Octs: AsRef<[u8]>
+    {
+        self.0.as_ref().len().try_into().expect("long salt")
+    }
+
+    fn compose<Target: Composer /*OctetsBuilder*/ + ?Sized>(
+        &self, target: &mut Target,
+    ) -> Result<(), Target::AppendError>
+    where
+        Octs: AsRef<[u8]>
+    {
+        self.compose_len().compose(target)?;
+        target.append_slice(self.0.as_ref())
+    }
 }
 
 #[cfg(feature = "bytes")]
@@ -730,8 +809,7 @@ where
 impl<Octs> str::FromStr for Nsec3Salt<Octs>
 where
     Octs: FromBuilder,
-    <Octs as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octs> + EmptyBuilder,
+    <Octs as FromBuilder>::Builder: EmptyBuilder,
 {
     type Err = base16::DecodeError;
 
@@ -817,9 +895,10 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for Nsec3Salt<T> {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for Nsec3Salt<Octs::Range<'a>> {
+impl<'a, Octs> Parse<'a, Octs> for Nsec3Salt<Octs::Range<'a>>
+where Octs: Octets + ?Sized {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.parse_u8()? as usize;
         parser
@@ -831,18 +910,6 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Nsec3Salt<Octs::Range<'a>> {
     fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         let len = parser.parse_u8()? as usize;
         parser.advance(len).map_err(Into::into)
-    }
-}
-
-impl<Octs: AsRef<[u8]> + ?Sized> Compose for Nsec3Salt<Octs> {
-    fn compose<Target: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            (self.as_ref().len() as u8).compose(target)?;
-            target.append_slice(self.as_ref())
-        })
     }
 }
 
@@ -946,8 +1013,7 @@ impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for Nsec3Salt<T> {
 impl<'de, Octs> serde::Deserialize<'de> for Nsec3Salt<Octs>
 where
     Octs: FromBuilder + DeserializeOctets<'de>,
-    <Octs as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octs> + EmptyBuilder,
+    <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -960,8 +1026,7 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
             type Value = Nsec3Salt<Octs>;
 
@@ -1001,8 +1066,7 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
             type Value = Nsec3Salt<Octs>;
 
@@ -1088,6 +1152,23 @@ impl<Octs: ?Sized> OwnerHash<Octs> {
     {
         self.0.as_ref()
     }
+
+    fn compose_len(&self) -> u8
+    where
+        Octs: AsRef<[u8]>
+    {
+        self.0.as_ref().len().try_into().expect("long salt")
+    }
+
+    fn compose<Target: Composer /*OctetsBuilder*/ + ?Sized>(
+        &self, target: &mut Target,
+    ) -> Result<(), Target::AppendError>
+    where
+        Octs: AsRef<[u8]>
+    {
+        self.compose_len().compose(target)?;
+        target.append_slice(self.0.as_ref())
+    }
 }
 
 #[cfg(feature = "bytes")]
@@ -1129,8 +1210,7 @@ where
 impl<Octs> str::FromStr for OwnerHash<Octs>
 where
     Octs: FromBuilder,
-    <Octs as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octs> + EmptyBuilder,
+    <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     type Err = base32::DecodeError;
 
@@ -1210,9 +1290,10 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for OwnerHash<T> {
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for OwnerHash<Octs::Range<'a>> {
+impl<'a, Octs> Parse<'a, Octs> for OwnerHash<Octs::Range<'a>>
+where Octs: Octets + ?Sized {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.parse_u8()? as usize;
         parser
@@ -1224,18 +1305,6 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for OwnerHash<Octs::Range<'a>> {
     fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         let len = parser.parse_u8()? as usize;
         parser.advance(len).map_err(Into::into)
-    }
-}
-
-impl<Octs: AsRef<[u8]> + ?Sized> Compose for OwnerHash<Octs> {
-    fn compose<Target: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            (self.as_ref().len() as u8).compose(target)?;
-            target.append_slice(self.as_ref())
-        })
     }
 }
 
@@ -1289,8 +1358,7 @@ impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for OwnerHash<T> {
 impl<'de, Octs> serde::Deserialize<'de> for OwnerHash<Octs>
 where
     Octs: FromBuilder + DeserializeOctets<'de>,
-    <Octs as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octs> + EmptyBuilder,
+    <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -1303,8 +1371,7 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
             type Value = OwnerHash<Octs>;
 
@@ -1344,8 +1411,7 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octs> + EmptyBuilder,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
             type Value = OwnerHash<Octs>;
 

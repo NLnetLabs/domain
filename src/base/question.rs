@@ -1,15 +1,14 @@
 //! A single question in a DNS message.
 //!
 //! This module defines the type `Question` which represents an entry in
-//! the question section of a DNS message and the `AsQuestion` trait for
+//! the question section of a DNS message and the `ComposeQuestion` trait for
 //! producing questions on the fly.
 
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Compose, Octets, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser,
-    ShortBuf,
+    Composer, Octets, OctetsFrom, Parse, ParseError, Parser,
 };
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -84,6 +83,16 @@ impl<N: ToDname> Question<N> {
     /// Returns the class of the question.
     pub fn qclass(&self) -> Class {
         self.qclass
+    }
+}
+
+impl<N: ToDname> Question<N> {
+    pub fn compose<Target: Composer + ?Sized>(
+        &self, target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_compressed_dname(&self.qname)?;
+        self.qtype.compose(target)?;
+        self.qclass.compose(target)
     }
 }
 
@@ -179,8 +188,7 @@ impl<N: ToDname> Ord for Question<N> {
         match self.qname.name_cmp(&other.qname) {
             Ordering::Equal => {}
             other => return other,
-        }
-        match self.qtype.cmp(&other.qtype) {
+        } match self.qtype.cmp(&other.qtype) {
             Ordering::Equal => {}
             other => return other,
         }
@@ -217,30 +225,6 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Question<ParsedDname<'a, Octs>> {
     }
 }
 
-impl<N: ToDname> Compose for Question<N> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            target.append_compressed_dname(&self.qname)?;
-            self.qtype.compose(target)?;
-            self.qclass.compose(target)
-        })
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            self.qname.compose_canonical(target)?;
-            self.qtype.compose_canonical(target)?;
-            self.qclass.compose_canonical(target)
-        })
-    }
-}
-
 //--- Display and Debug
 
 impl<N: fmt::Display> fmt::Display for Question<N> {
@@ -259,7 +243,7 @@ impl<N: fmt::Debug> fmt::Debug for Question<N> {
     }
 }
 
-//------------ AsQuestion ----------------------------------------------------
+//------------ ComposeQuestion -----------------------------------------------
 
 /// A helper trait allowing construction of questions on the fly.
 ///
@@ -277,106 +261,40 @@ impl<N: fmt::Debug> fmt::Debug for Question<N> {
 /// [`Question`]: struct.Question.html
 /// [`QuestionBuilder`]: ../message_builder/struct.QuestionBuilder.html
 /// [`push`]: ../message_builder/struct.QuestionBuilder.html#method.push
-pub trait AsQuestion {
-    /// The domain name used by the qname.
-    type Name: ToDname;
+pub trait ComposeQuestion {
+    fn compose_question<Target: Composer + ?Sized>(
+        &self, target: &mut Target,
+    ) -> Result<(), Target::AppendError>;
+}
 
-    /// Returns a reference to the qname of the question.
-    fn qname(&self) -> &Self::Name;
-
-    /// Returns the record type of the question.
-    fn qtype(&self) -> Rtype;
-
-    /// Returns the class of the question.
-    fn qclass(&self) -> Class;
-
-    /// Produces the encoding of the question.
-    fn compose_question<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf>
-    where
-        Self::Name: Compose,
-    {
-        target.append_all(|target| {
-            target.append_compressed_dname(self.qname())?;
-            self.qtype().compose(target)?;
-            self.qclass().compose(target)
-        })
-    }
-
-    /// Produces the canoncial encoding of the question.
-    fn compose_question_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf>
-    where
-        Self::Name: Compose,
-    {
-        target.append_all(|target| {
-            self.qname().compose_canonical(target)?;
-            self.qtype().compose_canonical(target)?;
-            self.qclass().compose_canonical(target)
-        })
+impl<'a, Q: ComposeQuestion> ComposeQuestion for &'a Q {
+    fn compose_question<Target: Composer + ?Sized>(
+        &self, target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        (*self).compose_question(target)
     }
 }
 
-impl<'a, T: AsQuestion> AsQuestion for &'a T {
-    type Name = T::Name;
-
-    fn qname(&self) -> &Self::Name {
-        (*self).qname()
-    }
-
-    fn qtype(&self) -> Rtype {
-        (*self).qtype()
-    }
-
-    fn qclass(&self) -> Class {
-        (*self).qclass()
+impl<Name: ToDname> ComposeQuestion for Question<Name> {
+    fn compose_question<Target: Composer + ?Sized>(
+        &self, target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.compose(target)
     }
 }
 
-impl<Name: ToDname> AsQuestion for Question<Name> {
-    type Name = Name;
-
-    fn qname(&self) -> &Self::Name {
-        Self::qname(self)
-    }
-
-    fn qtype(&self) -> Rtype {
-        Self::qtype(self)
-    }
-
-    fn qclass(&self) -> Class {
-        Self::qclass(self)
+impl<Name: ToDname> ComposeQuestion for (Name, Rtype, Class) {
+    fn compose_question<Target: Composer + ?Sized>(
+        &self, target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        Question::new(&self.0, self.1, self.2).compose(target)
     }
 }
 
-impl<Name: ToDname> AsQuestion for (Name, Rtype, Class) {
-    type Name = Name;
-
-    fn qname(&self) -> &Self::Name {
-        &self.0
-    }
-    fn qtype(&self) -> Rtype {
-        self.1
-    }
-    fn qclass(&self) -> Class {
-        self.2
-    }
-}
-
-impl<Name: ToDname> AsQuestion for (Name, Rtype) {
-    type Name = Name;
-
-    fn qname(&self) -> &Self::Name {
-        &self.0
-    }
-    fn qtype(&self) -> Rtype {
-        self.1
-    }
-    fn qclass(&self) -> Class {
-        Class::In
+impl<Name: ToDname> ComposeQuestion for (Name, Rtype) {
+    fn compose_question<Target: Composer + ?Sized>(
+        &self, target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        Question::new(&self.0, self.1, Class::In).compose(target)
     }
 }

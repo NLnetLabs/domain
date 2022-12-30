@@ -3,12 +3,17 @@
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
 use crate::base::name::{Dname, DnameBuilder, ParsedDname};
-use crate::base::octets::{Octets, Octets128};
+use crate::base::octets::{Octets};
 use crate::rdata::Ptr;
 use crate::resolv::resolver::Resolver;
 use std::io;
 use std::net::IpAddr;
 use std::str::FromStr;
+
+
+//------------ Octets128 -----------------------------------------------------
+
+type Octets128 = octseq::array::Array<128>;
 
 //------------ lookup_addr ---------------------------------------------------
 

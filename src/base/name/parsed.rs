@@ -5,8 +5,8 @@
 
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
-    Compose, EmptyBuilder, FormError, FromBuilder, Octets, OctetsBuilder,
-    OctetsFrom, Parse, ParseError, Parser, ShortBuf,
+    EmptyBuilder, FormError,
+    FromBuilder, Octets, OctetsFrom, Parse, ParseError, Parser,
 };
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError};
@@ -56,7 +56,7 @@ pub struct ParsedDname<'a, Octs: ?Sized> {
     /// The length of the uncompressed name in octets.
     ///
     /// We need this for implementing `ToLabelIter`.
-    len: usize,
+    len: u16,
 
     /// Whether the name is compressed.
     ///
@@ -154,7 +154,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParsedDname<'a, Octs> {
         self.len -= len;
         Some(unsafe {
             RelativeDname::from_octets_unchecked(
-                self.parser.parse_octets(len).unwrap(),
+                self.parser.parse_octets(len.into()).unwrap(),
             )
         })
     }
@@ -178,7 +178,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ParsedDname<'a, Octs> {
             }
         };
         self.len -= len;
-        self.parser.advance(len).unwrap();
+        self.parser.advance(len.into()).unwrap();
         true
     }
 }
@@ -229,9 +229,10 @@ where
     Octs: AsRef<[u8]> + ?Sized,
 {
     fn from(name: Dname<&'a Octs>) -> ParsedDname<'a, Octs> {
+        let len = name.compose_len();
         let parser = Parser::from_ref(name.into_octets());
         ParsedDname {
-            len: parser.as_slice().len(),
+            len,
             parser,
             compressed: false,
         }
@@ -299,7 +300,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ToLabelIter for ParsedDname<'a, Octs> {
         self.iter()
     }
 
-    fn len(&self) -> usize {
+    fn compose_len(&self) -> u16 {
         self.len
     }
 }
@@ -309,7 +310,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> ToDname for ParsedDname<'a, Octs> {
         if self.compressed {
             None
         } else {
-            Some(self.parser.peek(self.len).unwrap())
+            Some(self.parser.peek(self.len.into()).unwrap())
         }
     }
 }
@@ -328,7 +329,7 @@ where
     }
 }
 
-//--- Parse and Compose
+//--- Parse
 
 impl<'a, Octs> Parse<'a, Octs> for ParsedDname<'a, Octs>
 where
@@ -373,7 +374,7 @@ where
                 }
                 LabelType::Normal(label_len) => {
                     len += label_len + 1;
-                    tmp.advance(label_len)?;
+                    tmp.advance(label_len.into())?;
                     if len > 255 {
                         return Err(ParsedDnameError::LongName.into());
                     }
@@ -428,7 +429,7 @@ where
                     return Ok(());
                 }
                 Ok(LabelType::Normal(label_len)) => {
-                    parser.advance(label_len)?;
+                    parser.advance(label_len.into())?;
                     len += label_len + 1;
                     if len > 255 {
                         return Err(ParsedDnameError::LongName.into());
@@ -438,36 +439,6 @@ where
                 Err(err) => return Err(err),
             }
         }
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Compose for ParsedDname<'a, Octs> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        if self.compressed {
-            target.append_all(|target| {
-                for label in self.iter() {
-                    label.compose(target)?
-                }
-                Ok(())
-            })
-        } else {
-            target.append_slice(self.parser.peek(self.len).unwrap())
-        }
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            for label in self.iter_labels() {
-                label.compose_canonical(target)?;
-            }
-            Ok(())
-        })
     }
 }
 
@@ -503,14 +474,14 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> fmt::Debug for ParsedDname<'a, Octs> {
 pub struct ParsedDnameIter<'a> {
     slice: &'a [u8],
     pos: usize,
-    len: usize,
+    len: u16,
 }
 
 impl<'a> ParsedDnameIter<'a> {
     /// Creates a new iterator from the parser and the name length.
     ///
     /// The parser must be positioned at the beginning of the name.
-    pub(crate) fn new(slice: &'a [u8], pos: usize, len: usize) -> Self {
+    pub(crate) fn new(slice: &'a [u8], pos: usize, len: u16) -> Self {
         ParsedDnameIter { slice, pos, len }
     }
 
@@ -537,7 +508,7 @@ impl<'a> ParsedDnameIter<'a> {
             Label::from_slice_unchecked(&self.slice[self.pos..end])
         };
         self.pos = end;
-        self.len -= res.len() + 1;
+        self.len -= res.compose_len();
         res
     }
 }
@@ -565,7 +536,7 @@ impl<'a> DoubleEndedIterator for ParsedDnameIter<'a> {
                 break label;
             }
         };
-        self.len -= label.len() + 1;
+        self.len -= label.compose_len();
         Some(label)
     }
 }
@@ -607,7 +578,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Iterator for ParsedSuffixIter<'a, Octs> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LabelType {
     /// A normal label with its size in octets.
-    Normal(usize),
+    Normal(u16),
 
     /// A compressed label with the position of where to continue.
     Compressed(usize),
@@ -620,10 +591,10 @@ impl LabelType {
     ) -> Result<Self, ParseError> {
         let ltype = parser.parse_u8()?;
         match ltype {
-            0..=0x3F => Ok(LabelType::Normal(ltype as usize)),
+            0..=0x3F => Ok(LabelType::Normal(ltype.into())),
             0xC0..=0xFF => {
-                let res = parser.parse_u8()? as usize;
-                let res = res | (((ltype as usize) & 0x3F) << 8);
+                let res = usize::from(parser.parse_u8()?);
+                let res = res | ((usize::from(ltype) & 0x3F) << 8);
                 Ok(LabelType::Compressed(res))
             }
             _ => Err(ParseError::Form(FormError::new("invalid label type"))),
@@ -636,10 +607,10 @@ impl LabelType {
     ) -> Result<Self, ParseError> {
         let ltype = parser.peek(1)?[0];
         match ltype {
-            0..=0x3F => Ok(LabelType::Normal(ltype as usize)),
+            0..=0x3F => Ok(LabelType::Normal(ltype.into())),
             0xC0..=0xFF => {
-                let res = (parser.peek(2)?[1]) as usize;
-                let res = res | (((ltype as usize) & 0x3F) << 8);
+                let res = usize::from(parser.peek(2)?[1]);
+                let res = res | ((usize::from(ltype) & 0x3F) << 8);
                 Ok(LabelType::Compressed(res))
             }
             _ => Err(ParseError::Form(FormError::new("invalid label type"))),
@@ -703,6 +674,7 @@ impl From<ParsedDnameError> for ParseError {
 mod test {
     use super::*;
     use crate::base::name::{Dname, RelativeDname};
+    use octseq::builder::infallible;
 
     macro_rules! name {
         (root) => {
@@ -736,10 +708,10 @@ mod test {
 
     #[test]
     fn len() {
-        assert_eq!(name!(root).len(), 1);
-        assert_eq!(name!(flat).len(), 17);
-        assert_eq!(name!(once).len(), 17);
-        assert_eq!(name!(twice).len(), 17);
+        assert_eq!(name!(root).compose_len(), 1);
+        assert_eq!(name!(flat).compose_len(), 17);
+        assert_eq!(name!(once).compose_len(), 17);
+        assert_eq!(name!(twice).compose_len(), 17);
     }
 
     #[test]
@@ -1067,7 +1039,7 @@ mod test {
         let mut parser = Parser::from_ref(buf.as_slice());
         parser.advance(5).unwrap();
         let name = ParsedDname::parse(&mut parser.clone()).unwrap();
-        assert_eq!(name.len(), 255);
+        assert_eq!(name.compose_len(), 255);
         assert_eq!(ParsedDname::skip(&mut parser), Ok(()));
         assert_eq!(parser.remaining(), 2);
 
@@ -1109,7 +1081,7 @@ mod test {
 
         fn step(name: ParsedDname<[u8]>, result: &[u8]) {
             let mut buf = Vec::new();
-            name.compose(&mut buf).unwrap();
+            infallible(name.compose(&mut buf));
             assert_eq!(buf.as_slice(), result);
         }
 
