@@ -1,5 +1,21 @@
 //! A DNS over TCP transport
 
+// TODO:
+// - errors
+//   - read errors
+//   - write errors
+//   - connect errors? Retry after connection refused?
+//   - server errors
+//     - ID out of range
+//     - ID not in use
+//     - reply for wrong query
+// - separate Query object
+// - timeouts
+//   - idle timeout
+//   - channel timeout
+//   - request timeout
+// - create new TCP connection after end/failure of previous one
+
 use std::sync::Arc;
 use std::sync::Mutex as Std_mutex;
 use std::vec::Vec;
@@ -201,10 +217,9 @@ impl TcpConnection {
 		let query_vec = self.query_vec.lock().unwrap();
 		let vec = msg.as_target().as_target().as_stream_slice();
 
-		// Store a close of the request. That makes life easier
+		// Store a clone of the request. That makes life easier
 		// and requests tend to be small
 		let mut tx_queue = self.tx_queue.lock().unwrap();
-		// self.tx_queue.push_back(vec.to_vec());
 		tx_queue.push_back(vec.to_vec());
 	}
 
@@ -215,6 +230,10 @@ impl TcpConnection {
 		let index = self.insert();
 		let ind16: u16 = index.try_into().unwrap();
 
+		// We set the ID to the array index. Wouter recommends
+		// against this. He argues that defense in depth suggests
+		// that a random ID is better because it works even if 
+		// TCP sequence numbers could be predicted.
 		let hdr = query_msg.header_mut();
 		hdr.set_id(ind16);
 
@@ -247,7 +266,7 @@ impl TcpConnection {
 					if !answer.is_answer(&query_msg.
 						as_message()) {
 					    // Wrong answer, try again?
-					    panic!("wring answer");
+					    panic!("wrong answer");
 					}
 				}
 				return result;
