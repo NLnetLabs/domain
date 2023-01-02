@@ -230,10 +230,13 @@ impl TcpConnection {
 		let index = self.insert();
 		let ind16: u16 = index.try_into().unwrap();
 
-		// We set the ID to the array index. Wouter recommends
-		// against this. He argues that defense in depth suggests
-		// that a random ID is better because it works even if 
-		// TCP sequence numbers could be predicted.
+		// We set the ID to the array index. Defense in depth
+		// suggests that a random ID is better because it works
+		// even if TCP sequence numbers could be predicted. However,
+		// Section 9.3 of RFC 5452 recommends retrying over TCP
+		// if many spoofed answers arrive over UDP: "TCP, by the
+		// nature of its use of sequence numbers, is far more
+		// resilient against forgery by third parties."
 		let hdr = query_msg.header_mut();
 		hdr.set_id(ind16);
 
