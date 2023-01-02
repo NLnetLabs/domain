@@ -1516,7 +1516,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     pub fn push<Opt: ComposeOptData>(
         &mut self, opt: &Opt
     ) -> Result<(), ShortBuf> {
-        self.push_raw_option(opt.code(), |target| {
+        self.push_raw_option(opt.code(), opt.compose_len(), |target| {
             opt.compose_option(target).map_err(Into::into)
         })
     }
@@ -1528,15 +1528,17 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     pub fn push_raw_option<F>(
         &mut self,
         code: OptionCode,
+        option_len: u16,
         op: F,
     ) -> Result<(), ShortBuf>
     where
         F: FnOnce(
-            &mut LengthPrefixed<LengthPrefixed<Target>>
+            &mut LengthPrefixed<Target>
         ) -> Result<(), ShortBuf>,
     {
+        option_len.compose(&mut self.rdata)?;
         code.compose(&mut self.rdata)?;
-        op(&mut LengthPrefixed::try_new(&mut self.rdata)?)
+        op(&mut self.rdata)
     }
 
     /// Returns the current UDP payload size field of the OPT record.

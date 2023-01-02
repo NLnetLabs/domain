@@ -5,7 +5,7 @@ use super::super::message_builder::OptBuilder;
 use super::super::octets::{
     Compose, Composer, Parse, ParseError, Parser, ShortBuf
 };
-use super::{CodeOptData, ComposeOptData};
+use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 
 
@@ -17,13 +17,6 @@ pub struct TcpKeepalive(u16);
 impl TcpKeepalive {
     pub fn new(timeout: u16) -> Self {
         TcpKeepalive(timeout)
-    }
-
-    pub fn push<Target: Composer>(
-        builder: &mut OptBuilder<Target>,
-        timeout: u16
-    ) -> Result<(), ShortBuf> {
-        builder.push(&Self::new(timeout))
     }
 
     pub fn timeout(self) -> u16 {
@@ -43,17 +36,46 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for TcpKeepalive {
     }
 }
 
-//--- CodeOptData
+//--- OptData
 
-impl CodeOptData for TcpKeepalive {
-    const CODE: OptionCode = OptionCode::TcpKeepalive;
+impl OptData for TcpKeepalive {
+    fn code(&self) -> OptionCode {
+        OptionCode::TcpKeepalive
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for TcpKeepalive {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::TcpKeepalive {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
 }
 
 impl ComposeOptData for TcpKeepalive {
+    fn compose_len(&self) -> u16 {
+        u16::COMPOSE_LEN
+    }
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
         self.0.compose(target)
+    }
+}
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn tcp_keepalive(&mut self, timeout: u16) -> Result<(), ShortBuf> {
+        self.push(&TcpKeepalive::new(timeout))
     }
 }
 

@@ -66,45 +66,6 @@ pub trait Composer: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate {
     fn can_compress(&self) -> bool {
         false
     }
-
-    /*
-    /// Prepends some appended data with its length as a `u16`.
-    ///
-    /// The method will append the data being added via the closure `op` to
-    /// the builder prepended with a 16 bit unsigned value of its length.
-    ///
-    /// The implementation will prepend a `0u16` before executing the closure
-    /// and update it to the number of octets added afterwards. If the
-    /// closure adds more than 65535 octets or if any appending fails, the
-    /// builder will be truncated to its previous length.
-    fn u16_len_prefixed<F, E>(
-        &mut self, op: F
-    ) -> Result<(), Self::BuildError<E>>
-    where
-        Self: AsMut<[u8]> + Truncate,
-        F: FnOnce(&mut Self) -> Result<(), Self::BuildError<E>>,
-    {
-        let pos = self.len();
-        self.append_slice(&[0; 2])?;
-        match op(self) {
-            Ok(_) => {
-                let len = self.len() - pos - 2;
-                if len > usize::from(u16::max_value()) {
-                    self.truncate(pos);
-                    Err(ShortBuf)
-                } else {
-                    self.as_mut()[pos..pos + 2]
-                        .copy_from_slice(&(len as u16).to_be_bytes());
-                    Ok(())
-                }
-            }
-            Err(err) => {
-                self.truncate(pos);
-                Err(err)
-            }
-        }
-    }
-    */
 }
 
 #[cfg(feature = "std")]
@@ -119,7 +80,7 @@ impl Composer for bytes::BytesMut { }
 impl<A: smallvec::Array<Item = u8>> Composer for smallvec::SmallVec<A> { }
 
 
-//------------ Compose and ComposeCanonical ----------------------------------
+//------------ Compose -------------------------------------------------------
 
 pub trait Compose {
     const COMPOSE_LEN: u16 = 0;

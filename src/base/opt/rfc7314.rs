@@ -5,7 +5,7 @@ use super::super::message_builder::OptBuilder;
 use super::super::octets::{
     Compose, Composer, Parse, ParseError, Parser, ShortBuf
 };
-use super::{CodeOptData, ComposeOptData};
+use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 
 
@@ -17,13 +17,6 @@ pub struct Expire(Option<u32>);
 impl Expire {
     pub fn new(expire: Option<u32>) -> Self {
         Expire(expire)
-    }
-
-    pub fn push<Target: Composer>(
-        builder: &mut OptBuilder<Target>,
-        expire: Option<u32>
-    ) -> Result<(), ShortBuf> {
-        builder.push(&Self::new(expire))
     }
 
     pub fn expire(self) -> Option<u32> {
@@ -55,11 +48,34 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Expire {
 
 //--- OptData
 
-impl CodeOptData for Expire {
-    const CODE: OptionCode = OptionCode::Expire;
+impl OptData for Expire {
+    fn code(&self) -> OptionCode {
+        OptionCode::Expire
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for Expire {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::Expire {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
 }
 
 impl ComposeOptData for Expire {
+    fn compose_len(&self) -> u16 {
+        match self.0 {
+            Some(_) => u32::COMPOSE_LEN,
+            None => 0,
+        }
+    }
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
@@ -67,6 +83,15 @@ impl ComposeOptData for Expire {
             value.compose(target)?;
         }
         Ok(())
+    }
+}
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn expire(&mut self, expire: Option<u32>) -> Result<(), ShortBuf> {
+        self.push(&Expire::new(expire))
     }
 }
 

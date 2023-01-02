@@ -6,7 +6,7 @@ use super::super::octets::{
     Octets, Parse, Parser, ParseError
 };
 use super::super::wire::Compose;
-use super::{CodeOptData, ComposeOptData};
+use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use core::convert::TryFrom;
 use core::{fmt, str};
@@ -94,11 +94,39 @@ where Octs: Octets + ?Sized {
     }
 }
 
-impl<Octs> CodeOptData for ExtendedError<Octs> {
-    const CODE: OptionCode = OptionCode::ExtendedError;
+impl<Octs> OptData for ExtendedError<Octs> {
+    fn code(&self) -> OptionCode {
+        OptionCode::ExtendedError
+    }
+}
+
+impl<'a, Octs> ParseOptData<'a, Octs> for ExtendedError<Octs::Range<'a>> 
+where Octs: Octets + ?Sized {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::Nsid {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
 }
 
 impl<Octs: AsRef<[u8]>> ComposeOptData for ExtendedError<Octs> {
+    fn compose_len(&self) -> u16 {
+        if let Some(text) = &self.text {
+            text.as_ref().len().checked_add(
+                ExtendedErrorCode::COMPOSE_LEN.into()
+            ).expect("long option data").try_into().expect("long option data")
+        }
+        else {
+            ExtendedErrorCode::COMPOSE_LEN
+        }
+    }
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {

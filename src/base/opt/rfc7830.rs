@@ -5,7 +5,7 @@ use super::super::message_builder::OptBuilder;
 use super::super::octets::{
     Compose, Composer, Parse, ParseError, Parser, ShortBuf
 };
-use super::{CodeOptData, ComposeOptData};
+use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 
 
@@ -29,26 +29,11 @@ pub struct Padding {
 
 impl Padding {
     pub fn new(len: u16) -> Self {
-        Self::new_with_mode(len, PaddingMode::Zero)
+        Self::with_mode(len, PaddingMode::Zero)
     }
 
-    pub fn new_with_mode(len: u16, mode: PaddingMode) -> Self {
+    pub fn with_mode(len: u16, mode: PaddingMode) -> Self {
         Padding { len, mode }
-    }
-
-    pub fn push<Target: Composer>(
-        builder: &mut OptBuilder<Target>,
-        len: u16,
-    ) -> Result<(), ShortBuf> {
-        Self::push_with_mode(builder, len, PaddingMode::Zero)
-    }
-
-    pub fn push_with_mode<Target: Composer>(
-        builder: &mut OptBuilder<Target>,
-        len: u16,
-        mode: PaddingMode
-    ) -> Result<(), ShortBuf> {
-        builder.push(&Self::new_with_mode(len, mode))
     }
 
     pub fn len(self) -> u16 {
@@ -72,7 +57,7 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Padding {
         // XXX Check whether there really are all zeros.
         let len = parser.remaining();
         parser.advance(len)?;
-        Ok(Padding::new_with_mode(len as u16, PaddingMode::Zero))
+        Ok(Padding::with_mode(len as u16, PaddingMode::Zero))
     }
 
     fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
@@ -81,13 +66,33 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Padding {
     }
 }
 
-//--- CodeOptData and ComposeOptData
+//--- OptData
 
-impl CodeOptData for Padding {
-    const CODE: OptionCode = OptionCode::Padding;
+impl OptData for Padding {
+    fn code(&self) -> OptionCode {
+        OptionCode::Padding
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for Padding {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::Padding {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
 }
 
 impl ComposeOptData for Padding {
+    fn compose_len(&self) -> u16 {
+        self.len
+    }
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
@@ -105,6 +110,21 @@ impl ComposeOptData for Padding {
             }
         }
         Ok(())
+    }
+}
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn padding(&mut self, len: u16) -> Result<(), ShortBuf> {
+        self.push(&Padding::new(len))
+    }
+
+    pub fn padding_with_mode(
+        &mut self, len: u16, mode: PaddingMode
+    ) -> Result<(), ShortBuf> {
+        self.push(&Padding::with_mode(len, mode))
     }
 }
 

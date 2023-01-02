@@ -6,7 +6,7 @@ use super::super::octets::{
     Composer, Octets, OctetsBuilder, Parse, ParseError, Parser,
     ShortBuf
 };
-use super::{CodeOptData, ComposeOptData};
+use super::{OptData, ComposeOptData, ParseOptData};
 use core::fmt;
 
 
@@ -26,19 +26,6 @@ impl<Octs> Nsid<Octs> {
     }
 }
 
-impl Nsid<()> {
-    pub fn push<Target: Composer, Data: AsRef<[u8]>>(
-        builder: &mut OptBuilder<Target>,
-        data: &Data
-    ) -> Result<(), ShortBuf> {
-        let data = data.as_ref();
-        assert!(data.len() <= core::u16::MAX as usize);
-        builder.push_raw_option(OptionCode::Nsid, |target| {
-            target.append_slice(data)
-        })
-    }
-}
-
 impl<'a, Octs: Octets> Parse<'a, Octs> for Nsid<Octs::Range<'a>> {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let len = parser.remaining();
@@ -51,16 +38,34 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Nsid<Octs::Range<'a>> {
     }
 }
 
-impl<Octs> CodeOptData for Nsid<Octs> {
-    const CODE: OptionCode = OptionCode::Nsid;
+impl<Octs> OptData for Nsid<Octs> {
+    fn code(&self) -> OptionCode {
+        OptionCode::Nsid
+    }
 }
 
+impl<'a, Octs: Octets> ParseOptData<'a, Octs> for Nsid<Octs::Range<'a>> {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::Nsid {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
 
 impl<Octs: AsRef<[u8]>> ComposeOptData for Nsid<Octs> {
+    fn compose_len(&self) -> u16 {
+        self.octets.as_ref().len().try_into().expect("long option data")
+    }
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
-        assert!(self.octets.as_ref().len() < core::u16::MAX as usize);
         target.append_slice(self.octets.as_ref())
     }
 }
@@ -75,6 +80,15 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsid<Octs> {
             write!(f, "{:X}", *v)?
         }
         Ok(())
+    }
+}
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn nsid(&mut self, data: &impl AsRef<[u8]>) -> Result<(), ShortBuf> {
+        self.push(&Nsid::from_octets(data.as_ref()))
     }
 }
 

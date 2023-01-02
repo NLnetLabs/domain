@@ -7,7 +7,7 @@ use super::super::octets::{
     Compose, Composer, FormError, Octets, Parse, ParseError,
     Parser, ShortBuf
 };
-use super::{CodeOptData, ComposeOptData};
+use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 
 
@@ -21,20 +21,6 @@ pub struct KeyTag<Octs> {
 impl<Octs> KeyTag<Octs> {
     pub fn new(octets: Octs) -> Self {
         KeyTag { octets }
-    }
-
-    pub fn push<Target: Composer>(
-        builder: &mut OptBuilder<Target>,
-        tags: &[u16]
-    ) -> Result<(), ShortBuf> {
-        let len = tags.len() * 2;
-        assert!(len <= core::u16::MAX as usize);
-        builder.push_raw_option(OptionCode::KeyTag, |target| {
-            for tag in tags {
-                tag.compose(target)?;
-            }
-            Ok(())
-        })
     }
 
     pub fn iter(&self) -> KeyTagIter
@@ -69,13 +55,33 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for KeyTag<Octs::Range<'a>> {
 }
 
 
-//--- CodeOptData and ComposeOptData
+//--- OptData
 
-impl<Octs> CodeOptData for KeyTag<Octs> {
-    const CODE: OptionCode = OptionCode::KeyTag;
+impl<Octs> OptData for KeyTag<Octs> {
+    fn code(&self) -> OptionCode {
+        OptionCode::KeyTag
+    }
+}
+
+impl<'a, Octs: Octets> ParseOptData<'a, Octs> for KeyTag<Octs::Range<'a>> {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::KeyTag {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
 }
 
 impl<Octs: AsRef<[u8]>> ComposeOptData for KeyTag<Octs> {
+    fn compose_len(&self) -> u16 {
+        self.octets.as_ref().len().try_into().expect("long option data")
+    }
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
@@ -113,6 +119,28 @@ impl<'a> Iterator for KeyTagIter<'a> {
             self.0 = tail;
             Some(u16::from_be_bytes(item.try_into().unwrap()))
         }
+    }
+}
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn key_tag(
+        &mut self, tags: &impl AsRef<[u16]>
+    ) -> Result<(), ShortBuf> {
+        self.push_raw_option(
+            OptionCode::KeyTag,
+            u16::try_from(
+                tags.as_ref().len().checked_mul(2).expect("long option data")
+            ).expect("long option data"),
+            |target| {
+                for tag in tags.as_ref() {
+                    tag.compose(target)?;
+                }
+                Ok(())
+            }
+        )
     }
 }
 

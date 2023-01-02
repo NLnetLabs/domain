@@ -32,7 +32,7 @@ opt_types! {
     rfc7830::{Padding};
     rfc7871::{ClientSubnet};
     rfc7873::{Cookie};
-    rfc7901::{Chain<Octs>};
+    rfc7901::{Chain<Name>};
     rfc8145::{KeyTag<Octs>};
     rfc8914::{ExtendedError<Octs>};
 }
@@ -41,7 +41,7 @@ opt_types! {
 
 use super::header::Header;
 use super::iana::{OptRcode, OptionCode, Rtype};
-use super::name::ToDname;
+use super::name::{Dname, ToDname};
 use super::octets::{
     Compose, Composer, FormError, Octets, OctetsFrom, Parse, ParseError, Parser,
 };
@@ -170,7 +170,7 @@ impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Opt<Octs::Range<'a>> {
     }
 }
 
-//--- RtypeRecordData, ComposeRecordData
+//--- RecordData, ParseRecordData, and ComposeRecordData
 
 impl<Octs> RecordData for Opt<Octs> {
     fn rtype(&self) -> Rtype {
@@ -608,7 +608,7 @@ pub trait OptData {
 //------------ ParseOptData --------------------------------------------------
 
 /// An OPT option that can be parsed from the record data.
-pub trait ParseOptData<'a, Octs>: OptData + Sized {
+pub trait ParseOptData<'a, Octs: ?Sized>: OptData + Sized {
     /// Parses the option code data.
     ///
     /// The data is for an option of `code`. The function may decide whether
@@ -632,51 +632,11 @@ pub trait ParseOptData<'a, Octs>: OptData + Sized {
 
 /// An OPT option that can be written to wire format.
 pub trait ComposeOptData: OptData {
+    fn compose_len(&self) -> u16;
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError>;
-}
-
-
-//------------ CodeOptData ---------------------------------------------------
-
-/// A type for an OPT option for a single specific option code.
-///
-/// If an option can only ever process a single option, it can simply
-/// implement [`Parse`] for parsing the data, [`Compose`] for composing the
-/// data, and this trait to state the option code. [`OptData`] and
-/// [`ParseOptData`] will then be available via blanket implementations.
-///
-/// [`Compose`]: ../octets/trait.Compose.html
-/// [`Parse`]: ../octets/trait.Parse.html
-/// [`OptData`]: trait.OptData.html
-/// [`ParseOptData`]: trait.ParseOptData.html
-pub trait CodeOptData {
-    /// The option code for this option.
-    const CODE: OptionCode;
-}
-
-impl<T: CodeOptData> OptData for T {
-    fn code(&self) -> OptionCode {
-        Self::CODE
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]>, T> ParseOptData<'a, Octs> for T
-where
-    T: CodeOptData + Parse<'a, Octs> + Sized,
-{
-    fn parse_option(
-        code: OptionCode,
-        parser: &mut Parser<'a, Octs>,
-    ) -> Result<Option<Self>, ParseError> {
-        if code == Self::CODE {
-            Self::parse(parser).map(Some)
-        } else {
-            parser.advance_to_end();
-            Ok(None)
-        }
-    }
 }
 
 //------------ UnknownOptData ------------------------------------------------
@@ -798,6 +758,10 @@ where
 }
 
 impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
+    fn compose_len(&self) -> u16 {
+        self.data.as_ref().len().try_into().expect("long option data")
+    }
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {

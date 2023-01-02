@@ -6,7 +6,7 @@
 macro_rules! opt_types {
     ( $(
         $module:ident::{
-            $( $opt:ident $( <$octets:ident> )* ),*
+            $( $opt:ident $( < $( $octets:ident ),* > )? ),*
         };
     )* ) => {
 
@@ -19,9 +19,9 @@ macro_rules! opt_types {
         // TODO Impl Debug.
         #[derive(Clone)]
         #[non_exhaustive]
-        pub enum AllOptData<Octs> {
+        pub enum AllOptData<Octs, Name> {
             $( $(
-                $opt($module::$opt $( <$octets> )* ),
+                $opt($module::$opt $( < $( $octets ),* > )? ),
             )* )*
             Other(UnknownOptData<Octs>),
         }
@@ -29,8 +29,11 @@ macro_rules! opt_types {
         //--- From
 
         $( $(
-            impl<Octs> From<$opt $( <$octets> )*> for AllOptData<Octs> {
-                fn from(value: $module::$opt$( <$octets> )*) -> Self {
+            impl<Octs, Name> From<$opt $( < $( $octets> ),* )?>
+            for AllOptData<Octs, Name> {
+                fn from(
+                    value: $module::$opt$( < $( $octets ),* > )*
+                ) -> Self {
                     AllOptData::$opt(value)
                 }
             }
@@ -38,7 +41,7 @@ macro_rules! opt_types {
 
         //--- OptData
 
-        impl<Octs: AsRef<[u8]>> OptData for AllOptData<Octs> {
+        impl<Octs, Name> OptData for AllOptData<Octs, Name> {
             fn code(&self) -> OptionCode {
                 match *self {
                     $( $(
@@ -50,7 +53,7 @@ macro_rules! opt_types {
         }
 
         impl<'a, Octs: Octets> ParseOptData<'a, Octs>
-        for AllOptData<Octs::Range<'a>> {
+        for AllOptData<Octs::Range<'a>, Dname<Octs::Range<'a>>> {
             fn parse_option(
                 code: OptionCode,
                 parser: &mut Parser<'a, Octs>,
@@ -72,7 +75,17 @@ macro_rules! opt_types {
             }
         }
 
-        impl<Octs: AsRef<[u8]>> ComposeOptData for AllOptData<Octs> {
+        impl<Octs, Name> ComposeOptData for AllOptData<Octs, Name>
+        where Octs: AsRef<[u8]>, Name: ToDname {
+            fn compose_len(&self) -> u16 {
+                match *self {
+                    $( $(
+                        AllOptData::$opt(ref inner) => inner.compose_len(),
+                    )* )*
+                    AllOptData::Other(ref inner) => inner.compose_len(),
+                }
+            }
+
             fn compose_option<Target: octseq::builder::OctetsBuilder + ?Sized>(
                 &self, target: &mut Target
             ) -> Result<(), Target::AppendError> {

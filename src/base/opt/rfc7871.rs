@@ -7,7 +7,7 @@ use super::super::octets::{
     Compose, Composer, FormError, Parse, ParseError, Parser,
     ShortBuf,
 };
-use super::{CodeOptData, ComposeOptData};
+use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 
 //------------ ClientSubnet --------------------------------------------------
@@ -38,15 +38,6 @@ impl ClientSubnet {
         }
     }
 
-    pub fn push<Target: Composer>(
-        builder: &mut OptBuilder<Target>,
-        source_prefix_len: u8,
-        scope_prefix_len: u8,
-        addr: IpAddr,
-    ) -> Result<(), ShortBuf> {
-        builder.push(&Self::new(source_prefix_len, scope_prefix_len, addr))
-    }
-
     pub fn source_prefix_len(&self) -> u8 {
         self.source_prefix_len
     }
@@ -72,7 +63,7 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for ClientSubnet {
         // | IPv6 address, depending on FAMILY, which MUST be truncated to
         // | the number of bits indicated by the SOURCE PREFIX-LENGTH field,
         // | padding with 0 bits to pad to the end of the last octet needed.
-        let prefix_bytes = prefix_bytes(usize::from(source_prefix_len));
+        let prefix_bytes = prefix_bytes(source_prefix_len);
 
         let addr = match family {
             1 => {
@@ -135,17 +126,37 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for ClientSubnet {
     }
 }
 
-//--- CodeOptData and ComposeOptData
+//--- OptData
 
-impl CodeOptData for ClientSubnet {
-    const CODE: OptionCode = OptionCode::ClientSubnet;
+impl OptData for ClientSubnet {
+    fn code(&self) -> OptionCode {
+        OptionCode::ClientSubnet
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for ClientSubnet {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::ClientSubnet {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
 }
 
 impl ComposeOptData for ClientSubnet {
+    fn compose_len(&self) -> u16 {
+        u16::try_from(prefix_bytes(self.source_prefix_len)).unwrap() + 4
+    }
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
-        let prefix_bytes = prefix_bytes(self.source_prefix_len as usize);
+        let prefix_bytes = prefix_bytes(self.source_prefix_len);
         match self.addr {
             IpAddr::V4(addr) => {
                 1u16.compose(target)?;
@@ -167,8 +178,8 @@ impl ComposeOptData for ClientSubnet {
     }
 }
 
-fn prefix_bytes(bits: usize) -> usize {
-    (bits + 7) / 8
+fn prefix_bytes(bits: u8) -> usize {
+    (usize::from(bits) + 7) / 8
 }
 
 // Apply a prefix bit mask indicated by its length to the provided
@@ -228,6 +239,23 @@ fn normalize_prefix_len(addr: IpAddr, len: u8) -> u8 {
 
     core::cmp::min(len, max)
 }
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn client_subnet(
+        &mut self,
+        source_prefix_len: u8,
+        scope_prefix_len: u8,
+        addr: IpAddr,
+    ) -> Result<(), ShortBuf> {
+        self.push(
+            &ClientSubnet::new(source_prefix_len, scope_prefix_len, addr)
+        )
+    }
+}
+
 
 #[cfg(all(test, feature="std"))]
 mod tests {

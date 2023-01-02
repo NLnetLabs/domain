@@ -4,10 +4,9 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::name::{Dname, ToDname};
 use super::super::octets::{
-    Compose, Composer, Octets, Parse, ParseError, Parser,
-    ShortBuf
+    Composer, Octets, Parse, ParseError, Parser, ShortBuf
 };
-use super::{CodeOptData, ComposeOptData};
+use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 
 
@@ -16,28 +15,16 @@ use octseq::builder::OctetsBuilder;
 // TODO Impl more traits. We can’t derive them because that would force
 //      trait boundaries on Octs.
 #[derive(Clone)]
-pub struct Chain<Octs> {
-    start: Dname<Octs>,
+pub struct Chain<Name> {
+    start: Name
 }
 
-impl<Octs> Chain<Octs> {
-    pub fn new(start: Dname<Octs>) -> Self {
+impl<Name> Chain<Name> {
+    pub fn new(start: Name) -> Self {
         Chain { start }
     }
 
-    pub fn push<Target: Composer, N: ToDname + Compose>(
-        builder: &mut OptBuilder<Target>,
-        start: &N
-    ) -> Result<(), ShortBuf> {
-        builder.push_raw_option(OptionCode::Chain, |target| {
-            for label in start.iter_labels() {
-                label.compose(target)?
-            }
-            Ok(())
-        })
-    }
-
-    pub fn start(&self) -> &Dname<Octs> {
+    pub fn start(&self) -> &Name {
         &self.start
     }
 }
@@ -45,7 +32,7 @@ impl<Octs> Chain<Octs> {
 
 //--- ParseAll
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for Chain<Octs::Range<'a>> {
+impl<'a, Octs: Octets> Parse<'a, Octs> for Chain<Dname<Octs::Range<'a>>> {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Dname::parse(parser).map(Self::new)
     }
@@ -55,17 +42,47 @@ impl<'a, Octs: Octets> Parse<'a, Octs> for Chain<Octs::Range<'a>> {
     }
 }
 
-//--- CodeOptData and ComposeOptData
+//--- OptData
 
-impl<Octs> CodeOptData for Chain<Octs> {
-    const CODE: OptionCode = OptionCode::Chain;
+impl<Name> OptData for Chain<Name> {
+    fn code(&self) -> OptionCode {
+        OptionCode::Chain
+    }
 }
 
-impl<Octs: AsRef<[u8]>> ComposeOptData for Chain<Octs> {
+impl<'a, Octs> ParseOptData<'a, Octs> for Chain<Dname<Octs::Range<'a>>>
+where Octs: Octets {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::Chain {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Name: ToDname> ComposeOptData for Chain<Name> {
+    fn compose_len(&self) -> u16 {
+        self.start.compose_len()
+    }
+
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
         self.start.compose(target)
+    }
+}
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn chain(&mut self, start: impl ToDname) -> Result<(), ShortBuf> {
+        self.push(&Chain::new(start))
     }
 }
 

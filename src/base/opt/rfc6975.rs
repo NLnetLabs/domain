@@ -3,10 +3,9 @@
 use super::super::iana::{OptionCode, SecAlg};
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, Composer, Octets, Parse, ParseError, Parser,
-    ShortBuf
+    Composer, Octets, Parse, ParseError, Parser, ShortBuf
 };
-use super::{CodeOptData, ComposeOptData};
+use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use core::slice;
 
@@ -14,7 +13,7 @@ use core::slice;
 //------------ Dau, Dhu, N3u -------------------------------------------------
 
 macro_rules! option_type {
-    ( $name:ident ) => {
+    ( $name:ident, $fn:ident ) => {
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct $name<Octs> {
             octets: Octs,
@@ -28,21 +27,6 @@ macro_rules! option_type {
             pub fn iter(&self) -> SecAlgsIter
             where Octs: AsRef<[u8]> {
                 SecAlgsIter::new(self.octets.as_ref())
-            }
-        }
-
-        impl $name<()> {
-            pub fn push<Target: Composer>(
-                builder: &mut OptBuilder<Target>,
-                algs: &[SecAlg]
-            ) -> Result<(), ShortBuf> {
-                assert!(algs.len() <= core::u16::MAX as usize);
-                builder.push_raw_option(OptionCode::$name, |target| {
-                    for alg in algs {
-                        alg.to_int().compose(target)?;
-                    }
-                    Ok(())
-                })
             }
         }
 
@@ -66,11 +50,32 @@ macro_rules! option_type {
 
         //--- CodeOptData and ComposeOptData
         
-        impl<Octs> CodeOptData for $name<Octs> {
-            const CODE: OptionCode = OptionCode::$name;
+        impl<Octs> OptData for $name<Octs> {
+            fn code(&self) -> OptionCode {
+                OptionCode::$name
+            }
+        }
+
+        impl<'a, Octs> ParseOptData<'a, Octs> for $name<Octs::Range<'a>>
+        where Octs: Octets {
+            fn parse_option(
+                code: OptionCode,
+                parser: &mut Parser<'a, Octs>,
+            ) -> Result<Option<Self>, ParseError> {
+                if code == OptionCode::$name {
+                    Self::parse(parser).map(Some)
+                }
+                else {
+                    Ok(None)
+                }
+            }
         }
 
         impl<Octs: AsRef<[u8]>> ComposeOptData for $name<Octs> {
+            fn compose_len(&self) -> u16 {
+                self.octets.as_ref().len().try_into().expect("long option data")
+            }
+
             fn compose_option<Target: OctetsBuilder + ?Sized>(
                 &self, target: &mut Target
             ) -> Result<(), Target::AppendError> {
@@ -89,12 +94,23 @@ macro_rules! option_type {
                 self.iter()
             }
         }
+
+
+        //------------ OptBuilder --------------------------------------------
+
+        impl<'a, Target: Composer> OptBuilder<'a, Target> {
+            pub fn $fn(
+                &mut self, octets: &impl AsRef<[u8]>
+            ) -> Result<(), ShortBuf> {
+                self.push(&$name::from_octets(octets.as_ref()))
+            }
+        }
     }
 }
 
-option_type!(Dau);
-option_type!(Dhu);
-option_type!(N3u);
+option_type!(Dau, dau);
+option_type!(Dhu, dhu);
+option_type!(N3u, n3u);
 
 
 //------------ SecAlgsIter ---------------------------------------------------
@@ -114,3 +130,4 @@ impl<'a> Iterator for SecAlgsIter<'a> {
         self.0.next().map(|x| SecAlg::from_int(*x))
     }
 }
+
