@@ -22,26 +22,15 @@ impl Expire {
     pub fn expire(self) -> Option<u32> {
         self.0
     }
-}
 
-//--- Parse
-
-impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Expire {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+    pub fn parse<'a, Octs: AsRef<[u8]>>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
         if parser.remaining() == 0 {
             Ok(Expire::new(None))
         }
         else {
             u32::parse(parser).map(|res| Expire::new(Some(res)))
-        }
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        if parser.remaining() == 0 {
-            Ok(())
-        }
-        else {
-            parser.advance(4).map_err(Into::into)
         }
     }
 }

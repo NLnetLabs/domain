@@ -22,17 +22,11 @@ impl TcpKeepalive {
     pub fn timeout(self) -> u16 {
         self.0
     }
-}
 
-//--- Parse
-
-impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for TcpKeepalive {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+    pub fn parse<'a, Octs: AsRef<[u8]>>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
         u16::parse(parser).map(Self::new)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        u16::skip(parser)
     }
 }
 

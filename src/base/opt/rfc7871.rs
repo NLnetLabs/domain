@@ -4,7 +4,7 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::net::IpAddr;
 use super::super::octets::{
-    Compose, Composer, FormError, Parse, ParseError, Parser,
+    Compose, Composer, FormError, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -46,12 +46,10 @@ impl ClientSubnet {
     pub fn addr(&self) -> IpAddr {
         self.addr
     }
-}
 
-//--- Parse
-
-impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for ClientSubnet {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+    pub fn parse<'a, Octs: AsRef<[u8]>>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
         let family = parser.parse_u16()?;
         let source_prefix_len = parser.parse_u8()?;
         let scope_prefix_len = parser.parse_u8()?;
@@ -116,12 +114,6 @@ impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for ClientSubnet {
             scope_prefix_len,
             addr,
         })
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        // XXX Perhaps do a check?
-        parser.advance_to_end();
-        Ok(())
     }
 }
 

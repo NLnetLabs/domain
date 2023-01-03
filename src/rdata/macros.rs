@@ -318,8 +318,6 @@ macro_rules! rdata_types {
                 rtype: $crate::base::iana::Rtype,
                 parser: &mut $crate::base::octets::Parser<'a, Octs>,
             ) -> Result<Option<Self>, $crate::base::octets::ParseError> {
-                use $crate::base::octets::Parse;
-
                 match rtype {
                     $( $( $(
                         $crate::base::iana::Rtype::$mtype => {
@@ -816,8 +814,6 @@ macro_rules! rdata_types {
                 rtype: $crate::base::iana::Rtype,
                 parser: &mut $crate::base::octets::Parser<'a, Octs>,
             ) -> Result<Option<Self>, $crate::base::octets::ParseError> {
-                use $crate::base::octets::Parse;
-
                 match rtype {
                     $( $( $(
                         $crate::base::iana::Rtype::$mtype => {
@@ -1040,6 +1036,14 @@ macro_rules! dname_type_base {
             }
         }
 
+        impl<'a, Octs: Octets + ?Sized> $target<ParsedDname<'a, Octs>> {
+            pub fn parse(
+                parser: &mut Parser<'a, Octs>,
+            ) -> Result<Self, ParseError> {
+                ParsedDname::parse(parser).map(Self::new)
+            }
+        }
+
         //--- From and FromStr
 
         impl<N> From<N> for $target<N> {
@@ -1107,21 +1111,6 @@ macro_rules! dname_type_base {
         impl<N: hash::Hash> hash::Hash for $target<N> {
             fn hash<H: hash::Hasher>(&self, state: &mut H) {
                 self.$field.hash(state)
-            }
-        }
-
-        //--- Parse
-
-        impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
-        for $target<ParsedDname<'a, Octs>> {
-            fn parse(
-                parser: &mut Parser<'a, Octs>,
-            ) -> Result<Self, ParseError> {
-                ParsedDname::parse(parser).map(Self::new)
-            }
-
-            fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-                ParsedDname::skip(parser).map_err(Into::into)
             }
         }
 

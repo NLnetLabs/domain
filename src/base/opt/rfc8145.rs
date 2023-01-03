@@ -4,8 +4,7 @@ use core::convert::TryInto;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, Composer, FormError, Octets, Parse, ParseError,
-    Parser,
+    Compose, Composer, FormError, Octets, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -27,29 +26,16 @@ impl<Octs> KeyTag<Octs> {
     where Octs: AsRef<[u8]> {
         KeyTagIter(self.octets.as_ref())
     }
-}
 
-
-//--- ParseAll
-
-impl<'a, Octs: Octets> Parse<'a, Octs> for KeyTag<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
         let len = parser.remaining();
         if len % 2 == 1 {
             Err(FormError::new("invalid keytag length").into())
         }
         else {
             Ok(Self::new(parser.parse_octets(len)?))
-        }
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        if parser.remaining() % 2 == 1 {
-            Err(FormError::new("invalid keytag length").into())
-        }
-        else {
-            parser.advance_to_end();
-            Ok(())
         }
     }
 }

@@ -88,6 +88,19 @@ impl<'a, Octs> Srv<ParsedDname<'a, Octs>> {
     }
 }
 
+//--- Parse
+
+impl<'a, Octs: Octets + ?Sized> Srv<ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        Ok(Self::new(
+            u16::parse(parser)?,
+            u16::parse(parser)?,
+            u16::parse(parser)?,
+            ParsedDname::parse(parser)?,
+        ))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Srv<SrcName>> for Srv<Name>
@@ -180,27 +193,6 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
             other => return other,
         }
         self.target.lowercase_composed_cmp(&other.target)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for Srv<ParsedDname<'a, Octs>>
-where Octs: Octets + ?Sized {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(Self::new(
-            u16::parse(parser)?,
-            u16::parse(parser)?,
-            u16::parse(parser)?,
-            ParsedDname::parse(parser)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        u16::skip(parser)?;
-        u16::skip(parser)?;
-        u16::skip(parser)?;
-        ParsedDname::skip(parser)
     }
 }
 

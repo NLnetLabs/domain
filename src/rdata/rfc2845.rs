@@ -258,6 +258,29 @@ impl<'a, Octs: Octets> Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
     }
 }
 
+impl<'a, Octs: Octets + ?Sized> Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        let algorithm = ParsedDname::parse(parser)?;
+        let time_signed = Time48::parse(parser)?;
+        let fudge = u16::parse(parser)?;
+        let mac_size = u16::parse(parser)?;
+        let mac = parser.parse_octets(mac_size as usize)?;
+        let original_id = u16::parse(parser)?;
+        let error = TsigRcode::parse(parser)?;
+        let other_len = u16::parse(parser)?;
+        let other = parser.parse_octets(other_len as usize)?;
+        Ok(Tsig {
+            algorithm,
+            time_signed,
+            fudge,
+            mac,
+            original_id,
+            error,
+            other,
+        })
+    }
+}
+
 //--- OctetsFrom
 
 impl<Octs, SrcOctets, Name, SrcName> OctetsFrom<Tsig<SrcOctets, SrcName>>
@@ -429,46 +452,6 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
         self.original_id.hash(state);
         self.error.hash(state);
         self.other.as_ref().hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
-    for Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
-{
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let algorithm = ParsedDname::parse(parser)?;
-        let time_signed = Time48::parse(parser)?;
-        let fudge = u16::parse(parser)?;
-        let mac_size = u16::parse(parser)?;
-        let mac = parser.parse_octets(mac_size as usize)?;
-        let original_id = u16::parse(parser)?;
-        let error = TsigRcode::parse(parser)?;
-        let other_len = u16::parse(parser)?;
-        let other = parser.parse_octets(other_len as usize)?;
-        Ok(Tsig {
-            algorithm,
-            time_signed,
-            fudge,
-            mac,
-            original_id,
-            error,
-            other,
-        })
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        ParsedDname::skip(parser)?;
-        Time48::skip(parser)?;
-        u16::skip(parser)?;
-        let mac_size = u16::parse(parser)?;
-        parser.advance(mac_size as usize)?;
-        u16::skip(parser)?;
-        TsigRcode::skip(parser)?;
-        let other_len = u16::parse(parser)?;
-        parser.advance(other_len as usize)?;
-        Ok(())
     }
 }
 
@@ -645,6 +628,14 @@ impl Time48 {
         Ok(self)
     }
 
+    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
+        let mut buf = [0u8; 6];
+        parser.parse_buf(&mut buf)?;
+        Ok(Time48::from_slice(&buf))
+    }
+
     pub fn compose<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
@@ -657,20 +648,6 @@ impl Time48 {
 impl From<Time48> for u64 {
     fn from(value: Time48) -> u64 {
         value.0
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Time48 {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let mut buf = [0u8; 6];
-        parser.parse_buf(&mut buf)?;
-        Ok(Time48::from_slice(&buf))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(6).map_err(Into::into)
     }
 }
 

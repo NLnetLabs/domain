@@ -3,7 +3,7 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Composer, Octets, OctetsBuilder, Parse, ParseError, Parser,
+    Composer, Octets, OctetsBuilder, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use core::fmt;
@@ -23,17 +23,12 @@ impl<Octs> Nsid<Octs> {
     pub fn from_octets(octets: Octs) -> Self {
         Nsid { octets }
     }
-}
 
-impl<'a, Octs: Octets> Parse<'a, Octs> for Nsid<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
         let len = parser.remaining();
         parser.parse_octets(len).map(Nsid::from_octets).map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance_to_end();
-        Ok(())
     }
 }
 

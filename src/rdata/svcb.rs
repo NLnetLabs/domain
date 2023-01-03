@@ -106,6 +106,16 @@ impl<'a, Octs: Octets> $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
     }
 }
 
+impl<'a, Octs: Octets + ?Sized> $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        let priority = u16::parse(parser)?;
+        let target = ParsedDname::parse(parser)?;
+        let len = parser.remaining();
+        let params = parser.parse_octets(len)?;
+        Ok(Self::new(priority, target, params))
+    }
+}
+
 impl<O, OO, N, NN> OctetsFrom<$name<O, N>> for $name<OO, NN>
 where
     OO: OctetsFrom<O>,
@@ -147,26 +157,6 @@ impl<OB: Composer, N> $name<OB, N> {
         param.compose(&mut self.params).map_err(Into::into)?;
         let len = self.params.as_ref().len() - off;
         self.sorter.insert(key, off as u16, len as u16)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
-for $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let priority = u16::parse(parser)?;
-        let target = ParsedDname::parse(parser)?;
-        let len = parser.remaining();
-        let params = parser.parse_octets(len)?;
-        Ok(Self::new(priority, target, params))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        u16::skip(parser)?;
-        ParsedDname::skip(parser)?;
-        parser.advance_to_end();
-        Ok(())
     }
 }
 
@@ -416,10 +406,9 @@ pub mod param {
                 }
             }
 
-            impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
-            for AllParams<Octs::Range<'a>> {
-                fn parse(
-                    parser: &mut Parser<'a, Octs>,
+            impl<Octs> AllParams<Octs> {
+                pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+                    parser: &mut Parser<'a, Src>
                 ) -> Result<Self, ParseError> {
                     let key = parser.parse_u16()?.into();
                     let len = parser.parse_u16()?.into();
@@ -431,14 +420,6 @@ pub mod param {
                         ))
                     }
                     Ok(res)
-                }
-
-                fn skip(
-                    parser: &mut Parser<'a, Octs>,
-                ) -> Result<(), ParseError> {
-                    u16::skip(parser)?;
-                    let len = parser.parse_u16()?;
-                    parser.advance(len.into()).map_err(Into::into)
                 }
             }
 
@@ -526,25 +507,14 @@ pub mod param {
             #[derive(Debug, Clone, Eq, PartialEq)]
             pub struct $name<Octs>(Octs);
 
-            impl<'a, Octs> Parse<'a, Octs> for $name<Octs::Range<'a>>
-            where
-                Octs: Octets + ?Sized,
-            {
-                fn parse(
-                    parser: &mut Parser<'a, Octs>,
+            impl<Octs> $name<Octs> {
+                pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+                    parser: &mut Parser<'a, Src>
                 ) -> Result<Self, ParseError> {
                     //let len = u16::parse(parser)?;
                     //let data = parser.parse_octets(len.into())?;
                     let data = parser.parse_octets(parser.remaining())?;
                     Ok(Self(data))
-                }
-
-                fn skip(
-                    parser: &mut Parser<'a, Octs>,
-                ) -> Result<(), ParseError> {
-                    //u16::skip(parser)?;
-                    parser.advance_to_end();
-                    Ok(())
                 }
             }
 
@@ -727,13 +697,11 @@ pub mod param {
     #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct NoDefaultAlpn;
 
-    impl<'a, Octs: ?Sized> Parse<'a, Octs> for NoDefaultAlpn {
-        fn parse(_parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+    impl NoDefaultAlpn {
+        pub fn parse<'a, Octs: ?Sized>(
+            _parser: &mut Parser<'a, Octs>
+        ) -> Result<Self, ParseError> {
             Ok(Self)
-        }
-
-        fn skip(_parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-            Ok(())
         }
     }
 
@@ -767,20 +735,14 @@ pub mod param {
         pub fn new(port: u16) -> Self {
             Self(port)
         }
-    }
-    impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Port {
-        fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+
+        pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
+            parser: &mut Parser<'a, Octs>
+        ) -> Result<Self, ParseError> {
             let port = u16::parse(parser)?;
             Ok(Self(port))
         }
 
-        fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-            u16::skip(parser)?;
-            Ok(())
-        }
-    }
-
-    impl Port {
         fn compose<Target: OctetsBuilder + ?Sized>(
             &self, target: &mut Target
         ) -> Result<(), Target::AppendError> {

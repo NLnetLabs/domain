@@ -117,6 +117,27 @@ impl<Octs> Nsec3<Octs> {
     }
 }
 
+impl<Octs: AsRef<[u8]>> Nsec3<Octs> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let hash_algorithm = Nsec3HashAlg::parse(parser)?;
+        let flags = u8::parse(parser)?;
+        let iterations = u16::parse(parser)?;
+        let salt = Nsec3Salt::parse(parser)?;
+        let next_owner = OwnerHash::parse(parser)?;
+        let types = RtypeBitmap::parse(parser)?;
+        Ok(Self::new(
+            hash_algorithm,
+            flags,
+            iterations,
+            salt,
+            next_owner,
+            types,
+        ))
+    }
+}
+
 impl<SrcOcts> Nsec3<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Nsec3<Octs>, PushError>
     where
@@ -259,37 +280,6 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Nsec3<Octs> {
         self.salt.hash(state);
         self.next_owner.hash(state);
         self.types.hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Nsec3<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let hash_algorithm = Nsec3HashAlg::parse(parser)?;
-        let flags = u8::parse(parser)?;
-        let iterations = u16::parse(parser)?;
-        let salt = Nsec3Salt::parse(parser)?;
-        let next_owner = OwnerHash::parse(parser)?;
-        let types = RtypeBitmap::parse(parser)?;
-        Ok(Self::new(
-            hash_algorithm,
-            flags,
-            iterations,
-            salt,
-            next_owner,
-            types,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        Nsec3HashAlg::skip(parser)?;
-        u8::skip(parser)?;
-        u16::skip(parser)?;
-        Nsec3Salt::skip(parser)?;
-        OwnerHash::skip(parser)?;
-        RtypeBitmap::skip(parser)?;
-        Ok(())
     }
 }
 
@@ -454,6 +444,17 @@ impl<Octs> Nsec3param<Octs> {
             self.salt.try_octets_into()?,
         ))
     }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        Ok(Self::new(
+            Nsec3HashAlg::parse(parser)?,
+            u8::parse(parser)?,
+            u16::parse(parser)?,
+            Nsec3Salt::parse(parser)?,
+        ))
+    }
 }
 
 impl<SrcOcts> Nsec3param<SrcOcts> {
@@ -586,25 +587,6 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Nsec3param<Octs> {
         self.flags.hash(state);
         self.iterations.hash(state);
         self.salt.hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for Nsec3param<Octs::Range<'a>>
-where Octs: Octets + ?Sized {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(Self::new(
-            Nsec3HashAlg::parse(parser)?,
-            u8::parse(parser)?,
-            u16::parse(parser)?,
-            Nsec3Salt::parse(parser)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(4)?;
-        Nsec3Salt::skip(parser)
     }
 }
 
@@ -790,6 +772,18 @@ impl Nsec3Salt<[u8]> {
     }
 }
 
+impl<Octs> Nsec3Salt<Octs> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = parser.parse_u8()? as usize;
+        parser
+            .parse_octets(len)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+            .map_err(Into::into)
+    }
+}
+
 //--- OctetsFrom and FromStr
 
 impl<Octs, SrcOcts> OctetsFrom<Nsec3Salt<SrcOcts>> for Nsec3Salt<Octs>
@@ -892,24 +886,6 @@ where
 impl<T: AsRef<[u8]> + ?Sized> hash::Hash for Nsec3Salt<T> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.0.as_ref().hash(state)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for Nsec3Salt<Octs::Range<'a>>
-where Octs: Octets + ?Sized {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser
-            .parse_octets(len)
-            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
-            .map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser.advance(len).map_err(Into::into)
     }
 }
 
@@ -1191,6 +1167,18 @@ impl OwnerHash<[u8]> {
     }
 }
 
+impl<Octs> OwnerHash<Octs> {
+    fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = parser.parse_u8()? as usize;
+        parser
+            .parse_octets(len)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+            .map_err(Into::into)
+    }
+}
+
 //--- OctetsFrom and FromStr
 
 impl<Octs, SrcOcts> OctetsFrom<OwnerHash<SrcOcts>> for OwnerHash<Octs>
@@ -1287,24 +1275,6 @@ where
 impl<T: AsRef<[u8]> + ?Sized> hash::Hash for OwnerHash<T> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.0.as_ref().hash(state)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for OwnerHash<Octs::Range<'a>>
-where Octs: Octets + ?Sized {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser
-            .parse_octets(len)
-            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
-            .map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser.advance(len).map_err(Into::into)
     }
 }
 

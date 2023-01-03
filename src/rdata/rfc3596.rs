@@ -44,6 +44,12 @@ impl Aaaa {
     pub(super) fn convert_octets<E>(self) -> Result<Self, E> {
         Ok(self)
     }
+
+    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
+        Ipv6Addr::parse(parser).map(Self::new)
+    }
 }
 
 //--- From and FromStr
@@ -83,18 +89,6 @@ impl OctetsFrom<Aaaa> for Aaaa {
 impl CanonicalOrd for Aaaa {
     fn canonical_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Aaaa {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ipv6Addr::parse(parser).map(Self::new)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        Ipv6Addr::skip(parser)
     }
 }
 

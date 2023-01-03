@@ -180,6 +180,21 @@ impl<Name, Data> Record<Name, Data> {
     }
 }
 
+/// Parsing and Composing
+///
+impl<'a, Octs, Data> Record<ParsedDname<'a, Octs>, Data>
+where
+    Octs: Octets,
+    Data: ParseRecordData<'a, Octs>,
+{
+    pub fn parse(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Option<Self>, ParseError> {
+        let header = RecordHeader::parse(parser)?;
+        header.parse_into_record(parser)
+    }
+}
+
 impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
     pub fn compose<Target: Composer + ?Sized>(
         &self, target: &mut Target
@@ -379,24 +394,6 @@ where
     }
 }
 
-//--- Parse
-
-impl<'a, Octs, Data> Parse<'a, Octs>
-    for Option<Record<ParsedDname<'a, Octs>, Data>>
-where
-    Octs: Octets,
-    Data: ParseRecordData<'a, Octs>,
-{
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let header = RecordHeader::parse(parser)?;
-        header.parse_into_record(parser)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        ParsedRecord::skip(parser)
-    }
-}
-
 //--- Display and Debug
 
 impl<Name, Data> fmt::Display for Record<Name, Data>
@@ -554,9 +551,9 @@ impl RecordHeader<()> {
         parser: &mut Parser<Octs>,
     ) -> Result<u16, ParseError> {
         ParsedDname::skip(parser)?;
-        Rtype::skip(parser)?;
-        Class::skip(parser)?;
-        u32::skip(parser)?;
+        parser.advance(
+            (Rtype::COMPOSE_LEN + Class::COMPOSE_LEN + u32::COMPOSE_LEN).into()
+        )?;
         u16::parse(parser)
     }
 }
@@ -617,6 +614,20 @@ impl<Name> RecordHeader<Name> {
     /// Converts the header into an actual record.
     pub fn into_record<Data>(self, data: Data) -> Record<Name, Data> {
         Record::new(self.owner, self.class, self.ttl, data)
+    }
+}
+
+/// # Parsing and Composing
+///
+impl<'a, Octs: Octets + ?Sized> RecordHeader<ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        Ok(RecordHeader::new(
+            ParsedDname::parse(parser)?,
+            Rtype::parse(parser)?,
+            Class::parse(parser)?,
+            u32::parse(parser)?,
+            parser.parse_u16()?,
+        ))
     }
 }
 
@@ -721,32 +732,6 @@ impl<Name: hash::Hash> hash::Hash for RecordHeader<Name> {
         self.class.hash(state);
         self.ttl.hash(state);
         self.rdlen.hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for RecordHeader<ParsedDname<'a, Octs>>
-where
-    Octs: Octets + ?Sized,
-{
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(RecordHeader::new(
-            ParsedDname::parse(parser)?,
-            Rtype::parse(parser)?,
-            Class::parse(parser)?,
-            u32::parse(parser)?,
-            parser.parse_u16()?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        ParsedDname::skip(parser)?;
-        Rtype::skip(parser)?;
-        Class::skip(parser)?;
-        u32::skip(parser)?;
-        u16::skip(parser)?;
-        Ok(())
     }
 }
 
@@ -872,6 +857,24 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     }
 }
 
+impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        let header = RecordHeader::parse(parser)?;
+        let data = *parser;
+        parser.advance(header.rdlen() as usize)?;
+        Ok(Self::new(header, data))
+    }
+
+    pub fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
+        let rdlen = RecordHeader::parse_rdlen(parser)?;
+        parser.advance(rdlen as usize)?;
+        Ok(())
+    }
+
+    // No compose because the data may contain compressed domain
+    // names.
+}
+
 //--- PartialEq and Eq
 
 impl<'a, 'o, Octs, Other> PartialEq<ParsedRecord<'o, Other>>
@@ -890,26 +893,6 @@ where
 }
 
 impl<'a, Octs: Octets + ?Sized> Eq for ParsedRecord<'a, Octs> {}
-
-//--- Parse
-//
-//    No Compose because the data may contain compressed domain
-//    names.
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for ParsedRecord<'a, Octs> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let header = RecordHeader::parse(parser)?;
-        let data = *parser;
-        parser.advance(header.rdlen() as usize)?;
-        Ok(Self::new(header, data))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        let rdlen = RecordHeader::parse_rdlen(parser)?;
-        parser.advance(rdlen as usize)?;
-        Ok(())
-    }
-}
 
 //------------ RecordParseError ----------------------------------------------
 

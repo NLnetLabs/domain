@@ -3,13 +3,15 @@
 use super::super::iana::exterr::{ExtendedErrorCode, EDE_PRIVATE_RANGE_BEGIN};
 use super::super::iana::OptionCode;
 use super::super::octets::{
-    Octets, Parse, Parser, ParseError
+    Octets, Parser, ParseError
 };
 use super::super::wire::Compose;
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use core::convert::TryFrom;
 use core::{fmt, str};
+
+//------------ ExtendedError -------------------------------------------------
 
 /// Extended Error data structure
 #[derive(Debug, Clone)]
@@ -46,21 +48,28 @@ impl<Octs: AsRef<[u8]>> ExtendedError<Octs> {
     pub fn is_private(&self) -> bool {
         self.code().to_int() >= EDE_PRIVATE_RANGE_BEGIN
     }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let mut ede: Self = parser.parse_u16()?.into();
+        let n = parser.remaining();
+        if n > 0 {
+            ede.set_text(parser.parse_octets(n)?).map_err(|_| {
+                ParseError::form_error(
+                    "invalid extended error text encoding"
+                )
+            })?;
+        }
+        Ok(ede)
+    }
 }
+
+//--- From and TryFrom
 
 impl<Octs> From<ExtendedErrorCode> for ExtendedError<Octs> {
     fn from(code: ExtendedErrorCode) -> Self {
         Self { code, text: None }
-    }
-}
-
-impl<Octs: AsRef<[u8]>> TryFrom<(ExtendedErrorCode, Octs)> for ExtendedError<Octs> {
-    type Error = str::Utf8Error;
-
-    fn try_from(v: (ExtendedErrorCode, Octs)) -> Result<Self, Self::Error> {
-        let mut ede: Self = v.0.into();
-        ede.set_text(v.1)?;
-        Ok(ede)
     }
 }
 
@@ -73,26 +82,18 @@ impl<Octs> From<u16> for ExtendedError<Octs> {
     }
 }
 
-impl<'a, Octs> Parse<'a, Octs> for ExtendedError<Octs::Range<'a>> 
-where Octs: Octets + ?Sized {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let mut ede: Self = parser.parse_u16()?.into();
-        let n = parser.remaining();
-        if n > 0 {
-            ede.set_text(parser.parse_octets(n)?).map_err(|_| {
-                ParseError::form_error(
-                    "invalid extended error text encoding"
-                )
-            })?;
-        }
+impl<Octs> TryFrom<(ExtendedErrorCode, Octs)> for ExtendedError<Octs>
+where Octs: AsRef<[u8]> {
+    type Error = str::Utf8Error;
+
+    fn try_from(v: (ExtendedErrorCode, Octs)) -> Result<Self, Self::Error> {
+        let mut ede: Self = v.0.into();
+        ede.set_text(v.1)?;
         Ok(ede)
     }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance_to_end();
-        Ok(())
-    }
 }
+
+//--- OptData, ParseOptData, and ComposeOptData
 
 impl<Octs> OptData for ExtendedError<Octs> {
     fn code(&self) -> OptionCode {
@@ -138,6 +139,8 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for ExtendedError<Octs> {
     }
 }
 
+//--- Display
+
 impl<Octs: AsRef<[u8]>> fmt::Display for ExtendedError<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.code.fmt(f)?;
@@ -149,6 +152,8 @@ impl<Octs: AsRef<[u8]>> fmt::Display for ExtendedError<Octs> {
         Ok(())
     }
 }
+
+//============ Tests =========================================================
 
 #[cfg(all(test, feature="std"))]
 mod tests {
@@ -184,7 +189,15 @@ mod tests {
 
     #[test]
     fn encoding() {
-        assert!(ExtendedError::try_from((ExtendedErrorCode::Other, b"\x30".as_ref())).is_ok());
-        assert!(ExtendedError::try_from((ExtendedErrorCode::Other, b"\xff".as_ref())).is_err());
+        assert!(
+            ExtendedError::try_from(
+                (ExtendedErrorCode::Other, b"\x30".as_ref())
+            ).is_ok()
+        );
+        assert!(
+            ExtendedError::try_from(
+                (ExtendedErrorCode::Other, b"\xff".as_ref())
+            ).is_err()
+        );
     }
 }

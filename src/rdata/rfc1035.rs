@@ -67,6 +67,12 @@ impl A {
     pub(super) fn convert_octets<E>(self) -> Result<Self, E> {
         Ok(self)
     }
+
+    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
+        Ipv4Addr::parse(parser).map(Self::new)
+    }
 }
 
 //--- OctetsFrom
@@ -106,18 +112,6 @@ impl FromStr for A {
 impl CanonicalOrd for A {
     fn canonical_cmp(&self, other: &Self) -> Ordering {
         self.cmp(other)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for A {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ipv4Addr::parse(parser).map(Self::new)
-    }
-
-    fn skip(parser: &mut Parser<Octs>) -> Result<(), ParseError> {
-        Ipv4Addr::skip(parser)
     }
 }
 
@@ -270,6 +264,12 @@ impl<Octs> Hinfo<Octs> {
             self.os.try_octets_into()?,
         ))
     }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        Ok(Self::new(CharStr::parse(parser)?, CharStr::parse(parser)?))
+    }
 }
 
 impl<SrcOcts> Hinfo<SrcOcts> {
@@ -359,20 +359,6 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Hinfo<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.cpu.hash(state);
         self.os.hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Hinfo<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(Self::new(CharStr::parse(parser)?, CharStr::parse(parser)?))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        CharStr::skip(parser)?;
-        CharStr::skip(parser)?;
-        Ok(())
     }
 }
 
@@ -563,6 +549,15 @@ impl<'a, Octs: Octets> Minfo<ParsedDname<'a, Octs>> {
     }
 }
 
+impl<'a, Octs: Octets + ?Sized> Minfo<ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        Ok(Self::new(
+            ParsedDname::parse(parser)?,
+            ParsedDname::parse(parser)?,
+        ))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Minfo<SrcName>> for Minfo<Name>
@@ -627,24 +622,6 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Minfo<NN>> for Minfo<N> {
             other => return other,
         }
         self.emailbx.lowercase_composed_cmp(&other.emailbx)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for Minfo<ParsedDname<'a, Octs>>
-where Octs: Octets + ?Sized {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(Self::new(
-            ParsedDname::parse(parser)?,
-            ParsedDname::parse(parser)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        ParsedDname::skip(parser)?;
-        ParsedDname::skip(parser)?;
-        Ok(())
     }
 }
 
@@ -787,6 +764,14 @@ impl<'a, Octs: Octets> Mx<ParsedDname<'a, Octs>> {
     }
 }
 
+//--- Parse
+
+impl<'a, Octs: Octets + ?Sized> Mx<ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        Ok(Self::new(u16::parse(parser)?, ParsedDname::parse(parser)?))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Mx<SrcName>> for Mx<Name>
@@ -851,20 +836,6 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Mx<NN>> for Mx<N> {
             other => return other,
         }
         self.exchange.lowercase_composed_cmp(&other.exchange)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for Mx<ParsedDname<'a, Octs>>
-where Octs: Octets + ?Sized {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(Self::new(u16::parse(parser)?, ParsedDname::parse(parser)?))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        u16::skip(parser)?;
-        ParsedDname::skip(parser)
     }
 }
 
@@ -999,6 +970,15 @@ impl<Octs: AsRef<[u8]>> Null<Octs> {
     }
 }
 
+impl<Octs> Null<Octs> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = parser.remaining();
+        parser.parse_octets(len).map(Self::new).map_err(Into::into)
+    }
+}
+
 impl<SrcOcts> Null<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Null<Octs>, PushError>
     where
@@ -1077,20 +1057,6 @@ impl<Octs: AsRef<[u8]>> Ord for Null<Octs> {
 impl<Octs: AsRef<[u8]>> hash::Hash for Null<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.data.as_ref().hash(state)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Null<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = parser.remaining();
-        parser.parse_octets(len).map(Self::new).map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance_to_end();
-        Ok(())
     }
 }
 
@@ -1310,6 +1276,20 @@ impl<'a, Octs: Octets> Soa<ParsedDname<'a, Octs>> {
     }
 }
 
+impl<'a, Octs: Octets + ?Sized> Soa<ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        Ok(Self::new(
+            ParsedDname::parse(parser)?,
+            ParsedDname::parse(parser)?,
+            Serial::parse(parser)?,
+            u32::parse(parser)?,
+            u32::parse(parser)?,
+            u32::parse(parser)?,
+            u32::parse(parser)?,
+        ))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Soa<SrcName>> for Soa<Name>
@@ -1444,34 +1424,6 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Soa<NN>> for Soa<N> {
             other => return other,
         }
         self.minimum.cmp(&other.minimum)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for Soa<ParsedDname<'a, Octs>>
-where Octs: Octets + ?Sized {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(Self::new(
-            ParsedDname::parse(parser)?,
-            ParsedDname::parse(parser)?,
-            Serial::parse(parser)?,
-            u32::parse(parser)?,
-            u32::parse(parser)?,
-            u32::parse(parser)?,
-            u32::parse(parser)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        ParsedDname::skip(parser)?;
-        ParsedDname::skip(parser)?;
-        Serial::skip(parser)?;
-        u32::skip(parser)?;
-        u32::skip(parser)?;
-        u32::skip(parser)?;
-        u32::skip(parser)?;
-        Ok(())
     }
 }
 
@@ -1674,6 +1626,20 @@ impl<Octs: AsRef<[u8]>> Txt<Octs> {
     }
 }
 
+impl<Octs: AsRef<[u8]>> Txt<Octs> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = parser.remaining();
+        let text = parser.parse_octets(len)?;
+        let mut tmp = Parser::from_ref(text.as_ref());
+        while tmp.remaining() != 0 {
+            CharStr::skip(&mut tmp)?
+        }
+        Ok(Txt(text))
+    }
+}
+
 impl<SrcOcts> Txt<SrcOcts> {
     pub(super) fn convert_octets<Target: OctetsFrom<SrcOcts>>(
         self,
@@ -1780,25 +1746,6 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Txt<Octs> {
         self.iter()
             .flat_map(|s| s.iter().copied())
             .for_each(|c| c.hash(state))
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Txt<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = parser.remaining();
-        let text = parser.parse_octets(len)?;
-        let mut tmp = Parser::from_ref(text.as_ref());
-        while tmp.remaining() != 0 {
-            CharStr::skip(&mut tmp)?
-        }
-        Ok(Txt(text))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance_to_end();
-        Ok(())
     }
 }
 

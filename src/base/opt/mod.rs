@@ -43,7 +43,7 @@ use super::header::Header;
 use super::iana::{OptRcode, OptionCode, Rtype};
 use super::name::{Dname, ToDname};
 use super::octets::{
-    Compose, Composer, FormError, Octets, OctetsFrom, Parse, ParseError, Parser,
+    Compose, Composer, FormError, Octets, OctetsFrom, ParseError, Parser,
 };
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::Record;
@@ -101,6 +101,13 @@ impl<Octs: AsRef<[u8]>> Opt<Octs> {
     {
         OptIter::new(&self.octets)
     }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = parser.remaining();
+        Self::from_octets(parser.parse_octets(len)?)
+    }
 }
 
 //--- OctetsFrom
@@ -153,20 +160,6 @@ impl<Octs: AsRef<[u8]>> Ord for Opt<Octs> {
 impl<Octs: AsRef<[u8]>> hash::Hash for Opt<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.octets.as_ref().hash(state)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Opt<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = parser.remaining();
-        Self::from_octets(parser.parse_octets(len)?)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance_to_end();
-        Ok(())
     }
 }
 
@@ -511,17 +504,11 @@ impl OptionHeader {
     pub fn len(self) -> u16 {
         self.len
     }
-}
 
-//--- Parse
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for OptionHeader {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
         Ok(OptionHeader::new(parser.parse_u16()?, parser.parse_u16()?))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(4).map_err(Into::into)
     }
 }
 

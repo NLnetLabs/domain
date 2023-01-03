@@ -62,6 +62,24 @@ macro_rules! int_enum {
                     }
                 }
             }
+
+            pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized> (
+                parser: &mut $crate::base::octets::Parser<'a, Octs>
+            ) -> Result<Self, $crate::base::octets::ParseError> {
+                <$inttype as $crate::base::octets::Parse<'a, Octs>>::parse(
+                    parser
+                ).map(Self::from_int)
+            }
+        
+            pub const COMPOSE_LEN: u16 =
+                <$inttype as $crate::base::wire::Compose>::COMPOSE_LEN;
+
+            pub fn compose<Target: octseq::builder::OctetsBuilder + ?Sized>(
+                &self,
+                target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                $crate::base::wire::Compose::compose(&self.to_int(), target)
+            }
         }
 
 
@@ -82,39 +100,6 @@ macro_rules! int_enum {
         impl<'a> From<&'a $ianatype> for $inttype {
             fn from(value: &'a $ianatype) -> Self {
                 value.to_int()
-            }
-        }
-
-
-        //--- Parse and Compose
-
-        impl<'a, Octs> $crate::base::octets::Parse<'a, Octs> for $ianatype
-        where Octs: AsRef<[u8]> + ?Sized {
-            fn parse(
-                parser: &mut $crate::base::octets::Parser<'a, Octs>
-            ) -> Result<Self, $crate::base::octets::ParseError> {
-                <$inttype as $crate::base::octets::Parse<'a, Octs>>::parse(
-                    parser
-                ).map(Self::from_int)
-            }
-
-            fn skip(
-                parser: &mut $crate::base::octets::Parser<'a, Octs>
-            ) -> Result<(), $crate::base::octets::ParseError> {
-                <$inttype as $crate::base::octets::Parse<'a, Octs>>
-                    ::skip(parser)
-            }
-        }
-
-        impl $ianatype {
-            pub const COMPOSE_LEN: u16 =
-                <$inttype as $crate::base::wire::Compose>::COMPOSE_LEN;
-
-            pub fn compose<Target: octseq::builder::OctetsBuilder + ?Sized>(
-                &self,
-                target: &mut Target
-            ) -> Result<(), Target::AppendError> {
-                $crate::base::wire::Compose::compose(&self.to_int(), target)
             }
         }
 

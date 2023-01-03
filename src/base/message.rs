@@ -15,7 +15,7 @@ use super::iana::{Class, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
 use super::name::ParsedDname;
 use super::octets::{
-    Composer, Octets, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
+    Composer, Octets, OctetsFrom, ParseError, Parser, ShortBuf,
 };
 use super::opt::{Opt, OptRecord};
 use super::question::Question;

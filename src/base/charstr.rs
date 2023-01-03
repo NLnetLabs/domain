@@ -25,7 +25,7 @@
 
 use super::cmp::CanonicalOrd;
 use super::scan::{BadSymbol, Scan, Scanner, Symbol, SymbolCharsError};
-use super::wire::{Compose, Parse, ParseError};
+use super::wire::{Compose, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
@@ -53,13 +53,13 @@ use std::vec::Vec;
 ///
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone)]
-pub struct CharStr<Octets: ?Sized>(Octets);
+pub struct CharStr<Octs: ?Sized>(Octs);
 
-impl<Octets: ?Sized> CharStr<Octets> {
+impl<Octs: ?Sized> CharStr<Octs> {
     /// Creates a new empty character string.
     pub fn empty() -> Self
     where
-        Octets: From<&'static [u8]>,
+        Octs: From<&'static [u8]>,
     {
         CharStr(b"".as_ref().into())
     }
@@ -68,9 +68,9 @@ impl<Octets: ?Sized> CharStr<Octets> {
     ///
     /// Returns succesfully if `octets` can indeed be used as a
     /// character string, i.e., it is not longer than 255 bytes.
-    pub fn from_octets(octets: Octets) -> Result<Self, CharStrError>
+    pub fn from_octets(octets: Octs) -> Result<Self, CharStrError>
     where
-        Octets: AsRef<[u8]> + Sized,
+        Octs: AsRef<[u8]> + Sized,
     {
         if octets.as_ref().len() > 255 {
             Err(CharStrError)
@@ -85,27 +85,27 @@ impl<Octets: ?Sized> CharStr<Octets> {
     ///
     /// The caller has to make sure that `octets` is at most 255 octets
     /// long. Otherwise, the behaviour is undefined.
-    pub unsafe fn from_octets_unchecked(octets: Octets) -> Self
+    pub unsafe fn from_octets_unchecked(octets: Octs) -> Self
     where
-        Octets: Sized,
+        Octs: Sized,
     {
         CharStr(octets)
     }
 
     /// Creates a new empty builder for this character string type.
-    pub fn builder() -> CharStrBuilder<Octets::Builder>
+    pub fn builder() -> CharStrBuilder<Octs::Builder>
     where
-        Octets: IntoBuilder,
-        Octets::Builder: EmptyBuilder,
+        Octs: IntoBuilder,
+        Octs::Builder: EmptyBuilder,
     {
         CharStrBuilder::new()
     }
 
     /// Converts the character string into a builder.
-    pub fn into_builder(self) -> CharStrBuilder<Octets::Builder>
+    pub fn into_builder(self) -> CharStrBuilder<Octs::Builder>
     where
-        Octets: IntoBuilder + Sized,
-        <Octets as IntoBuilder>::Builder: AsRef<[u8]>,
+        Octs: IntoBuilder + Sized,
+        <Octs as IntoBuilder>::Builder: AsRef<[u8]>,
     {
         unsafe {
             CharStrBuilder::from_builder_unchecked(IntoBuilder::into_builder(
@@ -115,9 +115,9 @@ impl<Octets: ?Sized> CharStr<Octets> {
     }
 
     /// Converts the character string into its underlying octets value.
-    pub fn into_octets(self) -> Octets
+    pub fn into_octets(self) -> Octs
     where
-        Octets: Sized,
+        Octs: Sized,
     {
         self.0
     }
@@ -125,7 +125,7 @@ impl<Octets: ?Sized> CharStr<Octets> {
     /// Returns a character string atop a slice of the content.
     pub fn for_slice(&self) -> CharStr<&[u8]>
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         unsafe { CharStr::from_octets_unchecked(self.0.as_ref()) }
     }
@@ -133,7 +133,7 @@ impl<Octets: ?Sized> CharStr<Octets> {
     /// Returns a character string atop a mutable slice of the content.
     pub fn for_slice_mut(&mut self) -> CharStr<&mut [u8]>
     where
-        Octets: AsMut<[u8]>,
+        Octs: AsMut<[u8]>,
     {
         unsafe { CharStr::from_octets_unchecked(self.0.as_mut()) }
     }
@@ -141,7 +141,7 @@ impl<Octets: ?Sized> CharStr<Octets> {
     /// Returns a reference to a slice of the character string’s data.
     pub fn as_slice(&self) -> &[u8]
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         self.0.as_ref()
     }
@@ -149,9 +149,30 @@ impl<Octets: ?Sized> CharStr<Octets> {
     /// Returns a reference to a mutable slice of the character string’s data.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
     where
-        Octets: AsMut<[u8]>,
+        Octs: AsMut<[u8]>,
     {
         self.0.as_mut()
+    }
+}
+
+impl<Octs> CharStr<Octs> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = parser.parse_u8()? as usize;
+        parser
+            .parse_octets(len)
+            .map(|bytes| unsafe { Self::from_octets_unchecked(bytes) })
+            .map_err(Into::into)
+    }
+}
+
+impl CharStr<[u8]> {
+    pub fn skip<'a, Src: Octets + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<(), ParseError> {
+        let len = parser.parse_u8()? as usize;
+        parser.advance(len.into()).map_err(Into::into)
     }
 }
 
@@ -162,7 +183,8 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
 
     pub fn compose<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
-    ) -> Result<(), Target::AppendError> {
+    ) -> Result<(), Target::AppendError>
+    where Octs: AsRef<[u8]> {
         u8::try_from(
             self.0.as_ref().len()
         ).expect("long charstr").compose(target)?;
@@ -335,23 +357,6 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
             .iter()
             .map(u8::to_ascii_lowercase)
             .for_each(|ch| ch.hash(state))
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for CharStr<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser
-            .parse_octets(len)
-            .map(|bytes| unsafe { Self::from_octets_unchecked(bytes) })
-            .map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser.advance(len).map_err(Into::into)
     }
 }
 

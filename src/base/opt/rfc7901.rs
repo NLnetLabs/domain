@@ -4,7 +4,7 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::name::{Dname, ToDname};
 use super::super::octets::{
-    Composer, Octets, Parse, ParseError, Parser,
+    Composer, Octets, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -29,16 +29,11 @@ impl<Name> Chain<Name> {
     }
 }
 
-
-//--- ParseAll
-
-impl<'a, Octs: Octets> Parse<'a, Octs> for Chain<Dname<Octs::Range<'a>>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs> Chain<Dname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
         Dname::parse(parser).map(Self::new)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        Dname::skip(parser)
     }
 }
 

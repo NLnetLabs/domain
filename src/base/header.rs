@@ -16,10 +16,9 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use super::iana::{Opcode, Rcode};
-use super::octets::{
-    Parse, ParseError, Parser,
-};
+use super::wire::ParseError;
 use octseq::builder::OctetsBuilder;
+use octseq::parse::Parser;
 use core::convert::TryInto;
 use core::{fmt, mem, str::FromStr};
 
@@ -828,6 +827,25 @@ impl HeaderSection {
     }
 }
 
+/// # Parsing and Composing
+///
+impl HeaderSection {
+    pub fn parse<'a, Octs: AsRef<[u8]>>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
+        let mut res = Self::default();
+        parser.parse_buf(&mut res.inner)?;
+        Ok(res)
+    }
+
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.inner)
+    }
+}
+
 //--- AsRef and AsMut
 
 impl AsRef<Header> for HeaderSection {
@@ -851,29 +869,6 @@ impl AsRef<HeaderCounts> for HeaderSection {
 impl AsMut<HeaderCounts> for HeaderSection {
     fn as_mut(&mut self) -> &mut HeaderCounts {
         self.counts_mut()
-    }
-}
-
-//--- Parse and Compose
-
-impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for HeaderSection {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let mut res = Self::default();
-        parser.parse_buf(&mut res.inner)?;
-        Ok(res)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(12).map_err(Into::into)
-    }
-}
-
-impl HeaderSection {
-    pub fn compose<Target: OctetsBuilder + ?Sized>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), Target::AppendError> {
-        target.append_slice(&self.inner)
     }
 }
 

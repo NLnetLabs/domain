@@ -183,6 +183,21 @@ impl<Octs> Dnskey<Octs> {
             self.public_key.try_octets_into()?,
         ))
     }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = match parser.remaining().checked_sub(4) {
+            Some(len) => len,
+            None => return Err(ParseError::ShortInput),
+        };
+        Ok(Self::new(
+            u16::parse(parser)?,
+            u8::parse(parser)?,
+            SecAlg::parse(parser)?,
+            parser.parse_octets(len)?,
+        ))
+    }
 }
 
 impl<SrcOcts> Dnskey<SrcOcts> {
@@ -290,31 +305,6 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Dnskey<Octs> {
         self.protocol.hash(state);
         self.algorithm.hash(state);
         self.public_key.as_ref().hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Dnskey<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = match parser.remaining().checked_sub(4) {
-            Some(len) => len,
-            None => return Err(ParseError::ShortInput),
-        };
-        Ok(Self::new(
-            u16::parse(parser)?,
-            u8::parse(parser)?,
-            SecAlg::parse(parser)?,
-            parser.parse_octets(len)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        if parser.remaining() < 4 {
-            return Err(ParseError::ShortInput);
-        }
-        parser.advance_to_end();
-        Ok(())
     }
 }
 
@@ -703,6 +693,32 @@ impl<'a, Octs, NOcts: Octets> Rrsig<Octs, ParsedDname<'a, NOcts>> {
     }
 }
 
+impl<'a, Octs: Octets + ?Sized> Rrsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        let type_covered = Rtype::parse(parser)?;
+        let algorithm = SecAlg::parse(parser)?;
+        let labels = u8::parse(parser)?;
+        let original_ttl = u32::parse(parser)?;
+        let expiration = Serial::parse(parser)?;
+        let inception = Serial::parse(parser)?;
+        let key_tag = u16::parse(parser)?;
+        let signer_name = ParsedDname::parse(parser)?;
+        let len = parser.remaining();
+        let signature = parser.parse_octets(len)?;
+        Ok(Self::new(
+            type_covered,
+            algorithm,
+            labels,
+            original_ttl,
+            expiration,
+            inception,
+            key_tag,
+            signer_name,
+            signature,
+        ))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Octs, SrcOcts, Name, SrcName> OctetsFrom<Rrsig<SrcOcts, SrcName>>
@@ -871,49 +887,6 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Rrsig<O, N> {
         self.key_tag.hash(state);
         self.signer_name.hash(state);
         self.signature.as_ref().hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
-    for Rrsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
-{
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let type_covered = Rtype::parse(parser)?;
-        let algorithm = SecAlg::parse(parser)?;
-        let labels = u8::parse(parser)?;
-        let original_ttl = u32::parse(parser)?;
-        let expiration = Serial::parse(parser)?;
-        let inception = Serial::parse(parser)?;
-        let key_tag = u16::parse(parser)?;
-        let signer_name = ParsedDname::parse(parser)?;
-        let len = parser.remaining();
-        let signature = parser.parse_octets(len)?;
-        Ok(Self::new(
-            type_covered,
-            algorithm,
-            labels,
-            original_ttl,
-            expiration,
-            inception,
-            key_tag,
-            signer_name,
-            signature,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        Rtype::skip(parser)?;
-        SecAlg::skip(parser)?;
-        u8::skip(parser)?;
-        u32::skip(parser)?;
-        Serial::skip(parser)?;
-        Serial::skip(parser)?;
-        u16::skip(parser)?;
-        ParsedDname::skip(parser)?;
-        parser.advance_to_end();
-        Ok(())
     }
 }
 
@@ -1124,6 +1097,15 @@ impl<'a, Octs, NOcts: Octets> Nsec<Octs, ParsedDname<'a, NOcts>> {
     }
 }
 
+impl<'a, Octs: Octets + ?Sized> Nsec<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        Ok(Nsec::new(
+            ParsedDname::parse(parser)?,
+            RtypeBitmap::parse(parser)?,
+        ))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Octs, SrcOcts, Name, SrcName> OctetsFrom<Nsec<SrcOcts, SrcName>>
@@ -1215,24 +1197,6 @@ impl<Octs: AsRef<[u8]>, Name: hash::Hash> hash::Hash for Nsec<Octs, Name> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.next_name.hash(state);
         self.types.hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs>
-    for Nsec<Octs::Range<'a>, ParsedDname<'a, Octs>>
-{
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(Nsec::new(
-            ParsedDname::parse(parser)?,
-            RtypeBitmap::parse(parser)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        ParsedDname::skip(parser)?;
-        RtypeBitmap::skip(parser)
     }
 }
 
@@ -1396,6 +1360,21 @@ impl<Octs> Ds<Octs> {
             self.digest.try_octets_into()?,
         ))
     }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = match parser.remaining().checked_sub(4) {
+            Some(len) => len,
+            None => return Err(ParseError::ShortInput),
+        };
+        Ok(Self::new(
+            u16::parse(parser)?,
+            SecAlg::parse(parser)?,
+            DigestAlg::parse(parser)?,
+            parser.parse_octets(len)?,
+        ))
+    }
 }
 
 impl<SrcOcts> Ds<SrcOcts> {
@@ -1514,31 +1493,6 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Ds<Octs> {
         self.algorithm.hash(state);
         self.digest_type.hash(state);
         self.digest.as_ref().hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Ds<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = match parser.remaining().checked_sub(4) {
-            Some(len) => len,
-            None => return Err(ParseError::ShortInput),
-        };
-        Ok(Self::new(
-            u16::parse(parser)?,
-            SecAlg::parse(parser)?,
-            DigestAlg::parse(parser)?,
-            parser.parse_octets(len)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        if parser.remaining() < 4 {
-            return Err(ParseError::ShortInput);
-        }
-        parser.advance_to_end();
-        Ok(())
     }
 }
 
@@ -1713,13 +1667,24 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
         false
     }
 
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = parser.remaining();
+        RtypeBitmap::from_octets(parser.parse_octets(len)?)
+            .map_err(Into::into)
+    }
+
     pub fn compose_len(&self) -> u16 {
         u16::try_from(self.0.as_ref().len()).expect("long rtype bitmap")
     }
 
     pub fn compose<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
-    ) -> Result<(), Target::AppendError> {
+    ) -> Result<(), Target::AppendError> 
+    where
+        Octs: AsRef<[u8]>,
+    {
         target.append_slice(self.0.as_ref())
     }
 }
@@ -1805,22 +1770,6 @@ impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octs> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for RtypeBitmap<Octs::Range<'a>>
-where Octs: Octets + ?Sized {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = parser.remaining();
-        RtypeBitmap::from_octets(parser.parse_octets(len)?)
-            .map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance_to_end();
-        Ok(())
     }
 }
 

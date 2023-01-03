@@ -6,7 +6,7 @@
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
     EmptyBuilder, FormError,
-    FromBuilder, Octets, OctetsFrom, Parse, ParseError, Parser,
+    FromBuilder, Octets, OctetsFrom, ParseError, Parser,
 };
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError};
@@ -208,6 +208,117 @@ impl<'a, Octs: Octets + ?Sized> ParsedDname<'a, Octs> {
     }
 }
 
+impl<'a, Octs> ParsedDname<'a, Octs>
+where
+    Octs: AsRef<[u8]> + ?Sized,
+{
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        // We will walk over the entire name to ensure it is valid. Because
+        // we need to clone the original parser for the result, anyway, it is
+        // okay to clone the input parser into a temporary parser to do the
+        // checking on.
+        let mut res = *parser;
+        let mut tmp = *parser;
+
+        // Name compression can lead to infinite recursion. The easiest way
+        // to protect against that is by limiting the number of compression
+        // pointers we allow. Since the largest number of labels in a name is
+        // 128 (the shortest possible label is two bytes long plus the root
+        // label is one byte), this seems a reasonable upper limit. We’ll
+        // keep a counter of the numbers of pointers encountered. Plus, when
+        // we encounter our first pointer, it marks the end of the name in
+        // the original parser, so we update that at that point.
+        let mut ptrs = 0;
+
+        // We’ll also keep track of the length of the uncompressed version of
+        // the name which musn’t exceed 255 bytes and whether compression has
+        // occured yet. As you’ll see below, this cannot necessarily be
+        // determined by checking if prts is still zero.
+        let mut len = 0;
+        let mut compressed = false;
+
+        loop {
+            match LabelType::parse(&mut tmp)? {
+                LabelType::Normal(0) => {
+                    len += 1;
+                    if len > 255 {
+                        return Err(ParsedDnameError::LongName.into());
+                    }
+                    if ptrs == 0 {
+                        parser.seek(tmp.pos()).unwrap();
+                    }
+                    break;
+                }
+                LabelType::Normal(label_len) => {
+                    len += label_len + 1;
+                    tmp.advance(label_len.into())?;
+                    if len > 255 {
+                        return Err(ParsedDnameError::LongName.into());
+                    }
+                }
+                LabelType::Compressed(pos) => {
+                    if ptrs >= 127 {
+                        return Err(
+                            ParsedDnameError::ExcessiveCompression.into()
+                        );
+                    }
+                    if ptrs == 0 {
+                        parser.seek(tmp.pos()).unwrap();
+                    }
+                    if len == 0 {
+                        // If no normal labels have occured yet, we can
+                        // reposition the result’s parser to the pointed to
+                        // position and pretend we don’t have a compressed
+                        // name.
+                        res.seek(pos)?;
+                    } else {
+                        compressed = true;
+                    }
+                    ptrs += 1;
+                    tmp.seek(pos)?
+                }
+            }
+        }
+        Ok(ParsedDname {
+            parser: res,
+            len,
+            compressed,
+        })
+    }
+
+    /// Skip over a domain name.
+    ///
+    /// This will only check the uncompressed part of the name. If the name
+    /// is compressed but the compression pointer is invalid or the name
+    /// pointed to is invalid or too long, the function will still succeed.
+    ///
+    /// If you need to check that the name you are skipping over is valid, you
+    /// will have to use `parse` and drop the result.
+    pub fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
+        let mut len = 0;
+        loop {
+            match LabelType::parse(parser) {
+                Ok(LabelType::Normal(0)) => {
+                    len += 1;
+                    if len > 255 {
+                        return Err(ParsedDnameError::LongName.into());
+                    }
+                    return Ok(());
+                }
+                Ok(LabelType::Normal(label_len)) => {
+                    parser.advance(label_len.into())?;
+                    len += label_len + 1;
+                    if len > 255 {
+                        return Err(ParsedDnameError::LongName.into());
+                    }
+                }
+                Ok(LabelType::Compressed(_)) => return Ok(()),
+                Err(err) => return Err(err),
+            }
+        }
+    }
+}
+
 //--- Clone and Clone
 
 impl<'a, Octs: ?Sized> Clone for ParsedDname<'a, Octs> {
@@ -326,119 +437,6 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs> Parse<'a, Octs> for ParsedDname<'a, Octs>
-where
-    Octs: AsRef<[u8]> + ?Sized,
-{
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        // We will walk over the entire name to ensure it is valid. Because
-        // we need to clone the original parser for the result, anyway, it is
-        // okay to clone the input parser into a temporary parser to do the
-        // checking on.
-        let mut res = *parser;
-        let mut tmp = *parser;
-
-        // Name compression can lead to infinite recursion. The easiest way
-        // to protect against that is by limiting the number of compression
-        // pointers we allow. Since the largest number of labels in a name is
-        // 128 (the shortest possible label is two bytes long plus the root
-        // label is one byte), this seems a reasonable upper limit. We’ll
-        // keep a counter of the numbers of pointers encountered. Plus, when
-        // we encounter our first pointer, it marks the end of the name in
-        // the original parser, so we update that at that point.
-        let mut ptrs = 0;
-
-        // We’ll also keep track of the length of the uncompressed version of
-        // the name which musn’t exceed 255 bytes and whether compression has
-        // occured yet. As you’ll see below, this cannot necessarily be
-        // determined by checking if prts is still zero.
-        let mut len = 0;
-        let mut compressed = false;
-
-        loop {
-            match LabelType::parse(&mut tmp)? {
-                LabelType::Normal(0) => {
-                    len += 1;
-                    if len > 255 {
-                        return Err(ParsedDnameError::LongName.into());
-                    }
-                    if ptrs == 0 {
-                        parser.seek(tmp.pos()).unwrap();
-                    }
-                    break;
-                }
-                LabelType::Normal(label_len) => {
-                    len += label_len + 1;
-                    tmp.advance(label_len.into())?;
-                    if len > 255 {
-                        return Err(ParsedDnameError::LongName.into());
-                    }
-                }
-                LabelType::Compressed(pos) => {
-                    if ptrs >= 127 {
-                        return Err(
-                            ParsedDnameError::ExcessiveCompression.into()
-                        );
-                    }
-                    if ptrs == 0 {
-                        parser.seek(tmp.pos()).unwrap();
-                    }
-                    if len == 0 {
-                        // If no normal labels have occured yet, we can
-                        // reposition the result’s parser to the pointed to
-                        // position and pretend we don’t have a compressed
-                        // name.
-                        res.seek(pos)?;
-                    } else {
-                        compressed = true;
-                    }
-                    ptrs += 1;
-                    tmp.seek(pos)?
-                }
-            }
-        }
-        Ok(ParsedDname {
-            parser: res,
-            len,
-            compressed,
-        })
-    }
-
-    /// Skip over a domain name.
-    ///
-    /// This will only check the uncompressed part of the name. If the name
-    /// is compressed but the compression pointer is invalid or the name
-    /// pointed to is invalid or too long, the function will still succeed.
-    ///
-    /// If you need to check that the name you are skipping over is valid, you
-    /// will have to use `parse` and drop the result.
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        let mut len = 0;
-        loop {
-            match LabelType::parse(parser) {
-                Ok(LabelType::Normal(0)) => {
-                    len += 1;
-                    if len > 255 {
-                        return Err(ParsedDnameError::LongName.into());
-                    }
-                    return Ok(());
-                }
-                Ok(LabelType::Normal(label_len)) => {
-                    parser.advance(label_len.into())?;
-                    len += label_len + 1;
-                    if len > 255 {
-                        return Err(ParsedDnameError::LongName.into());
-                    }
-                }
-                Ok(LabelType::Compressed(_)) => return Ok(()),
-                Err(err) => return Err(err),
-            }
-        }
     }
 }
 

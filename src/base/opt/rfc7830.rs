@@ -3,7 +3,7 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, Composer, Parse, ParseError, Parser,
+    Compose, Composer, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -47,22 +47,14 @@ impl Padding {
     pub fn mode(self) -> PaddingMode {
         self.mode
     }
-}
 
-
-//--- Parse and Compose
-
-impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Padding {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+    pub fn parse<'a, Octs: AsRef<[u8]>>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
         // XXX Check whether there really are all zeros.
         let len = parser.remaining();
         parser.advance(len)?;
         Ok(Padding::with_mode(len as u16, PaddingMode::Zero))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance_to_end();
-        Ok(())
     }
 }
 

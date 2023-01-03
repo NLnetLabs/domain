@@ -5,7 +5,7 @@
 use super::super::cmp::CanonicalOrd;
 use super::super::octets::{
     EmptyBuilder, FormError,
-    FromBuilder, Octets, OctetsFrom, Parse, ParseError,
+    FromBuilder, Octets, OctetsFrom, ParseError,
     Parser, Truncate,
 };
 use super::super::scan::{Scan, Scanner, Symbol};
@@ -566,6 +566,39 @@ impl<Octs: AsRef<[u8]>> Dname<Octs> {
     }
 }
 
+impl<Octs> Dname<Octs> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = Self::parse_name_len(parser)?;
+        Ok(unsafe { Self::from_octets_unchecked(parser.parse_octets(len)?) })
+    }
+
+    fn parse_name_len<Source: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Source>,
+    ) -> Result<usize, ParseError> {
+        let len = {
+            let mut tmp = parser.peek_all();
+            loop {
+                if tmp.is_empty() {
+                    return Err(ParseError::ShortInput);
+                }
+                let (label, tail) = Label::split_from(tmp)?;
+                tmp = tail;
+                if label.is_root() {
+                    break;
+                }
+            }
+            parser.remaining() - tmp.len()
+        };
+        if len > 255 {
+            Err(DnameError::LongName.into())
+        } else {
+            Ok(len)
+        }
+    }
+}
+
 //--- Deref and AsRef
 
 impl<Octs: ?Sized> ops::Deref for Dname<Octs> {
@@ -717,44 +750,6 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Dname<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = name_len(parser)?;
-        Ok(unsafe { Self::from_octets_unchecked(parser.parse_octets(len)?) })
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        let len = name_len(parser)?;
-        parser.advance(len).map_err(Into::into)
-    }
-}
-
-fn name_len<Source: AsRef<[u8]> + ?Sized>(
-    parser: &mut Parser<Source>,
-) -> Result<usize, ParseError> {
-    let len = {
-        let mut tmp = parser.peek_all();
-        loop {
-            if tmp.is_empty() {
-                return Err(ParseError::ShortInput);
-            }
-            let (label, tail) = Label::split_from(tmp)?;
-            tmp = tail;
-            if label.is_root() {
-                break;
-            }
-        }
-        parser.remaining() - tmp.len()
-    };
-    if len > 255 {
-        Err(DnameError::LongName.into())
-    } else {
-        Ok(len)
     }
 }
 

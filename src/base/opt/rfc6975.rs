@@ -3,7 +3,7 @@
 use super::super::iana::{OptionCode, SecAlg};
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Composer, Octets, Parse, ParseError, Parser,
+    Composer, Octets, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -28,23 +28,14 @@ macro_rules! option_type {
             where Octs: AsRef<[u8]> {
                 SecAlgsIter::new(self.octets.as_ref())
             }
-        }
 
-        //--- Parse
-
-        impl<'a, Octs: Octets> Parse<'a, Octs> for $name<Octs::Range<'a>> {
-            fn parse(
-                parser: &mut Parser<'a, Octs>
+            pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+                parser: &mut Parser<'a, Src>
             ) -> Result<Self, ParseError> {
                 let len = parser.remaining();
                 parser.parse_octets(len).map(
                     Self::from_octets
                 ).map_err(Into::into)
-            }
-
-            fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-                parser.advance_to_end();
-                Ok(())
             }
         }
 

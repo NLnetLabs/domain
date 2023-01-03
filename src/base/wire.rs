@@ -47,9 +47,21 @@ impl<A: smallvec::Array<Item = u8>> Composer for smallvec::SmallVec<A> { }
 
 //------------ Compose -------------------------------------------------------
 
+/// An extension trait to add composing to foreign types.
+///
+/// This trait can be used to add the `compose` method to a foreign type. For
+/// local types, the method should be added directly to the type instead.
+///
+/// The trait can only be used for types that have a fixed-size wire
+/// representation.
 pub trait Compose {
+    /// The length in octets of the wire representation of a value.
+    ///
+    /// Because all wire format lengths are limited to 16 bit, this is a
+    /// `u16` rather than a `usize`.
     const COMPOSE_LEN: u16 = 0;
 
+    /// Appends the wire format representation of the value to the target.
     fn compose<Target: OctetsBuilder + ?Sized> (
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError>;
@@ -110,27 +122,10 @@ compose_to_be_bytes!(u128);
 
 //------------ Parse ------------------------------------------------------
 
-/// A type that can extract a value from a parser.
+/// An extension trait to add parsing to foreign types.
 ///
-/// The trait is a companion to [`Parser<Ref>`]: it allows a type to use a
-/// parser to create a value of itself. Because types may be generic over
-/// octets types, the trait is generic over the octets reference of the
-/// parser in question. Implementations should use minimal trait bounds
-/// matching the parser methods they use.
-///
-/// For types that are generic over an octets sequence, the reference type
-/// should be tied to the type’s own type argument. This will avoid having
-/// to provide type annotations when simply calling `Parse::parse` for the
-/// type. Typically this will happen via `OctetsRef::Range`. For instance,
-/// a type `Foo<Octets>` should provide:
-///
-/// ```ignore
-/// impl<Ref: OctetsRef> Parse<Ref> for Foo<Ref::Range> {
-///     // etc.
-/// }
-/// ```
-///
-/// [`Parser<Ref>`]: struct.Parser.html
+/// This trait can be used to add the `parse` method to a foreign type. For
+/// local types, the method should be added directly to the type instead.
 pub trait Parse<'a, Octs: ?Sized>: Sized {
     /// Extracts a value from the beginning of `parser`.
     ///
@@ -139,22 +134,11 @@ pub trait Parse<'a, Octs: ?Sized>: Sized {
     /// in this case, you should store the position before attempting to parse
     /// and seek to that position again before continuing.
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError>;
-
-    /// Skips over a value of this type at the beginning of `parser`.
-    ///
-    /// This function is the same as `parse` but doesn’t return the result.
-    /// It can be used to check if the content of `parser` is correct or to
-    /// skip over unneeded parts of the parser.
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError>;
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i8 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_i8().map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(1).map_err(Into::into)
     }
 }
 
@@ -162,19 +146,11 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u8 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_u8().map_err(Into::into)
     }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(1).map_err(Into::into)
-    }
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i16 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_i16().map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(2).map_err(Into::into)
     }
 }
 
@@ -182,29 +158,17 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u16 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_u16().map_err(Into::into)
     }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(2).map_err(Into::into)
-    }
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i32 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_i32().map_err(Into::into)
     }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(4).map_err(Into::into)
-    }
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u32 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser.parse_u32().map_err(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(4).map_err(Into::into)
     }
 }
 
@@ -217,10 +181,6 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv4Addr {
             u8::parse(parser)?,
         ))
     }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(4).map_err(Into::into)
-    }
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
@@ -228,10 +188,6 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
         let mut buf = [0u8; 16];
         parser.parse_buf(&mut buf)?;
         Ok(buf.into())
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(16).map_err(Into::into)
     }
 }
 

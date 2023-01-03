@@ -183,8 +183,16 @@ impl Serial {
     }
 }
 
+/// # Parsing and Composing
+///
 impl Serial {
     pub const COMPOSE_LEN: u16 = u32::COMPOSE_LEN;
+
+    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
+        u32::parse(parser).map(Into::into)
+    }
 
     pub fn compose<Target: Composer + ?Sized>(
         &self, target: &mut Target
@@ -220,18 +228,6 @@ impl str::FromStr for Serial {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         <u32 as str::FromStr>::from_str(s).map(Into::into)
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Serial {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        u32::parse(parser).map(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        u32::skip(parser)
     }
 }
 

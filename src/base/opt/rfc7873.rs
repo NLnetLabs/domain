@@ -3,7 +3,7 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Composer, Parse, ParseError, Parser,
+    Composer, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -22,20 +22,13 @@ impl Cookie {
     pub fn cookie(self) -> [u8; 8] {
         self.0
     }
-}
 
-
-//--- ParseAll and Compose
-
-impl<'a, Octs: AsRef<[u8]>> Parse<'a, Octs> for Cookie {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+    pub fn parse<'a, Octs: AsRef<[u8]>>(
+        parser: &mut Parser<'a, Octs>
+    ) -> Result<Self, ParseError> {
         let mut res = [0u8; 8];
         parser.parse_buf(&mut res[..])?;
         Ok(Self::new(res))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        parser.advance(8).map_err(Into::into)
     }
 }
 

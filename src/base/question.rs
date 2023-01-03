@@ -8,7 +8,7 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::octets::{
-    Composer, Octets, OctetsFrom, Parse, ParseError, Parser,
+    Composer, Octets, OctetsFrom, ParseError, Parser,
 };
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -83,6 +83,18 @@ impl<N: ToDname> Question<N> {
     /// Returns the class of the question.
     pub fn qclass(&self) -> Class {
         self.qclass
+    }
+}
+
+/// # Parsing and Composing
+///
+impl<'a, Octs: Octets> Question<ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        Ok(Question::new(
+            ParsedDname::parse(parser)?,
+            Rtype::parse(parser)?,
+            Class::parse(parser)?,
+        ))
     }
 }
 
@@ -203,25 +215,6 @@ impl<N: hash::Hash> hash::Hash for Question<N> {
         self.qname.hash(state);
         self.qtype.hash(state);
         self.qclass.hash(state);
-    }
-}
-
-//--- Parse and Compose
-
-impl<'a, Octs: Octets> Parse<'a, Octs> for Question<ParsedDname<'a, Octs>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        Ok(Question::new(
-            ParsedDname::parse(parser)?,
-            Rtype::parse(parser)?,
-            Class::parse(parser)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        ParsedDname::skip(parser)?;
-        Rtype::skip(parser)?;
-        Class::skip(parser)?;
-        Ok(())
     }
 }
 

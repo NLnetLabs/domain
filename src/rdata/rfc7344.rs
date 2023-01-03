@@ -85,6 +85,21 @@ impl<Octs> Cdnskey<Octs> {
             self.public_key.try_octets_into()?,
         ))
     }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = match parser.remaining().checked_sub(4) {
+            Some(len) => len,
+            None => return Err(ParseError::ShortInput),
+        };
+        Ok(Self::new(
+            u16::parse(parser)?,
+            u8::parse(parser)?,
+            SecAlg::parse(parser)?,
+            parser.parse_octets(len)?,
+        ))
+    }
 }
 
 impl<SrcOcts> Cdnskey<SrcOcts> {
@@ -193,31 +208,6 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Cdnskey<Octs> {
         self.protocol.hash(state);
         self.algorithm.hash(state);
         self.public_key.as_ref().hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Cdnskey<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = match parser.remaining().checked_sub(4) {
-            Some(len) => len,
-            None => return Err(ParseError::ShortInput),
-        };
-        Ok(Self::new(
-            u16::parse(parser)?,
-            u8::parse(parser)?,
-            SecAlg::parse(parser)?,
-            parser.parse_octets(len)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        if parser.remaining() < 4 {
-            return Err(ParseError::ShortInput);
-        }
-        parser.advance_to_end();
-        Ok(())
     }
 }
 
@@ -379,6 +369,21 @@ impl<Octs> Cds<Octs> {
             self.digest.try_octets_into()?,
         ))
     }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
+        let len = match parser.remaining().checked_sub(4) {
+            Some(len) => len,
+            None => return Err(ParseError::ShortInput),
+        };
+        Ok(Self::new(
+            u16::parse(parser)?,
+            SecAlg::parse(parser)?,
+            DigestAlg::parse(parser)?,
+            parser.parse_octets(len)?,
+        ))
+    }
 }
 
 impl<SrcOcts> Cds<SrcOcts> {
@@ -497,31 +502,6 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Cds<Octs> {
         self.algorithm.hash(state);
         self.digest_type.hash(state);
         self.digest.as_ref().hash(state);
-    }
-}
-
-//--- Parse
-
-impl<'a, Octs: Octets + ?Sized> Parse<'a, Octs> for Cds<Octs::Range<'a>> {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        let len = match parser.remaining().checked_sub(4) {
-            Some(len) => len,
-            None => return Err(ParseError::ShortInput),
-        };
-        Ok(Self::new(
-            u16::parse(parser)?,
-            SecAlg::parse(parser)?,
-            DigestAlg::parse(parser)?,
-            parser.parse_octets(len)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
-        if parser.remaining() < 4 {
-            return Err(ParseError::ShortInput);
-        }
-        parser.advance_to_end();
-        Ok(())
     }
 }
 
