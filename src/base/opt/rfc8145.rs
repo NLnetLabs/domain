@@ -5,7 +5,7 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
     Compose, Composer, FormError, Octets, Parse, ParseError,
-    Parser, ShortBuf
+    Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -128,7 +128,7 @@ impl<'a> Iterator for KeyTagIter<'a> {
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
     pub fn key_tag(
         &mut self, tags: &impl AsRef<[u16]>
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), Target::AppendError> {
         self.push_raw_option(
             OptionCode::KeyTag,
             u16::try_from(

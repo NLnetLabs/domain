@@ -3,7 +3,7 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, Composer, Parse, ParseError, Parser, ShortBuf
+    Compose, Composer, Parse, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -90,7 +90,9 @@ impl ComposeOptData for Expire {
 //------------ OptBuilder ----------------------------------------------------
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
-    pub fn expire(&mut self, expire: Option<u32>) -> Result<(), ShortBuf> {
+    pub fn expire(
+        &mut self, expire: Option<u32>
+    ) -> Result<(), Target::AppendError> {
         self.push(&Expire::new(expire))
     }
 }

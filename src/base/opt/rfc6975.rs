@@ -3,7 +3,7 @@
 use super::super::iana::{OptionCode, SecAlg};
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Composer, Octets, Parse, ParseError, Parser, ShortBuf
+    Composer, Octets, Parse, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -101,7 +101,7 @@ macro_rules! option_type {
         impl<'a, Target: Composer> OptBuilder<'a, Target> {
             pub fn $fn(
                 &mut self, octets: &impl AsRef<[u8]>
-            ) -> Result<(), ShortBuf> {
+            ) -> Result<(), Target::AppendError> {
                 self.push(&$name::from_octets(octets.as_ref()))
             }
         }

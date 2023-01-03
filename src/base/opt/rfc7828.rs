@@ -3,7 +3,7 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, Composer, Parse, ParseError, Parser, ShortBuf
+    Compose, Composer, Parse, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -74,7 +74,9 @@ impl ComposeOptData for TcpKeepalive {
 //------------ OptBuilder ----------------------------------------------------
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
-    pub fn tcp_keepalive(&mut self, timeout: u16) -> Result<(), ShortBuf> {
+    pub fn tcp_keepalive(
+        &mut self, timeout: u16
+    ) -> Result<(), Target::AppendError> {
         self.push(&TcpKeepalive::new(timeout))
     }
 }

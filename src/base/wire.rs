@@ -15,7 +15,7 @@ use core::fmt;
 ///
 /// The function panics if the length of the composed data is greater than
 /// 0xFFFF.
-pub fn compose_len_prefixed_certain<Target, F>(
+pub(crate) fn compose_len_prefixed_certain<Target, F>(
     target: &mut Target, op: F
 ) -> Result<(), Target::AppendError>
 where
@@ -267,106 +267,6 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
 
     fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         parser.advance(16).map_err(Into::into)
-    }
-}
-
-//------------ LengthPrefixed ------------------------------------------------
-
-pub struct LengthPrefixed<'a, Target: AsRef<[u8]> + AsMut<[u8]> + ?Sized> {
-    target: &'a mut Target,
-    start: usize,
-    max_len: usize,
-}
-
-impl<'a, Target> LengthPrefixed<'a, Target>
-where Target: Composer + ?Sized {
-    pub fn try_new(
-        target: &'a mut Target
-    ) -> Result<Self, ShortBuf> {
-        target.append_slice(b"\0\0").map_err(Into::into)?;
-        let start = target.as_ref().len();
-        let max_len = start.checked_add(0xFFFF).ok_or(ShortBuf)?;
-        Ok(LengthPrefixed { target, start, max_len })
-    }
-
-    pub fn target_slice(&self) -> &[u8] {
-        self.target.as_ref()
-    }
-
-    pub fn target_slice_mut(&mut self) -> &mut [u8] {
-        self.target.as_mut()
-    }
-
-    fn _append(
-        &mut self,
-        op: impl FnOnce(&mut Target) -> Result<(), Target::AppendError>,
-    ) -> Result<(), ShortBuf> {
-        let curr = self.target.as_ref().len();
-        op(self.target).map_err(Into::into)?;
-        if self.target.as_ref().len() > self.max_len {
-            self.target.truncate(curr);
-            Err(ShortBuf)
-        }
-        else {
-            Ok(())
-        }
-    }
-}
-
-impl<'a, Target> OctetsBuilder for LengthPrefixed<'a, Target>
-where Target: Composer + ?Sized {
-    type AppendError = ShortBuf;
-
-    fn append_slice(
-        &mut self, slice: &[u8]
-    ) -> Result<(), Self::AppendError> {
-        self._append(|target| target.append_slice(slice))
-    }
-}
-
-impl<'a, Target: Composer + ?Sized> Composer for LengthPrefixed<'a, Target> {
-    fn append_compressed_dname<N: ToDname + ?Sized>(
-        &mut self, name: &N,
-    ) -> Result<(), Self::AppendError> {
-        self._append(|target| target.append_compressed_dname(name))
-    }
-}
-
-impl<'a, Target> AsRef<[u8]> for LengthPrefixed<'a, Target>
-where Target: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
-    fn as_ref(&self) -> &[u8] {
-        &self.target.as_ref()[self.start..]
-    }
-}
-
-impl<'a, Target> AsMut<[u8]> for LengthPrefixed<'a, Target>
-where Target: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
-    fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.target.as_mut()[self.start..]
-    }
-}
-
-impl<'a, Target> Truncate for LengthPrefixed<'a, Target>
-where Target: Truncate + AsRef<[u8]> + AsMut<[u8]> + ?Sized {
-    fn truncate(&mut self, len: usize) {
-        if let Some(len) = self.start.checked_add(len) {
-            self.target.truncate(len)
-        }
-    }
-}
-
-impl<'a, Target> Drop for LengthPrefixed<'a, Target>
-where Target: AsRef<[u8]> + AsMut<[u8]> + ?Sized {
-    fn drop(&mut self) {
-        // XXX We should really do checked subtraction and conversion here.
-        //     However, we don’t really want to panic in drop. We’ve made
-        //     sure that the target can only grow or shrink by way of our own
-        //     methods, so this should be safe -- provided those methods are
-        //     correct.
-        let len = (self.target.as_ref().len() - self.start) as u16;
-        self.target.as_mut()[self.start - 2..self.start].copy_from_slice(
-            &len.to_be_bytes()
-        );
     }
 }
 

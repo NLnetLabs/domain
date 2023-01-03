@@ -3,7 +3,7 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
-    Compose, Composer, Parse, ParseError, Parser, ShortBuf
+    Compose, Composer, Parse, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -117,13 +117,13 @@ impl ComposeOptData for Padding {
 //------------ OptBuilder ----------------------------------------------------
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
-    pub fn padding(&mut self, len: u16) -> Result<(), ShortBuf> {
+    pub fn padding(&mut self, len: u16) -> Result<(), Target::AppendError> {
         self.push(&Padding::new(len))
     }
 
     pub fn padding_with_mode(
         &mut self, len: u16, mode: PaddingMode
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), Target::AppendError> {
         self.push(&Padding::with_mode(len, mode))
     }
 }

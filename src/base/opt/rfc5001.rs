@@ -4,7 +4,6 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::octets::{
     Composer, Octets, OctetsBuilder, Parse, ParseError, Parser,
-    ShortBuf
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use core::fmt;
@@ -87,7 +86,9 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsid<Octs> {
 //------------ OptBuilder ----------------------------------------------------
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
-    pub fn nsid(&mut self, data: &impl AsRef<[u8]>) -> Result<(), ShortBuf> {
+    pub fn nsid(
+        &mut self, data: &impl AsRef<[u8]>
+    ) -> Result<(), Target::AppendError> {
         self.push(&Nsid::from_octets(data.as_ref()))
     }
 }

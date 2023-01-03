@@ -4,7 +4,7 @@ use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::name::{Dname, ToDname};
 use super::super::octets::{
-    Composer, Octets, Parse, ParseError, Parser, ShortBuf
+    Composer, Octets, Parse, ParseError, Parser,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -81,7 +81,9 @@ impl<Name: ToDname> ComposeOptData for Chain<Name> {
 //------------ OptBuilder ----------------------------------------------------
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
-    pub fn chain(&mut self, start: impl ToDname) -> Result<(), ShortBuf> {
+    pub fn chain(
+        &mut self, start: impl ToDname
+    ) -> Result<(), Target::AppendError> {
         self.push(&Chain::new(start))
     }
 }

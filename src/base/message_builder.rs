@@ -137,7 +137,7 @@ use super::name::{Label, ToDname};
 use super::opt::{ComposeOptData, OptHeader};
 use super::question::ComposeQuestion;
 use super::record::ComposeRecord;
-use super::wire::{Compose, Composer, LengthPrefixed};
+use super::wire::{Compose, Composer};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use octseq::octets::Octets;
@@ -1267,12 +1267,14 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     /// will return an error if it failed to add the header of the OPT record.
     ///
     /// [`OptBuilder`]: struct.OptBuilder.html
-    pub fn opt<F>(&mut self, build: F) -> Result<(), PushError>
+    pub fn opt<F>(&mut self, op: F) -> Result<(), PushError>
     where
-        F: FnOnce(&mut OptBuilder<Target>) -> Result<(), ShortBuf>,
+        F: FnOnce(&mut OptBuilder<Target>) -> Result<(), Target::AppendError>,
     {
         self.authority.answer.builder.push(
-            |target| build(&mut OptBuilder::new(target)?),
+            |target| {
+                OptBuilder::new(target)?.build(op).map_err(Into::into)
+            },
             |counts| counts.inc_arcount()
         )
     }
@@ -1498,7 +1500,7 @@ where
 /// [`AdditionalBuilder::opt`]: struct.AdditonalBuilder.html#method.opt
 pub struct OptBuilder<'a, Target: AsRef<[u8]> + AsMut<[u8]>> {
     start: usize,
-    rdata: LengthPrefixed<'a, Target>,
+    target: &'a mut Target,
 }
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
@@ -1508,16 +1510,43 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     ) -> Result<Self, ShortBuf> {
         let start = target.as_ref().len();
         OptHeader::default().compose(target).map_err(Into::into)?;
-        let rdata = LengthPrefixed::try_new(target)?;
-        Ok(OptBuilder { start, rdata })
+        Ok(OptBuilder { start, target })
+    }
+
+    fn build<F>(
+        &mut self, op: F
+    ) -> Result<(), ShortBuf>
+    where F: FnOnce(&mut Self) -> Result<(), Target::AppendError> {
+        self.target.append_slice(&[0; 2]).map_err(Into::into)?;
+        let pos = self.target.as_ref().len();
+        match op(self) {
+            Ok(_) => {
+                match u16::try_from(self.target.as_ref().len() - pos) {
+                    Ok(len) => {
+                        self.target.as_mut()[pos - 2..pos].copy_from_slice(
+                            &(len).to_be_bytes()
+                        );
+                        Ok(())
+                    }
+                    Err(_) => {
+                        self.target.truncate(pos);
+                        Err(ShortBuf)
+                    }
+                }
+            }
+            Err(_) => {
+                self.target.truncate(pos);
+                Err(ShortBuf)
+            }
+        }
     }
 
     /// Appends an option to the OPT record.
     pub fn push<Opt: ComposeOptData>(
         &mut self, opt: &Opt
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), Target::AppendError> {
         self.push_raw_option(opt.code(), opt.compose_len(), |target| {
-            opt.compose_option(target).map_err(Into::into)
+            opt.compose_option(target)
         })
     }
 
@@ -1530,15 +1559,13 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
         code: OptionCode,
         option_len: u16,
         op: F,
-    ) -> Result<(), ShortBuf>
+    ) -> Result<(), Target::AppendError>
     where
-        F: FnOnce(
-            &mut LengthPrefixed<Target>
-        ) -> Result<(), ShortBuf>,
+        F: FnOnce(&mut Target) -> Result<(), Target::AppendError>,
     {
-        option_len.compose(&mut self.rdata)?;
-        code.compose(&mut self.rdata)?;
-        op(&mut self.rdata)
+        option_len.compose(self.target)?;
+        code.compose(self.target)?;
+        op(self.target)
     }
 
     /// Returns the current UDP payload size field of the OPT record.
@@ -1561,7 +1588,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     /// OPT header.
     pub fn rcode(&self) -> OptRcode {
         self.opt_header().rcode(
-            *Header::for_message_slice(self.rdata.target_slice())
+            *Header::for_message_slice(self.target.as_ref())
         )
     }
 
@@ -1570,7 +1597,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     /// The method will update both the message header and the OPT header.
     pub fn set_rcode(&mut self, rcode: OptRcode) {
         Header::for_message_slice_mut(
-            self.rdata.target_slice_mut()
+            self.target.as_mut()
         ).set_rcode(rcode.rcode());
         self.opt_header_mut().set_rcode(rcode)
     }
@@ -1604,18 +1631,18 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
         self.opt_header_mut().set_dnssec_ok(value)
     }
 
-    /// Returns a reference the full OPT header.
+    /// Returns a reference to the full OPT header.
     fn opt_header(&self) -> &OptHeader {
         OptHeader::for_record_slice(
-            &self.rdata.target_slice()[self.start..]
+            &self.target.as_ref()[self.start..]
         )
     }
 
-    /// Returns a mutual reference the full OPT header.
+    /// Returns a mutual reference to the full OPT header.
     fn opt_header_mut(&mut self) -> &mut OptHeader {
         let start = self.start;
         OptHeader::for_record_slice_mut(
-            &mut self.rdata.target_slice_mut()[start..],
+            &mut self.target.as_mut()[start..],
         )
     }
 }

@@ -5,7 +5,6 @@ use super::super::message_builder::OptBuilder;
 use super::super::net::IpAddr;
 use super::super::octets::{
     Compose, Composer, FormError, Parse, ParseError, Parser,
-    ShortBuf,
 };
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
@@ -249,13 +248,15 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
         source_prefix_len: u8,
         scope_prefix_len: u8,
         addr: IpAddr,
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), Target::AppendError> {
         self.push(
             &ClientSubnet::new(source_prefix_len, scope_prefix_len, addr)
         )
     }
 }
 
+
+//============ Testing =======================================================
 
 #[cfg(all(test, feature="std"))]
 mod tests {
