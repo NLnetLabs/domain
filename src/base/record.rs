@@ -23,7 +23,6 @@ use super::octets::{
     OctetsFrom, Parse, ParseError, Parser, ShortBuf,
 };
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
-use super::wire::compose_len_prefixed_certain;
 use core::cmp::Ordering;
 use core::{fmt, hash};
 
@@ -194,7 +193,7 @@ impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
             self.data.compose_rdata(target)
         }
         else {
-            compose_len_prefixed_certain(target, |target| {
+            Self::compose_prefixed(target, |target| {
                 self.data.compose_rdata(target)
             })
         }
@@ -212,9 +211,32 @@ impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
             self.data.compose_canonical_rdata(target)
         }
         else {
-            compose_len_prefixed_certain(target, |target| {
+            Self::compose_prefixed(target, |target| {
                 self.data.compose_canonical_rdata(target)
             })
+        }
+    }
+
+    fn compose_prefixed<Target: Composer + ?Sized, F>(
+        target: &mut Target, op: F
+    ) -> Result<(), Target::AppendError>
+    where F: FnOnce(&mut Target) -> Result<(), Target::AppendError> {
+        target.append_slice(&[0; 2])?;
+        let pos = target.as_ref().len();
+        match op(target) {
+            Ok(_) => {
+                let len = u16::try_from(target.as_ref().len() - pos).expect(
+                    "long data"
+                );
+                target.as_mut()[pos - 2..pos].copy_from_slice(
+                    &(len).to_be_bytes()
+                );
+                Ok(())
+            }
+            Err(err) => {
+                target.truncate(pos);
+                Err(err)
+            }
         }
     }
 }

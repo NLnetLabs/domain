@@ -2,44 +2,9 @@
 
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
-use octseq::builder::{OctetsBuilder, ShortBuf, Truncate};
+use octseq::builder::{OctetsBuilder, Truncate};
 use octseq::parse::{Parser, ShortInput};
 use core::fmt;
-
-
-//------------ compose functions ---------------------------------------------
-
-/// Composes some data prefixed by its length.
-///
-/// # Panics
-///
-/// The function panics if the length of the composed data is greater than
-/// 0xFFFF.
-pub(crate) fn compose_len_prefixed_certain<Target, F>(
-    target: &mut Target, op: F
-) -> Result<(), Target::AppendError>
-where
-    Target: Composer + ?Sized,
-    F: FnOnce(&mut Target) -> Result<(), Target::AppendError>
-{
-    target.append_slice(&[0; 2])?;
-    let pos = target.as_ref().len();
-    match op(target) {
-        Ok(_) => {
-            let len = u16::try_from(target.as_ref().len() - pos).expect(
-                "long data"
-            );
-            target.as_mut()[pos - 2..pos].copy_from_slice(
-                &(len).to_be_bytes()
-            );
-            Ok(())
-        }
-        Err(err) => {
-            target.truncate(pos);
-            Err(err)
-        }
-    }
-}
 
 
 //------------ Composer ------------------------------------------------------
@@ -271,22 +236,6 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
 }
 
 //============ Error Types ===================================================
-
-//------------ ComposeError --------------------------------------------------
-
-/// An error happened while composing data.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ComposeError {
-    LongData,
-    ShortBuf,
-}
-
-impl<T: Into<ShortBuf>> From<T> for ComposeError {
-    fn from(_: T) -> Self {
-        ComposeError::ShortBuf
-    }
-}
-
 
 //------------ ParseError ----------------------------------------------------
 
