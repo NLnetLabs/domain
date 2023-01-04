@@ -25,11 +25,11 @@ fn mk_answer(msg: &Message<Bytes>) -> Message<Bytes> {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
-    let mut srv = TcpServer::new().unwrap();
+    let (mut srv, _shutdown_tx) = TcpServer::new().unwrap();
 
     loop {
-        eprintln!("Getting request...");
-        srv.get_request(|req| Ok(mk_answer(&req.query_message())))
+        //eprintln!()"Getting request...");
+        srv.handle_requests(|req| Ok(mk_answer(&req.query_message())))
             .await
             .unwrap();
     }
