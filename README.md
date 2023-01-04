@@ -2,7 +2,7 @@
 
 [![Current](https://img.shields.io/crates/v/domain.svg)](https://crates.io/crates/domain)
 [![Documentation](https://docs.rs/domain/badge.svg)](https://docs.rs/domain)
-![Mastodon Follow](https://img.shields.io/mastodon/follow/109262826617293067?domain=https%3A%2F%2Ffosstodon.org&style=social)
+[![Mastodon Follow](https://img.shields.io/mastodon/follow/109262826617293067?domain=https%3A%2F%2Ffosstodon.org&style=social)](https://fosstodon.org/@nlnetlabs)
 
 A library for interacting with the Domain Name System. The crate contains
 an ever-growing set of building blocks for including DNS functionality in
