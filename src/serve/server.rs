@@ -344,10 +344,8 @@ mod test {
     pub async fn tcp_test() {
         //console_subscriber::init();
 
-        // Create a new UDP DNS server hard-coded for now to listen on
-        // 127.0.0.1:1853. Send a request with a command like:
-        //
-        //   dig @127.0.0.1 -p 1853 A nlnetlabs.nl
+        // Create a new TCP DNS server hard-coded for now to listen on
+        // 127.0.0.1:1853.
         let (mut srv, shutdown_tx) = TcpServer::new().unwrap();
 
         // Demonstrate answering requests in "background" tasks, i.e. without
