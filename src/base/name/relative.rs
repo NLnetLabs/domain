@@ -2,13 +2,7 @@
 //!
 //! This is a private module. Its public types are re-exported by the parent.
 
-use super::super::octets::{
-    IntoBuilder, Octets, OctetsFrom, ParseError, Truncate,
-};
-#[cfg(feature = "serde")]
-use super::super::octets::{
-    DeserializeOctets, EmptyBuilder, FromBuilder, SerializeOctets,
-};
+use super::super::wire::ParseError;
 use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -16,7 +10,12 @@ use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::traits::{ ToLabelIter, ToRelativeDname};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::FreezeBuilder;
+use octseq::builder::{FreezeBuilder, IntoBuilder, Truncate};
+#[cfg(feature = "serde")]
+use octseq::builder::{EmptyBuilder, FromBuilder,};
+use octseq::octets::{Octets, OctetsFrom};
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
 use core::{cmp, fmt, hash, ops};

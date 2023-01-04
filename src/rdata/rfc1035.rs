@@ -9,19 +9,20 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::net::Ipv4Addr;
-use crate::base::octets::{
-    Compose, Composer, EmptyBuilder, FromBuilder, Octets,
-    OctetsBuilder, OctetsFrom, OctetsInto, Parse, ParseError, Parser,
-    ShortBuf,
-};
-#[cfg(feature = "serde")]
-use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner, ScannerError, Symbol};
 use crate::base::serial::Serial;
+use crate::base::wire::{Compose, Composer, Parse, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-use octseq::builder::{infallible, FreezeBuilder};
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
+    infallible
+};
+use octseq::octets::{Octets,OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 use core::cmp::Ordering;
 use core::convert::Infallible;
 use core::str::FromStr;
@@ -931,11 +932,11 @@ pub struct Null<Octs> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
-            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
+            deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octs: crate::base::octets::SerializeOctets",
-                deserialize = "Octs: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octs: octseq::serde::SerializeOctets",
+                deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
             )
         )
     )]

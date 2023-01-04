@@ -2,12 +2,8 @@
 //!
 //! This is a private module. Its public types are re-exported by the parent.
 
-use super::super::octets::{
-    EmptyBuilder, FromBuilder, IntoBuilder, ParseError,
-};
-#[cfg(feature = "serde")]
-use super::super::octets::{DeserializeOctets, SerializeOctets};
 use super::super::scan::{Scan, Scanner};
+use super::super::wire::ParseError;
 use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -16,7 +12,9 @@ use super::relative::{DnameIter, RelativeDname};
 use super::traits::ToLabelIter;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::builder::FreezeBuilder;
+use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder};
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 use core::{fmt, hash, str};
 #[cfg(feature = "std")]
 use std::vec::Vec;

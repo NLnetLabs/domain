@@ -7,18 +7,19 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
-use crate::base::octets::{
-    Compose, Composer, EmptyBuilder, FormError, FromBuilder,
-    Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parse, ParseError, Parser,
-    ShortBuf, Truncate
-};
-#[cfg(feature = "serde")]
-use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
+use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::utils::{base16, base64};
-use octseq::builder::FreezeBuilder;
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
+    Truncate
+};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::{fmt, hash, ptr};
@@ -33,10 +34,10 @@ use std::vec::Vec;
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>
         ",
         deserialize = "
-            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
                 OctetsBuilder + EmptyBuilder,
         ",
@@ -543,11 +544,11 @@ impl<Name: ToDname> ProtoRrsig<Name> {
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
             Name: serde::Serialize,
         ",
         deserialize = "
-            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
                 OctetsBuilder + EmptyBuilder,
             Name: serde::Deserialize<'de>,
@@ -1032,11 +1033,11 @@ where
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
             Name: serde::Serialize,
         ",
         deserialize = "
-            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
                 OctetsBuilder + EmptyBuilder + Truncate 
                 + AsRef<[u8]> + AsMut<[u8]>,
@@ -1295,10 +1296,10 @@ where
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>
         ",
         deserialize = "
-            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
                 OctetsBuilder + EmptyBuilder,
         ",

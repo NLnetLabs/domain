@@ -20,10 +20,11 @@
 //! [NSEC3]: ../../rdata/rfc5155/index.html
 //! [`Decoder`]: struct.Decoder.html
 
-use crate::base::octets::{EmptyBuilder, FromBuilder, OctetsBuilder};
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
-use octseq::builder::FreezeBuilder;
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder
+};
 #[cfg(feature = "std")]
 use std::string::String;
 
@@ -134,10 +135,8 @@ pub fn encode_display_hex<Octets: AsRef<[u8]>>(
 /// serializers or as a raw octets sequence for compact serializers.
 #[cfg(feature = "serde")]
 pub mod serde {
-    use crate::base::octets::{
-        DeserializeOctets, EmptyBuilder, FromBuilder, OctetsBuilder,
-        SerializeOctets,
-    };
+    use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
+    use octseq::serde::{DeserializeOctets, SerializeOctets};
     use core::fmt;
 
     pub fn serialize<Octets, S>(

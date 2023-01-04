@@ -2,7 +2,6 @@
 //!
 //! This is a private module. Its public traits are re-exported by the parent.
 
-use super::super::octets::{EmptyBuilder, FromBuilder};
 use super::builder::PushError;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -10,7 +9,9 @@ use super::label::Label;
 use super::relative::RelativeDname;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::builder::{FreezeBuilder, OctetsBuilder};
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder
+};
 use core::cmp;
 #[cfg(feature = "std")]
 use std::borrow::Cow;

@@ -3,14 +3,14 @@
 
 use crate::base::iana::{Rtype, SvcbParamKey};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
-use crate::base::octets::{
-    Compose, Composer, EmptyBuilder, FormError,
-    FromBuilder, Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parse,
-    ParseError, Parser, ShortBuf,
-};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use octseq::array::Array;
-use octseq::builder::FreezeBuilder;
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
+};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
 use core::{fmt, hash};
 use param::{AllParams, SvcbParam};
 

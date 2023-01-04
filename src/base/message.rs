@@ -14,14 +14,13 @@ use super::header::{Header, HeaderCounts, HeaderSection};
 use super::iana::{Class, Rcode, Rtype};
 use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
 use super::name::ParsedDname;
-use super::octets::{
-    Composer, Octets, OctetsFrom, ParseError, Parser, ShortBuf,
-};
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
 use super::rdata::ParseRecordData;
 use super::record::{ComposeRecord, ParsedRecord, Record};
+use super::wire::{Composer, ParseError};
 use crate::rdata::rfc1035::Cname;
+use octseq::{Octets, OctetsFrom, Parser, ShortBuf};
 use core::marker::PhantomData;
 use core::{fmt, mem};
 

@@ -3,10 +3,9 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! module.
 
-use super::super::octets::{
-    FormError, OctetsBuilder, ParseError,
-};
+use super::super::wire::{FormError, ParseError};
 use super::builder::{parse_escape, LabelFromStrError};
+use octseq::builder::OctetsBuilder;
 use core::str::FromStr;
 use core::{borrow, cmp, fmt, hash, ops};
 
@@ -558,7 +557,7 @@ impl serde::Serialize for OwnedLabel {
         &self,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        use crate::base::octets::SerializeOctets;
+        use octseq::serde::SerializeOctets;
 
         if serializer.is_human_readable() {
             serializer.serialize_newtype_struct(

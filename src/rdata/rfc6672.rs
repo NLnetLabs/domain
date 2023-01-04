@@ -1,8 +1,9 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::name::{ParsedDname, PushError, ToDname};
-use crate::base::octets::{
-    EmptyBuilder, FromBuilder, Octets, OctetsFrom, ParseError, Parser,
-};
+use crate::base::wire::ParseError; 
+use octseq::builder::{EmptyBuilder, FromBuilder};
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::str::FromStr;
 use core::{fmt, hash, ops};

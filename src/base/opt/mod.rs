@@ -42,12 +42,12 @@ opt_types! {
 use super::header::Header;
 use super::iana::{OptRcode, OptionCode, Rtype};
 use super::name::{Dname, ToDname};
-use super::octets::{
-    Compose, Composer, FormError, Octets, OctetsFrom, ParseError, Parser,
-};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::Record;
+use super::wire::{Compose, Composer, FormError, ParseError};
 use octseq::builder::OctetsBuilder;
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::marker::PhantomData;

@@ -27,10 +27,10 @@ macro_rules! rdata_types {
         )*
 
         use crate::base::name::{ParsedDname, PushError, ToDname};
-        use crate::base::octets::{
-            Composer, EmptyBuilder, FromBuilder, OctetsFrom, OctetsInto
-        };
+        use crate::base::wire::Composer;
         use crate::base::rdata::ComposeRecordData;
+        use octseq::builder::{EmptyBuilder, FromBuilder};
+        use octseq::octets::{OctetsFrom, OctetsInto};
 
 
         //------------- ZoneRecordData ---------------------------------------
@@ -49,14 +49,14 @@ macro_rules! rdata_types {
             feature = "serde",
             serde(bound(
                 serialize = "
-                    O: AsRef<[u8]> + crate::base::octets::SerializeOctets,
+                    O: AsRef<[u8]> + octseq::serde::SerializeOctets,
                     N: serde::Serialize,
                 ",
                 deserialize = "
-                    O: crate::base::octets::FromBuilder
-                        + crate::base::octets::DeserializeOctets<'de>,
-                    <O as crate::base::octets::FromBuilder>::Builder:
-                          crate::base::octets::EmptyBuilder
+                    O: octseq::builder::FromBuilder
+                        + octseq::serde::DeserializeOctets<'de>,
+                    <O as octseq::builder::FromBuilder>::Builder:
+                          octseq::builder::EmptyBuilder
                         + octseq::builder::Truncate
                         + AsRef<[u8]> + AsMut<[u8]>,
                     N: serde::Deserialize<'de>,
@@ -92,7 +92,7 @@ macro_rules! rdata_types {
 
         impl<'a, Octs> ZoneRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>>
         where
-            Octs: crate::base::octets::Octets,
+            Octs: octseq::octets::Octets,
         {
             pub fn flatten_into<Target>(
                 self,
@@ -124,13 +124,13 @@ macro_rules! rdata_types {
         //--- OctetsFrom
 
         impl<Octets, SrcOctets, Name, SrcName>
-            $crate::base::octets::OctetsFrom<
+            octseq::octets::OctetsFrom<
                 ZoneRecordData<SrcOctets, SrcName>
             >
             for ZoneRecordData<Octets, Name>
         where
-            Octets: $crate::base::octets::OctetsFrom<SrcOctets>,
-            Name: $crate::base::octets::OctetsFrom<
+            Octets: octseq::octets::OctetsFrom<SrcOctets>,
+            Name: octseq::octets::OctetsFrom<
                 SrcName, Error = Octets::Error
             >,
         {
@@ -311,13 +311,13 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<'a, Octs: $crate::base::octets::Octets>
+        impl<'a, Octs: octseq::octets::Octets>
         $crate::base::rdata::ParseRecordData<'a, Octs>
         for ZoneRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>> {
             fn parse_rdata(
                 rtype: $crate::base::iana::Rtype,
-                parser: &mut $crate::base::octets::Parser<'a, Octs>,
-            ) -> Result<Option<Self>, $crate::base::octets::ParseError> {
+                parser: &mut octseq::parse::Parser<'a, Octs>,
+            ) -> Result<Option<Self>, $crate::base::wire::ParseError> {
                 match rtype {
                     $( $( $(
                         $crate::base::iana::Rtype::$mtype => {
@@ -587,7 +587,7 @@ macro_rules! rdata_types {
 
         impl<'a, Octs> AllRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>>
         where
-            Octs: crate::base::octets::Octets,
+            Octs: octseq::octets::Octets,
         {
             pub fn flatten_into<Target>(
                 self,
@@ -678,13 +678,13 @@ macro_rules! rdata_types {
         //--- OctetsFrom
 
         impl<Octets, SrcOctets, Name, SrcName>
-            $crate::base::octets::OctetsFrom<
+            octseq::octets::OctetsFrom<
                 AllRecordData<SrcOctets, SrcName>
             >
             for AllRecordData<Octets, Name>
         where
-            Octets: $crate::base::octets::OctetsFrom<SrcOctets>,
-            Name: $crate::base::octets::OctetsFrom<
+            Octets: octseq::octets::OctetsFrom<SrcOctets>,
+            Name: octseq::octets::OctetsFrom<
                 SrcName, Error = Octets::Error,
             >,
         {
@@ -807,13 +807,13 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<'a, Octs: $crate::base::octets::Octets>
+        impl<'a, Octs: octseq::octets::Octets>
         $crate::base::rdata::ParseRecordData<'a, Octs>
         for AllRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>> {
             fn parse_rdata(
                 rtype: $crate::base::iana::Rtype,
-                parser: &mut $crate::base::octets::Parser<'a, Octs>,
-            ) -> Result<Option<Self>, $crate::base::octets::ParseError> {
+                parser: &mut octseq::parse::Parser<'a, Octs>,
+            ) -> Result<Option<Self>, crate::base::wire::ParseError> {
                 match rtype {
                     $( $( $(
                         $crate::base::iana::Rtype::$mtype => {
@@ -917,7 +917,7 @@ macro_rules! rdata_types {
         //--- Display and Debug
 
         impl<O, N> core::fmt::Display for AllRecordData<O, N>
-        where O: crate::base::octets::Octets, N: core::fmt::Display {
+        where O: octseq::octets::Octets, N: core::fmt::Display {
             fn fmt(
                 &self, f: &mut core::fmt::Formatter
             ) -> core::fmt::Result {
@@ -939,7 +939,7 @@ macro_rules! rdata_types {
         }
 
         impl<O, N> core::fmt::Debug for AllRecordData<O, N>
-        where O: crate::base::octets::Octets, N: core::fmt::Debug {
+        where O: octseq::octets::Octets, N: core::fmt::Debug {
             fn fmt(
                 &self, f: &mut core::fmt::Formatter
             ) -> core::fmt::Result {
@@ -1023,7 +1023,7 @@ macro_rules! dname_type_base {
 
         impl<'a, Octs> $target<ParsedDname<'a, Octs>>
         where
-            Octs: crate::base::octets::Octets,
+            Octs: octseq::octets::Octets,
         {
             pub fn flatten_into<Octets>(
                 self,

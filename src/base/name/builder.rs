@@ -3,14 +3,13 @@
 //! This is a private module for tidiness. `DnameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
-use super::super::octets::{EmptyBuilder, OctetsBuilder, ShortBuf};
 use super::super::scan::Symbol;
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-use octseq::builder::FreezeBuilder;
+use octseq::builder::{EmptyBuilder, FreezeBuilder, OctetsBuilder, ShortBuf};
 use core::{fmt, ops};
 #[cfg(feature = "std")]
 use std::vec::Vec;

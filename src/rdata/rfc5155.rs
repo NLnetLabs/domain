@@ -8,21 +8,21 @@ use super::rfc4034::RtypeBitmap;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Nsec3HashAlg, Rtype};
 use crate::base::name::PushError;
-use crate::base::octets::{
-    Compose, Composer, EmptyBuilder,
-    FromBuilder, Octets, OctetsBuilder, OctetsFrom, OctetsInto, Parse,
-    ParseError, Parser, Truncate
-};
-#[cfg(feature = "serde")]
-use crate::base::octets::{DeserializeOctets, SerializeOctets};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
+use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::builder::FreezeBuilder;
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate
+};
+use octseq::octets::{Octets,OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 use core::cmp::Ordering;
 use core::{fmt, hash, ops, str};
 
@@ -34,10 +34,10 @@ use core::{fmt, hash, ops, str};
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
         ",
         deserialize = "
-            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
                 EmptyBuilder + Truncate
                 + AsRef<[u8]> + AsMut<[u8]>,
@@ -385,10 +385,10 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
         ",
         deserialize = "
-            Octs: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
+            Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         ",
     ))

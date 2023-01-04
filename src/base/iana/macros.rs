@@ -64,9 +64,9 @@ macro_rules! int_enum {
             }
 
             pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized> (
-                parser: &mut $crate::base::octets::Parser<'a, Octs>
-            ) -> Result<Self, $crate::base::octets::ParseError> {
-                <$inttype as $crate::base::octets::Parse<'a, Octs>>::parse(
+                parser: &mut octseq::parse::Parser<'a, Octs>
+            ) -> Result<Self, $crate::base::wire::ParseError> {
+                <$inttype as $crate::base::wire::Parse<'a, Octs>>::parse(
                     parser
                 ).map(Self::from_int)
             }

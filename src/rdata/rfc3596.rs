@@ -7,11 +7,11 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::net::Ipv6Addr;
-use crate::base::octets::{
-    Composer, OctetsFrom, Parse, ParseError, Parser,
-};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner, ScannerError};
+use crate::base::wire::{Composer, Parse, ParseError};
+use octseq::octets::OctetsFrom;
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::convert::Infallible;
 use core::str::FromStr;

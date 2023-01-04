@@ -20,10 +20,10 @@ use crate::base::scan::{
     BadSymbol, ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
     Symbol, SymbolOctetsError,
 };
-use crate::base::str::String;
 use crate::rdata::ZoneRecordData;
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use octseq::str::Str;
 use core::str::FromStr;
 use core::{fmt, str};
 
@@ -39,7 +39,7 @@ pub type ScannedRecordData = ZoneRecordData<Bytes, ScannedDname>;
 pub type ScannedRecord = Record<ScannedDname, ScannedRecordData>;
 
 /// The type used for scanned strings.
-pub type ScannedString = String<Bytes>;
+pub type ScannedString = Str<Bytes>;
 
 //------------ Zonefile ------------------------------------------------------
 
@@ -681,7 +681,7 @@ impl<'a> Scanner for EntryScanner<'a> {
         })
     }
 
-    fn scan_string(&mut self) -> Result<String<Self::Octets>, Self::Error> {
+    fn scan_string(&mut self) -> Result<Str<Self::Octets>, Self::Error> {
         self.zonefile.buf.require_token()?;
 
         // The result will never be longer than the encoded form, so we can
@@ -706,7 +706,7 @@ impl<'a> Scanner for EntryScanner<'a> {
         // Done. `write` marks the end.
         self.zonefile.buf.next_item()?;
         Ok(unsafe {
-            String::from_utf8_unchecked(
+            Str::from_utf8_unchecked(
                 self.zonefile.buf.split_to(write).freeze(),
             )
         })

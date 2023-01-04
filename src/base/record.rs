@@ -18,11 +18,11 @@
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
-use super::octets::{
-    Compose, Composer, FormError, Octets,
-    OctetsFrom, Parse, ParseError, Parser, ShortBuf,
-};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use super::wire::{Compose, Composer, FormError, Parse, ParseError};
+use octseq::builder::ShortBuf;
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::{fmt, hash};
 

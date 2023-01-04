@@ -3,11 +3,11 @@
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::name::{Dname, ToDname};
-use super::super::octets::{
-    Composer, Octets, ParseError, Parser,
-};
+use super::super::wire::{Composer, ParseError};
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
+use octseq::octets::Octets;
+use octseq::parse::Parser;
 
 
 //------------ Chain --------------------------------------------------------

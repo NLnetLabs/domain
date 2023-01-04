@@ -7,12 +7,12 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
-use crate::base::octets::{
-    Compose, Composer, EmptyBuilder, FromBuilder, Octets,
-    OctetsFrom, OctetsInto, Parse, ParseError, Parser,
-};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
+use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use octseq::builder::{EmptyBuilder, FromBuilder};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::fmt;
 

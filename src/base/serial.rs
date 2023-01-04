@@ -8,10 +8,11 @@
 //! [`Serial`]: struct.Serial.html
 
 use super::cmp::CanonicalOrd;
-use super::octets::{Compose, Composer, Parse, ParseError, Parser};
 use super::scan::{Scan, Scanner, ScannerError};
+use super::wire::{Compose, Composer, Parse, ParseError};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone};
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::convert::TryFrom;
 use core::str::FromStr;

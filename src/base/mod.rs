@@ -103,7 +103,6 @@ pub use self::message_builder::{
 pub use self::name::{
     Dname, DnameBuilder, ParsedDname, RelativeDname, ToDname, ToRelativeDname,
 };
-pub use self::octets::{Compose, Parser, ShortBuf};
 pub use self::question::Question;
 pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
 pub use self::record::{ParsedRecord, Record, RecordHeader};
@@ -119,14 +118,13 @@ pub mod message;
 pub mod message_builder;
 pub mod name;
 pub mod net;
-pub mod octets;
 pub mod opt;
 pub mod question;
 pub mod rdata;
 pub mod record;
 pub mod scan;
 pub mod serial;
-pub mod str;
+//pub mod str;
 pub mod wire;
 
 //--- Private Helper Modules

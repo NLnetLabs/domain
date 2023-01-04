@@ -3,19 +3,17 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::cmp::CanonicalOrd;
-use super::super::octets::{
-    EmptyBuilder, FormError,
-    FromBuilder, Octets, OctetsFrom, ParseError,
-    Parser, Truncate,
-};
 use super::super::scan::{Scan, Scanner, Symbol};
+use super::super::wire::{FormError, ParseError};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::builder::FreezeBuilder;
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, Truncate};
+use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
 use core::ops::{Bound, RangeBounds};

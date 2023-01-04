@@ -7,12 +7,11 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
 use crate::base::name::ToDname;
-use crate::base::octets::{
-    Compose, ComposeCanonical, Composer, OctetsBuilder, ShortBuf
-};
+use crate::base::wire:: Composer;
 use crate::base::rdata::RecordData;
 use crate::base::record::Record;
 use crate::rdata::{Dnskey, Rrsig};
+use octseq::builder::{OctetsBuilder, ShortBuf};
 use ring::{digest, signature};
 use std::vec::Vec;
 use std::{error, fmt};

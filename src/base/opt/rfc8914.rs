@@ -2,12 +2,12 @@
 
 use super::super::iana::exterr::{ExtendedErrorCode, EDE_PRIVATE_RANGE_BEGIN};
 use super::super::iana::OptionCode;
-use super::super::octets::{
-    Octets, Parser, ParseError
-};
+use super::super::wire::ParseError;
 use super::super::wire::Compose;
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
+use octseq::octets::Octets;
+use octseq::parse::Parser;
 use core::convert::TryFrom;
 use core::{fmt, str};
 

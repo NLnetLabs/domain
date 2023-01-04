@@ -2,11 +2,10 @@
 
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
-use super::super::octets::{
-    Compose, Composer, ParseError, Parser,
-};
+use super::super::wire::{Compose, Composer, ParseError};
 use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
+use octseq::parse::Parser;
 
 
 //------------ PaddingMode ---------------------------------------------------

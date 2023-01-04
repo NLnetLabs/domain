@@ -24,11 +24,11 @@
 
 use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
-use super::octets::{
-    Composer, Octets, OctetsFrom, ParseError, Parser,
-};
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
+use super::wire::{Composer, ParseError};
 use crate::utils::base16;
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::fmt;
 
@@ -165,13 +165,13 @@ pub struct UnknownRecordData<Octs> {
             serialize_with = "crate::utils::base16::serde::serialize",
             deserialize_with = "crate::utils::base16::serde::deserialize",
             bound(
-                serialize = "Octs: AsRef<[u8]> + crate::base::octets::SerializeOctets",
+                serialize = "Octs: AsRef<[u8]> + octseq::serde::SerializeOctets",
                 deserialize = "\
                     Octs: \
-                        crate::base::octets::FromBuilder + \
-                        crate::base::octets::DeserializeOctets<'de>, \
-                    <Octs as crate::base::octets::FromBuilder>::Builder: \
-                        crate::base::octets::EmptyBuilder, \
+                        octseq::builder::FromBuilder + \
+                        octseq::serde::DeserializeOctets<'de>, \
+                    <Octs as octseq::builder::FromBuilder>::Builder: \
+                        octseq::builder::EmptyBuilder, \
                 ",
             )
         )

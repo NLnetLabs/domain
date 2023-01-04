@@ -7,13 +7,12 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
-use crate::base::octets::{
-    Compose, Composer, EmptyBuilder, FromBuilder, Octets,
-    OctetsFrom, OctetsInto, Parse, ParseError, Parser,
-};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
-use octseq::builder::OctetsBuilder;
+use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::{fmt, hash};
 #[cfg(feature = "std")]
@@ -42,11 +41,11 @@ pub struct Tsig<Octs, Name> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
-            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
+            deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octs: crate::base::octets::SerializeOctets",
-                deserialize = "Octs: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octs: octseq::serde::SerializeOctets",
+                deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
             )
         )
     )]
@@ -66,11 +65,11 @@ pub struct Tsig<Octs, Name> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
-            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
+            deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octs: crate::base::octets::SerializeOctets",
-                deserialize = "Octs: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octs: octseq::serde::SerializeOctets",
+                deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
             )
         )
     )]

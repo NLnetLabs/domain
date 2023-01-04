@@ -4,13 +4,13 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::PushError;
-use crate::base::octets::{
-    Compose, Composer, Octets, OctetsBuilder, OctetsFrom,
-    OctetsInto, Parse, ParseError, Parser,
-};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
+use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base64};
+use octseq::builder::OctetsBuilder;
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::{fmt, hash};
 
@@ -22,14 +22,14 @@ use core::{fmt, hash};
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>
         ",
         deserialize = "
             Octs:
-                crate::base::octets::FromBuilder
-                + crate::base::octets::DeserializeOctets<'de>,
-            <Octs as crate::base::octets::FromBuilder>::Builder:
-                OctetsBuilder + crate::base::octets::EmptyBuilder,
+                octseq::builder::FromBuilder
+                + octseq::serde::DeserializeOctets<'de>,
+            <Octs as octseq::builder::FromBuilder>::Builder:
+                OctetsBuilder + octseq::builder::EmptyBuilder,
         ",
     ))
 )]
@@ -302,14 +302,14 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octs: crate::base::octets::SerializeOctets + AsRef<[u8]>
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>
         ",
         deserialize = "
             Octs:
-                crate::base::octets::FromBuilder
-                + crate::base::octets::DeserializeOctets<'de>,
-            <Octs as crate::base::octets::FromBuilder>::Builder:
-                OctetsBuilder + crate::base::octets::EmptyBuilder,
+                octseq::builder::FromBuilder
+                + octseq::serde::DeserializeOctets<'de>,
+            <Octs as octseq::builder::FromBuilder>::Builder:
+                OctetsBuilder + octseq::builder::EmptyBuilder,
         ",
     ))
 )]

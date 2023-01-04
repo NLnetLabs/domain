@@ -7,9 +7,9 @@
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
-use super::octets::{
-    Composer, Octets, OctetsFrom, ParseError, Parser,
-};
+use super::wire::{Composer, ParseError};
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::{fmt, hash};
 

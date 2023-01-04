@@ -3,9 +3,9 @@
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
 use crate::base::name::{ParsedDname, ToDname, ToRelativeDname};
-use crate::base::octets::Octets;
 use crate::rdata::{Aaaa, A};
 use crate::resolv::resolver::{Resolver, SearchNames};
+use octseq::octets::Octets;
 use std::io;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
