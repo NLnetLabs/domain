@@ -25,7 +25,7 @@
 use super::cmp::CanonicalOrd;
 use super::iana::Rtype;
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
-use super::wire::{Composer, ParseError};
+use super::wire::{Compose, Composer, ParseError};
 use crate::utils::base16;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
@@ -76,7 +76,61 @@ pub trait ComposeRecordData: RecordData {
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError>;
+
+    /// Appends the record data prefixed with its length.
+    fn compose_len_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        if let Some(rdlen) = self.rdlen(target.can_compress()) {
+            rdlen.compose(target)?;
+            self.compose_rdata(target)
+        }
+        else {
+            compose_prefixed(target, |target| {
+                self.compose_rdata(target)
+            })
+        }
+    }
+
+    /// Appends the record data prefixed with its length.
+    fn compose_canonical_len_rdata<Target: Composer + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        if let Some(rdlen) = self.rdlen(false) {
+            rdlen.compose(target)?;
+            self.compose_canonical_rdata(target)
+        }
+        else {
+            compose_prefixed(target, |target| {
+                self.compose_canonical_rdata(target)
+            })
+        }
+    }
 }
+
+fn compose_prefixed<Target: Composer + ?Sized, F>(
+    target: &mut Target, op: F
+) -> Result<(), Target::AppendError>
+where F: FnOnce(&mut Target) -> Result<(), Target::AppendError> {
+    target.append_slice(&[0; 2])?;
+    let pos = target.as_ref().len();
+    match op(target) {
+        Ok(_) => {
+            let len = u16::try_from(target.as_ref().len() - pos).expect(
+                "long data"
+            );
+            target.as_mut()[pos - 2..pos].copy_from_slice(
+                &(len).to_be_bytes()
+            );
+            Ok(())
+        }
+        Err(err) => {
+            target.truncate(pos);
+            Err(err)
+        }
+    }
+}
+
 
 impl<'a, T: ComposeRecordData> ComposeRecordData for &'a T {
     fn rdlen(&self, compress: bool) -> Option<u16> {

@@ -7,11 +7,11 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
 use crate::base::name::ToDname;
-use crate::base::wire:: Composer;
-use crate::base::rdata::RecordData;
+use crate::base::wire::{Compose, Composer};
+use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::rdata::{Dnskey, Rrsig};
-use octseq::builder::{OctetsBuilder, ShortBuf};
+use octseq::builder::{with_infallible};
 use ring::{digest, signature};
 use std::vec::Vec;
 use std::{error, fmt};
@@ -19,7 +19,7 @@ use std::{error, fmt};
 //------------ Dnskey --------------------------------------------------------
 
 /// Extensions for DNSKEY record type.
-pub trait DnskeyExt: Compose {
+pub trait DnskeyExt {
     /// Calculates a digest from DNSKEY.
     ///
     /// See [RFC 4034, Section 5.1.4]:
@@ -73,8 +73,10 @@ where
         algorithm: DigestAlg,
     ) -> Result<digest::Digest, AlgorithmError> {
         let mut buf: Vec<u8> = Vec::new();
-        dname.compose_canonical(&mut buf);
-        self.compose_canonical(&mut buf);
+        with_infallible(|| {
+            dname.compose_canonical(&mut buf)?;
+            self.compose_canonical_rdata(&mut buf)
+        });
 
         let mut ctx = match algorithm {
             DigestAlg::Sha1 => {
@@ -95,7 +97,7 @@ where
 //------------ Rrsig ---------------------------------------------------------
 
 /// Extensions for DNSKEY record type.
-pub trait RrsigExt: Compose {
+pub trait RrsigExt {
     /// Compose the signed data according to [RC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
     ///
     /// ```text
@@ -110,14 +112,14 @@ pub trait RrsigExt: Compose {
     fn signed_data<
         N: ToDname,
         D: RecordData,
-        B: OctetsBuilder + AsMut<[u8]>,
+        B: Composer,
     >(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
-    ) -> Result<(), ShortBuf>
+    ) -> Result<(), B::AppendError>
     where
-        D: CanonicalOrd + Compose + Sized;
+        D: CanonicalOrd + ComposeRecordData + Sized;
 
     /// Attempt to use the cryptographic signature to authenticate the signed data, and thus authenticate the RRSET.
     /// The signed data is expected to be calculated as per [RFC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
@@ -147,7 +149,7 @@ pub trait RrsigExt: Compose {
     ) -> Result<(), AlgorithmError>;
 }
 
-impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
+impl<Octets: AsRef<[u8]>, Name: ToDname> RrsigExt for Rrsig<Octets, Name> {
     fn signed_data<
         N: ToDname,
         D: RecordData,
@@ -158,21 +160,21 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
         records: &mut [Record<N, D>],
     ) -> Result<(), B::AppendError>
     where
-        D: CanonicalOrd + Compose + Sized,
+        D: CanonicalOrd + ComposeRecordData + Sized,
     {
         // signed_data = RRSIG_RDATA | RR(1) | RR(2)...  where
         //    "|" denotes concatenation
         // RRSIG_RDATA is the wire format of the RRSIG RDATA fields
         //    with the Signature field excluded and the Signer's Name
         //    in canonical form.
-        self.type_covered().try_compose(buf)?;
-        self.algorithm().try_compose(buf)?;
-        self.labels().try_compose(buf)?;
-        self.original_ttl().try_compose(buf)?;
-        self.expiration().try_compose(buf)?;
-        self.inception().try_compose(buf)?;
-        self.key_tag().try_compose(buf)?;
-        self.signer_name().try_compose_canonical(buf)?;
+        self.type_covered().compose(buf)?;
+        self.algorithm().compose(buf)?;
+        self.labels().compose(buf)?;
+        self.original_ttl().compose(buf)?;
+        self.expiration().compose(buf)?;
+        self.inception().compose(buf)?;
+        self.key_tag().compose(buf)?;
+        self.signer_name().compose_canonical(buf)?;
 
         // The set of all RR(i) is sorted into canonical order.
         // See https://tools.ietf.org/html/rfc4034#section-6.3
@@ -195,17 +197,17 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                     .iter_suffixes()
                     .nth(fqdn_labels - rrsig_labels)
                 {
-                    Some(name) => name.try_compose_canonical(buf)?,
-                    None => fqdn.atry_compose_canonical(buf)?,
-                }?;
+                    Some(name) => name.compose_canonical(buf)?,
+                    None => fqdn.compose_canonical(buf)?,
+                };
             } else {
                 fqdn.compose_canonical(buf)?;
             }
 
-            rr.rtype().try_compose(buf)?;
-            rr.class().try_compose(buf)?;
-            self.original_ttl().try_compose(buf)?;
-            buf.u16_len_prefixed(|buf| rr.data().compose_canonical(buf))?;
+            rr.rtype().compose(buf)?;
+            rr.class().compose(buf)?;
+            self.original_ttl().compose(buf)?;
+            rr.data().compose_canonical_len_rdata(buf)?;
         }
         Ok(())
     }

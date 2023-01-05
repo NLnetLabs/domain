@@ -203,15 +203,7 @@ impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
         self.data.rtype().compose(target)?;
         self.class.compose(target)?;
         self.ttl.compose(target)?;
-        if let Some(rdlen) = self.data.rdlen(target.can_compress()) {
-            rdlen.compose(target)?;
-            self.data.compose_rdata(target)
-        }
-        else {
-            Self::compose_prefixed(target, |target| {
-                self.data.compose_rdata(target)
-            })
-        }
+        self.data.compose_len_rdata(target)
     }
 
     pub fn compose_canonical<Target: Composer + ?Sized>(
@@ -221,38 +213,7 @@ impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
         self.data.rtype().compose(target)?;
         self.class.compose(target)?;
         self.ttl.compose(target)?;
-        if let Some(rdlen) = self.data.rdlen(false) {
-            rdlen.compose(target)?;
-            self.data.compose_canonical_rdata(target)
-        }
-        else {
-            Self::compose_prefixed(target, |target| {
-                self.data.compose_canonical_rdata(target)
-            })
-        }
-    }
-
-    fn compose_prefixed<Target: Composer + ?Sized, F>(
-        target: &mut Target, op: F
-    ) -> Result<(), Target::AppendError>
-    where F: FnOnce(&mut Target) -> Result<(), Target::AppendError> {
-        target.append_slice(&[0; 2])?;
-        let pos = target.as_ref().len();
-        match op(target) {
-            Ok(_) => {
-                let len = u16::try_from(target.as_ref().len() - pos).expect(
-                    "long data"
-                );
-                target.as_mut()[pos - 2..pos].copy_from_slice(
-                    &(len).to_be_bytes()
-                );
-                Ok(())
-            }
-            Err(err) => {
-                target.truncate(pos);
-                Err(err)
-            }
-        }
+        self.data.compose_canonical_len_rdata(target)
     }
 }
 

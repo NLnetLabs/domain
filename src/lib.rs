@@ -119,5 +119,5 @@ pub mod sign;
 pub mod test;
 pub mod tsig;
 pub mod utils;
-//pub mod validate;
+pub mod validate;
 pub mod zonefile;
