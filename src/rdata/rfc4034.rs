@@ -199,6 +199,17 @@ impl<Octs> Dnskey<Octs> {
             parser.parse_octets(len)?,
         ))
     }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            u16::scan(scanner)?,
+            u8::scan(scanner)?,
+            SecAlg::scan(scanner)?,
+            scanner.convert_entry(base64::SymbolConverter::new())?,
+        ))
+    }
 }
 
 impl<SrcOcts> Dnskey<SrcOcts> {
@@ -358,18 +369,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Dnskey<Octs> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Dnskey<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
-            u8::scan(scanner)?,
-            SecAlg::scan(scanner)?,
-            scanner.convert_entry(base64::SymbolConverter::new())?,
-        ))
-    }
-}
+//--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Dnskey<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -654,6 +654,22 @@ impl<Octs, Name> Rrsig<Octs, Name> {
             self.key_tag,
             TName::try_octets_from(self.signer_name)?,
             TOcts::try_octets_from(self.signature)?,
+        ))
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs, Dname = Name>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            Rtype::scan(scanner)?,
+            SecAlg::scan(scanner)?,
+            u8::scan(scanner)?,
+            u32::scan(scanner)?,
+            Serial::scan_rrsig(scanner)?,
+            Serial::scan_rrsig(scanner)?,
+            u16::scan(scanner)?,
+            scanner.scan_dname()?,
+            scanner.convert_entry(base64::SymbolConverter::new())?,
         ))
     }
 }
@@ -960,26 +976,7 @@ impl<Octs: AsRef<[u8]>, Name: ToDname> Rrsig<Octs, Name> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, Name, S> Scan<S> for Rrsig<Octs, Name>
-where
-    S: Scanner<Octets = Octs, Dname = Name>,
-{
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            Rtype::scan(scanner)?,
-            SecAlg::scan(scanner)?,
-            u8::scan(scanner)?,
-            u32::scan(scanner)?,
-            Serial::scan_rrsig(scanner)?,
-            Serial::scan_rrsig(scanner)?,
-            u16::scan(scanner)?,
-            scanner.scan_dname()?,
-            scanner.convert_entry(base64::SymbolConverter::new())?,
-        ))
-    }
-}
+//--- Display
 
 impl<Octs, Name> fmt::Display for Rrsig<Octs, Name>
 where
@@ -1077,6 +1074,15 @@ impl<Octs, Name> Nsec<Octs, Name> {
         Ok(Nsec::new(
             self.next_name.try_octets_into()?,
             self.types.convert_octets()?,
+        ))
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs, Dname = Name>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            scanner.scan_dname()?,
+            RtypeBitmap::scan(scanner)?,
         ))
     }
 }
@@ -1249,19 +1255,7 @@ where Octs: AsRef<[u8]>, Name: ToDname {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, Name, S> Scan<S> for Nsec<Octs, Name>
-where
-    S: Scanner<Octets = Octs, Dname = Name>,
-{
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            scanner.scan_dname()?,
-            RtypeBitmap::scan(scanner)?,
-        ))
-    }
-}
+//--- Display
 
 impl<Octs, Name> fmt::Display for Nsec<Octs, Name>
 where
@@ -1374,6 +1368,17 @@ impl<Octs> Ds<Octs> {
             SecAlg::parse(parser)?,
             DigestAlg::parse(parser)?,
             parser.parse_octets(len)?,
+        ))
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            u16::scan(scanner)?,
+            SecAlg::scan(scanner)?,
+            DigestAlg::scan(scanner)?,
+            scanner.convert_entry(base16::SymbolConverter::new())?,
         ))
     }
 }
@@ -1544,18 +1549,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Ds<Octs> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Ds<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
-            SecAlg::scan(scanner)?,
-            DigestAlg::scan(scanner)?,
-            scanner.convert_entry(base16::SymbolConverter::new())?,
-        ))
-    }
-}
+//--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Ds<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1626,6 +1620,21 @@ impl<Octs> RtypeBitmap<Octs> {
         <Octs as FromBuilder>::Builder: EmptyBuilder,
     {
         RtypeBitmapBuilder::new()
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        let first = Rtype::scan(scanner)?;
+        let mut builder =
+            RtypeBitmapBuilder::with_builder(scanner.octets_builder()?);
+        builder.add(first).map_err(|_| S::Error::short_buf())?;
+        while scanner.continues() {
+            builder
+                .add(Rtype::scan(scanner)?)
+                .map_err(|_| S::Error::short_buf())?;
+        }
+        Ok(builder.finalize())
     }
 
     pub fn as_octets(&self) -> &Octs {
@@ -1774,22 +1783,7 @@ impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a RtypeBitmap<Octs> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for RtypeBitmap<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        let first = Rtype::scan(scanner)?;
-        let mut builder =
-            RtypeBitmapBuilder::with_builder(scanner.octets_builder()?);
-        builder.add(first).map_err(|_| S::Error::short_buf())?;
-        while scanner.continues() {
-            builder
-                .add(Rtype::scan(scanner)?)
-                .map_err(|_| S::Error::short_buf())?;
-        }
-        Ok(builder.finalize())
-    }
-}
+//--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for RtypeBitmap<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

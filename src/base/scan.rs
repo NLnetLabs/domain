@@ -41,29 +41,29 @@ use std::error;
 
 //------------ Scan ---------------------------------------------------------
 
-/// A type that can be scanned from its presentation format.
+/// An extension trait to add scanning to foreign types.
 ///
 /// This trait is generic over the specific scanner, allowing types to limit
 /// their implementation to a scanners with certain properties.
 pub trait Scan<S: Scanner>: Sized {
-/// Reads a value from the provided scanner.
-///
-/// An implementation should read as many tokens as it needs from the
-/// scanner. It can assume that they are all available – the scanner will
-/// produce an error if it runs out of tokens prematurely.
-///
-/// The implementation does not need to keep reading until the end of
-/// tokens. It is the responsibility of the user to make sure there are
-/// no stray tokens at the end of an entry.
-///
-/// Finally, if an implementation needs to read tokens until the end of
-/// the entry, it can use [`Scanner::continues`] to check if there are
-/// still tokens left.
-///
-/// If an implementation encounters an error in the presentation data,
-/// it should report it using [`ScannerError::custom`] unless any of the
-/// other methods of [`ScannerError`] seem more appropriate.
-fn scan(scanner: &mut S) -> Result<Self, S::Error>;
+    /// Reads a value from the provided scanner.
+    ///
+    /// An implementation should read as many tokens as it needs from the
+    /// scanner. It can assume that they are all available – the scanner will
+    /// produce an error if it runs out of tokens prematurely.
+    ///
+    /// The implementation does not need to keep reading until the end of
+    /// tokens. It is the responsibility of the user to make sure there are
+    /// no stray tokens at the end of an entry.
+    ///
+    /// Finally, if an implementation needs to read tokens until the end of
+    /// the entry, it can use [`Scanner::continues`] to check if there are
+    /// still tokens left.
+    ///
+    /// If an implementation encounters an error in the presentation data,
+    /// it should report it using [`ScannerError::custom`] unless any of the
+    /// other methods of [`ScannerError`] seem more appropriate.
+    fn scan(scanner: &mut S) -> Result<Self, S::Error>;
 }
 
 macro_rules! impl_scan_unsigned {
@@ -125,95 +125,95 @@ impl_scan_unsigned!(u128);
 /// creatively employing the [name::Chain](crate::base::name::Chain) type to
 /// deal with a zone’s changing origin.
 pub trait Scanner {
-/// The type of octet sequences returned by the scanner.
-type Octets: AsRef<[u8]>;
+    /// The type of octet sequences returned by the scanner.
+    type Octets: AsRef<[u8]>;
 
-/// The octets builder used internally and returned upon request.
-type OctetsBuilder: OctetsBuilder
-    + AsRef<[u8]>
-    + AsMut<[u8]>
-    + Truncate
-    + FreezeBuilder<Octets = Self::Octets>;
+    /// The octets builder used internally and returned upon request.
+    type OctetsBuilder: OctetsBuilder
+        + AsRef<[u8]>
+        + AsMut<[u8]>
+        + Truncate
+        + FreezeBuilder<Octets = Self::Octets>;
 
-/// The type of a domain name returned by the scanner.
-type Dname: ToDname;
+    /// The type of a domain name returned by the scanner.
+    type Dname: ToDname;
 
-/// The error type of the scanner.
-type Error: ScannerError;
+    /// The error type of the scanner.
+    type Error: ScannerError;
 
-/// Returns whether the next token is preceded by white space.
-fn has_space(&self) -> bool;
+    /// Returns whether the next token is preceded by white space.
+    fn has_space(&self) -> bool;
 
-/// Returns whether there are more tokens in the entry.
-///
-/// This method takes a `&mut self` to allow implementations to peek on
-/// request.
-fn continues(&mut self) -> bool;
+    /// Returns whether there are more tokens in the entry.
+    ///
+    /// This method takes a `&mut self` to allow implementations to peek on
+    /// request.
+    fn continues(&mut self) -> bool;
 
-/// Scans a token into a sequence of symbols.
-///
-/// Each symbol is passed to the caller via the closure and can be
-/// processed there.
-fn scan_symbols<F>(&mut self, op: F) -> Result<(), Self::Error>
-where
-    F: FnMut(Symbol) -> Result<(), Self::Error>;
+    /// Scans a token into a sequence of symbols.
+    ///
+    /// Each symbol is passed to the caller via the closure and can be
+    /// processed there.
+    fn scan_symbols<F>(&mut self, op: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(Symbol) -> Result<(), Self::Error>;
 
-/// Scans the remainder of the entry as symbols.
-///
-/// Each symbol is passed to the caller via the closure and can be
-/// processed there.
-fn scan_entry_symbols<F>(&mut self, op: F) -> Result<(), Self::Error>
-where
-    F: FnMut(EntrySymbol) -> Result<(), Self::Error>;
+    /// Scans the remainder of the entry as symbols.
+    ///
+    /// Each symbol is passed to the caller via the closure and can be
+    /// processed there.
+    fn scan_entry_symbols<F>(&mut self, op: F) -> Result<(), Self::Error>
+    where
+        F: FnMut(EntrySymbol) -> Result<(), Self::Error>;
 
-/// Converts the symbols of a token into an octets sequence.
-///
-/// Each symbol is passed to the provided converter which can return
-/// octet slices to be used to construct the returned value. When the
-/// token is complete, the converter is called again to ask for any
-/// remaining data to be added.
-fn convert_token<C: ConvertSymbols<Symbol, Self::Error>>(
-    &mut self,
-    convert: C,
-) -> Result<Self::Octets, Self::Error>;
+    /// Converts the symbols of a token into an octets sequence.
+    ///
+    /// Each symbol is passed to the provided converter which can return
+    /// octet slices to be used to construct the returned value. When the
+    /// token is complete, the converter is called again to ask for any
+    /// remaining data to be added.
+    fn convert_token<C: ConvertSymbols<Symbol, Self::Error>>(
+        &mut self,
+        convert: C,
+    ) -> Result<Self::Octets, Self::Error>;
 
-/// Converts the symbols of a token into an octets sequence.
-///
-/// Each symbol is passed to the provided converter which can return
-/// octet slices to be used to construct the returned value. When the
-/// token is complete, the converter is called again to ask for any
-/// remaining data to be added.
-fn convert_entry<C: ConvertSymbols<EntrySymbol, Self::Error>>(
-    &mut self,
-    convert: C,
-) -> Result<Self::Octets, Self::Error>;
+    /// Converts the symbols of a token into an octets sequence.
+    ///
+    /// Each symbol is passed to the provided converter which can return
+    /// octet slices to be used to construct the returned value. When the
+    /// token is complete, the converter is called again to ask for any
+    /// remaining data to be added.
+    fn convert_entry<C: ConvertSymbols<EntrySymbol, Self::Error>>(
+        &mut self,
+        convert: C,
+    ) -> Result<Self::Octets, Self::Error>;
 
-/// Scans a token into an octets sequence.
-///
-/// The returned sequence has all symbols converted into their octets.
-/// It can be of any length.
-fn scan_octets(&mut self) -> Result<Self::Octets, Self::Error>;
+    /// Scans a token into an octets sequence.
+    ///
+    /// The returned sequence has all symbols converted into their octets.
+    /// It can be of any length.
+    fn scan_octets(&mut self) -> Result<Self::Octets, Self::Error>;
 
-/// Scans a token as a borrowed ASCII string.
-///
-/// If the next token contains non-ascii characters, returns an error.
-/// The string is given to the caller via the provided closure.
-fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
-where
-    F: FnOnce(&str) -> Result<T, Self::Error>;
+    /// Scans a token as a borrowed ASCII string.
+    ///
+    /// If the next token contains non-ascii characters, returns an error.
+    /// The string is given to the caller via the provided closure.
+    fn scan_ascii_str<F, T>(&mut self, op: F) -> Result<T, Self::Error>
+    where
+        F: FnOnce(&str) -> Result<T, Self::Error>;
 
-/// Scans a token into a domain name.
-fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error>;
+    /// Scans a token into a domain name.
+    fn scan_dname(&mut self) -> Result<Self::Dname, Self::Error>;
 
-/// Scans a token into a character string.
-///
-/// Note that character strings have a length limit.  If you want a
-/// sequence of indefinite length, use [`scan_octets`][Self::scan_octets]
-/// instead.
-fn scan_charstr(&mut self) -> Result<CharStr<Self::Octets>, Self::Error>;
+    /// Scans a token into a character string.
+    ///
+    /// Note that character strings have a length limit.  If you want a
+    /// sequence of indefinite length, use [`scan_octets`][Self::scan_octets]
+    /// instead.
+    fn scan_charstr(&mut self) -> Result<CharStr<Self::Octets>, Self::Error>;
 
-/// Scans a token as a UTF-8 string.
-fn scan_string(&mut self) -> Result<Str<Self::Octets>, Self::Error>;
+    /// Scans a token as a UTF-8 string.
+    fn scan_string(&mut self) -> Result<Str<Self::Octets>, Self::Error>;
 
     /// Scans a sequence of character strings until the end of the entry.
     ///

@@ -69,6 +69,17 @@ impl<N> Srv<N> {
             self.target.try_octets_into()?,
         ))
     }
+
+    pub fn scan<S: Scanner<Dname = N>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            u16::scan(scanner)?,
+            u16::scan(scanner)?,
+            u16::scan(scanner)?,
+            scanner.scan_dname()?,
+        ))
+    }
 }
 
 impl<'a, Octs> Srv<ParsedDname<'a, Octs>> {
@@ -87,8 +98,6 @@ impl<'a, Octs> Srv<ParsedDname<'a, Octs>> {
         Ok(Srv::new(priority, weight, port, target.to_dname()?))
     }
 }
-
-//--- Parse
 
 impl<'a, Octs: Octets + ?Sized> Srv<ParsedDname<'a, Octs>> {
     pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -249,18 +258,7 @@ impl<Name: ToDname> Srv<Name> {
     }
 }
 
-//--- Scan and Display
-
-impl<N, S: Scanner<Dname = N>> Scan<S> for Srv<N> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
-            u16::scan(scanner)?,
-            u16::scan(scanner)?,
-            scanner.scan_dname()?,
-        ))
-    }
-}
+//--- Display
 
 impl<N: fmt::Display> fmt::Display for Srv<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -74,6 +74,14 @@ impl A {
     ) -> Result<Self, ParseError> {
         Ipv4Addr::parse(parser).map(Self::new)
     }
+
+    pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
+        let token = scanner.scan_octets()?;
+        let token = str::from_utf8(token.as_ref())
+            .map_err(|_| S::Error::custom("expected IPv4 address"))?;
+        A::from_str(token)
+            .map_err(|_| S::Error::custom("expected IPv4 address"))
+    }
 }
 
 //--- OctetsFrom
@@ -156,17 +164,7 @@ impl ComposeRecordData for A {
 }
     
 
-//--- Scan and Display
-
-impl<S: Scanner> Scan<S> for A {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        let token = scanner.scan_octets()?;
-        let token = str::from_utf8(token.as_ref())
-            .map_err(|_| S::Error::custom("expected IPv4 address"))?;
-        A::from_str(token)
-            .map_err(|_| S::Error::custom("expected IPv4 address"))
-    }
-}
+//--- Display
 
 impl fmt::Display for A {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -270,6 +268,12 @@ impl<Octs> Hinfo<Octs> {
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
         Ok(Self::new(CharStr::parse(parser)?, CharStr::parse(parser)?))
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(scanner.scan_charstr()?, scanner.scan_charstr()?))
     }
 }
 
@@ -404,13 +408,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Hinfo<Octs> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Hinfo<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(scanner.scan_charstr()?, scanner.scan_charstr()?))
-    }
-}
+//--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Hinfo<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -534,6 +532,12 @@ impl<N> Minfo<N> {
             self.rmailbx.try_octets_into()?,
             self.emailbx.try_octets_into()?,
         ))
+    }
+
+    pub fn scan<S: Scanner<Dname = N>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(scanner.scan_dname()?, scanner.scan_dname()?))
     }
 }
 
@@ -679,13 +683,7 @@ impl<Name: ToDname> ComposeRecordData for Minfo<Name> {
     }
 }
 
-//--- Scan and Display
-
-impl<N, S: Scanner<Dname = N>> Scan<S> for Minfo<N> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(scanner.scan_dname()?, scanner.scan_dname()?))
-    }
-}
+//--- Display
 
 impl<N: fmt::Display> fmt::Display for Minfo<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -749,6 +747,12 @@ impl<N> Mx<N> {
     ) -> Result<Mx<Target>, Target::Error> {
         Ok(Mx::new(self.preference, self.exchange.try_octets_into()?))
     }
+
+    pub fn scan<S: Scanner<Dname = N>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(u16::scan(scanner)?, scanner.scan_dname()?))
+    }
 }
 
 impl<'a, Octs: Octets> Mx<ParsedDname<'a, Octs>> {
@@ -764,8 +768,6 @@ impl<'a, Octs: Octets> Mx<ParsedDname<'a, Octs>> {
         Ok(Mx::new(preference, exchange.flatten_into()?))
     }
 }
-
-//--- Parse
 
 impl<'a, Octs: Octets + ?Sized> Mx<ParsedDname<'a, Octs>> {
     pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
@@ -893,13 +895,7 @@ impl<Name: ToDname> ComposeRecordData for Mx<Name> {
     }
 }
 
-//--- Scan and Display
-
-impl<N, S: Scanner<Dname = N>> Scan<S> for Mx<N> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(u16::scan(scanner)?, scanner.scan_dname()?))
-    }
-}
+//--- Display
 
 impl<N: fmt::Display> fmt::Display for Mx<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1247,6 +1243,20 @@ impl<N> Soa<N> {
             self.minimum,
         ))
     }
+
+    pub fn scan<S: Scanner<Dname = N>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            scanner.scan_dname()?,
+            scanner.scan_dname()?,
+            Serial::scan(scanner)?,
+            u32::scan(scanner)?,
+            u32::scan(scanner)?,
+            u32::scan(scanner)?,
+            u32::scan(scanner)?,
+        ))
+    }
 }
 
 impl<'a, Octs: Octets> Soa<ParsedDname<'a, Octs>> {
@@ -1496,21 +1506,7 @@ impl<Name: ToDname> Soa<Name> {
 }
 
 
-//--- Scan and Display
-
-impl<N, S: Scanner<Dname = N>> Scan<S> for Soa<N> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            scanner.scan_dname()?,
-            scanner.scan_dname()?,
-            Serial::scan(scanner)?,
-            u32::scan(scanner)?,
-            u32::scan(scanner)?,
-            u32::scan(scanner)?,
-            u32::scan(scanner)?,
-        ))
-    }
-}
+//--- Display
 
 impl<N: fmt::Display> fmt::Display for Soa<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1624,6 +1620,14 @@ impl<Octs: AsRef<[u8]>> Txt<Octs> {
             Into<Infallible>,
     {
         infallible(self.try_text())
+    }
+}
+
+impl<Octs> Txt<Octs> {
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        scanner.scan_charstr_entry().map(Txt)
     }
 }
 
@@ -1790,13 +1794,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Txt<Octs> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Txt<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        scanner.scan_charstr_entry().map(Txt)
-    }
-}
+//--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Txt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

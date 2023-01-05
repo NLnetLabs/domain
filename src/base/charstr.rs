@@ -24,7 +24,7 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use super::cmp::CanonicalOrd;
-use super::scan::{BadSymbol, Scan, Scanner, Symbol, SymbolCharsError};
+use super::scan::{BadSymbol, Scanner, Symbol, SymbolCharsError};
 use super::wire::{Compose, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
@@ -189,6 +189,14 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
             self.0.as_ref().len()
         ).expect("long charstr").compose(target)?;
         target.append_slice(self.0.as_ref())
+    }
+}
+
+impl<Octets> CharStr<Octets> {
+    pub fn scan<S: Scanner<Octets = Octets>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        scanner.scan_charstr()
     }
 }
 
@@ -360,13 +368,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for CharStr<Octets> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        scanner.scan_charstr()
-    }
-}
+//--- Display
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::Display for CharStr<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

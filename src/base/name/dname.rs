@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::cmp::CanonicalOrd;
-use super::super::scan::{Scan, Scanner, Symbol};
+use super::super::scan::{Scanner, Symbol};
 use super::super::wire::{FormError, ParseError};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
@@ -113,6 +113,12 @@ impl<Octs> Dname<Octs> {
         let mut builder = DnameBuilder::<Octs::Builder>::new();
         builder.append_chars(chars)?;
         builder.into_dname().map_err(Into::into)
+    }
+
+    pub fn scan<S: Scanner<Dname = Self>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        scanner.scan_dname()
     }
 
     /// Returns a domain name consisting of the root label only.
@@ -751,13 +757,7 @@ where
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Dname = Self>> Scan<S> for Dname<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        scanner.scan_dname()
-    }
-}
+//--- Display
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Dname<Octs> {
     /// Formats the domain name.

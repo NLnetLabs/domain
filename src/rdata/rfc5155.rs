@@ -115,6 +115,19 @@ impl<Octs> Nsec3<Octs> {
             self.types.try_octets_into()?,
         ))
     }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            Nsec3HashAlg::scan(scanner)?,
+            u8::scan(scanner)?,
+            u16::scan(scanner)?,
+            Nsec3Salt::scan(scanner)?,
+            OwnerHash::scan(scanner)?,
+            RtypeBitmap::scan(scanner)?,
+        ))
+    }
 }
 
 impl<Octs: AsRef<[u8]>> Nsec3<Octs> {
@@ -337,20 +350,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
     }
 }
 
-//--- Scan, Display, and Debug
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Nsec3<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
-            u8::scan(scanner)?,
-            u16::scan(scanner)?,
-            Nsec3Salt::scan(scanner)?,
-            OwnerHash::scan(scanner)?,
-            RtypeBitmap::scan(scanner)?,
-        ))
-    }
-}
+//--- Display, and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -453,6 +453,17 @@ impl<Octs> Nsec3param<Octs> {
             u8::parse(parser)?,
             u16::parse(parser)?,
             Nsec3Salt::parse(parser)?,
+        ))
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            Nsec3HashAlg::scan(scanner)?,
+            u8::scan(scanner)?,
+            u16::scan(scanner)?,
+            Nsec3Salt::scan(scanner)?,
         ))
     }
 }
@@ -638,18 +649,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
     }
 }
 
-//--- Scan, Display, and Debug
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Nsec3param<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
-            u8::scan(scanner)?,
-            u16::scan(scanner)?,
-            Nsec3Salt::scan(scanner)?,
-        ))
-    }
-}
+//--- Display and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3param<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -773,6 +773,64 @@ impl Nsec3Salt<[u8]> {
 }
 
 impl<Octs> Nsec3Salt<Octs> {
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        #[derive(Default)]
+        struct Converter(Option<Option<base16::SymbolConverter>>);
+
+        impl<Sym, Error> ConvertSymbols<Sym, Error> for Converter
+        where
+            Sym: Into<EntrySymbol>,
+            Error: ScannerError,
+        {
+            fn process_symbol(
+                &mut self,
+                symbol: Sym,
+            ) -> Result<Option<&[u8]>, Error> {
+                let symbol = symbol.into();
+                // If we are none, this is the first symbol. A '-' means
+                // empty. Anything else means Base 16.
+                if self.0.is_none() {
+                    match symbol {
+                        EntrySymbol::Symbol(symbol)
+                            if symbol.into_char() == Ok('-') =>
+                        {
+                            self.0 = Some(None);
+                            return Ok(None);
+                        }
+                        _ => {
+                            self.0 =
+                                Some(Some(base16::SymbolConverter::new()));
+                        }
+                    }
+                }
+
+                match self.0.as_mut() {
+                    None => unreachable!(),
+                    Some(None) => Err(Error::custom("illegal NSEC3 salt")),
+                    Some(Some(ref mut base16)) => {
+                        base16.process_symbol(symbol)
+                    }
+                }
+            }
+
+            fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
+                if let Some(Some(ref mut base16)) = self.0 {
+                    <base16::SymbolConverter
+                        as ConvertSymbols<Sym, Error>
+                    >::process_tail(base16)
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+
+        scanner
+            .convert_token(Converter::default())
+            .map(|res| unsafe { Self::from_octets_unchecked(res) })
+    }
+
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
@@ -889,65 +947,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for Nsec3Salt<T> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Nsec3Salt<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        #[derive(Default)]
-        struct Converter(Option<Option<base16::SymbolConverter>>);
-
-        impl<Sym, Error> ConvertSymbols<Sym, Error> for Converter
-        where
-            Sym: Into<EntrySymbol>,
-            Error: ScannerError,
-        {
-            fn process_symbol(
-                &mut self,
-                symbol: Sym,
-            ) -> Result<Option<&[u8]>, Error> {
-                let symbol = symbol.into();
-                // If we are none, this is the first symbol. A '-' means
-                // empty. Anything else means Base 16.
-                if self.0.is_none() {
-                    match symbol {
-                        EntrySymbol::Symbol(symbol)
-                            if symbol.into_char() == Ok('-') =>
-                        {
-                            self.0 = Some(None);
-                            return Ok(None);
-                        }
-                        _ => {
-                            self.0 =
-                                Some(Some(base16::SymbolConverter::new()));
-                        }
-                    }
-                }
-
-                match self.0.as_mut() {
-                    None => unreachable!(),
-                    Some(None) => Err(Error::custom("illegal NSEC3 salt")),
-                    Some(Some(ref mut base16)) => {
-                        base16.process_symbol(symbol)
-                    }
-                }
-            }
-
-            fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
-                if let Some(Some(ref mut base16)) = self.0 {
-                    <base16::SymbolConverter
-                        as ConvertSymbols<Sym, Error>
-                    >::process_tail(base16)
-                } else {
-                    Ok(None)
-                }
-            }
-        }
-
-        scanner
-            .convert_token(Converter::default())
-            .map(|res| unsafe { Self::from_octets_unchecked(res) })
-    }
-}
+//--- Display and Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsec3Salt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1087,14 +1087,14 @@ where
 #[derive(Clone)]
 pub struct OwnerHash<Octs: ?Sized>(Octs);
 
-impl<Octs: ?Sized> OwnerHash<Octs> {
+impl<Octs> OwnerHash<Octs> {
     /// Creates a new owner hash from the given octets.
     ///
     /// Returns succesfully if `octets` can indeed be used as a
     /// character string, i.e., it is not longer than 255 bytes.
     pub fn from_octets(octets: Octs) -> Result<Self, OwnerHashError>
     where
-        Octs: AsRef<[u8]> + Sized,
+        Octs: AsRef<[u8]>,
     {
         if octets.as_ref().len() > 255 {
             Err(OwnerHashError)
@@ -1106,11 +1106,16 @@ impl<Octs: ?Sized> OwnerHash<Octs> {
     /// Creates an owner hash from octets without length check.
     ///
     /// As this can break the guarantees made by the type, it is unsafe.
-    unsafe fn from_octets_unchecked(octets: Octs) -> Self
-    where
-        Octs: Sized,
-    {
+    unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         Self(octets)
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        scanner
+            .convert_token(base32::SymbolConverter::new())
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 
     /// Converts the hash into the underlying octets.
@@ -1120,7 +1125,9 @@ impl<Octs: ?Sized> OwnerHash<Octs> {
     {
         self.0
     }
+}
 
+impl<Octs: ?Sized> OwnerHash<Octs> {
     /// Returns a reference to a slice of the hash.
     pub fn as_slice(&self) -> &[u8]
     where
@@ -1278,15 +1285,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for OwnerHash<T> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for OwnerHash<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        scanner
-            .convert_token(base32::SymbolConverter::new())
-            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
-    }
-}
+//--- Display
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for OwnerHash<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

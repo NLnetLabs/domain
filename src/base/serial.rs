@@ -83,6 +83,10 @@ impl Serial {
         Serial(self.0.wrapping_add(other))
     }
 
+    pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
+        u32::scan(scanner).map(Into::into)
+    }
+
     /// Scan a serial represention signature time value.
     ///
     /// In [RRSIG] records, the expiration and inception times are given as
@@ -232,13 +236,7 @@ impl str::FromStr for Serial {
     }
 }
 
-//--- Scan and Display
-
-impl<S: Scanner> Scan<S> for Serial {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        u32::scan(scanner).map(Into::into)
-    }
-}
+//--- Display
 
 impl fmt::Display for Serial {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

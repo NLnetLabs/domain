@@ -100,6 +100,17 @@ impl<Octs> Cdnskey<Octs> {
             parser.parse_octets(len)?,
         ))
     }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            u16::scan(scanner)?,
+            u8::scan(scanner)?,
+            SecAlg::scan(scanner)?,
+            scanner.convert_entry(base64::SymbolConverter::new())?,
+        ))
+    }
 }
 
 impl<SrcOcts> Cdnskey<SrcOcts> {
@@ -261,18 +272,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cdnskey<Octs> {
     }
 }
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Cdnskey<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
-            u8::scan(scanner)?,
-            SecAlg::scan(scanner)?,
-            scanner.convert_entry(base64::SymbolConverter::new())?,
-        ))
-    }
-}
+//--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Cdnskey<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -382,6 +382,17 @@ impl<Octs> Cds<Octs> {
             SecAlg::parse(parser)?,
             DigestAlg::parse(parser)?,
             parser.parse_octets(len)?,
+        ))
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            u16::scan(scanner)?,
+            SecAlg::scan(scanner)?,
+            DigestAlg::scan(scanner)?,
+            scanner.convert_entry(base16::SymbolConverter::new())?,
         ))
     }
 }
@@ -553,18 +564,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cds<Octs> {
 }
 
 
-//--- Scan and Display
-
-impl<Octs, S: Scanner<Octets = Octs>> Scan<S> for Cds<Octs> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
-            SecAlg::scan(scanner)?,
-            DigestAlg::scan(scanner)?,
-            scanner.convert_entry(base16::SymbolConverter::new())?,
-        ))
-    }
-}
+//--- Display
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Cds<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

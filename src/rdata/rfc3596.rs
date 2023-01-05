@@ -8,7 +8,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::net::Ipv6Addr;
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
-use crate::base::scan::{Scan, Scanner, ScannerError};
+use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, Parse, ParseError};
 use octseq::octets::OctetsFrom;
 use octseq::parse::Parser;
@@ -49,6 +49,14 @@ impl Aaaa {
         parser: &mut Parser<'a, Octs>
     ) -> Result<Self, ParseError> {
         Ipv6Addr::parse(parser).map(Self::new)
+    }
+
+    pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
+        let token = scanner.scan_octets()?;
+        let token = str::from_utf8(token.as_ref())
+            .map_err(|_| S::Error::custom("expected IPv6 address"))?;
+        Aaaa::from_str(token)
+            .map_err(|_| S::Error::custom("expected IPv6 address"))
     }
 }
 
@@ -131,17 +139,7 @@ impl ComposeRecordData for Aaaa {
     }
 }
 
-//--- Scan and Display
-
-impl<S: Scanner> Scan<S> for Aaaa {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        let token = scanner.scan_octets()?;
-        let token = str::from_utf8(token.as_ref())
-            .map_err(|_| S::Error::custom("expected IPv6 address"))?;
-        Aaaa::from_str(token)
-            .map_err(|_| S::Error::custom("expected IPv6 address"))
-    }
-}
+//--- Display
 
 impl fmt::Display for Aaaa {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

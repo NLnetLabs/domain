@@ -2,7 +2,7 @@
 //!
 //! This is a private module. Its public types are re-exported by the parent.
 
-use super::super::scan::{Scan, Scanner};
+use super::super::scan::Scanner;
 use super::super::wire::ParseError;
 use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
@@ -130,6 +130,12 @@ impl<Octets> UncertainDname<Octets> {
         } else {
             Ok(builder.into_dname()?.into())
         }
+    }
+
+    pub fn scan<S: Scanner<Dname = Dname<Octets>>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        scanner.scan_dname().map(UncertainDname::Absolute)
     }
 }
 
@@ -380,17 +386,6 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainDname<Octets> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_labels()
-    }
-}
-
-//--- Scan
-
-impl<Octets, S> Scan<S> for UncertainDname<Octets>
-where
-    S: Scanner<Dname = Dname<Octets>>,
-{
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        scanner.scan_dname().map(UncertainDname::Absolute)
     }
 }
 

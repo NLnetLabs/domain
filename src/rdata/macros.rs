@@ -71,6 +71,46 @@ macro_rules! rdata_types {
             Unknown($crate::base::rdata::UnknownRecordData<O>),
         }
 
+        impl<Octets: AsRef<[u8]>, Name> ZoneRecordData<Octets, Name> {
+            /// Scans a value of the given rtype.
+            ///
+            /// If the record data is given via the notation for unknown
+            /// record types, the returned value will be of the
+            /// `ZoneRecordData::Unknown(_)` variant.
+            pub fn scan<S>(
+                rtype: $crate::base::iana::Rtype,
+                scanner: &mut S
+            ) -> Result<Self, S::Error>
+            where
+                S: $crate::base::scan::Scanner<Octets = Octets, Dname = Name>
+            {
+                use $crate::base::rdata::UnknownRecordData;
+                use $crate::base::scan::ScannerError;
+
+                if scanner.scan_opt_unknown_marker()? {
+                    UnknownRecordData::scan_without_marker(
+                        rtype, scanner
+                    ).map(ZoneRecordData::Unknown)
+                }
+                else {
+                    match rtype {
+                        $( $( $(
+                            $crate::base::iana::Rtype::$mtype => {
+                                $mtype::scan(
+                                    scanner
+                                ).map(ZoneRecordData::$mtype)
+                            }
+                        )* )* )*
+                        _ => {
+                            Err(S::Error::custom(
+                                "unknown record type with concrete data"
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+
         impl<O, N> ZoneRecordData<O, N> {
             fn rtype(&self) -> $crate::base::iana::Rtype {
                 use $crate::base::rdata::RecordData;
@@ -382,47 +422,7 @@ macro_rules! rdata_types {
         }
 
 
-        //--- (Scan) and Display
-
-        impl<Octets: AsRef<[u8]>, Name> ZoneRecordData<Octets, Name> {
-            /// Scans a value of the given rtype.
-            ///
-            /// If the record data is given via the notation for unknown
-            /// record types, the returned value will be of the
-            /// `ZoneRecordData::Unknown(_)` variant.
-            pub fn scan<S>(
-                rtype: $crate::base::iana::Rtype,
-                scanner: &mut S
-            ) -> Result<Self, S::Error>
-            where
-                S: $crate::base::scan::Scanner<Octets = Octets, Dname = Name>
-            {
-                use $crate::base::rdata::{UnknownRecordData};
-                use $crate::base::scan::{Scan, ScannerError};
-
-                if scanner.scan_opt_unknown_marker()? {
-                    UnknownRecordData::scan_without_marker(
-                        rtype, scanner
-                    ).map(ZoneRecordData::Unknown)
-                }
-                else {
-                    match rtype {
-                        $( $( $(
-                            $crate::base::iana::Rtype::$mtype => {
-                                $mtype::scan(
-                                    scanner
-                                ).map(ZoneRecordData::$mtype)
-                            }
-                        )* )* )*
-                        _ => {
-                            Err(S::Error::custom(
-                                "unknown record type with concrete data"
-                            ))
-                        }
-                    }
-                }
-            }
-        }
+        //--- Display
 
         impl<O, N> core::fmt::Display for ZoneRecordData<O, N>
         where
@@ -1014,6 +1014,12 @@ macro_rules! dname_type_base {
                 &self.$field
             }
 
+            pub fn scan<S: crate::base::scan::Scanner<Dname = N>>(
+                scanner: &mut S
+            ) -> Result<Self, S::Error> {
+                scanner.scan_dname().map(Self::new)
+            }
+
             pub(super) fn convert_octets<Target: OctetsFrom<N>>(
                 self
             ) -> Result<$target<Target>, Target::Error> {
@@ -1138,14 +1144,7 @@ macro_rules! dname_type_base {
             }
         }
 
-        //--- Scan and Display
-
-        impl<N, S> crate::base::scan::Scan<S> for $target<N>
-        where S: crate::base::scan::Scanner<Dname = N> {
-            fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-                scanner.scan_dname().map(Self::new)
-            }
-        }
+        //--- Display
 
         impl<N: fmt::Display> fmt::Display for $target<N> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

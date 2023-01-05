@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent
 //! crate.
 
-use super::super::scan::{Scan, Scanner};
+use super::super::scan::Scanner;
 use super::label::Label;
 use super::relative::DnameIter;
 use super::traits::{ToDname, ToLabelIter, ToRelativeDname};
@@ -65,6 +65,14 @@ impl<Octets: AsRef<[u8]>, R: ToLabelIter> Chain<UncertainDname<Octets>, R> {
             }
         }
         Ok(Chain { left, right })
+    }
+}
+
+impl<L, R> Chain<L, R> {
+    pub fn scan<S: Scanner<Dname = Self>>(
+        scanner: &mut S
+    ) -> Result<Self, S::Error> {
+        scanner.scan_dname()
     }
 }
 
@@ -152,13 +160,7 @@ where
 {
 }
 
-//--- Scan and Display
-
-impl<L, R, S: Scanner<Dname = Self>> Scan<S> for Chain<L, R> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        scanner.scan_dname()
-    }
-}
+//--- Display
 
 impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
