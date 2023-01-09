@@ -144,9 +144,11 @@ use octseq::octets::Octets;
 use octseq::builder::{
     infallible, FreezeBuilder, OctetsBuilder, ShortBuf, Truncate
 };
-use octseq::array::Array;
 #[cfg(feature = "std")]
-use core::convert::{Infallible, TryInto};
+use octseq::array::Array;
+use core::convert::Infallible;
+#[cfg(feature = "std")]
+use core::convert::TryInto;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
 #[cfg(feature = "std")]
