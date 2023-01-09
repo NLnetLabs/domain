@@ -13,8 +13,7 @@ use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::utils::{base16, base64};
 use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
-    Truncate
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
@@ -1887,7 +1886,7 @@ where
                 let mut builder = RtypeBitmap::<Octs>::builder();
                 while let Some(element) = seq.next_element()? {
                     builder.add(element).map_err(|_|
-                        A::Error::custom(ShortBuf)
+                        A::Error::custom(octseq::builder::ShortBuf)
                     )?;
                 }
 

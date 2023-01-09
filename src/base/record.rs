@@ -828,6 +828,7 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
 
     pub fn skip(parser: &mut Parser<'a, Octs>) -> Result<(), ParseError> {
         let rdlen = RecordHeader::parse_rdlen(parser)?;
+        //let rdlen = RecordHeader::parse(parser)?.rdlen();
         parser.advance(rdlen as usize)?;
         Ok(())
     }

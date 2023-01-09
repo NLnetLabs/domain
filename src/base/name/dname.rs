@@ -115,6 +115,7 @@ impl<Octs> Dname<Octs> {
         builder.into_dname().map_err(Into::into)
     }
 
+    /// Reads a name in presentation format from the beginning of a scanner.
     pub fn scan<S: Scanner<Dname = Self>>(
         scanner: &mut S
     ) -> Result<Self, S::Error> {
@@ -357,6 +358,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
         }
     }
 
+    /// Checks that a range starts and ends at label bounds.
     fn check_bounds(&self, bounds: &impl RangeBounds<usize>) {
         match bounds.start_bound().cloned() {
             Bound::Included(idx) => self.check_index(idx),
@@ -476,7 +478,18 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
         Octs: Octets,
     {
         self.check_index(begin);
-        unsafe { Dname::from_octets_unchecked(self.0.range(begin..)) }
+        unsafe { self.range_from_unchecked(begin) }
+    }
+
+    /// Returns the part of the name starting at a position without checking.
+    unsafe fn range_from_unchecked(
+        &self,
+        begin: usize,
+    ) -> Dname<<Octs as Octets>::Range<'_>>
+    where
+        Octs: Octets,
+    {
+        Dname::from_octets_unchecked(self.0.range(begin..))
     }
 }
 
@@ -571,6 +584,7 @@ impl<Octs: AsRef<[u8]>> Dname<Octs> {
 }
 
 impl<Octs> Dname<Octs> {
+    /// Reads a name in wire format from the beginning of a parser.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
@@ -578,6 +592,7 @@ impl<Octs> Dname<Octs> {
         Ok(unsafe { Self::from_octets_unchecked(parser.parse_octets(len)?) })
     }
 
+    /// Peeks at a parser and return the length of a name at its beginning.
     fn parse_name_len<Source: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Source>,
     ) -> Result<usize, ParseError> {
@@ -921,16 +936,13 @@ impl<'a, Octs: Octets + ?Sized> Iterator for SuffixIter<'a, Octs> {
     type Item = Dname<Octs::Range<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let start = match self.start {
-            Some(start) => start,
-            None => return None,
-        };
-        let res = self.name.range_from(start);
+        let start = self.start?;
+        let res = unsafe { self.name.range_from_unchecked(start) };
         let label = res.first();
         if label.is_root() {
             self.start = None;
         } else {
-            self.start = Some(start + label.len())
+            self.start = Some(start + usize::from(label.compose_len()))
         }
         Some(res)
     }

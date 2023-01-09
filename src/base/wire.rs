@@ -100,7 +100,7 @@ impl Compose for u8 {
 macro_rules! compose_to_be_bytes {
     ( $type:ident ) => {
         impl Compose for $type {
-            const COMPOSE_LEN: u16 = ($type::BITS >> 2) as u16;
+            const COMPOSE_LEN: u16 = ($type::BITS >> 3) as u16;
 
             fn compose<Target: OctetsBuilder + ?Sized>(
                 &self, target: &mut Target

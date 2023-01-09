@@ -8,7 +8,6 @@ use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base64};
-use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 use core::cmp::Ordering;
@@ -29,7 +28,8 @@ use core::{fmt, hash};
                 octseq::builder::FromBuilder
                 + octseq::serde::DeserializeOctets<'de>,
             <Octs as octseq::builder::FromBuilder>::Builder:
-                OctetsBuilder + octseq::builder::EmptyBuilder,
+                octseq::builder::OctetsBuilder 
+                + octseq::builder::EmptyBuilder,
         ",
     ))
 )]
@@ -309,7 +309,8 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cdnskey<Octs> {
                 octseq::builder::FromBuilder
                 + octseq::serde::DeserializeOctets<'de>,
             <Octs as octseq::builder::FromBuilder>::Builder:
-                OctetsBuilder + octseq::builder::EmptyBuilder,
+                octseq::builder::OctetsBuilder
+                + octseq::builder::EmptyBuilder,
         ",
     ))
 )]

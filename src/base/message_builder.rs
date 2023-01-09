@@ -79,7 +79,7 @@
 //!
 //! // Create a message builder wrapping a compressor wrapping a stream
 //! // target.
-//! let mut msg = MessageBuilder::from_target(
+//! let mut msg = MessageBuilder::try_from_target(
 //!     StaticCompressor::new(
 //!         StreamTarget::new_vec()
 //!     )
@@ -1563,8 +1563,8 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     where
         F: FnOnce(&mut Target) -> Result<(), Target::AppendError>,
     {
-        option_len.compose(self.target)?;
         code.compose(self.target)?;
+        option_len.compose(self.target)?;
         op(self.target)
     }
 
@@ -1773,7 +1773,7 @@ where
 
 impl<Target: Composer> Truncate for StreamTarget<Target> {
     fn truncate(&mut self, len: usize) {
-        self.target.truncate(len);
+        self.target.truncate(len.checked_add(2).expect("long truncate"));
         self.update_shim().expect("truncate grew buffer???")
     }
 }
@@ -2304,7 +2304,9 @@ mod test {
         })
         .unwrap();
 
-        let msg = Message::from_octets(msg.finish()).unwrap();
+        let msg = msg.finish();
+        println!("{:?}", msg);
+        let msg = Message::from_octets(msg).unwrap();
         let opt = msg.opt().unwrap();
 
         // Check options
@@ -2348,7 +2350,8 @@ mod test {
 
     #[test]
     fn compressor() {
-        // An example negative response to `example. NS` with an SOA to test various compressed name situations.
+        // An example negative response to `example. NS` with an SOA to test
+        // various compressed name situations.
         let expect = &[
             0x00, 0x00, 0x81, 0x83, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
             0x00, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x00, 0x00,

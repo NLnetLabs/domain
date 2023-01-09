@@ -17,7 +17,7 @@ use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
 };
 use octseq::octets::{Octets,OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
@@ -39,7 +39,7 @@ use core::{fmt, hash, ops, str};
         deserialize = "
             Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
             <Octs as FromBuilder>::Builder:
-                EmptyBuilder + Truncate
+                EmptyBuilder + octseq::builder::Truncate
                 + AsRef<[u8]> + AsMut<[u8]>,
         ",
     ))

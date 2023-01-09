@@ -584,8 +584,8 @@ enum LabelType {
 
 impl LabelType {
     /// Attempts to take a label type from the beginning of `parser`.
-    pub fn parse<Ref: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Ref>,
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
         let ltype = parser.parse_u8()?;
         match ltype {

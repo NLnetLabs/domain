@@ -44,9 +44,9 @@ use std::vec::Vec;
 /// The content of a DNS character string.
 ///
 /// A character string consists of up to 255 octets of binary data. This type
-/// wraps a octets value. It is guaranteed to always be at most 255 octets in
-/// length. It derefs into the underlying octets for working with the content
-/// in a familiar way.
+/// wraps an octets sequence. It is guaranteed to always be at most 255 octets
+/// in length. It derefs into the underlying octets for working with the
+/// content in a familiar way.
 ///
 /// As per [RFC 1035], character strings compare ignoring ASCII case.
 /// `CharStr`’s implementations of the `std::cmp` traits act accordingly.
@@ -153,12 +153,14 @@ impl<Octs: ?Sized> CharStr<Octs> {
     {
         self.0.as_mut()
     }
-}
 
-impl<Octs> CharStr<Octs> {
+    /// Parses a character string from the beginning of a parser.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>
-    ) -> Result<Self, ParseError> {
+    ) -> Result<Self, ParseError>
+    where
+        Octs: Sized
+    {
         let len = parser.parse_u8()? as usize;
         parser
             .parse_octets(len)
@@ -168,6 +170,7 @@ impl<Octs> CharStr<Octs> {
 }
 
 impl CharStr<[u8]> {
+    /// Skips over a character string at the beginning of a parser.
     pub fn skip<'a, Src: Octets + ?Sized>(
         parser: &mut Parser<'a, Src>
     ) -> Result<(), ParseError> {
@@ -177,14 +180,15 @@ impl CharStr<[u8]> {
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
+    /// Returns the length of the wire format representation.
     pub fn compose_len(&self) -> u16 {
         u16::try_from(self.0.as_ref().len() + 1).expect("long charstr")
     }
 
+    /// Appends the wire format representation to an octets builder.
     pub fn compose<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
-    ) -> Result<(), Target::AppendError>
-    where Octs: AsRef<[u8]> {
+    ) -> Result<(), Target::AppendError> {
         u8::try_from(
             self.0.as_ref().len()
         ).expect("long charstr").compose(target)?;
@@ -193,6 +197,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
 }
 
 impl<Octets> CharStr<Octets> {
+    /// Scans the presentation format from a scanner.
     pub fn scan<S: Scanner<Octets = Octets>>(
         scanner: &mut S
     ) -> Result<Self, S::Error> {
@@ -871,7 +876,7 @@ mod test {
 
     #[test]
     fn from_str() {
-        use std::str::FromStr;
+        use std::str::{FromStr, from_utf8};
 
         type Cs = CharStr<Vec<u8>>;
 
@@ -888,6 +893,7 @@ mod test {
         assert!(Cs::from_str("0\\2a").is_err());
         assert!(Cs::from_str("ö").is_err());
         assert!(Cs::from_str("\x06").is_err());
+        assert!(Cs::from_str(from_utf8(&[b'a'; 256]).unwrap()).is_err());
     }
 
     #[test]

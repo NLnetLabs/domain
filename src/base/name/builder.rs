@@ -111,6 +111,11 @@ impl DnameBuilder<BytesMut> {
 }
 
 impl<Builder: AsRef<[u8]>> DnameBuilder<Builder> {
+    /// Returns the already assembled domain name as an octets slice.
+    pub fn as_slice(&self) -> &[u8] {
+        self.builder.as_ref()
+    }
+
     /// Returns the length of the already assembled domain name.
     pub fn len(&self) -> usize {
         self.builder.as_ref().len()
@@ -341,7 +346,7 @@ where Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
     pub fn into_dname(mut self) -> Result<Dname<Builder::Octets>, PushError>
     where Builder: FreezeBuilder {
         self.end_label();
-        self.append_slice(&[0])?;
+        self._append_slice(&[0])?;
         Ok(unsafe { Dname::from_octets_unchecked(self.builder.freeze()) })
     }
 

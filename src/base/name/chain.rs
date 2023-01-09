@@ -143,9 +143,16 @@ where
     }
 
     fn compose_len(&self) -> u16 {
-        self.left.compose_len().checked_add(
-            self.right.compose_len()
-        ).expect("long domain name")
+        match self.left {
+            UncertainDname::Absolute(ref name) => {
+                name.compose_len()
+            }
+            UncertainDname::Relative(ref name) => {
+                name.compose_len().checked_add(
+                    self.right.compose_len()
+                ).expect("long domain name")
+            }
+        }
     }
 }
 
@@ -375,18 +382,22 @@ mod test {
         assert!(left.clone().chain(six_abs.clone()).is_err());
 
         let left = UncertainDname::from(left.into_absolute().unwrap());
+        println!("{:?}", left);
         assert_eq!(left.chain(six_abs).unwrap().compose_len(), 251);
     }
 
-    /// Tests that the label iterators all work as expected.
+    /// Checks the impl of ToLabelIter: iter_labels and compose_len.
     #[test]
-    fn iter_labels() {
-        fn cmp_iter<'a, I: Iterator<Item = &'a Label>>(
-            iter: I,
-            labels: &[&[u8]],
+    fn to_label_iter_impl() {
+        fn check_impl<'a, N: ToLabelIter>(
+            name: N, labels: &[&[u8]],
         ) {
             let labels = labels.iter().map(|s| Label::from_slice(s).unwrap());
-            assert!(iter.eq(labels))
+            assert!(name.iter_labels().eq(labels));
+            assert_eq!(
+                name.iter_labels().map(|l| l.compose_len()).sum::<u16>(),
+                name.compose_len()
+            );
         }
 
         let w = RelativeDname::from_octets(b"\x03www".as_ref()).unwrap();
@@ -396,36 +407,33 @@ mod test {
             Dname::from_octets(b"\x07example\x03com\x00".as_ref()).unwrap();
         let fbr = Dname::from_octets(b"\x03foo\x03bar\x00".as_ref()).unwrap();
 
-        cmp_iter(
-            w.clone().chain(ec.clone()).unwrap().iter_labels(),
+        check_impl(
+            w.clone().chain(ec.clone()).unwrap(),
             &[b"www", b"example", b"com"],
         );
-        cmp_iter(
-            w.clone().chain(ecr.clone()).unwrap().iter_labels(),
+        check_impl(
+            w.clone().chain(ecr.clone()).unwrap(),
             &[b"www", b"example", b"com", b""],
         );
-        cmp_iter(
+        check_impl(
             w.clone()
                 .chain(ec.clone())
                 .unwrap()
                 .chain(Dname::root_ref())
-                .unwrap()
-                .iter_labels(),
+                .unwrap(),
             &[b"www", b"example", b"com", b""],
         );
 
-        cmp_iter(
+        check_impl(
             UncertainDname::from(w.clone())
                 .chain(ecr.clone())
-                .unwrap()
-                .iter_labels(),
+                .unwrap(),
             &[b"www", b"example", b"com", b""],
         );
-        cmp_iter(
+        check_impl(
             UncertainDname::from(ecr.clone())
                 .chain(fbr.clone())
-                .unwrap()
-                .iter_labels(),
+                .unwrap(),
             &[b"example", b"com", b""],
         );
     }

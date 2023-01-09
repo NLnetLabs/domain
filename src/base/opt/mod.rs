@@ -44,7 +44,7 @@ use super::iana::{OptRcode, OptionCode, Rtype};
 use super::name::{Dname, ToDname};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::Record;
-use super::wire::{Compose, Composer, FormError, ParseError};
+use super::wire::{Composer, FormError, ParseError};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
@@ -763,6 +763,7 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
 mod test {
     use super::*;
     use crate::base::record::ParsedRecord;
+    use crate::base::wire::Compose;
     use crate::base::{opt, MessageBuilder};
     use octseq::builder::infallible;
     use std::vec::Vec;
