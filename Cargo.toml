@@ -58,7 +58,6 @@ ci-test     = ["resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validat
 [dev-dependencies]
 serde_test         = "1.0.130"
 serde_yaml         = "0.9"
-tokio-native-tls   = "0.3"
 tokio              = { version = "1", features = ["rt-multi-thread", "io-util", "net"] }
 
 [package.metadata.docs.rs]
