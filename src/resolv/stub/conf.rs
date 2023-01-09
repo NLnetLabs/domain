@@ -361,16 +361,6 @@ impl ResolvConf {
             server.request_timeout = self.options.timeout
         }
     }
-
-    /// Creates a default configuration for this system.
-    ///
-    /// XXX This currently only works for Unix-y systems.
-    pub fn system_default() -> Self {
-        let mut res = ResolvConf::new();
-        let _ = res.parse_file("/etc/resolv.conf");
-        res.finalize();
-        res
-    }
 }
 
 /// # Parsing Configuration File
@@ -501,8 +491,14 @@ impl ResolvConf {
 //--- Default
 
 impl Default for ResolvConf {
+    /// Creates a default configuration for this system.
+    ///
+    /// XXX This currently only works for Unix-y systems.
     fn default() -> Self {
-        Self::new()
+        let mut res = ResolvConf::new();
+        let _ = res.parse_file("/etc/resolv.conf");
+        res.finalize();
+        res
     }
 }
 
