@@ -505,8 +505,8 @@ impl OptionHeader {
         self.len
     }
 
-    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<'a, Octs>
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         Ok(OptionHeader::new(parser.parse_u16()?, parser.parse_u16()?))
     }

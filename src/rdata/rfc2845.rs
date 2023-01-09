@@ -627,8 +627,8 @@ impl Time48 {
         Ok(self)
     }
 
-    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<'a, Octs>
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         let mut buf = [0u8; 6];
         parser.parse_buf(&mut buf)?;

@@ -22,8 +22,8 @@ impl TcpKeepalive {
         self.0
     }
 
-    pub fn parse<'a, Octs: AsRef<[u8]>>(
-        parser: &mut Parser<'a, Octs>
+    pub fn parse<Octs: AsRef<[u8]>>(
+        parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         u16::parse(parser).map(Self::new)
     }

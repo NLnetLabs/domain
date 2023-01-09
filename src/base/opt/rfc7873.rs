@@ -22,8 +22,8 @@ impl Cookie {
         self.0
     }
 
-    pub fn parse<'a, Octs: AsRef<[u8]>>(
-        parser: &mut Parser<'a, Octs>
+    pub fn parse<Octs: AsRef<[u8]>>(
+        parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         let mut res = [0u8; 8];
         parser.parse_buf(&mut res[..])?;

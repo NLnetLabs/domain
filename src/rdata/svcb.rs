@@ -698,8 +698,8 @@ pub mod param {
     pub struct NoDefaultAlpn;
 
     impl NoDefaultAlpn {
-        pub fn parse<'a, Octs: ?Sized>(
-            _parser: &mut Parser<'a, Octs>
+        pub fn parse<Octs: ?Sized>(
+            _parser: &mut Parser<Octs>
         ) -> Result<Self, ParseError> {
             Ok(Self)
         }
@@ -736,8 +736,8 @@ pub mod param {
             Self(port)
         }
 
-        pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
-            parser: &mut Parser<'a, Octs>
+        pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+            parser: &mut Parser<Octs>
         ) -> Result<Self, ParseError> {
             let port = u16::parse(parser)?;
             Ok(Self(port))

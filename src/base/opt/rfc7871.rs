@@ -46,8 +46,8 @@ impl ClientSubnet {
         self.addr
     }
 
-    pub fn parse<'a, Octs: AsRef<[u8]>>(
-        parser: &mut Parser<'a, Octs>
+    pub fn parse<Octs: AsRef<[u8]>>(
+        parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         let family = parser.parse_u16()?;
         let source_prefix_len = parser.parse_u8()?;

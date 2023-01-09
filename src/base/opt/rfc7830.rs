@@ -47,8 +47,8 @@ impl Padding {
         self.mode
     }
 
-    pub fn parse<'a, Octs: AsRef<[u8]>>(
-        parser: &mut Parser<'a, Octs>
+    pub fn parse<Octs: AsRef<[u8]>>(
+        parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         // XXX Check whether there really are all zeros.
         let len = parser.remaining();

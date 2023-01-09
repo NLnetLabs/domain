@@ -69,8 +69,8 @@ impl A {
         Ok(self)
     }
 
-    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<'a, Octs>
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         Ipv4Addr::parse(parser).map(Self::new)
     }

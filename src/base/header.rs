@@ -830,8 +830,8 @@ impl HeaderSection {
 /// # Parsing and Composing
 ///
 impl HeaderSection {
-    pub fn parse<'a, Octs: AsRef<[u8]>>(
-        parser: &mut Parser<'a, Octs>
+    pub fn parse<Octs: AsRef<[u8]>>(
+        parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         let mut res = Self::default();
         parser.parse_buf(&mut res.inner)?;

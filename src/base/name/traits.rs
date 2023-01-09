@@ -45,7 +45,7 @@ pub trait ToLabelIter {
 
     /// Returns the length in octets of the encoded name.
     fn compose_len(&self) -> u16 {
-        self.iter_labels().map(|label| u16::from(label.compose_len())).sum()
+        self.iter_labels().map(|label| label.compose_len()).sum()
     }
 
     /// Determines whether `base` is a prefix of `self`.

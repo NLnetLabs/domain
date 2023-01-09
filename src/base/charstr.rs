@@ -171,10 +171,10 @@ impl<Octs: ?Sized> CharStr<Octs> {
 
 impl CharStr<[u8]> {
     /// Skips over a character string at the beginning of a parser.
-    pub fn skip<'a, Src: Octets + ?Sized>(
-        parser: &mut Parser<'a, Src>
+    pub fn skip<Src: Octets + ?Sized>(
+        parser: &mut Parser<Src>
     ) -> Result<(), ParseError> {
-        let len = parser.parse_u8()? as usize;
+        let len = parser.parse_u8()?;
         parser.advance(len.into()).map_err(Into::into)
     }
 }

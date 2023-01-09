@@ -327,7 +327,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
             ).expect("long NSEC3").checked_add(
                 self.next_owner.compose_len().into()
             ).expect("long NSEC3").checked_add(
-                self.types.compose_len().into()
+                self.types.compose_len()
             ).expect("long NSEC3")
         )
     }

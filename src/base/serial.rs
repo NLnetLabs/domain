@@ -193,8 +193,8 @@ impl Serial {
 impl Serial {
     pub const COMPOSE_LEN: u16 = u32::COMPOSE_LEN;
 
-    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<'a, Octs>
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         u32::parse(parser).map(Into::into)
     }
