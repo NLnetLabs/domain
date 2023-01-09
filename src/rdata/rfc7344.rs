@@ -8,10 +8,10 @@ use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base64};
-use octseq::octets::{Octets, OctetsFrom, OctetsInto};
-use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::{fmt, hash};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
 
 //------------ Cdnskey --------------------------------------------------------
 
@@ -87,7 +87,7 @@ impl<Octs> Cdnskey<Octs> {
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
@@ -102,7 +102,7 @@ impl<Octs> Cdnskey<Octs> {
     }
 
     pub fn scan<S: Scanner<Octets = Octs>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
             u16::scan(scanner)?,
@@ -231,33 +231,36 @@ impl<Octs> RecordData for Cdnskey<Octs> {
 }
 
 impl<'a, Octs> ParseRecordData<'a, Octs> for Cdnskey<Octs::Range<'a>>
-where Octs: Octets + ?Sized {
+where
+    Octs: Octets + ?Sized,
+{
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::Cdnskey {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
 }
 
-
 impl<Octs: AsRef<[u8]>> ComposeRecordData for Cdnskey<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
-            u16::try_from(
-                self.public_key.as_ref().len()
-            ).expect("long key").checked_add(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN
-            ).expect("long key")
+            u16::try_from(self.public_key.as_ref().len())
+                .expect("long key")
+                .checked_add(
+                    u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN,
+                )
+                .expect("long key"),
         )
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.flags.compose(target)?;
         self.protocol.compose(target)?;
@@ -266,7 +269,8 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cdnskey<Octs> {
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
     }
@@ -372,7 +376,7 @@ impl<Octs> Cds<Octs> {
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = match parser.remaining().checked_sub(4) {
             Some(len) => len,
@@ -387,7 +391,7 @@ impl<Octs> Cds<Octs> {
     }
 
     pub fn scan<S: Scanner<Octets = Octs>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
             u16::scan(scanner)?,
@@ -526,14 +530,16 @@ impl<Octs> RecordData for Cds<Octs> {
 }
 
 impl<'a, Octs> ParseRecordData<'a, Octs> for Cds<Octs::Range<'a>>
-where Octs: Octets + ?Sized {
+where
+    Octs: Octets + ?Sized,
+{
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::Cds {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -543,14 +549,18 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cds<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::checked_add(
-                u16::COMPOSE_LEN + SecAlg::COMPOSE_LEN + DigestAlg::COMPOSE_LEN,
-                self.digest.as_ref().len().try_into().expect("long digest")
-            ).expect("long digest")
+                u16::COMPOSE_LEN
+                    + SecAlg::COMPOSE_LEN
+                    + DigestAlg::COMPOSE_LEN,
+                self.digest.as_ref().len().try_into().expect("long digest"),
+            )
+            .expect("long digest"),
         )
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.key_tag.compose(target)?;
         self.digest_type.compose(target)?;
@@ -558,12 +568,12 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cds<Octs> {
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
     }
 }
-
 
 //--- Display
 

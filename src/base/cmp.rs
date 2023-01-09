@@ -97,4 +97,3 @@ pub trait CanonicalOrd<Rhs: ?Sized = Self> {
         )
     }
 }
-

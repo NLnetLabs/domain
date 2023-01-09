@@ -9,8 +9,8 @@ use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-use octseq::builder::{EmptyBuilder, FreezeBuilder, OctetsBuilder, ShortBuf};
 use core::{fmt, ops};
+use octseq::builder::{EmptyBuilder, FreezeBuilder, OctetsBuilder, ShortBuf};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -128,7 +128,9 @@ impl<Builder: AsRef<[u8]>> DnameBuilder<Builder> {
 }
 
 impl<Builder> DnameBuilder<Builder>
-where Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
+where
+    Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+{
     /// Returns whether there currently is a label under construction.
     ///
     /// This returns `false` if the name is still empty or if the last thing
@@ -144,7 +146,9 @@ where Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
     /// This method doesn’t perform any checks but only does the necessary
     /// error conversion.
     fn _append_slice(&mut self, slice: &[u8]) -> Result<(), PushError> {
-        self.builder.append_slice(slice).map_err(|_| PushError::ShortBuf)
+        self.builder
+            .append_slice(slice)
+            .map_err(|_| PushError::ShortBuf)
     }
 
     /// Pushes an octet to the end of the domain name.
@@ -246,9 +250,9 @@ where Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
             return Err(PushNameError::LongName);
         }
         for label in name.iter_labels() {
-            label.compose(
-                &mut self.builder
-            ).map_err(|_| PushNameError::ShortBuf)?;
+            label
+                .compose(&mut self.builder)
+                .map_err(|_| PushNameError::ShortBuf)?;
         }
         Ok(())
     }
@@ -333,7 +337,9 @@ where Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
     /// [`end_label`]: #method.end_label
     /// [`into_dname`]: #method.into_dname
     pub fn finish(mut self) -> RelativeDname<Builder::Octets>
-    where Builder: FreezeBuilder {
+    where
+        Builder: FreezeBuilder,
+    {
         self.end_label();
         unsafe { RelativeDname::from_octets_unchecked(self.builder.freeze()) }
     }
@@ -344,7 +350,9 @@ where Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
     /// Then adds the empty root label and transforms the name into a
     /// `Dname`.
     pub fn into_dname(mut self) -> Result<Dname<Builder::Octets>, PushError>
-    where Builder: FreezeBuilder {
+    where
+        Builder: FreezeBuilder,
+    {
         self.end_label();
         self._append_slice(&[0])?;
         Ok(unsafe { Dname::from_octets_unchecked(self.builder.freeze()) })
@@ -360,15 +368,17 @@ where Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
         mut self,
         origin: &N,
     ) -> Result<Dname<Builder::Octets>, PushNameError>
-    where Builder: FreezeBuilder {
+    where
+        Builder: FreezeBuilder,
+    {
         self.end_label();
         if self.len() + usize::from(origin.compose_len()) > 255 {
             return Err(PushNameError::LongName);
         }
         for label in origin.iter_labels() {
-            label.compose(
-                &mut self.builder
-            ).map_err(|_| PushNameError::ShortBuf)?;
+            label
+                .compose(&mut self.builder)
+                .map_err(|_| PushNameError::ShortBuf)?;
         }
         Ok(unsafe { Dname::from_octets_unchecked(self.builder.freeze()) })
     }

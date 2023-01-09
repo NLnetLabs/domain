@@ -10,11 +10,11 @@ use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
+use core::cmp::Ordering;
+use core::{fmt, hash};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
-use core::cmp::Ordering;
-use core::{fmt, hash};
 #[cfg(feature = "std")]
 use std::time::SystemTime;
 
@@ -466,21 +466,23 @@ impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     for Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
 {
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::Tsig {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
 }
 
-impl<Octs: AsRef<[u8]>, Name: ToDname> ComposeRecordData for Tsig<Octs, Name> {
+impl<Octs: AsRef<[u8]>, Name: ToDname> ComposeRecordData
+    for Tsig<Octs, Name>
+{
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
-              6 // time_signed
+            6 // time_signed
             + 2 // fudge
             + 2 // MAC length
             + 2 // original ID
@@ -490,30 +492,32 @@ impl<Octs: AsRef<[u8]>, Name: ToDname> ComposeRecordData for Tsig<Octs, Name> {
                 u16::try_from(self.mac.as_ref().len()).expect("long MAC")
             ).expect("long MAC").checked_add(
                 u16::try_from(self.other.as_ref().len()).expect("long TSIG")
-            ).expect("long TSIG")
+            ).expect("long TSIG"),
         )
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.algorithm.compose(target)?;
         self.time_signed.compose(target)?;
         self.fudge.compose(target)?;
-        u16::try_from(self.mac.as_ref().len()).expect("long MAC").compose(
-            target
-        )?;
+        u16::try_from(self.mac.as_ref().len())
+            .expect("long MAC")
+            .compose(target)?;
         target.append_slice(self.mac.as_ref())?;
         self.original_id.compose(target)?;
         self.error.compose(target)?;
-        u16::try_from(self.other.as_ref().len()).expect("long MAC").compose(
-            target
-        )?;
+        u16::try_from(self.other.as_ref().len())
+            .expect("long MAC")
+            .compose(target)?;
         target.append_slice(self.other.as_ref())
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
     }
@@ -628,7 +632,7 @@ impl Time48 {
     }
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
         let mut buf = [0u8; 6];
         parser.parse_buf(&mut buf)?;
@@ -636,7 +640,8 @@ impl Time48 {
     }
 
     pub fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(&self.into_octets())
     }

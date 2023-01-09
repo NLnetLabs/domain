@@ -12,11 +12,11 @@ use super::scan::{Scan, Scanner, ScannerError};
 use super::wire::{Compose, Composer, Parse, ParseError};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone};
-use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::convert::TryFrom;
 use core::str::FromStr;
 use core::{cmp, fmt, str};
+use octseq::parse::Parser;
 #[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::{Date, Month, PrimitiveDateTime, Time};
@@ -194,13 +194,14 @@ impl Serial {
     pub const COMPOSE_LEN: u16 = u32::COMPOSE_LEN;
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
         u32::parse(parser).map(Into::into)
     }
 
     pub fn compose<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.0.compose(target)
     }

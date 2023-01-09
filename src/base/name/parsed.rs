@@ -10,10 +10,10 @@ use super::label::{Label, LabelTypeError};
 use super::relative::RelativeDname;
 use super::traits::{ToDname, ToLabelIter};
 use super::PushError;
+use core::{cmp, fmt, hash};
 use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::{cmp, fmt, hash};
 
 //------------ ParsedDname ---------------------------------------------------
 

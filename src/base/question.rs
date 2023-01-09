@@ -8,10 +8,10 @@ use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::wire::{Composer, ParseError};
-use octseq::octets::{Octets, OctetsFrom};
-use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::{fmt, hash};
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
 
 //------------ Question ------------------------------------------------------
 
@@ -100,7 +100,8 @@ impl<'a, Octs: Octets> Question<ParsedDname<'a, Octs>> {
 
 impl<N: ToDname> Question<N> {
     pub fn compose<Target: Composer + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_compressed_dname(&self.qname)?;
         self.qtype.compose(target)?;
@@ -200,7 +201,8 @@ impl<N: ToDname> Ord for Question<N> {
         match self.qname.name_cmp(&other.qname) {
             Ordering::Equal => {}
             other => return other,
-        } match self.qtype.cmp(&other.qtype) {
+        }
+        match self.qtype.cmp(&other.qtype) {
             Ordering::Equal => {}
             other => return other,
         }
@@ -256,13 +258,15 @@ impl<N: fmt::Debug> fmt::Debug for Question<N> {
 /// [`push`]: ../message_builder/struct.QuestionBuilder.html#method.push
 pub trait ComposeQuestion {
     fn compose_question<Target: Composer + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError>;
 }
 
 impl<'a, Q: ComposeQuestion> ComposeQuestion for &'a Q {
     fn compose_question<Target: Composer + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         (*self).compose_question(target)
     }
@@ -270,7 +274,8 @@ impl<'a, Q: ComposeQuestion> ComposeQuestion for &'a Q {
 
 impl<Name: ToDname> ComposeQuestion for Question<Name> {
     fn compose_question<Target: Composer + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose(target)
     }
@@ -278,7 +283,8 @@ impl<Name: ToDname> ComposeQuestion for Question<Name> {
 
 impl<Name: ToDname> ComposeQuestion for (Name, Rtype, Class) {
     fn compose_question<Target: Composer + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         Question::new(&self.0, self.1, self.2).compose(target)
     }
@@ -286,7 +292,8 @@ impl<Name: ToDname> ComposeQuestion for (Name, Rtype, Class) {
 
 impl<Name: ToDname> ComposeQuestion for (Name, Rtype) {
     fn compose_question<Target: Composer + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         Question::new(&self.0, self.1, Class::In).compose(target)
     }

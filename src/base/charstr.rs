@@ -29,13 +29,13 @@ use super::wire::{Compose, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
+use octseq::builder::FreezeBuilder;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 use octseq::{
     EmptyBuilder, FromBuilder, IntoBuilder, Octets, OctetsBuilder,
     OctetsFrom, Parser, ShortBuf, Truncate,
 };
-use octseq::builder::FreezeBuilder;
-#[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -156,10 +156,10 @@ impl<Octs: ?Sized> CharStr<Octs> {
 
     /// Parses a character string from the beginning of a parser.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError>
     where
-        Octs: Sized
+        Octs: Sized,
     {
         let len = parser.parse_u8()? as usize;
         parser
@@ -172,7 +172,7 @@ impl<Octs: ?Sized> CharStr<Octs> {
 impl CharStr<[u8]> {
     /// Skips over a character string at the beginning of a parser.
     pub fn skip<Src: Octets + ?Sized>(
-        parser: &mut Parser<Src>
+        parser: &mut Parser<Src>,
     ) -> Result<(), ParseError> {
         let len = parser.parse_u8()?;
         parser.advance(len.into()).map_err(Into::into)
@@ -187,11 +187,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
 
     /// Appends the wire format representation to an octets builder.
     pub fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        u8::try_from(
-            self.0.as_ref().len()
-        ).expect("long charstr").compose(target)?;
+        u8::try_from(self.0.as_ref().len())
+            .expect("long charstr")
+            .compose(target)?;
         target.append_slice(self.0.as_ref())
     }
 }
@@ -199,7 +200,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
 impl<Octets> CharStr<Octets> {
     /// Scans the presentation format from a scanner.
     pub fn scan<S: Scanner<Octets = Octets>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         scanner.scan_charstr()
     }
@@ -256,9 +257,10 @@ where
 impl<Octets> str::FromStr for CharStr<Octets>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder + FreezeBuilder<Octets = Octets>
-        + EmptyBuilder + AsRef<[u8]>,
+    <Octets as FromBuilder>::Builder: OctetsBuilder
+        + FreezeBuilder<Octets = Octets>
+        + EmptyBuilder
+        + AsRef<[u8]>,
 {
     type Err = FromStrError;
 
@@ -458,9 +460,10 @@ impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for CharStr<T> {
 impl<'de, Octets> serde::Deserialize<'de> for CharStr<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder + FreezeBuilder<Octets = Octets>
-        + EmptyBuilder + AsRef<[u8]>,
+    <Octets as FromBuilder>::Builder: OctetsBuilder
+        + FreezeBuilder<Octets = Octets>
+        + EmptyBuilder
+        + AsRef<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -473,9 +476,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder + FreezeBuilder<Octets = Octets>
-                + EmptyBuilder + AsRef<[u8]>,
+            <Octets as FromBuilder>::Builder: OctetsBuilder
+                + FreezeBuilder<Octets = Octets>
+                + EmptyBuilder
+                + AsRef<[u8]>,
         {
             type Value = CharStr<Octets>;
 
@@ -515,9 +519,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder + FreezeBuilder<Octets = Octets>
-                + EmptyBuilder + AsRef<[u8]>,
+            <Octets as FromBuilder>::Builder: OctetsBuilder
+                + FreezeBuilder<Octets = Octets>
+                + EmptyBuilder
+                + AsRef<[u8]>,
         {
             type Value = CharStr<Octets>;
 
@@ -629,7 +634,9 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
 
     /// Converts the builder into an imutable character string.
     pub fn finish(self) -> CharStr<Builder::Octets>
-    where Builder: FreezeBuilder {
+    where
+        Builder: FreezeBuilder,
+    {
         unsafe { CharStr::from_octets_unchecked(self.0.freeze()) }
     }
 }
@@ -651,7 +658,8 @@ where
     type AppendError = ShortBuf;
 
     fn append_slice(
-        &mut self, slice: &[u8]
+        &mut self,
+        slice: &[u8],
     ) -> Result<(), Self::AppendError> {
         if self.0.as_ref().len() + slice.len() > 255 {
             return Err(ShortBuf);
@@ -832,7 +840,6 @@ impl fmt::Display for FromStrError {
 #[cfg(feature = "std")]
 impl std::error::Error for FromStrError {}
 
-
 //============ Testing =======================================================
 
 #[cfg(test)]
@@ -876,7 +883,7 @@ mod test {
 
     #[test]
     fn from_str() {
-        use std::str::{FromStr, from_utf8};
+        use std::str::{from_utf8, FromStr};
 
         type Cs = CharStr<Vec<u8>>;
 

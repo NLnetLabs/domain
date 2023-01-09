@@ -20,11 +20,11 @@ use super::iana::{Class, Rtype};
 use super::name::{ParsedDname, ToDname};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
+use core::cmp::Ordering;
+use core::{fmt, hash};
 use octseq::builder::ShortBuf;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
-use core::cmp::Ordering;
-use core::{fmt, hash};
 
 //------------ Record --------------------------------------------------------
 
@@ -188,7 +188,7 @@ where
     Data: ParseRecordData<'a, Octs>,
 {
     pub fn parse(
-        parser: &mut Parser<'a, Octs>
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         let header = RecordHeader::parse(parser)?;
         header.parse_into_record(parser)
@@ -197,7 +197,8 @@ where
 
 impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
     pub fn compose<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_compressed_dname(&self.owner)?;
         self.data.rtype().compose(target)?;
@@ -207,7 +208,8 @@ impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
     }
 
     pub fn compose_canonical<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.owner.compose_canonical(target)?;
         self.data.rtype().compose(target)?;
@@ -408,40 +410,54 @@ where
 /// [`Record`]: struct.Record.html
 pub trait ComposeRecord {
     fn compose_record<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError>;
 }
 
 impl<'a, T: ComposeRecord> ComposeRecord for &'a T {
     fn compose_record<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         (*self).compose_record(target)
     }
 }
 
 impl<Name, Data> ComposeRecord for Record<Name, Data>
-where Name: ToDname, Data: ComposeRecordData {
+where
+    Name: ToDname,
+    Data: ComposeRecordData,
+{
     fn compose_record<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose(target)
     }
 }
 
 impl<Name, Data> ComposeRecord for (Name, Class, u32, Data)
-where Name: ToDname, Data: ComposeRecordData {
+where
+    Name: ToDname,
+    Data: ComposeRecordData,
+{
     fn compose_record<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         Record::new(&self.0, self.1, self.2, &self.3).compose(target)
     }
 }
 
 impl<Name, Data> ComposeRecord for (Name, u32, Data)
-where Name: ToDname, Data: ComposeRecordData {
+where
+    Name: ToDname,
+    Data: ComposeRecordData,
+{
     fn compose_record<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         Record::new(&self.0, Class::In, self.1, &self.2).compose(target)
     }
@@ -513,7 +529,8 @@ impl RecordHeader<()> {
     ) -> Result<u16, ParseError> {
         ParsedDname::skip(parser)?;
         parser.advance(
-            (Rtype::COMPOSE_LEN + Class::COMPOSE_LEN + u32::COMPOSE_LEN).into()
+            (Rtype::COMPOSE_LEN + Class::COMPOSE_LEN + u32::COMPOSE_LEN)
+                .into(),
         )?;
         u16::parse(parser)
     }
@@ -594,7 +611,8 @@ impl<'a, Octs: Octets + ?Sized> RecordHeader<ParsedDname<'a, Octs>> {
 
 impl<Name: ToDname> RecordHeader<Name> {
     pub fn compose<Target: Composer + ?Sized>(
-        &self, buf: &mut Target
+        &self,
+        buf: &mut Target,
     ) -> Result<(), Target::AppendError> {
         buf.append_compressed_dname(&self.owner)?;
         self.rtype.compose(buf)?;
@@ -604,7 +622,8 @@ impl<Name: ToDname> RecordHeader<Name> {
     }
 
     pub fn compose_canonical<Target: Composer + ?Sized>(
-        &self, buf: &mut Target
+        &self,
+        buf: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.owner.compose_canonical(buf)?;
         self.rtype.compose(buf)?;
@@ -894,7 +913,6 @@ impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
         RecordParseError::ShortBuf
     }
 }
-
 
 //============ Testing ======================================================
 

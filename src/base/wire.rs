@@ -2,14 +2,15 @@
 
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
+use core::fmt;
 use octseq::builder::{OctetsBuilder, Truncate};
 use octseq::parse::{Parser, ShortInput};
-use core::fmt;
-
 
 //------------ Composer ------------------------------------------------------
 
-pub trait Composer: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate {
+pub trait Composer:
+    OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate
+{
     /// Appends a domain name using name compression if supported.
     ///
     /// Domain name compression attempts to lower the size of a DNS message
@@ -23,7 +24,8 @@ pub trait Composer: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate {
     /// The trait provides a default implementation which simply appends the
     /// name uncompressed.
     fn append_compressed_dname<N: ToDname + ?Sized>(
-        &mut self, name: &N,
+        &mut self,
+        name: &N,
     ) -> Result<(), Self::AppendError> {
         name.compose(self)
     }
@@ -34,16 +36,15 @@ pub trait Composer: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> + Truncate {
 }
 
 #[cfg(feature = "std")]
-impl Composer for std::vec::Vec<u8> { }
+impl Composer for std::vec::Vec<u8> {}
 
-impl<const N: usize> Composer for octseq::array::Array<N> { }
+impl<const N: usize> Composer for octseq::array::Array<N> {}
 
 #[cfg(feature = "bytes")]
-impl Composer for bytes::BytesMut { }
+impl Composer for bytes::BytesMut {}
 
 #[cfg(feature = "smallvec")]
-impl<A: smallvec::Array<Item = u8>> Composer for smallvec::SmallVec<A> { }
-
+impl<A: smallvec::Array<Item = u8>> Composer for smallvec::SmallVec<A> {}
 
 //------------ Compose -------------------------------------------------------
 
@@ -62,8 +63,9 @@ pub trait Compose {
     const COMPOSE_LEN: u16 = 0;
 
     /// Appends the wire format representation of the value to the target.
-    fn compose<Target: OctetsBuilder + ?Sized> (
-        &self, target: &mut Target
+    fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError>;
 }
 
@@ -71,7 +73,8 @@ impl<'a, T: Compose + ?Sized> Compose for &'a T {
     const COMPOSE_LEN: u16 = T::COMPOSE_LEN;
 
     fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         (*self).compose(target)
     }
@@ -81,7 +84,8 @@ impl Compose for i8 {
     const COMPOSE_LEN: u16 = 1;
 
     fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(&[*self as u8])
     }
@@ -91,7 +95,8 @@ impl Compose for u8 {
     const COMPOSE_LEN: u16 = 1;
 
     fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(&[*self])
     }
@@ -103,12 +108,13 @@ macro_rules! compose_to_be_bytes {
             const COMPOSE_LEN: u16 = ($type::BITS >> 3) as u16;
 
             fn compose<Target: OctetsBuilder + ?Sized>(
-                &self, target: &mut Target
+                &self,
+                target: &mut Target,
             ) -> Result<(), Target::AppendError> {
                 target.append_slice(&self.to_be_bytes())
             }
         }
-    }
+    };
 }
 
 compose_to_be_bytes!(i16);
@@ -267,4 +273,3 @@ impl fmt::Display for FormError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for FormError {}
-

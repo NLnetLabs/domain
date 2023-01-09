@@ -23,7 +23,7 @@
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
 use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
 };
 #[cfg(feature = "std")]
 use std::string::String;
@@ -135,9 +135,9 @@ pub fn encode_display_hex<Octets: AsRef<[u8]>>(
 /// serializers or as a raw octets sequence for compact serializers.
 #[cfg(feature = "serde")]
 pub mod serde {
+    use core::fmt;
     use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
     use octseq::serde::{DeserializeOctets, SerializeOctets};
-    use core::fmt;
 
     pub fn serialize<Octets, S>(
         octets: &Octets,
@@ -252,7 +252,9 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
     /// Finalizes decoding and returns the decoded data.
     #[allow(clippy::question_mark)] // false positive
     pub fn finalize(mut self) -> Result<Builder::Octets, DecodeError>
-    where Builder: FreezeBuilder {
+    where
+        Builder: FreezeBuilder,
+    {
         if let Err(err) = self.target {
             return Err(err);
         }

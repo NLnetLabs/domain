@@ -1279,4 +1279,3 @@ macro_rules! dname_type {
         }
     }
 }
-

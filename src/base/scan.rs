@@ -19,21 +19,20 @@
 #![cfg_attr(not(feature = "zonefile"), doc = "zonefile")]
 //! module.
 #![allow(clippy::manual_range_contains)] // Hard disagree.
-
 #![allow(unused_imports)] // XXX
 
 use crate::base::charstr::{CharStr, CharStrBuilder};
 use crate::base::name::{Dname, ToDname};
 use crate::base::wire::{Compose, Composer};
-use octseq::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
-    Truncate
-};
-use octseq::str::Str;
 use core::convert::{TryFrom, TryInto};
 use core::iter::Peekable;
 use core::marker::PhantomData;
 use core::{fmt, str};
+use octseq::str::Str;
+use octseq::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
+    Truncate,
+};
 #[cfg(feature = "std")]
 use std::error;
 
@@ -67,23 +66,23 @@ pub trait Scan<S: Scanner>: Sized {
 }
 
 macro_rules! impl_scan_unsigned {
-( $type:ident) => {
-    impl<S: Scanner> Scan<S> for $type {
-        fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-            let mut res: $type = 0;
-            scanner.scan_symbols(|ch| {
-                res = res.checked_mul(10).ok_or_else(|| {
-                    S::Error::custom("decimal number overflow")
+    ( $type:ident) => {
+        impl<S: Scanner> Scan<S> for $type {
+            fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+                let mut res: $type = 0;
+                scanner.scan_symbols(|ch| {
+                    res = res.checked_mul(10).ok_or_else(|| {
+                        S::Error::custom("decimal number overflow")
+                    })?;
+                    res += ch.into_digit(10).map_err(|_| {
+                        S::Error::custom("expected decimal number")
+                    })? as $type;
+                    Ok(())
                 })?;
-                res += ch.into_digit(10).map_err(|_| {
-                    S::Error::custom("expected decimal number")
-                })? as $type;
-                Ok(())
-            })?;
-            Ok(res)
+                Ok(res)
+            }
         }
-    }
-};
+    };
 }
 
 impl_scan_unsigned!(u8);
@@ -341,7 +340,7 @@ impl Symbol {
     /// Returns the next symbol in the source, `Ok(None)` if the source has
     /// been exhausted, or an error if there wasn’t a valid symbol.
     pub fn from_chars<C: Iterator<Item = char>>(
-        chars: &mut C
+        chars: &mut C,
     ) -> Result<Option<Self>, SymbolCharsError> {
         #[inline]
         fn bad_escape() -> SymbolCharsError {
@@ -767,8 +766,7 @@ where
     Item: AsRef<str>,
     Iter: Iterator<Item = Item>,
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        EmptyBuilder + Composer,
+    <Octets as FromBuilder>::Builder: EmptyBuilder + Composer,
 {
     type Octets = Octets;
     type OctetsBuilder = <Octets as FromBuilder>::Builder;
@@ -912,18 +910,14 @@ where
         let mut buf = [0u8; 4];
         for sym in Symbols::new(token.as_ref().chars()) {
             match sym.into_char() {
-                Ok(ch) => {
-                    res.append_slice(
-                        ch.encode_utf8(&mut buf).as_bytes()
-                    ).map_err(Into::into)?
-                }
+                Ok(ch) => res
+                    .append_slice(ch.encode_utf8(&mut buf).as_bytes())
+                    .map_err(Into::into)?,
                 Err(_) => return Err(StrError::custom("bad symbol")),
             }
         }
-        Ok(
-            Str::from_utf8(<Octets as FromBuilder>::from_builder(res))
-                .unwrap(),
-        )
+        Ok(Str::from_utf8(<Octets as FromBuilder>::from_builder(res))
+            .unwrap())
     }
 
     fn scan_charstr_entry(&mut self) -> Result<Self::Octets, Self::Error> {

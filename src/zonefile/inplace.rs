@@ -23,9 +23,9 @@ use crate::base::scan::{
 use crate::rdata::ZoneRecordData;
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use octseq::str::Str;
 use core::str::FromStr;
 use core::{fmt, str};
+use octseq::str::Str;
 
 //------------ Type Aliases --------------------------------------------------
 

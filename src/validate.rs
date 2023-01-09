@@ -7,11 +7,11 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
 use crate::base::name::ToDname;
-use crate::base::wire::{Compose, Composer};
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
+use crate::base::wire::{Compose, Composer};
 use crate::rdata::{Dnskey, Rrsig};
-use octseq::builder::{with_infallible};
+use octseq::builder::with_infallible;
 use ring::{digest, signature};
 use std::vec::Vec;
 use std::{error, fmt};
@@ -109,11 +109,7 @@ pub trait RrsigExt {
     ///    the received RRset due to DNS name compression, decremented TTLs, or
     ///    wildcard expansion.
     /// ```
-    fn signed_data<
-        N: ToDname,
-        D: RecordData,
-        B: Composer,
-    >(
+    fn signed_data<N: ToDname, D: RecordData, B: Composer>(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
@@ -150,11 +146,7 @@ pub trait RrsigExt {
 }
 
 impl<Octets: AsRef<[u8]>, Name: ToDname> RrsigExt for Rrsig<Octets, Name> {
-    fn signed_data<
-        N: ToDname,
-        D: RecordData,
-        B: Composer,
-    >(
+    fn signed_data<N: ToDname, D: RecordData, B: Composer>(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],

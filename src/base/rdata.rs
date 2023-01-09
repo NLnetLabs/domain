@@ -27,10 +27,10 @@ use super::iana::Rtype;
 use super::scan::{Scan, Scanner, ScannerError, Symbol};
 use super::wire::{Compose, Composer, ParseError};
 use crate::utils::base16;
-use octseq::octets::{Octets, OctetsFrom};
-use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::fmt;
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
 
 //----------- RecordData -----------------------------------------------------
 
@@ -69,38 +69,38 @@ pub trait ComposeRecordData: RecordData {
 
     /// Appends the wire format of the record data into `target`.
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError>;
 
     /// Appends the canonical wire format of the record data into `target`.
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError>;
 
     /// Appends the record data prefixed with its length.
     fn compose_len_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         if let Some(rdlen) = self.rdlen(target.can_compress()) {
             rdlen.compose(target)?;
             self.compose_rdata(target)
-        }
-        else {
-            compose_prefixed(target, |target| {
-                self.compose_rdata(target)
-            })
+        } else {
+            compose_prefixed(target, |target| self.compose_rdata(target))
         }
     }
 
     /// Appends the record data prefixed with its length.
     fn compose_canonical_len_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         if let Some(rdlen) = self.rdlen(false) {
             rdlen.compose(target)?;
             self.compose_canonical_rdata(target)
-        }
-        else {
+        } else {
             compose_prefixed(target, |target| {
                 self.compose_canonical_rdata(target)
             })
@@ -109,19 +109,20 @@ pub trait ComposeRecordData: RecordData {
 }
 
 fn compose_prefixed<Target: Composer + ?Sized, F>(
-    target: &mut Target, op: F
+    target: &mut Target,
+    op: F,
 ) -> Result<(), Target::AppendError>
-where F: FnOnce(&mut Target) -> Result<(), Target::AppendError> {
+where
+    F: FnOnce(&mut Target) -> Result<(), Target::AppendError>,
+{
     target.append_slice(&[0; 2])?;
     let pos = target.as_ref().len();
     match op(target) {
         Ok(_) => {
-            let len = u16::try_from(target.as_ref().len() - pos).expect(
-                "long data"
-            );
-            target.as_mut()[pos - 2..pos].copy_from_slice(
-                &(len).to_be_bytes()
-            );
+            let len = u16::try_from(target.as_ref().len() - pos)
+                .expect("long data");
+            target.as_mut()[pos - 2..pos]
+                .copy_from_slice(&(len).to_be_bytes());
             Ok(())
         }
         Err(err) => {
@@ -131,20 +132,21 @@ where F: FnOnce(&mut Target) -> Result<(), Target::AppendError> {
     }
 }
 
-
 impl<'a, T: ComposeRecordData> ComposeRecordData for &'a T {
     fn rdlen(&self, compress: bool) -> Option<u16> {
         (*self).rdlen(compress)
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         (*self).compose_rdata(target)
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         (*self).compose_canonical_rdata(target)
     }
@@ -178,7 +180,6 @@ pub trait ParseRecordData<'a, Octs: ?Sized>: RecordData + Sized {
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError>;
 }
-
 
 //------------ UnknownRecordData ---------------------------------------------
 
@@ -236,13 +237,15 @@ pub struct UnknownRecordData<Octs> {
 impl<Octs> UnknownRecordData<Octs> {
     /// Creates generic record data from a bytes value contain the data.
     pub fn from_octets(
-        rtype: Rtype, data: Octs
+        rtype: Rtype,
+        data: Octs,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         if data.as_ref().len() > 0xFFFF {
             Err(LongRecordData())
-        }
-        else {
+        } else {
             Ok(UnknownRecordData { rtype, data })
         }
     }
@@ -382,13 +385,15 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for UnknownRecordData<Octs> {
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.data.as_ref())
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
     }
@@ -453,4 +458,3 @@ impl fmt::Display for LongRecordData {
 
 #[cfg(feature = "std")]
 impl std::error::Error for LongRecordData {}
-

@@ -11,14 +11,14 @@ use super::relative::{DnameIter, RelativeDname};
 use super::traits::{ToDname, ToLabelIter};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::octets::{Octets, OctetsFrom};
-use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, Truncate};
-use octseq::parse::Parser;
-#[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
 use core::{cmp, fmt, hash, ops, str};
+use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, Truncate};
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -77,9 +77,10 @@ impl<Octs> Dname<Octs> {
     pub fn from_symbols<Sym>(symbols: Sym) -> Result<Self, FromStrError>
     where
         Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder:
-            EmptyBuilder + FreezeBuilder<Octets = Octs>
-            + AsRef<[u8]> + AsMut<[u8]>,
+        <Octs as FromBuilder>::Builder: EmptyBuilder
+            + FreezeBuilder<Octets = Octs>
+            + AsRef<[u8]>
+            + AsMut<[u8]>,
         Sym: IntoIterator<Item = Symbol>,
     {
         let mut builder = DnameBuilder::<Octs::Builder>::new();
@@ -105,9 +106,10 @@ impl<Octs> Dname<Octs> {
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octs: FromBuilder,
-        <Octs as FromBuilder>::Builder:
-            EmptyBuilder + FreezeBuilder<Octets = Octs>
-            + AsRef<[u8]> + AsMut<[u8]>,
+        <Octs as FromBuilder>::Builder: EmptyBuilder
+            + FreezeBuilder<Octets = Octs>
+            + AsRef<[u8]>
+            + AsMut<[u8]>,
         C: IntoIterator<Item = char>,
     {
         let mut builder = DnameBuilder::<Octs::Builder>::new();
@@ -117,7 +119,7 @@ impl<Octs> Dname<Octs> {
 
     /// Reads a name in presentation format from the beginning of a scanner.
     pub fn scan<S: Scanner<Dname = Self>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         scanner.scan_dname()
     }
@@ -586,7 +588,7 @@ impl<Octs: AsRef<[u8]>> Dname<Octs> {
 impl<Octs> Dname<Octs> {
     /// Reads a name in wire format from the beginning of a parser.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = Self::parse_name_len(parser)?;
         Ok(unsafe { Self::from_octets_unchecked(parser.parse_octets(len)?) })
@@ -653,9 +655,10 @@ where
 impl<Octs> FromStr for Dname<Octs>
 where
     Octs: FromBuilder,
-    <Octs as FromBuilder>::Builder:
-        EmptyBuilder + FreezeBuilder<Octets = Octs>
-        + AsRef<[u8]> + AsMut<[u8]>,
+    <Octs as FromBuilder>::Builder: EmptyBuilder
+        + FreezeBuilder<Octets = Octs>
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
 {
     type Err = FromStrError;
 
@@ -826,9 +829,10 @@ where
 impl<'de, Octs> serde::Deserialize<'de> for Dname<Octs>
 where
     Octs: FromBuilder + DeserializeOctets<'de>,
-    <Octs as FromBuilder>::Builder: 
-        FreezeBuilder<Octets = Octs> + EmptyBuilder
-        + AsRef<[u8]> + AsMut<[u8]>,
+    <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
+        + EmptyBuilder
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -840,9 +844,10 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder:
-                FreezeBuilder<Octets = Octs> + EmptyBuilder
-                + AsRef<[u8]> + AsMut<[u8]>,
+            <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
+                + EmptyBuilder
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = Dname<Octs>;
 
@@ -882,9 +887,10 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder:
-                EmptyBuilder + FreezeBuilder<Octets = Octs>
-                + AsRef<[u8]> + AsMut<[u8]>,
+            <Octs as FromBuilder>::Builder: EmptyBuilder
+                + FreezeBuilder<Octets = Octs>
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = Dname<Octs>;
 
@@ -1648,9 +1654,9 @@ pub(crate) mod test {
     fn compose_canonical() {
         let mut buf = Vec::new();
         infallible(
-            Dname::from_slice(
-                b"\x03wWw\x07exaMPle\x03com\0"
-            ).unwrap().compose_canonical(&mut buf)
+            Dname::from_slice(b"\x03wWw\x07exaMPle\x03com\0")
+                .unwrap()
+                .compose_canonical(&mut buf),
         );
         assert_eq!(buf.as_slice(), b"\x03www\x07example\x03com\0");
     }

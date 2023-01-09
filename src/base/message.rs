@@ -20,9 +20,9 @@ use super::rdata::ParseRecordData;
 use super::record::{ComposeRecord, ParsedRecord, Record};
 use super::wire::{Composer, ParseError};
 use crate::rdata::rfc1035::Cname;
-use octseq::{Octets, OctetsFrom, Parser, ShortBuf};
 use core::marker::PhantomData;
 use core::{fmt, mem};
+use octseq::{Octets, OctetsFrom, Parser, ShortBuf};
 
 //------------ Message -------------------------------------------------------
 

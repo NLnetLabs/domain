@@ -5,13 +5,13 @@ use crate::base::iana::{Rtype, SvcbParamKey};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
+use core::{fmt, hash};
 use octseq::array::Array;
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
 };
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
-use core::{fmt, hash};
 use param::{AllParams, SvcbParam};
 
 // Types in SVCB type group are based on the same format.
@@ -509,7 +509,7 @@ pub mod param {
 
             impl<Octs> $name<Octs> {
                 pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-                    parser: &mut Parser<'a, Src>
+                    parser: &mut Parser<'a, Src>,
                 ) -> Result<Self, ParseError> {
                     //let len = u16::parse(parser)?;
                     //let data = parser.parse_octets(len.into())?;
@@ -520,7 +520,8 @@ pub mod param {
 
             impl<O: AsRef<[u8]>> $name<O> {
                 fn compose<Target: OctetsBuilder + ?Sized>(
-                    &self, target: &mut Target
+                    &self,
+                    target: &mut Target,
                 ) -> Result<(), Target::AppendError> {
                     target.append_slice(self.0.as_ref())
                 }
@@ -609,7 +610,8 @@ pub mod param {
 
     impl<OB: Composer> Mandatory<OB> {
         pub fn push(
-            &mut self, key: SvcbParamKey
+            &mut self,
+            key: SvcbParamKey,
         ) -> Result<(), OB::AppendError> {
             u16::from(key).compose(&mut self.0)
         }
@@ -699,7 +701,7 @@ pub mod param {
 
     impl NoDefaultAlpn {
         pub fn parse<Octs: ?Sized>(
-            _parser: &mut Parser<Octs>
+            _parser: &mut Parser<Octs>,
         ) -> Result<Self, ParseError> {
             Ok(Self)
         }
@@ -707,7 +709,8 @@ pub mod param {
 
     impl NoDefaultAlpn {
         fn compose<Target: OctetsBuilder + ?Sized>(
-            &self, _target: &mut Target,
+            &self,
+            _target: &mut Target,
         ) -> Result<(), Target::AppendError> {
             Ok(())
         }
@@ -737,14 +740,15 @@ pub mod param {
         }
 
         pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-            parser: &mut Parser<Octs>
+            parser: &mut Parser<Octs>,
         ) -> Result<Self, ParseError> {
             let port = u16::parse(parser)?;
             Ok(Self(port))
         }
 
         fn compose<Target: OctetsBuilder + ?Sized>(
-            &self, target: &mut Target
+            &self,
+            target: &mut Target,
         ) -> Result<(), Target::AppendError> {
             self.0.compose(target)
         }
@@ -896,7 +900,8 @@ pub mod param {
 
     impl<Octs: AsRef<[u8]>> Unknown<Octs> {
         fn compose<Target: OctetsBuilder + ?Sized>(
-            &self, target: &mut Target
+            &self,
+            target: &mut Target,
         ) -> Result<(), Target::AppendError> {
             target.append_slice(self.val.as_ref())
         }

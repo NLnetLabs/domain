@@ -121,9 +121,9 @@ pub fn encode_display<Octets: AsRef<[u8]>>(
 #[cfg(feature = "serde")]
 pub mod serde {
     use super::encode_display;
-    use octseq::builder::{ EmptyBuilder, FromBuilder, OctetsBuilder};
-    use octseq::serde::{DeserializeOctets, SerializeOctets};
     use core::fmt;
+    use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
+    use octseq::serde::{DeserializeOctets, SerializeOctets};
 
     pub fn serialize<Octets, S>(
         octets: &Octets,
@@ -232,7 +232,9 @@ impl<Builder: EmptyBuilder> Decoder<Builder> {
 impl<Builder: OctetsBuilder> Decoder<Builder> {
     /// Finalizes decoding and returns the decoded data.
     pub fn finalize(self) -> Result<Builder::Octets, DecodeError>
-    where Builder: FreezeBuilder {
+    where
+        Builder: FreezeBuilder,
+    {
         let (target, next) = (self.target, self.next);
         target.and_then(|bytes| {
             // next is either 0 or 0xF0 for a completed group.
@@ -276,21 +278,21 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
 
         if self.next == 4 {
             let target = self.target.as_mut().unwrap(); // Err covered above.
-            target.append_slice(
-                &[self.buf[0] << 2 | self.buf[1] >> 4]
-            ).map_err(Into::into)?;
+            target
+                .append_slice(&[self.buf[0] << 2 | self.buf[1] >> 4])
+                .map_err(Into::into)?;
             if self.buf[2] != 0x80 {
-                target.append_slice(
-                    &[self.buf[1] << 4 | self.buf[2] >> 2]
-                ).map_err(Into::into)?;
+                target
+                    .append_slice(&[self.buf[1] << 4 | self.buf[2] >> 2])
+                    .map_err(Into::into)?;
             }
             if self.buf[3] != 0x80 {
                 if self.buf[2] == 0x80 {
                     return Err(DecodeError::TrailingInput);
                 }
-                target.append_slice(
-                    &[(self.buf[2] << 6) | self.buf[3]]
-                ).map_err(Into::into)?;
+                target
+                    .append_slice(&[(self.buf[2] << 6) | self.buf[3]])
+                    .map_err(Into::into)?;
                 self.next = 0
             } else {
                 self.next = 0xF0

@@ -13,7 +13,7 @@
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
 use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
 };
 #[cfg(feature = "std")]
 use std::string::String;
@@ -31,8 +31,7 @@ pub use super::base64::DecodeError;
 pub fn decode<Octets>(s: &str) -> Result<Octets, DecodeError>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder + EmptyBuilder,
+    <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     let mut decoder = Decoder::<<Octets as FromBuilder>::Builder>::new();
     for ch in s.chars() {
@@ -100,9 +99,9 @@ pub fn encode_display<Octets: AsRef<[u8]>>(
 /// serializers or as a raw octets sequence for compact serializers.
 #[cfg(feature = "serde")]
 pub mod serde {
+    use core::fmt;
     use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
     use octseq::serde::{DeserializeOctets, SerializeOctets};
-    use core::fmt;
 
     pub fn serialize<Octets, S>(
         octets: &Octets,
@@ -131,8 +130,7 @@ pub mod serde {
         impl<'de, Octets> serde::de::Visitor<'de> for Visitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder + EmptyBuilder,
+            <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
             type Value = Octets;
 
@@ -202,7 +200,9 @@ impl<Builder: EmptyBuilder> Decoder<Builder> {
 impl<Builder: OctetsBuilder> Decoder<Builder> {
     /// Finalizes decoding and returns the decoded data.
     pub fn finalize(self) -> Result<Builder::Octets, DecodeError>
-    where Builder: FreezeBuilder {
+    where
+        Builder: FreezeBuilder,
+    {
         if self.buf.is_some() {
             return Err(DecodeError::ShortInput);
         }

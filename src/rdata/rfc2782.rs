@@ -10,11 +10,11 @@ use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use core::cmp::Ordering;
+use core::fmt;
 use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
-use core::cmp::Ordering;
-use core::fmt;
 
 //------------ Srv ---------------------------------------------------------
 
@@ -71,7 +71,7 @@ impl<N> Srv<N> {
     }
 
     pub fn scan<S: Scanner<Dname = N>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
             u16::scan(scanner)?,
@@ -214,14 +214,16 @@ impl<N> RecordData for Srv<N> {
 }
 
 impl<'a, Octs> ParseRecordData<'a, Octs> for Srv<ParsedDname<'a, Octs>>
-where Octs: Octets + ?Sized {
+where
+    Octs: Octets + ?Sized,
+{
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::Srv {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -234,14 +236,16 @@ impl<Name: ToDname> ComposeRecordData for Srv<Name> {
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_head(target)?;
         self.target.compose(target)
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_head(target)?;
         self.target.compose_canonical(target) // ... but are lowercased.
@@ -250,7 +254,8 @@ impl<Name: ToDname> ComposeRecordData for Srv<Name> {
 
 impl<Name: ToDname> Srv<Name> {
     fn compose_head<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.priority.compose(target)?;
         self.weight.compose(target)?;

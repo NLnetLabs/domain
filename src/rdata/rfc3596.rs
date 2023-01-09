@@ -10,12 +10,12 @@ use crate::base::net::Ipv6Addr;
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scanner, ScannerError};
 use crate::base::wire::{Composer, Parse, ParseError};
-use octseq::octets::OctetsFrom;
-use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::convert::Infallible;
 use core::str::FromStr;
 use core::{fmt, ops, str};
+use octseq::octets::OctetsFrom;
+use octseq::parse::Parser;
 
 //------------ Aaaa ---------------------------------------------------------
 
@@ -46,7 +46,7 @@ impl Aaaa {
     }
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
         Ipv6Addr::parse(parser).map(Self::new)
     }
@@ -110,12 +110,12 @@ impl RecordData for Aaaa {
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> ParseRecordData<'a, Octs> for Aaaa {
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::Aaaa {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -127,13 +127,15 @@ impl ComposeRecordData for Aaaa {
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(&self.octets())
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
     }

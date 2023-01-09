@@ -81,9 +81,12 @@ fn tsig_client_nsd() {
     let res = thread::spawn(move || {
         // Create an AXFR request and send it to NSD.
         let request = TestBuilder::new_stream_vec();
-        let mut request = request.try_request_axfr(
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap()
-        ).unwrap().additional();
+        let mut request = request
+            .try_request_axfr(
+                Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            )
+            .unwrap()
+            .additional();
         let tran = tsig::ClientTransaction::request(
             &key,
             &mut request,
@@ -142,9 +145,8 @@ fn tsig_server_drill() {
                 Err(_) => continue,
             };
             let answer = TestBuilder::new_stream_vec();
-            let answer = answer.try_start_answer(
-                &request, Rcode::NoError
-            ).unwrap();
+            let answer =
+                answer.try_start_answer(&request, Rcode::NoError).unwrap();
             let tran = match tsig::ServerTransaction::request(
                 &&key,
                 &mut request,
@@ -230,9 +232,12 @@ fn tsig_client_sequence_nsd() {
     let res = thread::spawn(move || {
         let mut sock = TcpStream::connect("127.0.0.1:54323").unwrap();
         let request = TestBuilder::new_stream_vec();
-        let mut request = request.try_request_axfr(
-            Dname::<Vec<u8>>::from_str("example.com.").unwrap()
-        ).unwrap().additional();
+        let mut request = request
+            .try_request_axfr(
+                Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            )
+            .unwrap()
+            .additional();
         let mut tran =
             tsig::ClientSequence::request(&key, &mut request, Time48::now())
                 .unwrap();

@@ -9,10 +9,10 @@ use super::label::Label;
 use super::relative::RelativeDname;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder
-};
 use core::cmp;
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
+};
 #[cfg(feature = "std")]
 use std::borrow::Cow;
 
@@ -121,11 +121,12 @@ pub trait ToDname: ToLabelIter {
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
-        let mut builder = Octets::Builder::with_capacity(
-            self.compose_len().into()
-        );
+        let mut builder =
+            Octets::Builder::with_capacity(self.compose_len().into());
         for label in self.iter_labels() {
-            label.compose(&mut builder).map_err(|_| PushError::ShortBuf)?;
+            label
+                .compose(&mut builder)
+                .map_err(|_| PushError::ShortBuf)?;
         }
         Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
     }
@@ -143,12 +144,12 @@ pub trait ToDname: ToLabelIter {
     }
 
     fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         if let Some(slice) = self.as_flat_slice() {
             target.append_slice(slice)
-        }
-        else {
+        } else {
             for label in self.iter_labels() {
                 label.compose(target)?;
             }
@@ -157,7 +158,8 @@ pub trait ToDname: ToLabelIter {
     }
 
     fn compose_canonical<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         for label in self.iter_labels() {
             label.compose_canonical(target)?;
@@ -343,11 +345,12 @@ pub trait ToRelativeDname: ToLabelIter {
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
-        let mut builder = Octets::Builder::with_capacity(
-            self.compose_len().into()
-        );
+        let mut builder =
+            Octets::Builder::with_capacity(self.compose_len().into());
         for label in self.iter_labels() {
-            label.compose(&mut builder).map_err(|_| PushError::ShortBuf)?;
+            label
+                .compose(&mut builder)
+                .map_err(|_| PushError::ShortBuf)?;
         }
         Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
     }
@@ -361,12 +364,12 @@ pub trait ToRelativeDname: ToLabelIter {
     }
 
     fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         if let Some(slice) = self.as_flat_slice() {
             target.append_slice(slice)
-        }
-        else {
+        } else {
             for label in self.iter_labels() {
                 label.compose(target)?;
             }
@@ -375,7 +378,8 @@ pub trait ToRelativeDname: ToLabelIter {
     }
 
     fn compose_canonical<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         for label in self.iter_labels() {
             label.compose_canonical(target)?;
@@ -489,4 +493,3 @@ pub trait ToRelativeDname: ToLabelIter {
 }
 
 impl<'a, N: ToRelativeDname + ?Sized + 'a> ToRelativeDname for &'a N {}
-

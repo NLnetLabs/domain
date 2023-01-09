@@ -70,7 +70,7 @@ impl<Octets: AsRef<[u8]>, R: ToLabelIter> Chain<UncertainDname<Octets>, R> {
 
 impl<L, R> Chain<L, R> {
     pub fn scan<S: Scanner<Dname = Self>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         scanner.scan_dname()
     }
@@ -115,9 +115,10 @@ impl<L: ToRelativeDname, R: ToLabelIter> ToLabelIter for Chain<L, R> {
     }
 
     fn compose_len(&self) -> u16 {
-        self.left.compose_len().checked_add(
-            self.right.compose_len()
-        ).expect("long domain name")
+        self.left
+            .compose_len()
+            .checked_add(self.right.compose_len())
+            .expect("long domain name")
     }
 }
 
@@ -144,14 +145,11 @@ where
 
     fn compose_len(&self) -> u16 {
         match self.left {
-            UncertainDname::Absolute(ref name) => {
-                name.compose_len()
-            }
-            UncertainDname::Relative(ref name) => {
-                name.compose_len().checked_add(
-                    self.right.compose_len()
-                ).expect("long domain name")
-            }
+            UncertainDname::Absolute(ref name) => name.compose_len(),
+            UncertainDname::Relative(ref name) => name
+                .compose_len()
+                .checked_add(self.right.compose_len())
+                .expect("long domain name"),
         }
     }
 }
@@ -357,10 +355,12 @@ mod test {
         assert_eq!(six_rel.len(), 6);
 
         assert_eq!(
-            left.clone().chain(five_abs.clone()).unwrap().compose_len(), 255
+            left.clone().chain(five_abs.clone()).unwrap().compose_len(),
+            255
         );
         assert_eq!(
-            left.clone().chain(five_rel.clone()).unwrap().compose_len(), 255
+            left.clone().chain(five_rel.clone()).unwrap().compose_len(),
+            255
         );
         assert!(left.clone().chain(six_abs.clone()).is_err());
         assert!(left.clone().chain(six_rel).is_err());
@@ -389,9 +389,7 @@ mod test {
     /// Checks the impl of ToLabelIter: iter_labels and compose_len.
     #[test]
     fn to_label_iter_impl() {
-        fn check_impl<'a, N: ToLabelIter>(
-            name: N, labels: &[&[u8]],
-        ) {
+        fn check_impl<'a, N: ToLabelIter>(name: N, labels: &[&[u8]]) {
             let labels = labels.iter().map(|s| Label::from_slice(s).unwrap());
             assert!(name.iter_labels().eq(labels));
             assert_eq!(
@@ -425,9 +423,7 @@ mod test {
         );
 
         check_impl(
-            UncertainDname::from(w.clone())
-                .chain(ecr.clone())
-                .unwrap(),
+            UncertainDname::from(w.clone()).chain(ecr.clone()).unwrap(),
             &[b"www", b"example", b"com", b""],
         );
         check_impl(
@@ -460,21 +456,31 @@ mod test {
         assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
         let mut buf = Vec::new();
-        infallible(w
-            .clone().chain(ec.clone()).unwrap().chain(Dname::root_ref())
-            .unwrap().compose(&mut buf)
+        infallible(
+            w.clone()
+                .chain(ec.clone())
+                .unwrap()
+                .chain(Dname::root_ref())
+                .unwrap()
+                .compose(&mut buf),
         );
         assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
         let mut buf = Vec::new();
-        infallible(UncertainDname::from(w.clone())
-            .chain(ecr.clone()).unwrap().compose(&mut buf)
+        infallible(
+            UncertainDname::from(w.clone())
+                .chain(ecr.clone())
+                .unwrap()
+                .compose(&mut buf),
         );
         assert_eq!(buf, b"\x03www\x07example\x03com\x00");
 
         let mut buf = Vec::new();
-        infallible(UncertainDname::from(ecr.clone())
-            .chain(fbr.clone()).unwrap().compose(&mut buf)
+        infallible(
+            UncertainDname::from(ecr.clone())
+                .chain(fbr.clone())
+                .unwrap()
+                .compose(&mut buf),
         );
         assert_eq!(buf, b"\x07example\x03com\x00");
     }

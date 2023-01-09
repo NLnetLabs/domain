@@ -140,17 +140,17 @@ use super::record::ComposeRecord;
 use super::wire::{Compose, Composer};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-use octseq::octets::Octets;
-use octseq::builder::{
-    infallible, FreezeBuilder, OctetsBuilder, ShortBuf, Truncate
-};
-#[cfg(feature = "std")]
-use octseq::array::Array;
 use core::convert::Infallible;
 #[cfg(feature = "std")]
 use core::convert::TryInto;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
+#[cfg(feature = "std")]
+use octseq::array::Array;
+use octseq::builder::{
+    infallible, FreezeBuilder, OctetsBuilder, ShortBuf, Truncate,
+};
+use octseq::octets::Octets;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 #[cfg(feature = "std")]
@@ -185,7 +185,7 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
     /// The function will result in an error if the builder doesn’t have
     /// enough space for the header section.
     pub fn try_from_target(
-        mut target: Target
+        mut target: Target,
     ) -> Result<Self, Target::AppendError> {
         target.truncate(0);
         target.append_slice(HeaderSection::new().as_slice())?;
@@ -193,10 +193,11 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
     }
 
     pub fn from_target(target: Target) -> Self
-    where Target::AppendError: Into<Infallible> {
+    where
+        Target::AppendError: Into<Infallible>,
+    {
         infallible(Self::try_from_target(target))
     }
-
 }
 
 #[cfg(feature = "std")]
@@ -350,10 +351,10 @@ impl<Target: Composer> MessageBuilder<Target> {
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
     pub fn into_message(self) -> Message<<Target as FreezeBuilder>::Octets>
-    where Target: FreezeBuilder {
-        unsafe {
-            Message::from_octets_unchecked(self.target.freeze())
-        }
+    where
+        Target: FreezeBuilder,
+    {
+        unsafe { Message::from_octets_unchecked(self.target.freeze()) }
     }
 }
 
@@ -393,20 +394,22 @@ impl<Target> MessageBuilder<Target> {
 
 impl<Target: Composer> MessageBuilder<Target> {
     fn push<Push, Inc>(
-        &mut self, push: Push, inc: Inc
+        &mut self,
+        push: Push,
+        inc: Inc,
     ) -> Result<(), PushError>
     where
         Push: FnOnce(&mut Target) -> Result<(), ShortBuf>,
-        Inc: FnOnce(&mut HeaderCounts) -> Result<(), CountOverflow>
+        Inc: FnOnce(&mut HeaderCounts) -> Result<(), CountOverflow>,
     {
         let pos = self.target.as_ref().len();
         if let Err(err) = push(&mut self.target) {
             self.target.truncate(pos);
-            return Err(From::from(err))
+            return Err(From::from(err));
         }
         if inc(self.counts_mut()).is_err() {
             self.target.truncate(pos);
-            return Err(PushError::CountOverflow)
+            return Err(PushError::CountOverflow);
         }
         Ok(())
     }
@@ -522,13 +525,12 @@ impl<Target: Composer> QuestionBuilder<Target> {
     /// msg.push((Dname::root_ref(), Rtype::A)).unwrap();
     /// ```
     pub fn push(
-        &mut self, question: impl ComposeQuestion
+        &mut self,
+        question: impl ComposeQuestion,
     ) -> Result<(), PushError> {
         self.builder.push(
-            |target| {
-                question.compose_question(target).map_err(Into::into)
-            },
-            |counts| counts.inc_qdcount()
+            |target| question.compose_question(target).map_err(Into::into),
+            |counts| counts.inc_qdcount(),
         )
     }
 }
@@ -594,7 +596,9 @@ impl<Target: Composer> QuestionBuilder<Target> {
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
     pub fn into_message(self) -> Message<Target::Octets>
-    where Target: FreezeBuilder {
+    where
+        Target: FreezeBuilder,
+    {
         self.builder.into_message()
     }
 }
@@ -763,11 +767,12 @@ impl<Target: Composer> AnswerBuilder<Target> {
     /// ```
     ///
     pub fn push(
-        &mut self, record: impl ComposeRecord
+        &mut self,
+        record: impl ComposeRecord,
     ) -> Result<(), PushError> {
         self.builder.push(
             |target| record.compose_record(target).map_err(Into::into),
-            |counts| counts.inc_ancount()
+            |counts| counts.inc_ancount(),
         )
     }
 }
@@ -834,7 +839,9 @@ impl<Target: Composer> AnswerBuilder<Target> {
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
     pub fn into_message(self) -> Message<Target::Octets>
-    where Target: FreezeBuilder {
+    where
+        Target: FreezeBuilder,
+    {
         self.builder.into_message()
     }
 }
@@ -1002,11 +1009,12 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     /// ).unwrap();
     /// ```
     pub fn push(
-        &mut self, record: impl ComposeRecord
+        &mut self,
+        record: impl ComposeRecord,
     ) -> Result<(), PushError> {
         self.answer.builder.push(
             |target| record.compose_record(target).map_err(Into::into),
-            |counts| counts.inc_nscount()
+            |counts| counts.inc_nscount(),
         )
     }
 }
@@ -1075,7 +1083,9 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
     pub fn into_message(self) -> Message<Target::Octets>
-    where Target: FreezeBuilder {
+    where
+        Target: FreezeBuilder,
+    {
         self.answer.into_message()
     }
 }
@@ -1249,11 +1259,12 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     /// ).unwrap();
     /// ```
     pub fn push(
-        &mut self, record: impl ComposeRecord
+        &mut self,
+        record: impl ComposeRecord,
     ) -> Result<(), PushError> {
         self.authority.answer.builder.push(
             |target| record.compose_record(target).map_err(Into::into),
-            |counts| counts.inc_arcount()
+            |counts| counts.inc_arcount(),
         )
     }
 }
@@ -1274,10 +1285,8 @@ impl<Target: Composer> AdditionalBuilder<Target> {
         F: FnOnce(&mut OptBuilder<Target>) -> Result<(), Target::AppendError>,
     {
         self.authority.answer.builder.push(
-            |target| {
-                OptBuilder::new(target)?.build(op).map_err(Into::into)
-            },
-            |counts| counts.inc_arcount()
+            |target| OptBuilder::new(target)?.build(op).map_err(Into::into),
+            |counts| counts.inc_arcount(),
         )
     }
 }
@@ -1347,7 +1356,9 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
     pub fn into_message(self) -> Message<Target::Octets>
-    where Target: FreezeBuilder {
+    where
+        Target: FreezeBuilder,
+    {
         self.authority.into_message()
     }
 }
@@ -1463,19 +1474,18 @@ pub trait RecordSectionBuilder<Target: Composer> {
 }
 
 impl<Target> RecordSectionBuilder<Target> for AnswerBuilder<Target>
-where Target: Composer {
-    fn push(
-        &mut self, record: impl ComposeRecord
-    ) -> Result<(), PushError> {
+where
+    Target: Composer,
+{
+    fn push(&mut self, record: impl ComposeRecord) -> Result<(), PushError> {
         Self::push(self, record)
     }
 }
 
-impl<Target: Composer> RecordSectionBuilder<Target> for AuthorityBuilder<Target>
+impl<Target: Composer> RecordSectionBuilder<Target>
+    for AuthorityBuilder<Target>
 {
-    fn push(
-        &mut self, record: impl ComposeRecord
-    ) -> Result<(), PushError> {
+    fn push(&mut self, record: impl ComposeRecord) -> Result<(), PushError> {
         Self::push(self, record)
     }
 }
@@ -1484,9 +1494,7 @@ impl<Target> RecordSectionBuilder<Target> for AdditionalBuilder<Target>
 where
     Target: Composer,
 {
-    fn push(
-        &mut self, record: impl ComposeRecord
-    ) -> Result<(), PushError> {
+    fn push(&mut self, record: impl ComposeRecord) -> Result<(), PushError> {
         Self::push(self, record)
     }
 }
@@ -1507,35 +1515,30 @@ pub struct OptBuilder<'a, Target: AsRef<[u8]> + AsMut<[u8]>> {
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
     /// Creates a new opt builder atop an additional builder.
-    fn new(
-        target: &'a mut Target,
-    ) -> Result<Self, ShortBuf> {
+    fn new(target: &'a mut Target) -> Result<Self, ShortBuf> {
         let start = target.as_ref().len();
         OptHeader::default().compose(target).map_err(Into::into)?;
         Ok(OptBuilder { start, target })
     }
 
-    fn build<F>(
-        &mut self, op: F
-    ) -> Result<(), ShortBuf>
-    where F: FnOnce(&mut Self) -> Result<(), Target::AppendError> {
+    fn build<F>(&mut self, op: F) -> Result<(), ShortBuf>
+    where
+        F: FnOnce(&mut Self) -> Result<(), Target::AppendError>,
+    {
         self.target.append_slice(&[0; 2]).map_err(Into::into)?;
         let pos = self.target.as_ref().len();
         match op(self) {
-            Ok(_) => {
-                match u16::try_from(self.target.as_ref().len() - pos) {
-                    Ok(len) => {
-                        self.target.as_mut()[pos - 2..pos].copy_from_slice(
-                            &(len).to_be_bytes()
-                        );
-                        Ok(())
-                    }
-                    Err(_) => {
-                        self.target.truncate(pos);
-                        Err(ShortBuf)
-                    }
+            Ok(_) => match u16::try_from(self.target.as_ref().len() - pos) {
+                Ok(len) => {
+                    self.target.as_mut()[pos - 2..pos]
+                        .copy_from_slice(&(len).to_be_bytes());
+                    Ok(())
                 }
-            }
+                Err(_) => {
+                    self.target.truncate(pos);
+                    Err(ShortBuf)
+                }
+            },
             Err(_) => {
                 self.target.truncate(pos);
                 Err(ShortBuf)
@@ -1545,7 +1548,8 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 
     /// Appends an option to the OPT record.
     pub fn push<Opt: ComposeOptData>(
-        &mut self, opt: &Opt
+        &mut self,
+        opt: &Opt,
     ) -> Result<(), Target::AppendError> {
         self.push_raw_option(opt.code(), opt.compose_len(), |target| {
             opt.compose_option(target)
@@ -1589,18 +1593,16 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     /// The method assembles the rcode both from the message header and the
     /// OPT header.
     pub fn rcode(&self) -> OptRcode {
-        self.opt_header().rcode(
-            *Header::for_message_slice(self.target.as_ref())
-        )
+        self.opt_header()
+            .rcode(*Header::for_message_slice(self.target.as_ref()))
     }
 
     /// Sets the extended rcode of the message.
     //
     /// The method will update both the message header and the OPT header.
     pub fn set_rcode(&mut self, rcode: OptRcode) {
-        Header::for_message_slice_mut(
-            self.target.as_mut()
-        ).set_rcode(rcode.rcode());
+        Header::for_message_slice_mut(self.target.as_mut())
+            .set_rcode(rcode.rcode());
         self.opt_header_mut().set_rcode(rcode)
     }
 
@@ -1635,17 +1637,13 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
 
     /// Returns a reference to the full OPT header.
     fn opt_header(&self) -> &OptHeader {
-        OptHeader::for_record_slice(
-            &self.target.as_ref()[self.start..]
-        )
+        OptHeader::for_record_slice(&self.target.as_ref()[self.start..])
     }
 
     /// Returns a mutual reference to the full OPT header.
     fn opt_header_mut(&mut self) -> &mut OptHeader {
         let start = self.start;
-        OptHeader::for_record_slice_mut(
-            &mut self.target.as_mut()[start..],
-        )
+        OptHeader::for_record_slice_mut(&mut self.target.as_mut()[start..])
     }
 }
 
@@ -1682,7 +1680,9 @@ impl<Target: Composer> StreamTarget<Target> {
     }
 
     pub fn new(target: Target) -> Self
-    where Target::AppendError: Into<Infallible> {
+    where
+        Target::AppendError: Into<Infallible>,
+    {
         infallible(Self::try_new(target))
     }
 }
@@ -1718,7 +1718,7 @@ impl<Target: AsRef<[u8]> + AsMut<[u8]>> StreamTarget<Target> {
                 self.target.as_mut()[..2].copy_from_slice(&len.to_be_bytes());
                 Ok(())
             }
-            Err(_) => Err(ShortBuf)
+            Err(_) => Err(ShortBuf),
         }
     }
 }
@@ -1760,13 +1760,14 @@ impl<Target: AsMut<[u8]>> AsMut<[u8]> for StreamTarget<Target> {
 
 impl<Target> OctetsBuilder for StreamTarget<Target>
 where
-    Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>, 
+    Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Target::AppendError: Into<ShortBuf>,
 {
     type AppendError = ShortBuf;
 
     fn append_slice(
-        &mut self, slice: &[u8]
+        &mut self,
+        slice: &[u8],
     ) -> Result<(), Self::AppendError> {
         self.target.append_slice(slice).map_err(Into::into)?;
         self.update_shim()
@@ -1775,7 +1776,8 @@ where
 
 impl<Target: Composer> Truncate for StreamTarget<Target> {
     fn truncate(&mut self, len: usize) {
-        self.target.truncate(len.checked_add(2).expect("long truncate"));
+        self.target
+            .truncate(len.checked_add(2).expect("long truncate"));
         self.update_shim().expect("truncate grew buffer???")
     }
 }
@@ -1786,9 +1788,12 @@ where
     Target::AppendError: Into<ShortBuf>,
 {
     fn append_compressed_dname<N: ToDname + ?Sized>(
-        &mut self, name: &N,
+        &mut self,
+        name: &N,
     ) -> Result<(), Self::AppendError> {
-        self.target.append_compressed_dname(name).map_err(Into::into)?;
+        self.target
+            .append_compressed_dname(name)
+            .map_err(Into::into)?;
         self.update_shim()
     }
 }
@@ -1910,7 +1915,8 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
     type AppendError = Target::AppendError;
 
     fn append_slice(
-        &mut self, slice: &[u8]
+        &mut self,
+        slice: &[u8],
     ) -> Result<(), Self::AppendError> {
         self.target.append_slice(slice)
     }
@@ -1918,7 +1924,8 @@ impl<Target: OctetsBuilder> OctetsBuilder for StaticCompressor<Target> {
 
 impl<Target: Composer> Composer for StaticCompressor<Target> {
     fn append_compressed_dname<N: ToDname + ?Sized>(
-        &mut self, name: &N,
+        &mut self,
+        name: &N,
     ) -> Result<(), Self::AppendError> {
         let mut name = name.iter_labels().peekable();
 
@@ -2124,7 +2131,8 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
     type AppendError = Target::AppendError;
 
     fn append_slice(
-        &mut self, slice: &[u8]
+        &mut self,
+        slice: &[u8],
     ) -> Result<(), Self::AppendError> {
         self.target.append_slice(slice)
     }
@@ -2133,7 +2141,8 @@ impl<Target: OctetsBuilder> OctetsBuilder for TreeCompressor<Target> {
 #[cfg(feature = "std")]
 impl<Target: Composer> Composer for TreeCompressor<Target> {
     fn append_compressed_dname<N: ToDname + ?Sized>(
-        &mut self, name: &N,
+        &mut self,
+        name: &N,
     ) -> Result<(), Self::AppendError> {
         let mut name = name.iter_labels().peekable();
 
@@ -2185,7 +2194,6 @@ impl<Target: Composer> Truncate for TreeCompressor<Target> {
     }
 }
 
-
 //============ Errors ========================================================
 
 #[derive(Clone, Copy, Debug)]
@@ -2203,16 +2211,14 @@ impl<T: Into<ShortBuf>> From<T> for PushError {
 impl fmt::Display for PushError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            PushError::CountOverflow => {
-                f.write_str("counter overflow")
-            }
-            PushError::ShortBuf => ShortBuf.fmt(f)
+            PushError::CountOverflow => f.write_str("counter overflow"),
+            PushError::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for PushError { }
+impl std::error::Error for PushError {}
 
 //============ Testing =======================================================
 
@@ -2235,7 +2241,8 @@ mod test {
         // target.
         let mut msg = MessageBuilder::try_from_target(StaticCompressor::new(
             StreamTarget::new_vec(),
-        )).unwrap();
+        ))
+        .unwrap();
 
         // Set the RD bit in the header and proceed to the question section.
         msg.header_mut().set_rd(true);
@@ -2318,10 +2325,11 @@ mod test {
     }
 
     fn create_compressed<T: Composer>(target: T) -> T
-    where T::AppendError: fmt::Debug {
-        let mut msg = MessageBuilder::try_from_target(
-            target
-        ).unwrap().question();
+    where
+        T::AppendError: fmt::Debug,
+    {
+        let mut msg =
+            MessageBuilder::try_from_target(target).unwrap().question();
         msg.header_mut().set_rcode(Rcode::NXDomain);
         msg.header_mut().set_rd(true);
         msg.header_mut().set_ra(true);

@@ -16,15 +16,15 @@ use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
+use core::cmp::Ordering;
+use core::{fmt, hash, ops, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
 };
-use octseq::octets::{Octets,OctetsFrom, OctetsInto};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
-use core::cmp::Ordering;
-use core::{fmt, hash, ops, str};
 
 //------------ Nsec3 ---------------------------------------------------------
 
@@ -117,7 +117,7 @@ impl<Octs> Nsec3<Octs> {
     }
 
     pub fn scan<S: Scanner<Octets = Octs>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
             Nsec3HashAlg::scan(scanner)?,
@@ -132,7 +132,7 @@ impl<Octs> Nsec3<Octs> {
 
 impl<Octs: AsRef<[u8]>> Nsec3<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let hash_algorithm = Nsec3HashAlg::parse(parser)?;
         let flags = u8::parse(parser)?;
@@ -305,14 +305,16 @@ impl<Octs> RecordData for Nsec3<Octs> {
 }
 
 impl<'a, Octs> ParseRecordData<'a, Octs> for Nsec3<Octs::Range<'a>>
-where Octs: Octets + ?Sized {
+where
+    Octs: Octets + ?Sized,
+{
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::Nsec3 {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -322,18 +324,22 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::checked_add(
-                Nsec3HashAlg::COMPOSE_LEN + u8::COMPOSE_LEN + u16::COMPOSE_LEN,
-                self.salt.compose_len().into()
-            ).expect("long NSEC3").checked_add(
-                self.next_owner.compose_len().into()
-            ).expect("long NSEC3").checked_add(
-                self.types.compose_len()
-            ).expect("long NSEC3")
+                Nsec3HashAlg::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + u16::COMPOSE_LEN,
+                self.salt.compose_len().into(),
+            )
+            .expect("long NSEC3")
+            .checked_add(self.next_owner.compose_len().into())
+            .expect("long NSEC3")
+            .checked_add(self.types.compose_len())
+            .expect("long NSEC3"),
         )
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.hash_algorithm.compose(target)?;
         self.flags.compose(target)?;
@@ -344,7 +350,8 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
     }
@@ -446,7 +453,7 @@ impl<Octs> Nsec3param<Octs> {
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Ok(Self::new(
             Nsec3HashAlg::parse(parser)?,
@@ -457,7 +464,7 @@ impl<Octs> Nsec3param<Octs> {
     }
 
     pub fn scan<S: Scanner<Octets = Octs>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
             Nsec3HashAlg::scan(scanner)?,
@@ -610,14 +617,16 @@ impl<Octs> RecordData for Nsec3param<Octs> {
 }
 
 impl<'a, Octs> ParseRecordData<'a, Octs> for Nsec3param<Octs::Range<'a>>
-where Octs: Octets + ?Sized {
+where
+    Octs: Octets + ?Sized,
+{
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::Nsec3param {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -627,14 +636,18 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::checked_add(
-                Nsec3HashAlg::COMPOSE_LEN + u8::COMPOSE_LEN + u16::COMPOSE_LEN,
-                self.salt.compose_len().into()
-            ).expect("long NSEC3")
+                Nsec3HashAlg::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + u16::COMPOSE_LEN,
+                self.salt.compose_len().into(),
+            )
+            .expect("long NSEC3"),
         )
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.hash_algorithm.compose(target)?;
         self.flags.compose(target)?;
@@ -643,7 +656,8 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
     }
@@ -736,16 +750,17 @@ impl<Octs: ?Sized> Nsec3Salt<Octs> {
 
     fn compose_len(&self) -> u8
     where
-        Octs: AsRef<[u8]>
+        Octs: AsRef<[u8]>,
     {
         self.0.as_ref().len().try_into().expect("long salt")
     }
 
     fn compose<Target: Composer /*OctetsBuilder*/ + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError>
     where
-        Octs: AsRef<[u8]>
+        Octs: AsRef<[u8]>,
     {
         self.compose_len().compose(target)?;
         target.append_slice(self.0.as_ref())
@@ -774,7 +789,7 @@ impl Nsec3Salt<[u8]> {
 
 impl<Octs> Nsec3Salt<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         #[derive(Default)]
         struct Converter(Option<Option<base16::SymbolConverter>>);
@@ -832,7 +847,7 @@ impl<Octs> Nsec3Salt<Octs> {
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.parse_u8()? as usize;
         parser
@@ -1111,7 +1126,7 @@ impl<Octs> OwnerHash<Octs> {
     }
 
     pub fn scan<S: Scanner<Octets = Octs>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         scanner
             .convert_token(base32::SymbolConverter::new())
@@ -1138,16 +1153,17 @@ impl<Octs: ?Sized> OwnerHash<Octs> {
 
     fn compose_len(&self) -> u8
     where
-        Octs: AsRef<[u8]>
+        Octs: AsRef<[u8]>,
     {
         self.0.as_ref().len().try_into().expect("long salt")
     }
 
     fn compose<Target: Composer /*OctetsBuilder*/ + ?Sized>(
-        &self, target: &mut Target,
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError>
     where
-        Octs: AsRef<[u8]>
+        Octs: AsRef<[u8]>,
     {
         self.compose_len().compose(target)?;
         target.append_slice(self.0.as_ref())
@@ -1176,7 +1192,7 @@ impl OwnerHash<[u8]> {
 
 impl<Octs> OwnerHash<Octs> {
     fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.parse_u8()? as usize;
         parser

@@ -12,10 +12,12 @@ use super::relative::{DnameIter, RelativeDname};
 use super::traits::ToLabelIter;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder};
+use core::{fmt, hash, str};
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder,
+};
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
-use core::{fmt, hash, str};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -117,9 +119,10 @@ impl<Octets> UncertainDname<Octets> {
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder:
-            FreezeBuilder<Octets = Octets> + EmptyBuilder
-            + AsRef<[u8]> + AsMut<[u8]>,
+        <Octets as FromBuilder>::Builder: FreezeBuilder<Octets = Octets>
+            + EmptyBuilder
+            + AsRef<[u8]>
+            + AsMut<[u8]>,
         C: IntoIterator<Item = char>,
     {
         let mut builder =
@@ -133,7 +136,7 @@ impl<Octets> UncertainDname<Octets> {
     }
 
     pub fn scan<S: Scanner<Dname = Dname<Octets>>>(
-        scanner: &mut S
+        scanner: &mut S,
     ) -> Result<Self, S::Error> {
         scanner.scan_dname().map(UncertainDname::Absolute)
     }
@@ -214,13 +217,11 @@ impl<Octets> UncertainDname<Octets> {
     ///
     /// [`RelativeDname::into_absolute`]:
     ///     struct.RelativeDname.html#method.into_absolute
-    pub fn into_absolute(
-        self,
-    ) -> Result<Dname<Octets>, PushError>
+    pub fn into_absolute(self) -> Result<Dname<Octets>, PushError>
     where
         Octets: AsRef<[u8]> + IntoBuilder,
         <Octets as IntoBuilder>::Builder:
-            FreezeBuilder<Octets = Octets> + AsRef<[u8]> + AsMut<[u8]>
+            FreezeBuilder<Octets = Octets> + AsRef<[u8]> + AsMut<[u8]>,
     {
         match self {
             UncertainDname::Absolute(name) => Ok(name),
@@ -305,9 +306,10 @@ impl<Octets> From<RelativeDname<Octets>> for UncertainDname<Octets> {
 impl<Octets> str::FromStr for UncertainDname<Octets>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        EmptyBuilder + FreezeBuilder<Octets = Octets>
-        + AsRef<[u8]> + AsMut<[u8]>,
+    <Octets as FromBuilder>::Builder: EmptyBuilder
+        + FreezeBuilder<Octets = Octets>
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
 {
     type Err = FromStrError;
 
@@ -444,9 +446,10 @@ where
 impl<'de, Octets> serde::Deserialize<'de> for UncertainDname<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder:
-        EmptyBuilder + FreezeBuilder<Octets = Octets>
-        + AsRef<[u8]> + AsMut<[u8]>,
+    <Octets as FromBuilder>::Builder: EmptyBuilder
+        + FreezeBuilder<Octets = Octets>
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -458,9 +461,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                EmptyBuilder + FreezeBuilder<Octets = Octets>
-                + AsRef<[u8]> + AsMut<[u8]>,
+            <Octets as FromBuilder>::Builder: EmptyBuilder
+                + FreezeBuilder<Octets = Octets>
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = UncertainDname<Octets>;
 
@@ -502,9 +506,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                EmptyBuilder + FreezeBuilder<Octets = Octets>
-                + AsRef<[u8]> + AsMut<[u8]>,
+            <Octets as FromBuilder>::Builder: EmptyBuilder
+                + FreezeBuilder<Octets = Octets>
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = UncertainDname<Octets>;
 

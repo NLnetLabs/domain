@@ -70,7 +70,7 @@ macro_rules! int_enum {
                     parser
                 ).map(Self::from_int)
             }
-        
+
             pub const COMPOSE_LEN: u16 =
                 <$inttype as $crate::base::wire::Compose>::COMPOSE_LEN;
 
@@ -480,7 +480,7 @@ macro_rules! scan_impl {
     ($ianatype:ident) => {
         impl $ianatype {
             pub fn scan<S: $crate::base::scan::Scanner>(
-                scanner: &mut S
+                scanner: &mut S,
             ) -> Result<Self, S::Error> {
                 scanner.scan_ascii_str(|s| {
                     core::str::FromStr::from_str(s).map_err(|_| {

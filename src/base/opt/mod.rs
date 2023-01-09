@@ -45,13 +45,13 @@ use super::name::{Dname, ToDname};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::Record;
 use super::wire::{Composer, FormError, ParseError};
-use octseq::builder::OctetsBuilder;
-use octseq::octets::{Octets, OctetsFrom};
-use octseq::parse::Parser;
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::marker::PhantomData;
 use core::{fmt, hash, mem, ops};
+use octseq::builder::OctetsBuilder;
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
 
 //------------ Opt -----------------------------------------------------------
 
@@ -103,7 +103,7 @@ impl<Octs: AsRef<[u8]>> Opt<Octs> {
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>
+        parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
         Self::from_octets(parser.parse_octets(len)?)
@@ -172,14 +172,16 @@ impl<Octs> RecordData for Opt<Octs> {
 }
 
 impl<'a, Octs> ParseRecordData<'a, Octs> for Opt<Octs::Range<'a>>
-where Octs: Octets + ?Sized {
+where
+    Octs: Octets + ?Sized,
+{
     fn parse_rdata(
-        rtype: Rtype, parser: &mut Parser<'a, Octs>
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         if rtype == Rtype::Opt {
             Self::parse(parser).map(Some)
-        }
-        else {
+        } else {
             Ok(None)
         }
     }
@@ -191,13 +193,15 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Opt<Octs> {
     }
 
     fn compose_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.octets.as_ref())
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
     }
@@ -325,7 +329,8 @@ impl OptHeader {
     }
 
     pub fn compose<Target: OctetsBuilder + ?Sized>(
-        self, target: &mut Target
+        self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(&self.inner)
     }
@@ -506,7 +511,7 @@ impl OptionHeader {
     }
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
         Ok(OptionHeader::new(parser.parse_u16()?, parser.parse_u16()?))
     }
@@ -622,7 +627,8 @@ pub trait ComposeOptData: OptData {
     fn compose_len(&self) -> u16;
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError>;
 }
 
@@ -746,11 +752,16 @@ where
 
 impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
     fn compose_len(&self) -> u16 {
-        self.data.as_ref().len().try_into().expect("long option data")
+        self.data
+            .as_ref()
+            .len()
+            .try_into()
+            .expect("long option data")
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
+        &self,
+        target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         target.append_slice(self.data.as_ref())
     }

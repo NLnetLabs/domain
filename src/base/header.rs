@@ -17,10 +17,10 @@
 
 use super::iana::{Opcode, Rcode};
 use super::wire::ParseError;
-use octseq::builder::OctetsBuilder;
-use octseq::parse::Parser;
 use core::convert::TryInto;
 use core::{fmt, mem, str::FromStr};
+use octseq::builder::OctetsBuilder;
+use octseq::parse::Parser;
 
 //------------ Header --------------------------------------------------
 
@@ -831,7 +831,7 @@ impl HeaderSection {
 ///
 impl HeaderSection {
     pub fn parse<Octs: AsRef<[u8]>>(
-        parser: &mut Parser<Octs>
+        parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
         let mut res = Self::default();
         parser.parse_buf(&mut res.inner)?;

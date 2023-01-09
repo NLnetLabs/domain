@@ -7,18 +7,18 @@ use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError, SplitLabelError};
-use super::traits::{ ToLabelIter, ToRelativeDname};
+use super::traits::{ToLabelIter, ToRelativeDname};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::builder::{FreezeBuilder, IntoBuilder, Truncate};
-#[cfg(feature = "serde")]
-use octseq::builder::{EmptyBuilder, FromBuilder,};
-use octseq::octets::{Octets, OctetsFrom};
-#[cfg(feature = "serde")]
-use octseq::serde::{DeserializeOctets, SerializeOctets};
 use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
 use core::{cmp, fmt, hash, ops};
+#[cfg(feature = "serde")]
+use octseq::builder::{EmptyBuilder, FromBuilder};
+use octseq::builder::{FreezeBuilder, IntoBuilder, Truncate};
+use octseq::octets::{Octets, OctetsFrom};
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -233,9 +233,7 @@ impl<Octs> RelativeDname<Octs> {
     /// such as `Vec<u8>`.
     ///
     /// [`chain_root`]: #method.chain_root
-    pub fn into_absolute(
-        self,
-    ) -> Result<Dname<Octs>, PushError>
+    pub fn into_absolute(self) -> Result<Dname<Octs>, PushError>
     where
         Octs: IntoBuilder,
         <Octs as IntoBuilder>::Builder:
@@ -669,9 +667,10 @@ where
 impl<'de, Octs> serde::Deserialize<'de> for RelativeDname<Octs>
 where
     Octs: FromBuilder + DeserializeOctets<'de>,
-    <Octs as FromBuilder>::Builder:
-        FreezeBuilder<Octets = Octs> + EmptyBuilder
-        + AsRef<[u8]> + AsMut<[u8]>,
+    <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
+        + EmptyBuilder
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -683,9 +682,10 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder:
-                FreezeBuilder<Octets = Octs> + EmptyBuilder
-                + AsRef<[u8]> + AsMut<[u8]>,
+            <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
+                + EmptyBuilder
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = RelativeDname<Octs>;
 
@@ -727,9 +727,10 @@ where
         impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
             Octs: FromBuilder + DeserializeOctets<'de>,
-            <Octs as FromBuilder>::Builder:
-                FreezeBuilder<Octets = Octs> + EmptyBuilder
-                + AsRef<[u8]> + AsMut<[u8]>,
+            <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
+                + EmptyBuilder
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = RelativeDname<Octs>;
 

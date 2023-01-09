@@ -5,11 +5,10 @@ use crate::base::message::RecordIter;
 use crate::base::name::{Dname, DnameBuilder, ParsedDname};
 use crate::rdata::Ptr;
 use crate::resolv::resolver::Resolver;
-use octseq::octets::{Octets};
+use octseq::octets::Octets;
 use std::io;
 use std::net::IpAddr;
 use std::str::FromStr;
-
 
 //------------ Octets128 -----------------------------------------------------
 

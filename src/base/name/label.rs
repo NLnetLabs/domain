@@ -5,9 +5,9 @@
 
 use super::super::wire::{FormError, ParseError};
 use super::builder::{parse_escape, LabelFromStrError};
-use octseq::builder::OctetsBuilder;
 use core::str::FromStr;
 use core::{borrow, cmp, fmt, hash, ops};
+use octseq::builder::OctetsBuilder;
 
 //------------ Label ---------------------------------------------------------
 

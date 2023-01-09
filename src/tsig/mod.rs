@@ -60,16 +60,16 @@ use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
 use crate::base::message_builder::{
-    AdditionalBuilder, MessageBuilder, PushError
+    AdditionalBuilder, MessageBuilder, PushError,
 };
 use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::rfc2845::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
+use core::{cmp, fmt, mem, ops, str};
 use octseq::octets::Octets;
 use ring::{constant_time, hkdf::KeyType, hmac, rand};
-use core::{cmp, fmt, mem, ops, str};
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
