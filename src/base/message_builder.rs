@@ -79,7 +79,7 @@
 //!
 //! // Create a message builder wrapping a compressor wrapping a stream
 //! // target.
-//! let mut msg = MessageBuilder::try_from_target(
+//! let mut msg = MessageBuilder::from_target(
 //!     StaticCompressor::new(
 //!         StreamTarget::new_vec()
 //!     )
@@ -140,7 +140,6 @@ use super::record::ComposeRecord;
 use super::wire::{Compose, Composer};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-use core::convert::Infallible;
 #[cfg(feature = "std")]
 use core::convert::TryInto;
 use core::ops::{Deref, DerefMut};
@@ -184,19 +183,12 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
     ///
     /// The function will result in an error if the builder doesn’t have
     /// enough space for the header section.
-    pub fn try_from_target(
+    pub fn from_target(
         mut target: Target,
     ) -> Result<Self, Target::AppendError> {
         target.truncate(0);
         target.append_slice(HeaderSection::new().as_slice())?;
         Ok(MessageBuilder { target })
-    }
-
-    pub fn from_target(target: Target) -> Self
-    where
-        Target::AppendError: Into<Infallible>,
-    {
-        infallible(Self::try_from_target(target))
     }
 }
 
@@ -204,7 +196,7 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
 impl MessageBuilder<Vec<u8>> {
     /// Creates a new message builder atop a `Vec<u8>`.
     pub fn new_vec() -> Self {
-        Self::from_target(Vec::new())
+        infallible(Self::from_target(Vec::new()))
     }
 }
 
@@ -212,7 +204,7 @@ impl MessageBuilder<Vec<u8>> {
 impl MessageBuilder<StreamTarget<Vec<u8>>> {
     /// Creates a new builder for a streamable message atop a `Vec<u8>`.
     pub fn new_stream_vec() -> Self {
-        Self::try_from_target(StreamTarget::new(Vec::new())).unwrap()
+        Self::from_target(StreamTarget::new_vec()).unwrap()
     }
 }
 
@@ -220,7 +212,7 @@ impl MessageBuilder<StreamTarget<Vec<u8>>> {
 impl MessageBuilder<BytesMut> {
     /// Creates a new message builder atop a bytes value.
     pub fn new_bytes() -> Self {
-        Self::from_target(BytesMut::new())
+        infallible(Self::from_target(BytesMut::new()))
     }
 }
 
@@ -228,7 +220,7 @@ impl MessageBuilder<BytesMut> {
 impl MessageBuilder<StreamTarget<BytesMut>> {
     /// Creates a new streamable message builder atop a bytes value.
     pub fn new_stream_bytes() -> Self {
-        Self::try_from_target(StreamTarget::new(BytesMut::new())).unwrap()
+        Self::from_target(StreamTarget::new_bytes()).unwrap()
     }
 }
 
@@ -241,7 +233,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     ///
     /// The method converts the message builder into an answer builder ready
     /// to receive the answer for the question.
-    pub fn try_start_answer<Octs: Octets>(
+    pub fn start_answer<Octs: Octets>(
         mut self,
         msg: &Message<Octs>,
         rcode: Rcode,
@@ -266,7 +258,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     /// Sets a random ID, pushes the domain and the AXFR record type into
     /// the question section, and converts the builder into an answer builder.
     #[cfg(feature = "random")]
-    pub fn try_request_axfr<N: ToDname>(
+    pub fn request_axfr<N: ToDname>(
         mut self,
         apex: N,
     ) -> Result<AnswerBuilder<Target>, PushError> {
@@ -1673,17 +1665,10 @@ impl<Target: Composer> StreamTarget<Target> {
     /// The function will truncate the builder back to empty and append the
     /// length value. Because of the latter, this can fail if the octets
     /// builder doesn’t even have space for that.
-    pub fn try_new(mut target: Target) -> Result<Self, Target::AppendError> {
+    pub fn new(mut target: Target) -> Result<Self, Target::AppendError> {
         target.truncate(0);
         0u16.compose(&mut target)?;
         Ok(StreamTarget { target })
-    }
-
-    pub fn new(target: Target) -> Self
-    where
-        Target::AppendError: Into<Infallible>,
-    {
-        infallible(Self::try_new(target))
     }
 }
 
@@ -1691,7 +1676,15 @@ impl<Target: Composer> StreamTarget<Target> {
 impl StreamTarget<Vec<u8>> {
     /// Creates a stream target atop an empty `Vec<u8>`.
     pub fn new_vec() -> Self {
-        Self::new(Vec::new())
+        infallible(Self::new(Vec::new()))
+    }
+}
+
+#[cfg(feature = "bytes")]
+impl StreamTarget<BytesMut> {
+    /// Creates a stream target atop an empty `Vec<u8>`.
+    pub fn new_bytes() -> Self {
+        infallible(Self::new(BytesMut::new()))
     }
 }
 
@@ -2239,7 +2232,7 @@ mod test {
 
         // Create a message builder wrapping a compressor wrapping a stream
         // target.
-        let mut msg = MessageBuilder::try_from_target(StaticCompressor::new(
+        let mut msg = MessageBuilder::from_target(StaticCompressor::new(
             StreamTarget::new_vec(),
         ))
         .unwrap();
@@ -2328,8 +2321,7 @@ mod test {
     where
         T::AppendError: fmt::Debug,
     {
-        let mut msg =
-            MessageBuilder::try_from_target(target).unwrap().question();
+        let mut msg = MessageBuilder::from_target(target).unwrap().question();
         msg.header_mut().set_rcode(Rcode::NXDomain);
         msg.header_mut().set_rd(true);
         msg.header_mut().set_ra(true);

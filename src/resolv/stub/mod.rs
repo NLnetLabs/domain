@@ -321,8 +321,8 @@ impl<'a> Query<'a> {
     }
 
     fn create_message(question: Question<impl ToDname>) -> QueryMessage {
-        let mut message = MessageBuilder::try_from_target(
-            StreamTarget::try_new(Default::default()).unwrap(),
+        let mut message = MessageBuilder::from_target(
+            StreamTarget::new(Default::default()).unwrap(),
         )
         .unwrap();
         message.header_mut().set_rd(true);
