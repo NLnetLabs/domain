@@ -10,7 +10,7 @@ use domain::rdata::AllRecordData;
 fn create_message() -> StreamTarget<Vec<u8>> {
     // Create a message builder wrapping a compressor wrapping a stream
     // target.
-    let mut msg = MessageBuilder::try_from_target(StaticCompressor::new(
+    let mut msg = MessageBuilder::from_target(StaticCompressor::new(
         StreamTarget::new_vec(),
     ))
     .unwrap();

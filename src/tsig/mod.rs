@@ -1643,7 +1643,7 @@ impl<K: AsRef<Key>> ServerError<K> {
         Octs: Octets,
         Target: Composer,
     {
-        let builder = builder.try_start_answer(msg, Rcode::NotAuth)?;
+        let builder = builder.start_answer(msg, Rcode::NotAuth)?;
         let mut builder = builder.additional();
         match self.0 {
             ServerErrorInner::Unsigned { error } => {

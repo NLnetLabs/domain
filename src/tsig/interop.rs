@@ -82,7 +82,7 @@ fn tsig_client_nsd() {
         // Create an AXFR request and send it to NSD.
         let request = TestBuilder::new_stream_vec();
         let mut request = request
-            .try_request_axfr(
+            .request_axfr(
                 Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
             )
             .unwrap()
@@ -146,7 +146,7 @@ fn tsig_server_drill() {
             };
             let answer = TestBuilder::new_stream_vec();
             let answer =
-                answer.try_start_answer(&request, Rcode::NoError).unwrap();
+                answer.start_answer(&request, Rcode::NoError).unwrap();
             let tran = match tsig::ServerTransaction::request(
                 &&key,
                 &mut request,
@@ -233,7 +233,7 @@ fn tsig_client_sequence_nsd() {
         let mut sock = TcpStream::connect("127.0.0.1:54323").unwrap();
         let request = TestBuilder::new_stream_vec();
         let mut request = request
-            .try_request_axfr(
+            .request_axfr(
                 Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
             )
             .unwrap()
@@ -347,7 +347,7 @@ fn send_tcp(sock: &mut TcpStream, msg: &[u8]) -> Result<(), io::Error> {
 
 fn make_first_axfr(request: &TestMessage) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
-    let mut msg = msg.try_start_answer(request, Rcode::NoError).unwrap();
+    let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
     push_soa(&mut msg);
     push_a(&mut msg, 0, 0, 0);
     msg.additional()
@@ -359,14 +359,14 @@ fn make_middle_axfr(
     two: u8,
 ) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
-    let mut msg = msg.try_start_answer(request, Rcode::NoError).unwrap();
+    let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
     push_a(&mut msg, 1, one, two);
     msg.additional()
 }
 
 fn make_last_axfr(request: &TestMessage) -> TestAdditional {
     let msg = TestBuilder::new_stream_vec();
-    let mut msg = msg.try_start_answer(request, Rcode::NoError).unwrap();
+    let mut msg = msg.start_answer(request, Rcode::NoError).unwrap();
     push_a(&mut msg, 2, 0, 0);
     push_soa(&mut msg);
     msg.additional()
