@@ -8,19 +8,18 @@
 //! [`Serial`]: struct.Serial.html
 
 use super::cmp::CanonicalOrd;
-use super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
-};
-#[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
+use super::scan::{Scan, Scanner, ScannerError};
+use super::wire::{Compose, Composer, Parse, ParseError};
 #[cfg(feature = "chrono")]
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, TimeZone};
 use core::cmp::Ordering;
+use core::convert::TryFrom;
+use core::str::FromStr;
 use core::{cmp, fmt, str};
+use octseq::parse::Parser;
 #[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
+use time::{Date, Month, PrimitiveDateTime, Time};
 
 //------------ Serial --------------------------------------------------------
 
@@ -84,83 +83,127 @@ impl Serial {
         Serial(self.0.wrapping_add(other))
     }
 
+    pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
+        u32::scan(scanner).map(Into::into)
+    }
+
     /// Scan a serial represention signature time value.
     ///
     /// In [RRSIG] records, the expiration and inception times are given as
-    /// serial values. Their master file format can either be the signature
+    /// serial values. Their representation format can either be the
     /// value or a specific date in `YYYYMMDDHHmmSS` format.
     ///
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
-    #[cfg(feature = "master")]
-    pub fn scan_rrsig<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_phrase(
-            (0, [0u8; 14]),
-            |&mut (ref mut pos, ref mut buf), symbol| {
-                let ch = symbol.into_digit(10)? as u8;
-                if *pos == 14 {
-                    return Err(SyntaxError::IllegalInteger); // XXX Not quite
-                }
-                buf[*pos] = ch;
-                *pos += 1;
-                Ok(())
-            },
-            |(pos, buf)| {
-                if pos <= 10 {
-                    // We have an integer. We generate it into a u64 to deal
-                    // with possible overflows.
-                    let mut res = 0u64;
-                    for ch in &buf[..pos] {
-                        res = res * 10 + (u64::from(*ch));
-                    }
-                    if res > u64::from(::std::u32::MAX) {
-                        Err(SyntaxError::IllegalInteger)
-                    } else {
-                        Ok(Serial(res as u32))
-                    }
-                } else if pos == 14 {
-                    let year = u32_from_buf(&buf[0..4]) as i32;
-                    let month = u32_from_buf(&buf[4..6]);
-                    let day = u32_from_buf(&buf[6..8]);
-                    let hour = u32_from_buf(&buf[8..10]);
-                    let minute = u32_from_buf(&buf[10..12]);
-                    let second = u32_from_buf(&buf[12..14]);
-                    match month {
-                        1 | 3 | 5 | 7 | 8 | 10 | 12 => {
-                            if month > 31 {
-                                return Err(SyntaxError::IllegalInteger);
-                            }
-                        }
-                        4 | 6 | 9 | 11 => {
-                            if month > 30 {
-                                return Err(SyntaxError::IllegalInteger);
-                            }
-                        }
-                        2 => {
-                            if year % 4 == 0 && year % 100 != 0 {
-                                if month > 29 {
-                                    return Err(SyntaxError::IllegalInteger);
-                                }
-                            } else if month > 28 {
-                                return Err(SyntaxError::IllegalInteger);
-                            }
-                        }
-                        _ => return Err(SyntaxError::IllegalInteger),
-                    }
-                    if month < 1 || hour > 23 || minute > 59 || second > 59 {
-                        return Err(SyntaxError::IllegalInteger);
-                    }
-                    Ok(Serial(
-                        Utc.ymd(year, month, day)
-                            .and_hms(hour, minute, second)
-                            .timestamp() as u32,
-                    ))
-                } else {
-                    Err(SyntaxError::IllegalInteger) // XXX Still not quite.
-                }
-            },
-        )
+    pub fn scan_rrsig<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
+        let mut pos = 0;
+        let mut buf = [0u8; 14];
+        scanner.scan_symbols(|symbol| {
+            if pos >= 14 {
+                return Err(S::Error::custom("illegal signature time"));
+            }
+            buf[pos] = symbol
+                .into_digit(10)
+                .map_err(|_| S::Error::custom("illegal signature time"))?
+                as u8;
+            pos += 1;
+            Ok(())
+        })?;
+        if pos <= 10 {
+            // We have an integer. We generate it into a u64 to deal
+            // with possible overflows.
+            let mut res = 0u64;
+            for ch in &buf[..pos] {
+                res = res * 10 + (u64::from(*ch));
+            }
+            if res > u64::from(u32::MAX) {
+                Err(S::Error::custom("illegal signature time"))
+            } else {
+                Ok(Serial(res as u32))
+            }
+        } else if pos == 14 {
+            let year = u32_from_buf(&buf[0..4]) as i32;
+            let month = Month::try_from(u8_from_buf(&buf[4..6]))
+                .map_err(|_| S::Error::custom("illegal signature time"))?;
+            let day = u8_from_buf(&buf[6..8]);
+            let hour = u8_from_buf(&buf[8..10]);
+            let minute = u8_from_buf(&buf[10..12]);
+            let second = u8_from_buf(&buf[12..14]);
+            Ok(Serial(
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(year, month, day).map_err(
+                        |_| S::Error::custom("illegal signature time"),
+                    )?,
+                    Time::from_hms(hour, minute, second).map_err(|_| {
+                        S::Error::custom("illegal signature time")
+                    })?,
+                )
+                .assume_utc()
+                .unix_timestamp() as u32,
+            ))
+        } else {
+            Err(S::Error::custom("illegal signature time"))
+        }
+    }
+
+    /// Parses a serial representing a time value from a string.
+    ///
+    /// In [RRSIG] records, the expiration and inception times are given as
+    /// serial values. Their representation format can either be the
+    /// value or a specific date in `YYYYMMDDHHmmSS` format.
+    ///
+    /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
+    pub fn rrsig_from_str(src: &str) -> Result<Self, IllegalSignatureTime> {
+        if !src.is_ascii() {
+            return Err(IllegalSignatureTime);
+        }
+        if src.len() == 14 {
+            let year = u32::from_str(&src[0..4])
+                .map_err(|_| IllegalSignatureTime)?
+                as i32;
+            let month = Month::try_from(
+                u8::from_str(&src[4..6]).map_err(|_| IllegalSignatureTime)?,
+            )
+            .map_err(|_| IllegalSignatureTime)?;
+            let day =
+                u8::from_str(&src[6..8]).map_err(|_| IllegalSignatureTime)?;
+            let hour = u8::from_str(&src[8..10])
+                .map_err(|_| IllegalSignatureTime)?;
+            let minute = u8::from_str(&src[10..12])
+                .map_err(|_| IllegalSignatureTime)?;
+            let second = u8::from_str(&src[12..14])
+                .map_err(|_| IllegalSignatureTime)?;
+            Ok(Serial(
+                PrimitiveDateTime::new(
+                    Date::from_calendar_date(year, month, day)
+                        .map_err(|_| IllegalSignatureTime)?,
+                    Time::from_hms(hour, minute, second)
+                        .map_err(|_| IllegalSignatureTime)?,
+                )
+                .assume_utc()
+                .unix_timestamp() as u32,
+            ))
+        } else {
+            Serial::from_str(src).map_err(|_| IllegalSignatureTime)
+        }
+    }
+}
+
+/// # Parsing and Composing
+///
+impl Serial {
+    pub const COMPOSE_LEN: u16 = u32::COMPOSE_LEN;
+
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>,
+    ) -> Result<Self, ParseError> {
+        u32::parse(parser).map(Into::into)
+    }
+
+    pub fn compose<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.0.compose(target)
     }
 }
 
@@ -194,37 +237,7 @@ impl str::FromStr for Serial {
     }
 }
 
-//--- Parse and Compose
-
-impl<T: AsRef<[u8]>> Parse<T> for Serial {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
-        u32::parse(parser).map(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
-        u32::skip(parser)
-    }
-}
-
-impl Compose for Serial {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        self.0.compose(target)
-    }
-}
-
-//--- Scan and Display
-
-#[cfg(feature = "master")]
-impl Scan for Serial {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        u32::scan(scanner).map(Into::into)
-    }
-}
+//--- Display
 
 impl fmt::Display for Serial {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -266,7 +279,14 @@ impl CanonicalOrd for Serial {
 
 //------------ Helper Functions ----------------------------------------------
 
-#[cfg(feature = "master")]
+fn u8_from_buf(buf: &[u8]) -> u8 {
+    let mut res = 0;
+    for ch in buf {
+        res = res * 10 + *ch;
+    }
+    res
+}
+
 fn u32_from_buf(buf: &[u8]) -> u32 {
     let mut res = 0;
     for ch in buf {
@@ -274,6 +294,20 @@ fn u32_from_buf(buf: &[u8]) -> u32 {
     }
     res
 }
+
+//============ Testing =======================================================
+
+#[derive(Clone, Copy, Debug)]
+pub struct IllegalSignatureTime;
+
+impl fmt::Display for IllegalSignatureTime {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("illegal signature time")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for IllegalSignatureTime {}
 
 //============ Testing =======================================================
 

@@ -6,16 +6,16 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::PushError;
 use crate::base::net::Ipv6Addr;
-use crate::base::octets::{
-    Compose, OctetsBuilder, OctetsFrom, Parse, ParseError, Parser, ShortBuf,
-};
-use crate::base::rdata::RtypeRecordData;
-#[cfg(feature = "master")]
-use crate::master::scan::{CharSource, Scan, ScanError, Scanner};
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use crate::base::scan::{Scanner, ScannerError};
+use crate::base::wire::{Composer, Parse, ParseError};
 use core::cmp::Ordering;
-use core::{fmt, ops};
+use core::convert::Infallible;
+use core::str::FromStr;
+use core::{fmt, ops, str};
+use octseq::octets::OctetsFrom;
+use octseq::parse::Parser;
 
 //------------ Aaaa ---------------------------------------------------------
 
@@ -37,8 +37,26 @@ impl Aaaa {
         self.addr = addr
     }
 
-    pub fn flatten_into(self) -> Result<Aaaa, PushError> {
+    pub(super) fn flatten_into<E>(self) -> Result<Aaaa, E> {
         Ok(self)
+    }
+
+    pub(super) fn convert_octets<E>(self) -> Result<Self, E> {
+        Ok(self)
+    }
+
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>,
+    ) -> Result<Self, ParseError> {
+        Ipv6Addr::parse(parser).map(Self::new)
+    }
+
+    pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
+        let token = scanner.scan_octets()?;
+        let token = str::from_utf8(token.as_ref())
+            .map_err(|_| S::Error::custom("expected IPv6 address"))?;
+        Aaaa::from_str(token)
+            .map_err(|_| S::Error::custom("expected IPv6 address"))
     }
 }
 
@@ -56,8 +74,7 @@ impl From<Aaaa> for Ipv6Addr {
     }
 }
 
-#[cfg(feature = "std")]
-impl core::str::FromStr for Aaaa {
+impl FromStr for Aaaa {
     type Err = <Ipv6Addr as core::str::FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -68,7 +85,9 @@ impl core::str::FromStr for Aaaa {
 //--- OctetsFrom
 
 impl OctetsFrom<Aaaa> for Aaaa {
-    fn octets_from(source: Aaaa) -> Result<Self, ShortBuf> {
+    type Error = Infallible;
+
+    fn try_octets_from(source: Aaaa) -> Result<Self, Self::Error> {
         Ok(source)
     }
 }
@@ -81,50 +100,53 @@ impl CanonicalOrd for Aaaa {
     }
 }
 
-//--- Parse, ParseAll, and Compose
+//--- RecordData, ParseRecordData, ComposeRecordData
 
-impl<Ref: AsRef<[u8]>> Parse<Ref> for Aaaa {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        Ipv6Addr::parse(parser).map(Self::new)
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        Ipv6Addr::skip(parser)
+impl RecordData for Aaaa {
+    fn rtype(&self) -> Rtype {
+        Rtype::Aaaa
     }
 }
 
-impl Compose for Aaaa {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
+impl<'a, Octs: AsRef<[u8]> + ?Sized> ParseRecordData<'a, Octs> for Aaaa {
+    fn parse_rdata(
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Aaaa {
+            Self::parse(parser).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl ComposeRecordData for Aaaa {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(16)
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
         &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        self.addr.compose(target)
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.octets())
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
-//--- Scan and Display
-
-#[cfg(feature = "master")]
-impl Scan for Aaaa {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_string_phrase(|res| {
-            core::str::FromStr::from_str(&res).map_err(Into::into)
-        })
-    }
-}
+//--- Display
 
 impl fmt::Display for Aaaa {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.addr.fmt(f)
     }
-}
-
-//--- RecordData
-
-impl RtypeRecordData for Aaaa {
-    const RTYPE: Rtype = Rtype::Aaaa;
 }
 
 //--- Deref and DerefMut

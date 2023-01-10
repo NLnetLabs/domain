@@ -7,6 +7,8 @@ Breaking Changes
 * Various functions and methods of the `tsig` module now expect the
   current time as an argument to allow use of the module in a no-std
   environment. ([#152])
+* Parsing of representation format and zonefiles has been completely
+  re-written. ([#142], based on work in [#109] by [Martin Fischer])
 
 New
 
@@ -14,7 +16,10 @@ Bug Fixes
 
 Other Changes
 
+[#109]: https://github.com/NLnetLabs/domain/pull/109
+[#142]: https://github.com/NLnetLabs/domain/pull/142
 [#152]: https://github.com/NLnetLabs/domain/pull/152
+[Martin Fischer]: https://push-f.com/
 
 
 ## 0.7.1

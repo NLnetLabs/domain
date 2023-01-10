@@ -24,20 +24,18 @@
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
 use super::cmp::CanonicalOrd;
-use super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder,
-    OctetsFrom, OctetsRef, Parse, ParseError, Parser, ShortBuf,
-};
-#[cfg(feature = "serde")]
-use super::octets::{DeserializeOctets, SerializeOctets};
-use super::str::{BadSymbol, Symbol, SymbolError};
-#[cfg(feature = "master")]
-use crate::master::scan::{
-    CharSource, Scan, ScanError, Scanner, SyntaxError,
-};
+use super::scan::{BadSymbol, Scanner, Symbol, SymbolCharsError};
+use super::wire::{Compose, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, hash, ops, str};
+use octseq::builder::FreezeBuilder;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
+use octseq::{
+    EmptyBuilder, FromBuilder, IntoBuilder, Octets, OctetsBuilder,
+    OctetsFrom, Parser, ShortBuf, Truncate,
+};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -46,22 +44,22 @@ use std::vec::Vec;
 /// The content of a DNS character string.
 ///
 /// A character string consists of up to 255 octets of binary data. This type
-/// wraps a octets value. It is guaranteed to always be at most 255 octets in
-/// length. It derefs into the underlying octets for working with the content
-/// in a familiar way.
+/// wraps an octets sequence. It is guaranteed to always be at most 255 octets
+/// in length. It derefs into the underlying octets for working with the
+/// content in a familiar way.
 ///
 /// As per [RFC 1035], character strings compare ignoring ASCII case.
 /// `CharStr`’s implementations of the `std::cmp` traits act accordingly.
 ///
 /// [RFC 1035]: https://tools.ietf.org/html/rfc1035
 #[derive(Clone)]
-pub struct CharStr<Octets: ?Sized>(Octets);
+pub struct CharStr<Octs: ?Sized>(Octs);
 
-impl<Octets: ?Sized> CharStr<Octets> {
+impl<Octs: ?Sized> CharStr<Octs> {
     /// Creates a new empty character string.
     pub fn empty() -> Self
     where
-        Octets: From<&'static [u8]>,
+        Octs: From<&'static [u8]>,
     {
         CharStr(b"".as_ref().into())
     }
@@ -70,9 +68,9 @@ impl<Octets: ?Sized> CharStr<Octets> {
     ///
     /// Returns succesfully if `octets` can indeed be used as a
     /// character string, i.e., it is not longer than 255 bytes.
-    pub fn from_octets(octets: Octets) -> Result<Self, CharStrError>
+    pub fn from_octets(octets: Octs) -> Result<Self, CharStrError>
     where
-        Octets: AsRef<[u8]> + Sized,
+        Octs: AsRef<[u8]> + Sized,
     {
         if octets.as_ref().len() > 255 {
             Err(CharStrError)
@@ -83,27 +81,31 @@ impl<Octets: ?Sized> CharStr<Octets> {
 
     /// Creates a character string from octets without length check.
     ///
-    /// As this can break the guarantees made by the type, it is unsafe.
-    unsafe fn from_octets_unchecked(octets: Octets) -> Self
+    /// # Safety
+    ///
+    /// The caller has to make sure that `octets` is at most 255 octets
+    /// long. Otherwise, the behaviour is undefined.
+    pub unsafe fn from_octets_unchecked(octets: Octs) -> Self
     where
-        Octets: Sized,
+        Octs: Sized,
     {
         CharStr(octets)
     }
 
     /// Creates a new empty builder for this character string type.
-    pub fn builder() -> CharStrBuilder<Octets::Builder>
+    pub fn builder() -> CharStrBuilder<Octs::Builder>
     where
-        Octets: IntoBuilder,
-        Octets::Builder: EmptyBuilder,
+        Octs: IntoBuilder,
+        Octs::Builder: EmptyBuilder,
     {
         CharStrBuilder::new()
     }
 
     /// Converts the character string into a builder.
-    pub fn into_builder(self) -> CharStrBuilder<Octets::Builder>
+    pub fn into_builder(self) -> CharStrBuilder<Octs::Builder>
     where
-        Octets: IntoBuilder + Sized,
+        Octs: IntoBuilder + Sized,
+        <Octs as IntoBuilder>::Builder: AsRef<[u8]>,
     {
         unsafe {
             CharStrBuilder::from_builder_unchecked(IntoBuilder::into_builder(
@@ -113,9 +115,9 @@ impl<Octets: ?Sized> CharStr<Octets> {
     }
 
     /// Converts the character string into its underlying octets value.
-    pub fn into_octets(self) -> Octets
+    pub fn into_octets(self) -> Octs
     where
-        Octets: Sized,
+        Octs: Sized,
     {
         self.0
     }
@@ -123,7 +125,7 @@ impl<Octets: ?Sized> CharStr<Octets> {
     /// Returns a character string atop a slice of the content.
     pub fn for_slice(&self) -> CharStr<&[u8]>
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         unsafe { CharStr::from_octets_unchecked(self.0.as_ref()) }
     }
@@ -131,7 +133,7 @@ impl<Octets: ?Sized> CharStr<Octets> {
     /// Returns a character string atop a mutable slice of the content.
     pub fn for_slice_mut(&mut self) -> CharStr<&mut [u8]>
     where
-        Octets: AsMut<[u8]>,
+        Octs: AsMut<[u8]>,
     {
         unsafe { CharStr::from_octets_unchecked(self.0.as_mut()) }
     }
@@ -139,7 +141,7 @@ impl<Octets: ?Sized> CharStr<Octets> {
     /// Returns a reference to a slice of the character string’s data.
     pub fn as_slice(&self) -> &[u8]
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         self.0.as_ref()
     }
@@ -147,9 +149,60 @@ impl<Octets: ?Sized> CharStr<Octets> {
     /// Returns a reference to a mutable slice of the character string’s data.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
     where
-        Octets: AsMut<[u8]>,
+        Octs: AsMut<[u8]>,
     {
         self.0.as_mut()
+    }
+
+    /// Parses a character string from the beginning of a parser.
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError>
+    where
+        Octs: Sized,
+    {
+        let len = parser.parse_u8()? as usize;
+        parser
+            .parse_octets(len)
+            .map(|bytes| unsafe { Self::from_octets_unchecked(bytes) })
+            .map_err(Into::into)
+    }
+}
+
+impl CharStr<[u8]> {
+    /// Skips over a character string at the beginning of a parser.
+    pub fn skip<Src: Octets + ?Sized>(
+        parser: &mut Parser<Src>,
+    ) -> Result<(), ParseError> {
+        let len = parser.parse_u8()?;
+        parser.advance(len.into()).map_err(Into::into)
+    }
+}
+
+impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
+    /// Returns the length of the wire format representation.
+    pub fn compose_len(&self) -> u16 {
+        u16::try_from(self.0.as_ref().len() + 1).expect("long charstr")
+    }
+
+    /// Appends the wire format representation to an octets builder.
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        u8::try_from(self.0.as_ref().len())
+            .expect("long charstr")
+            .compose(target)?;
+        target.append_slice(self.0.as_ref())
+    }
+}
+
+impl<Octets> CharStr<Octets> {
+    /// Scans the presentation format from a scanner.
+    pub fn scan<S: Scanner<Octets = Octets>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        scanner.scan_charstr()
     }
 }
 
@@ -166,17 +219,6 @@ impl CharStr<Bytes> {
         } else {
             Ok(unsafe { Self::from_octets_unchecked(bytes) })
         }
-    }
-
-    /// Scans a character string given as a word of hexadecimal digits.
-    #[cfg(feature = "master")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "master")))]
-    pub fn scan_hex<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_hex_word(|b| unsafe {
-            Ok(CharStr::from_octets_unchecked(b))
-        })
     }
 }
 
@@ -196,12 +238,16 @@ impl CharStr<[u8]> {
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<CharStr<SrcOctets>> for CharStr<Octets>
+impl<Octs, SrcOcts> OctetsFrom<CharStr<SrcOcts>> for CharStr<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: CharStr<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.0)
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: CharStr<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(source.0)
             .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
@@ -211,8 +257,10 @@ where
 impl<Octets> str::FromStr for CharStr<Octets>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    <Octets as FromBuilder>::Builder: OctetsBuilder
+        + FreezeBuilder<Octets = Octets>
+        + EmptyBuilder
+        + AsRef<[u8]>,
 {
     type Err = FromStrError;
 
@@ -327,50 +375,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
     }
 }
 
-//--- Parse and Compose
-
-impl<Ref: OctetsRef> Parse<Ref> for CharStr<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser
-            .parse_octets(len)
-            .map(|bytes| unsafe { Self::from_octets_unchecked(bytes) })
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser.advance(len)
-    }
-}
-
-impl<Octets: AsRef<[u8]> + ?Sized> Compose for CharStr<Octets> {
-    fn compose<Target: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            (self.as_ref().len() as u8).compose(target)?;
-            target.append_slice(self.as_ref())
-        })
-    }
-}
-
-//--- Scan and Display
-
-#[cfg(feature = "master")]
-impl Scan for CharStr<Bytes> {
-    fn scan<C: CharSource>(
-        scanner: &mut Scanner<C>,
-    ) -> Result<Self, ScanError> {
-        scanner.scan_byte_phrase(|res| {
-            if res.len() > 255 {
-                Err(SyntaxError::LongCharStr)
-            } else {
-                Ok(unsafe { CharStr::from_octets_unchecked(res) })
-            }
-        })
-    }
-}
+//--- Display
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::Display for CharStr<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -455,8 +460,10 @@ impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for CharStr<T> {
 impl<'de, Octets> serde::Deserialize<'de> for CharStr<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    <Octets as FromBuilder>::Builder: OctetsBuilder
+        + FreezeBuilder<Octets = Octets>
+        + EmptyBuilder
+        + AsRef<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -469,8 +476,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            <Octets as FromBuilder>::Builder: OctetsBuilder
+                + FreezeBuilder<Octets = Octets>
+                + EmptyBuilder
+                + AsRef<[u8]>,
         {
             type Value = CharStr<Octets>;
 
@@ -510,8 +519,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            <Octets as FromBuilder>::Builder: OctetsBuilder
+                + FreezeBuilder<Octets = Octets>
+                + EmptyBuilder
+                + AsRef<[u8]>,
         {
             type Value = CharStr<Octets>;
 
@@ -564,7 +575,7 @@ impl<Builder: EmptyBuilder> CharStrBuilder<Builder> {
     }
 }
 
-impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
+impl<Builder: OctetsBuilder + AsRef<[u8]>> CharStrBuilder<Builder> {
     /// Creates a character string builder from an octet sequence unchecked.
     ///
     /// Since the buffer may already be longer than it is allowed to be, this
@@ -578,7 +589,7 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     /// If the octet sequence is longer than 255 octets, an error is
     /// returned.
     pub fn from_builder(builder: Builder) -> Result<Self, CharStrError> {
-        if builder.len() > 255 {
+        if builder.as_ref().len() > 255 {
             Err(CharStrError)
         } else {
             Ok(unsafe { Self::from_builder_unchecked(builder) })
@@ -622,7 +633,10 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
     }
 
     /// Converts the builder into an imutable character string.
-    pub fn finish(self) -> CharStr<Builder::Octets> {
+    pub fn finish(self) -> CharStr<Builder::Octets>
+    where
+        Builder: FreezeBuilder,
+    {
         unsafe { CharStr::from_octets_unchecked(self.0.freeze()) }
     }
 }
@@ -635,32 +649,28 @@ impl<Builder: EmptyBuilder> Default for CharStrBuilder<Builder> {
     }
 }
 
-//--- OctetsBuilder
+//--- OctetsBuilder and Truncate
 
-impl<Builder: OctetsBuilder> OctetsBuilder for CharStrBuilder<Builder> {
-    type Octets = Builder::Octets;
+impl<Builder> OctetsBuilder for CharStrBuilder<Builder>
+where
+    Builder: OctetsBuilder + AsRef<[u8]>,
+{
+    type AppendError = ShortBuf;
 
-    fn append_slice(&mut self, slice: &[u8]) -> Result<(), ShortBuf> {
-        if self.0.len() + slice.len() > 255 {
+    fn append_slice(
+        &mut self,
+        slice: &[u8],
+    ) -> Result<(), Self::AppendError> {
+        if self.0.as_ref().len() + slice.len() > 255 {
             return Err(ShortBuf);
         }
-        self.0.append_slice(slice)
+        self.0.append_slice(slice).map_err(Into::into)
     }
+}
 
+impl<Builder: Truncate> Truncate for CharStrBuilder<Builder> {
     fn truncate(&mut self, len: usize) {
         self.0.truncate(len)
-    }
-
-    fn freeze(self) -> Self::Octets {
-        self.0.freeze()
-    }
-
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 }
 
@@ -778,25 +788,15 @@ impl std::error::Error for CharStrError {}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FromStrError {
-    /// The string ended when there should have been more characters.
-    ///
-    /// This most likely happens inside escape sequences and quoting.
-    ShortInput,
-
     /// A character string has more than 255 octets.
     LongString,
 
-    /// An illegal escape sequence was encountered.
-    ///
-    /// Escape sequences are a backslash character followed by either a
-    /// three decimal digit sequence encoding a byte value or a single
-    /// other printable ASCII character.
-    BadEscape,
+    SymbolChars(SymbolCharsError),
 
     /// An illegal character was encountered.
     ///
     /// Only printable ASCII characters are allowed.
-    BadSymbol(Symbol),
+    BadSymbol(BadSymbol),
 
     /// The octet builder’s buffer was too short for the data.
     ShortBuf,
@@ -804,18 +804,15 @@ pub enum FromStrError {
 
 //--- From
 
-impl From<SymbolError> for FromStrError {
-    fn from(err: SymbolError) -> FromStrError {
-        match err {
-            SymbolError::BadEscape => FromStrError::BadEscape,
-            SymbolError::ShortInput => FromStrError::ShortInput,
-        }
+impl From<SymbolCharsError> for FromStrError {
+    fn from(err: SymbolCharsError) -> FromStrError {
+        FromStrError::SymbolChars(err)
     }
 }
 
 impl From<BadSymbol> for FromStrError {
     fn from(err: BadSymbol) -> FromStrError {
-        FromStrError::BadSymbol(err.0)
+        FromStrError::BadSymbol(err)
     }
 }
 
@@ -830,16 +827,11 @@ impl From<ShortBuf> for FromStrError {
 impl fmt::Display for FromStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            FromStrError::ShortInput => {
-                f.write_str("unexpected end of input")
-            }
             FromStrError::LongString => {
                 f.write_str("character string with more than 255 octets")
             }
-            FromStrError::BadEscape => f.write_str("illegal escape sequence"),
-            FromStrError::BadSymbol(symbol) => {
-                write!(f, "illegal character '{}'", symbol)
-            }
+            FromStrError::SymbolChars(ref err) => err.fmt(f),
+            FromStrError::BadSymbol(ref err) => err.fmt(f),
             FromStrError::ShortBuf => ShortBuf.fmt(f),
         }
     }
@@ -848,12 +840,13 @@ impl fmt::Display for FromStrError {
 #[cfg(feature = "std")]
 impl std::error::Error for FromStrError {}
 
-//============ Testing ======================================================
+//============ Testing =======================================================
 
 #[cfg(test)]
 #[cfg(feature = "std")]
 mod test {
     use super::*;
+    use octseq::builder::infallible;
     use std::vec::Vec;
 
     type CharStrRef<'a> = CharStr<&'a [u8]>;
@@ -890,7 +883,7 @@ mod test {
 
     #[test]
     fn from_str() {
-        use std::str::FromStr;
+        use std::str::{from_utf8, FromStr};
 
         type Cs = CharStr<Vec<u8>>;
 
@@ -902,17 +895,12 @@ mod test {
             b"\"foo\"2\""
         );
         assert_eq!(Cs::from_str("06 dii").unwrap().as_slice(), b"06 dii");
-        assert_eq!(Cs::from_str("0\\"), Err(FromStrError::ShortInput));
-        assert_eq!(Cs::from_str("0\\2"), Err(FromStrError::ShortInput));
-        assert_eq!(Cs::from_str("0\\2a"), Err(FromStrError::BadEscape));
-        assert_eq!(
-            Cs::from_str("ö"),
-            Err(FromStrError::BadSymbol(Symbol::Char('ö')))
-        );
-        assert_eq!(
-            Cs::from_str("\x06"),
-            Err(FromStrError::BadSymbol(Symbol::Char('\x06')))
-        );
+        assert!(Cs::from_str("0\\").is_err());
+        assert!(Cs::from_str("0\\2").is_err());
+        assert!(Cs::from_str("0\\2a").is_err());
+        assert!(Cs::from_str("ö").is_err());
+        assert!(Cs::from_str("\x06").is_err());
+        assert!(Cs::from_str(from_utf8(&[b'a'; 256]).unwrap()).is_err());
     }
 
     #[test]
@@ -925,24 +913,21 @@ mod test {
         assert_eq!(bar.as_slice(), b"ba");
         assert_eq!(parser.peek_all(), b"rtail");
 
-        assert_eq!(
-            CharStrRef::parse(&mut Parser::from_static(b"\x04foo")),
-            Err(ParseError::ShortInput)
+        assert!(
+            CharStrRef::parse(&mut Parser::from_static(b"\x04foo")).is_err(),
         )
     }
 
     #[test]
     fn compose() {
-        use crate::base::octets::Compose;
-
         let mut target = Vec::new();
         let val = CharStr::from_slice(b"foo").unwrap();
-        val.compose(&mut target).unwrap();
+        infallible(val.compose(&mut target));
         assert_eq!(target, b"\x03foo".as_ref());
 
         let mut target = Vec::new();
         let val = CharStr::from_slice(b"").unwrap();
-        val.compose(&mut target).unwrap();
+        infallible(val.compose(&mut target));
         assert_eq!(target, &b"\x00"[..]);
     }
 

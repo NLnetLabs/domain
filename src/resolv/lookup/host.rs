@@ -3,9 +3,9 @@
 use crate::base::iana::Rtype;
 use crate::base::message::RecordIter;
 use crate::base::name::{ParsedDname, ToDname, ToRelativeDname};
-use crate::base::octets::OctetsRef;
 use crate::rdata::{Aaaa, A};
 use crate::resolv::resolver::{Resolver, SearchNames};
+use octseq::octets::Octets;
 use std::io;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
@@ -108,9 +108,9 @@ impl<R: Resolver> FoundHosts<R> {
 
 impl<R: Resolver> FoundHosts<R>
 where
-    for<'a> &'a R::Octets: OctetsRef,
+    R::Octets: Octets,
 {
-    pub fn qname(&self) -> ParsedDname<&R::Octets> {
+    pub fn qname(&self) -> ParsedDname<'_, R::Octets> {
         self.answer()
             .as_ref()
             .first_question()
@@ -124,12 +124,12 @@ where
     ///
     /// This method expects the canonical name to be same in both A/AAAA responses,
     /// if it isn't, it's going to return a canonical name for one of them.
-    pub fn canonical_name(&self) -> ParsedDname<&R::Octets> {
+    pub fn canonical_name(&self) -> ParsedDname<'_, R::Octets> {
         self.answer().as_ref().canonical_name().unwrap()
     }
 
     /// Returns an iterator over the IP addresses returned by the lookup.
-    pub fn iter(&self) -> FoundHostsIter<&R::Octets> {
+    pub fn iter(&self) -> FoundHostsIter<'_, R::Octets> {
         FoundHostsIter {
             aaaa_name: self
                 .aaaa
@@ -163,7 +163,10 @@ where
     /// The socket addresses are gained by combining the IP addresses with
     /// `port`. The returned iterator implements `ToSocketAddrs` and thus
     /// can be used where `std::net` wants addresses right away.
-    pub fn port_iter(&self, port: u16) -> FoundHostsSocketIter<&R::Octets> {
+    pub fn port_iter(
+        &self,
+        port: u16,
+    ) -> FoundHostsSocketIter<'_, R::Octets> {
         FoundHostsSocketIter {
             iter: self.iter(),
             port,
@@ -174,15 +177,25 @@ where
 //------------ FoundHostsIter ------------------------------------------------
 
 /// An iterator over the IP addresses returned by a host lookup.
-#[derive(Clone, Debug)]
-pub struct FoundHostsIter<Ref: OctetsRef> {
-    aaaa_name: Option<ParsedDname<Ref>>,
-    a_name: Option<ParsedDname<Ref>>,
-    aaaa: Option<RecordIter<Ref, Aaaa>>,
-    a: Option<RecordIter<Ref, A>>,
+pub struct FoundHostsIter<'a, Octs> {
+    aaaa_name: Option<ParsedDname<'a, Octs>>,
+    a_name: Option<ParsedDname<'a, Octs>>,
+    aaaa: Option<RecordIter<'a, Octs, Aaaa>>,
+    a: Option<RecordIter<'a, Octs, A>>,
 }
 
-impl<Ref: OctetsRef> Iterator for FoundHostsIter<Ref> {
+impl<'a, Octs> Clone for FoundHostsIter<'a, Octs> {
+    fn clone(&self) -> Self {
+        FoundHostsIter {
+            aaaa_name: self.aaaa_name,
+            a_name: self.a_name,
+            aaaa: self.aaaa.clone(),
+            a: self.a.clone(),
+        }
+    }
+}
+
+impl<'a, Octs: Octets> Iterator for FoundHostsIter<'a, Octs> {
     type Item = IpAddr;
 
     fn next(&mut self) -> Option<IpAddr> {
@@ -207,13 +220,21 @@ impl<Ref: OctetsRef> Iterator for FoundHostsIter<Ref> {
 //------------ FoundHostsSocketIter ------------------------------------------
 
 /// An iterator over socket addresses derived from a host lookup.
-#[derive(Clone, Debug)]
-pub struct FoundHostsSocketIter<Ref: OctetsRef> {
-    iter: FoundHostsIter<Ref>,
+pub struct FoundHostsSocketIter<'a, Octs> {
+    iter: FoundHostsIter<'a, Octs>,
     port: u16,
 }
 
-impl<Ref: OctetsRef> Iterator for FoundHostsSocketIter<Ref> {
+impl<'a, Octs> Clone for FoundHostsSocketIter<'a, Octs> {
+    fn clone(&self) -> Self {
+        FoundHostsSocketIter {
+            iter: self.iter.clone(),
+            port: self.port,
+        }
+    }
+}
+
+impl<'a, Octs: Octets> Iterator for FoundHostsSocketIter<'a, Octs> {
     type Item = SocketAddr;
 
     fn next(&mut self) -> Option<SocketAddr> {
@@ -223,7 +244,7 @@ impl<Ref: OctetsRef> Iterator for FoundHostsSocketIter<Ref> {
     }
 }
 
-impl<Ref: OctetsRef> ToSocketAddrs for FoundHostsSocketIter<Ref> {
+impl<'a, Octs: Octets> ToSocketAddrs for FoundHostsSocketIter<'a, Octs> {
     type Iter = Self;
 
     fn to_socket_addrs(&self) -> io::Result<Self> {

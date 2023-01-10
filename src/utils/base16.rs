@@ -10,8 +10,11 @@
 //!
 //! [RFC 4648]: https://tools.ietf.org/html/rfc4648
 
-use crate::base::octets::{EmptyBuilder, FromBuilder, OctetsBuilder};
+use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
+};
 #[cfg(feature = "std")]
 use std::string::String;
 
@@ -28,8 +31,7 @@ pub use super::base64::DecodeError;
 pub fn decode<Octets>(s: &str) -> Result<Octets, DecodeError>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     let mut decoder = Decoder::<<Octets as FromBuilder>::Builder>::new();
     for ch in s.chars() {
@@ -97,11 +99,9 @@ pub fn encode_display<Octets: AsRef<[u8]>>(
 /// serializers or as a raw octets sequence for compact serializers.
 #[cfg(feature = "serde")]
 pub mod serde {
-    use crate::base::octets::{
-        DeserializeOctets, EmptyBuilder, FromBuilder, OctetsBuilder,
-        SerializeOctets,
-    };
     use core::fmt;
+    use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
+    use octseq::serde::{DeserializeOctets, SerializeOctets};
 
     pub fn serialize<Octets, S>(
         octets: &Octets,
@@ -130,8 +130,7 @@ pub mod serde {
         impl<'de, Octets> serde::de::Visitor<'de> for Visitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
             type Value = Octets;
 
@@ -200,12 +199,15 @@ impl<Builder: EmptyBuilder> Decoder<Builder> {
 
 impl<Builder: OctetsBuilder> Decoder<Builder> {
     /// Finalizes decoding and returns the decoded data.
-    pub fn finalize(self) -> Result<Builder::Octets, DecodeError> {
+    pub fn finalize(self) -> Result<Builder::Octets, DecodeError>
+    where
+        Builder: FreezeBuilder,
+    {
         if self.buf.is_some() {
             return Err(DecodeError::ShortInput);
         }
 
-        self.target.map(OctetsBuilder::freeze)
+        self.target.map(FreezeBuilder::freeze)
     }
 
     /// Decodes one more character of data.
@@ -239,7 +241,7 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
             Err(_) => return,
         };
         if let Err(err) = target.append_slice(&[value]) {
-            self.target = Err(err.into());
+            self.target = Err(err.into().into());
         }
     }
 }
@@ -247,6 +249,68 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
 impl<Builder: EmptyBuilder> Default for Decoder<Builder> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+//------------ SymbolConverter -----------------------------------------------
+
+/// A Base 16 decoder that can be used as a converter for a scanner.
+#[derive(Clone, Debug, Default)]
+pub struct SymbolConverter {
+    /// A buffer for the returned data.
+    buf: [u8; 1],
+
+    /// Do we already have the upper half in `buf`?
+    pending: bool,
+}
+
+impl SymbolConverter {
+    /// Creates a new symbol converter.
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl<Sym, Error> ConvertSymbols<Sym, Error> for SymbolConverter
+where
+    Sym: Into<EntrySymbol>,
+    Error: ScannerError,
+{
+    fn process_symbol(
+        &mut self,
+        symbol: Sym,
+    ) -> Result<Option<&[u8]>, Error> {
+        match symbol.into() {
+            EntrySymbol::Symbol(symbol) => {
+                let symbol = symbol
+                    .into_char()
+                    .map_err(|_| Error::custom("expected hex digits"))?
+                    .to_digit(16)
+                    .ok_or_else(|| Error::custom("expected hex digits"))?;
+
+                if self.pending {
+                    self.buf[0] |= symbol as u8;
+                    self.pending = false;
+                    Ok(Some(&self.buf))
+                } else {
+                    self.buf[0] = (symbol << 4) as u8;
+                    self.pending = true;
+                    Ok(None)
+                }
+            }
+            EntrySymbol::EndOfToken => Ok(None),
+        }
+    }
+
+    /// Process the end of token.
+    ///
+    /// The method may return data to be added to the output octets sequence.
+    fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
+        if self.pending {
+            Err(Error::custom("uneven number of hex digits"))
+        } else {
+            Ok(None)
+        }
     }
 }
 

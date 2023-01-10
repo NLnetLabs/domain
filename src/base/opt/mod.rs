@@ -25,33 +25,33 @@
 #[macro_use]
 mod macros;
 opt_types! {
-    rfc5001::{Nsid<Octets>};
-    rfc6975::{Dau<Octets>, Dhu<Octets>, N3u<Octets>};
+    rfc5001::{Nsid<Octs>};
+    rfc6975::{Dau<Octs>, Dhu<Octs>, N3u<Octs>};
     rfc7314::{Expire};
     rfc7828::{TcpKeepalive};
     rfc7830::{Padding};
     rfc7871::{ClientSubnet};
     rfc7873::{Cookie};
-    rfc7901::{Chain<Octets>};
-    rfc8145::{KeyTag<Octets>};
-    rfc8914::{ExtendedError<Octets>};
+    rfc7901::{Chain<Name>};
+    rfc8145::{KeyTag<Octs>};
+    rfc8914::{ExtendedError<Octs>};
 }
 
 //============ Module Content ================================================
 
 use super::header::Header;
 use super::iana::{OptRcode, OptionCode, Rtype};
-use super::name::ToDname;
-use super::octets::{
-    Compose, OctetsBuilder, OctetsFrom, OctetsRef, Parse, ParseError, Parser,
-    ShortBuf,
-};
-use super::rdata::RtypeRecordData;
+use super::name::{Dname, ToDname};
+use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::Record;
+use super::wire::{Composer, FormError, ParseError};
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::marker::PhantomData;
 use core::{fmt, hash, mem, ops};
+use octseq::builder::OctetsBuilder;
+use octseq::octets::{Octets, OctetsFrom};
+use octseq::parse::Parser;
 
 //------------ Opt -----------------------------------------------------------
 
@@ -71,16 +71,16 @@ use core::{fmt, hash, mem, ops};
 /// [`iter`]: #method.iter
 /// [`OptRecord`]: struct.OptRecord.html
 #[derive(Clone)]
-pub struct Opt<Octets> {
-    octets: Octets,
+pub struct Opt<Octs> {
+    octets: Octs,
 }
 
-impl<Octets: AsRef<[u8]>> Opt<Octets> {
+impl<Octs: AsRef<[u8]>> Opt<Octs> {
     /// Creates OPT record data from an octets sequence.
     ///
     /// The function checks whether the octets contain a sequence of
     /// options. It does not check whether the options themselves are valid.
-    pub fn from_octets(octets: Octets) -> Result<Self, ParseError> {
+    pub fn from_octets(octets: Octs) -> Result<Self, ParseError> {
         let mut parser = Parser::from_ref(octets.as_ref());
         while parser.remaining() > 0 {
             parser.advance(2)?;
@@ -94,31 +94,40 @@ impl<Octets: AsRef<[u8]>> Opt<Octets> {
     ///
     /// The returned iterator will return only options represented by type
     /// `D` and quietly skip over all the others.
-    pub fn iter<Data>(&self) -> OptIter<&Octets, Data>
+    pub fn iter<'s, Data>(&'s self) -> OptIter<'s, Octs, Data>
     where
-        for<'a> &'a Octets: OctetsRef,
-        Data: for<'a> ParseOptData<&'a Octets>,
+        Octs: Octets,
+        Data: ParseOptData<'s, Octs>,
     {
         OptIter::new(&self.octets)
+    }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
+        let len = parser.remaining();
+        Self::from_octets(parser.parse_octets(len)?)
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Opt<SrcOctets>> for Opt<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Opt<SrcOcts>> for Opt<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Opt<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.octets).map(|octets| Opt { octets })
+    type Error = Octs::Error;
+
+    fn try_octets_from(source: Opt<SrcOcts>) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(source.octets).map(|octets| Opt { octets })
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Opt<Other>> for Opt<Octets>
+impl<Octs, Other> PartialEq<Opt<Other>> for Opt<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Opt<Other>) -> bool {
@@ -126,13 +135,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Opt<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Opt<Octs> {}
 
 //--- PartialOrd and Ord
 
-impl<Octets, Other> PartialOrd<Opt<Other>> for Opt<Octets>
+impl<Octs, Other> PartialOrd<Opt<Other>> for Opt<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Opt<Other>) -> Option<Ordering> {
@@ -140,7 +149,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Opt<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Opt<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.octets.as_ref().cmp(other.octets.as_ref())
     }
@@ -148,51 +157,66 @@ impl<Octets: AsRef<[u8]>> Ord for Opt<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Opt<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Opt<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.octets.as_ref().hash(state)
     }
 }
 
-//--- Parse and Compose
+//--- RecordData, ParseRecordData, and ComposeRecordData
 
-impl<Ref: OctetsRef> Parse<Ref> for Opt<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        let len = parser.remaining();
-        Self::from_octets(parser.parse_octets(len)?)
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        parser.advance_to_end();
-        Ok(())
+impl<Octs> RecordData for Opt<Octs> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Opt
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Opt<Octets> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
+impl<'a, Octs> ParseRecordData<'a, Octs> for Opt<Octs::Range<'a>>
+where
+    Octs: Octets + ?Sized,
+{
+    fn parse_rdata(
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Opt {
+            Self::parse(parser).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>> ComposeRecordData for Opt<Octs> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(u16::try_from(self.octets.as_ref().len()).expect("long OPT"))
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
         &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
         target.append_slice(self.octets.as_ref())
     }
-}
 
-//--- RtypeRecordData
-
-impl<Octets> RtypeRecordData for Opt<Octets> {
-    const RTYPE: Rtype = Rtype::Opt;
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
+    }
 }
 
 //--- Display
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Opt<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Opt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // XXX TODO Print this properly.
         f.write_str("OPT ...")
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Opt<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Opt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("Opt(")?;
         fmt::Display::fmt(self, f)?;
@@ -303,6 +327,13 @@ impl OptHeader {
             self.inner[7] &= 0x7F
         }
     }
+
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.inner)
+    }
 }
 
 impl Default for OptHeader {
@@ -310,15 +341,6 @@ impl Default for OptHeader {
         OptHeader {
             inner: [0, 0, 41, 0, 0, 0, 0, 0, 0],
         }
-    }
-}
-
-impl Compose for OptHeader {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(&self.inner)
     }
 }
 
@@ -337,7 +359,7 @@ impl Compose for OptHeader {
 /// [`Opt`]: strait.Opt.html
 /// [`from_record`]: #method.from_record
 #[derive(Clone)]
-pub struct OptRecord<Octets> {
+pub struct OptRecord<Octs> {
     /// The UDP payload size field from the record header.
     udp_payload_size: u16,
 
@@ -351,12 +373,12 @@ pub struct OptRecord<Octets> {
     flags: u16,
 
     /// The record data.
-    data: Opt<Octets>,
+    data: Opt<Octs>,
 }
 
-impl<Octets> OptRecord<Octets> {
+impl<Octs> OptRecord<Octs> {
     /// Converts a regular record into an OPT record
-    pub fn from_record<N: ToDname>(record: Record<N, Opt<Octets>>) -> Self {
+    pub fn from_record<N: ToDname>(record: Record<N, Opt<Octs>>) -> Self {
         OptRecord {
             udp_payload_size: record.class().to_int(),
             ext_rcode: (record.ttl() >> 24) as u8,
@@ -405,48 +427,52 @@ impl<Octets> OptRecord<Octets> {
     }
 
     /// Returns a reference to the raw options.
-    pub fn as_opt(&self) -> &Opt<Octets> {
+    pub fn as_opt(&self) -> &Opt<Octs> {
         &self.data
     }
 }
 
 //--- From
 
-impl<Octets, N: ToDname> From<Record<N, Opt<Octets>>> for OptRecord<Octets> {
-    fn from(record: Record<N, Opt<Octets>>) -> Self {
+impl<Octs, N: ToDname> From<Record<N, Opt<Octs>>> for OptRecord<Octs> {
+    fn from(record: Record<N, Opt<Octs>>) -> Self {
         Self::from_record(record)
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<OptRecord<SrcOctets>> for OptRecord<Octets>
+impl<Octs, SrcOcts> OctetsFrom<OptRecord<SrcOcts>> for OptRecord<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: OptRecord<SrcOctets>) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: OptRecord<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
         Ok(OptRecord {
             udp_payload_size: source.udp_payload_size,
             ext_rcode: source.ext_rcode,
             version: source.version,
             flags: source.flags,
-            data: Opt::octets_from(source.data)?,
+            data: Opt::try_octets_from(source.data)?,
         })
     }
 }
 
 //--- Deref and AsRef
 
-impl<Octets> ops::Deref for OptRecord<Octets> {
-    type Target = Opt<Octets>;
+impl<Octs> ops::Deref for OptRecord<Octs> {
+    type Target = Opt<Octs>;
 
-    fn deref(&self) -> &Opt<Octets> {
+    fn deref(&self) -> &Opt<Octs> {
         &self.data
     }
 }
 
-impl<Octets> AsRef<Opt<Octets>> for OptRecord<Octets> {
-    fn as_ref(&self) -> &Opt<Octets> {
+impl<Octs> AsRef<Opt<Octs>> for OptRecord<Octs> {
+    fn as_ref(&self) -> &Opt<Octs> {
         &self.data
     }
 }
@@ -483,29 +509,11 @@ impl OptionHeader {
     pub fn len(self) -> u16 {
         self.len
     }
-}
 
-//--- Parse and Compose
-
-impl<Octets: AsRef<[u8]>> Parse<Octets> for OptionHeader {
-    fn parse(parser: &mut Parser<Octets>) -> Result<Self, ParseError> {
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>,
+    ) -> Result<Self, ParseError> {
         Ok(OptionHeader::new(parser.parse_u16()?, parser.parse_u16()?))
-    }
-
-    fn skip(parser: &mut Parser<Octets>) -> Result<(), ParseError> {
-        parser.advance(4)
-    }
-}
-
-impl Compose for OptionHeader {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            self.code.compose(target)?;
-            self.len.compose(target)
-        })
     }
 }
 
@@ -519,17 +527,17 @@ impl Compose for OptionHeader {
 /// particular option. After such an error you can continue to iterate until
 /// `None` indicates that you’ve reached the end of the record.
 #[derive(Clone, Debug)]
-pub struct OptIter<Ref: OctetsRef, D: ParseOptData<Ref>> {
+pub struct OptIter<'a, Octs: Octets, D: ParseOptData<'a, Octs>> {
     /// A parser for the OPT record data.
-    parser: Parser<Ref>,
+    parser: Parser<'a, Octs>,
 
     /// The marker to remember which record data we use.
     marker: PhantomData<D>,
 }
 
-impl<Ref: OctetsRef, D: ParseOptData<Ref>> OptIter<Ref, D> {
+impl<'a, Octs: Octets, D: ParseOptData<'a, Octs>> OptIter<'a, Octs, D> {
     /// Creates an iterator from a reference to the OPT record data.
-    fn new(octets: Ref) -> Self {
+    fn new(octets: &'a Octs) -> Self {
         OptIter {
             parser: Parser::from_ref(octets),
             marker: PhantomData,
@@ -544,15 +552,21 @@ impl<Ref: OctetsRef, D: ParseOptData<Ref>> OptIter<Ref, D> {
     fn next_step(&mut self) -> Result<Option<D>, ParseError> {
         let code = self.parser.parse_u16()?.into();
         let len = self.parser.parse_u16()? as usize;
-        self.parser
-            .parse_block(len, |parser| D::parse_option(code, parser))
+        let mut parser = self.parser.parse_parser(len)?;
+        let res = D::parse_option(code, &mut parser)?;
+        if res.is_some() && parser.remaining() > 0 {
+            return Err(ParseError::Form(FormError::new(
+                "trailing data in option",
+            )));
+        }
+        Ok(res)
     }
 }
 
-impl<Ref, Data> Iterator for OptIter<Ref, Data>
+impl<'a, Octs, Data> Iterator for OptIter<'a, Octs, Data>
 where
-    Ref: OctetsRef,
-    Data: ParseOptData<Ref>,
+    Octs: Octets,
+    Data: ParseOptData<'a, Octs>,
 {
     type Item = Result<Data, ParseError>;
 
@@ -576,13 +590,9 @@ where
 
 /// A type representing an OPT option.
 ///
-/// The type needs to be able to construct the encoded option data via the
-/// [`Compose`] trait. In addition, it needs to be able report the option
-/// code to use for the encoding via the [`code`] method.
-///
-/// [`code`]: #method.code
-/// [`Compose`]: ../octets/trait.Compose.html
-pub trait OptData: Compose + Sized {
+/// The type needs to be able to report the option code to use for the
+/// encoding via the [`code`][Self::code] method.
+pub trait OptData {
     /// Returns the option code associated with this option.
     fn code(&self) -> OptionCode;
 }
@@ -590,7 +600,7 @@ pub trait OptData: Compose + Sized {
 //------------ ParseOptData --------------------------------------------------
 
 /// An OPT option that can be parsed from the record data.
-pub trait ParseOptData<Octets>: OptData {
+pub trait ParseOptData<'a, Octs: ?Sized>: OptData + Sized {
     /// Parses the option code data.
     ///
     /// The data is for an option of `code`. The function may decide whether
@@ -606,49 +616,20 @@ pub trait ParseOptData<Octets>: OptData {
     /// the parser. In particual, it must not advance it.
     fn parse_option(
         code: OptionCode,
-        parser: &mut Parser<Octets>,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError>;
 }
 
-//------------ CodeOptData ---------------------------------------------------
+//------------ ComposeOptData ------------------------------------------------
 
-/// A type for an OPT option for a single specific option code.
-///
-/// If an option can only ever process a single option, it can simply
-/// implement [`Parse`] for parsing the data, [`Compose`] for composing the
-/// data, and this trait to state the option code. [`OptData`] and
-/// [`ParseOptData`] will then be available via blanket implementations.
-///
-/// [`Compose`]: ../octets/trait.Compose.html
-/// [`Parse`]: ../octets/trait.Parse.html
-/// [`OptData`]: trait.OptData.html
-/// [`ParseOptData`]: trait.ParseOptData.html
-pub trait CodeOptData {
-    /// The option code for this option.
-    const CODE: OptionCode;
-}
+/// An OPT option that can be written to wire format.
+pub trait ComposeOptData: OptData {
+    fn compose_len(&self) -> u16;
 
-impl<T: CodeOptData + Compose> OptData for T {
-    fn code(&self) -> OptionCode {
-        Self::CODE
-    }
-}
-
-impl<Octets: AsRef<[u8]>, T> ParseOptData<Octets> for T
-where
-    T: CodeOptData + Parse<Octets> + Compose + Sized,
-{
-    fn parse_option(
-        code: OptionCode,
-        parser: &mut Parser<Octets>,
-    ) -> Result<Option<Self>, ParseError> {
-        if code == Self::CODE {
-            Self::parse(parser).map(Some)
-        } else {
-            parser.advance_to_end();
-            Ok(None)
-        }
-    }
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError>;
 }
 
 //------------ UnknownOptData ------------------------------------------------
@@ -657,17 +638,17 @@ where
 ///
 /// This type accepts any option type via its option code and raw data.
 #[derive(Clone, Debug)]
-pub struct UnknownOptData<Octets> {
+pub struct UnknownOptData<Octs> {
     /// The option code for the option.
     code: OptionCode,
 
     /// The raw option data.
-    data: Octets,
+    data: Octs,
 }
 
-impl<Octets> UnknownOptData<Octets> {
+impl<Octs> UnknownOptData<Octs> {
     /// Creates a new option from the code and data.
-    pub fn from_octets(code: OptionCode, data: Octets) -> Self {
+    pub fn from_octets(code: OptionCode, data: Octs) -> Self {
         UnknownOptData { code, data }
     }
 
@@ -677,19 +658,19 @@ impl<Octets> UnknownOptData<Octets> {
     }
 
     /// Returns a reference for to the option data.
-    pub fn data(&self) -> &Octets {
+    pub fn data(&self) -> &Octs {
         &self.data
     }
 
     /// Returns a mutable reference to the option data.
-    pub fn data_mut(&mut self) -> &mut Octets {
+    pub fn data_mut(&mut self) -> &mut Octs {
         &mut self.data
     }
 
     /// Returns a slice of the option data.
     pub fn as_slice(&self) -> &[u8]
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         self.data.as_ref()
     }
@@ -697,7 +678,7 @@ impl<Octets> UnknownOptData<Octets> {
     /// Returns a mutable slice of the option data.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
     where
-        Octets: AsMut<[u8]>,
+        Octs: AsMut<[u8]>,
     {
         self.data.as_mut()
     }
@@ -705,15 +686,15 @@ impl<Octets> UnknownOptData<Octets> {
 
 //--- Deref and DerefMut
 
-impl<Octets> ops::Deref for UnknownOptData<Octets> {
-    type Target = Octets;
+impl<Octs> ops::Deref for UnknownOptData<Octs> {
+    type Target = Octs;
 
     fn deref(&self) -> &Self::Target {
         self.data()
     }
 }
 
-impl<Octets> ops::DerefMut for UnknownOptData<Octets> {
+impl<Octs> ops::DerefMut for UnknownOptData<Octs> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.data_mut()
     }
@@ -721,62 +702,68 @@ impl<Octets> ops::DerefMut for UnknownOptData<Octets> {
 
 //--- AsRef and AsMut
 
-impl<Octets> AsRef<Octets> for UnknownOptData<Octets> {
-    fn as_ref(&self) -> &Octets {
+impl<Octs> AsRef<Octs> for UnknownOptData<Octs> {
+    fn as_ref(&self) -> &Octs {
         self.data()
     }
 }
 
-impl<Octets> AsMut<Octets> for UnknownOptData<Octets> {
-    fn as_mut(&mut self) -> &mut Octets {
+impl<Octs> AsMut<Octs> for UnknownOptData<Octs> {
+    fn as_mut(&mut self) -> &mut Octs {
         self.data_mut()
     }
 }
 
-impl<Octets: AsRef<[u8]>> AsRef<[u8]> for UnknownOptData<Octets> {
+impl<Octs: AsRef<[u8]>> AsRef<[u8]> for UnknownOptData<Octs> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-impl<Octets: AsMut<[u8]>> AsMut<[u8]> for UnknownOptData<Octets> {
+impl<Octs: AsMut<[u8]>> AsMut<[u8]> for UnknownOptData<Octs> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.as_slice_mut()
     }
 }
 
-//--- Compose
-
-impl<Octets: AsRef<[u8]>> Compose for UnknownOptData<Octets> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(self.data.as_ref())
-    }
-}
-
 //--- OptData
 
-impl<Octets: AsRef<[u8]>> OptData for UnknownOptData<Octets> {
+impl<Octs: AsRef<[u8]>> OptData for UnknownOptData<Octs> {
     fn code(&self) -> OptionCode {
         self.code
     }
 }
 
-impl<Octets, Ref> ParseOptData<Ref> for UnknownOptData<Octets>
+impl<'a, Octs> ParseOptData<'a, Octs> for UnknownOptData<Octs::Range<'a>>
 where
-    Octets: AsRef<[u8]>,
-    Ref: OctetsRef<Range = Octets>,
+    Octs: Octets,
 {
     fn parse_option(
         code: OptionCode,
-        parser: &mut Parser<Ref>,
+        parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         let len = parser.remaining();
         parser
             .parse_octets(len)
             .map(|data| Some(Self::from_octets(code, data)))
+            .map_err(Into::into)
+    }
+}
+
+impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
+    fn compose_len(&self) -> u16 {
+        self.data
+            .as_ref()
+            .len()
+            .try_into()
+            .expect("long option data")
+    }
+
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.data.as_ref())
     }
 }
 
@@ -787,7 +774,9 @@ where
 mod test {
     use super::*;
     use crate::base::record::ParsedRecord;
+    use crate::base::wire::Compose;
     use crate::base::{opt, MessageBuilder};
+    use octseq::builder::infallible;
     use std::vec::Vec;
 
     #[test]
@@ -798,8 +787,8 @@ mod test {
         header.set_version(0xbd);
         header.set_dnssec_ok(true);
         let mut buf = Vec::with_capacity(11);
-        header.compose(&mut buf).unwrap();
-        0u16.compose(&mut buf).unwrap();
+        infallible(header.compose(&mut buf));
+        infallible(0u16.compose(&mut buf));
         let mut buf = Parser::from_ref(buf.as_slice());
         let record = ParsedRecord::parse(&mut buf)
             .unwrap()

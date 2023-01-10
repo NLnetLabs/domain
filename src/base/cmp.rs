@@ -19,7 +19,7 @@ use core::cmp::Ordering;
 
 /// A trait for the canonical sort order of values.
 ///
-/// The canonical sort order is used in DNS security when multiple values are
+/// The canonical sort order is used in DNSSEC when multiple values are
 /// part of constructing or validating a signature. This sort order differs
 /// in some cases from the normal sort order. To avoid confusion, only this
 /// trait should be used when DNSSEC signatures are involved.
@@ -32,9 +32,10 @@ use core::cmp::Ordering;
 /// implemented through the `PartialOrd` and `Ord` traits: Labels are compared
 /// from right to left (i.e, starting from the root label) with each pair of
 /// labels compared as octet sequences with ASCII letters lowercased
-/// before comparison.  The `name_cmp` methods of the `ToDname` and
-/// `ToRelativeDname` traits can be used to implement this canonical order
-/// for name types.
+/// before comparison.  The `name_cmp` methods of the
+/// [`ToDname`][crate::base::name::ToDname::name_cmp] and
+/// [`ToRelativeDname`][crate::base::name::ToRelativeDname::name_cmp]
+/// traits can be used to implement this canonical order for name types.
 ///
 /// Resource records within an RR set are ordered by comparing the canonical
 /// wire-format representation of their record data as octet sequences. The

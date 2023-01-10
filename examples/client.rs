@@ -54,7 +54,7 @@ fn main() {
 
     // Send message off to the server using our socket
     socket
-        .send_to(&message.as_dgram_slice(), (server, port))
+        .send_to(message.as_dgram_slice(), (server, port))
         .unwrap();
 
     // Create recv buffer
@@ -89,7 +89,7 @@ fn main() {
     }
 
     // Display is only implemented for some OPTs at the time of writing
-    for option in response.opt().unwrap().iter::<AllOptData<_>>() {
+    for option in response.opt().unwrap().iter::<AllOptData<_, _>>() {
         let opt = option.unwrap();
         match opt {
             AllOptData::Nsid(nsid) => println!("{}", nsid),

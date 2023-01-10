@@ -20,8 +20,11 @@
 //! [NSEC3]: ../../rdata/rfc5155/index.html
 //! [`Decoder`]: struct.Decoder.html
 
-use crate::base::octets::{EmptyBuilder, FromBuilder, OctetsBuilder};
+use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
+};
 #[cfg(feature = "std")]
 use std::string::String;
 
@@ -38,8 +41,7 @@ pub use super::base64::DecodeError;
 pub fn decode_hex<Octets>(s: &str) -> Result<Octets, DecodeError>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     let mut decoder = Decoder::<<Octets as FromBuilder>::Builder>::new_hex();
     for ch in s.chars() {
@@ -133,11 +135,9 @@ pub fn encode_display_hex<Octets: AsRef<[u8]>>(
 /// serializers or as a raw octets sequence for compact serializers.
 #[cfg(feature = "serde")]
 pub mod serde {
-    use crate::base::octets::{
-        DeserializeOctets, EmptyBuilder, FromBuilder, OctetsBuilder,
-        SerializeOctets,
-    };
     use core::fmt;
+    use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
+    use octseq::serde::{DeserializeOctets, SerializeOctets};
 
     pub fn serialize<Octets, S>(
         octets: &Octets,
@@ -166,8 +166,7 @@ pub mod serde {
         impl<'de, Octets> serde::de::Visitor<'de> for Visitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
             type Value = Octets;
 
@@ -224,7 +223,7 @@ pub struct Decoder<Builder> {
     /// The alphabet we are using.
     alphabet: &'static [u8; 128],
 
-    /// A buffer for up to four characters.
+    /// A buffer for up to eight characters.
     ///
     /// We only keep `u8`s here because only ASCII characters are used by
     /// Base32.
@@ -252,7 +251,10 @@ impl<Builder: EmptyBuilder> Decoder<Builder> {
 impl<Builder: OctetsBuilder> Decoder<Builder> {
     /// Finalizes decoding and returns the decoded data.
     #[allow(clippy::question_mark)] // false positive
-    pub fn finalize(mut self) -> Result<Builder::Octets, DecodeError> {
+    pub fn finalize(mut self) -> Result<Builder::Octets, DecodeError>
+    where
+        Builder: FreezeBuilder,
+    {
         if let Err(err) = self.target {
             return Err(err);
         }
@@ -280,7 +282,7 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
             }
             _ => unreachable!(),
         }
-        self.target.map(OctetsBuilder::freeze)
+        self.target.map(FreezeBuilder::freeze)
     }
 
     /// Decodes one more character of data.
@@ -352,8 +354,126 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
             Err(_) => return,
         };
         if let Err(err) = target.append_slice(&[value]) {
-            self.target = Err(err.into());
+            self.target = Err(err.into().into());
         }
+    }
+}
+
+//------------ SymbolConverter -----------------------------------------------
+
+/// A Base 32 decoder that can be used as a converter with a scanner.
+#[derive(Clone, Debug)]
+pub struct SymbolConverter {
+    /// The alphabet we are using.
+    alphabet: &'static [u8; 128],
+
+    /// A buffer for up to eight input characters.
+    ///
+    /// We only keep `u8`s here because only ASCII characters are used by
+    /// Base64.
+    input: [u8; 8],
+
+    /// The index in `input` where we place the next character.
+    ///
+    /// We also abuse this to mark when we are done (because there was
+    /// padding, in which case we set it to 0xF0).
+    next: usize,
+
+    /// A buffer to return a slice for the output.
+    output: [u8; 5],
+}
+
+impl Default for SymbolConverter {
+    fn default() -> Self {
+        SymbolConverter {
+            alphabet: &DECODE_HEX_ALPHABET,
+            input: [0; 8],
+            next: 0,
+            output: Default::default(),
+        }
+    }
+}
+
+impl SymbolConverter {
+    /// Creates a new symbol converter.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    fn process_char<Error: ScannerError>(
+        &mut self,
+        ch: char,
+    ) -> Result<Option<&[u8]>, Error> {
+        if ch > (127 as char) {
+            return Err(Error::custom("illegal Base 32 data"));
+        }
+        let val = self.alphabet[ch as usize];
+        if val == 0xFF {
+            return Err(Error::custom("illegal Base 32 data"));
+        }
+        self.input[self.next] = val;
+        self.next += 1;
+
+        if self.next == 8 {
+            self.output = [
+                self.input[0] << 3 | self.input[1] >> 2,
+                self.input[1] << 6 | self.input[2] << 1 | self.input[3] >> 4,
+                self.input[3] << 4 | self.input[4] >> 1,
+                self.input[4] << 7 | self.input[5] << 2 | self.input[6] >> 3,
+                self.input[6] << 5 | self.input[7],
+            ];
+            self.next = 0;
+            Ok(Some(&self.output))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Sym, Error> ConvertSymbols<Sym, Error> for SymbolConverter
+where
+    Sym: Into<EntrySymbol>,
+    Error: ScannerError,
+{
+    fn process_symbol(
+        &mut self,
+        symbol: Sym,
+    ) -> Result<Option<&[u8]>, Error> {
+        match symbol.into() {
+            EntrySymbol::Symbol(symbol) => self.process_char(
+                symbol
+                    .into_char()
+                    .map_err(|_| Error::custom("illegal Base 32 data"))?,
+            ),
+            EntrySymbol::EndOfToken => Ok(None),
+        }
+    }
+
+    /// Process the end of token.
+    ///
+    /// The method may return data to be added to the output octets sequence.
+    fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
+        match self.next {
+            0 => return Ok(None),
+            1 | 3 | 6 => return Err(Error::custom("short Base 32 input")),
+            _ => {}
+        }
+        self.output[0] = self.input[0] << 3 | self.input[1] >> 2;
+        if self.next == 2 {
+            return Ok(Some(&self.output[0..1]));
+        }
+        self.output[1] =
+            self.input[1] << 6 | self.input[2] << 1 | self.input[3] >> 4;
+        if self.next == 4 {
+            return Ok(Some(&self.output[0..2]));
+        }
+        self.output[2] = self.input[3] << 4 | self.input[4] >> 1;
+        if self.next == 5 {
+            return Ok(Some(&self.output[0..3]));
+        }
+        self.output[3] =
+            self.input[4] << 7 | self.input[5] << 2 | self.input[6] >> 3;
+        Ok(Some(&self.output[0..4]))
     }
 }
 

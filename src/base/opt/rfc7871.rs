@@ -4,10 +4,10 @@ use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::net::IpAddr;
-use super::super::octets::{
-    Compose, FormError, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
-};
-use super::CodeOptData;
+use super::super::wire::{Compose, Composer, FormError, ParseError};
+use super::{OptData, ComposeOptData, ParseOptData};
+use octseq::builder::OctetsBuilder;
+use octseq::parse::Parser;
 
 //------------ ClientSubnet --------------------------------------------------
 
@@ -37,15 +37,6 @@ impl ClientSubnet {
         }
     }
 
-    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
-        builder: &mut OptBuilder<Target>,
-        source_prefix_len: u8,
-        scope_prefix_len: u8,
-        addr: IpAddr,
-    ) -> Result<(), ShortBuf> {
-        builder.push(&Self::new(source_prefix_len, scope_prefix_len, addr))
-    }
-
     pub fn source_prefix_len(&self) -> u8 {
         self.source_prefix_len
     }
@@ -55,12 +46,10 @@ impl ClientSubnet {
     pub fn addr(&self) -> IpAddr {
         self.addr
     }
-}
 
-//--- Parse and Compose
-
-impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+    pub fn parse<Octs: AsRef<[u8]>>(
+        parser: &mut Parser<Octs>
+    ) -> Result<Self, ParseError> {
         let family = parser.parse_u16()?;
         let source_prefix_len = parser.parse_u8()?;
         let scope_prefix_len = parser.parse_u8()?;
@@ -71,7 +60,7 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
         // | IPv6 address, depending on FAMILY, which MUST be truncated to
         // | the number of bits indicated by the SOURCE PREFIX-LENGTH field,
         // | padding with 0 bits to pad to the end of the last octet needed.
-        let prefix_bytes = prefix_bytes(usize::from(source_prefix_len));
+        let prefix_bytes = prefix_bytes(source_prefix_len);
 
         let addr = match family {
             1 => {
@@ -126,29 +115,46 @@ impl<Ref: AsRef<[u8]>> Parse<Ref> for ClientSubnet {
             addr,
         })
     }
+}
 
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        // XXX Perhaps do a check?
-        parser.advance_to_end();
-        Ok(())
+//--- OptData
+
+impl OptData for ClientSubnet {
+    fn code(&self) -> OptionCode {
+        OptionCode::ClientSubnet
     }
 }
 
-impl Compose for ClientSubnet {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        let prefix_bytes = prefix_bytes(self.source_prefix_len as usize);
-        target.append_all(|target| match self.addr {
+impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for ClientSubnet {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::ClientSubnet {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl ComposeOptData for ClientSubnet {
+    fn compose_len(&self) -> u16 {
+        u16::try_from(prefix_bytes(self.source_prefix_len)).unwrap() + 4
+    }
+
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        let prefix_bytes = prefix_bytes(self.source_prefix_len);
+        match self.addr {
             IpAddr::V4(addr) => {
                 1u16.compose(target)?;
                 self.source_prefix_len.compose(target)?;
                 self.scope_prefix_len.compose(target)?;
                 let array = addr.octets();
-                if prefix_bytes > array.len() {
-                    return Err(ShortBuf);
-                }
+                assert!(prefix_bytes <= array.len());
                 target.append_slice(&array[..prefix_bytes])
             }
             IpAddr::V6(addr) => {
@@ -156,17 +162,15 @@ impl Compose for ClientSubnet {
                 self.source_prefix_len.compose(target)?;
                 self.scope_prefix_len.compose(target)?;
                 let array = addr.octets();
-                if prefix_bytes > array.len() {
-                    return Err(ShortBuf);
-                }
+                assert!(prefix_bytes <= array.len());
                 target.append_slice(&array[..prefix_bytes])
             }
-        })
+        }
     }
 }
 
-fn prefix_bytes(bits: usize) -> usize {
-    (bits + 7) / 8
+fn prefix_bytes(bits: u8) -> usize {
+    (usize::from(bits) + 7) / 8
 }
 
 // Apply a prefix bit mask indicated by its length to the provided
@@ -227,10 +231,20 @@ fn normalize_prefix_len(addr: IpAddr, len: u8) -> u8 {
     core::cmp::min(len, max)
 }
 
-//--- CodeOptData
 
-impl CodeOptData for ClientSubnet {
-    const CODE: OptionCode = OptionCode::ClientSubnet;
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn client_subnet(
+        &mut self,
+        source_prefix_len: u8,
+        scope_prefix_len: u8,
+        addr: IpAddr,
+    ) -> Result<(), Target::AppendError> {
+        self.push(
+            &ClientSubnet::new(source_prefix_len, scope_prefix_len, addr)
+        )
+    }
 }
 
 impl fmt::Display for ClientSubnet {
@@ -258,13 +272,13 @@ impl fmt::Display for ClientSubnet {
     }
 }
 
+//============ Testing =======================================================
 
-
-
-#[cfg(test)]
+#[cfg(all(test, feature="std"))]
 mod tests {
     use super::*;
-    use crate::base::octets::Octets512;
+    use octseq::builder::infallible;
+    use std::vec::Vec;
 
     macro_rules! check {
         ($name:ident, $addr:expr, $prefix:expr, $exp:expr, $ok:expr) => {
@@ -278,9 +292,9 @@ mod tests {
                 // generate maybe invalid buffer.
                 let mut opt_ = opt.clone();
                 opt_.addr = addr;
-                let mut buf = Octets512::new();
+                let mut buf = Vec::new();
 
-                opt_.compose(&mut buf).unwrap();
+                infallible(opt_.compose_option(&mut buf));
                 match ClientSubnet::parse(&mut Parser::from_ref(&buf)) {
                     Ok(v) => assert_eq!(opt, v),
                     Err(_) => assert!(!$ok),

@@ -3,10 +3,10 @@
 use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
-use super::super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf
-};
-use super::CodeOptData;
+use super::super::wire::{Composer, ParseError};
+use super::{OptData, ComposeOptData, ParseOptData};
+use octseq::builder::OctetsBuilder;
+use octseq::parse::Parser;
 
 
 //------------ Cookie --------------------------------------------------------
@@ -19,48 +19,52 @@ impl Cookie {
         Cookie(cookie)
     }
 
-    pub fn push<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
-        builder: &mut OptBuilder<Target>,
-        cookie: [u8; 8]
-    ) -> Result<(), ShortBuf> {
-        builder.push(&Self::new(cookie))
-    }
-
     pub fn cookie(self) -> [u8; 8] {
         self.0
     }
-}
 
-
-//--- ParseAll and Compose
-
-impl<Ref: AsRef<[u8]>> Parse<Ref> for Cookie {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+    pub fn parse<Octs: AsRef<[u8]>>(
+        parser: &mut Parser<Octs>
+    ) -> Result<Self, ParseError> {
         let mut res = [0u8; 8];
         parser.parse_buf(&mut res[..])?;
         Ok(Self::new(res))
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        parser.advance(8)
-    }
-}
-
-
-impl Compose for Cookie {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(&self.0[..])
     }
 }
 
 
 //--- OptData
 
-impl CodeOptData for Cookie {
-    const CODE: OptionCode = OptionCode::Cookie;
+impl OptData for Cookie {
+    fn code(&self) -> OptionCode {
+        OptionCode::Cookie
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for Cookie {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::Cookie {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
+
+impl ComposeOptData for Cookie {
+    fn compose_len(&self) -> u16 {
+        8
+    }
+
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.0[..])
+    }
 }
 
 impl fmt::Display for Cookie {
@@ -71,3 +75,14 @@ impl fmt::Display for Cookie {
         Ok(())
     }
 }
+
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn cookie(
+        &mut self, cookie: [u8; 8]
+    ) -> Result<(), Target::AppendError> {
+        self.push(&Cookie::new(cookie))
+    }
+}
+

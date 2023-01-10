@@ -1,13 +1,13 @@
 /// EDNS0 Options from RFC 5001.
 
-use core::fmt;
-use core::str::from_utf8;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
-use super::super::octets::{
-    Compose, OctetsBuilder, OctetsRef, Parse, ParseError, Parser, ShortBuf
-};
-use super::CodeOptData;
+use super::super::wire::{Composer, ParseError};
+use super::{OptData, ComposeOptData, ParseOptData};
+use octseq::builder::OctetsBuilder;
+use octseq::octets::Octets;
+use octseq::parse::Parser;
+use core::{fmt, str};
 
 
 //------------ Nsid ---------------------------------------------------------/
@@ -16,61 +16,56 @@ use super::CodeOptData;
 ///
 /// Specified in RFC 5001.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Nsid<Octets> {
-    octets: Octets,
+pub struct Nsid<Octs> {
+    octets: Octs,
 }
 
-impl<Octets> Nsid<Octets> {
-    pub fn from_octets(octets: Octets) -> Self {
+impl<Octs> Nsid<Octs> {
+    pub fn from_octets(octets: Octs) -> Self {
         Nsid { octets }
     }
-}
 
-impl Nsid<()> {
-    pub fn push<Target, Data>(
-        builder: &mut OptBuilder<Target>,
-        data: &Data
-    ) -> Result<(), ShortBuf>
-    where
-        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
-        Data: AsRef<[u8]>,
-    {
-        let data = data.as_ref();
-        assert!(data.len() <= core::u16::MAX as usize);
-        builder.push_raw_option(OptionCode::Nsid, |target| {
-            target.append_slice(data)
-        })
-    }
-}
-
-impl<Ref: OctetsRef> Parse<Ref> for Nsid<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
         let len = parser.remaining();
-        parser.parse_octets(len).map(Nsid::from_octets)
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        parser.advance_to_end();
-        Ok(())
+        parser.parse_octets(len).map(Nsid::from_octets).map_err(Into::into)
     }
 }
 
-impl<Octets> CodeOptData for Nsid<Octets> {
-    const CODE: OptionCode = OptionCode::Nsid;
+impl<Octs> OptData for Nsid<Octs> {
+    fn code(&self) -> OptionCode {
+        OptionCode::Nsid
+    }
 }
 
+impl<'a, Octs: Octets> ParseOptData<'a, Octs> for Nsid<Octs::Range<'a>> {
+    fn parse_option(
+        code: OptionCode,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if code == OptionCode::Nsid {
+            Self::parse(parser).map(Some)
+        }
+        else {
+            Ok(None)
+        }
+    }
+}
 
-impl<Octets: AsRef<[u8]>> Compose for Nsid<Octets> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T
-    ) -> Result<(), ShortBuf> {
-        assert!(self.octets.as_ref().len() < core::u16::MAX as usize);
+impl<Octs: AsRef<[u8]>> ComposeOptData for Nsid<Octs> {
+    fn compose_len(&self) -> u16 {
+        self.octets.as_ref().len().try_into().expect("long option data")
+    }
+
+    fn compose_option<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
         target.append_slice(self.octets.as_ref())
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Display for Nsid<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Nsid<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // RFC 5001 § 2.4:
         // | User interfaces MUST read and write the contents of the NSID
@@ -79,13 +74,21 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Nsid<Octets> {
         for v in self.octets.as_ref() {
             write!(f, "{:X} ", *v)?;
         }
-        if self.octets.as_ref().is_ascii() {
-            write!(f, "(")?;
-            write!(f, "{}", from_utf8(self.octets.as_ref()).unwrap())?;
-            write!(f, ")")?;
+        if let Ok(s) = str::from_utf8(self.octets.as_ref()) {
+            write!(f, "({})", s)?;
         }
-
         Ok(())
+    }
+}
+
+
+//------------ OptBuilder ----------------------------------------------------
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    pub fn nsid(
+        &mut self, data: &impl AsRef<[u8]>
+    ) -> Result<(), Target::AppendError> {
+        self.push(&Nsid::from_octets(data.as_ref()))
     }
 }
 

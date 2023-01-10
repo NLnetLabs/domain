@@ -24,6 +24,26 @@
 //! [`UnknownRecordData`][crate::base::rdata::UnknownRecordData] for
 //! everything else.
 
+// A note on implementing record types with embedded domain names with regards
+// to compression and canonical representation:
+//
+// RFC 3597 stipulates that only record data of record types defined in RFC
+// 1035 is allowed to be compressed. (These are called “well-known record
+// types.”) For all other types, `CompressDname::append_compressed_dname`
+// must not be used and the names be composed with `ToDname::compose`.
+//
+// RFC 4034 defines the canonical form of record data. For this form, domain
+// names included in the record data of the following record types must be
+// composed canonically using `ToDname::compose_canonical`: All record types
+// from RFC 1035 plus RP, AFSDB, RT, SIG, PX, NXT, NAPTR, KX, SRV, DNAME, A6,
+// RRSIG, NSEC. All other record types must be composed canonically using
+// `ToDname::compose`.
+//
+// The macros module contains three macros for generating name-only record
+// types in these three categories: `dname_type_well_known!` for types from
+// RFC 1035, `dname_type_canonical!` for non-RFC 1035 types that need to be
+// lowercased, and `dname_type!` for everything else.
+
 #[macro_use]
 mod macros;
 
@@ -62,6 +82,7 @@ rdata_types! {
             Mb<N>,
             Md<N>,
             Mf<N>,
+            Mg<N>,
             Minfo<N>,
             Mr<N>,
             Mx<N>,

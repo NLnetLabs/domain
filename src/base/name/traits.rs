@@ -1,8 +1,7 @@
 //! Domain name-related traits.
 //!
-use super::super::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder,
-};
+//! This is a private module. Its public traits are re-exported by the parent.
+
 use super::builder::PushError;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
@@ -10,8 +9,10 @@ use super::label::Label;
 use super::relative::RelativeDname;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-/// This is a private module. Its public traits are re-exported by the parent.
 use core::cmp;
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
+};
 #[cfg(feature = "std")]
 use std::borrow::Cow;
 
@@ -27,27 +28,28 @@ use std::borrow::Cow;
 /// [`ToDname`]: trait.ToDname.html
 /// [`ToRelativeDname`]: trait ToRelativeDname.html
 #[allow(clippy::len_without_is_empty)]
-pub trait ToLabelIter<'a> {
+pub trait ToLabelIter {
     /// The type of the iterator over the labels.
     ///
     /// This iterator types needs to be double ended so that we can deal with
     /// name suffixes. It needs to be cloneable to be able to cascade over
     /// parents of a name.
-    type LabelIter: Iterator<Item = &'a Label> + DoubleEndedIterator + Clone;
+    type LabelIter<'a>: Iterator<Item = &'a Label>
+        + DoubleEndedIterator
+        + Clone
+    where
+        Self: 'a;
 
     /// Returns an iterator over the labels.
-    fn iter_labels(&'a self) -> Self::LabelIter;
+    fn iter_labels(&self) -> Self::LabelIter<'_>;
 
     /// Returns the length in octets of the encoded name.
-    fn len(&'a self) -> usize {
-        self.iter_labels().map(Label::compose_len).sum()
+    fn compose_len(&self) -> u16 {
+        self.iter_labels().map(|label| label.compose_len()).sum()
     }
 
     /// Determines whether `base` is a prefix of `self`.
-    fn starts_with<N: ToLabelIter<'a> + ?Sized>(
-        &'a self,
-        base: &'a N,
-    ) -> bool {
+    fn starts_with<N: ToLabelIter + ?Sized>(&self, base: &N) -> bool {
         let mut self_iter = self.iter_labels();
         let mut base_iter = base.iter_labels();
         loop {
@@ -64,7 +66,7 @@ pub trait ToLabelIter<'a> {
     }
 
     /// Determines whether `base` is a suffix of `self`.
-    fn ends_with<N: ToLabelIter<'a> + ?Sized>(&'a self, base: &'a N) -> bool {
+    fn ends_with<N: ToLabelIter + ?Sized>(&self, base: &N) -> bool {
         let mut self_iter = self.iter_labels();
         let mut base_iter = base.iter_labels();
         loop {
@@ -81,10 +83,10 @@ pub trait ToLabelIter<'a> {
     }
 }
 
-impl<'a, 'b, N: ToLabelIter<'b> + ?Sized> ToLabelIter<'b> for &'a N {
-    type LabelIter = N::LabelIter;
+impl<'r, N: ToLabelIter + ?Sized> ToLabelIter for &'r N {
+    type LabelIter<'a> = N::LabelIter<'a> where 'r: 'a, N: 'a;
 
-    fn iter_labels(&'b self) -> Self::LabelIter {
+    fn iter_labels(&self) -> Self::LabelIter<'_> {
         (*self).iter_labels()
     }
 }
@@ -105,7 +107,7 @@ impl<'a, 'b, N: ToLabelIter<'b> + ?Sized> ToLabelIter<'b> for &'a N {
 /// [`Chain<L, R>`]: struct.Chain.html
 /// [`Dname`]: struct.Dname.html
 /// [`ParsedDname`]: struct.ParsedDname.html
-pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
+pub trait ToDname: ToLabelIter {
     /// Converts the name into a single, uncompressed name.
     ///
     /// The canonical implementation provided by the trait iterates over the
@@ -117,11 +119,14 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     fn to_dname<Octets>(&self) -> Result<Dname<Octets>, PushError>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
-        let mut builder = Octets::Builder::with_capacity(self.len());
+        let mut builder =
+            Octets::Builder::with_capacity(self.compose_len().into());
         for label in self.iter_labels() {
-            label.build(&mut builder)?;
+            label
+                .compose(&mut builder)
+                .map_err(|_| PushError::ShortBuf)?;
         }
         Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
     }
@@ -136,6 +141,30 @@ pub trait ToDname: Compose + for<'a> ToLabelIter<'a> {
     /// two values that are indeed flat names.
     fn as_flat_slice(&self) -> Option<&[u8]> {
         None
+    }
+
+    fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        if let Some(slice) = self.as_flat_slice() {
+            target.append_slice(slice)
+        } else {
+            for label in self.iter_labels() {
+                label.compose(target)?;
+            }
+            Ok(())
+        }
+    }
+
+    fn compose_canonical<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        for label in self.iter_labels() {
+            label.compose_canonical(target)?;
+        }
+        Ok(())
     }
 
     /// Returns a cow of the domain name.
@@ -299,7 +328,7 @@ impl<'a, N: ToDname + ?Sized + 'a> ToDname for &'a N {}
 ///
 /// [`Chain<L, R>`]: struct.Chain.html
 /// [`RelativeDname`]: struct.RelativeDname.html
-pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
+pub trait ToRelativeDname: ToLabelIter {
     /// Converts the name into a single, continous name.
     ///
     /// The canonical implementation provided by the trait iterates over the
@@ -316,9 +345,12 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
-        let mut builder = Octets::Builder::with_capacity(self.len());
+        let mut builder =
+            Octets::Builder::with_capacity(self.compose_len().into());
         for label in self.iter_labels() {
-            label.build(&mut builder)?;
+            label
+                .compose(&mut builder)
+                .map_err(|_| PushError::ShortBuf)?;
         }
         Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
     }
@@ -329,6 +361,30 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     /// two values that are indeed flat names.
     fn as_flat_slice(&self) -> Option<&[u8]> {
         None
+    }
+
+    fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        if let Some(slice) = self.as_flat_slice() {
+            target.append_slice(slice)
+        } else {
+            for label in self.iter_labels() {
+                label.compose(target)?;
+            }
+            Ok(())
+        }
+    }
+
+    fn compose_canonical<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        for label in self.iter_labels() {
+            label.compose_canonical(target)?;
+        }
+        Ok(())
     }
 
     /// Returns a cow of the relative domain name.
@@ -366,7 +422,7 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
     }
 
     /// Returns a chain of this name and the provided name.
-    fn chain<N: ToEitherDname>(
+    fn chain<N: ToLabelIter>(
         self,
         suffix: N,
     ) -> Result<Chain<Self, N>, LongChainError>
@@ -437,17 +493,3 @@ pub trait ToRelativeDname: Compose + for<'a> ToLabelIter<'a> {
 }
 
 impl<'a, N: ToRelativeDname + ?Sized + 'a> ToRelativeDname for &'a N {}
-
-//------------ ToEitherDname -------------------------------------------------
-
-/// A name that is either absolute or relative.
-///
-/// This is anything that can iterate over labels.
-///
-/// The trait only exists to avoid the somewhat clumsy trait bounds necessary
-/// for [`ToLabelIter`].
-///
-/// [`ToLabelIter`]: trait.ToLabelIter.html
-pub trait ToEitherDname: Compose + for<'a> ToLabelIter<'a> {}
-
-impl<N: Compose + for<'a> ToLabelIter<'a>> ToEitherDname for N {}

@@ -7,14 +7,14 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
-use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom,
-    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
-};
-use crate::base::rdata::RtypeRecordData;
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
 use core::cmp::Ordering;
 use core::{fmt, hash};
+use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
 #[cfg(feature = "std")]
 use std::time::SystemTime;
 
@@ -22,7 +22,7 @@ use std::time::SystemTime;
 
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Tsig<Octets, Name> {
+pub struct Tsig<Octs, Name> {
     /// The signature algorithm as a domain name.
     algorithm: Name,
 
@@ -41,15 +41,15 @@ pub struct Tsig<Octets, Name> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
-            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
+            deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octets: crate::base::octets::SerializeOctets",
-                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octs: octseq::serde::SerializeOctets",
+                deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
             )
         )
     )]
-    mac: Octets,
+    mac: Octs,
 
     /// Original message ID.
     original_id: u16,
@@ -65,15 +65,15 @@ pub struct Tsig<Octets, Name> {
     #[cfg_attr(
         feature = "serde",
         serde(
-            serialize_with = "crate::base::octets::SerializeOctets::serialize_octets",
-            deserialize_with = "crate::base::octets::DeserializeOctets::deserialize_octets",
+            serialize_with = "octseq::serde::SerializeOctets::serialize_octets",
+            deserialize_with = "octseq::serde::DeserializeOctets::deserialize_octets",
             bound(
-                serialize = "Octets: crate::base::octets::SerializeOctets",
-                deserialize = "Octets: crate::base::octets::DeserializeOctets<'de>",
+                serialize = "Octs: octseq::serde::SerializeOctets",
+                deserialize = "Octs: octseq::serde::DeserializeOctets<'de>",
             )
         )
     )]
-    other: Octets,
+    other: Octs,
 }
 
 impl<O, N> Tsig<O, N> {
@@ -206,18 +206,34 @@ impl<O, N> Tsig<O, N> {
     pub fn is_valid_now(&self) -> bool {
         self.is_valid_at(Time48::now())
     }
+
+    pub(super) fn convert_octets<TOcts, TName>(
+        self,
+    ) -> Result<Tsig<TOcts, TName>, TOcts::Error>
+    where
+        TOcts: OctetsFrom<O>,
+        TName: OctetsFrom<N, Error = TOcts::Error>,
+    {
+        Ok(Tsig::new(
+            self.algorithm.try_octets_into()?,
+            self.time_signed,
+            self.fudge,
+            self.mac.try_octets_into()?,
+            self.original_id,
+            self.error,
+            self.other.try_octets_into()?,
+        ))
+    }
 }
 
-impl<Ref> Tsig<Ref::Range, ParsedDname<Ref>>
-where
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(
+impl<'a, Octs: Octets> Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    pub fn flatten_into<Target>(
         self,
-    ) -> Result<Tsig<Octets, Dname<Octets>>, PushError>
+    ) -> Result<Tsig<Target, Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<Ref::Range> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
+        PushError: From<Target::Error>,
     {
         let Self {
             algorithm,
@@ -233,33 +249,59 @@ where
             algorithm.flatten_into()?,
             time_signed,
             fudge,
-            mac.octets_into()?,
+            mac.try_octets_into()?,
             original_id,
             error,
-            other.octets_into()?,
+            other.try_octets_into()?,
         ))
+    }
+}
+
+impl<'a, Octs: Octets + ?Sized> Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        let algorithm = ParsedDname::parse(parser)?;
+        let time_signed = Time48::parse(parser)?;
+        let fudge = u16::parse(parser)?;
+        let mac_size = u16::parse(parser)?;
+        let mac = parser.parse_octets(mac_size as usize)?;
+        let original_id = u16::parse(parser)?;
+        let error = TsigRcode::parse(parser)?;
+        let other_len = u16::parse(parser)?;
+        let other = parser.parse_octets(other_len as usize)?;
+        Ok(Tsig {
+            algorithm,
+            time_signed,
+            fudge,
+            mac,
+            original_id,
+            error,
+            other,
+        })
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets, Name, SrcName> OctetsFrom<Tsig<SrcOctets, SrcName>>
-    for Tsig<Octets, Name>
+impl<Octs, SrcOctets, Name, SrcName> OctetsFrom<Tsig<SrcOctets, SrcName>>
+    for Tsig<Octs, Name>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOctets>,
     Name: OctetsFrom<SrcName>,
+    Octs::Error: From<Name::Error>,
 {
-    fn octets_from(
+    type Error = Octs::Error;
+
+    fn try_octets_from(
         source: Tsig<SrcOctets, SrcName>,
-    ) -> Result<Self, ShortBuf> {
+    ) -> Result<Self, Self::Error> {
         Ok(Tsig::new(
-            Name::octets_from(source.algorithm)?,
+            Name::try_octets_from(source.algorithm)?,
             source.time_signed,
             source.fudge,
-            Octets::octets_from(source.mac)?,
+            Octs::try_octets_from(source.mac)?,
             source.original_id,
             source.error,
-            Octets::octets_from(source.other)?,
+            Octs::try_octets_from(source.other)?,
         ))
     }
 }
@@ -412,60 +454,72 @@ impl<O: AsRef<[u8]>, N: hash::Hash> hash::Hash for Tsig<O, N> {
     }
 }
 
-//--- Parse, ParseAll, Compose, and Compress
+//--- RecordData, ParseRecordData, ComposeRecordData
 
-impl<Ref: OctetsRef> Parse<Ref> for Tsig<Ref::Range, ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        let algorithm = ParsedDname::parse(parser)?;
-        let time_signed = Time48::parse(parser)?;
-        let fudge = u16::parse(parser)?;
-        let mac_size = u16::parse(parser)?;
-        let mac = parser.parse_octets(mac_size as usize)?;
-        let original_id = u16::parse(parser)?;
-        let error = TsigRcode::parse(parser)?;
-        let other_len = u16::parse(parser)?;
-        let other = parser.parse_octets(other_len as usize)?;
-        Ok(Tsig {
-            algorithm,
-            time_signed,
-            fudge,
-            mac,
-            original_id,
-            error,
-            other,
-        })
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        ParsedDname::skip(parser)?;
-        Time48::skip(parser)?;
-        u16::skip(parser)?;
-        let mac_size = u16::parse(parser)?;
-        parser.advance(mac_size as usize)?;
-        u16::skip(parser)?;
-        TsigRcode::skip(parser)?;
-        let other_len = u16::parse(parser)?;
-        parser.advance(other_len as usize)?;
-        Ok(())
+impl<O, N> RecordData for Tsig<O, N> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Tsig
     }
 }
 
-impl<O: AsRef<[u8]>, N: Compose> Compose for Tsig<O, N> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
+    for Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
+{
+    fn parse_rdata(
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Tsig {
+            Self::parse(parser).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>, Name: ToDname> ComposeRecordData
+    for Tsig<Octs, Name>
+{
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            6 // time_signed
+            + 2 // fudge
+            + 2 // MAC length
+            + 2 // original ID
+            + 2 // error
+            + 2 // other length
+            + self.algorithm.compose_len().checked_add(
+                u16::try_from(self.mac.as_ref().len()).expect("long MAC")
+            ).expect("long MAC").checked_add(
+                u16::try_from(self.other.as_ref().len()).expect("long TSIG")
+            ).expect("long TSIG"),
+        )
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
         &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.algorithm.compose(buf)?;
-            self.time_signed.compose(buf)?;
-            self.fudge.compose(buf)?;
-            (self.mac.as_ref().len() as u16).compose(buf)?;
-            buf.append_slice(self.mac.as_ref())?;
-            self.original_id.compose(buf)?;
-            self.error.compose(buf)?;
-            (self.other.as_ref().len() as u16).compose(buf)?;
-            buf.append_slice(self.other.as_ref())
-        })
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.algorithm.compose(target)?;
+        self.time_signed.compose(target)?;
+        self.fudge.compose(target)?;
+        u16::try_from(self.mac.as_ref().len())
+            .expect("long MAC")
+            .compose(target)?;
+        target.append_slice(self.mac.as_ref())?;
+        self.original_id.compose(target)?;
+        self.error.compose(target)?;
+        u16::try_from(self.other.as_ref().len())
+            .expect("long MAC")
+            .compose(target)?;
+        target.append_slice(self.other.as_ref())
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
@@ -497,12 +551,6 @@ impl<O: AsRef<[u8]>, N: fmt::Debug> fmt::Debug for Tsig<O, N> {
             .field("other", &self.other.as_ref())
             .finish()
     }
-}
-
-//--- RtypeRecordData
-
-impl<O, N> RtypeRecordData for Tsig<O, N> {
-    const RTYPE: Rtype = Rtype::Tsig;
 }
 
 //------------ Time48 --------------------------------------------------------
@@ -582,6 +630,21 @@ impl Time48 {
     pub fn flatten_into(self) -> Result<Self, PushError> {
         Ok(self)
     }
+
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>,
+    ) -> Result<Self, ParseError> {
+        let mut buf = [0u8; 6];
+        parser.parse_buf(&mut buf)?;
+        Ok(Time48::from_slice(&buf))
+    }
+
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.into_octets())
+    }
 }
 
 //--- From
@@ -589,29 +652,6 @@ impl Time48 {
 impl From<Time48> for u64 {
     fn from(value: Time48) -> u64 {
         value.0
-    }
-}
-
-//--- Parse and Compose
-
-impl<Ref: AsRef<[u8]>> Parse<Ref> for Time48 {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        let mut buf = [0u8; 6];
-        parser.parse_buf(&mut buf)?;
-        Ok(Time48::from_slice(&buf))
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        parser.advance(6)
-    }
-}
-
-impl Compose for Time48 {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(&self.into_octets())
     }
 }
 
