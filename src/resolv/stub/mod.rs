@@ -323,7 +323,8 @@ impl<'a> Query<'a> {
     fn create_message(question: Question<impl ToDname>) -> QueryMessage {
         let mut message = MessageBuilder::from_target(
             StreamTarget::new(Default::default()).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         message.header_mut().set_rd(true);
         let mut message = message.question();
         message.push(question).unwrap();

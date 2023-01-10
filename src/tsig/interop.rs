@@ -82,9 +82,7 @@ fn tsig_client_nsd() {
         // Create an AXFR request and send it to NSD.
         let request = TestBuilder::new_stream_vec();
         let mut request = request
-            .request_axfr(
-                Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
-            )
+            .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
         let tran = tsig::ClientTransaction::request(
@@ -233,9 +231,7 @@ fn tsig_client_sequence_nsd() {
         let mut sock = TcpStream::connect("127.0.0.1:54323").unwrap();
         let request = TestBuilder::new_stream_vec();
         let mut request = request
-            .request_axfr(
-                Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
-            )
+            .request_axfr(Dname::<Vec<u8>>::from_str("example.com.").unwrap())
             .unwrap()
             .additional();
         let mut tran =

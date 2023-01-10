@@ -2321,8 +2321,7 @@ mod test {
     where
         T::AppendError: fmt::Debug,
     {
-        let mut msg =
-            MessageBuilder::from_target(target).unwrap().question();
+        let mut msg = MessageBuilder::from_target(target).unwrap().question();
         msg.header_mut().set_rcode(Rcode::NXDomain);
         msg.header_mut().set_rd(true);
         msg.header_mut().set_ra(true);
