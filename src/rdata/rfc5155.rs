@@ -8,21 +8,23 @@ use super::rfc4034::RtypeBitmap;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Nsec3HashAlg, Rtype};
 use crate::base::name::PushError;
-use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom,
-    OctetsInto, OctetsRef, Parse, ParseError, Parser, ShortBuf,
-};
-#[cfg(feature = "serde")]
-use crate::base::octets::{DeserializeOctets, SerializeOctets};
-use crate::base::rdata::RtypeRecordData;
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{
     ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
 };
+use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
 use core::{fmt, hash, ops, str};
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
+};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 
 //------------ Nsec3 ---------------------------------------------------------
 
@@ -32,33 +34,33 @@ use core::{fmt, hash, ops, str};
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
         ",
         deserialize = "
-            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder
+            Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder:
+                EmptyBuilder + octseq::builder::Truncate
                 + AsRef<[u8]> + AsMut<[u8]>,
         ",
     ))
 )]
-pub struct Nsec3<Octets> {
+pub struct Nsec3<Octs> {
     hash_algorithm: Nsec3HashAlg,
     flags: u8,
     iterations: u16,
-    salt: Nsec3Salt<Octets>,
-    next_owner: OwnerHash<Octets>,
-    types: RtypeBitmap<Octets>,
+    salt: Nsec3Salt<Octs>,
+    next_owner: OwnerHash<Octs>,
+    types: RtypeBitmap<Octs>,
 }
 
-impl<Octets> Nsec3<Octets> {
+impl<Octs> Nsec3<Octs> {
     pub fn new(
         hash_algorithm: Nsec3HashAlg,
         flags: u8,
         iterations: u16,
-        salt: Nsec3Salt<Octets>,
-        next_owner: OwnerHash<Octets>,
-        types: RtypeBitmap<Octets>,
+        salt: Nsec3Salt<Octs>,
+        next_owner: OwnerHash<Octs>,
+        types: RtypeBitmap<Octs>,
     ) -> Self {
         Nsec3 {
             hash_algorithm,
@@ -86,23 +88,74 @@ impl<Octets> Nsec3<Octets> {
         self.iterations
     }
 
-    pub fn salt(&self) -> &Nsec3Salt<Octets> {
+    pub fn salt(&self) -> &Nsec3Salt<Octs> {
         &self.salt
     }
 
-    pub fn next_owner(&self) -> &OwnerHash<Octets> {
+    pub fn next_owner(&self) -> &OwnerHash<Octs> {
         &self.next_owner
     }
 
-    pub fn types(&self) -> &RtypeBitmap<Octets> {
+    pub fn types(&self) -> &RtypeBitmap<Octs> {
         &self.types
+    }
+
+    pub(super) fn convert_octets<Target>(
+        self,
+    ) -> Result<Nsec3<Target>, Target::Error>
+    where
+        Target: OctetsFrom<Octs>,
+    {
+        Ok(Nsec3::new(
+            self.hash_algorithm,
+            self.flags,
+            self.iterations,
+            self.salt.try_octets_into()?,
+            self.next_owner.try_octets_into()?,
+            self.types.try_octets_into()?,
+        ))
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            Nsec3HashAlg::scan(scanner)?,
+            u8::scan(scanner)?,
+            u16::scan(scanner)?,
+            Nsec3Salt::scan(scanner)?,
+            OwnerHash::scan(scanner)?,
+            RtypeBitmap::scan(scanner)?,
+        ))
     }
 }
 
-impl<SrcOctets> Nsec3<SrcOctets> {
-    pub fn flatten_into<Octets>(self) -> Result<Nsec3<Octets>, PushError>
+impl<Octs: AsRef<[u8]>> Nsec3<Octs> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
+        let hash_algorithm = Nsec3HashAlg::parse(parser)?;
+        let flags = u8::parse(parser)?;
+        let iterations = u16::parse(parser)?;
+        let salt = Nsec3Salt::parse(parser)?;
+        let next_owner = OwnerHash::parse(parser)?;
+        let types = RtypeBitmap::parse(parser)?;
+        Ok(Self::new(
+            hash_algorithm,
+            flags,
+            iterations,
+            salt,
+            next_owner,
+            types,
+        ))
+    }
+}
+
+impl<SrcOcts> Nsec3<SrcOcts> {
+    pub fn flatten_into<Octs>(self) -> Result<Nsec3<Octs>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets>,
+        Octs: OctetsFrom<SrcOcts>,
+        PushError: From<Octs::Error>,
     {
         let Self {
             hash_algorithm,
@@ -116,36 +169,38 @@ impl<SrcOctets> Nsec3<SrcOctets> {
             hash_algorithm,
             flags,
             iterations,
-            salt.octets_into()?,
-            next_owner.octets_into()?,
-            types.octets_into()?,
+            salt.try_octets_into()?,
+            next_owner.try_octets_into()?,
+            types.try_octets_into()?,
         ))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Nsec3<SrcOctets>> for Nsec3<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Nsec3<SrcOcts>> for Nsec3<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Nsec3<SrcOctets>) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(source: Nsec3<SrcOcts>) -> Result<Self, Self::Error> {
         Ok(Nsec3::new(
             source.hash_algorithm,
             source.flags,
             source.iterations,
-            Nsec3Salt::octets_from(source.salt)?,
-            OwnerHash::octets_from(source.next_owner)?,
-            RtypeBitmap::octets_from(source.types)?,
+            Nsec3Salt::try_octets_from(source.salt)?,
+            OwnerHash::try_octets_from(source.next_owner)?,
+            RtypeBitmap::try_octets_from(source.types)?,
         ))
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Nsec3<Other>> for Nsec3<Octets>
+impl<Octs, Other> PartialEq<Nsec3<Other>> for Nsec3<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Nsec3<Other>) -> bool {
@@ -158,13 +213,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Nsec3<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Nsec3<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Nsec3<Other>> for Nsec3<Octets>
+impl<Octs, Other> PartialOrd<Nsec3<Other>> for Nsec3<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Nsec3<Other>) -> Option<Ordering> {
@@ -192,9 +247,9 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Nsec3<Other>> for Nsec3<Octets>
+impl<Octs, Other> CanonicalOrd<Nsec3<Other>> for Nsec3<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Nsec3<Other>) -> Ordering {
@@ -222,7 +277,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Nsec3<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Nsec3<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.canonical_cmp(other)
     }
@@ -230,7 +285,7 @@ impl<Octets: AsRef<[u8]>> Ord for Nsec3<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Nsec3<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.hash_algorithm.hash(state);
         self.flags.hash(state);
@@ -241,69 +296,70 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3<Octets> {
     }
 }
 
-//--- ParseAll and Compose
+//--- RecordData
 
-impl<Ref: OctetsRef> Parse<Ref> for Nsec3<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        let hash_algorithm = Nsec3HashAlg::parse(parser)?;
-        let flags = u8::parse(parser)?;
-        let iterations = u16::parse(parser)?;
-        let salt = Nsec3Salt::parse(parser)?;
-        let next_owner = OwnerHash::parse(parser)?;
-        let types = RtypeBitmap::parse(parser)?;
-        Ok(Self::new(
-            hash_algorithm,
-            flags,
-            iterations,
-            salt,
-            next_owner,
-            types,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        Nsec3HashAlg::skip(parser)?;
-        u8::skip(parser)?;
-        u16::skip(parser)?;
-        Nsec3Salt::skip(parser)?;
-        OwnerHash::skip(parser)?;
-        RtypeBitmap::skip(parser)?;
-        Ok(())
+impl<Octs> RecordData for Nsec3<Octs> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Nsec3
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Nsec3<Octets> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
+impl<'a, Octs> ParseRecordData<'a, Octs> for Nsec3<Octs::Range<'a>>
+where
+    Octs: Octets + ?Sized,
+{
+    fn parse_rdata(
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Nsec3 {
+            Self::parse(parser).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            u16::checked_add(
+                Nsec3HashAlg::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + u16::COMPOSE_LEN,
+                self.salt.compose_len().into(),
+            )
+            .expect("long NSEC3")
+            .checked_add(self.next_owner.compose_len().into())
+            .expect("long NSEC3")
+            .checked_add(self.types.compose_len())
+            .expect("long NSEC3"),
+        )
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
         &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.hash_algorithm.compose(buf)?;
-            self.flags.compose(buf)?;
-            self.iterations.compose(buf)?;
-            self.salt.compose(buf)?;
-            self.next_owner.compose(buf)?;
-            self.types.compose(buf)
-        })
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.hash_algorithm.compose(target)?;
+        self.flags.compose(target)?;
+        self.iterations.compose(target)?;
+        self.salt.compose(target)?;
+        self.next_owner.compose(target)?;
+        self.types.compose(target)
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
-//--- Scan, Display, and Debug
+//--- Display, and Debug
 
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3<Octets> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
-            u8::scan(scanner)?,
-            u16::scan(scanner)?,
-            Nsec3Salt::scan(scanner)?,
-            OwnerHash::scan(scanner)?,
-            RtypeBitmap::scan(scanner)?,
-        ))
-    }
-}
-
-impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -315,7 +371,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Nsec3<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Nsec3")
             .field("hash_algorithm", &self.hash_algorithm)
@@ -328,12 +384,6 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Nsec3<Octets> {
     }
 }
 
-//--- RtypeRecordData
-
-impl<Octets> RtypeRecordData for Nsec3<Octets> {
-    const RTYPE: Rtype = Rtype::Nsec3;
-}
-
 //------------ Nsec3Param ----------------------------------------------------
 
 #[derive(Clone)]
@@ -342,28 +392,27 @@ impl<Octets> RtypeRecordData for Nsec3<Octets> {
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
         serialize = "
-            Octets: crate::base::octets::SerializeOctets + AsRef<[u8]>,
+            Octs: octseq::serde::SerializeOctets + AsRef<[u8]>,
         ",
         deserialize = "
-            Octets: FromBuilder + crate::base::octets::DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Octs: FromBuilder + octseq::serde::DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         ",
     ))
 )]
-pub struct Nsec3param<Octets> {
+pub struct Nsec3param<Octs> {
     hash_algorithm: Nsec3HashAlg,
     flags: u8,
     iterations: u16,
-    salt: Nsec3Salt<Octets>,
+    salt: Nsec3Salt<Octs>,
 }
 
-impl<Octets> Nsec3param<Octets> {
+impl<Octs> Nsec3param<Octs> {
     pub fn new(
         hash_algorithm: Nsec3HashAlg,
         flags: u8,
         iterations: u16,
-        salt: Nsec3Salt<Octets>,
+        salt: Nsec3Salt<Octs>,
     ) -> Self {
         Nsec3param {
             hash_algorithm,
@@ -385,15 +434,52 @@ impl<Octets> Nsec3param<Octets> {
         self.iterations
     }
 
-    pub fn salt(&self) -> &Nsec3Salt<Octets> {
+    pub fn salt(&self) -> &Nsec3Salt<Octs> {
         &self.salt
+    }
+
+    pub(super) fn convert_octets<Target>(
+        self,
+    ) -> Result<Nsec3param<Target>, Target::Error>
+    where
+        Target: OctetsFrom<Octs>,
+    {
+        Ok(Nsec3param::new(
+            self.hash_algorithm,
+            self.flags,
+            self.iterations,
+            self.salt.try_octets_into()?,
+        ))
+    }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
+        Ok(Self::new(
+            Nsec3HashAlg::parse(parser)?,
+            u8::parse(parser)?,
+            u16::parse(parser)?,
+            Nsec3Salt::parse(parser)?,
+        ))
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            Nsec3HashAlg::scan(scanner)?,
+            u8::scan(scanner)?,
+            u16::scan(scanner)?,
+            Nsec3Salt::scan(scanner)?,
+        ))
     }
 }
 
-impl<SrcOctets> Nsec3param<SrcOctets> {
-    pub fn flatten_into<Octets>(self) -> Result<Nsec3param<Octets>, PushError>
+impl<SrcOcts> Nsec3param<SrcOcts> {
+    pub fn flatten_into<Octs>(self) -> Result<Nsec3param<Octs>, PushError>
     where
-        Octets: OctetsFrom<SrcOctets>,
+        Octs: OctetsFrom<SrcOcts>,
+        PushError: From<Octs::Error>,
     {
         let Self {
             hash_algorithm,
@@ -405,33 +491,36 @@ impl<SrcOctets> Nsec3param<SrcOctets> {
             hash_algorithm,
             flags,
             iterations,
-            salt.octets_into()?,
+            salt.try_octets_into()?,
         ))
     }
 }
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<Nsec3param<SrcOctets>>
-    for Nsec3param<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Nsec3param<SrcOcts>> for Nsec3param<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Nsec3param<SrcOctets>) -> Result<Self, ShortBuf> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: Nsec3param<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
         Ok(Nsec3param::new(
             source.hash_algorithm,
             source.flags,
             source.iterations,
-            Nsec3Salt::octets_from(source.salt)?,
+            Nsec3Salt::try_octets_from(source.salt)?,
         ))
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octets, Other> PartialEq<Nsec3param<Other>> for Nsec3param<Octets>
+impl<Octs, Other> PartialEq<Nsec3param<Other>> for Nsec3param<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn eq(&self, other: &Nsec3param<Other>) -> bool {
@@ -442,13 +531,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Eq for Nsec3param<Octets> {}
+impl<Octs: AsRef<[u8]>> Eq for Nsec3param<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
-impl<Octets, Other> PartialOrd<Nsec3param<Other>> for Nsec3param<Octets>
+impl<Octs, Other> PartialOrd<Nsec3param<Other>> for Nsec3param<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn partial_cmp(&self, other: &Nsec3param<Other>) -> Option<Ordering> {
@@ -468,9 +557,9 @@ where
     }
 }
 
-impl<Octets, Other> CanonicalOrd<Nsec3param<Other>> for Nsec3param<Octets>
+impl<Octs, Other> CanonicalOrd<Nsec3param<Other>> for Nsec3param<Octs>
 where
-    Octets: AsRef<[u8]>,
+    Octs: AsRef<[u8]>,
     Other: AsRef<[u8]>,
 {
     fn canonical_cmp(&self, other: &Nsec3param<Other>) -> Ordering {
@@ -490,7 +579,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]>> Ord for Nsec3param<Octets> {
+impl<Octs: AsRef<[u8]>> Ord for Nsec3param<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.hash_algorithm.cmp(&other.hash_algorithm) {
             Ordering::Equal => {}
@@ -510,7 +599,7 @@ impl<Octets: AsRef<[u8]>> Ord for Nsec3param<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3param<Octets> {
+impl<Octs: AsRef<[u8]>> hash::Hash for Nsec3param<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.hash_algorithm.hash(state);
         self.flags.hash(state);
@@ -519,52 +608,64 @@ impl<Octets: AsRef<[u8]>> hash::Hash for Nsec3param<Octets> {
     }
 }
 
-//--- Parse, ParseAll, and Compose
+//--- RecordData, ParseRecordData, ComposeRecordData
 
-impl<Ref: OctetsRef> Parse<Ref> for Nsec3param<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        Ok(Self::new(
-            Nsec3HashAlg::parse(parser)?,
-            u8::parse(parser)?,
-            u16::parse(parser)?,
-            Nsec3Salt::parse(parser)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        parser.advance(4)?;
-        Nsec3Salt::skip(parser)
+impl<Octs> RecordData for Nsec3param<Octs> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Nsec3param
     }
 }
 
-impl<Octets: AsRef<[u8]>> Compose for Nsec3param<Octets> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
+impl<'a, Octs> ParseRecordData<'a, Octs> for Nsec3param<Octs::Range<'a>>
+where
+    Octs: Octets + ?Sized,
+{
+    fn parse_rdata(
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Nsec3param {
+            Self::parse(parser).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        Some(
+            u16::checked_add(
+                Nsec3HashAlg::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + u16::COMPOSE_LEN,
+                self.salt.compose_len().into(),
+            )
+            .expect("long NSEC3"),
+        )
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
         &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.hash_algorithm.compose(buf)?;
-            self.flags.compose(buf)?;
-            self.iterations.compose(buf)?;
-            self.salt.compose(buf)
-        })
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.hash_algorithm.compose(target)?;
+        self.flags.compose(target)?;
+        self.iterations.compose(target)?;
+        self.salt.compose(target)
+    }
+
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.compose_rdata(target)
     }
 }
 
-//--- Scan, Display, and Debug
+//--- Display and Debug
 
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3param<Octets> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            Nsec3HashAlg::scan(scanner)?,
-            u8::scan(scanner)?,
-            u16::scan(scanner)?,
-            Nsec3Salt::scan(scanner)?,
-        ))
-    }
-}
-
-impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3param<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Display for Nsec3param<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -574,7 +675,7 @@ impl<Octets: AsRef<[u8]>> fmt::Display for Nsec3param<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]>> fmt::Debug for Nsec3param<Octets> {
+impl<Octs: AsRef<[u8]>> fmt::Debug for Nsec3param<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Nsec3param")
             .field("hash_algorithm", &self.hash_algorithm)
@@ -583,12 +684,6 @@ impl<Octets: AsRef<[u8]>> fmt::Debug for Nsec3param<Octets> {
             .field("salt", &self.salt)
             .finish()
     }
-}
-
-//--- RtypeRecordData
-
-impl<Octets> RtypeRecordData for Nsec3param<Octets> {
-    const RTYPE: Rtype = Rtype::Nsec3param;
 }
 
 //------------ Nsec3Salt -----------------------------------------------------
@@ -601,13 +696,13 @@ impl<Octets> RtypeRecordData for Nsec3param<Octets> {
 /// The salt uses Base 16 (i.e., hex digits) as its representation format with
 /// no whitespace allowed.
 #[derive(Clone)]
-pub struct Nsec3Salt<Octets: ?Sized>(Octets);
+pub struct Nsec3Salt<Octs: ?Sized>(Octs);
 
-impl<Octets: ?Sized> Nsec3Salt<Octets> {
+impl<Octs: ?Sized> Nsec3Salt<Octs> {
     /// Creates an empty salt value.
     pub fn empty() -> Self
     where
-        Octets: From<&'static [u8]>,
+        Octs: From<&'static [u8]>,
     {
         Self(b"".as_ref().into())
     }
@@ -616,9 +711,9 @@ impl<Octets: ?Sized> Nsec3Salt<Octets> {
     ///
     /// Returns succesfully if `octets` can indeed be used as a
     /// character string, i.e., it is not longer than 255 bytes.
-    pub fn from_octets(octets: Octets) -> Result<Self, Nsec3SaltError>
+    pub fn from_octets(octets: Octs) -> Result<Self, Nsec3SaltError>
     where
-        Octets: AsRef<[u8]> + Sized,
+        Octs: AsRef<[u8]> + Sized,
     {
         if octets.as_ref().len() > 255 {
             Err(Nsec3SaltError)
@@ -630,17 +725,17 @@ impl<Octets: ?Sized> Nsec3Salt<Octets> {
     /// Creates a salt value from octets without length check.
     ///
     /// As this can break the guarantees made by the type, it is unsafe.
-    unsafe fn from_octets_unchecked(octets: Octets) -> Self
+    unsafe fn from_octets_unchecked(octets: Octs) -> Self
     where
-        Octets: Sized,
+        Octs: Sized,
     {
         Self(octets)
     }
 
     /// Converts the salt value into the underlying octets.
-    pub fn into_octets(self) -> Octets
+    pub fn into_octets(self) -> Octs
     where
-        Octets: Sized,
+        Octs: Sized,
     {
         self.0
     }
@@ -648,9 +743,27 @@ impl<Octets: ?Sized> Nsec3Salt<Octets> {
     /// Returns a reference to a slice of the salt.
     pub fn as_slice(&self) -> &[u8]
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         self.0.as_ref()
+    }
+
+    fn compose_len(&self) -> u8
+    where
+        Octs: AsRef<[u8]>,
+    {
+        self.0.as_ref().len().try_into().expect("long salt")
+    }
+
+    fn compose<Target: Composer /*OctetsBuilder*/ + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        self.compose_len().compose(target)?;
+        target.append_slice(self.0.as_ref())
     }
 }
 
@@ -674,30 +787,103 @@ impl Nsec3Salt<[u8]> {
     }
 }
 
+impl<Octs> Nsec3Salt<Octs> {
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        #[derive(Default)]
+        struct Converter(Option<Option<base16::SymbolConverter>>);
+
+        impl<Sym, Error> ConvertSymbols<Sym, Error> for Converter
+        where
+            Sym: Into<EntrySymbol>,
+            Error: ScannerError,
+        {
+            fn process_symbol(
+                &mut self,
+                symbol: Sym,
+            ) -> Result<Option<&[u8]>, Error> {
+                let symbol = symbol.into();
+                // If we are none, this is the first symbol. A '-' means
+                // empty. Anything else means Base 16.
+                if self.0.is_none() {
+                    match symbol {
+                        EntrySymbol::Symbol(symbol)
+                            if symbol.into_char() == Ok('-') =>
+                        {
+                            self.0 = Some(None);
+                            return Ok(None);
+                        }
+                        _ => {
+                            self.0 =
+                                Some(Some(base16::SymbolConverter::new()));
+                        }
+                    }
+                }
+
+                match self.0.as_mut() {
+                    None => unreachable!(),
+                    Some(None) => Err(Error::custom("illegal NSEC3 salt")),
+                    Some(Some(ref mut base16)) => {
+                        base16.process_symbol(symbol)
+                    }
+                }
+            }
+
+            fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
+                if let Some(Some(ref mut base16)) = self.0 {
+                    <base16::SymbolConverter
+                        as ConvertSymbols<Sym, Error>
+                    >::process_tail(base16)
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+
+        scanner
+            .convert_token(Converter::default())
+            .map(|res| unsafe { Self::from_octets_unchecked(res) })
+    }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
+        let len = parser.parse_u8()? as usize;
+        parser
+            .parse_octets(len)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+            .map_err(Into::into)
+    }
+}
+
 //--- OctetsFrom and FromStr
 
-impl<Octets, SrcOctets> OctetsFrom<Nsec3Salt<SrcOctets>> for Nsec3Salt<Octets>
+impl<Octs, SrcOcts> OctetsFrom<Nsec3Salt<SrcOcts>> for Nsec3Salt<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: Nsec3Salt<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.0)
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: Nsec3Salt<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(source.0)
             .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
 
-impl<Octets> str::FromStr for Nsec3Salt<Octets>
+impl<Octs> str::FromStr for Nsec3Salt<Octs>
 where
-    Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    Octs: FromBuilder,
+    <Octs as FromBuilder>::Builder: EmptyBuilder,
 {
     type Err = base16::DecodeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "-" {
             Ok(unsafe {
-                Self::from_octets_unchecked(Octets::Builder::empty().freeze())
+                Self::from_octets_unchecked(Octs::Builder::empty().freeze())
             })
         } else {
             base16::decode(s)
@@ -708,15 +894,15 @@ where
 
 //--- Deref and AsRef
 
-impl<Octets: ?Sized> ops::Deref for Nsec3Salt<Octets> {
-    type Target = Octets;
+impl<Octs: ?Sized> ops::Deref for Nsec3Salt<Octs> {
+    type Target = Octs;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<Octets: AsRef<U> + ?Sized, U: ?Sized> AsRef<U> for Nsec3Salt<Octets> {
+impl<Octs: AsRef<U> + ?Sized, U: ?Sized> AsRef<U> for Nsec3Salt<Octs> {
     fn as_ref(&self) -> &U {
         self.0.as_ref()
     }
@@ -776,101 +962,15 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for Nsec3Salt<T> {
     }
 }
 
-//--- Parse and Compose
+//--- Display and Debug
 
-impl<Ref: OctetsRef> Parse<Ref> for Nsec3Salt<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser
-            .parse_octets(len)
-            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser.advance(len)
-    }
-}
-
-impl<Octets: AsRef<[u8]> + ?Sized> Compose for Nsec3Salt<Octets> {
-    fn compose<Target: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            (self.as_ref().len() as u8).compose(target)?;
-            target.append_slice(self.as_ref())
-        })
-    }
-}
-
-//--- Scan and Display
-
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for Nsec3Salt<Octets> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        #[derive(Default)]
-        struct Converter(Option<Option<base16::SymbolConverter>>);
-
-        impl<Sym, Error> ConvertSymbols<Sym, Error> for Converter
-        where
-            Sym: Into<EntrySymbol>,
-            Error: ScannerError,
-        {
-            fn process_symbol(
-                &mut self,
-                symbol: Sym,
-            ) -> Result<Option<&[u8]>, Error> {
-                let symbol = symbol.into();
-                // If we are none, this is the first symbol. A '-' means
-                // empty. Anything else means Base 16.
-                if self.0.is_none() {
-                    match symbol {
-                        EntrySymbol::Symbol(symbol)
-                            if symbol.into_char() == Ok('-') =>
-                        {
-                            self.0 = Some(None);
-                            return Ok(None);
-                        }
-                        _ => {
-                            self.0 =
-                                Some(Some(base16::SymbolConverter::new()));
-                        }
-                    }
-                }
-
-                match self.0.as_mut() {
-                    None => unreachable!(),
-                    Some(None) => Err(Error::custom("illegal NSEC3 salt")),
-                    Some(Some(ref mut base16)) => {
-                        base16.process_symbol(symbol)
-                    }
-                }
-            }
-
-            fn process_tail(&mut self) -> Result<Option<&[u8]>, Error> {
-                if let Some(Some(ref mut base16)) = self.0 {
-                    <base16::SymbolConverter
-                        as ConvertSymbols<Sym, Error>
-                    >::process_tail(base16)
-                } else {
-                    Ok(None)
-                }
-            }
-        }
-
-        scanner
-            .convert_token(Converter::default())
-            .map(|res| unsafe { Self::from_octets_unchecked(res) })
-    }
-}
-
-impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display for Nsec3Salt<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsec3Salt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         base16::display(self.as_slice(), f)
     }
 }
 
-impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsec3Salt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_tuple("Nsec3Salt")
             .field(&format_args!("{}", self))
@@ -901,11 +1001,10 @@ impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for Nsec3Salt<T> {
 }
 
 #[cfg(feature = "serde")]
-impl<'de, Octets> serde::Deserialize<'de> for Nsec3Salt<Octets>
+impl<'de, Octs> serde::Deserialize<'de> for Nsec3Salt<Octs>
 where
-    Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    Octs: FromBuilder + DeserializeOctets<'de>,
+    <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -915,13 +1014,12 @@ where
 
         struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
-            type Value = Nsec3Salt<Octets>;
+            type Value = Nsec3Salt<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("an NSEC3 salt value")
@@ -956,13 +1054,12 @@ where
 
         struct NewtypeVisitor<T>(PhantomData<T>);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
-            type Value = Nsec3Salt<Octets>;
+            type Value = Nsec3Salt<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("an NSEC3 salt value")
@@ -974,11 +1071,11 @@ where
             ) -> Result<Self::Value, D::Error> {
                 if deserializer.is_human_readable() {
                     deserializer
-                        .deserialize_str(InnerVisitor(Octets::visitor()))
+                        .deserialize_str(InnerVisitor(Octs::visitor()))
                 } else {
-                    Octets::deserialize_with_visitor(
+                    Octs::deserialize_with_visitor(
                         deserializer,
-                        InnerVisitor(Octets::visitor()),
+                        InnerVisitor(Octs::visitor()),
                     )
                 }
             }
@@ -1003,16 +1100,16 @@ where
 /// For its presentation format, the hash uses an unpadded Base 32 encoding
 /// with no whitespace allowed.
 #[derive(Clone)]
-pub struct OwnerHash<Octets: ?Sized>(Octets);
+pub struct OwnerHash<Octs: ?Sized>(Octs);
 
-impl<Octets: ?Sized> OwnerHash<Octets> {
+impl<Octs> OwnerHash<Octs> {
     /// Creates a new owner hash from the given octets.
     ///
     /// Returns succesfully if `octets` can indeed be used as a
     /// character string, i.e., it is not longer than 255 bytes.
-    pub fn from_octets(octets: Octets) -> Result<Self, OwnerHashError>
+    pub fn from_octets(octets: Octs) -> Result<Self, OwnerHashError>
     where
-        Octets: AsRef<[u8]> + Sized,
+        Octs: AsRef<[u8]>,
     {
         if octets.as_ref().len() > 255 {
             Err(OwnerHashError)
@@ -1024,27 +1121,52 @@ impl<Octets: ?Sized> OwnerHash<Octets> {
     /// Creates an owner hash from octets without length check.
     ///
     /// As this can break the guarantees made by the type, it is unsafe.
-    unsafe fn from_octets_unchecked(octets: Octets) -> Self
-    where
-        Octets: Sized,
-    {
+    unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         Self(octets)
     }
 
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        scanner
+            .convert_token(base32::SymbolConverter::new())
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+    }
+
     /// Converts the hash into the underlying octets.
-    pub fn into_octets(self) -> Octets
+    pub fn into_octets(self) -> Octs
     where
-        Octets: Sized,
+        Octs: Sized,
     {
         self.0
     }
+}
 
+impl<Octs: ?Sized> OwnerHash<Octs> {
     /// Returns a reference to a slice of the hash.
     pub fn as_slice(&self) -> &[u8]
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         self.0.as_ref()
+    }
+
+    fn compose_len(&self) -> u8
+    where
+        Octs: AsRef<[u8]>,
+    {
+        self.0.as_ref().len().try_into().expect("long salt")
+    }
+
+    fn compose<Target: Composer /*OctetsBuilder*/ + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        self.compose_len().compose(target)?;
+        target.append_slice(self.0.as_ref())
     }
 }
 
@@ -1068,23 +1190,38 @@ impl OwnerHash<[u8]> {
     }
 }
 
+impl<Octs> OwnerHash<Octs> {
+    fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
+        let len = parser.parse_u8()? as usize;
+        parser
+            .parse_octets(len)
+            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
+            .map_err(Into::into)
+    }
+}
+
 //--- OctetsFrom and FromStr
 
-impl<Octets, SrcOctets> OctetsFrom<OwnerHash<SrcOctets>> for OwnerHash<Octets>
+impl<Octs, SrcOcts> OctetsFrom<OwnerHash<SrcOcts>> for OwnerHash<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(source: OwnerHash<SrcOctets>) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.0)
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: OwnerHash<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(source.0)
             .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
 
-impl<Octets> str::FromStr for OwnerHash<Octets>
+impl<Octs> str::FromStr for OwnerHash<Octs>
 where
-    Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    Octs: FromBuilder,
+    <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     type Err = base32::DecodeError;
 
@@ -1096,15 +1233,15 @@ where
 
 //--- Deref and AsRef
 
-impl<Octets: ?Sized> ops::Deref for OwnerHash<Octets> {
-    type Target = Octets;
+impl<Octs: ?Sized> ops::Deref for OwnerHash<Octs> {
+    type Target = Octs;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<Octets: AsRef<U> + ?Sized, U: ?Sized> AsRef<U> for OwnerHash<Octets> {
+impl<Octs: AsRef<U> + ?Sized, U: ?Sized> AsRef<U> for OwnerHash<Octs> {
     fn as_ref(&self) -> &U {
         self.0.as_ref()
     }
@@ -1164,51 +1301,15 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for OwnerHash<T> {
     }
 }
 
-//--- Parse and Compose
+//--- Display
 
-impl<Ref: OctetsRef> Parse<Ref> for OwnerHash<Ref::Range> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser
-            .parse_octets(len)
-            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        let len = parser.parse_u8()? as usize;
-        parser.advance(len)
-    }
-}
-
-impl<Octets: AsRef<[u8]> + ?Sized> Compose for OwnerHash<Octets> {
-    fn compose<Target: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            (self.as_ref().len() as u8).compose(target)?;
-            target.append_slice(self.as_ref())
-        })
-    }
-}
-
-//--- Scan and Display
-
-impl<Octets, S: Scanner<Octets = Octets>> Scan<S> for OwnerHash<Octets> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        scanner
-            .convert_token(base32::SymbolConverter::new())
-            .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
-    }
-}
-
-impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display for OwnerHash<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for OwnerHash<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         base32::display_hex(self.as_slice(), f)
     }
 }
 
-impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug for OwnerHash<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for OwnerHash<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_tuple("OwnerHash")
             .field(&format_args!("{}", self))
@@ -1239,11 +1340,10 @@ impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for OwnerHash<T> {
 }
 
 #[cfg(feature = "serde")]
-impl<'de, Octets> serde::Deserialize<'de> for OwnerHash<Octets>
+impl<'de, Octs> serde::Deserialize<'de> for OwnerHash<Octs>
 where
-    Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    Octs: FromBuilder + DeserializeOctets<'de>,
+    <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -1253,13 +1353,12 @@ where
 
         struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
-            type Value = OwnerHash<Octets>;
+            type Value = OwnerHash<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("an owner name hash value")
@@ -1294,13 +1393,12 @@ where
 
         struct NewtypeVisitor<T>(PhantomData<T>);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
-            type Value = OwnerHash<Octets>;
+            type Value = OwnerHash<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("an owner name hash value")
@@ -1312,11 +1410,11 @@ where
             ) -> Result<Self::Value, D::Error> {
                 if deserializer.is_human_readable() {
                     deserializer
-                        .deserialize_str(InnerVisitor(Octets::visitor()))
+                        .deserialize_str(InnerVisitor(Octs::visitor()))
                 } else {
-                    Octets::deserialize_with_visitor(
+                    Octs::deserialize_with_visitor(
                         deserializer,
-                        InnerVisitor(Octets::visitor()),
+                        InnerVisitor(Octs::visitor()),
                     )
                 }
             }

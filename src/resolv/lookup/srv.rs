@@ -4,11 +4,12 @@ use super::host::lookup_host;
 use crate::base::iana::{Class, Rtype};
 use crate::base::message::Message;
 use crate::base::name::{Dname, ToDname, ToRelativeDname};
-use crate::base::octets::{OctetsRef, OctetsVec, ParseError};
+use crate::base::wire::ParseError;
 use crate::rdata::{Aaaa, Srv, A};
 use crate::resolv::resolver::Resolver;
 use futures::stream;
 use futures::stream::{Stream, StreamExt};
+use octseq::octets::Octets;
 use rand::distributions::{Distribution, Uniform};
 use std::net::{IpAddr, SocketAddr};
 use std::vec::Vec;
@@ -28,6 +29,14 @@ use std::{io, mem, ops};
 //
 // In the third case we have a single (target, port) pair with the original
 // host and the fallback port which we need to resolve further.
+
+//------------ OctetsVec -----------------------------------------------------
+
+#[cfg(feature = "smallvec")]
+type OctetsVec = octseq::octets::SmallOctets;
+
+#[cfg(not(feature = "smallvec"))]
+type OctetsVec = Vec<u8>;
 
 //------------ lookup_srv ----------------------------------------------------
 
@@ -82,7 +91,7 @@ impl FoundSrvs {
         resolver: &R,
     ) -> impl Stream<Item = Result<ResolvedSrvItem, io::Error>> + '_
     where
-        R::Octets: OctetsRef,
+        R::Octets: Octets,
     {
         // Let’s make a somewhat elaborate single iterator from self.items
         // that we can use as the base for the stream: We turn the result into
@@ -277,7 +286,7 @@ impl SrvItem {
         resolver: &R,
     ) -> Result<ResolvedSrvItem, io::Error>
     where
-        for<'a> &'a R::Octets: OctetsRef,
+        R::Octets: Octets,
     {
         let port = self.port();
         if let Some(resolved) = self.resolved {

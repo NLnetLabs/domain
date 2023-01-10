@@ -7,14 +7,14 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
-use crate::base::octets::{
-    Compose, EmptyBuilder, FromBuilder, OctetsBuilder, OctetsFrom, OctetsRef,
-    Parse, ParseError, Parser, ShortBuf,
-};
-use crate::base::rdata::RtypeRecordData;
+use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
+use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use core::cmp::Ordering;
 use core::fmt;
+use octseq::builder::{EmptyBuilder, FromBuilder};
+use octseq::octets::{Octets, OctetsFrom, OctetsInto};
+use octseq::parse::Parser;
 
 //------------ Srv ---------------------------------------------------------
 
@@ -58,16 +58,36 @@ impl<N> Srv<N> {
     pub fn target(&self) -> &N {
         &self.target
     }
+
+    pub(super) fn convert_octets<Target: OctetsFrom<N>>(
+        self,
+    ) -> Result<Srv<Target>, Target::Error> {
+        Ok(Srv::new(
+            self.priority,
+            self.weight,
+            self.port,
+            self.target.try_octets_into()?,
+        ))
+    }
+
+    pub fn scan<S: Scanner<Dname = N>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        Ok(Self::new(
+            u16::scan(scanner)?,
+            u16::scan(scanner)?,
+            u16::scan(scanner)?,
+            scanner.scan_dname()?,
+        ))
+    }
 }
 
-impl<Ref> Srv<ParsedDname<Ref>>
-where
-    Ref: OctetsRef,
-{
-    pub fn flatten_into<Octets>(self) -> Result<Srv<Dname<Octets>>, PushError>
+impl<'a, Octs> Srv<ParsedDname<'a, Octs>> {
+    pub fn flatten_into<Target>(self) -> Result<Srv<Dname<Target>>, PushError>
     where
-        Octets: OctetsFrom<Ref::Range> + FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder,
+        Octs: Octets,
+        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self {
             priority,
@@ -79,18 +99,31 @@ where
     }
 }
 
+impl<'a, Octs: Octets + ?Sized> Srv<ParsedDname<'a, Octs>> {
+    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        Ok(Self::new(
+            u16::parse(parser)?,
+            u16::parse(parser)?,
+            u16::parse(parser)?,
+            ParsedDname::parse(parser)?,
+        ))
+    }
+}
+
 //--- OctetsFrom
 
 impl<Name, SrcName> OctetsFrom<Srv<SrcName>> for Srv<Name>
 where
     Name: OctetsFrom<SrcName>,
 {
-    fn octets_from(source: Srv<SrcName>) -> Result<Self, ShortBuf> {
+    type Error = Name::Error;
+
+    fn try_octets_from(source: Srv<SrcName>) -> Result<Self, Self::Error> {
         Ok(Srv::new(
             source.priority,
             source.weight,
             source.port,
-            Name::octets_from(source.target)?,
+            Name::try_octets_from(source.target)?,
         ))
     }
 }
@@ -172,70 +205,65 @@ impl<N: ToDname, NN: ToDname> CanonicalOrd<Srv<NN>> for Srv<N> {
     }
 }
 
-//--- Parse, ParseAll, Compose and Compress
+//--- RecordData, ParseRecordData, ComposeRecordData
 
-impl<Ref: OctetsRef> Parse<Ref> for Srv<ParsedDname<Ref>> {
-    fn parse(parser: &mut Parser<Ref>) -> Result<Self, ParseError> {
-        Ok(Self::new(
-            u16::parse(parser)?,
-            u16::parse(parser)?,
-            u16::parse(parser)?,
-            ParsedDname::parse(parser)?,
-        ))
-    }
-
-    fn skip(parser: &mut Parser<Ref>) -> Result<(), ParseError> {
-        u16::skip(parser)?;
-        u16::skip(parser)?;
-        u16::skip(parser)?;
-        ParsedDname::skip(parser)
+impl<N> RecordData for Srv<N> {
+    fn rtype(&self) -> Rtype {
+        Rtype::Srv
     }
 }
 
-impl<N: Compose> Compose for Srv<N> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
+impl<'a, Octs> ParseRecordData<'a, Octs> for Srv<ParsedDname<'a, Octs>>
+where
+    Octs: Octets + ?Sized,
+{
+    fn parse_rdata(
+        rtype: Rtype,
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Option<Self>, ParseError> {
+        if rtype == Rtype::Srv {
+            Self::parse(parser).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Name: ToDname> ComposeRecordData for Srv<Name> {
+    fn rdlen(&self, _compress: bool) -> Option<u16> {
+        // SRV records are not compressed.
+        Some(self.target.compose_len() + 6)
+    }
+
+    fn compose_rdata<Target: Composer + ?Sized>(
         &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.priority.compose(buf)?;
-            self.weight.compose(buf)?;
-            self.port.compose(buf)?;
-            self.target.compose(buf)
-        })
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.compose_head(target)?;
+        self.target.compose(target)
     }
 
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
+    fn compose_canonical_rdata<Target: Composer + ?Sized>(
         &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|buf| {
-            self.priority.compose(buf)?;
-            self.weight.compose(buf)?;
-            self.port.compose(buf)?;
-            self.target.compose_canonical(buf)
-        })
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.compose_head(target)?;
+        self.target.compose_canonical(target) // ... but are lowercased.
     }
 }
 
-//--- RtypeRecordData
-
-impl<N> RtypeRecordData for Srv<N> {
-    const RTYPE: Rtype = Rtype::Srv;
-}
-
-//--- Scan and Display
-
-impl<N, S: Scanner<Dname = N>> Scan<S> for Srv<N> {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        Ok(Self::new(
-            u16::scan(scanner)?,
-            u16::scan(scanner)?,
-            u16::scan(scanner)?,
-            scanner.scan_dname()?,
-        ))
+impl<Name: ToDname> Srv<Name> {
+    fn compose_head<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.priority.compose(target)?;
+        self.weight.compose(target)?;
+        self.port.compose(target)
     }
 }
+
+//--- Display
 
 impl<N: fmt::Display> fmt::Display for Srv<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -5,10 +5,11 @@
 use super::key::SigningKey;
 use crate::base::iana::{DigestAlg, SecAlg};
 use crate::base::name::ToDname;
-use crate::base::octets::Compose;
+use crate::base::rdata::ComposeRecordData;
 use crate::rdata::{Dnskey, Ds};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
+use octseq::builder::infallible;
 use ring::digest;
 use ring::error::Unspecified;
 use ring::rand::SecureRandom;
@@ -72,8 +73,8 @@ impl<'a> SigningKey for Key<'a> {
         owner: N,
     ) -> Result<Ds<Self::Octets>, Self::Error> {
         let mut buf = Vec::new();
-        owner.compose_canonical(&mut buf).unwrap();
-        self.dnskey.compose_canonical(&mut buf).unwrap();
+        infallible(owner.compose_canonical(&mut buf));
+        infallible(self.dnskey.compose_canonical_rdata(&mut buf));
         let digest =
             Vec::from(digest::digest(&digest::SHA256, &buf).as_ref());
         Ok(Ds::new(

@@ -1,23 +1,24 @@
-use super::super::octets::{
-    Compose, IntoBuilder, OctetsBuilder, OctetsExt, OctetsFrom, OctetsRef,
-    ParseError, ShortBuf,
-};
-#[cfg(feature = "serde")]
-use super::super::octets::{
-    DeserializeOctets, EmptyBuilder, FromBuilder, SerializeOctets,
-};
+//! Uncompressed, relative domain names.
+//!
+//! This is a private module. Its public types are re-exported by the parent.
+
+use super::super::wire::ParseError;
 use super::builder::{DnameBuilder, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError, SplitLabelError};
-use super::traits::{ToEitherDname, ToLabelIter, ToRelativeDname};
+use super::traits::{ToLabelIter, ToRelativeDname};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
-/// Uncompressed, relative domain names.
-///
-/// This is a private module. Its public types are re-exported by the parent.
+use core::ops::{Bound, RangeBounds};
 use core::{cmp, fmt, hash, ops};
+#[cfg(feature = "serde")]
+use octseq::builder::{EmptyBuilder, FromBuilder};
+use octseq::builder::{FreezeBuilder, IntoBuilder, Truncate};
+use octseq::octets::{Octets, OctetsFrom};
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -39,11 +40,11 @@ use std::vec::Vec;
 /// [`Bytes`]: ../../../bytes/struct.Bytes.html
 /// [`Dname`]: struct.Dname.html
 #[derive(Clone)]
-pub struct RelativeDname<Octets: ?Sized>(Octets);
+pub struct RelativeDname<Octs: ?Sized>(Octs);
 
 /// # Creating Values
 ///
-impl<Octets> RelativeDname<Octets> {
+impl<Octs> RelativeDname<Octs> {
     /// Creates a relative domain name from octets without checking.
     ///
     /// Since the content of the octets sequence can be anything, really,
@@ -54,7 +55,7 @@ impl<Octets> RelativeDname<Octets> {
     /// The octets sequence passed via `octets` must contain a correctly
     /// encoded relative domain name. It must be at most 254 octets long.
     /// There must be no root labels anywhere in the name.
-    pub const unsafe fn from_octets_unchecked(octets: Octets) -> Self {
+    pub const unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         RelativeDname(octets)
     }
 
@@ -62,9 +63,9 @@ impl<Octets> RelativeDname<Octets> {
     ///
     /// This checks that `octets` contains a properly encoded relative domain
     /// name and fails if it doesn’t.
-    pub fn from_octets(octets: Octets) -> Result<Self, RelativeDnameError>
+    pub fn from_octets(octets: Octs) -> Result<Self, RelativeDnameError>
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         RelativeDname::check_slice(octets.as_ref())?;
         Ok(unsafe { RelativeDname::from_octets_unchecked(octets) })
@@ -73,7 +74,7 @@ impl<Octets> RelativeDname<Octets> {
     /// Creates an empty relative domain name.
     pub fn empty() -> Self
     where
-        Octets: From<&'static [u8]>,
+        Octs: From<&'static [u8]>,
     {
         unsafe { RelativeDname::from_octets_unchecked(b"".as_ref().into()) }
     }
@@ -86,7 +87,7 @@ impl<Octets> RelativeDname<Octets> {
     /// them as regular labels.
     pub fn wildcard() -> Self
     where
-        Octets: From<&'static [u8]>,
+        Octs: From<&'static [u8]>,
     {
         unsafe {
             RelativeDname::from_octets_unchecked(b"\x01*".as_ref().into())
@@ -177,29 +178,29 @@ impl RelativeDname<Bytes> {
 
 /// # Conversions
 ///
-impl<Octets: ?Sized> RelativeDname<Octets> {
+impl<Octs: ?Sized> RelativeDname<Octs> {
     /// Returns a reference to the underlying octets.
-    pub fn as_octets(&self) -> &Octets {
+    pub fn as_octets(&self) -> &Octs {
         &self.0
     }
 
     /// Converts the name into the underlying octets.
-    pub fn into_octets(self) -> Octets
+    pub fn into_octets(self) -> Octs
     where
-        Octets: Sized,
+        Octs: Sized,
     {
         self.0
     }
 
     /// Returns a domain name using a reference to the octets.
-    pub fn for_ref(&self) -> RelativeDname<&Octets> {
+    pub fn for_ref(&self) -> RelativeDname<&Octs> {
         unsafe { RelativeDname::from_octets_unchecked(&self.0) }
     }
 
     /// Returns a reference to an octets slice with the content of the name.
     pub fn as_slice(&self) -> &[u8]
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         self.0.as_ref()
     }
@@ -207,22 +208,20 @@ impl<Octets: ?Sized> RelativeDname<Octets> {
     /// Returns a domain name for the octets slice of the content.
     pub fn for_slice(&self) -> RelativeDname<&[u8]>
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         unsafe { RelativeDname::from_octets_unchecked(self.0.as_ref()) }
     }
 }
 
-impl<Octets> RelativeDname<Octets> {
+impl<Octs> RelativeDname<Octs> {
     /// Converts the name into a domain name builder for appending data.
     ///
     /// This method is only available for octets sequences that have an
     /// associated octets builder such as `Vec<u8>` or `Bytes`.
-    pub fn into_builder(
-        self,
-    ) -> DnameBuilder<<Octets as IntoBuilder>::Builder>
+    pub fn into_builder(self) -> DnameBuilder<<Octs as IntoBuilder>::Builder>
     where
-        Octets: IntoBuilder,
+        Octs: IntoBuilder,
     {
         unsafe { DnameBuilder::from_builder_unchecked(self.0.into_builder()) }
     }
@@ -234,15 +233,11 @@ impl<Octets> RelativeDname<Octets> {
     /// such as `Vec<u8>`.
     ///
     /// [`chain_root`]: #method.chain_root
-    pub fn into_absolute(
-        self,
-    ) -> Result<
-        Dname<<<Octets as IntoBuilder>::Builder as OctetsBuilder>::Octets>,
-        PushError,
-    >
+    pub fn into_absolute(self) -> Result<Dname<Octs>, PushError>
     where
-        Octets: IntoBuilder,
-        <Octets as IntoBuilder>::Builder: AsMut<[u8]>,
+        Octs: IntoBuilder,
+        <Octs as IntoBuilder>::Builder:
+            FreezeBuilder<Octets = Octs> + AsRef<[u8]> + AsMut<[u8]>,
     {
         self.into_builder().into_dname()
     }
@@ -256,12 +251,12 @@ impl<Octets> RelativeDname<Octets> {
     /// greater than the size limit of 255. Note that in this case you will
     /// loose both `self` and `other`, so it might be worthwhile to check
     /// first.
-    pub fn chain<N: ToEitherDname>(
+    pub fn chain<N: ToLabelIter>(
         self,
         other: N,
     ) -> Result<Chain<Self, N>, LongChainError>
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         Chain::new(self, other)
     }
@@ -269,7 +264,7 @@ impl<Octets> RelativeDname<Octets> {
     /// Creates an absolute name by chaining the root label to it.
     pub fn chain_root(self) -> Chain<Self, Dname<&'static [u8]>>
     where
-        Octets: AsRef<[u8]>,
+        Octs: AsRef<[u8]>,
     {
         self.chain(Dname::root()).unwrap()
     }
@@ -277,7 +272,7 @@ impl<Octets> RelativeDname<Octets> {
 
 /// # Working with Labels
 ///
-impl<Octets: AsRef<[u8]> + ?Sized> RelativeDname<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> RelativeDname<Octs> {
     /// Returns an iterator over the labels of the domain name.
     pub fn iter(&self) -> DnameIter {
         DnameIter::new(self.0.as_ref())
@@ -311,15 +306,12 @@ impl<Octets: AsRef<[u8]> + ?Sized> RelativeDname<Octets> {
     }
 
     /// Determines whether `base` is a prefix of `self`.
-    pub fn starts_with<'a, N: ToLabelIter<'a>>(
-        &'a self,
-        base: &'a N,
-    ) -> bool {
+    pub fn starts_with<N: ToLabelIter>(&self, base: &N) -> bool {
         <Self as ToLabelIter>::starts_with(self, base)
     }
 
     /// Determines whether `base` is a suffix of `self`.
-    pub fn ends_with<'a, N: ToLabelIter<'a>>(&'a self, base: &'a N) -> bool {
+    pub fn ends_with<N: ToLabelIter>(&self, base: &N) -> bool {
         <Self as ToLabelIter>::ends_with(self, base)
     }
 
@@ -350,6 +342,22 @@ impl<Octets: AsRef<[u8]> + ?Sized> RelativeDname<Octets> {
         }
     }
 
+    fn check_bounds(&self, bounds: &impl RangeBounds<usize>) {
+        match bounds.start_bound().cloned() {
+            Bound::Included(idx) => self.check_index(idx),
+            Bound::Excluded(_) => {
+                panic!("excluded lower bounds not supported");
+            }
+            Bound::Unbounded => {}
+        }
+        match bounds.end_bound().cloned() {
+            Bound::Included(idx) => self
+                .check_index(idx.checked_add(1).expect("end bound too big")),
+            Bound::Excluded(idx) => self.check_index(idx),
+            Bound::Unbounded => {}
+        }
+    }
+
     /// Returns a part of the name indicated by start and end positions.
     ///
     /// The returned name will start at position `begin` and end right before
@@ -366,57 +374,13 @@ impl<Octets: AsRef<[u8]> + ?Sized> RelativeDname<Octets> {
     /// or is out of bounds.
     ///
     /// [`range`]: #method.range
-    pub fn slice(&self, begin: usize, end: usize) -> &RelativeDname<[u8]> {
-        self.check_index(begin);
-        RelativeDname::from_slice(&self.0.as_ref()[begin..end])
-            .expect("end index not at start of a label")
-    }
-
-    /// Returns the part of the name starting at the given position.
-    ///
-    /// The returned name will start at the given postion and cover the
-    /// remainder of the name. The position `begin` is provided as an index
-    /// into the underlying octets sequence and must point to the beginning
-    /// of a label.
-    ///
-    /// The method returns a reference to an unsized domain name and
-    /// is thus best suited for temporary referencing. If you want to keep the
-    /// part of the name around, [`range_from`] is likely a better choice.
-    ///
-    /// # Panics
-    ///
-    /// The method panics if the position is not the beginning of a label
-    /// or is beyond the end of the name.
-    ///
-    /// [`range_from`]: #method.range_from
-    pub fn slice_from(&self, begin: usize) -> &RelativeDname<[u8]> {
-        self.check_index(begin);
+    pub fn slice(
+        &self,
+        range: impl RangeBounds<usize>,
+    ) -> &RelativeDname<[u8]> {
+        self.check_bounds(&range);
         unsafe {
-            RelativeDname::from_slice_unchecked(&self.0.as_ref()[begin..])
-        }
-    }
-
-    /// Returns the part of the name ending before the given position.
-    ///
-    /// The returned name will start at beginning of the name and continue
-    /// until just before the given postion. The position `end` is considered
-    /// as an index into the underlying octets sequence and must point to the
-    /// beginning of a label.
-    ///
-    /// The method returns a reference to an unsized domain name and
-    /// is thus best suited for temporary referencing. If you want to keep the
-    /// part of the name around, [`range_to`] is likely a better choice.
-    ///
-    /// # Panics
-    ///
-    /// The method panics if the position is not the beginning of a label
-    /// or is beyond the end of the name.
-    ///
-    /// [`range_to`]: #method.range_to
-    pub fn slice_to(&self, end: usize) -> &RelativeDname<[u8]> {
-        self.check_index(end);
-        unsafe {
-            RelativeDname::from_slice_unchecked(&self.0.as_ref()[..end])
+            RelativeDname::from_slice_unchecked(self.0.as_ref().range(range))
         }
     }
 
@@ -430,103 +394,44 @@ impl<Octets: AsRef<[u8]> + ?Sized> RelativeDname<Octets> {
     ///
     /// The method panics if either position is not the beginning of a label
     /// or is out of bounds.
-    pub fn range<'a>(
-        &'a self,
-        begin: usize,
-        end: usize,
-    ) -> RelativeDname<<&'a Octets as OctetsRef>::Range>
+    pub fn range(
+        &self,
+        range: impl RangeBounds<usize>,
+    ) -> RelativeDname<<Octs as Octets>::Range<'_>>
     where
-        &'a Octets: OctetsRef,
+        Octs: Octets,
     {
-        self.check_index(begin);
-        RelativeDname::from_octets(self.0.range(begin, end))
-            .expect("end index not a start of a label")
-    }
-
-    /// Returns the part of the name starting at the given position.
-    ///
-    /// The returned name will start at the given postion and cover the
-    /// remainder of the name. The position `begin` is provided as an index
-    /// into the underlying octets sequence and must point to the beginning
-    /// of a label.
-    ///
-    /// # Panics
-    ///
-    /// The method panics if the position is not the beginning of a label
-    /// or is beyond the end of the name.
-    pub fn range_from<'a>(
-        &'a self,
-        begin: usize,
-    ) -> RelativeDname<<&'a Octets as OctetsRef>::Range>
-    where
-        &'a Octets: OctetsRef,
-    {
-        self.check_index(begin);
-        unsafe {
-            RelativeDname::from_octets_unchecked(self.0.range_from(begin))
-        }
-    }
-
-    /// Returns the part of the name ending before the given position.
-    ///
-    /// The returned name will start at beginning of the name and continue
-    /// until just before the given postion. The position `end` is considered
-    /// as an index into the underlying octets sequence and must point to the
-    /// beginning of a label.
-    ///
-    /// # Panics
-    ///
-    /// The method panics if the position is not the beginning of a label
-    /// or is beyond the end of the name.
-    pub fn range_to<'a>(
-        &'a self,
-        end: usize,
-    ) -> RelativeDname<<&'a Octets as OctetsRef>::Range>
-    where
-        &'a Octets: OctetsRef,
-    {
-        self.check_index(end);
-        unsafe { RelativeDname::from_octets_unchecked(self.0.range_to(end)) }
+        self.check_bounds(&range);
+        unsafe { RelativeDname::from_octets_unchecked(self.0.range(range)) }
     }
 }
 
-impl<Octets: AsRef<[u8]>> RelativeDname<Octets> {
+impl<Octs: AsRef<[u8]>> RelativeDname<Octs> {
     /// Splits the name into two at the given position.
     ///
-    /// Afterwards, `self` will contain the name ending before the position
-    /// while the name starting at the position will be returned.
+    /// Returns a pair of the left and right part of the split name.
     ///
     /// # Panics
     ///
     /// The method panics if the position is not the beginning of a label
     /// or is beyond the end of the name.
-    pub fn split_off(&mut self, mid: usize) -> Self
+    pub fn split(
+        &self,
+        mid: usize,
+    ) -> (
+        RelativeDname<Octs::Range<'_>>,
+        RelativeDname<Octs::Range<'_>>,
+    )
     where
-        for<'a> &'a Octets: OctetsRef<Range = Octets>,
+        Octs: Octets,
     {
         self.check_index(mid);
-        let res = self.0.range_from(mid);
-        self.0 = self.0.range_to(mid);
-        unsafe { Self::from_octets_unchecked(res) }
-    }
-
-    /// Splits the name into two at the given position.
-    ///
-    /// Afterwards, `self` will contain the name starting at the position
-    /// while the name ending right before it will be returned.
-    ///
-    /// # Panics
-    ///
-    /// The method panics if the position is not the beginning of a label
-    /// or is beyond the end of the name.
-    pub fn split_to(&mut self, mid: usize) -> Self
-    where
-        for<'a> &'a Octets: OctetsRef<Range = Octets>,
-    {
-        self.check_index(mid);
-        let res = self.0.range_to(mid);
-        self.0 = self.0.range_from(mid);
-        unsafe { Self::from_octets_unchecked(res) }
+        unsafe {
+            (
+                RelativeDname::from_octets_unchecked(self.0.range(..mid)),
+                RelativeDname::from_octets_unchecked(self.0.range(mid..)),
+            )
+        }
     }
 
     /// Truncates the name to the given length.
@@ -537,7 +442,7 @@ impl<Octets: AsRef<[u8]>> RelativeDname<Octets> {
     /// or is beyond the end of the name.
     pub fn truncate(&mut self, len: usize)
     where
-        Octets: OctetsExt,
+        Octs: Truncate,
     {
         self.check_index(len);
         self.0.truncate(len);
@@ -549,29 +454,27 @@ impl<Octets: AsRef<[u8]>> RelativeDname<Octets> {
     /// as a relative domain name with exactly one label and makes `self`
     /// contain the domain name starting after that first label. If the name
     /// is empty, returns `None`.
-    pub fn split_first(&mut self) -> Option<Self>
+    pub fn split_first(
+        &self,
+    ) -> Option<(&Label, RelativeDname<Octs::Range<'_>>)>
     where
-        for<'a> &'a Octets: OctetsRef<Range = Octets>,
+        Octs: Octets,
     {
         if self.is_empty() {
             return None;
         }
-        let end = match self.iter().next() {
-            Some(label) => label.compose_len(),
-            None => return None,
-        };
-        Some(self.split_to(end))
+        let label = self.iter().next()?;
+        Some((label, self.split(label.len() + 1).1))
     }
 
-    /// Reduces the name to its parent.
+    /// Returns the parent name.
     ///
-    /// Returns whether that actually happened, since an empty name doesn’t
-    /// have a parent.
-    pub fn parent(&mut self) -> bool
+    /// Returns `None` if the name was empty.
+    pub fn parent(&self) -> Option<RelativeDname<Octs::Range<'_>>>
     where
-        for<'a> &'a Octets: OctetsRef<Range = Octets>,
+        Octs: Octets,
     {
-        self.split_first().is_some()
+        self.split_first().map(|(_, parent)| parent)
     }
 
     /// Strips the suffix `base` from the domain name.
@@ -585,11 +488,11 @@ impl<Octets: AsRef<[u8]>> RelativeDname<Octets> {
         base: &N,
     ) -> Result<(), StripSuffixError>
     where
-        for<'a> &'a Octets: OctetsRef<Range = Octets>,
+        Octs: Truncate,
     {
         if self.ends_with(base) {
-            let idx = self.0.as_ref().len() - base.len();
-            self.0 = self.0.range_to(idx);
+            let idx = self.0.as_ref().len() - usize::from(base.compose_len());
+            self.0.truncate(idx);
             Ok(())
         } else {
             Err(StripSuffixError)
@@ -599,17 +502,15 @@ impl<Octets: AsRef<[u8]>> RelativeDname<Octets> {
 
 //--- Deref and AsRef
 
-impl<Octets: ?Sized> ops::Deref for RelativeDname<Octets> {
-    type Target = Octets;
+impl<Octs: ?Sized> ops::Deref for RelativeDname<Octs> {
+    type Target = Octs;
 
-    fn deref(&self) -> &Octets {
+    fn deref(&self) -> &Octs {
         &self.0
     }
 }
 
-impl<Octets: AsRef<T> + ?Sized, T: ?Sized> AsRef<T>
-    for RelativeDname<Octets>
-{
+impl<Octs: AsRef<T> + ?Sized, T: ?Sized> AsRef<T> for RelativeDname<Octs> {
     fn as_ref(&self) -> &T {
         self.0.as_ref()
     }
@@ -617,37 +518,38 @@ impl<Octets: AsRef<T> + ?Sized, T: ?Sized> AsRef<T>
 
 //--- OctetsFrom
 
-impl<Octets, SrcOctets> OctetsFrom<RelativeDname<SrcOctets>>
-    for RelativeDname<Octets>
+impl<Octs, SrcOcts> OctetsFrom<RelativeDname<SrcOcts>> for RelativeDname<Octs>
 where
-    Octets: OctetsFrom<SrcOctets>,
+    Octs: OctetsFrom<SrcOcts>,
 {
-    fn octets_from(
-        source: RelativeDname<SrcOctets>,
-    ) -> Result<Self, ShortBuf> {
-        Octets::octets_from(source.0)
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        source: RelativeDname<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(source.0)
             .map(|octets| unsafe { Self::from_octets_unchecked(octets) })
     }
 }
 
 //--- ToLabelIter and ToRelativeDname
 
-impl<'a, Octets> ToLabelIter<'a> for RelativeDname<Octets>
+impl<Octs> ToLabelIter for RelativeDname<Octs>
 where
-    Octets: AsRef<[u8]> + ?Sized,
+    Octs: AsRef<[u8]> + ?Sized,
 {
-    type LabelIter = DnameIter<'a>;
+    type LabelIter<'a> = DnameIter<'a> where Octs: 'a;
 
-    fn iter_labels(&'a self) -> Self::LabelIter {
+    fn iter_labels(&self) -> Self::LabelIter<'_> {
         self.iter()
     }
 
-    fn len(&self) -> usize {
-        self.0.as_ref().len()
+    fn compose_len(&self) -> u16 {
+        u16::try_from(self.0.as_ref().len()).expect("long domain name")
     }
 }
 
-impl<Octets: AsRef<[u8]> + ?Sized> ToRelativeDname for RelativeDname<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> ToRelativeDname for RelativeDname<Octs> {
     fn as_flat_slice(&self) -> Option<&[u8]> {
         Some(self.0.as_ref())
     }
@@ -657,34 +559,11 @@ impl<Octets: AsRef<[u8]> + ?Sized> ToRelativeDname for RelativeDname<Octets> {
     }
 }
 
-//--- Compose
-
-impl<Octets: AsRef<[u8]> + ?Sized> Compose for RelativeDname<Octets> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_slice(self.0.as_ref())
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        target.append_all(|target| {
-            for label in self.iter_labels() {
-                label.compose_canonical(target)?;
-            }
-            Ok(())
-        })
-    }
-}
-
 //--- IntoIterator
 
-impl<'a, Octets> IntoIterator for &'a RelativeDname<Octets>
+impl<'a, Octs> IntoIterator for &'a RelativeDname<Octs>
 where
-    Octets: AsRef<[u8]> + ?Sized,
+    Octs: AsRef<[u8]> + ?Sized,
 {
     type Item = &'a Label;
     type IntoIter = DnameIter<'a>;
@@ -696,9 +575,9 @@ where
 
 //--- PartialEq and Eq
 
-impl<Octets, N> PartialEq<N> for RelativeDname<Octets>
+impl<Octs, N> PartialEq<N> for RelativeDname<Octs>
 where
-    Octets: AsRef<[u8]> + ?Sized,
+    Octs: AsRef<[u8]> + ?Sized,
     N: ToRelativeDname + ?Sized,
 {
     fn eq(&self, other: &N) -> bool {
@@ -706,13 +585,13 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]> + ?Sized> Eq for RelativeDname<Octets> {}
+impl<Octs: AsRef<[u8]> + ?Sized> Eq for RelativeDname<Octs> {}
 
 //--- PartialOrd and Ord
 
-impl<Octets, N> PartialOrd<N> for RelativeDname<Octets>
+impl<Octs, N> PartialOrd<N> for RelativeDname<Octs>
 where
-    Octets: AsRef<[u8]> + ?Sized,
+    Octs: AsRef<[u8]> + ?Sized,
     N: ToRelativeDname + ?Sized,
 {
     fn partial_cmp(&self, other: &N) -> Option<cmp::Ordering> {
@@ -720,7 +599,7 @@ where
     }
 }
 
-impl<Octets: AsRef<[u8]> + ?Sized> Ord for RelativeDname<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> Ord for RelativeDname<Octs> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.name_cmp(other)
     }
@@ -728,7 +607,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> Ord for RelativeDname<Octets> {
 
 //--- Hash
 
-impl<Octets: AsRef<[u8]> + ?Sized> hash::Hash for RelativeDname<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for RelativeDname<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         for item in self.iter() {
             item.hash(state)
@@ -738,7 +617,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> hash::Hash for RelativeDname<Octets> {
 
 //--- Display and Debug
 
-impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display for RelativeDname<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for RelativeDname<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut iter = self.iter();
         match iter.next() {
@@ -753,7 +632,7 @@ impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display for RelativeDname<Octets> {
     }
 }
 
-impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug for RelativeDname<Octets> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for RelativeDname<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "RelativeDname({})", self)
     }
@@ -762,9 +641,9 @@ impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug for RelativeDname<Octets> {
 //--- Serialize and Deserialize
 
 #[cfg(feature = "serde")]
-impl<Octets> serde::Serialize for RelativeDname<Octets>
+impl<Octs> serde::Serialize for RelativeDname<Octs>
 where
-    Octets: AsRef<[u8]> + SerializeOctets,
+    Octs: AsRef<[u8]> + SerializeOctets,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -785,10 +664,13 @@ where
 }
 
 #[cfg(feature = "serde")]
-impl<'de, Octets> serde::Deserialize<'de> for RelativeDname<Octets>
+impl<'de, Octs> serde::Deserialize<'de> for RelativeDname<Octs>
 where
-    Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+    Octs: FromBuilder + DeserializeOctets<'de>,
+    <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
+        + EmptyBuilder
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -797,13 +679,15 @@ where
 
         struct InnerVisitor<'de, T: DeserializeOctets<'de>>(T::Visitor);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for InnerVisitor<'de, Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
+                + EmptyBuilder
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
-            type Value = RelativeDname<Octets>;
+            type Value = RelativeDname<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("a relative domain name")
@@ -813,7 +697,7 @@ where
                 self,
                 v: &str,
             ) -> Result<Self::Value, E> {
-                let mut builder = DnameBuilder::<Octets::Builder>::new();
+                let mut builder = DnameBuilder::<Octs::Builder>::new();
                 builder.append_chars(v.chars()).map_err(E::custom)?;
                 Ok(builder.finish())
             }
@@ -840,13 +724,15 @@ where
 
         struct NewtypeVisitor<T>(PhantomData<T>);
 
-        impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
+        impl<'de, Octs> serde::de::Visitor<'de> for NewtypeVisitor<Octs>
         where
-            Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
+            Octs: FromBuilder + DeserializeOctets<'de>,
+            <Octs as FromBuilder>::Builder: FreezeBuilder<Octets = Octs>
+                + EmptyBuilder
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
-            type Value = RelativeDname<Octets>;
+            type Value = RelativeDname<Octs>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("a relative domain name")
@@ -858,11 +744,11 @@ where
             ) -> Result<Self::Value, D::Error> {
                 if deserializer.is_human_readable() {
                     deserializer
-                        .deserialize_str(InnerVisitor(Octets::visitor()))
+                        .deserialize_str(InnerVisitor(Octs::visitor()))
                 } else {
-                    Octets::deserialize_with_visitor(
+                    Octs::deserialize_with_visitor(
                         deserializer,
-                        InnerVisitor(Octets::visitor()),
+                        InnerVisitor(Octs::visitor()),
                     )
                 }
             }
@@ -1389,51 +1275,18 @@ mod test {
     fn slice() {
         let wec =
             RelativeDname::from_slice(b"\x03www\x07example\x03com").unwrap();
-        assert_eq!(wec.slice(0, 4).as_slice(), b"\x03www");
-        assert_eq!(wec.slice(0, 12).as_slice(), b"\x03www\x07example");
-        assert_eq!(wec.slice(4, 12).as_slice(), b"\x07example");
-        assert_eq!(wec.slice(4, 16).as_slice(), b"\x07example\x03com");
+        assert_eq!(wec.slice(0..4).as_slice(), b"\x03www");
+        assert_eq!(wec.slice(0..12).as_slice(), b"\x03www\x07example");
+        assert_eq!(wec.slice(4..12).as_slice(), b"\x07example");
+        assert_eq!(wec.slice(4..16).as_slice(), b"\x07example\x03com");
 
-        assert_panic!(wec.slice(0, 3));
-        assert_panic!(wec.slice(1, 4));
-        assert_panic!(wec.slice(0, 11));
-        assert_panic!(wec.slice(1, 12));
-        assert_panic!(wec.slice(0, 17));
-        assert_panic!(wec.slice(4, 17));
-        assert_panic!(wec.slice(0, 18));
-    }
-
-    #[test]
-    #[cfg(feature = "std")]
-    fn slice_from() {
-        let wec =
-            RelativeDname::from_slice(b"\x03www\x07example\x03com").unwrap();
-
-        assert_eq!(
-            wec.slice_from(0).as_slice(),
-            b"\x03www\x07example\x03com"
-        );
-        assert_eq!(wec.slice_from(4).as_slice(), b"\x07example\x03com");
-        assert_eq!(wec.slice_from(12).as_slice(), b"\x03com");
-        assert_eq!(wec.slice_from(16).as_slice(), b"");
-
-        assert_panic!(wec.slice_from(17));
-        assert_panic!(wec.slice_from(18));
-    }
-
-    #[test]
-    #[cfg(feature = "std")]
-    fn slice_to() {
-        let wec =
-            RelativeDname::from_slice(b"\x03www\x07example\x03com").unwrap();
-
-        assert_eq!(wec.slice_to(0).as_slice(), b"");
-        assert_eq!(wec.slice_to(4).as_slice(), b"\x03www");
-        assert_eq!(wec.slice_to(12).as_slice(), b"\x03www\x07example");
-        assert_eq!(wec.slice_to(16).as_slice(), b"\x03www\x07example\x03com");
-
-        assert_panic!(wec.slice_to(17));
-        assert_panic!(wec.slice_to(18));
+        assert_panic!(wec.slice(0..3));
+        assert_panic!(wec.slice(1..4));
+        assert_panic!(wec.slice(0..11));
+        assert_panic!(wec.slice(1..12));
+        assert_panic!(wec.slice(0..17));
+        assert_panic!(wec.slice(4..17));
+        assert_panic!(wec.slice(0..18));
     }
 
     #[test]
@@ -1442,111 +1295,47 @@ mod test {
         let wec =
             RelativeDname::from_octets(b"\x03www\x07example\x03com".as_ref())
                 .unwrap();
-        assert_eq!(wec.range(0, 4).as_slice(), b"\x03www");
-        assert_eq!(wec.range(0, 12).as_slice(), b"\x03www\x07example");
-        assert_eq!(wec.range(4, 12).as_slice(), b"\x07example");
-        assert_eq!(wec.range(4, 16).as_slice(), b"\x07example\x03com");
+        assert_eq!(wec.range(0..4).as_slice(), b"\x03www");
+        assert_eq!(wec.range(0..12).as_slice(), b"\x03www\x07example");
+        assert_eq!(wec.range(4..12).as_slice(), b"\x07example");
+        assert_eq!(wec.range(4..16).as_slice(), b"\x07example\x03com");
 
-        assert_panic!(wec.range(0, 3));
-        assert_panic!(wec.range(1, 4));
-        assert_panic!(wec.range(0, 11));
-        assert_panic!(wec.range(1, 12));
-        assert_panic!(wec.range(0, 17));
-        assert_panic!(wec.range(4, 17));
-        assert_panic!(wec.range(0, 18));
+        assert_panic!(wec.range(0..3));
+        assert_panic!(wec.range(1..4));
+        assert_panic!(wec.range(0..11));
+        assert_panic!(wec.range(1..12));
+        assert_panic!(wec.range(0..17));
+        assert_panic!(wec.range(4..17));
+        assert_panic!(wec.range(0..18));
     }
 
     #[test]
     #[cfg(feature = "std")]
-    fn range_from() {
+    fn split() {
         let wec =
             RelativeDname::from_octets(b"\x03www\x07example\x03com".as_ref())
                 .unwrap();
 
-        assert_eq!(
-            wec.range_from(0).as_slice(),
-            b"\x03www\x07example\x03com"
-        );
-        assert_eq!(wec.range_from(4).as_slice(), b"\x07example\x03com");
-        assert_eq!(wec.range_from(12).as_slice(), b"\x03com");
-        assert_eq!(wec.range_from(16).as_slice(), b"");
+        let (left, right) = wec.split(0);
+        assert_eq!(left.as_slice(), b"");
+        assert_eq!(right.as_slice(), b"\x03www\x07example\x03com");
 
-        assert_panic!(wec.range_from(17));
-        assert_panic!(wec.range_from(18));
-    }
+        let (left, right) = wec.split(4);
+        assert_eq!(left.as_slice(), b"\x03www");
+        assert_eq!(right.as_slice(), b"\x07example\x03com");
 
-    #[test]
-    #[cfg(feature = "std")]
-    fn range_to() {
-        let wec =
-            RelativeDname::from_octets(b"\x03www\x07example\x03com".as_ref())
-                .unwrap();
+        let (left, right) = wec.split(12);
+        assert_eq!(left.as_slice(), b"\x03www\x07example");
+        assert_eq!(right.as_slice(), b"\x03com");
 
-        assert_eq!(wec.range_to(0).as_slice(), b"");
-        assert_eq!(wec.range_to(4).as_slice(), b"\x03www");
-        assert_eq!(wec.range_to(12).as_slice(), b"\x03www\x07example");
-        assert_eq!(wec.range_to(16).as_slice(), b"\x03www\x07example\x03com");
+        let (left, right) = wec.split(16);
+        assert_eq!(left.as_slice(), b"\x03www\x07example\x03com");
+        assert_eq!(right.as_slice(), b"");
 
-        assert_panic!(wec.range_to(17));
-        assert_panic!(wec.range_to(18));
-    }
-
-    #[test]
-    #[cfg(feature = "std")]
-    fn split_off() {
-        let wec =
-            RelativeDname::from_octets(b"\x03www\x07example\x03com".as_ref())
-                .unwrap();
-
-        let mut tmp = wec.clone();
-        assert_eq!(tmp.split_off(0).as_slice(), b"\x03www\x07example\x03com");
-        assert_eq!(tmp.as_slice(), b"");
-
-        let mut tmp = wec.clone();
-        assert_eq!(tmp.split_off(4).as_slice(), b"\x07example\x03com");
-        assert_eq!(tmp.as_slice(), b"\x03www");
-
-        let mut tmp = wec.clone();
-        assert_eq!(tmp.split_off(12).as_slice(), b"\x03com");
-        assert_eq!(tmp.as_slice(), b"\x03www\x07example");
-
-        let mut tmp = wec.clone();
-        assert_eq!(tmp.split_off(16).as_slice(), b"");
-        assert_eq!(tmp.as_slice(), b"\x03www\x07example\x03com");
-
-        assert_panic!(wec.clone().split_off(1));
-        assert_panic!(wec.clone().split_off(14));
-        assert_panic!(wec.clone().split_off(17));
-        assert_panic!(wec.clone().split_off(18));
-    }
-
-    #[test]
-    #[cfg(feature = "std")]
-    fn split_to() {
-        let wec =
-            RelativeDname::from_octets(b"\x03www\x07example\x03com".as_ref())
-                .unwrap();
-
-        let mut tmp = wec.clone();
-        assert_eq!(tmp.split_to(0).as_slice(), b"");
-        assert_eq!(tmp.as_slice(), b"\x03www\x07example\x03com");
-
-        let mut tmp = wec.clone();
-        assert_eq!(tmp.split_to(4).as_slice(), b"\x03www");
-        assert_eq!(tmp.as_slice(), b"\x07example\x03com");
-
-        let mut tmp = wec.clone();
-        assert_eq!(tmp.split_to(12).as_slice(), b"\x03www\x07example");
-        assert_eq!(tmp.as_slice(), b"\x03com");
-
-        let mut tmp = wec.clone();
-        assert_eq!(tmp.split_to(16).as_slice(), b"\x03www\x07example\x03com");
-        assert_eq!(tmp.as_slice(), b"");
-
-        assert_panic!(wec.clone().split_to(1));
-        assert_panic!(wec.clone().split_to(14));
-        assert_panic!(wec.clone().split_to(17));
-        assert_panic!(wec.clone().split_to(18));
+        assert_panic!(wec.split(1));
+        assert_panic!(wec.split(14));
+        assert_panic!(wec.split(17));
+        assert_panic!(wec.split(18));
     }
 
     #[test]
@@ -1580,38 +1369,40 @@ mod test {
 
     #[test]
     fn split_first() {
-        let mut wec =
+        let wec =
             RelativeDname::from_octets(b"\x03www\x07example\x03com".as_ref())
                 .unwrap();
 
-        assert_eq!(wec.split_first().unwrap().as_slice(), b"\x03www");
+        let (label, wec) = wec.split_first().unwrap();
+        assert_eq!(label.as_slice(), b"www");
         assert_eq!(wec.as_slice(), b"\x07example\x03com");
-        assert_eq!(wec.split_first().unwrap().as_slice(), b"\x07example");
+
+        let (label, wec) = wec.split_first().unwrap();
+        assert_eq!(label.as_slice(), b"example");
         assert_eq!(wec.as_slice(), b"\x03com");
-        assert_eq!(wec.split_first().unwrap().as_slice(), b"\x03com");
+
+        let (label, wec) = wec.split_first().unwrap();
+        assert_eq!(label.as_slice(), b"com");
         assert_eq!(wec.as_slice(), b"");
         assert!(wec.split_first().is_none());
-        assert_eq!(wec.as_slice(), b"");
-        assert!(wec.split_first().is_none());
-        assert_eq!(wec.as_slice(), b"");
     }
 
     #[test]
     fn parent() {
-        let mut wec =
+        let wec =
             RelativeDname::from_octets(b"\x03www\x07example\x03com".as_ref())
                 .unwrap();
 
-        assert!(wec.parent());
+        let wec = wec.parent().unwrap();
         assert_eq!(wec.as_slice(), b"\x07example\x03com");
-        assert!(wec.parent());
+
+        let wec = wec.parent().unwrap();
         assert_eq!(wec.as_slice(), b"\x03com");
-        assert!(wec.parent());
+
+        let wec = wec.parent().unwrap();
         assert_eq!(wec.as_slice(), b"");
-        assert!(!wec.parent());
-        assert_eq!(wec.as_slice(), b"");
-        assert!(!wec.parent());
-        assert_eq!(wec.as_slice(), b"");
+
+        assert!(wec.parent().is_none());
     }
 
     #[test]

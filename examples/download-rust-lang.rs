@@ -4,7 +4,6 @@ use domain::base::name::Dname;
 use domain::resolv::StubResolver;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio_native_tls::native_tls::TlsConnector;
 
 #[tokio::main]
 async fn main() {
@@ -21,33 +20,17 @@ async fn main() {
             return;
         }
     };
-    let addr = match addr.port_iter(443).next() {
+    let addr = match addr.port_iter(80).next() {
         Some(addr) => addr,
         None => {
             eprintln!("Failed to resolve www.rust-lang.org");
             return;
         }
     };
-    let socket = match TcpStream::connect(&addr).await {
+    let mut socket = match TcpStream::connect(&addr).await {
         Ok(socket) => socket,
         Err(err) => {
             eprintln!("Failed to connect to {}: {}", addr, err);
-            return;
-        }
-    };
-    let cx = tokio_native_tls::TlsConnector::from(
-        match TlsConnector::builder().build() {
-            Ok(cx) => cx,
-            Err(err) => {
-                eprintln!("Creating TLS context failed: {}", err);
-                return;
-            }
-        },
-    );
-    let mut socket = match cx.connect("www.rust-lang.org", socket).await {
-        Ok(socket) => socket,
-        Err(err) => {
-            eprintln!("Failed to connect: {}", err);
             return;
         }
     };

@@ -59,18 +59,23 @@ mod interop;
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
-use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
-use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
-use crate::base::octets::{
-    OctetsBuilder, OctetsRef, OctetsVec, ParseError, ShortBuf,
+use crate::base::message_builder::{
+    AdditionalBuilder, MessageBuilder, PushError,
 };
+use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
 use crate::base::record::Record;
+use crate::base::wire::{Composer, ParseError};
 use crate::rdata::rfc2845::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, mem, ops, str};
+use octseq::octets::Octets;
 use ring::{constant_time, hkdf::KeyType, hmac, rand};
 #[cfg(feature = "std")]
 use std::collections::HashMap;
+
+//------------ KeyName -------------------------------------------------------
+
+pub type KeyName = Dname<octseq::array::Array<255>>;
 
 //------------ Key -----------------------------------------------------------
 
@@ -104,7 +109,7 @@ pub struct Key {
     key: hmac::Key,
 
     /// The name of the key as a domain name.
-    name: Dname<OctetsVec>,
+    name: KeyName,
 
     /// Minimum length of received signatures.
     ///
@@ -143,7 +148,7 @@ impl Key {
     pub fn new(
         algorithm: Algorithm,
         key: &[u8],
-        name: Dname<OctetsVec>,
+        name: KeyName,
         min_mac_len: Option<usize>,
         signing_len: Option<usize>,
     ) -> Result<Self, NewKeyError> {
@@ -167,7 +172,7 @@ impl Key {
     pub fn generate(
         algorithm: Algorithm,
         rng: &dyn rand::SecureRandom,
-        name: Dname<OctetsVec>,
+        name: KeyName,
         min_mac_len: Option<usize>,
         signing_len: Option<usize>,
     ) -> Result<(Self, Bytes), GenerateKeyError> {
@@ -237,7 +242,7 @@ impl Key {
     }
 
     /// Returns a reference to the name of this key.
-    pub fn name(&self) -> &Dname<OctetsVec> {
+    pub fn name(&self) -> &KeyName {
         &self.name
     }
 
@@ -257,13 +262,10 @@ impl Key {
     }
 
     /// Checks whether the key in the record is this key.
-    fn check_tsig<Octets>(
+    fn check_tsig<Octs: Octets>(
         &self,
-        tsig: &MessageTsig<Octets>,
-    ) -> Result<(), ValidationError>
-    where
-        for<'o> &'o Octets: OctetsRef,
-    {
+        tsig: &MessageTsig<Octs>,
+    ) -> Result<(), ValidationError> {
         if *tsig.owner() != self.name
             || *tsig.data().algorithm() != self.algorithm().to_dname()
         {
@@ -304,12 +306,12 @@ impl Key {
     ///
     /// The method fails if the TSIG record doesn’t fit into the message
     /// anymore, in which case the builder is returned unharmed.
-    fn complete_message<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    fn complete_message<Target: Composer>(
         &self,
         message: &mut AdditionalBuilder<Target>,
         variables: &Variables,
         mac: &[u8],
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), PushError> {
         let id = message.header().id();
         variables.push_tsig(self, mac, id, message)
     }
@@ -376,7 +378,7 @@ impl<K: AsRef<Key> + Clone> KeyStore for K {
 }
 
 #[cfg(feature = "std")]
-impl<K, S> KeyStore for HashMap<(Dname<OctetsVec>, Algorithm), K, S>
+impl<K, S> KeyStore for HashMap<(KeyName, Algorithm), K, S>
 where
     K: AsRef<Key> + Clone,
     S: core::hash::BuildHasher,
@@ -389,7 +391,7 @@ where
         algorithm: Algorithm,
     ) -> Option<Self::Key> {
         // XXX This seems a bit wasteful.
-        let name = name.to_dname::<OctetsVec>().unwrap();
+        let name = name.to_dname().unwrap();
         self.get(&(name, algorithm)).cloned()
     }
 }
@@ -433,11 +435,11 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// recommended default value for _fudge:_ 300 seconds.
     ///
     /// [`request_with_fudge`]: #method.request_with_fudge
-    pub fn request<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn request<Target: Composer>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
         now: Time48,
-    ) -> Result<Self, ShortBuf> {
+    ) -> Result<Self, PushError> {
         Self::request_with_fudge(key, message, now, 300)
     }
 
@@ -465,9 +467,9 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
         message: &mut AdditionalBuilder<Target>,
         now: Time48,
         fudge: u16,
-    ) -> Result<Self, ShortBuf>
+    ) -> Result<Self, PushError>
     where
-        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+        Target: Composer,
     {
         let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
@@ -492,15 +494,11 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// whether this record is a correct record for this transaction and if
     /// it correctly signs the answer for this transaction. If any of this
     /// fails, returns an error.
-    pub fn answer<Octets>(
+    pub fn answer<Octs: Octets + AsMut<[u8]>>(
         &self,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
-    ) -> Result<(), ValidationError>
-    where
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
-    {
+    ) -> Result<(), ValidationError> {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(some) => some,
             None => return Err(ValidationError::ServerUnsigned),
@@ -563,15 +561,14 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// function returns the error message that should be returned to the
     /// client as the error case of the result.
     #[allow(clippy::result_large_err)]
-    pub fn request<Store, Octets>(
+    pub fn request<Store, Octs>(
         store: &Store,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<Option<Self>, ServerError<K>>
     where
         Store: KeyStore<Key = K>,
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerTransaction { context })
@@ -590,11 +587,11 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     /// If appending the TSIG record fails, which can only happen if there
     /// isn’t enough space left, it returns the builder unchanged as the
     /// error case.
-    pub fn answer<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn answer<Target: Composer>(
         self,
         message: &mut AdditionalBuilder<Target>,
         now: Time48,
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), PushError> {
         self.answer_with_fudge(message, now, 300)
     }
 
@@ -611,9 +608,9 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
         message: &mut AdditionalBuilder<Target>,
         now: Time48,
         fudge: u16,
-    ) -> Result<(), ShortBuf>
+    ) -> Result<(), PushError>
     where
-        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+        Target: Composer,
     {
         let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let (mac, key) =
@@ -674,11 +671,11 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     /// returns the builder untouched as the error case. Otherwise, it will
     /// freeze the message and return both it and a new value of a client
     /// sequence.
-    pub fn request<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn request<Target: Composer>(
         key: K,
         message: &mut AdditionalBuilder<Target>,
         now: Time48,
-    ) -> Result<Self, ShortBuf> {
+    ) -> Result<Self, PushError> {
         Self::request_with_fudge(key, message, now, 300)
     }
 
@@ -696,9 +693,9 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         message: &mut AdditionalBuilder<Target>,
         now: Time48,
         fudge: u16,
-    ) -> Result<Self, ShortBuf>
+    ) -> Result<Self, PushError>
     where
-        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+        Target: Composer,
     {
         let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let (mut context, mac) = SigningContext::request(
@@ -725,14 +722,13 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     ///
     /// If it doesn’t or if there had been more than 99 unsigned messages in
     /// the sequence since the last signed one, returns an error.
-    pub fn answer<Octets>(
+    pub fn answer<Octs>(
         &mut self,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         if self.first {
             self.answer_first(message, now)
@@ -757,14 +753,13 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     }
 
     /// Checks the first answer in the sequence.
-    fn answer_first<Octets>(
+    fn answer_first<Octs>(
         &mut self,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(some) => some,
@@ -792,14 +787,13 @@ impl<K: AsRef<Key>> ClientSequence<K> {
     }
 
     /// Checks any subsequent answer in the sequence.
-    fn answer_subsequent<Octets>(
+    fn answer_subsequent<Octs>(
         &mut self,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(tsig) => tsig,
@@ -886,15 +880,14 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// function returns the error message that should be returned to the
     /// client as the error case of the result.
     #[allow(clippy::result_large_err)]
-    pub fn request<Store, Octets>(
+    pub fn request<Store, Octs>(
         store: &Store,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<Option<Self>, ServerError<K>>
     where
         Store: KeyStore<Key = K>,
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerSequence {
@@ -911,11 +904,11 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     /// it attempts to add a TSIG record to the additional section, if that
     /// fails because there wasn’t enough space in the builder, returns the
     /// unchanged builder as an error.
-    pub fn answer<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>(
+    pub fn answer<Target: Composer>(
         &mut self,
         message: &mut AdditionalBuilder<Target>,
         now: Time48,
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), PushError> {
         self.answer_with_fudge(message, now, 300)
     }
 
@@ -929,9 +922,9 @@ impl<K: AsRef<Key>> ServerSequence<K> {
         message: &mut AdditionalBuilder<Target>,
         now: Time48,
         fudge: u16,
-    ) -> Result<(), ShortBuf>
+    ) -> Result<(), PushError>
     where
-        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+        Target: Composer,
     {
         let variables = Variables::new(now, fudge, TsigRcode::NoError, None);
         let mac = if self.first {
@@ -994,15 +987,14 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// no TSIG record at all. Returns an error with a message to be returned
     /// to the client otherwise.
     #[allow(clippy::result_large_err)]
-    fn server_request<Store, Octets>(
+    fn server_request<Store, Octs>(
         store: &Store,
-        message: &mut Message<Octets>,
+        message: &mut Message<Octs>,
         now: Time48,
     ) -> Result<Option<Self>, ServerError<Store::Key>>
     where
         Store: KeyStore<Key = K>,
-        Octets: AsRef<[u8]> + AsMut<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
+        Octs: Octets + AsMut<[u8]>,
     {
         // 4.5 Server TSIG checks
         //
@@ -1087,13 +1079,12 @@ impl<K: AsRef<Key>> SigningContext<K> {
     ///
     /// Because the returned TSIG record references the message, so it will
     /// later have to have the TSIG record stripped off and the ID updated.
-    fn get_answer_tsig<'a, Octets>(
+    fn get_answer_tsig<'a, Octs>(
         &self,
-        message: &'a Message<Octets>,
-    ) -> Result<Option<MessageTsig<'a, Octets>>, ValidationError>
+        message: &'a Message<Octs>,
+    ) -> Result<Option<MessageTsig<'a, Octs>>, ValidationError>
     where
-        Octets: AsRef<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
+        Octs: Octets,
     {
         // Extract TSIG or bail out.
         let tsig = match MessageTsig::from_message(message) {
@@ -1123,15 +1114,14 @@ impl<K: AsRef<Key>> SigningContext<K> {
     /// answer methods of `ClientTransaction` and `ClientSequence`. It
     /// checks for timing errors reported by the server as well as the
     /// time signed in the signature.
-    fn check_answer_time<'a, Octets>(
+    fn check_answer_time<'a, Octs>(
         &self,
-        message: &'a Message<Octets>,
-        tsig: &MessageTsig<'a, Octets>,
+        message: &'a Message<Octs>,
+        tsig: &MessageTsig<'a, Octs>,
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octets: AsRef<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
+        Octs: Octets,
     {
         if message.header().rcode() == Rcode::NotAuth
             && tsig.data().error() == TsigRcode::BadTime
@@ -1297,34 +1287,24 @@ impl<K: AsRef<Key>> SigningContext<K> {
 //------------ MessageTsig ---------------------------------------------------
 
 /// The TSIG record of a message.
-struct MessageTsig<'a, Octets>
-where
-    for<'o> &'o Octets: OctetsRef,
-{
+struct MessageTsig<'a, Octs: Octets> {
     /// The actual record.
     record: Record<
-        ParsedDname<&'a Octets>,
-        Tsig<<&'a Octets as OctetsRef>::Range, ParsedDname<&'a Octets>>,
+        ParsedDname<'a, Octs>,
+        Tsig<<Octs as Octets>::Range<'a>, ParsedDname<'a, Octs>>,
     >,
 
     /// The index of the start of the record.
     start: usize,
 }
 
-impl<'a, Octets> MessageTsig<'a, Octets>
-where
-    for<'o> &'o Octets: OctetsRef,
-{
+impl<'a, Octs: Octets> MessageTsig<'a, Octs> {
     /// Get the TSIG record from a message.
     ///
     /// Checks that there is exactly one TSIG record in the additional
     /// section, that it is the last record in this section. If that is true,
     /// returns the parsed TSIG records.
-    fn from_message(msg: &'a Message<Octets>) -> Option<Self>
-    where
-        Octets: AsRef<[u8]>,
-        for<'o> &'o Octets: OctetsRef,
-    {
+    fn from_message(msg: &'a Message<Octs>) -> Option<Self> {
         let mut section = msg.additional().ok()?;
         let mut start = section.pos();
         let mut record = section.next()?;
@@ -1356,13 +1336,10 @@ where
     }
 }
 
-impl<'a, Octets> ops::Deref for MessageTsig<'a, Octets>
-where
-    for<'o> &'o Octets: OctetsRef,
-{
+impl<'a, Octs: Octets> ops::Deref for MessageTsig<'a, Octs> {
     type Target = Record<
-        ParsedDname<&'a Octets>,
-        Tsig<<&'a Octets as OctetsRef>::Range, ParsedDname<&'a Octets>>,
+        ParsedDname<'a, Octs>,
+        Tsig<<Octs as Octets>::Range<'a>, ParsedDname<'a, Octs>>,
     >;
 
     fn deref(&self) -> &Self::Target {
@@ -1412,13 +1389,13 @@ impl Variables {
     }
 
     /// Produces a TSIG record from this value and some more data.
-    fn push_tsig<Target: OctetsBuilder + AsMut<[u8]>>(
+    fn push_tsig<Target: Composer>(
         &self,
         key: &Key,
         hmac: &[u8],
         original_id: u16,
         builder: &mut AdditionalBuilder<Target>,
-    ) -> Result<(), ShortBuf> {
+    ) -> Result<(), PushError> {
         let other = self.other.map(Time48::into_octets);
         let other = match other {
             Some(ref time) => time.as_ref(),
@@ -1604,10 +1581,9 @@ impl fmt::Display for Algorithm {
 
 //------------ Helper Functions ----------------------------------------------
 
-fn remove_tsig<Octets>(original_id: u16, message: &mut Message<Octets>)
+fn remove_tsig<Octs>(original_id: u16, message: &mut Message<Octs>)
 where
-    Octets: AsRef<[u8]> + AsMut<[u8]>,
-    for<'o> &'o Octets: OctetsRef,
+    Octs: Octets + AsMut<[u8]>,
 {
     message.header_mut().set_id(original_id);
     message.remove_last_additional();
@@ -1658,17 +1634,16 @@ impl<K> ServerError<K> {
 }
 
 impl<K: AsRef<Key>> ServerError<K> {
-    pub fn build_message<Octets, Target>(
+    pub fn build_message<Octs, Target>(
         self,
-        msg: &Message<Octets>,
+        msg: &Message<Octs>,
         builder: MessageBuilder<Target>,
-    ) -> Result<AdditionalBuilder<Target>, ShortBuf>
+    ) -> Result<AdditionalBuilder<Target>, PushError>
     where
-        Octets: AsRef<[u8]>,
-        for<'a> &'a Octets: OctetsRef,
-        Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+        Octs: Octets,
+        Target: Composer,
     {
-        let builder = builder.start_answer(msg, Rcode::NotAuth)?;
+        let builder = builder.try_start_answer(msg, Rcode::NotAuth)?;
         let mut builder = builder.additional();
         match self.0 {
             ServerErrorInner::Unsigned { error } => {

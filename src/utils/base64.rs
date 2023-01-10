@@ -12,11 +12,11 @@
 //!
 //! [RFC 4648]: https://tools.ietf.org/html/rfc4648
 
-use crate::base::octets::{
-    EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf,
-};
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, ShortBuf,
+};
 #[cfg(feature = "std")]
 use std::string::String;
 
@@ -29,8 +29,7 @@ use std::string::String;
 pub fn decode<Octets>(s: &str) -> Result<Octets, DecodeError>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder:
-        OctetsBuilder<Octets = Octets> + EmptyBuilder,
+    <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
 {
     let mut decoder = Decoder::<<Octets as FromBuilder>::Builder>::new();
     for ch in s.chars() {
@@ -122,11 +121,9 @@ pub fn encode_display<Octets: AsRef<[u8]>>(
 #[cfg(feature = "serde")]
 pub mod serde {
     use super::encode_display;
-    use crate::base::octets::{
-        DeserializeOctets, EmptyBuilder, FromBuilder, OctetsBuilder,
-        SerializeOctets,
-    };
     use core::fmt;
+    use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
+    use octseq::serde::{DeserializeOctets, SerializeOctets};
 
     pub fn serialize<Octets, S>(
         octets: &Octets,
@@ -155,8 +152,7 @@ pub mod serde {
         impl<'de, Octets> serde::de::Visitor<'de> for Visitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder,
+            <Octets as FromBuilder>::Builder: OctetsBuilder + EmptyBuilder,
         {
             type Value = Octets;
 
@@ -235,7 +231,10 @@ impl<Builder: EmptyBuilder> Decoder<Builder> {
 
 impl<Builder: OctetsBuilder> Decoder<Builder> {
     /// Finalizes decoding and returns the decoded data.
-    pub fn finalize(self) -> Result<Builder::Octets, DecodeError> {
+    pub fn finalize(self) -> Result<Builder::Octets, DecodeError>
+    where
+        Builder: FreezeBuilder,
+    {
         let (target, next) = (self.target, self.next);
         target.and_then(|bytes| {
             // next is either 0 or 0xF0 for a completed group.
@@ -279,16 +278,21 @@ impl<Builder: OctetsBuilder> Decoder<Builder> {
 
         if self.next == 4 {
             let target = self.target.as_mut().unwrap(); // Err covered above.
-            target.append_slice(&[self.buf[0] << 2 | self.buf[1] >> 4])?;
+            target
+                .append_slice(&[self.buf[0] << 2 | self.buf[1] >> 4])
+                .map_err(Into::into)?;
             if self.buf[2] != 0x80 {
                 target
-                    .append_slice(&[self.buf[1] << 4 | self.buf[2] >> 2])?;
+                    .append_slice(&[self.buf[1] << 4 | self.buf[2] >> 2])
+                    .map_err(Into::into)?;
             }
             if self.buf[3] != 0x80 {
                 if self.buf[2] == 0x80 {
                     return Err(DecodeError::TrailingInput);
                 }
-                target.append_slice(&[(self.buf[2] << 6) | self.buf[3]])?;
+                target
+                    .append_slice(&[(self.buf[2] << 6) | self.buf[3]])
+                    .map_err(Into::into)?;
                 self.next = 0
             } else {
                 self.next = 0xF0

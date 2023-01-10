@@ -10,7 +10,7 @@ use domain::rdata::AllRecordData;
 fn create_message() -> StreamTarget<Vec<u8>> {
     // Create a message builder wrapping a compressor wrapping a stream
     // target.
-    let mut msg = MessageBuilder::from_target(StaticCompressor::new(
+    let mut msg = MessageBuilder::try_from_target(StaticCompressor::new(
         StreamTarget::new_vec(),
     ))
     .unwrap();
@@ -89,7 +89,7 @@ fn main() {
     }
 
     // Display is only implemented for some OPTs at the time of writing
-    for option in response.opt().unwrap().iter::<AllOptData<_>>() {
+    for option in response.opt().unwrap().iter::<AllOptData<_, _>>() {
         let opt = option.unwrap();
         match opt {
             AllOptData::Nsid(nsid) => println!("{}", nsid),

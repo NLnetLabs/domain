@@ -2,22 +2,22 @@
 //!
 //! This is a private module. Its public types are re-exported by the parent.
 
-use super::super::octets::{
-    Compose, EmptyBuilder, FromBuilder, IntoBuilder, OctetsBuilder,
-    ParseError, ShortBuf,
-};
-#[cfg(feature = "serde")]
-use super::super::octets::{DeserializeOctets, SerializeOctets};
-use super::super::scan::{Scan, Scanner};
+use super::super::scan::Scanner;
+use super::super::wire::ParseError;
 use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
-use super::traits::{ToEitherDname, ToLabelIter};
+use super::traits::ToLabelIter;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::{fmt, hash, str};
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder,
+};
+#[cfg(feature = "serde")]
+use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
@@ -119,7 +119,10 @@ impl<Octets> UncertainDname<Octets> {
     pub fn from_chars<C>(chars: C) -> Result<Self, FromStrError>
     where
         Octets: FromBuilder,
-        <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+        <Octets as FromBuilder>::Builder: FreezeBuilder<Octets = Octets>
+            + EmptyBuilder
+            + AsRef<[u8]>
+            + AsMut<[u8]>,
         C: IntoIterator<Item = char>,
     {
         let mut builder =
@@ -130,6 +133,12 @@ impl<Octets> UncertainDname<Octets> {
         } else {
             Ok(builder.into_dname()?.into())
         }
+    }
+
+    pub fn scan<S: Scanner<Dname = Dname<Octets>>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        scanner.scan_dname().map(UncertainDname::Absolute)
     }
 }
 
@@ -208,16 +217,11 @@ impl<Octets> UncertainDname<Octets> {
     ///
     /// [`RelativeDname::into_absolute`]:
     ///     struct.RelativeDname.html#method.into_absolute
-    pub fn into_absolute(
-        self,
-    ) -> Result<
-        Dname<<<Octets as IntoBuilder>::Builder as OctetsBuilder>::Octets>,
-        PushError,
-    >
+    pub fn into_absolute(self) -> Result<Dname<Octets>, PushError>
     where
         Octets: AsRef<[u8]> + IntoBuilder,
         <Octets as IntoBuilder>::Builder:
-            OctetsBuilder<Octets = Octets> + AsMut<[u8]>,
+            FreezeBuilder<Octets = Octets> + AsRef<[u8]> + AsMut<[u8]>,
     {
         match self {
             UncertainDname::Absolute(name) => Ok(name),
@@ -272,7 +276,7 @@ impl<Octets> UncertainDname<Octets> {
     /// be absolute. If the name is already absolute, the chain will be the
     /// name itself. If it is relative, if will be the concatenation of the
     /// name and `suffix`.
-    pub fn chain<S: ToEitherDname>(
+    pub fn chain<S: ToLabelIter>(
         self,
         suffix: S,
     ) -> Result<Chain<Self, S>, LongChainError>
@@ -302,7 +306,10 @@ impl<Octets> From<RelativeDname<Octets>> for UncertainDname<Octets> {
 impl<Octets> str::FromStr for UncertainDname<Octets>
 where
     Octets: FromBuilder,
-    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+    <Octets as FromBuilder>::Builder: EmptyBuilder
+        + FreezeBuilder<Octets = Octets>
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
 {
     type Err = FromStrError;
 
@@ -355,13 +362,20 @@ impl<Octets: AsRef<[u8]>> hash::Hash for UncertainDname<Octets> {
 
 //--- ToLabelIter
 
-impl<'a, Octets: AsRef<[u8]>> ToLabelIter<'a> for UncertainDname<Octets> {
-    type LabelIter = DnameIter<'a>;
+impl<Octs: AsRef<[u8]>> ToLabelIter for UncertainDname<Octs> {
+    type LabelIter<'a> = DnameIter<'a> where Octs: 'a;
 
-    fn iter_labels(&'a self) -> Self::LabelIter {
+    fn iter_labels(&self) -> Self::LabelIter<'_> {
         match *self {
             UncertainDname::Absolute(ref name) => name.iter_labels(),
             UncertainDname::Relative(ref name) => name.iter_labels(),
+        }
+    }
+
+    fn compose_len(&self) -> u16 {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.compose_len(),
+            UncertainDname::Relative(ref name) => name.compose_len(),
         }
     }
 }
@@ -374,45 +388,6 @@ impl<'a, Octets: AsRef<[u8]>> IntoIterator for &'a UncertainDname<Octets> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_labels()
-    }
-}
-
-//--- Compose
-
-impl<Octets: AsRef<[u8]>> Compose for UncertainDname<Octets> {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        match *self {
-            UncertainDname::Absolute(ref name) => name.compose(target),
-            UncertainDname::Relative(ref name) => name.compose(target),
-        }
-    }
-
-    fn compose_canonical<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        match *self {
-            UncertainDname::Absolute(ref name) => {
-                name.compose_canonical(target)
-            }
-            UncertainDname::Relative(ref name) => {
-                name.compose_canonical(target)
-            }
-        }
-    }
-}
-
-//--- Scan
-
-impl<Octets, S> Scan<S> for UncertainDname<Octets>
-where
-    S: Scanner<Dname = Dname<Octets>>,
-{
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        scanner.scan_dname().map(UncertainDname::Absolute)
     }
 }
 
@@ -471,7 +446,10 @@ where
 impl<'de, Octets> serde::Deserialize<'de> for UncertainDname<Octets>
 where
     Octets: FromBuilder + DeserializeOctets<'de>,
-    <Octets as FromBuilder>::Builder: EmptyBuilder + AsMut<[u8]>,
+    <Octets as FromBuilder>::Builder: EmptyBuilder
+        + FreezeBuilder<Octets = Octets>
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
@@ -483,8 +461,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for InnerVisitor<'de, Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
+            <Octets as FromBuilder>::Builder: EmptyBuilder
+                + FreezeBuilder<Octets = Octets>
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = UncertainDname<Octets>;
 
@@ -526,8 +506,10 @@ where
         impl<'de, Octets> serde::de::Visitor<'de> for NewtypeVisitor<Octets>
         where
             Octets: FromBuilder + DeserializeOctets<'de>,
-            <Octets as FromBuilder>::Builder:
-                OctetsBuilder<Octets = Octets> + EmptyBuilder + AsMut<[u8]>,
+            <Octets as FromBuilder>::Builder: EmptyBuilder
+                + FreezeBuilder<Octets = Octets>
+                + AsRef<[u8]>
+                + AsMut<[u8]>,
         {
             type Value = UncertainDname<Octets>;
 

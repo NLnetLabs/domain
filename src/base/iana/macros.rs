@@ -62,6 +62,24 @@ macro_rules! int_enum {
                     }
                 }
             }
+
+            pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized> (
+                parser: &mut octseq::parse::Parser<'a, Octs>
+            ) -> Result<Self, $crate::base::wire::ParseError> {
+                <$inttype as $crate::base::wire::Parse<'a, Octs>>::parse(
+                    parser
+                ).map(Self::from_int)
+            }
+
+            pub const COMPOSE_LEN: u16 =
+                <$inttype as $crate::base::wire::Compose>::COMPOSE_LEN;
+
+            pub fn compose<Target: octseq::builder::OctetsBuilder + ?Sized>(
+                &self,
+                target: &mut Target
+            ) -> Result<(), Target::AppendError> {
+                $crate::base::wire::Compose::compose(&self.to_int(), target)
+            }
         }
 
 
@@ -82,36 +100,6 @@ macro_rules! int_enum {
         impl<'a> From<&'a $ianatype> for $inttype {
             fn from(value: &'a $ianatype) -> Self {
                 value.to_int()
-            }
-        }
-
-
-        //--- Parse and Compose
-
-        impl<Ref: AsRef<[u8]>> $crate::base::octets::Parse<Ref> for $ianatype {
-            fn parse(
-                parser: &mut $crate::base::octets::Parser<Ref>
-            ) -> Result<Self, $crate::base::octets::ParseError> {
-                <$inttype as $crate::base::octets::Parse<Ref>>::parse(
-                    parser
-                ).map(Self::from_int)
-            }
-
-            fn skip(
-                parser: &mut $crate::base::octets::Parser<Ref>
-            ) -> Result<(), $crate::base::octets::ParseError> {
-                <$inttype as $crate::base::octets::Parse<Ref>>::skip(parser)
-            }
-        }
-
-        impl $crate::base::octets::Compose for $ianatype {
-            fn compose<T: $crate::base::octets::OctetsBuilder + AsMut<[u8]>>(
-                &self,
-                target: &mut T
-            ) -> Result<(), $crate::base::octets::ShortBuf> {
-                <$inttype as $crate::base::octets::Compose>::compose(
-                    &self.to_int(), target
-                )
             }
         }
 
@@ -490,11 +478,10 @@ macro_rules! int_enum_str_with_prefix {
 
 macro_rules! scan_impl {
     ($ianatype:ident) => {
-        impl<S> $crate::base::scan::Scan<S> for $ianatype
-        where
-            S: $crate::base::scan::Scanner,
-        {
-            fn scan(scanner: &mut S) -> Result<Self, S::Error> {
+        impl $ianatype {
+            pub fn scan<S: $crate::base::scan::Scanner>(
+                scanner: &mut S,
+            ) -> Result<Self, S::Error> {
                 scanner.scan_ascii_str(|s| {
                     core::str::FromStr::from_str(s).map_err(|_| {
                         $crate::base::scan::ScannerError::custom(concat!(

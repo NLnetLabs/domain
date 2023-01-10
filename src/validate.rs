@@ -7,10 +7,11 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, SecAlg};
 use crate::base::name::ToDname;
-use crate::base::octets::{Compose, OctetsBuilder, ShortBuf};
-use crate::base::rdata::RecordData;
+use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
+use crate::base::wire::{Compose, Composer};
 use crate::rdata::{Dnskey, Rrsig};
+use octseq::builder::with_infallible;
 use ring::{digest, signature};
 use std::vec::Vec;
 use std::{error, fmt};
@@ -18,7 +19,7 @@ use std::{error, fmt};
 //------------ Dnskey --------------------------------------------------------
 
 /// Extensions for DNSKEY record type.
-pub trait DnskeyExt: Compose {
+pub trait DnskeyExt {
     /// Calculates a digest from DNSKEY.
     ///
     /// See [RFC 4034, Section 5.1.4]:
@@ -72,8 +73,10 @@ where
         algorithm: DigestAlg,
     ) -> Result<digest::Digest, AlgorithmError> {
         let mut buf: Vec<u8> = Vec::new();
-        dname.compose_canonical(&mut buf).unwrap();
-        self.compose_canonical(&mut buf).unwrap();
+        with_infallible(|| {
+            dname.compose_canonical(&mut buf)?;
+            self.compose_canonical_rdata(&mut buf)
+        });
 
         let mut ctx = match algorithm {
             DigestAlg::Sha1 => {
@@ -94,7 +97,7 @@ where
 //------------ Rrsig ---------------------------------------------------------
 
 /// Extensions for DNSKEY record type.
-pub trait RrsigExt: Compose {
+pub trait RrsigExt {
     /// Compose the signed data according to [RC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
     ///
     /// ```text
@@ -106,17 +109,13 @@ pub trait RrsigExt: Compose {
     ///    the received RRset due to DNS name compression, decremented TTLs, or
     ///    wildcard expansion.
     /// ```
-    fn signed_data<
-        N: ToDname,
-        D: RecordData,
-        B: OctetsBuilder + AsMut<[u8]>,
-    >(
+    fn signed_data<N: ToDname, D: RecordData, B: Composer>(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
-    ) -> Result<(), ShortBuf>
+    ) -> Result<(), B::AppendError>
     where
-        D: CanonicalOrd + Compose + Sized;
+        D: CanonicalOrd + ComposeRecordData + Sized;
 
     /// Attempt to use the cryptographic signature to authenticate the signed data, and thus authenticate the RRSET.
     /// The signed data is expected to be calculated as per [RFC4035, Section 5.3.2](https://tools.ietf.org/html/rfc4035#section-5.3.2).
@@ -146,18 +145,14 @@ pub trait RrsigExt: Compose {
     ) -> Result<(), AlgorithmError>;
 }
 
-impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
-    fn signed_data<
-        N: ToDname,
-        D: RecordData,
-        B: OctetsBuilder + AsMut<[u8]>,
-    >(
+impl<Octets: AsRef<[u8]>, Name: ToDname> RrsigExt for Rrsig<Octets, Name> {
+    fn signed_data<N: ToDname, D: RecordData, B: Composer>(
         &self,
         buf: &mut B,
         records: &mut [Record<N, D>],
-    ) -> Result<(), ShortBuf>
+    ) -> Result<(), B::AppendError>
     where
-        D: CanonicalOrd + Compose + Sized,
+        D: CanonicalOrd + ComposeRecordData + Sized,
     {
         // signed_data = RRSIG_RDATA | RR(1) | RR(2)...  where
         //    "|" denotes concatenation
@@ -194,9 +189,9 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
                     .iter_suffixes()
                     .nth(fqdn_labels - rrsig_labels)
                 {
-                    Some(name) => name.compose_canonical(buf),
-                    None => fqdn.compose_canonical(buf),
-                }?;
+                    Some(name) => name.compose_canonical(buf)?,
+                    None => fqdn.compose_canonical(buf)?,
+                };
             } else {
                 fqdn.compose_canonical(buf)?;
             }
@@ -204,7 +199,7 @@ impl<Octets: AsRef<[u8]>, Name: Compose> RrsigExt for Rrsig<Octets, Name> {
             rr.rtype().compose(buf)?;
             rr.class().compose(buf)?;
             self.original_ttl().compose(buf)?;
-            buf.u16_len_prefixed(|buf| rr.data().compose_canonical(buf))?;
+            rr.data().compose_canonical_len_rdata(buf)?;
         }
         Ok(())
     }

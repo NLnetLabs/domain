@@ -8,16 +8,15 @@
 //! [`Serial`]: struct.Serial.html
 
 use super::cmp::CanonicalOrd;
-use super::octets::{
-    Compose, OctetsBuilder, Parse, ParseError, Parser, ShortBuf,
-};
 use super::scan::{Scan, Scanner, ScannerError};
+use super::wire::{Compose, Composer, Parse, ParseError};
 #[cfg(feature = "chrono")]
 use chrono::{DateTime, TimeZone};
 use core::cmp::Ordering;
 use core::convert::TryFrom;
 use core::str::FromStr;
 use core::{cmp, fmt, str};
+use octseq::parse::Parser;
 #[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::{Date, Month, PrimitiveDateTime, Time};
@@ -82,6 +81,10 @@ impl Serial {
     pub fn add(self, other: u32) -> Self {
         assert!(other <= 0x7FFF_FFFF);
         Serial(self.0.wrapping_add(other))
+    }
+
+    pub fn scan<S: Scanner>(scanner: &mut S) -> Result<Self, S::Error> {
+        u32::scan(scanner).map(Into::into)
     }
 
     /// Scan a serial represention signature time value.
@@ -185,6 +188,25 @@ impl Serial {
     }
 }
 
+/// # Parsing and Composing
+///
+impl Serial {
+    pub const COMPOSE_LEN: u16 = u32::COMPOSE_LEN;
+
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<Octs>,
+    ) -> Result<Self, ParseError> {
+        u32::parse(parser).map(Into::into)
+    }
+
+    pub fn compose<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        self.0.compose(target)
+    }
+}
+
 //--- From and FromStr
 
 impl From<u32> for Serial {
@@ -215,34 +237,7 @@ impl str::FromStr for Serial {
     }
 }
 
-//--- Parse and Compose
-
-impl<T: AsRef<[u8]>> Parse<T> for Serial {
-    fn parse(parser: &mut Parser<T>) -> Result<Self, ParseError> {
-        u32::parse(parser).map(Into::into)
-    }
-
-    fn skip(parser: &mut Parser<T>) -> Result<(), ParseError> {
-        u32::skip(parser)
-    }
-}
-
-impl Compose for Serial {
-    fn compose<T: OctetsBuilder + AsMut<[u8]>>(
-        &self,
-        target: &mut T,
-    ) -> Result<(), ShortBuf> {
-        self.0.compose(target)
-    }
-}
-
-//--- Scan and Display
-
-impl<S: Scanner> Scan<S> for Serial {
-    fn scan(scanner: &mut S) -> Result<Self, S::Error> {
-        u32::scan(scanner).map(Into::into)
-    }
-}
+//--- Display
 
 impl fmt::Display for Serial {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
