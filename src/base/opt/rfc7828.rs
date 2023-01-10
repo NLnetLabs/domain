@@ -1,5 +1,6 @@
 //! EDNS Options from RFC 7828
 
+use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Compose, Composer, Parse, ParseError};
@@ -63,6 +64,11 @@ impl ComposeOptData for TcpKeepalive {
     }
 }
 
+impl fmt::Display for TcpKeepalive {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 //------------ OptBuilder ----------------------------------------------------
 

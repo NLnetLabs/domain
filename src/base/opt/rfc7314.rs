@@ -1,5 +1,6 @@
 //! EDNS Options from RFC 7314
 
+use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Compose, Composer, Parse, ParseError};
@@ -74,6 +75,14 @@ impl ComposeOptData for Expire {
     }
 }
 
+impl fmt::Display for Expire {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            Some(expire) => expire.fmt(f),
+            None => Ok(())
+        }
+    }
+}
 
 //------------ OptBuilder ----------------------------------------------------
 

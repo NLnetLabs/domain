@@ -1,5 +1,6 @@
 //! EDNS Options from RFC 7830
 
+use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Compose, Composer, ParseError};
@@ -19,6 +20,8 @@ pub enum PaddingMode {
 
 
 //------------ Padding -------------------------------------------------------
+
+
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Padding {
@@ -104,6 +107,19 @@ impl ComposeOptData for Padding {
     }
 }
 
+impl fmt::Display for Padding {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.mode {
+            PaddingMode::Zero => {
+                write!(f, "{} zeros", self.len)
+            }
+            #[cfg(feature = "random")]
+            PaddingMode::Random => {
+                write!(f, "{} random bytes", self.len)
+            }
+        }
+    }
+}
 
 //------------ OptBuilder ----------------------------------------------------
 

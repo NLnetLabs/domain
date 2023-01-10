@@ -7,7 +7,7 @@ use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
-use core::fmt;
+use core::{fmt, str};
 
 
 //------------ Nsid ---------------------------------------------------------/
@@ -72,7 +72,10 @@ impl<Octs: AsRef<[u8]>> fmt::Display for Nsid<Octs> {
         // | option as a sequence of hexadecimal digits, two digits per
         // | payload octet.
         for v in self.octets.as_ref() {
-            write!(f, "{:X}", *v)?
+            write!(f, "{:X} ", *v)?;
+        }
+        if let Ok(s) = str::from_utf8(self.octets.as_ref()) {
+            write!(f, "({})", s)?;
         }
         Ok(())
     }

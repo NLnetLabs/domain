@@ -1,5 +1,6 @@
 //! EDNS Options form RFC 7873
 
+use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Composer, ParseError};
@@ -66,6 +67,14 @@ impl ComposeOptData for Cookie {
     }
 }
 
+impl fmt::Display for Cookie {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for c in self.0 {
+            write!(f, "{:X}", c)?
+        }
+        Ok(())
+    }
+}
 
 //------------ OptBuilder ----------------------------------------------------
 

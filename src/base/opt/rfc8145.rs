@@ -1,5 +1,6 @@
 //! EDNS Options from RFC 8145.
 
+use core::fmt;
 use core::convert::TryInto;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
@@ -88,6 +89,26 @@ impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a KeyTag<Octs> {
 }
 
 
+//--- Display
+
+impl<Octets: AsRef<[u8]>> fmt::Display  for KeyTag<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut first = true;
+        
+        for v in self.octets.as_ref() {
+            if first {
+                write!(f, "{:X}", ((*v as u16) << 8) | *v as u16)?;
+                first = false;
+            } else {
+                write!(f, ", {:X}", ((*v as u16) << 8) | *v as u16)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+
 //------------ KeyTagIter ----------------------------------------------------
 
 #[derive(Clone, Copy, Debug)]
@@ -107,7 +128,6 @@ impl<'a> Iterator for KeyTagIter<'a> {
         }
     }
 }
-
 
 //------------ OptBuilder ----------------------------------------------------
 

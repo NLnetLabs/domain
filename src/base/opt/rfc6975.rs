@@ -7,7 +7,7 @@ use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
-use core::slice;
+use core::{fmt, slice};
 
 
 //------------ Dau, Dhu, N3u -------------------------------------------------
@@ -86,6 +86,23 @@ macro_rules! option_type {
             }
         }
 
+        //--- Display
+
+        impl<Octets: AsRef<[u8]>> fmt::Display for $name<Octets> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                let mut first = true;
+
+                for v in self.octets.as_ref() {
+                    if first {
+                        write!(f, "{}", *v)?;
+                        first = false;
+                    } else {
+                        write!(f, ", {}", *v)?
+                    }
+                }
+                Ok(())
+            }
+        }
 
         //------------ OptBuilder --------------------------------------------
 

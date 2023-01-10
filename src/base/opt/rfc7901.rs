@@ -1,5 +1,6 @@
 //! EDNS Options from RFC 7901
 
+use core::fmt;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::name::{Dname, ToDname};
@@ -72,6 +73,12 @@ impl<Name: ToDname> ComposeOptData for Chain<Name> {
     }
 }
 
+impl<Name: fmt::Display> fmt::Display for Chain<Name> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.start)?;
+        Ok(())
+    }
+}
 
 //------------ OptBuilder ----------------------------------------------------
 
