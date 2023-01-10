@@ -169,15 +169,7 @@ use std::vec::Vec;
 /// [`OctetsBuilder`]: ../../octets/trait.OctetsBuilder.html
 #[derive(Clone, Debug)]
 pub struct MessageBuilder<Target> {
-    /// The target we operate on.
-    ///
-    /// This is a result so we can both defer errors and fuse the builder
-    /// if an error happened yet still unwrap the builder into the target
-    /// in this case.
-    ///
-    /// (Deferring errors will be useful in the constructors to avoid having
-    /// to unwrap in pretty much all cases.)
-    target: Result<Target, (Target, PushError)>,
+    target: Target,
 }
 
 /// # Creating Message Builders
@@ -193,14 +185,10 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
     /// enough space for the header section.
     pub fn from_target(
         mut target: Target,
-    ) -> Self {
+    ) -> Result<Self, Target::AppendError> {
         target.truncate(0);
-        match target.append_slice(HeaderSection::new().as_slice()) {
-            Ok(()) => MessageBuilder { target: Ok(target) },
-            Err(err) => {
-                MessageBuilder { target: Err((target, err.into().into())) }
-            },
-        }
+        target.append_slice(HeaderSection::new().as_slice())?;
+        Ok(MessageBuilder { target })
     }
 }
 
@@ -208,7 +196,7 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
 impl MessageBuilder<Vec<u8>> {
     /// Creates a new message builder atop a `Vec<u8>`.
     pub fn new_vec() -> Self {
-        Self::from_target(Vec::new())
+        infallible(Self::from_target(Vec::new()))
     }
 }
 
@@ -216,7 +204,7 @@ impl MessageBuilder<Vec<u8>> {
 impl MessageBuilder<StreamTarget<Vec<u8>>> {
     /// Creates a new builder for a streamable message atop a `Vec<u8>`.
     pub fn new_stream_vec() -> Self {
-        Self::from_target(StreamTarget::new_vec())
+        Self::from_target(StreamTarget::new_vec()).unwrap()
     }
 }
 
@@ -224,7 +212,7 @@ impl MessageBuilder<StreamTarget<Vec<u8>>> {
 impl MessageBuilder<BytesMut> {
     /// Creates a new message builder atop a bytes value.
     pub fn new_bytes() -> Self {
-        Self::from_target(BytesMut::new())
+        infallible(Self::from_target(BytesMut::new()))
     }
 }
 
@@ -232,7 +220,7 @@ impl MessageBuilder<BytesMut> {
 impl MessageBuilder<StreamTarget<BytesMut>> {
     /// Creates a new streamable message builder atop a bytes value.
     pub fn new_stream_bytes() -> Self {
-        Self::from_target(StreamTarget::new_bytes())
+        Self::from_target(StreamTarget::new_bytes()).unwrap()
     }
 }
 
