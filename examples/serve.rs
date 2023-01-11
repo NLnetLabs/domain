@@ -5,7 +5,7 @@ use domain::{
         Dname, Message, MessageBuilder,
     },
     rdata::A,
-    serve::server::TcpServer,
+    serve::TcpServer,
 };
 
 // Helper fn to create a dummy response to send back to the client
@@ -23,14 +23,14 @@ fn mk_answer(msg: &Message<Bytes>) -> Message<Bytes> {
     answer.into_message()
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 8)]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    let (mut srv, _shutdown_tx) = TcpServer::new().unwrap();
+    /*let (mut srv, _shutdown_tx) = TcpServer::new().unwrap();
 
     loop {
         //eprintln!()"Getting request...");
         srv.handle_requests(|req| Ok(mk_answer(&req.query_message())))
             .await
             .unwrap();
-    }
+    }*/
 }
