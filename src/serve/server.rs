@@ -32,11 +32,11 @@ use futures::{
     stream::Stream,
     StreamExt,
 };
-use std::boxed::Box;
+
 use std::string::String;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
-    sync::{mpsc, watch::Receiver},
+    sync::{mpsc, watch::error::RecvError},
 };
 
 use crate::base::{octets::OctetsBuilder, Message, StreamTarget};
@@ -51,6 +51,21 @@ pub enum ServiceError<T> {
     Other(String),
 }
 
+impl<T> From<RecvError> for ServiceError<T> {
+    fn from(err: RecvError) -> Self {
+        ServiceError::Other(format!("RecvError: {err}"))
+    }
+}
+
+//------------ ServiceCommand ------------------------------------------------
+
+#[derive(Copy, Clone)]
+pub enum ServiceCommand {
+    Init,
+    Shutdown,
+    Reconfigure,
+}
+
 //------------ Service -------------------------------------------------------
 
 /// A Service is responsible for generating responses to received DNS messages.
@@ -58,7 +73,7 @@ pub enum ServiceError<T> {
 /// Responses are encapsulated inside a [Transaction] which is either [Single]
 /// (a single response) or [Stream] (a stream of responses, e.g. for a zone
 /// transfer).
-pub trait Service<RequestOctets: AsRef<[u8]>, ShutdownSignal> {
+pub trait Service<RequestOctets: AsRef<[u8]>> {
     type Error;
 
     type ResponseOctets: OctetsBuilder
@@ -75,7 +90,10 @@ pub trait Service<RequestOctets: AsRef<[u8]>, ShutdownSignal> {
         + Send
         + 'static;
 
-    fn shutdown_signal(&self) -> ShutdownSignal;
+    fn poll_command(
+        &self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<ServiceCommand, ServiceError<Self::Error>>>;
 
     fn poll_ready(
         &self,
@@ -130,25 +148,6 @@ where
 
     /// The transaction will results in stream of multiple responses.
     Stream(StreamFut),
-
-    None,
-}
-
-impl<SingleFut, StreamFut> Transaction<SingleFut, StreamFut>
-where
-    SingleFut: Future,
-    StreamFut: Stream,
-{
-    pub fn is_terminated(&self) -> bool {
-        match self {
-            Transaction::None => true,
-            _ => false,
-        }
-    }
-
-    pub fn terminate(self) -> Self {
-        Self::None
-    }
 }
 
 //------------ BufSource ----------------------------------------------------
@@ -177,6 +176,20 @@ impl ServerMetrics {
             num_pending_writes: AtomicUsize::new(0),
         }
     }
+
+    pub fn num_connections(&self) -> Option<usize> {
+        self.num_connections
+            .as_ref()
+            .map(|atomic| atomic.load(Ordering::Relaxed))
+    }
+
+    pub fn num_inflight_requests(&self) -> usize {
+        self.num_inflight_requests.load(Ordering::Relaxed)
+    }
+
+    pub fn num_pending_writes(&self) -> usize {
+        self.num_pending_writes.load(Ordering::Relaxed)
+    }
 }
 
 //------------ DgramServer ---------------------------------------------------
@@ -192,7 +205,7 @@ impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource,
-    Svc: Service<Buf::Output, Receiver<()>>,
+    Svc: Service<Buf::Output>,
 {
     pub fn new(sock: Sock, buf: Buf, service: Svc) -> Self {
         let metrics = Arc::new(ServerMetrics::new());
@@ -246,7 +259,6 @@ where
                             }
                         }
                     }
-                    Transaction::None => unreachable!(),
                 }
                 metrics
                     .num_inflight_requests
@@ -283,7 +295,7 @@ where
 //------------ StreamServer --------------------------------------------------
 
 pub struct StreamServer<Sock, Buf, Svc> {
-    sock: Sock,
+    sock: Arc<Sock>,
     buf: Arc<Buf>,
     service: Arc<Svc>,
     metrics: Arc<ServerMetrics>,
@@ -295,9 +307,11 @@ where
     Sock::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output, Receiver<()>> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     pub fn new(sock: Sock, buf: Buf, service: Arc<Svc>) -> Self {
+        let sock = Arc::new(sock);
+
         let mut metrics = ServerMetrics::new();
         metrics.num_connections.replace(AtomicUsize::new(0));
         let metrics = Arc::new(metrics);
@@ -310,17 +324,21 @@ where
         }
     }
 
+    pub fn sock(&self) -> Arc<Sock> {
+        self.sock.clone()
+    }
+
     pub async fn run(self: Arc<Self>) -> Result<(), io::Error> {
-        let mut shutdown_signal = self.service.shutdown_signal();
-        let shutdown_fut = shutdown_signal.changed();
-        pin_mut!(shutdown_fut);
+        let command_fut = Self::command(self.service.clone());
+        pin_mut!(command_fut);
 
         loop {
-            let accept_fut = Box::pin(self.accept());
+            let accept_fut = self.accept();
+            pin_mut!(accept_fut);
 
-            match select(accept_fut, shutdown_fut).await {
+            match select(accept_fut, command_fut).await {
                 // New TCP client connection received
-                Either::Left((Ok((stream, _addr)), moved_shutdown)) => {
+                Either::Left((Ok((stream, _addr)), moved_command_fut)) => {
                     eprintln!("Accept");
                     let buf = self.buf.clone();
                     let metrics = self.metrics.clone();
@@ -342,7 +360,7 @@ where
                             .fetch_sub(1, Ordering::Relaxed);
                     });
 
-                    shutdown_fut = moved_shutdown;
+                    command_fut = moved_command_fut;
                 }
 
                 // Failed to listen for new TCP client connections
@@ -351,10 +369,15 @@ where
                     todo!()
                 }
 
-                // Received a shutdown signal
-                Either::Right((_, _)) => {
+                // Received a command
+                Either::Right((Ok(ServiceCommand::Shutdown), _)) => {
                     eprintln!("Accept terminated");
                     return Ok(());
+                }
+
+                // An error or other command we have no support for yet
+                Either::Right((_, _)) => {
+                    todo!()
                 }
             }
 
@@ -364,6 +387,15 @@ where
 
     async fn accept(&self) -> Result<(Sock::Stream, Sock::Addr), io::Error> {
         poll_fn(|ctx| self.sock.poll_accept(ctx)).await
+    }
+
+    async fn command(
+        service: Arc<Svc>,
+    ) -> Result<
+        ServiceCommand,
+        ServiceError<<Svc as Service<<Buf as BufSource>::Output>>::Error>,
+    > {
+        poll_fn(|ctx| service.poll_command(ctx)).await
     }
 
     async fn conn(
@@ -381,35 +413,41 @@ where
         tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
                 eprintln!("Write");
-                if write.write_all(msg.as_stream_slice()).await.is_err() {
-                    write_metrics
-                        .num_pending_writes
-                        .fetch_sub(1, Ordering::Relaxed);
+                if let Err(err) = write.write_all(msg.as_stream_slice()).await
+                {
+                    eprintln!("Write error: {err}")
                 }
+                write_metrics
+                    .num_pending_writes
+                    .fetch_sub(1, Ordering::Relaxed);
             }
             eprintln!("Writer exiting");
         });
 
-        let mut shutdown_signal = service.shutdown_signal();
-        let shutdown_fut = shutdown_signal.changed();
-
-        pin_mut!(shutdown_fut);
+        let command_fut = Self::command(service.clone());
+        pin_mut!(command_fut);
 
         loop {
             eprintln!("Reading stream...");
+
             let read_fut = read.read_u16();
             pin_mut!(read_fut);
 
-            let size = match select(read_fut, shutdown_fut).await {
+            let size = match select(read_fut, command_fut).await {
                 // Shutdown
-                Either::Right((_, _)) => {
+                Either::Right((Ok(ServiceCommand::Shutdown), _)) => {
                     eprintln!("Read 2-octets terminated.");
                     return Ok(());
                 }
 
+                // Error or other command we don't support yet
+                Either::Right((_, _)) => {
+                    todo!()
+                }
+
                 // Bytes read
-                Either::Left((Ok(size), moved_shutdown_fut)) => {
-                    shutdown_fut = moved_shutdown_fut;
+                Either::Left((Ok(size), moved_command_fut)) => {
+                    command_fut = moved_command_fut;
                     size as usize
                 }
 
@@ -432,7 +470,8 @@ where
 
             let read_fut = read.read_exact(buf.as_mut());
             pin_mut!(read_fut);
-            match select(read_fut, shutdown_fut).await {
+
+            match select(read_fut, command_fut).await {
                 // Shutdown
                 Either::Right((_, _)) => {
                     eprintln!("Read more octets terminated.");
@@ -440,8 +479,8 @@ where
                 }
 
                 // Bytes read
-                Either::Left((Ok(_size), moved_shutdown_fut)) => {
-                    shutdown_fut = moved_shutdown_fut;
+                Either::Left((Ok(_size), moved_command_fut)) => {
+                    command_fut = moved_command_fut;
                 }
 
                 // Read error
@@ -460,14 +499,6 @@ where
             };
 
             let tran = service.call(msg);
-            // This check allows individual connections to be terminated as
-            // opposed to service.is_terminated() which indicates that the
-            // entire service should be shutdown.
-            if tran.is_terminated() {
-                eprintln!("Message terminated");
-                return Ok(());
-            }
-
             let metrics = metrics.clone();
             let tx = tx.clone();
             tokio::spawn(async move {
@@ -478,9 +509,10 @@ where
                     Transaction::Single(fut) => {
                         if let Ok(response) = fut.await {
                             let _ = tx.send(response).await;
-                            metrics
-                                .num_pending_writes
-                                .store(tx.capacity(), Ordering::Relaxed);
+                            metrics.num_pending_writes.store(
+                                tx.max_capacity() - tx.capacity(),
+                                Ordering::Relaxed,
+                            );
                         }
                     }
                     Transaction::Stream(stream) => {
@@ -500,13 +532,11 @@ where
                             }
                         }
                     }
-                    Transaction::None => unreachable!(),
                 }
                 metrics
                     .num_inflight_requests
                     .fetch_sub(1, Ordering::Relaxed);
             });
-            //tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
     }
 }
@@ -531,6 +561,7 @@ mod tests {
     use std::vec::Vec;
     use tokio::io::{AsyncRead, AsyncWrite};
     use tokio::sync::watch::channel;
+
     use tokio::sync::watch::Receiver;
     use tokio::sync::watch::Sender;
     use tokio::time::Instant;
@@ -599,11 +630,11 @@ mod tests {
             }
         }
 
-        fn last_ready(&self) -> Option<Instant> {
+        fn _last_ready(&self) -> Option<Instant> {
             self.last_ready.lock().unwrap().clone()
         }
 
-        fn messages_remaining(&self) -> usize {
+        fn _messages_remaining(&self) -> usize {
             self.messages_to_read.lock().unwrap().len()
         }
     }
@@ -707,11 +738,11 @@ mod tests {
             self.ready.clone()
         }
 
-        fn ready(&self) -> bool {
+        fn _ready(&self) -> bool {
             self.ready.load(Ordering::Relaxed)
         }
 
-        fn last_accept(&self) -> Option<Instant> {
+        fn _last_accept(&self) -> Option<Instant> {
             self.last_accept.lock().unwrap().clone()
         }
 
@@ -834,25 +865,25 @@ mod tests {
     }
 
     struct MyService {
-        shutdown_rx: Receiver<()>,
-        shutdown_tx: Sender<()>,
+        command_rx: Receiver<ServiceCommand>,
+        command_tx: Sender<ServiceCommand>,
     }
 
     impl MyService {
         fn new() -> Self {
-            let (shutdown_tx, shutdown_rx) = channel(());
+            let (command_tx, command_rx) = channel(ServiceCommand::Init);
             Self {
-                shutdown_rx,
-                shutdown_tx,
+                command_rx,
+                command_tx,
             }
         }
 
         fn shutdown(&self) {
-            let _ = self.shutdown_tx.send(());
+            let _ = self.command_tx.send(ServiceCommand::Shutdown);
         }
     }
 
-    impl Service<Vec<u8>, Receiver<()>> for MyService {
+    impl Service<Vec<u8>> for MyService {
         type Error = ();
 
         type ResponseOctets = Vec<u8>;
@@ -860,10 +891,6 @@ mod tests {
         type Single = MySingle;
 
         type Stream = MyStream;
-
-        fn shutdown_signal(&self) -> Receiver<()> {
-            self.shutdown_rx.clone()
-        }
 
         fn call(
             &self,
@@ -873,6 +900,24 @@ mod tests {
             // if for some reason the request should not be processed and the
             // connection with the client should be terminated, we can return
             // Transaction::None instead.
+        }
+
+        fn poll_command(
+            &self,
+            cx: &mut Context<'_>,
+        ) -> Poll<Result<ServiceCommand, ServiceError<Self::Error>>> {
+            let mut rx = self.command_rx.clone();
+            if self.command_rx.has_changed()? {
+                let new_command = *rx.borrow_and_update();
+                Poll::Ready(Ok(new_command))
+            } else {
+                let waker = cx.waker().clone();
+                tokio::spawn(async move {
+                    rx.changed().await.unwrap();
+                    waker.wake();
+                });
+                Poll::Pending
+            }
         }
     }
 
@@ -908,7 +953,7 @@ mod tests {
     // waiting to allow time to elapse.
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn stop_service_test() {
-        let (srv_join_handle, dbg_handle) = {
+        let (srv_handle, server_status_printer_handle) = {
             let fast_client = (
                 Duration::from_millis(100),
                 VecDeque::from([mk_query().as_stream_slice().to_vec()]),
@@ -928,7 +973,7 @@ mod tests {
                 Arc::new(StreamServer::new(sock, buf, my_service.clone()));
 
             let metrics = srv.metrics.clone();
-            let dbg_handle = tokio::spawn(async move {
+            let server_status_printer_handle = tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     eprintln!(
@@ -940,25 +985,37 @@ mod tests {
                 }
             });
 
-            let handle = tokio::spawn(srv.clone().run());
+            let srv_handle = tokio::spawn(srv.clone().run());
 
             eprintln!("Clients sleeping");
-            tokio::time::advance(Duration::from_millis(1000)).await;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
 
             eprintln!("Clients connecting");
             ready_flag.store(true, Ordering::Relaxed);
 
-            tokio::time::sleep(Duration::from_millis(5000)).await;
-            eprintln!("Shutting down");
-            my_service.shutdown();
-            eprintln!("Shutdown signal sent");
+            // Simulate a wait long enough that all simulated clients had time
+            // to connect, communicate and disconnect.
+            tokio::time::sleep(Duration::from_millis(6000)).await;
 
-            (handle, dbg_handle)
+            // Verify that all simulated client connected.
+            assert_eq!(0, srv.sock().streams_remaining());
+
+            // Verify that no requests or responses are in progress in the service
+            assert_eq!(srv.metrics.num_connections(), Some(0));
+            assert_eq!(srv.metrics.num_inflight_requests(), 0);
+            assert_eq!(srv.metrics.num_pending_writes(), 0);
+
+            eprint!("Shutting down");
+            my_service.shutdown();
+            eprintln!("Shutdown command sent");
+
+            (srv_handle, server_status_printer_handle)
         };
 
-        eprintln!("Test waiting");
-        let _ = srv_join_handle.await;
+        eprintln!("Waiting for service to shutdown");
+        let _ = srv_handle.await;
 
-        dbg_handle.abort();
+        // Terminate the task that periodically prints the server status
+        server_status_printer_handle.abort();
     }
 }
