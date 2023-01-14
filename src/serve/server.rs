@@ -534,7 +534,9 @@ where
 
                 match select(write_fut, read_fut).await.into() {
                     ConnectionEvent::ConnectionClosed => None,
-                    ConnectionEvent::ReadSucceeded(size) => Some(size as usize),
+                    ConnectionEvent::ReadSucceeded(size) => {
+                        Some(size as usize)
+                    }
                     ConnectionEvent::ReadTimedOut => continue,
                     ConnectionEvent::CallCompleted(res) => {
                         Self::apply_call_result(
@@ -553,7 +555,7 @@ where
             // This can't be handled above because we need a second mutable
             // borrow on rx, the block above limits the scope of the first
             // mutable borrow allowing us to take another mutable borrow here.
-            let Some(size) = size else { 
+            let Some(size) = size else {
                 Self::flush_write_queue(
                     &mut rx,
                     &mut write,
@@ -596,7 +598,9 @@ where
                 }
             }
 
-            let msg = Message::from_octets(buf).map_err(|_| io::Error::new(io::ErrorKind::Other, "short message"))?;
+            let msg = Message::from_octets(buf).map_err(|_| {
+                io::Error::new(io::ErrorKind::Other, "short message")
+            })?;
 
             match service.call(msg /* also send requester address etc */) {
                 Ok(txn) => {

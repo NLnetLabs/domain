@@ -7,7 +7,6 @@ use std::task::{Context, Poll};
 use tokio::io::ReadBuf;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
-
 //------------ AsyncDgramSock ------------------------------------------------
 
 /// Asynchronous sending of datagrams.
@@ -49,16 +48,16 @@ impl AsyncDgramSock for UdpSocket {
     }
 }
 
-
 //------------ AsyncAccept ---------------------------------------------------
 
 pub trait AsyncAccept {
     type Addr: Sized + Send;
     type Stream;
-    
+
     #[allow(clippy::type_complexity)]
     fn poll_accept(
-        &self, cx: &mut Context
+        &self,
+        cx: &mut Context,
     ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>>;
 }
 
@@ -68,9 +67,9 @@ impl AsyncAccept for TcpListener {
 
     #[allow(clippy::type_complexity)]
     fn poll_accept(
-        &self, cx: &mut Context
+        &self,
+        cx: &mut Context,
     ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
         TcpListener::poll_accept(self, cx)
     }
 }
-
