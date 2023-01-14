@@ -519,71 +519,55 @@ where
         service: Arc<Svc>,
         metrics: Arc<ServerMetrics>,
     ) -> Result<(), io::Error> {
-        let (mut read, mut write) = tokio::io::split(stream);
-        let (tx, mut rx) =
+        let (mut stream_rx, mut write) = tokio::io::split(stream);
+        let (call_res_q_tx, mut call_res_q_rx) =
             mpsc::channel::<CallResult<Svc::ResponseOctets>>(10); // XXX Channel length?
         let mut max_read = Duration::from_millis(10000);
+        let mut size_buf = buf_source.create_sized(2);
 
         loop {
-            let size = {
-                let read_fut = timeout(max_read, read.read_u16());
-                pin_mut!(read_fut);
+            let mut msg_buf = None;
 
-                let write_fut = rx.recv();
-                pin_mut!(write_fut);
+            let mut evt = Self::read_stream(
+                max_read,
+                &mut stream_rx,
+                &mut size_buf,
+                &mut call_res_q_rx,
+            )
+            .await;
 
-                match select(write_fut, read_fut).await.into() {
-                    ConnectionEvent::ConnectionClosed => None,
-                    ConnectionEvent::ReadSucceeded(size) => {
-                        Some(size as usize)
-                    }
-                    ConnectionEvent::ReadTimedOut => continue,
-                    ConnectionEvent::CallCompleted(res) => {
-                        Self::apply_call_result(
-                            res,
-                            &mut write,
-                            &metrics,
-                            &mut max_read,
-                        )
-                        .await;
-                        continue;
-                    }
+            if let ConnectionEvent::ReadSucceeded(size) = evt {
+                // Read the actual message bytes
+                let mut buf = buf_source.create_sized(size);
+                if buf.as_ref().len() < size {
+                    // XXX Maybe do something better here?
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        "short buf",
+                    ));
                 }
-            };
 
-            // Was the connection terminated by the client?
-            // This can't be handled above because we need a second mutable
-            // borrow on rx, the block above limits the scope of the first
-            // mutable borrow allowing us to take another mutable borrow here.
-            let Some(size) = size else {
-                Self::flush_write_queue(
-                    &mut rx,
-                    &mut write,
-                    &metrics,
-                    &mut max_read,
+                evt = Self::read_stream(
+                    max_read,
+                    &mut stream_rx,
+                    &mut buf,
+                    &mut call_res_q_rx,
                 )
                 .await;
-                return Ok(());
+                msg_buf = Some(buf);
             };
 
-            // Read the actual message bytes
-            let mut buf = buf_source.create_sized(size);
-            if buf.as_ref().len() < size {
-                // XXX Maybe do something better here?
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "short buf",
-                ));
-            }
-
-            let read_fut = timeout(max_read, read.read_exact(buf.as_mut()));
-            let write_fut = rx.recv();
-
-            pin_mut!(read_fut);
-            pin_mut!(write_fut);
-
-            match select(write_fut, read_fut).await.into() {
-                ConnectionEvent::ConnectionClosed => continue,
+            match evt {
+                ConnectionEvent::ConnectionClosed => {
+                    Self::flush_write_queue(
+                        &mut call_res_q_rx,
+                        &mut write,
+                        &metrics,
+                        &mut max_read,
+                    )
+                    .await;
+                    return Ok(());
+                }
                 ConnectionEvent::ReadSucceeded(_size) => {}
                 ConnectionEvent::ReadTimedOut => continue,
                 ConnectionEvent::CallCompleted(res) => {
@@ -598,14 +582,15 @@ where
                 }
             }
 
-            let msg = Message::from_octets(buf).map_err(|_| {
-                io::Error::new(io::ErrorKind::Other, "short message")
-            })?;
+            let msg =
+                Message::from_octets(msg_buf.unwrap()).map_err(|_| {
+                    io::Error::new(io::ErrorKind::Other, "short message")
+                })?;
 
             match service.call(msg /* also send requester address etc */) {
                 Ok(txn) => {
                     let metrics = metrics.clone();
-                    let tx = tx.clone();
+                    let tx = call_res_q_tx.clone();
                     tokio::spawn(async move {
                         metrics
                             .num_inflight_requests
@@ -675,7 +660,6 @@ where
         }
     }
 
-    // TODO: spawn this as a task and serialize access to write with a lock?
     async fn apply_call_result(
         mut call_result: CallResult<
             <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
@@ -685,6 +669,7 @@ where
         max_read: &mut Duration,
     ) {
         if let Some(msg) = call_result.response() {
+            // TODO: spawn this as a task and serialize access to write with a lock?
             if let Err(err) = write.write_all(msg.as_stream_slice()).await {
                 eprintln!("Write error: {err}")
             }
@@ -720,6 +705,28 @@ where
         while let Some(res) = rx.recv().await {
             Self::apply_call_result(res, write, metrics, max_read).await;
         }
+    }
+
+    async fn read_stream(
+        max_read: Duration,
+        stream_rx: &mut tokio::io::ReadHalf<
+            <Listener as AsyncAccept>::Stream,
+        >,
+        size_buf: &mut <Buf as BufSource>::Output,
+        call_res_q_rx: &mut mpsc::Receiver<
+            CallResult<
+                <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
+            >,
+        >,
+    ) -> ConnectionEvent<
+        <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
+        usize,
+    > {
+        let b = timeout(max_read, stream_rx.read_exact(size_buf.as_mut()));
+        let a = call_res_q_rx.recv();
+        pin_mut!(b);
+        pin_mut!(a);
+        select(a, b).await.into()
     }
 }
 
