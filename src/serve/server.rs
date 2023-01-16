@@ -22,7 +22,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll},
 };
-use std::{io, sync::Mutex, time::Duration};
+use std::{boxed::Box, io, sync::Mutex, time::Duration};
 
 use std::sync::Arc;
 
@@ -35,12 +35,15 @@ use futures::{
 
 use std::string::String;
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
+    io::{
+        AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf,
+        ReadHalf, WriteHalf,
+    },
     sync::{
         mpsc,
         watch::{self, error::RecvError},
     },
-    time::{error::Elapsed, timeout},
+    time::timeout,
 };
 
 use crate::base::{octets::OctetsBuilder, Message, StreamTarget};
@@ -56,11 +59,11 @@ pub enum ServerEvent<T, U, V, W> {
     CommandError(W),
 }
 
-pub enum ConnectionEvent<T, U> {
-    CallCompleted(CallResult<T>),
+pub enum ConnectionEvent<T> {
     ConnectionClosed,
-    ReadSucceeded(U),
+    ReadSucceeded,
     ReadTimedOut,
+    ServiceError(ServiceError<T>),
 }
 
 pub enum ServiceError<T> {
@@ -401,6 +404,35 @@ pub struct StreamServer<Listener, Buf, Svc> {
     metrics: Arc<ServerMetrics>,
 }
 
+struct StreamState<Listener, Buf, Svc>
+where
+    Listener: AsyncAccept + Send + 'static,
+    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    // stream_rx: ReadHalf<Listener::Stream>,
+    stream_tx: WriteHalf<Listener::Stream>,
+    // result_q_rx: mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
+    result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
+    read_timeout: Duration,
+}
+
+struct ConnectedStream<Listener, Buf, Svc>
+where
+    Listener: AsyncAccept + Send + 'static,
+    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    buf_source: Arc<Buf>,
+    metrics: Arc<ServerMetrics>,
+    service: Arc<Svc>,
+    stream: Option<Listener::Stream>,
+}
+
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
@@ -436,6 +468,7 @@ where
     pub fn shutdown(
         &self,
     ) -> Result<(), watch::error::SendError<ServiceCommand>> {
+        eprintln!("Sending shutdown command");
         self.command_tx
             .lock()
             .unwrap()
@@ -446,6 +479,7 @@ where
         let mut command_rx = self.command_rx.clone();
 
         loop {
+            // TODO: Factor the next 5 lines out to a helper fn.
             let command_fut = command_rx.changed();
             let accept_fut = self.accept();
 
@@ -459,25 +493,13 @@ where
                 .into()
             {
                 ServerEvent::Accept(stream, _addr) => {
-                    let buf = self.buf.clone();
-                    let metrics = self.metrics.clone();
-                    let service = self.service.clone();
-
-                    tokio::spawn(async move {
-                        metrics
-                            .num_connections
-                            .as_ref()
-                            .unwrap()
-                            .fetch_add(1, Ordering::Relaxed);
-                        let _ =
-                            Self::conn(stream, buf, service, metrics.clone())
-                                .await;
-                        metrics
-                            .num_connections
-                            .as_ref()
-                            .unwrap()
-                            .fetch_sub(1, Ordering::Relaxed);
-                    });
+                    let conn = ConnectedStream::<Listener, Buf, Svc>::new(
+                        self.service.clone(),
+                        self.buf.clone(),
+                        self.metrics.clone(),
+                        stream,
+                    );
+                    tokio::spawn(conn.run(self.command_rx.clone()));
                 }
 
                 ServerEvent::AcceptError(_err) => {
@@ -493,10 +515,10 @@ where
 
                 ServerEvent::Command(ServiceCommand::CloseConnection {
                     ..
-                }) => { /* N/A */ }
+                }) => unreachable!(),
 
                 ServerEvent::Command(ServiceCommand::Shutdown) => {
-                    return Ok(())
+                    return Ok(());
                 }
 
                 ServerEvent::CommandError(err) => {
@@ -512,129 +534,304 @@ where
     ) -> Result<(Listener::Stream, Listener::Addr), io::Error> {
         poll_fn(|ctx| self.listener.poll_accept(ctx)).await
     }
+}
 
-    async fn conn(
-        stream: Listener::Stream,
-        buf_source: Arc<Buf>,
+impl<Listener, Buf, Svc> ConnectedStream<Listener, Buf, Svc>
+where
+    Listener: AsyncAccept + Send + 'static,
+    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    fn new(
         service: Arc<Svc>,
+        buf_source: Arc<Buf>,
         metrics: Arc<ServerMetrics>,
-    ) -> Result<(), io::Error> {
-        let (mut stream_rx, mut write) = tokio::io::split(stream);
-        let (call_res_q_tx, mut call_res_q_rx) =
-            mpsc::channel::<CallResult<Svc::ResponseOctets>>(10); // XXX Channel length?
-        let mut max_read = Duration::from_millis(10000);
-        let mut size_buf = buf_source.create_sized(2);
+        stream: Listener::Stream,
+    ) -> Self {
+        Self {
+            buf_source,
+            service,
+            metrics,
+            stream: Some(stream),
+        }
+    }
+
+    async fn run(mut self, command_rx: watch::Receiver<ServiceCommand>) {
+        self.metrics
+            .num_connections
+            .as_ref()
+            .unwrap()
+            .fetch_add(1, Ordering::Relaxed);
+
+        let stream = self.stream.take().unwrap();
+        self.run_until_error(command_rx, stream).await;
+
+        self.metrics
+            .num_connections
+            .as_ref()
+            .unwrap()
+            .fetch_sub(1, Ordering::Relaxed);
+    }
+
+    async fn run_until_error(
+        &self,
+        mut command_rx: watch::Receiver<ServiceCommand>,
+        stream: Listener::Stream,
+    ) {
+        let (mut stream_rx, stream_tx) = tokio::io::split(stream);
+        let (result_q_tx, mut result_q_rx) =
+            mpsc::channel::<CallResult<Svc::ResponseOctets>>(10); // TODO: Take from configuration
+        let read_timeout = Duration::from_millis(10000); // TODO: Take from configuration
+
+        let mut state = StreamState {
+            stream_tx,
+            result_q_tx,
+            read_timeout,
+        };
+
+        let mut msg_size_buf = self.buf_source.create_sized(2);
+
+        while self
+            .transceive_one_request(
+                &mut command_rx,
+                &mut state,
+                &mut stream_rx,
+                &mut result_q_rx,
+                &mut msg_size_buf,
+            )
+            .await
+            .is_ok()
+        {}
+
+        self.flush_write_queue(&mut state, &mut result_q_rx).await;
+    }
+
+    async fn transceive_one_request(
+        &self,
+        command_rx: &mut watch::Receiver<ServiceCommand>,
+        state: &mut StreamState<Listener, Buf, Svc>,
+        stream_rx: &mut ReadHalf<<Listener as AsyncAccept>::Stream>,
+        result_q_rx: &mut mpsc::Receiver<
+            CallResult<
+                <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
+            >,
+        >,
+        msg_size_buf: &mut <Buf as BufSource>::Output,
+    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+        self.transceive_until(
+            command_rx,
+            state,
+            stream_rx,
+            result_q_rx,
+            msg_size_buf,
+        )
+        .await?;
+
+        let msg_len =
+            u16::from_be_bytes(msg_size_buf.as_ref().try_into().unwrap());
+        let mut msg_buf = self.buf_source.create_sized(msg_len as usize);
+
+        self.transceive_until(
+            command_rx,
+            state,
+            stream_rx,
+            result_q_rx,
+            &mut msg_buf,
+        )
+        .await?;
+
+        self.process_message(&*state, msg_buf, self.service.clone())
+            .await
+            .map_err(ConnectionEvent::ServiceError)?;
+
+        Ok(())
+    }
+
+    async fn transceive_until(
+        &self,
+        command_rx: &mut watch::Receiver<ServiceCommand>,
+        state: &mut StreamState<Listener, Buf, Svc>,
+        stream_rx: &mut ReadHalf<Listener::Stream>,
+        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
+        buf: &mut <Buf as BufSource>::Output,
+    ) -> Result<ConnectionEvent<Svc::Error>, ConnectionEvent<Svc::Error>>
+    {
+        // Note: The MPSC receiver used to receive finished service call
+        // results can be read from safely even if the future is cancelled.
+        // Thus we don't need to keep the future, we can just call recv()
+        // again when we need to.
+        //
+        // The same is not true of reading an exact number of bytes from the
+        // incoming data stream, the future cannot be cancelled safely as any
+        // bytes already read will be written to the buffer but we will lose
+        // the knowledge of how many bytes have been written to the buffer. So
+        // we must keep using the same future until it finally resolves when
+        // the read is complete or results in an error.
+        let stream_read_fut =
+            timeout(state.read_timeout, stream_rx.read_exact(buf.as_mut()));
+        let mut stream_read_fut = Box::pin(stream_read_fut);
 
         loop {
-            let mut msg_buf = None;
+            let check_command = {
+                let command_read_fut = command_rx.changed();
+                pin_mut!(command_read_fut);
+                let result_read_fut = result_q_rx.recv();
+                pin_mut!(result_read_fut);
+                let action_read_fut =
+                    select(command_read_fut, result_read_fut);
 
-            let mut evt = Self::read_stream(
-                max_read,
-                &mut stream_rx,
-                &mut size_buf,
-                &mut call_res_q_rx,
-            )
-            .await;
-
-            if let ConnectionEvent::ReadSucceeded(size) = evt {
-                // Read the actual message bytes
-                let mut buf = buf_source.create_sized(size);
-                if buf.as_ref().len() < size {
-                    // XXX Maybe do something better here?
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        "short buf",
-                    ));
-                }
-
-                evt = Self::read_stream(
-                    max_read,
-                    &mut stream_rx,
-                    &mut buf,
-                    &mut call_res_q_rx,
-                )
-                .await;
-                msg_buf = Some(buf);
-            };
-
-            match evt {
-                ConnectionEvent::ConnectionClosed => {
-                    Self::flush_write_queue(
-                        &mut call_res_q_rx,
-                        &mut write,
-                        &metrics,
-                        &mut max_read,
-                    )
-                    .await;
-                    return Ok(());
-                }
-                ConnectionEvent::ReadSucceeded(_size) => {}
-                ConnectionEvent::ReadTimedOut => continue,
-                ConnectionEvent::CallCompleted(res) => {
-                    Self::apply_call_result(
-                        res,
-                        &mut write,
-                        &metrics,
-                        &mut max_read,
-                    )
-                    .await;
-                    continue;
-                }
-            }
-
-            let msg =
-                Message::from_octets(msg_buf.unwrap()).map_err(|_| {
-                    io::Error::new(io::ErrorKind::Other, "short message")
-                })?;
-
-            match service.call(msg /* also send requester address etc */) {
-                Ok(txn) => {
-                    let metrics = metrics.clone();
-                    let tx = call_res_q_tx.clone();
-                    tokio::spawn(async move {
-                        metrics
-                            .num_inflight_requests
-                            .fetch_add(1, Ordering::Relaxed);
-                        match txn {
-                            Transaction::Single(call_fut) => {
-                                if let Ok(call_result) = call_fut.await {
-                                    Self::handle_call_result(
-                                        &tx,
-                                        call_result,
-                                        &metrics,
-                                    )
-                                    .await
-                                }
+                match select(action_read_fut, stream_read_fut).await {
+                    Either::Left((action, incomplete_stream_read_fut)) => {
+                        match action {
+                            // The parent server sent us a command
+                            Either::Left((
+                                Ok(_command_changed),
+                                _incomplete_call_result_fut,
+                            )) => {
+                                stream_read_fut = incomplete_stream_read_fut;
+                                true
                             }
-                            Transaction::Stream(stream) => {
-                                pin_mut!(stream);
-                                while let Some(call_result) =
-                                    stream.next().await
-                                {
-                                    match call_result {
-                                        Ok(call_result) => {
-                                            Self::handle_call_result(
-                                                &tx,
-                                                call_result,
-                                                &metrics,
-                                            )
-                                            .await;
-                                        }
-                                        Err(_) => break,
-                                    }
-                                }
+
+                            // There was a problem receiving commands from the parent server.
+                            // This can happen if the command sender is dropped, i.e. the
+                            // parent server no longer exists but was not cleanly shutdown.
+                            Either::Left((
+                                Err(_err),
+                                _incomplete_call_result_fut,
+                            )) => {
+                                return Err(
+                                    ConnectionEvent::ConnectionClosed,
+                                );
+                            }
+
+                            // It is no longer possible to read the results of requests
+                            // processed by the service because the queue holding those
+                            // results is empty and can no longer be read from. There is
+                            // no point continuing to read from the input stream because
+                            // we will not be able to access the result of processing the
+                            // request.
+                            // TODO: Describe when this can occur.
+                            Either::Right((
+                                None,
+                                _incomplete_command_changed_fut,
+                            )) => {
+                                return Err(
+                                    ConnectionEvent::ConnectionClosed,
+                                );
+                            }
+
+                            // The service finished processing a request so apply the
+                            // call result to ourselves and/or the output stream. Then go
+                            // back to waiting for the stream read to complete or another
+                            // request to finish being processed.
+                            Either::Right((
+                                Some(call_result),
+                                _incomplete_command_changed_fut,
+                            )) => {
+                                self.apply_call_result(state, call_result)
+                                    .await;
+                                stream_read_fut = incomplete_stream_read_fut;
+                                false
                             }
                         }
-                        metrics
-                            .num_inflight_requests
-                            .fetch_sub(1, Ordering::Relaxed);
-                    });
+                    }
+
+                    // The stream read succeeded. Return to the caller so that it
+                    // can process the bytes written to the buffer.
+                    Either::Right((Ok(Ok(_size)), _)) => {
+                        return Ok(ConnectionEvent::ReadSucceeded);
+                    }
+
+                    // The stream read failed. What kind of failure was it? Was it
+                    // transient or permanent? For now assume that the stream can
+                    // no longer be read from.
+                    // TODO: Determine the various kinds of possible failure and
+                    // handle them as appropriate.
+                    Either::Right((Ok(Err(_err)), _)) => {
+                        eprintln!("Stream read failed");
+                        return Err(ConnectionEvent::ConnectionClosed);
+                    }
+
+                    // The stream read timed out.
+                    // TODO: Determine what to do here.
+                    Either::Right((Err(_elapsed), _)) => {
+                        eprintln!("Stream read timed out");
+                        return Err(ConnectionEvent::ConnectionClosed);
+                    }
                 }
-                Err(ServiceError::ShuttingDown) => return Ok(()),
-                Err(ServiceError::ServiceSpecificError(_err)) => todo!(),
-                Err(ServiceError::Other(_err)) => todo!(),
+            };
+
+            // Process any command received from the parent server.
+            if check_command {
+                let command = *command_rx.borrow_and_update();
+                match command {
+                    ServiceCommand::CloseConnection => unreachable!(),
+                    ServiceCommand::Init => unreachable!(),
+                    ServiceCommand::Reconfigure { read_timeout: _ } => {
+                        todo!()
+                    }
+                    ServiceCommand::Shutdown => {
+                        return Err(ConnectionEvent::ConnectionClosed);
+                    }
+                }
             }
         }
+    }
+
+    async fn process_message(
+        &self,
+        state: &StreamState<Listener, Buf, Svc>,
+        buf: <Buf as BufSource>::Output,
+        service: Arc<Svc>,
+    ) -> Result<(), ServiceError<Svc::Error>> {
+        use std::string::ToString;
+
+        let msg = Message::from_octets(buf)
+            .map_err(|_| ServiceError::Other("short message".to_string()))?;
+
+        let txn =
+            service.call(msg /* also send requester address etc */)?;
+
+        let metrics = self.metrics.clone();
+        let tx = state.result_q_tx.clone();
+
+        tokio::spawn(async move {
+            metrics
+                .num_inflight_requests
+                .fetch_add(1, Ordering::Relaxed);
+            match txn {
+                Transaction::Single(call_fut) => {
+                    if let Ok(call_result) = call_fut.await {
+                        Self::handle_call_result(&tx, call_result, &metrics)
+                            .await
+                    }
+                }
+
+                Transaction::Stream(stream) => {
+                    pin_mut!(stream);
+                    while let Some(call_result) = stream.next().await {
+                        match call_result {
+                            Ok(call_result) => {
+                                Self::handle_call_result(
+                                    &tx,
+                                    call_result,
+                                    &metrics,
+                                )
+                                .await;
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
+            }
+            metrics
+                .num_inflight_requests
+                .fetch_sub(1, Ordering::Relaxed);
+        });
+
+        Ok(())
     }
 
     async fn handle_call_result(
@@ -660,73 +857,55 @@ where
         }
     }
 
+    async fn flush_write_queue(
+        &self,
+        state: &mut StreamState<Listener, Buf, Svc>,
+        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
+    ) {
+        // Stop accepting new response messages (should we check
+        // for in-flight messages that haven't generated a response
+        // yet but should be allowed to do so?) so that we can flush
+        // the write queue and exit this connection handler.
+        result_q_rx.close();
+        while let Some(call_result) = result_q_rx.recv().await {
+            self.apply_call_result(state, call_result).await;
+        }
+    }
+
     async fn apply_call_result(
+        &self,
+        state: &mut StreamState<Listener, Buf, Svc>,
         mut call_result: CallResult<
             <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
         >,
-        write: &mut tokio::io::WriteHalf<<Listener as AsyncAccept>::Stream>,
-        metrics: &Arc<ServerMetrics>,
-        max_read: &mut Duration,
     ) {
         if let Some(msg) = call_result.response() {
             // TODO: spawn this as a task and serialize access to write with a lock?
-            if let Err(err) = write.write_all(msg.as_stream_slice()).await {
-                eprintln!("Write error: {err}")
+            if let Err(err) =
+                state.stream_tx.write_all(msg.as_stream_slice()).await
+            {
+                eprintln!("Write error: {err}");
+                todo!()
             }
-            metrics.num_pending_writes.fetch_sub(1, Ordering::Relaxed);
+            self.metrics
+                .num_pending_writes
+                .fetch_sub(1, Ordering::Relaxed);
         }
         if let Some(cmd) = call_result.command() {
             match cmd {
                 ServiceCommand::CloseConnection { .. } => todo!(),
                 ServiceCommand::Init => todo!(),
                 ServiceCommand::Reconfigure { read_timeout } => {
-                    *max_read = read_timeout
+                    eprintln!(
+                        "Reconfigured connection timeout to {read_timeout:?}"
+                    );
+                    state.read_timeout = read_timeout
                 }
-                ServiceCommand::Shutdown => write.shutdown().await.unwrap(),
+                ServiceCommand::Shutdown => {
+                    state.stream_tx.shutdown().await.unwrap()
+                }
             }
         }
-    }
-
-    async fn flush_write_queue(
-        rx: &mut mpsc::Receiver<
-            CallResult<
-                <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
-            >,
-        >,
-        write: &mut tokio::io::WriteHalf<<Listener as AsyncAccept>::Stream>,
-        metrics: &Arc<ServerMetrics>,
-        max_read: &mut Duration,
-    ) {
-        // Stop accepting new response messages (should we check
-        // for in-flight messages that haven't generated a response
-        // yet but should be allowed to do so?) so that we can flush
-        // the write queue and exit this connection handler.
-        rx.close();
-        while let Some(res) = rx.recv().await {
-            Self::apply_call_result(res, write, metrics, max_read).await;
-        }
-    }
-
-    async fn read_stream(
-        max_read: Duration,
-        stream_rx: &mut tokio::io::ReadHalf<
-            <Listener as AsyncAccept>::Stream,
-        >,
-        size_buf: &mut <Buf as BufSource>::Output,
-        call_res_q_rx: &mut mpsc::Receiver<
-            CallResult<
-                <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
-            >,
-        >,
-    ) -> ConnectionEvent<
-        <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
-        usize,
-    > {
-        let b = timeout(max_read, stream_rx.read_exact(size_buf.as_mut()));
-        let a = call_res_q_rx.recv();
-        pin_mut!(b);
-        pin_mut!(a);
-        select(a, b).await.into()
     }
 }
 
@@ -752,50 +931,6 @@ impl<T, U, V, W, X, Y>
                 ServerEvent::Command(cmd)
             }
             Either::Right((Err(err), _)) => ServerEvent::CommandError(err),
-        }
-    }
-}
-
-impl<T, U, V, W, X>
-    From<
-        Either<
-            (Option<CallResult<T>>, U),
-            (Result<Result<V, W>, Elapsed>, X),
-        >,
-    > for ConnectionEvent<T, V>
-where
-    W: std::fmt::Display,
-{
-    fn from(
-        select_res: Either<
-            (Option<CallResult<T>>, U),
-            (Result<Result<V, W>, Elapsed>, X),
-        >,
-    ) -> Self {
-        match select_res {
-            Either::Left((Some(call_result), _)) => {
-                ConnectionEvent::CallCompleted(call_result)
-            }
-
-            // The write queue is empty and the receiver has been
-            // closed so no new responses can be queued, i.e. we
-            // have finished.
-            Either::Left((None, _)) => ConnectionEvent::ConnectionClosed,
-
-            // The read succeeded, pass the value read onwards to
-            // where we read that many bytes of actual message
-            Either::Right((Ok(Ok(size)), _)) => {
-                ConnectionEvent::ReadSucceeded(size)
-            }
-
-            // The read failed, did the client close the connection?
-            // We will clean up and exit this connection handler.
-            Either::Right((Ok(Err(_err)), _)) => {
-                ConnectionEvent::ConnectionClosed
-            }
-
-            // The read timed out, try again
-            Either::Right((Err(_err), _)) => ConnectionEvent::ReadTimedOut,
         }
     }
 }
@@ -919,10 +1054,10 @@ mod tests {
                             return Poll::Ready(Ok(()));
                         } else {
                             // End of stream
-                            return Poll::Ready(Err(io::Error::new(
+                            /*return Poll::Ready(Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
                                 "mock connection disconnect",
-                            )));
+                            )));*/
                         }
                     }
                     _ => {
@@ -1147,9 +1282,7 @@ mod tests {
             ServiceError<Self::Error>,
         > {
             Ok(Transaction::Single(MySingle))
-            // if for some reason the request should not be processed and the
-            // connection with the client should be terminated, we can return
-            // Transaction::None instead.
+            // Err(ServiceError::ShuttingDown)
         }
     }
 
