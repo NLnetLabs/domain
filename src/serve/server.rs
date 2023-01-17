@@ -674,6 +674,9 @@ where
         let mut stream_read_fut = Box::pin(stream_read_fut);
 
         loop {
+            // This outer block ensures the mutable reference on command_rx is
+            // dropped so that we can take another one below in order to call
+            // command_rx.borrow_and_update().
             let check_command = {
                 let command_read_fut = command_rx.changed();
                 pin_mut!(command_read_fut);
@@ -685,7 +688,7 @@ where
                 match select(action_read_fut, stream_read_fut).await {
                     Either::Left((action, incomplete_stream_read_fut)) => {
                         match action {
-                            // The parent server sent us a command
+                            // The parent server sent us a command.
                             Either::Left((
                                 Ok(_command_changed),
                                 _incomplete_call_result_fut,
@@ -788,6 +791,7 @@ where
     ) -> Result<(), ServiceError<Svc::Error>> {
         use std::string::ToString;
 
+        // TODO: Pass this out as a type rather than a string?
         let msg = Message::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".to_string()))?;
 
