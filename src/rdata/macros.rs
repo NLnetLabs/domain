@@ -130,10 +130,7 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<'a, Octs> ZoneRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>>
-        where
-            Octs: octseq::octets::Octets,
-        {
+        impl<Octs, NOcts> ZoneRecordData<Octs, ParsedDname<NOcts>> {
             pub fn flatten_into<Target>(
                 self,
             ) -> Result<
@@ -141,19 +138,21 @@ macro_rules! rdata_types {
                 PushError
             >
             where
-                Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+                NOcts: octseq::octets::Octets,
+                Target: OctetsFrom<Octs>
+                    + for<'a> OctetsFrom<NOcts::Range<'a>>
+                    + FromBuilder,
                 <Target as FromBuilder>::Builder: EmptyBuilder,
-                PushError: From<<Target as OctetsFrom<Octs::Range<'a>>>::Error>
             {
                 match self {
                     $( $( $(
                         ZoneRecordData::$mtype(inner) => {
-                            Ok(ZoneRecordData::$mtype(inner.flatten_into()?))
+                            inner.flatten_into().map(ZoneRecordData::$mtype)
                         }
                     )* )* )*
                         ZoneRecordData::Unknown(inner) => {
                             Ok(ZoneRecordData::Unknown(
-                                inner.try_octets_into()?
+                                inner.try_octets_into().map_err(Into::into)?
                             ))
                         }
                 }
@@ -189,13 +188,8 @@ macro_rules! rdata_types {
                     )* )* )*
                     ZoneRecordData::Unknown(inner) => {
                         Ok(ZoneRecordData::Unknown(
-                            match
-                                $crate::base::rdata::
-                                UnknownRecordData::try_octets_from(inner)
-                            {
-                                Ok(ok) => ok,
-                                Err(err) => return Err(err.into())
-                            }
+                            $crate::base::rdata::
+                            UnknownRecordData::try_octets_from(inner)?
                         ))
                     }
                 }
@@ -353,7 +347,7 @@ macro_rules! rdata_types {
 
         impl<'a, Octs: octseq::octets::Octets>
         $crate::base::rdata::ParseRecordData<'a, Octs>
-        for ZoneRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+        for ZoneRecordData<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
             fn parse_rdata(
                 rtype: $crate::base::iana::Rtype,
                 parser: &mut octseq::parse::Parser<'a, Octs>,
@@ -585,10 +579,7 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<'a, Octs> AllRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>>
-        where
-            Octs: octseq::octets::Octets,
-        {
+        impl<Octs, NOcts> AllRecordData<Octs, ParsedDname<NOcts>> {
             pub fn flatten_into<Target>(
                 self,
             ) -> Result<
@@ -596,14 +587,17 @@ macro_rules! rdata_types {
                 PushError
             >
             where
-                Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+                NOcts: octseq::octets::Octets,
+                Target:
+                    OctetsFrom<Octs>
+                    + for<'a> OctetsFrom<NOcts::Range<'a>>
+                    + FromBuilder,
                 <Target as FromBuilder>::Builder: EmptyBuilder,
-                PushError: From<<Target as OctetsFrom<Octs::Range<'a>>>::Error>
             {
                 match self {
                     $( $( $(
                         AllRecordData::$mtype(inner) => {
-                            Ok(AllRecordData::$mtype(inner.flatten_into()?))
+                            inner.flatten_into().map(AllRecordData::$mtype)
                         }
                     )* )* )*
                     $( $( $(
@@ -612,10 +606,14 @@ macro_rules! rdata_types {
                         }
                     )* )* )*
                     AllRecordData::Opt(inner) => {
-                        Ok(AllRecordData::Opt(inner.try_octets_into()?))
+                        Ok(AllRecordData::Opt(
+                            inner.try_octets_into().map_err(Into::into)?
+                        ))
                     }
                     AllRecordData::Unknown(inner) => {
-                        Ok(AllRecordData::Unknown(inner.try_octets_into()?))
+                        Ok(AllRecordData::Unknown(
+                            inner.try_octets_into().map_err(Into::into)?
+                        ))
                     }
                 }
             }
@@ -809,7 +807,7 @@ macro_rules! rdata_types {
 
         impl<'a, Octs: octseq::octets::Octets>
         $crate::base::rdata::ParseRecordData<'a, Octs>
-        for AllRecordData<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+        for AllRecordData<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
             fn parse_rdata(
                 rtype: $crate::base::iana::Rtype,
                 parser: &mut octseq::parse::Parser<'a, Octs>,
@@ -994,7 +992,9 @@ macro_rules! rdata_types {
 /// Implements some basic methods plus the `RecordData`, `FlatRecordData`,
 /// and `Display` traits.
 macro_rules! dname_type_base {
-    ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
+    ($(#[$attr:meta])* (
+        $target:ident, $rtype:ident, $field:ident, $into_field:ident
+    ) ) => {
         $(#[$attr])*
         #[derive(Clone, Debug)]
         #[cfg_attr(
@@ -1014,6 +1014,10 @@ macro_rules! dname_type_base {
                 &self.$field
             }
 
+            pub fn $into_field(self) -> N {
+                self.$field
+            }
+
             pub fn scan<S: crate::base::scan::Scanner<Dname = N>>(
                 scanner: &mut S
             ) -> Result<Self, S::Error> {
@@ -1027,24 +1031,21 @@ macro_rules! dname_type_base {
             }
         }
 
-        impl<'a, Octs> $target<ParsedDname<'a, Octs>>
-        where
-            Octs: octseq::octets::Octets,
-        {
-            pub fn flatten_into<Octets>(
+        impl<Octs: octseq::octets::Octets> $target<ParsedDname<Octs>> {
+            pub fn flatten_into<Target>(
                 self,
-            ) -> Result<$target<crate::base::Dname<Octets>>, PushError>
+            ) -> Result<$target<crate::base::Dname<Target>>, PushError>
             where
-                Octets: OctetsFrom<Octs::Range<'a>> + FromBuilder,
-                <Octets as FromBuilder>::Builder: EmptyBuilder,
+                Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
+                <Target as FromBuilder>::Builder: EmptyBuilder,
             {
                 Ok($target::new(self.$field.flatten_into()?))
             }
         }
 
-        impl<'a, Octs: Octets + ?Sized> $target<ParsedDname<'a, Octs>> {
-            pub fn parse(
-                parser: &mut Parser<'a, Octs>,
+        impl<Octs: Octets> $target<ParsedDname<Octs>> {
+            pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
+                parser: &mut Parser<'a, Src>,
             ) -> Result<Self, ParseError> {
                 ParsedDname::parse(parser).map(Self::new)
             }
@@ -1129,8 +1130,8 @@ macro_rules! dname_type_base {
         }
 
         impl<'a, Octs> $crate::base::rdata::ParseRecordData<'a, Octs>
-        for $target<$crate::base::name::ParsedDname<'a, Octs>>
-        where Octs: octseq::octets::Octets + ?Sized{
+        for $target<$crate::base::name::ParsedDname<Octs::Range<'a>>>
+        where Octs: octseq::octets::Octets + ?Sized {
             fn parse_rdata(
                 rtype: $crate::base::iana::Rtype,
                 parser: &mut octseq::parse::Parser<'a, Octs>,
@@ -1165,10 +1166,12 @@ macro_rules! dname_type_base {
 }
 
 macro_rules! dname_type_well_known {
-    ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
+    ($(#[$attr:meta])* (
+        $target:ident, $rtype:ident, $field:ident, $into_field:ident
+    ) ) => {
         dname_type_base! {
             $( #[$attr] )*
-            ($target, $rtype, $field)
+            ($target, $rtype, $field, $into_field)
         }
 
         impl<N: ToDname> $crate::base::rdata::ComposeRecordData
@@ -1210,10 +1213,12 @@ macro_rules! dname_type_well_known {
 }
 
 macro_rules! dname_type_canonical {
-    ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
+    ($(#[$attr:meta])* (
+        $target:ident, $rtype:ident, $field:ident, $into_field:ident
+    ) ) => {
         dname_type_base! {
             $( #[$attr] )*
-            ($target, $rtype, $field)
+            ($target, $rtype, $field, $into_field)
         }
 
         impl<N: ToDname> $crate::base::rdata::ComposeRecordData
@@ -1246,10 +1251,12 @@ macro_rules! dname_type_canonical {
 
 #[allow(unused_macros)]
 macro_rules! dname_type {
-    ($(#[$attr:meta])* ( $target:ident, $rtype:ident, $field:ident ) ) => {
+    ($(#[$attr:meta])* (
+        $target:ident, $rtype:ident, $field:ident, $into_field:ident
+    ) ) => {
         dname_type_base! {
             $( #[$attr] )*
-            ($target, $rtype, $field)
+            ($target, $rtype, $field, $into_field)
         }
 
         impl<N: ToDname> $crate::base::rdata::ComposeRecordData

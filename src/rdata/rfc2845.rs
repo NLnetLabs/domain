@@ -226,14 +226,15 @@ impl<O, N> Tsig<O, N> {
     }
 }
 
-impl<'a, Octs: Octets> Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+impl<Octs, NOcts> Tsig<Octs, ParsedDname<NOcts>> {
     pub fn flatten_into<Target>(
         self,
     ) -> Result<Tsig<Target, Dname<Target>>, PushError>
     where
-        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        NOcts: Octets,
+        Target: OctetsFrom<Octs>,
+        Target: for<'a> OctetsFrom<NOcts::Range<'a>> + FromBuilder,
         <Target as FromBuilder>::Builder: EmptyBuilder,
-        PushError: From<Target::Error>,
     {
         let Self {
             algorithm,
@@ -249,16 +250,18 @@ impl<'a, Octs: Octets> Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
             algorithm.flatten_into()?,
             time_signed,
             fudge,
-            mac.try_octets_into()?,
+            mac.try_octets_into().map_err(Into::into)?,
             original_id,
             error,
-            other.try_octets_into()?,
+            other.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>> {
-    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs> Tsig<Octs, ParsedDname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
         let algorithm = ParsedDname::parse(parser)?;
         let time_signed = Time48::parse(parser)?;
         let fudge = u16::parse(parser)?;
@@ -463,7 +466,7 @@ impl<O, N> RecordData for Tsig<O, N> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Tsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
+    for Tsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,

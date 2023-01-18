@@ -88,8 +88,10 @@ impl<N: ToDname> Question<N> {
 
 /// # Parsing and Composing
 ///
-impl<'a, Octs: Octets> Question<ParsedDname<'a, Octs>> {
-    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs> Question<ParsedDname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
         Ok(Question::new(
             ParsedDname::parse(parser)?,
             Rtype::parse(parser)?,

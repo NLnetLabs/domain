@@ -63,7 +63,7 @@ impl<'a, R: Resolver> IntoIterator for &'a FoundAddrs<R>
 where
     R::Octets: Octets,
 {
-    type Item = ParsedDname<'a, R::Octets>;
+    type Item = ParsedDname<<<R as Resolver>::Octets as Octets>::Range<'a>>;
     type IntoIter = FoundAddrsIter<'a, R::Octets>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -75,12 +75,12 @@ where
 
 /// An iterator over host names returned by address lookup.
 pub struct FoundAddrsIter<'a, Octs: Octets> {
-    name: Option<ParsedDname<'a, Octs>>,
-    answer: Option<RecordIter<'a, Octs, Ptr<ParsedDname<'a, Octs>>>>,
+    name: Option<ParsedDname<Octs::Range<'a>>>,
+    answer: Option<RecordIter<'a, Octs, Ptr<ParsedDname<Octs::Range<'a>>>>>,
 }
 
 impl<'a, Octs: Octets> Iterator for FoundAddrsIter<'a, Octs> {
-    type Item = ParsedDname<'a, Octs>;
+    type Item = ParsedDname<Octs::Range<'a>>;
 
     #[allow(clippy::while_let_on_iterator)]
     fn next(&mut self) -> Option<Self::Item> {

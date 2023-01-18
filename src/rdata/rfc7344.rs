@@ -117,7 +117,6 @@ impl<SrcOcts> Cdnskey<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Cdnskey<Octs>, PushError>
     where
         Octs: OctetsFrom<SrcOcts>,
-        PushError: From<Octs::Error>,
     {
         let Self {
             flags,
@@ -129,7 +128,7 @@ impl<SrcOcts> Cdnskey<SrcOcts> {
             flags,
             protocol,
             algorithm,
-            public_key.try_octets_into()?,
+            public_key.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
@@ -406,7 +405,6 @@ impl<SrcOcts> Cds<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Cds<Octs>, PushError>
     where
         Octs: OctetsFrom<SrcOcts>,
-        PushError: From<Octs::Error>,
     {
         let Self {
             key_tag,
@@ -418,7 +416,7 @@ impl<SrcOcts> Cds<SrcOcts> {
             key_tag,
             algorithm,
             digest_type,
-            digest.try_octets_into()?,
+            digest.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
