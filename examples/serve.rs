@@ -197,7 +197,7 @@ fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>> {
                 .unwrap();
             let read_timeout = Duration::from_millis(cnt.into());
             let cmd = ServiceCommand::Reconfigure { read_timeout };
-            eprintln!("Setting read timeout to {read_timeout:?}")
+            eprintln!("Setting read timeout to {read_timeout:?}");
             Ok(CallResult::with_feedback(target, cmd))
         })
     }
@@ -247,10 +247,23 @@ async fn main() {
     let tfo_srv =
         Arc::new(StreamServer::new(tfo_listener, VecBufSource, svc));
     let tfo_join_handle = tokio::spawn(tfo_srv.run());
+
     // Demonstrate using a simple function instead of a struct as the service
+    // Note that this service reduces its connection timeout on each subsequent
+    // query handled on the same connection, so try someting like this and you
+    // should see later queries getting communication errors:
+    //
+    //   > dig +short +keepopen +tcp -4 @127.0.0.1 -p 8082 A google.com A \
+    //     google.com A google.com A google.com A google.com A google.com \
+    //     A google.com
+    //   ..
+    //   192.0.2.1
+    //   192.0.2.1
+    //    ..
+    //   ;; communications error to 127.0.0.1#8082: end of file
 
     let listener = TcpListener::bind("127.0.0.1:8082").await.unwrap();
-    let count = Arc::new(AtomicU8::new(100));
+    let count = Arc::new(AtomicU8::new(5));
     let svc = service(count).into();
     let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc));
     let fn_join_handle = tokio::spawn(srv.run());
