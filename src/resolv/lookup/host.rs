@@ -166,10 +166,7 @@ where
     /// The socket addresses are gained by combining the IP addresses with
     /// `port`. The returned iterator implements `ToSocketAddrs` and thus
     /// can be used where `std::net` wants addresses right away.
-    pub fn port_iter(
-        &self,
-        port: u16,
-    ) -> FoundHostsSocketIter {
+    pub fn port_iter(&self, port: u16) -> FoundHostsSocketIter {
         FoundHostsSocketIter {
             iter: self.iter(),
             port,
@@ -236,4 +233,3 @@ impl<'a> ToSocketAddrs for FoundHostsSocketIter<'a> {
         Ok(self.clone())
     }
 }
-

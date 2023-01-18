@@ -180,7 +180,7 @@ impl<Octs: ?Sized> Message<Octs> {
     /// long as a header, so this is unsafe.
     pub(super) unsafe fn from_octets_unchecked(octets: Octs) -> Self
     where
-        Octs: Sized
+        Octs: Sized,
     {
         Message { octets }
     }
@@ -193,7 +193,7 @@ impl<Octs: ?Sized> Message<Octs> {
     /// Converts the message into the underlying octets sequence.
     pub fn into_octets(self) -> Octs
     where
-        Octs: Sized
+        Octs: Sized,
     {
         self.octets
     }
