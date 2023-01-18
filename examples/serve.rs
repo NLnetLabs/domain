@@ -195,9 +195,9 @@ fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>> {
             target
                 .append_slice(&mk_answer(&message).into_octets())
                 .unwrap();
-            let read_timeout = Duration::from_millis(cnt.into());
-            let cmd = ServiceCommand::Reconfigure { read_timeout };
-            eprintln!("Setting read timeout to {read_timeout:?}");
+            let idle_timeout = Duration::from_millis(cnt.into());
+            let cmd = ServiceCommand::Reconfigure { idle_timeout };
+            eprintln!("Setting read timeout to {idle_timeout:?}");
             Ok(CallResult::with_feedback(target, cmd))
         })
     }

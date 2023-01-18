@@ -48,6 +48,7 @@ use std::{boxed::Box, io, sync::Mutex, time::Duration};
 
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use futures::{
     future::{select, Either, Future},
     pin_mut,
@@ -82,9 +83,26 @@ enum ServerEvent<T, U, V, W> {
 }
 
 enum ConnectionEvent<T> {
-    ConnectionClosed,
+    /// RFC 7766 6.2.4 "Under normal operation DNS clients typically initiate
+    /// connection closing on idle connections; however, DNS servers can close
+    /// the connection if the idle timeout set by local policy is exceeded.
+    /// Also, connections can be closed by either end under unusual conditions
+    /// such as defending against an attack or system failure reboot."
+    ///
+    /// And: RFC 7766 3 "A DNS server considers an established DNS-over-TCP
+    /// session to be idle when it has sent responses to all the queries it
+    /// has received on that connection."
+    TerminateConnectionWithoutFlush,
+
+    /// RFC 7766 6.2.3 "If a DNS server finds that a DNS client has closed a
+    /// TCP session (or if the session has been otherwise interrupted) before
+    /// all pending responses have been sent, then the server MUST NOT attempt
+    /// to send those responses.  Of course, the DNS server MAY cache those
+    /// responses."
+    TerminateConnectionWithFlush(Option<ServiceError<T>>),
+
     ReadSucceeded,
-    _ReadTimedOut,
+
     ServiceError(ServiceError<T>),
 }
 
@@ -100,7 +118,7 @@ pub enum ServiceError<T> {
 pub enum ServiceCommand {
     CloseConnection,
     Init,
-    Reconfigure { read_timeout: Duration },
+    Reconfigure { idle_timeout: Duration },
     Shutdown,
 }
 
@@ -434,8 +452,83 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     stream_tx: WriteHalf<Listener::Stream>,
+
     result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
-    read_timeout: Duration,
+
+    // RFC 1035 7.1: "Since a resolver must be able to multiplex multiple
+    // requests if it is to perform its function efficiently, each pending
+    // request is usually represented in some block of state information.
+    // This state block will typically contain:
+    //
+    //   - A timestamp indicating the time the request began.
+    //     The timestamp is used to decide whether RRs in the database
+    //     can be used or are out of date.  This timestamp uses the
+    //     absolute time format previously discussed for RR storage in
+    //     zones and caches.  Note that when an RRs TTL indicates a
+    //     relative time, the RR must be timely, since it is part of a
+    //     zone.  When the RR has an absolute time, it is part of a
+    //     cache, and the TTL of the RR is compared against the timestamp
+    //     for the start of the request.
+
+    //     Note that using the timestamp is superior to using a current
+    //     time, since it allows RRs with TTLs of zero to be entered in
+    //     the cache in the usual manner, but still used by the current
+    //     request, even after intervals of many seconds due to system
+    //     load, query retransmission timeouts, etc."
+    //
+    // And: RFC 7766 6.2.3: "DNS messages delivered over TCP might arrive in
+    // multiple segments.  A DNS server that resets its idle timeout after
+    // receiving a single segment might be vulnerable to a "slow-read attack".
+    // For this reason, servers SHOULD reset the idle timeout on the receipt
+    // of a full DNS message, rather than on receipt of any part of a DNS
+    // message."
+    last_full_msg_received_at: Option<DateTime<Utc>>,
+
+    // RFC 7766 3: "A DNS server considers an established DNS-over-TCP session
+    // to be idle when it has sent responses to all the queries it has
+    // received on that connection."
+    response_queue_emptied_at: Option<DateTime<Utc>>,
+
+    idle_timeout: chrono::Duration,
+}
+
+impl<Listener, Buf, Svc> StreamState<Listener, Buf, Svc>
+where
+    Listener: AsyncAccept + Send + 'static,
+    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    fn new(
+        stream_tx: WriteHalf<Listener::Stream>,
+        result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
+        idle_timeout: chrono::Duration,
+    ) -> Self {
+        Self {
+            stream_tx,
+            result_q_tx,
+            last_full_msg_received_at: None,
+            response_queue_emptied_at: None,
+            idle_timeout,
+        }
+    }
+
+    pub fn idle_time(&self) -> chrono::Duration {
+        if let Some(ts) = self.last_full_msg_received_at {
+            Utc::now().signed_duration_since(ts)
+        } else {
+            self.idle_timeout
+        }
+    }
+
+    fn full_msg_received(&mut self) {
+        self.last_full_msg_received_at = Some(Utc::now());
+    }
+
+    fn response_queue_emptied(&mut self) {
+        self.response_queue_emptied_at = Some(Utc::now());
+    }
 }
 
 struct ConnectedStream<Listener, Buf, Svc>
@@ -609,29 +702,33 @@ where
         let (mut stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, mut result_q_rx) =
             mpsc::channel::<CallResult<Svc::ResponseOctets>>(10); // TODO: Take from configuration
-        let read_timeout = Duration::from_millis(10000); // TODO: Take from configuration
+        let idle_timeout = chrono::Duration::seconds(3); // TODO: Take from configuration
 
-        let mut state = StreamState {
-            stream_tx,
-            result_q_tx,
-            read_timeout,
-        };
+        let mut state =
+            StreamState::new(stream_tx, result_q_tx, idle_timeout);
 
         let mut msg_size_buf = self.buf_source.create_sized(2);
 
-        while self
-            .transceive_one_request(
-                &mut command_rx,
-                &mut state,
-                &mut stream_rx,
-                &mut result_q_rx,
-                &mut msg_size_buf,
-            )
-            .await
-            .is_ok()
-        {}
-
-        self.flush_write_queue(&mut state, &mut result_q_rx).await;
+        loop {
+            if let Err(err) = self
+                .transceive_one_request(
+                    &mut command_rx,
+                    &mut state,
+                    &mut stream_rx,
+                    &mut result_q_rx,
+                    &mut msg_size_buf,
+                )
+                .await
+            {
+                if matches!(
+                    err,
+                    ConnectionEvent::TerminateConnectionWithFlush(_)
+                ) {
+                    self.flush_write_queue(&mut state, &mut result_q_rx)
+                        .await;
+                }
+            }
+        }
     }
 
     async fn transceive_one_request(
@@ -664,6 +761,8 @@ where
         )
         .await?;
 
+        state.full_msg_received();
+
         self.process_message(&*state, msg_buf, self.service.clone())
             .await
             .map_err(ConnectionEvent::ServiceError)?;
@@ -692,8 +791,38 @@ where
         // we must keep using the same future until it finally resolves when
         // the read is complete or results in an error.
         'read: loop {
+            // Per RFC 7766 3 and 6.2.3 we should reset the idle timer to zero
+            // when sending a response or on receipt of a "full DNS message,
+            // rather than on receipt of any part of a DNS message", i.e. idle
+            // time from the server perspective is time spent without
+            // receiving a request or sending a response.
+            // TODO: timeout() at a point determined either since last send
+            // or override it based on EDNS(0) timeout settings??? RFC 7828
+            // section 3 says "This document specifies a new EDNS0 [RFC6891]
+            // option, edns-tcp-keepalive, which can be used by DNS clients
+            // and servers to signal a willingness to keep an idle TCP session
+            // open to conduct future DNS transactions, with the idle timeout
+            // being specified by the server. This specification does not
+            // distinguish between different types of DNS client and server
+            // in the use of this option. [RFC7766] defines an 'idle DNS-over-
+            // TCP session' from both the client and server perspective.  The
+            // idle timeout described here begins when the idle condition is
+            // met per that definition and should be reset when that condition
+            // is lifted, i.e., when a client sends a message or when a server
+            // receives a message on an idle connection.". As the service
+            // may receive requests out of order and at some arbitrary delay
+            // caused by the async runtime the service is not best placed to
+            // work out when the last request was fully received, except if
+            // we give it those timestamps, and even then it isn't able to
+            // determine at all when responses are actually written back to
+            // the client because that is handled by us, not by the service.
+            // So determining the moment at which a connection is idle has
+            // to be done by us, but that determination may be influenced by
+            // the service by telling us relevant information that it gleaned
+            // from the DNS request message details such as EDNS(0) keep alive
+            // values.
             let stream_read_fut = timeout(
-                state.read_timeout,
+                state.idle_time().to_std().unwrap(), // unwrap() here should never fail
                 stream_rx.read_exact(buf.as_mut()),
             );
             let mut stream_read_fut = Box::pin(stream_read_fut);
@@ -750,9 +879,11 @@ where
                         Either::Right((Ok(Err(err)), _)) => {
                             match err.kind() {
                                 io::ErrorKind::UnexpectedEof => {
-                                    // Normal client disconnection
+                                    // The client disconnected. Per RFC 7766
+                                    // 6.2.4 pending responses MUST NOT be
+                                    // sent to the client.
                                     return Err(
-                                        ConnectionEvent::ConnectionClosed,
+                                        ConnectionEvent::TerminateConnectionWithoutFlush,
                                     );
                                 }
                                 io::ErrorKind::TimedOut
@@ -771,7 +902,7 @@ where
                                         "Error: Stream read failed: {err}"
                                     );
                                     return Err(
-                                        ConnectionEvent::ConnectionClosed,
+                                        ConnectionEvent::TerminateConnectionWithoutFlush,
                                     );
                                 }
                             }
@@ -779,9 +910,24 @@ where
 
                         // The stream read timed out.
                         // TODO: Determine what to do here.
+                        // TODO: Per RFC 7766 6.1 "If the server needs to
+                        // close a dormant connection to reclaim resources,
+                        // it should wait until the connection has been idle
+                        // for a period on the order of two minutes.  In
+                        // particular, the server should allow the SOA and
+                        // AXFR request sequence (which begins a refresh
+                        // operation) to be made on a single connection."
+                        // TODO: So should an idle determination actually be
+                        // made in the service which as that is the layer at
+                        // which we interpret DNS messages, rather than here
+                        // where DNS message are just opaque byte sequences?
                         Either::Right((Err(_elapsed), _)) => {
                             eprintln!("Stream read timed out");
-                            return Err(ConnectionEvent::ConnectionClosed);
+                            return Err(
+                                ConnectionEvent::TerminateConnectionWithFlush(
+                                    None,
+                                ),
+                            );
                         }
                     }
                 }
@@ -791,12 +937,18 @@ where
                 match command {
                     ServiceCommand::CloseConnection => unreachable!(),
                     ServiceCommand::Init => unreachable!(),
-                    ServiceCommand::Reconfigure { read_timeout } => {
-                        eprintln!("Server connection timeout reconfigured to {read_timeout:?}");
-                        state.read_timeout = read_timeout;
+                    ServiceCommand::Reconfigure { idle_timeout } => {
+                        eprintln!("Server connection timeout reconfigured to {idle_timeout:?}");
+                        state.idle_timeout =
+                            chrono::Duration::from_std(idle_timeout).unwrap();
+                        // TOOD: Check this unwrap()
                     }
                     ServiceCommand::Shutdown => {
-                        return Err(ConnectionEvent::ConnectionClosed);
+                        return Err(
+                            ConnectionEvent::TerminateConnectionWithFlush(
+                                None,
+                            ),
+                        );
                     }
                 }
             }
@@ -824,7 +976,9 @@ where
             // This can happen if the command sender is dropped, i.e. the
             // parent server no longer exists but was not cleanly shutdown.
             Either::Left((Err(_err), _incomplete_call_result_fut)) => {
-                return Err(ConnectionEvent::ConnectionClosed);
+                return Err(ConnectionEvent::TerminateConnectionWithFlush(
+                    None,
+                ));
             }
 
             // It is no longer possible to read the results of requests
@@ -835,7 +989,9 @@ where
             // request.
             // TODO: Describe when this can occur.
             Either::Right((None, _incomplete_command_changed_fut)) => {
-                return Err(ConnectionEvent::ConnectionClosed);
+                return Err(ConnectionEvent::TerminateConnectionWithFlush(
+                    None,
+                ));
             }
 
             // The service finished processing a request so apply the
@@ -955,6 +1111,7 @@ where
                 eprintln!("Write error: {err}");
                 todo!()
             }
+            state.response_queue_emptied();
             self.metrics
                 .num_pending_writes
                 .fetch_sub(1, Ordering::Relaxed);
@@ -963,11 +1120,13 @@ where
             match cmd {
                 ServiceCommand::CloseConnection { .. } => todo!(),
                 ServiceCommand::Init => todo!(),
-                ServiceCommand::Reconfigure { read_timeout } => {
+                ServiceCommand::Reconfigure { idle_timeout } => {
                     eprintln!(
-                        "Reconfigured connection timeout to {read_timeout:?}"
+                        "Reconfigured connection timeout to {idle_timeout:?}"
                     );
-                    state.read_timeout = read_timeout
+                    state.idle_timeout =
+                        chrono::Duration::from_std(idle_timeout).unwrap();
+                    // TODO: Check this unwrap()
                 }
                 ServiceCommand::Shutdown => {
                     state.stream_tx.shutdown().await.unwrap()
@@ -1305,7 +1464,7 @@ mod tests {
             Poll::Ready(Ok(CallResult::with_feedback(
                 StreamTarget::new_vec(),
                 ServiceCommand::Reconfigure {
-                    read_timeout: Duration::from_millis(5000),
+                    idle_timeout: Duration::from_millis(5000),
                 },
             )))
         }
