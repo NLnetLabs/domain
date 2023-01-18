@@ -70,7 +70,7 @@ pub async fn lookup_srv(
         Err(_) => return Err(SrvError::LongName),
     };
     let answer = resolver.query((full_name, Rtype::Srv)).await?;
-    FoundSrvs::new(&answer.as_ref().for_slice(), name, fallback_port)
+    FoundSrvs::new(answer.as_ref().for_slice(), name, fallback_port)
 }
 
 //------------ FoundSrvs -----------------------------------------------------
@@ -129,7 +129,7 @@ impl FoundSrvs {
 
 impl FoundSrvs {
     fn new(
-        answer: &Message<&[u8]>,
+        answer: &Message<[u8]>,
         fallback_name: impl ToDname,
         fallback_port: u16,
     ) -> Result<Option<Self>, SrvError> {
@@ -154,7 +154,7 @@ impl FoundSrvs {
     }
 
     fn process_records(
-        answer: &Message<&[u8]>,
+        answer: &Message<[u8]>,
         name: &impl ToDname,
     ) -> Result<Vec<SrvItem>, SrvError> {
         let mut res = Vec::new();
@@ -169,7 +169,7 @@ impl FoundSrvs {
 
     fn process_additional(
         items: &mut [SrvItem],
-        answer: &Message<&[u8]>,
+        answer: &Message<[u8]>,
     ) -> Result<(), SrvError> {
         let additional = answer.additional()?;
         for item in items {

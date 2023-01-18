@@ -1287,11 +1287,12 @@ impl<K: AsRef<Key>> SigningContext<K> {
 //------------ MessageTsig ---------------------------------------------------
 
 /// The TSIG record of a message.
-struct MessageTsig<'a, Octs: Octets> {
+struct MessageTsig<'a, Octs: Octets + 'a> {
     /// The actual record.
+    #[allow(clippy::type_complexity)]
     record: Record<
-        ParsedDname<'a, Octs>,
-        Tsig<<Octs as Octets>::Range<'a>, ParsedDname<'a, Octs>>,
+        ParsedDname<Octs::Range<'a>>,
+        Tsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>,
     >,
 
     /// The index of the start of the record.
@@ -1336,10 +1337,10 @@ impl<'a, Octs: Octets> MessageTsig<'a, Octs> {
     }
 }
 
-impl<'a, Octs: Octets> ops::Deref for MessageTsig<'a, Octs> {
+impl<'a, Octs: Octets + 'a> ops::Deref for MessageTsig<'a, Octs> {
     type Target = Record<
-        ParsedDname<'a, Octs>,
-        Tsig<<Octs as Octets>::Range<'a>, ParsedDname<'a, Octs>>,
+        ParsedDname<Octs::Range<'a>>,
+        Tsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>,
     >;
 
     fn deref(&self) -> &Self::Target {
