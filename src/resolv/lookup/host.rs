@@ -180,22 +180,12 @@ where
 //------------ FoundHostsIter ------------------------------------------------
 
 /// An iterator over the IP addresses returned by a host lookup.
+#[derive(Clone)]
 pub struct FoundHostsIter<'a> {
     aaaa_name: Option<ParsedDname<&'a [u8]>>,
     a_name: Option<ParsedDname<&'a [u8]>>,
     aaaa: Option<RecordIter<'a, [u8], Aaaa>>,
     a: Option<RecordIter<'a, [u8], A>>,
-}
-
-impl<'a> Clone for FoundHostsIter<'a> {
-    fn clone(&self) -> Self {
-        FoundHostsIter {
-            aaaa_name: self.aaaa_name.clone(),
-            a_name: self.a_name.clone(),
-            aaaa: self.aaaa.clone(),
-            a: self.a.clone(),
-        }
-    }
 }
 
 impl<'a> Iterator for FoundHostsIter<'a> {
@@ -223,18 +213,10 @@ impl<'a> Iterator for FoundHostsIter<'a> {
 //------------ FoundHostsSocketIter ------------------------------------------
 
 /// An iterator over socket addresses derived from a host lookup.
+#[derive(Clone)]
 pub struct FoundHostsSocketIter<'a> {
     iter: FoundHostsIter<'a>,
     port: u16,
-}
-
-impl<'a> Clone for FoundHostsSocketIter<'a> {
-    fn clone(&self) -> Self {
-        FoundHostsSocketIter {
-            iter: self.iter.clone(),
-            port: self.port,
-        }
-    }
 }
 
 impl<'a> Iterator for FoundHostsSocketIter<'a> {
