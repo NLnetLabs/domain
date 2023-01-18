@@ -110,7 +110,7 @@ impl<R: Resolver> FoundHosts<R>
 where
     R::Octets: Octets,
 {
-    pub fn qname(&self) -> ParsedDname<'_, R::Octets> {
+    pub fn qname(&self) -> ParsedDname<<R::Octets as Octets>::Range<'_>> {
         self.answer()
             .as_ref()
             .first_question()
@@ -122,37 +122,40 @@ where
     ///
     /// # Notes
     ///
-    /// This method expects the canonical name to be same in both A/AAAA responses,
-    /// if it isn't, it's going to return a canonical name for one of them.
-    pub fn canonical_name(&self) -> ParsedDname<'_, R::Octets> {
+    /// This method expects the canonical name to be same in both A/AAAA
+    /// responses, if it isn't, it's going to return a canonical name for
+    /// one of them.
+    pub fn canonical_name(
+        &self,
+    ) -> ParsedDname<<R::Octets as Octets>::Range<'_>> {
         self.answer().as_ref().canonical_name().unwrap()
     }
 
     /// Returns an iterator over the IP addresses returned by the lookup.
-    pub fn iter(&self) -> FoundHostsIter<'_, R::Octets> {
+    pub fn iter(&self) -> FoundHostsIter {
         FoundHostsIter {
             aaaa_name: self
                 .aaaa
                 .as_ref()
                 .ok()
-                .and_then(|msg| msg.as_ref().canonical_name()),
+                .and_then(|msg| msg.as_ref().for_slice().canonical_name()),
             a_name: self
                 .a
                 .as_ref()
                 .ok()
-                .and_then(|msg| msg.as_ref().canonical_name()),
+                .and_then(|msg| msg.as_ref().for_slice().canonical_name()),
             aaaa: {
                 self.aaaa
                     .as_ref()
                     .ok()
-                    .and_then(|msg| msg.as_ref().answer().ok())
+                    .and_then(|msg| msg.as_ref().for_slice().answer().ok())
                     .map(|answer| answer.limit_to::<Aaaa>())
             },
             a: {
                 self.a
                     .as_ref()
                     .ok()
-                    .and_then(|msg| msg.as_ref().answer().ok())
+                    .and_then(|msg| msg.as_ref().for_slice().answer().ok())
                     .map(|answer| answer.limit_to::<A>())
             },
         }
@@ -166,7 +169,7 @@ where
     pub fn port_iter(
         &self,
         port: u16,
-    ) -> FoundHostsSocketIter<'_, R::Octets> {
+    ) -> FoundHostsSocketIter {
         FoundHostsSocketIter {
             iter: self.iter(),
             port,
@@ -177,38 +180,38 @@ where
 //------------ FoundHostsIter ------------------------------------------------
 
 /// An iterator over the IP addresses returned by a host lookup.
-pub struct FoundHostsIter<'a, Octs> {
-    aaaa_name: Option<ParsedDname<'a, Octs>>,
-    a_name: Option<ParsedDname<'a, Octs>>,
-    aaaa: Option<RecordIter<'a, Octs, Aaaa>>,
-    a: Option<RecordIter<'a, Octs, A>>,
+pub struct FoundHostsIter<'a> {
+    aaaa_name: Option<ParsedDname<&'a [u8]>>,
+    a_name: Option<ParsedDname<&'a [u8]>>,
+    aaaa: Option<RecordIter<'a, [u8], Aaaa>>,
+    a: Option<RecordIter<'a, [u8], A>>,
 }
 
-impl<'a, Octs> Clone for FoundHostsIter<'a, Octs> {
+impl<'a> Clone for FoundHostsIter<'a> {
     fn clone(&self) -> Self {
         FoundHostsIter {
-            aaaa_name: self.aaaa_name,
-            a_name: self.a_name,
+            aaaa_name: self.aaaa_name.clone(),
+            a_name: self.a_name.clone(),
             aaaa: self.aaaa.clone(),
             a: self.a.clone(),
         }
     }
 }
 
-impl<'a, Octs: Octets> Iterator for FoundHostsIter<'a, Octs> {
+impl<'a> Iterator for FoundHostsIter<'a> {
     type Item = IpAddr;
 
     fn next(&mut self) -> Option<IpAddr> {
         while let Some(res) = self.aaaa.as_mut().and_then(Iterator::next) {
             if let Ok(record) = res {
-                if Some(*record.owner()) == self.aaaa_name {
+                if Some(record.owner()) == self.aaaa_name.as_ref() {
                     return Some(record.data().addr().into());
                 }
             }
         }
         while let Some(res) = self.a.as_mut().and_then(Iterator::next) {
             if let Ok(record) = res {
-                if Some(*record.owner()) == self.a_name {
+                if Some(record.owner()) == self.a_name.as_ref() {
                     return Some(record.data().addr().into());
                 }
             }
@@ -220,12 +223,12 @@ impl<'a, Octs: Octets> Iterator for FoundHostsIter<'a, Octs> {
 //------------ FoundHostsSocketIter ------------------------------------------
 
 /// An iterator over socket addresses derived from a host lookup.
-pub struct FoundHostsSocketIter<'a, Octs> {
-    iter: FoundHostsIter<'a, Octs>,
+pub struct FoundHostsSocketIter<'a> {
+    iter: FoundHostsIter<'a>,
     port: u16,
 }
 
-impl<'a, Octs> Clone for FoundHostsSocketIter<'a, Octs> {
+impl<'a> Clone for FoundHostsSocketIter<'a> {
     fn clone(&self) -> Self {
         FoundHostsSocketIter {
             iter: self.iter.clone(),
@@ -234,7 +237,7 @@ impl<'a, Octs> Clone for FoundHostsSocketIter<'a, Octs> {
     }
 }
 
-impl<'a, Octs: Octets> Iterator for FoundHostsSocketIter<'a, Octs> {
+impl<'a> Iterator for FoundHostsSocketIter<'a> {
     type Item = SocketAddr;
 
     fn next(&mut self) -> Option<SocketAddr> {
@@ -244,10 +247,11 @@ impl<'a, Octs: Octets> Iterator for FoundHostsSocketIter<'a, Octs> {
     }
 }
 
-impl<'a, Octs: Octets> ToSocketAddrs for FoundHostsSocketIter<'a, Octs> {
+impl<'a> ToSocketAddrs for FoundHostsSocketIter<'a> {
     type Iter = Self;
 
     fn to_socket_addrs(&self) -> io::Result<Self> {
         Ok(self.clone())
     }
 }
+

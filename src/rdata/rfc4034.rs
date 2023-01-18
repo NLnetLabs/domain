@@ -215,7 +215,6 @@ impl<SrcOcts> Dnskey<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Dnskey<Octs>, PushError>
     where
         Octs: OctetsFrom<SrcOcts>,
-        PushError: From<Octs::Error>,
     {
         let Self {
             flags,
@@ -228,7 +227,7 @@ impl<SrcOcts> Dnskey<SrcOcts> {
             flags,
             protocol,
             algorithm,
-            public_key.try_octets_into()?,
+            public_key.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
@@ -449,12 +448,13 @@ impl<Name> ProtoRrsig<Name> {
     }
 }
 
-impl<'a, Octs: Octets> ProtoRrsig<ParsedDname<'a, Octs>> {
+impl<Octs> ProtoRrsig<ParsedDname<Octs>> {
     pub fn flatten_into<Target>(
         self,
     ) -> Result<ProtoRrsig<Dname<Target>>, PushError>
     where
-        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        Octs: Octets,
+        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
         <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self {
@@ -686,15 +686,16 @@ impl<Octs, Name> Rrsig<Octs, Name> {
     }
 }
 
-impl<'a, Octs, NOcts: Octets> Rrsig<Octs, ParsedDname<'a, NOcts>> {
+impl<Octs, NOcts> Rrsig<Octs, ParsedDname<NOcts>> {
     pub fn flatten_into<Target>(
         self,
     ) -> Result<Rrsig<Target, Dname<Target>>, PushError>
     where
-        Target: OctetsFrom<Octs> + OctetsFrom<NOcts::Range<'a>>,
-        Target: FromBuilder,
+        NOcts: Octets,
+        Target: OctetsFrom<Octs>
+            + for<'a> OctetsFrom<NOcts::Range<'a>>
+            + FromBuilder,
         <Target as FromBuilder>::Builder: EmptyBuilder,
-        PushError: From<<Target as OctetsFrom<Octs>>::Error>,
     {
         let Self {
             type_covered,
@@ -717,15 +718,15 @@ impl<'a, Octs, NOcts: Octets> Rrsig<Octs, ParsedDname<'a, NOcts>> {
             inception,
             key_tag,
             signer_name.flatten_into()?,
-            Target::try_octets_from(signature)?,
+            Target::try_octets_from(signature).map_err(Into::into)?,
         ))
     }
 }
 
-impl<'a, Octs: Octets + ?Sized>
-    Rrsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
-{
-    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs> Rrsig<Octs, ParsedDname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
         let type_covered = Rtype::parse(parser)?;
         let algorithm = SecAlg::parse(parser)?;
         let labels = u8::parse(parser)?;
@@ -930,7 +931,7 @@ impl<Octs, Name> RecordData for Rrsig<Octs, Name> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Rrsig<Octs::Range<'a>, ParsedDname<'a, Octs>>
+    for Rrsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
@@ -1112,25 +1113,29 @@ impl<Octs, Name> Nsec<Octs, Name> {
     }
 }
 
-impl<'a, Octs, NOcts: Octets> Nsec<Octs, ParsedDname<'a, NOcts>> {
+impl<Octs, NOcts> Nsec<Octs, ParsedDname<NOcts>> {
     pub fn flatten_into<Target>(
         self,
     ) -> Result<Nsec<Target, Dname<Target>>, PushError>
     where
-        Target: OctetsFrom<Octs> + OctetsFrom<NOcts::Range<'a>> + FromBuilder,
+        NOcts: Octets,
+        Target: OctetsFrom<Octs>
+            + for<'a> OctetsFrom<NOcts::Range<'a>>
+            + FromBuilder,
         <Target as FromBuilder>::Builder: EmptyBuilder,
-        PushError: From<<Target as OctetsFrom<Octs>>::Error>,
     {
         let Self { next_name, types } = self;
         Ok(Nsec::new(
             next_name.flatten_into()?,
-            types.try_octets_into()?,
+            types.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Nsec<Octs::Range<'a>, ParsedDname<'a, Octs>> {
-    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs: AsRef<[u8]>> Nsec<Octs, ParsedDname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
         Ok(Nsec::new(
             ParsedDname::parse(parser)?,
             RtypeBitmap::parse(parser)?,
@@ -1241,7 +1246,7 @@ impl<Octs, Name> RecordData for Nsec<Octs, Name> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-    for Nsec<Octs::Range<'a>, ParsedDname<'a, Octs>>
+    for Nsec<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
@@ -1419,7 +1424,6 @@ impl<SrcOcts> Ds<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Ds<Octs>, PushError>
     where
         Octs: OctetsFrom<SrcOcts>,
-        PushError: From<Octs::Error>,
     {
         let Self {
             key_tag,
@@ -1431,7 +1435,7 @@ impl<SrcOcts> Ds<SrcOcts> {
             key_tag,
             algorithm,
             digest_type,
-            digest.try_octets_into()?,
+            digest.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
@@ -1688,10 +1692,7 @@ impl<Octs> RtypeBitmap<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
-    pub fn as_slice(&self) -> &[u8]
-    where
-        Octs: AsRef<[u8]>,
-    {
+    pub fn as_slice(&self) -> &[u8] {
         self.0.as_ref()
     }
 
@@ -1699,10 +1700,7 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
         RtypeBitmapIter::new(self.0.as_ref())
     }
 
-    pub fn contains(&self, rtype: Rtype) -> bool
-    where
-        Octs: AsRef<[u8]>,
-    {
+    pub fn contains(&self, rtype: Rtype) -> bool {
         let (block, octet, mask) = split_rtype(rtype);
         let mut data = self.0.as_ref();
         while !data.is_empty() {
@@ -1731,10 +1729,7 @@ impl<Octs: AsRef<[u8]>> RtypeBitmap<Octs> {
     pub fn compose<Target: OctetsBuilder + ?Sized>(
         &self,
         target: &mut Target,
-    ) -> Result<(), Target::AppendError>
-    where
-        Octs: AsRef<[u8]>,
-    {
+    ) -> Result<(), Target::AppendError> {
         target.append_slice(self.0.as_ref())
     }
 }

@@ -212,7 +212,7 @@ dname_type_well_known! {
     /// name alias.
     ///
     /// The CNAME type is defined in RFC 1035, section 3.3.1.
-    (Cname, Cname, cname)
+    (Cname, Cname, cname, into_cname)
 }
 
 //------------ Hinfo --------------------------------------------------------
@@ -282,10 +282,12 @@ impl<SrcOcts> Hinfo<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Hinfo<Octs>, PushError>
     where
         Octs: OctetsFrom<SrcOcts>,
-        PushError: From<Octs::Error>,
     {
         let Self { cpu, os } = self;
-        Ok(Hinfo::new(cpu.try_octets_into()?, os.try_octets_into()?))
+        Ok(Hinfo::new(
+            cpu.try_octets_into().map_err(Into::into)?,
+            os.try_octets_into().map_err(Into::into)?,
+        ))
     }
 }
 
@@ -440,7 +442,7 @@ dname_type_well_known! {
     /// The experimental MB record specifies a host that serves a mailbox.
     ///
     /// The MB record type is defined in RFC 1035, section 3.3.3.
-    (Mb, Mb, madname)
+    (Mb, Mb, madname, into_madname)
 }
 
 //------------ Md -----------------------------------------------------------
@@ -455,7 +457,7 @@ dname_type_well_known! {
     /// or convert them into an Mx record at preference 0.
     ///
     /// The MD record type is defined in RFC 1035, section 3.3.4.
-    (Md, Md, madname)
+    (Md, Md, madname, into_madname)
 }
 
 //------------ Mf -----------------------------------------------------------
@@ -470,7 +472,7 @@ dname_type_well_known! {
     /// or convert them into an Mx record at preference 10.
     ///
     /// The MF record type is defined in RFC 1035, section 3.3.5.
-    (Mf, Mf, madname)
+    (Mf, Mf, madname, into_madname)
 }
 
 //------------ Mg -----------------------------------------------------------
@@ -484,7 +486,7 @@ dname_type_well_known! {
     /// The MG record is experimental.
     ///
     /// The MG record type is defined in RFC 1035, section 3.3.6.
-    (Mg, Mg, madname)
+    (Mg, Mg, madname, into_madname)
 }
 
 //------------ Minfo --------------------------------------------------------
@@ -546,12 +548,12 @@ impl<N> Minfo<N> {
     }
 }
 
-impl<'a, Octs: Octets> Minfo<ParsedDname<'a, Octs>> {
+impl<Octs: Octets> Minfo<ParsedDname<Octs>> {
     pub fn flatten_into<Target>(
         self,
     ) -> Result<Minfo<Dname<Target>>, PushError>
     where
-        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
         <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self { rmailbx, emailbx } = self;
@@ -559,8 +561,10 @@ impl<'a, Octs: Octets> Minfo<ParsedDname<'a, Octs>> {
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Minfo<ParsedDname<'a, Octs>> {
-    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs> Minfo<ParsedDname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
         Ok(Self::new(
             ParsedDname::parse(parser)?,
             ParsedDname::parse(parser)?,
@@ -643,9 +647,8 @@ impl<N> RecordData for Minfo<N> {
     }
 }
 
-impl<'a, Octs> ParseRecordData<'a, Octs> for Minfo<ParsedDname<'a, Octs>>
-where
-    Octs: Octets + ?Sized,
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
+    for Minfo<ParsedDname<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
@@ -709,7 +712,7 @@ dname_type_well_known! {
     /// The MR record is experimental.
     ///
     /// The MR record type is defined in RFC 1035, section 3.3.8.
-    (Mr, Mr, newname)
+    (Mr, Mr, newname, into_newname)
 }
 
 //------------ Mx -----------------------------------------------------------
@@ -762,10 +765,10 @@ impl<N> Mx<N> {
     }
 }
 
-impl<'a, Octs: Octets> Mx<ParsedDname<'a, Octs>> {
+impl<Octs: Octets> Mx<ParsedDname<Octs>> {
     pub fn flatten_into<Target>(self) -> Result<Mx<Dname<Target>>, PushError>
     where
-        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
         <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self {
@@ -776,8 +779,10 @@ impl<'a, Octs: Octets> Mx<ParsedDname<'a, Octs>> {
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Mx<ParsedDname<'a, Octs>> {
-    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs> Mx<ParsedDname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
         Ok(Self::new(u16::parse(parser)?, ParsedDname::parse(parser)?))
     }
 }
@@ -857,9 +862,8 @@ impl<N> RecordData for Mx<N> {
     }
 }
 
-impl<'a, Octs> ParseRecordData<'a, Octs> for Mx<ParsedDname<'a, Octs>>
-where
-    Octs: Octets + ?Sized,
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
+    for Mx<ParsedDname<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
@@ -920,7 +924,7 @@ dname_type_well_known! {
     /// NS records specify hosts that are authoritative for a class and domain.
     ///
     /// The NS record type is defined in RFC 1035, section 3.3.11.
-    (Ns, Ns, nsdname)
+    (Ns, Ns, nsdname, into_nsdname)
 }
 
 //------------ Null ---------------------------------------------------------
@@ -989,9 +993,8 @@ impl<SrcOcts> Null<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Null<Octs>, PushError>
     where
         Octs: OctetsFrom<SrcOcts>,
-        PushError: From<Octs::Error>,
     {
-        Ok(Null::new(self.data.try_octets_into()?))
+        Ok(Null::new(self.data.try_octets_into().map_err(Into::into)?))
     }
 }
 
@@ -1159,13 +1162,7 @@ dname_type_well_known! {
     /// in the domain space.
     ///
     /// The PTR record type is defined in RFC 1035, section 3.3.12.
-    (Ptr, Ptr, ptrdname)
-}
-
-impl<N> Ptr<N> {
-    pub fn into_ptrdname(self) -> N {
-        self.ptrdname
-    }
+    (Ptr, Ptr, ptrdname, into_ptrdname)
 }
 
 //------------ Soa ----------------------------------------------------------
@@ -1274,10 +1271,11 @@ impl<N> Soa<N> {
     }
 }
 
-impl<'a, Octs: Octets> Soa<ParsedDname<'a, Octs>> {
+impl<Octs> Soa<ParsedDname<Octs>> {
     pub fn flatten_into<Target>(self) -> Result<Soa<Dname<Target>>, PushError>
     where
-        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        Octs: Octets,
+        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
         <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self {
@@ -1302,8 +1300,10 @@ impl<'a, Octs: Octets> Soa<ParsedDname<'a, Octs>> {
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Soa<ParsedDname<'a, Octs>> {
-    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs> Soa<ParsedDname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
         Ok(Self::new(
             ParsedDname::parse(parser)?,
             ParsedDname::parse(parser)?,
@@ -1461,9 +1461,8 @@ impl<N> RecordData for Soa<N> {
     }
 }
 
-impl<'a, Octs> ParseRecordData<'a, Octs> for Soa<ParsedDname<'a, Octs>>
-where
-    Octs: Octets + ?Sized,
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
+    for Soa<ParsedDname<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,
@@ -1670,9 +1669,8 @@ impl<SrcOcts> Txt<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Txt<Octs>, PushError>
     where
         Octs: OctetsFrom<SrcOcts>,
-        PushError: From<Octs::Error>,
     {
-        Ok(Txt(self.0.try_octets_into()?))
+        Ok(Txt(self.0.try_octets_into().map_err(Into::into)?))
     }
 }
 

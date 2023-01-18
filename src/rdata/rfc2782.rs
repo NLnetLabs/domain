@@ -82,11 +82,11 @@ impl<N> Srv<N> {
     }
 }
 
-impl<'a, Octs> Srv<ParsedDname<'a, Octs>> {
+impl<Octs> Srv<ParsedDname<Octs>> {
     pub fn flatten_into<Target>(self) -> Result<Srv<Dname<Target>>, PushError>
     where
         Octs: Octets,
-        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
         <Target as FromBuilder>::Builder: EmptyBuilder,
     {
         let Self {
@@ -99,8 +99,10 @@ impl<'a, Octs> Srv<ParsedDname<'a, Octs>> {
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> Srv<ParsedDname<'a, Octs>> {
-    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs> Srv<ParsedDname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
         Ok(Self::new(
             u16::parse(parser)?,
             u16::parse(parser)?,
@@ -213,9 +215,8 @@ impl<N> RecordData for Srv<N> {
     }
 }
 
-impl<'a, Octs> ParseRecordData<'a, Octs> for Srv<ParsedDname<'a, Octs>>
-where
-    Octs: Octets + ?Sized,
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
+    for Srv<ParsedDname<Octs::Range<'a>>>
 {
     fn parse_rdata(
         rtype: Rtype,

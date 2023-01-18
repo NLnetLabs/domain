@@ -83,14 +83,16 @@ impl<O, N> $name<O, N> {
     }
 }
 
-impl<'a, Octs: Octets> $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+impl<Octs, NOcts> $name<Octs, ParsedDname<NOcts>> {
     pub fn flatten_into<Target>(
         self,
     ) -> Result<$name<Target, Dname<Target>>, PushError>
     where
-        Target: OctetsFrom<Octs::Range<'a>> + FromBuilder,
+        NOcts: Octets,
+        Target: OctetsFrom<Octs>
+            + for<'a> OctetsFrom<NOcts::Range<'a>>
+            + FromBuilder,
         <Target as FromBuilder>::Builder: EmptyBuilder,
-        PushError: From<<Target as OctetsFrom<Octs::Range<'a>>>::Error>,
     {
         let Self {
             priority,
@@ -101,13 +103,15 @@ impl<'a, Octs: Octets> $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
         Ok($name::new(
             priority,
             target.flatten_into()?,
-            params.try_octets_into()?,
+            params.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
-    pub fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+impl<Octs> $name<Octs, ParsedDname<Octs>> {
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
+        parser: &mut Parser<'a, Src>
+    ) -> Result<Self, ParseError> {
         let priority = u16::parse(parser)?;
         let target = ParsedDname::parse(parser)?;
         let len = parser.remaining();
@@ -169,7 +173,7 @@ impl<O, N> RecordData for $name<O, N> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
-for $name<Octs::Range<'a>, ParsedDname<'a, Octs>> {
+for $name<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
     fn parse_rdata(
         rtype: Rtype, parser: &mut Parser<'a, Octs>
     ) -> Result<Option<Self>, ParseError> {

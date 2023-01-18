@@ -155,7 +155,6 @@ impl<SrcOcts> Nsec3<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Nsec3<Octs>, PushError>
     where
         Octs: OctetsFrom<SrcOcts>,
-        PushError: From<Octs::Error>,
     {
         let Self {
             hash_algorithm,
@@ -169,9 +168,9 @@ impl<SrcOcts> Nsec3<SrcOcts> {
             hash_algorithm,
             flags,
             iterations,
-            salt.try_octets_into()?,
-            next_owner.try_octets_into()?,
-            types.try_octets_into()?,
+            salt.try_octets_into().map_err(Into::into)?,
+            next_owner.try_octets_into().map_err(Into::into)?,
+            types.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
@@ -479,7 +478,6 @@ impl<SrcOcts> Nsec3param<SrcOcts> {
     pub fn flatten_into<Octs>(self) -> Result<Nsec3param<Octs>, PushError>
     where
         Octs: OctetsFrom<SrcOcts>,
-        PushError: From<Octs::Error>,
     {
         let Self {
             hash_algorithm,
@@ -491,7 +489,7 @@ impl<SrcOcts> Nsec3param<SrcOcts> {
             hash_algorithm,
             flags,
             iterations,
-            salt.try_octets_into()?,
+            salt.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
