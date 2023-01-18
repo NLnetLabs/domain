@@ -43,7 +43,6 @@
 use core::{
     future::poll_fn,
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll},
 };
 use std::{boxed::Box, io, sync::Mutex, time::Duration};
 
@@ -198,12 +197,12 @@ pub trait Service<RequestOctets: AsRef<[u8]>> {
         > + Send
         + 'static;
 
-    fn poll_ready(
-        &self,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Result<(), ServiceError<Self::Error>>> {
-        Poll::Ready(Ok(()))
-    }
+    // fn poll_ready(
+    //     &self,
+    //     _cx: &mut Context<'_>,
+    // ) -> Poll<Result<(), ServiceError<Self::Error>>> {
+    //     Poll::Ready(Ok(()))
+    // }
 
     fn call(
         &self,
@@ -214,32 +213,37 @@ pub trait Service<RequestOctets: AsRef<[u8]>> {
     >;
 }
 
-/*impl<F, RequestOctets, ResponseOctets, Single, Strm> Service<RequestOctets>
-    for F
+impl<F, SrvErr, ReqOct, RespOct, Sing, Strm> Service<ReqOct> for F
 where
-    F: Fn(Message<RequestOctets>) -> Transaction<Single, Strm>,
-    RequestOctets: AsRef<[u8]>,
-    ResponseOctets:
+    F: Fn(
+        Message<ReqOct>,
+    ) -> Result<Transaction<Sing, Strm>, ServiceError<SrvErr>>,
+    ReqOct: AsRef<[u8]>,
+    RespOct:
         OctetsBuilder + Send + Sync + 'static + std::convert::AsRef<[u8]>,
-    Single: Future<Output = Result<StreamTarget<ResponseOctets>, io::Error>>
+    Sing: Future<Output = Result<CallResult<RespOct>, ServiceError<SrvErr>>>
         + Send
         + 'static,
-    Strm: Stream<Item = Result<StreamTarget<ResponseOctets>, io::Error>>
+    Strm: Stream<Item = Result<CallResult<RespOct>, ServiceError<SrvErr>>>
         + Send
         + 'static,
+    SrvErr: Send + Sync + 'static,
 {
-    type Error = ();
-    type ResponseOctets = ResponseOctets;
-    type Single = Single;
+    type Error = SrvErr;
+    type ResponseOctets = RespOct;
+    type Single = Sing;
     type Stream = Strm;
 
     fn call(
         &self,
-        message: Message<RequestOctets>,
-    ) -> Transaction<Self::Single, Self::Stream> {
+        message: Message<ReqOct>,
+    ) -> Result<
+        Transaction<Self::Single, Self::Stream>,
+        ServiceError<Self::Error>,
+    > {
         (*self)(message)
     }
-}*/
+}
 
 //------------ Transaction ---------------------------------------------------
 
@@ -787,8 +791,9 @@ where
                 match command {
                     ServiceCommand::CloseConnection => unreachable!(),
                     ServiceCommand::Init => unreachable!(),
-                    ServiceCommand::Reconfigure { read_timeout: _ } => {
-                        // TODO
+                    ServiceCommand::Reconfigure { read_timeout } => {
+                        eprintln!("Server connection timeout reconfigured to {read_timeout:?}");
+                        state.read_timeout = read_timeout;
                     }
                     ServiceCommand::Shutdown => {
                         return Err(ConnectionEvent::ConnectionClosed);

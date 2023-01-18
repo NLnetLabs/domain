@@ -1,12 +1,14 @@
 use std::{
+    future::Pending,
     io,
     net::SocketAddr,
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
     task::{Context, Poll},
+    time::Duration,
 };
 
 use domain::{
@@ -18,13 +20,13 @@ use domain::{
     rdata::A,
     serve::{
         server::{
-            BufSource, CallResult, Service, ServiceError, StreamServer,
-            Transaction,
+            BufSource, CallResult, Service, ServiceCommand, ServiceError,
+            StreamServer, Transaction,
         },
         sock::AsyncAccept,
     },
 };
-use futures::{Future, Stream};
+use futures::{stream::Once, Future, Stream};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio_tfo::{TfoListener, TfoStream};
 
@@ -173,6 +175,36 @@ impl AsyncAccept for LocalTfoListener {
     }
 }
 
+fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>> {
+    #[allow(clippy::type_complexity)]
+    fn query(
+        count: Arc<AtomicU8>,
+        message: Message<Vec<u8>>,
+    ) -> Transaction<
+        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError<()>>>,
+        Once<Pending<Result<CallResult<Vec<u8>>, ServiceError<()>>>>,
+    > {
+        let cnt = count
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+                Some(if x > 0 { x - 1 } else { 0 })
+            })
+            .unwrap();
+
+        Transaction::Single(async move {
+            let mut target = StreamTarget::new_vec();
+            target
+                .append_slice(&mk_answer(&message).into_octets())
+                .unwrap();
+            let read_timeout = Duration::from_millis(cnt.into());
+            let cmd = ServiceCommand::Reconfigure { read_timeout };
+            eprintln!("Setting read timeout to {read_timeout:?}")
+            Ok(CallResult::with_feedback(target, cmd))
+        })
+    }
+
+    move |msg| Ok(query(count.clone(), msg))
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     // Demonstrate manually binding to two separate IPv4 and IPv6 sockets and
@@ -215,7 +247,17 @@ async fn main() {
     let tfo_srv =
         Arc::new(StreamServer::new(tfo_listener, VecBufSource, svc));
     let tfo_join_handle = tokio::spawn(tfo_srv.run());
+    // Demonstrate using a simple function instead of a struct as the service
+
+    let listener = TcpListener::bind("127.0.0.1:8082").await.unwrap();
+    let count = Arc::new(AtomicU8::new(100));
+    let svc = service(count).into();
+    let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc));
+    let fn_join_handle = tokio::spawn(srv.run());
+
+    // Keep the services running in the background
 
     let _ = join_handle.await.unwrap().unwrap();
     let _ = tfo_join_handle.await.unwrap().unwrap();
+    let _ = fn_join_handle.await.unwrap().unwrap();
 }
