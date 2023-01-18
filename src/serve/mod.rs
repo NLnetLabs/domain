@@ -5,7 +5,12 @@
 #![cfg(feature = "serve")]
 #![cfg_attr(docsrs, doc(cfg(feature = "serve")))]
 
-pub use self::server::{DgramServer as UdpServer, StreamServer as TcpServer};
+use tokio::net::{TcpListener, UdpSocket};
+
+use self::server::{DgramServer, StreamServer};
+
+pub type UdpServer<Buf, Svc> = DgramServer<UdpSocket, Buf, Svc>;
+pub type TcpServer<Buf, Svc> = StreamServer<TcpListener, Buf, Svc>;
 
 pub mod server;
 pub mod sock;

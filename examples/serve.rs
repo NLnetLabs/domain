@@ -1,16 +1,36 @@
-use bytes::Bytes;
+use std::{
+    io,
+    net::SocketAddr,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    task::{Context, Poll},
+};
+
 use domain::{
     base::{
         iana::{Class, Rcode},
-        Dname, Message, MessageBuilder,
+        octets::OctetsBuilder,
+        Dname, Message, MessageBuilder, StreamTarget,
     },
     rdata::A,
-    serve::TcpServer,
+    serve::{
+        server::{
+            BufSource, CallResult, Service, ServiceError, StreamServer,
+            Transaction,
+        },
+        sock::AsyncAccept,
+    },
 };
+use futures::{Future, Stream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio_tfo::{TfoListener, TfoStream};
 
 // Helper fn to create a dummy response to send back to the client
-fn mk_answer(msg: &Message<Bytes>) -> Message<Bytes> {
-    let res = MessageBuilder::new_bytes();
+fn mk_answer(msg: &Message<Vec<u8>>) -> Message<Vec<u8>> {
+    let res = MessageBuilder::new_vec();
     let mut answer = res.start_answer(msg, Rcode::NoError).unwrap();
     answer
         .push((
@@ -23,14 +43,179 @@ fn mk_answer(msg: &Message<Bytes>) -> Message<Bytes> {
     answer.into_message()
 }
 
+struct VecBufSource;
+
+impl BufSource for VecBufSource {
+    type Output = Vec<u8>;
+
+    fn create_buf(&self) -> Self::Output {
+        vec![0; 1024]
+    }
+
+    fn create_sized(&self, size: usize) -> Self::Output {
+        vec![0; size]
+    }
+}
+
+struct VecSingle(Option<CallResult<Vec<u8>>>);
+
+impl Future for VecSingle {
+    type Output = Result<CallResult<Vec<u8>>, ServiceError<()>>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
+        Poll::Ready(Ok(self.0.take().unwrap()))
+    }
+}
+
+struct NoStream;
+
+impl Stream for NoStream {
+    type Item = Result<CallResult<Vec<u8>>, ServiceError<()>>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        todo!()
+    }
+}
+
+struct MyService;
+
+impl Service<Vec<u8>> for MyService {
+    type Error = ();
+
+    type ResponseOctets = Vec<u8>;
+
+    type Single = VecSingle;
+
+    type Stream = NoStream;
+
+    fn call(
+        &self,
+        message: Message<Vec<u8>>,
+    ) -> Result<
+        Transaction<Self::Single, Self::Stream>,
+        ServiceError<Self::Error>,
+    > {
+        let mut target = StreamTarget::new_vec();
+        target
+            .append_slice(&mk_answer(&message).into_octets())
+            .unwrap();
+        Ok(Transaction::Single(VecSingle(Some(CallResult::new(
+            target,
+        )))))
+    }
+}
+
+struct DoubleListener {
+    a: TcpListener,
+    b: TcpListener,
+    alt: AtomicBool,
+}
+
+impl DoubleListener {
+    fn new(a: TcpListener, b: TcpListener) -> Self {
+        let alt = AtomicBool::new(false);
+        Self { a, b, alt }
+    }
+}
+
+/// Combine two streams into one by interleaving the output of both as it is produced.
+impl AsyncAccept for DoubleListener {
+    type Addr = SocketAddr;
+    type Stream = TcpStream;
+
+    fn poll_accept(
+        &self,
+        cx: &mut Context,
+    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+        let (x, y) = match self.alt.fetch_xor(true, Ordering::SeqCst) {
+            false => (&self.a, &self.b),
+            true => (&self.b, &self.a),
+        };
+
+        match TcpListener::poll_accept(x, cx) {
+            Poll::Ready(res) => Poll::Ready(res),
+            Poll::Pending => TcpListener::poll_accept(y, cx),
+        }
+    }
+}
+
+struct LocalTfoListener(TfoListener);
+
+impl std::ops::DerefMut for LocalTfoListener {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::ops::Deref for LocalTfoListener {
+    type Target = TfoListener;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsyncAccept for LocalTfoListener {
+    type Addr = SocketAddr;
+    type Stream = TfoStream;
+
+    fn poll_accept(
+        &self,
+        cx: &mut Context,
+    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+        TfoListener::poll_accept(self, cx)
+    }
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    /*let (mut srv, _shutdown_tx) = TcpServer::new().unwrap();
+    // Demonstrate manually binding to two separate IPv4 and IPv6 sockets and
+    // then listening on both at once using a single server instance. (e.g.
+    // for on platforms that don't support binding to IPv4 and IPv6 at once
+    // using a single socket).
+    let v4socket = TcpSocket::new_v4().unwrap();
+    v4socket.set_reuseaddr(true).unwrap();
+    v4socket.bind("127.0.0.1:8080".parse().unwrap()).unwrap();
+    let v4listener = v4socket.listen(1024).unwrap();
 
-    loop {
-        //eprintln!()"Getting request...");
-        srv.handle_requests(|req| Ok(mk_answer(&req.query_message())))
-            .await
-            .unwrap();
-    }*/
+    let v6socket = TcpSocket::new_v6().unwrap();
+    v6socket.set_reuseaddr(true).unwrap();
+    v6socket.bind("[::1]:8080".parse().unwrap()).unwrap();
+    let v6listener = v6socket.listen(1024).unwrap();
+
+    let listener = DoubleListener::new(v4listener, v6listener);
+
+    let svc = Arc::new(MyService);
+    let srv =
+        Arc::new(StreamServer::new(listener, VecBufSource, svc.clone()));
+    let join_handle = tokio::spawn(srv.run());
+
+    // Demonstrate listening with TCP Fast Open enabled (via the tokio-tfo crate).
+    // On Linux strace can be used to show that the socket options are indeed
+    // set as expected, e.g.:
+    //
+    //   > strace -e trace=setsockopt cargo run --example serve --features serve,tokio-tfo --release
+    //     Finished release [optimized] target(s) in 0.12s
+    //      Running `target/release/examples/serve`
+    //   setsockopt(6, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
+    //   setsockopt(7, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
+    //   setsockopt(8, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
+    //   setsockopt(8, SOL_TCP, TCP_FASTOPEN, [1024], 4) = 0
+
+    let tfo_listener = TfoListener::bind("127.0.0.1:8081".parse().unwrap())
+        .await
+        .unwrap();
+    let tfo_listener = LocalTfoListener(tfo_listener);
+    let tfo_srv =
+        Arc::new(StreamServer::new(tfo_listener, VecBufSource, svc));
+    let tfo_join_handle = tokio::spawn(tfo_srv.run());
+
+    let _ = join_handle.await.unwrap().unwrap();
+    let _ = tfo_join_handle.await.unwrap().unwrap();
 }

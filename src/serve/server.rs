@@ -1,21 +1,44 @@
 //! Networking for a DNS server.
 //!
-//! DNS servers can be implemented atop various protocols which broadly fall
-//! into two categories: connection-less and connection-oriented.
+//! This module provides server implementations for handling exchange of DNS
+//! messages in the form of byte sequences at the network layer, for both
+//! connection-less! (aka datagram) and connection-oriented (aka stream) based
+//! network protocols.
 //!
-//! Connection-less protocols receive incoming DNS messages independently of
-//! each other with no concept of an established connection. Conversely
-//! connection-oriented protocols have connection setup and tear down phases
-//! used to establish connections between clients and the server and messages
-//! are listened for on a per-connection basis.
+//! Connection-less protocols (e.g. UDP) receive incoming DNS messages
+//! independently of each other with no concept of an established connection,
+//! while connection-oriented protocols have connection setup and tear down
+//! phases used to establish connections (e.g. TCP) between clients and the
+//! server, and messages are listened for on a per-connection basis.
 //!
-//! This module offers a consistent interface to the DNS server implementor
-//! for receiving and responding to DNS messages, irrespective of the
-//! semantics of the underlying transport.
+//! The provided [`DgramServer`] and [`StreamServer`] types are generic over
+//! the low-level socket/stream types used to send and receive via the
+//! network, over the allocation strategy for message buffers, and over the
+//! [`Service`] responsible for interpreting and constructing request and
+//! response byte sequences respectively.
 //!
-//! The DNS server implementor provides a [Service] implementation which
-//! handles received messages and generates responses. The [Service] impl can
-//! be used with any of the server implementations offered by this module.
+//! The `Server` types offer methods for managing the lifetime and
+//! configuration of the server while it is running, e.g. to change the port
+//! being listened upon or to adjust the default timeout used for receipt of
+//! incoming messages. The [`DgramServer`] and [`StreamServer`] types also
+//! collect [`ServerMetrics`] while running to support both diagnostic and
+//! policy use cases.
+//!
+//! A [`Service`] may be used with multiple `Server` impls at the same time,
+//! e.g. to offer a shared cache over both TCP and UDP endpoints. `Server`
+//! instances can be shutdown independently, or collectively by shutting down
+//! the [`Service`] instance that they delegate message handling to.
+//!
+//! When a [`Service`] is called to handle a request the [`CallResult`] can be
+//! either a response byte sequence to write back to the requestor, and/or
+//! feedback to the `Server` handling the request/response to alter its
+//! behaviour in some way, e.g. to adjust the request timeout for the current
+//! connection only (to support the [EDNS(0)] timeout adjustment capability
+//! for example), or to disconnect an abusive client. Response byte sequences
+//! can be packaged in two ways: [`Transaction::Single`] or
+//! [`Transaction::Stream`], the latter being intended to support use cases
+//! such as zone transfer which involves sending multiple messages in response
+//! to a single request.
 
 use core::{
     future::poll_fn,
@@ -52,17 +75,17 @@ use super::sock::{AsyncAccept, AsyncDgramSock};
 
 //------------ ServiceError --------------------------------------------------
 
-pub enum ServerEvent<T, U, V, W> {
+enum ServerEvent<T, U, V, W> {
     Accept(T, U),
     AcceptError(V),
     Command(ServiceCommand),
     CommandError(W),
 }
 
-pub enum ConnectionEvent<T> {
+enum ConnectionEvent<T> {
     ConnectionClosed,
     ReadSucceeded,
-    ReadTimedOut,
+    _ReadTimedOut,
     ServiceError(ServiceError<T>),
 }
 
@@ -70,12 +93,6 @@ pub enum ServiceError<T> {
     ServiceSpecificError(T),
     ShuttingDown,
     Other(String),
-}
-
-impl<T> From<RecvError> for ServiceError<T> {
-    fn from(err: RecvError) -> Self {
-        ServiceError::Other(format!("RecvError: {err}"))
-    }
 }
 
 //------------ ServiceCommand ------------------------------------------------
@@ -307,7 +324,7 @@ where
         }
     }
 
-    pub async fn run(self) -> Result<(), io::Error> {
+    pub async fn run(self: Arc<Self>) -> Result<(), io::Error> {
         loop {
             let (msg, addr) = self.recv_from().await?;
             let msg = match Message::from_octets(msg) {
@@ -412,9 +429,7 @@ where
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    // stream_rx: ReadHalf<Listener::Stream>,
     stream_tx: WriteHalf<Listener::Stream>,
-    // result_q_rx: mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
     result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
     read_timeout: Duration,
 }
@@ -536,6 +551,13 @@ where
     }
 }
 
+enum ProcessActionResult<T> {
+    CommandReceived,
+    CallResultReceived(T),
+}
+
+type CommandNotification = Result<(), RecvError>;
+
 impl<Listener, Buf, Svc> ConnectedStream<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
@@ -613,11 +635,7 @@ where
         command_rx: &mut watch::Receiver<ServiceCommand>,
         state: &mut StreamState<Listener, Buf, Svc>,
         stream_rx: &mut ReadHalf<<Listener as AsyncAccept>::Stream>,
-        result_q_rx: &mut mpsc::Receiver<
-            CallResult<
-                <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
-            >,
-        >,
+        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
         msg_size_buf: &mut <Buf as BufSource>::Output,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         self.transceive_until(
@@ -669,117 +687,160 @@ where
         // the knowledge of how many bytes have been written to the buffer. So
         // we must keep using the same future until it finally resolves when
         // the read is complete or results in an error.
-        let stream_read_fut =
-            timeout(state.read_timeout, stream_rx.read_exact(buf.as_mut()));
-        let mut stream_read_fut = Box::pin(stream_read_fut);
+        'read: loop {
+            let stream_read_fut = timeout(
+                state.read_timeout,
+                stream_rx.read_exact(buf.as_mut()),
+            );
+            let mut stream_read_fut = Box::pin(stream_read_fut);
 
-        loop {
-            // This outer block ensures the mutable reference on command_rx is
-            // dropped so that we can take another one below in order to call
-            // command_rx.borrow_and_update().
-            let check_command = {
-                let command_read_fut = command_rx.changed();
-                pin_mut!(command_read_fut);
-                let result_read_fut = result_q_rx.recv();
-                pin_mut!(result_read_fut);
-                let action_read_fut =
-                    select(command_read_fut, result_read_fut);
+            'while_not_read: loop {
+                // This outer block ensures the mutable reference on command_rx is
+                // dropped so that we can take another one below in order to call
+                // command_rx.borrow_and_update().
+                {
+                    let command_read_fut = command_rx.changed();
+                    let result_read_fut = result_q_rx.recv();
+                    pin_mut!(command_read_fut);
+                    pin_mut!(result_read_fut);
 
-                match select(action_read_fut, stream_read_fut).await {
-                    Either::Left((action, incomplete_stream_read_fut)) => {
-                        match action {
-                            // The parent server sent us a command.
-                            Either::Left((
-                                Ok(_command_changed),
-                                _incomplete_call_result_fut,
-                            )) => {
-                                stream_read_fut = incomplete_stream_read_fut;
-                                true
-                            }
+                    let action_read_fut =
+                        select(command_read_fut, result_read_fut);
 
-                            // There was a problem receiving commands from the parent server.
-                            // This can happen if the command sender is dropped, i.e. the
-                            // parent server no longer exists but was not cleanly shutdown.
-                            Either::Left((
-                                Err(_err),
-                                _incomplete_call_result_fut,
-                            )) => {
-                                return Err(
-                                    ConnectionEvent::ConnectionClosed,
-                                );
-                            }
+                    match select(action_read_fut, stream_read_fut).await {
+                        Either::Left((
+                            action,
+                            incomplete_stream_read_fut,
+                        )) => {
+                            let action_res = self.process_action(action)?;
+                            stream_read_fut = incomplete_stream_read_fut;
 
-                            // It is no longer possible to read the results of requests
-                            // processed by the service because the queue holding those
-                            // results is empty and can no longer be read from. There is
-                            // no point continuing to read from the input stream because
-                            // we will not be able to access the result of processing the
-                            // request.
-                            // TODO: Describe when this can occur.
-                            Either::Right((
-                                None,
-                                _incomplete_command_changed_fut,
-                            )) => {
-                                return Err(
-                                    ConnectionEvent::ConnectionClosed,
-                                );
-                            }
-
-                            // The service finished processing a request so apply the
-                            // call result to ourselves and/or the output stream. Then go
-                            // back to waiting for the stream read to complete or another
-                            // request to finish being processed.
-                            Either::Right((
-                                Some(call_result),
-                                _incomplete_command_changed_fut,
-                            )) => {
-                                self.apply_call_result(state, call_result)
+                            match action_res {
+                                ProcessActionResult::CommandReceived => {
+                                    // handle below to work around double use of &mut ref
+                                }
+                                ProcessActionResult::CallResultReceived(
+                                    call_result,
+                                ) => {
+                                    self.apply_call_result(
+                                        state,
+                                        call_result,
+                                    )
                                     .await;
-                                stream_read_fut = incomplete_stream_read_fut;
-                                false
+                                    continue 'while_not_read;
+                                }
                             }
                         }
-                    }
 
-                    // The stream read succeeded. Return to the caller so that it
-                    // can process the bytes written to the buffer.
-                    Either::Right((Ok(Ok(_size)), _)) => {
-                        return Ok(ConnectionEvent::ReadSucceeded);
-                    }
+                        // The stream read succeeded. Return to the caller so that it
+                        // can process the bytes written to the buffer.
+                        Either::Right((Ok(Ok(_size)), _)) => {
+                            return Ok(ConnectionEvent::ReadSucceeded);
+                        }
 
-                    // The stream read failed. What kind of failure was it? Was it
-                    // transient or permanent? For now assume that the stream can
-                    // no longer be read from.
-                    // TODO: Determine the various kinds of possible failure and
-                    // handle them as appropriate.
-                    Either::Right((Ok(Err(_err)), _)) => {
-                        eprintln!("Stream read failed");
-                        return Err(ConnectionEvent::ConnectionClosed);
-                    }
+                        // The stream read failed. What kind of failure was it? Was it
+                        // transient or permanent? For now assume that the stream can
+                        // no longer be read from.
+                        // TODO: Determine the various kinds of possible failure and
+                        // handle them as appropriate.
+                        Either::Right((Ok(Err(err)), _)) => {
+                            match err.kind() {
+                                io::ErrorKind::UnexpectedEof => {
+                                    // Normal client disconnection
+                                    return Err(
+                                        ConnectionEvent::ConnectionClosed,
+                                    );
+                                }
+                                io::ErrorKind::TimedOut
+                                | io::ErrorKind::Interrupted => {
+                                    // These errors might be recoverable, try again
+                                    println!(
+                                        "Warn: Stream read failed: {err}"
+                                    );
+                                    continue 'read;
+                                }
+                                _ => {
+                                    // Everything else is either unrecoverable or
+                                    // unknown to us at the time of writing and so
+                                    // we can't guess how to handle it, so abort.
+                                    eprintln!(
+                                        "Error: Stream read failed: {err}"
+                                    );
+                                    return Err(
+                                        ConnectionEvent::ConnectionClosed,
+                                    );
+                                }
+                            }
+                        }
 
-                    // The stream read timed out.
-                    // TODO: Determine what to do here.
-                    Either::Right((Err(_elapsed), _)) => {
-                        eprintln!("Stream read timed out");
-                        return Err(ConnectionEvent::ConnectionClosed);
+                        // The stream read timed out.
+                        // TODO: Determine what to do here.
+                        Either::Right((Err(_elapsed), _)) => {
+                            eprintln!("Stream read timed out");
+                            return Err(ConnectionEvent::ConnectionClosed);
+                        }
                     }
                 }
-            };
 
-            // Process any command received from the parent server.
-            if check_command {
+                // Process any command received from the parent server.
                 let command = *command_rx.borrow_and_update();
                 match command {
                     ServiceCommand::CloseConnection => unreachable!(),
                     ServiceCommand::Init => unreachable!(),
                     ServiceCommand::Reconfigure { read_timeout: _ } => {
-                        todo!()
+                        // TODO
                     }
                     ServiceCommand::Shutdown => {
                         return Err(ConnectionEvent::ConnectionClosed);
                     }
                 }
             }
+        }
+    }
+
+    fn process_action<T, U, V>(
+        &self,
+        action: Either<
+            (CommandNotification, U),
+            (Option<CallResult<Svc::ResponseOctets>>, V),
+        >,
+    ) -> Result<
+        ProcessActionResult<CallResult<Svc::ResponseOctets>>,
+        ConnectionEvent<T>,
+    > {
+        match action {
+            // The parent server sent us a command.
+            Either::Left((
+                Ok(_command_changed),
+                _incomplete_call_result_fut,
+            )) => Ok(ProcessActionResult::CommandReceived),
+
+            // There was a problem receiving commands from the parent server.
+            // This can happen if the command sender is dropped, i.e. the
+            // parent server no longer exists but was not cleanly shutdown.
+            Either::Left((Err(_err), _incomplete_call_result_fut)) => {
+                return Err(ConnectionEvent::ConnectionClosed);
+            }
+
+            // It is no longer possible to read the results of requests
+            // processed by the service because the queue holding those
+            // results is empty and can no longer be read from. There is
+            // no point continuing to read from the input stream because
+            // we will not be able to access the result of processing the
+            // request.
+            // TODO: Describe when this can occur.
+            Either::Right((None, _incomplete_command_changed_fut)) => {
+                return Err(ConnectionEvent::ConnectionClosed);
+            }
+
+            // The service finished processing a request so apply the
+            // call result to ourselves and/or the output stream. Then go
+            // back to waiting for the stream read to complete or another
+            // request to finish being processed.
+            Either::Right((
+                Some(call_result),
+                _incomplete_command_changed_fut,
+            )) => Ok(ProcessActionResult::CallResultReceived(call_result)),
         }
     }
 
@@ -879,9 +940,7 @@ where
     async fn apply_call_result(
         &self,
         state: &mut StreamState<Listener, Buf, Svc>,
-        mut call_result: CallResult<
-            <Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets,
-        >,
+        mut call_result: CallResult<Svc::ResponseOctets>,
     ) {
         if let Some(msg) = call_result.response() {
             // TODO: spawn this as a task and serialize access to write with a lock?
