@@ -4,6 +4,21 @@
 
 Breaking Changes
 
+* The generic octets foundation has been moved to a new crate *[octseq]*
+  and completely revamped with Generic Associated Types stabilized in Rust
+  1.65. This required changes all over the code but, hopefully, should
+  result in relatively few changes when using the crate. ([#160])
+* The range, slice, and split methods on the domain name types have changed.
+  They have been merge into a single method taking ranges – except for those
+  on `Dname` that require type changes. The split methods now take references
+  and don’t change `self` anymore. ([#160])
+* The `Parse`, `Compose`, and `Scan` traits have been demoted to mere
+  extension traits for foreign types (primarily the built-in integers, so that
+  you can do things like `u16::parse`). All other types now simply have
+  methods matching the patterns. Where generics are necessary, dedicated
+  traits have been added. E.g., there now are `ParseRecordData` and
+  `ComposeRecordData` traits that are implemented by all record data types.
+  ([#160])
 * Various functions and methods of the `tsig` module now expect the
   current time as an argument to allow use of the module in a no-std
   environment. ([#152])
@@ -12,6 +27,8 @@ Breaking Changes
 
 New
 
+* `Display` impls are now available for all EDNS0 options. ([#157])
+
 Bug Fixes
 
 Other Changes
@@ -19,7 +36,10 @@ Other Changes
 [#109]: https://github.com/NLnetLabs/domain/pull/109
 [#142]: https://github.com/NLnetLabs/domain/pull/142
 [#152]: https://github.com/NLnetLabs/domain/pull/152
+[#157]: https://github.com/NLnetLabs/domain/pull/157
+[#160]: https://github.com/NLnetLabs/domain/pull/160
 [Martin Fischer]: https://push-f.com/
+[octseq]: https://crates.io/crates/octseq
 
 
 ## 0.7.1
