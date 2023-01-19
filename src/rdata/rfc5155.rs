@@ -326,10 +326,10 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3<Octs> {
                 Nsec3HashAlg::COMPOSE_LEN
                     + u8::COMPOSE_LEN
                     + u16::COMPOSE_LEN,
-                self.salt.compose_len().into(),
+                self.salt.compose_len(),
             )
             .expect("long NSEC3")
-            .checked_add(self.next_owner.compose_len().into())
+            .checked_add(self.next_owner.compose_len())
             .expect("long NSEC3")
             .checked_add(self.types.compose_len())
             .expect("long NSEC3"),
@@ -637,7 +637,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Nsec3param<Octs> {
                 Nsec3HashAlg::COMPOSE_LEN
                     + u8::COMPOSE_LEN
                     + u16::COMPOSE_LEN,
-                self.salt.compose_len().into(),
+                self.salt.compose_len(),
             )
             .expect("long NSEC3"),
         )
@@ -746,11 +746,18 @@ impl<Octs: ?Sized> Nsec3Salt<Octs> {
         self.0.as_ref()
     }
 
-    fn compose_len(&self) -> u8
+    fn salt_len(&self) -> u8
     where
         Octs: AsRef<[u8]>,
     {
         self.0.as_ref().len().try_into().expect("long salt")
+    }
+
+    fn compose_len(&self) -> u16
+    where
+        Octs: AsRef<[u8]>,
+    {
+        u16::from(self.salt_len()) + 1
     }
 
     fn compose<Target: Composer /*OctetsBuilder*/ + ?Sized>(
@@ -760,7 +767,7 @@ impl<Octs: ?Sized> Nsec3Salt<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        self.compose_len().compose(target)?;
+        self.salt_len().compose(target)?;
         target.append_slice(self.0.as_ref())
     }
 }
@@ -1149,11 +1156,18 @@ impl<Octs: ?Sized> OwnerHash<Octs> {
         self.0.as_ref()
     }
 
-    fn compose_len(&self) -> u8
+    fn hash_len(&self) -> u8
     where
         Octs: AsRef<[u8]>,
     {
-        self.0.as_ref().len().try_into().expect("long salt")
+        self.0.as_ref().len().try_into().expect("long hash")
+    }
+
+    fn compose_len(&self) -> u16
+    where
+        Octs: AsRef<[u8]>,
+    {
+        u16::from(self.hash_len()) + 1
     }
 
     fn compose<Target: Composer /*OctetsBuilder*/ + ?Sized>(
@@ -1163,7 +1177,7 @@ impl<Octs: ?Sized> OwnerHash<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        self.compose_len().compose(target)?;
+        self.hash_len().compose(target)?;
         target.append_slice(self.0.as_ref())
     }
 }
@@ -1460,3 +1474,51 @@ impl fmt::Display for OwnerHashError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for OwnerHashError {}
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+mod test {
+    use super::super::rfc4034::RtypeBitmapBuilder;
+    use super::*;
+    use crate::base::rdata::test::{
+        test_compose_parse, test_rdlen, test_scan,
+    };
+    use std::vec::Vec;
+
+    #[test]
+    fn nsec3_compose_parse_scan() {
+        let mut rtype = RtypeBitmapBuilder::new_vec();
+        rtype.add(Rtype::A).unwrap();
+        rtype.add(Rtype::Srv).unwrap();
+        let rdata = Nsec3::new(
+            Nsec3HashAlg::Sha1,
+            10,
+            11,
+            Nsec3Salt::from_octets(Vec::from("bar")).unwrap(),
+            OwnerHash::from_octets(Vec::from("foo")).unwrap(),
+            rtype.finalize(),
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Nsec3::parse(parser));
+        test_scan(
+            &["1", "10", "11", "626172", "CPNMU", "A", "SRV"],
+            Nsec3::scan,
+            &rdata,
+        );
+    }
+
+    #[test]
+    fn nsec3param_compose_parse_scan() {
+        let rdata = Nsec3param::new(
+            Nsec3HashAlg::Sha1,
+            10,
+            11,
+            Nsec3Salt::from_octets(Vec::from("bar")).unwrap(),
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Nsec3param::parse(parser));
+        test_scan(&["1", "10", "11", "626172"], Nsec3param::scan, &rdata);
+    }
+}

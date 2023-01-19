@@ -762,7 +762,7 @@ impl<Iter: Iterator, Octets> IterScanner<Iter, Octets> {
 
     /// Returns whether the iterator is exhausted.
     pub fn is_exhausted(&mut self) -> bool {
-        !self.iter.peek().is_some()
+        self.iter.peek().is_none()
     }
 }
 

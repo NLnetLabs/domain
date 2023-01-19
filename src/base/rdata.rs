@@ -464,13 +464,13 @@ impl std::error::Error for LongRecordData {}
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 pub(crate) mod test {
-    use super::*;
     use super::super::scan::{IterScanner, Scanner};
     use super::super::wire::ParseError;
-    use core::fmt::Debug;
-    use std::vec::Vec;
+    use super::*;
     use bytes::{Bytes, BytesMut};
+    use core::fmt::Debug;
     use octseq::builder::infallible;
+    use std::vec::Vec;
 
     /// Check that `rdlen` produces the correct length.
     ///
@@ -493,7 +493,7 @@ pub(crate) mod test {
     pub fn test_compose_parse<In, F, Out>(data: &In, parse: F)
     where
         In: ComposeRecordData + PartialEq<Out> + Debug,
-        F: for<'a> FnOnce(&mut Parser<'a, Bytes>) -> Result<Out, ParseError>,
+        F: FnOnce(&mut Parser<Bytes>) -> Result<Out, ParseError>,
         Out: Debug,
     {
         let mut buf = BytesMut::new();
@@ -505,32 +505,25 @@ pub(crate) mod test {
         assert_eq!(*data, parsed);
     }
 
-    type TestScanner = IterScanner<
-        std::vec::IntoIter<std::string::String>, Vec<u8>
-    >;
+    type TestScanner =
+        IterScanner<std::vec::IntoIter<std::string::String>, Vec<u8>>;
 
     /// Checks scanning.
-    pub fn test_scan<F, T>(
-        input: &[&str],
-        scan: F,
-        expected: &T,
-    )
+    pub fn test_scan<F, T, X>(input: &[&str], scan: F, expected: &X)
     where
         F: FnOnce(
-            &mut TestScanner
+            &mut TestScanner,
         ) -> Result<T, <TestScanner as Scanner>::Error>,
-        T: Debug + PartialEq,
+        T: Debug,
+        X: Debug + PartialEq<T>,
     {
         let mut scanner = IterScanner::new(
-            input.iter().map(|s| {
-                std::string::String::from(*s)
-            }).collect::<Vec<_>>()
+            input
+                .iter()
+                .map(|s| std::string::String::from(*s))
+                .collect::<Vec<_>>(),
         );
-        assert_eq!(
-            scan(&mut scanner).unwrap(),
-            *expected
-        );
+        assert_eq!(*expected, scan(&mut scanner).unwrap(),);
         assert!(scanner.is_exhausted());
     }
 }
-

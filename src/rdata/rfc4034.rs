@@ -1580,6 +1580,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Ds<Octs> {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.key_tag.compose(target)?;
+        self.algorithm.compose(target)?;
         self.digest_type.compose(target)?;
         target.append_slice(self.digest.as_ref())
     }
@@ -2269,6 +2270,83 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 mod test {
     use super::*;
     use crate::base::iana::Rtype;
+    use crate::base::rdata::test::{
+        test_compose_parse, test_rdlen, test_scan,
+    };
+    use core::str::FromStr;
+    use std::vec::Vec;
+
+    //--- Dnskey
+
+    #[test]
+    fn dnskey_compose_parse_scan() {
+        let rdata = Dnskey::new(10, 11, SecAlg::RsaSha1, b"key");
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
+        test_scan(&["10", "11", "RSASHA1", "a2V5"], Dnskey::scan, &rdata);
+    }
+
+    //--- Rrsig
+
+    #[test]
+    fn rrsig_compose_parse_scan() {
+        let rdata = Rrsig::new(
+            Rtype::A,
+            SecAlg::RsaSha1,
+            3,
+            12,
+            Serial::from(13),
+            Serial::from(14),
+            15,
+            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            b"key",
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Rrsig::parse(parser));
+        test_scan(
+            &[
+                "A",
+                "RSASHA1",
+                "3",
+                "12",
+                "13",
+                "14",
+                "15",
+                "example.com.",
+                "a2V5",
+            ],
+            Rrsig::scan,
+            &rdata,
+        );
+    }
+
+    //--- Nsec
+
+    #[test]
+    fn nsec_compose_parse_scan() {
+        let mut rtype = RtypeBitmapBuilder::new_vec();
+        rtype.add(Rtype::A).unwrap();
+        rtype.add(Rtype::Srv).unwrap();
+        let rdata = Nsec::new(
+            Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
+            rtype.finalize(),
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Nsec::parse(parser));
+        test_scan(&["example.com.", "A", "SRV"], Nsec::scan, &rdata);
+    }
+
+    //--- Ds
+
+    #[test]
+    fn ds_compose_parse_scan() {
+        let rdata = Ds::new(10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key");
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Ds::parse(parser));
+        test_scan(&["10", "RSASHA1", "2", "6b6579"], Ds::scan, &rdata);
+    }
+
+    //--- RtypeBitmape
 
     #[test]
     fn rtype_split() {

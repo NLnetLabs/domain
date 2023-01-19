@@ -178,3 +178,23 @@ impl AsMut<Ipv6Addr> for Aaaa {
         &mut self.addr
     }
 }
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+mod test {
+    use super::*;
+    use crate::base::rdata::test::{
+        test_compose_parse, test_rdlen, test_scan,
+    };
+
+    #[test]
+    fn aaaa_compose_parse_scan() {
+        let addr = "2001:db9::12:13";
+        let rdata = Aaaa::from_str(addr).unwrap();
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, Aaaa::parse);
+        test_scan(&[addr], Aaaa::scan, &rdata);
+    }
+}

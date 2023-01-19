@@ -389,7 +389,7 @@ mod test {
     /// Checks the impl of ToLabelIter: iter_labels and compose_len.
     #[test]
     fn to_label_iter_impl() {
-        fn check_impl<'a, N: ToLabelIter>(name: N, labels: &[&[u8]]) {
+        fn check_impl<N: ToLabelIter>(name: N, labels: &[&[u8]]) {
             let labels = labels.iter().map(|s| Label::from_slice(s).unwrap());
             assert!(name.iter_labels().eq(labels));
             assert_eq!(

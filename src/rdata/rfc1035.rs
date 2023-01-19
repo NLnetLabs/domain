@@ -1481,7 +1481,12 @@ impl<Name: ToDname> ComposeRecordData for Soa<Name> {
         if compress {
             None
         } else {
-            Some(self.mname.compose_len() + self.rname.compose_len() + 40)
+            Some(
+                self.mname.compose_len()
+                    + self.rname.compose_len()
+                    + Serial::COMPOSE_LEN
+                    + 4 * u32::COMPOSE_LEN,
+            )
         }
     }
 
@@ -2140,9 +2145,11 @@ impl<Builder: OctetsBuilder + EmptyBuilder> Default for TxtBuilder<Builder> {
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
+    use crate::base::name::Dname;
     use crate::base::rdata::test::{
-        test_rdlen, test_compose_parse, test_scan
+        test_compose_parse, test_rdlen, test_scan,
     };
+    use octseq::octets::OctetsInto;
     use std::vec::Vec;
 
     //--- A
@@ -2155,34 +2162,126 @@ mod test {
         test_scan(&["1.2.3.4"], A::scan, &rdata);
     }
 
+    //--- Cname
+    //
+    // This covers all the other generated types, too.
+
+    #[test]
+    fn cname_compose_parse_scan() {
+        let rdata =
+            Cname::<Dname<Vec<u8>>>::from_str("www.example.com").unwrap();
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Cname::parse(parser));
+        test_scan(&["www.example.com"], Cname::scan, &rdata);
+    }
+
     //--- Hinfo
 
     #[test]
-    #[cfg(features = "bytes")]
-    fn hinfo_octets_into() {
-        use crate::octets::OctetsInto;
+    fn hinfo_compose_parse_scan() {
+        let rdata = Hinfo::new(
+            CharStr::from_octets("cpu").unwrap(),
+            CharStr::from_octets("os").unwrap(),
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Hinfo::parse(parser));
+        test_scan(&["cpu", "os"], Hinfo::scan, &rdata);
+    }
 
+    #[test]
+    fn hinfo_octets_into() {
         let hinfo: Hinfo<Vec<u8>> =
             Hinfo::new("1234".parse().unwrap(), "abcd".parse().unwrap());
-        let hinfo_bytes: Hinfo<bytes::Bytes> = hinfo.octets_into().unwrap();
+        let hinfo_bytes: Hinfo<bytes::Bytes> = hinfo.clone().octets_into();
         assert_eq!(hinfo.cpu(), hinfo_bytes.cpu());
         assert_eq!(hinfo.os(), hinfo_bytes.os());
     }
 
-    #[test]
-    #[cfg(features = "bytes")]
-    fn minfo_octets_into() {
-        use crate::base::Dname;
-        use crate::octets::OctetsInto;
+    //--- Minfo
 
+    #[test]
+    fn minfo_compose_parse_scan() {
+        let rdata = Minfo::<Dname<Vec<u8>>>::new(
+            Dname::from_str("r.example.com").unwrap(),
+            Dname::from_str("e.example.com").unwrap(),
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Minfo::parse(parser));
+        test_scan(&["r.example.com", "e.example.com"], Minfo::scan, &rdata);
+    }
+
+    #[test]
+    fn minfo_octets_into() {
         let minfo: Minfo<Dname<Vec<u8>>> = Minfo::new(
             "a.example".parse().unwrap(),
             "b.example".parse().unwrap(),
         );
         let minfo_bytes: Minfo<Dname<bytes::Bytes>> =
-            minfo.octets_into().unwrap();
+            minfo.clone().octets_into();
         assert_eq!(minfo.rmailbx(), minfo_bytes.rmailbx());
         assert_eq!(minfo.emailbx(), minfo_bytes.emailbx());
+    }
+
+    //--- Mx
+
+    #[test]
+    fn mx_compose_parse_scan() {
+        let rdata = Mx::<Dname<Vec<u8>>>::new(
+            12,
+            Dname::from_str("mail.example.com").unwrap(),
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Mx::parse(parser));
+        test_scan(&["12", "mail.example.com"], Mx::scan, &rdata);
+    }
+
+    //--- Null
+
+    #[test]
+    fn null_compose_parse_scan() {
+        let rdata = Null::new("foo");
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Null::parse(parser));
+    }
+
+    //--- Soa
+
+    #[test]
+    fn soa_compose_parse_scan() {
+        let rdata = Soa::<Dname<Vec<u8>>>::new(
+            Dname::from_str("m.example.com").unwrap(),
+            Dname::from_str("r.example.com").unwrap(),
+            Serial(11),
+            12,
+            13,
+            14,
+            15,
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Soa::parse(parser));
+        test_scan(
+            &[
+                "m.example.com",
+                "r.example.com",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+            ],
+            Soa::scan,
+            &rdata,
+        );
+    }
+
+    //--- Txt
+
+    #[test]
+    fn txt_compose_parse_scan() {
+        let rdata = Txt::from_octets(b"\x03foo\x03bar".as_ref()).unwrap();
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Txt::parse(parser));
+        test_scan(&["foo", "bar"], Txt::scan, &rdata);
     }
 
     #[test]
