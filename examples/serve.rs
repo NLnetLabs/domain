@@ -1,3 +1,5 @@
+// TODO: Split into separate examples?
+// TODO: Add a buffered reader example?
 use std::{
     future::Pending,
     io,

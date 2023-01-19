@@ -40,6 +40,24 @@
 //! such as zone transfer which involves sending multiple messages in response
 //! to a single request.
 
+// TODO: Add TLS support.
+// TODO: Add tracing/logging support? (or metrics only?)
+// TODO: Allow the default timeout(s?) to be configured.
+// TODO: Use a strategy pattern to extract chosen behaviours? E.g. retry
+//       backoff pattern in case of transient network issues? Maybe also the
+//       immediate vs delayed write patterns?
+// TODO: Look at whether there is unnecessary cloning that can be removed.
+// TODO: Replace unwraps with error handling where needed.
+// TODO: Improved naming.
+// TODO: More/better RustDocs.
+// TODO: Split into separate files.
+// TODO: Look at whether Ordering::Relaxed is the right ordering type to use
+//       where it is currently used.
+// TODO: Expose metrics to the caller.
+// TODO: Pass client details to the service callback.
+// TODO: Use Tokio select! (over N futures) macro instead of select() fn (over
+//       just 2 futures)?
+
 use core::{
     future::poll_fn,
     sync::atomic::{AtomicUsize, Ordering},
@@ -92,14 +110,14 @@ enum ConnectionEvent<T> {
     /// And: RFC 7766 3 "A DNS server considers an established DNS-over-TCP
     /// session to be idle when it has sent responses to all the queries it
     /// has received on that connection."
-    TerminateConnectionWithoutFlush,
+    DisconnectWithoutFlush,
 
     /// RFC 7766 6.2.3 "If a DNS server finds that a DNS client has closed a
     /// TCP session (or if the session has been otherwise interrupted) before
     /// all pending responses have been sent, then the server MUST NOT attempt
     /// to send those responses.  Of course, the DNS server MAY cache those
     /// responses."
-    TerminateConnectionWithFlush(Option<ServiceError<T>>),
+    DisconnectWithFlush,
 
     ReadSucceeded,
 
@@ -720,10 +738,7 @@ where
                 )
                 .await
             {
-                if matches!(
-                    err,
-                    ConnectionEvent::TerminateConnectionWithFlush(_)
-                ) {
+                if matches!(err, ConnectionEvent::DisconnectWithFlush) {
                     self.flush_write_queue(&mut state, &mut result_q_rx)
                         .await;
                 }
@@ -883,7 +898,7 @@ where
                                     // 6.2.4 pending responses MUST NOT be
                                     // sent to the client.
                                     return Err(
-                                        ConnectionEvent::TerminateConnectionWithoutFlush,
+                                        ConnectionEvent::DisconnectWithoutFlush,
                                     );
                                 }
                                 io::ErrorKind::TimedOut
@@ -902,7 +917,7 @@ where
                                         "Error: Stream read failed: {err}"
                                     );
                                     return Err(
-                                        ConnectionEvent::TerminateConnectionWithoutFlush,
+                                        ConnectionEvent::DisconnectWithoutFlush,
                                     );
                                 }
                             }
@@ -923,11 +938,7 @@ where
                         // where DNS message are just opaque byte sequences?
                         Either::Right((Err(_elapsed), _)) => {
                             eprintln!("Stream read timed out");
-                            return Err(
-                                ConnectionEvent::TerminateConnectionWithFlush(
-                                    None,
-                                ),
-                            );
+                            return Err(ConnectionEvent::DisconnectWithFlush);
                         }
                     }
                 }
@@ -944,11 +955,7 @@ where
                         // TOOD: Check this unwrap()
                     }
                     ServiceCommand::Shutdown => {
-                        return Err(
-                            ConnectionEvent::TerminateConnectionWithFlush(
-                                None,
-                            ),
-                        );
+                        return Err(ConnectionEvent::DisconnectWithFlush);
                     }
                 }
             }
@@ -976,9 +983,7 @@ where
             // This can happen if the command sender is dropped, i.e. the
             // parent server no longer exists but was not cleanly shutdown.
             Either::Left((Err(_err), _incomplete_call_result_fut)) => {
-                return Err(ConnectionEvent::TerminateConnectionWithFlush(
-                    None,
-                ));
+                return Err(ConnectionEvent::DisconnectWithFlush);
             }
 
             // It is no longer possible to read the results of requests
@@ -989,9 +994,7 @@ where
             // request.
             // TODO: Describe when this can occur.
             Either::Right((None, _incomplete_command_changed_fut)) => {
-                return Err(ConnectionEvent::TerminateConnectionWithFlush(
-                    None,
-                ));
+                return Err(ConnectionEvent::DisconnectWithFlush);
             }
 
             // The service finished processing a request so apply the
