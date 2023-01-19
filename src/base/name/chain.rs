@@ -286,6 +286,7 @@ impl std::error::Error for LongChainError {}
 //============ Testing =======================================================
 
 #[cfg(test)]
+#[cfg(feature = "std")]
 mod test {
     use super::*;
     use crate::base::name::{Dname, RelativeDname, ToLabelIter};
@@ -329,7 +330,6 @@ mod test {
 
     /// Tests that a chain never becomes too long.
     #[test]
-    #[cfg(feature = "std")]
     fn name_limit() {
         use crate::base::name::DnameBuilder;
 
@@ -436,7 +436,6 @@ mod test {
 
     /// Tests that composing works as expected.
     #[test]
-    #[cfg(feature = "std")]
     fn compose() {
         use std::vec::Vec;
 

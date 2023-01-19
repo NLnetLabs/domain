@@ -1048,7 +1048,6 @@ impl std::error::Error for DnameError {}
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use octseq::builder::infallible;
 
     #[cfg(feature = "std")]
     macro_rules! assert_panic {
@@ -1652,6 +1651,8 @@ pub(crate) mod test {
     #[test]
     #[cfg(feature = "std")]
     fn compose_canonical() {
+        use octseq::builder::infallible;
+
         let mut buf = Vec::new();
         infallible(
             Dname::from_slice(b"\x03wWw\x07exaMPle\x03com\0")

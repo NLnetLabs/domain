@@ -2267,6 +2267,7 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 //============ Test ==========================================================
 
 #[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
     use crate::base::iana::Rtype;
@@ -2356,7 +2357,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn rtype_bitmap_read_window() {
         let mut builder = RtypeBitmapBuilder::new_vec();
         builder.add(Rtype::A).unwrap();
@@ -2372,7 +2372,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn rtype_bitmap_builder() {
         let mut builder = RtypeBitmapBuilder::new_vec();
         builder.add(Rtype::Int(1234)).unwrap(); // 0x04D2
@@ -2400,7 +2399,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn rtype_bitmap_iter() {
         use std::vec::Vec;
 
@@ -2426,7 +2424,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn dnskey_key_tag() {
         assert_eq!(
             Dnskey::new(
@@ -2486,7 +2483,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "bytes")]
     fn dnskey_flags() {
         let dnskey =
             Dnskey::new(257, 3, SecAlg::RsaSha256, bytes::Bytes::new());

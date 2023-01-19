@@ -728,7 +728,6 @@ impl From<ParsedDnameError> for ParseError {
 mod test {
     use super::*;
     use crate::base::name::{Dname, RelativeDname};
-    use octseq::builder::infallible;
 
     macro_rules! name {
         (root) => {
@@ -1136,6 +1135,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn compose() {
+        use octseq::builder::infallible;
         use std::vec::Vec;
 
         fn step(name: ParsedDname<&[u8]>, result: &[u8]) {

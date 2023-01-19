@@ -612,6 +612,7 @@ pub mod parsed {
 //============ Test ==========================================================
 
 #[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
     use super::*;
     use crate::base::rdata::test::{

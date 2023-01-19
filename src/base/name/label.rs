@@ -793,7 +793,6 @@ impl std::error::Error for SplitLabelError {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use octseq::builder::infallible;
 
     #[test]
     fn from_slice() {
@@ -859,6 +858,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn compose() {
+        use octseq::builder::infallible;
         use std::vec::Vec;
 
         let mut buf = Vec::new();
