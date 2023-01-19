@@ -561,6 +561,7 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Cds<Octs> {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.key_tag.compose(target)?;
+        self.algorithm.compose(target)?;
         self.digest_type.compose(target)?;
         target.append_slice(self.digest.as_ref())
     }
@@ -606,4 +607,35 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for Cds<Octs> {
 
 pub mod parsed {
     pub use super::{Cdnskey, Cds};
+}
+
+//============ Test ==========================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+mod test {
+    use super::*;
+    use crate::base::rdata::test::{
+        test_compose_parse, test_rdlen, test_scan,
+    };
+
+    //--- Cdnskey
+
+    #[test]
+    fn cdnskey_compose_parse_scan() {
+        let rdata = Cdnskey::new(10, 11, SecAlg::RsaSha1, b"key");
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Cdnskey::parse(parser));
+        test_scan(&["10", "11", "RSASHA1", "a2V5"], Cdnskey::scan, &rdata);
+    }
+
+    //--- Cds
+
+    #[test]
+    fn cds_compose_parse_scan() {
+        let rdata = Cds::new(10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key");
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Cds::parse(parser));
+        test_scan(&["10", "RSASHA1", "2", "6b6579"], Cds::scan, &rdata);
+    }
 }

@@ -753,11 +753,16 @@ pub struct IterScanner<Iter: Iterator, Octets> {
 
 impl<Iter: Iterator, Octets> IterScanner<Iter, Octets> {
     /// Creates a new scanner from an iterator.
-    pub fn new(iter: Iter) -> Self {
+    pub fn new<I: IntoIterator<IntoIter = Iter>>(iter: I) -> Self {
         IterScanner {
-            iter: iter.peekable(),
+            iter: iter.into_iter().peekable(),
             marker: PhantomData,
         }
+    }
+
+    /// Returns whether the iterator is exhausted.
+    pub fn is_exhausted(&mut self) -> bool {
+        self.iter.peek().is_none()
     }
 }
 

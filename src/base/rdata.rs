@@ -458,3 +458,72 @@ impl fmt::Display for LongRecordData {
 
 #[cfg(feature = "std")]
 impl std::error::Error for LongRecordData {}
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+pub(crate) mod test {
+    use super::super::scan::{IterScanner, Scanner};
+    use super::super::wire::ParseError;
+    use super::*;
+    use bytes::{Bytes, BytesMut};
+    use core::fmt::Debug;
+    use octseq::builder::infallible;
+    use std::vec::Vec;
+
+    /// Check that `rdlen` produces the correct length.
+    ///
+    /// The test composes `data` both regularly and cannonically and checks
+    /// that the length of the composed data matches what `rdlen` returns.
+    ///
+    /// This test expects that `rdlen` returns some value if `compress`
+    /// is false. This isn’t required but all our record types are supposed
+    /// to do this, anyway.
+    pub fn test_rdlen<R: ComposeRecordData>(data: R) {
+        let mut buf = Vec::new();
+        infallible(data.compose_rdata(&mut buf));
+        assert_eq!(buf.len(), usize::from(data.rdlen(false).unwrap()));
+        buf.clear();
+        infallible(data.compose_canonical_rdata(&mut buf));
+        assert_eq!(buf.len(), usize::from(data.rdlen(false).unwrap()));
+    }
+
+    /// Check that composing and parsing are reverse operations.
+    pub fn test_compose_parse<In, F, Out>(data: &In, parse: F)
+    where
+        In: ComposeRecordData + PartialEq<Out> + Debug,
+        F: FnOnce(&mut Parser<Bytes>) -> Result<Out, ParseError>,
+        Out: Debug,
+    {
+        let mut buf = BytesMut::new();
+        infallible(data.compose_rdata(&mut buf));
+        let buf = buf.freeze();
+        let mut parser = Parser::from_ref(&buf);
+        let parsed = (parse)(&mut parser).unwrap();
+        assert_eq!(parser.remaining(), 0);
+        assert_eq!(*data, parsed);
+    }
+
+    type TestScanner =
+        IterScanner<std::vec::IntoIter<std::string::String>, Vec<u8>>;
+
+    /// Checks scanning.
+    pub fn test_scan<F, T, X>(input: &[&str], scan: F, expected: &X)
+    where
+        F: FnOnce(
+            &mut TestScanner,
+        ) -> Result<T, <TestScanner as Scanner>::Error>,
+        T: Debug,
+        X: Debug + PartialEq<T>,
+    {
+        let mut scanner = IterScanner::new(
+            input
+                .iter()
+                .map(|s| std::string::String::from(*s))
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(*expected, scan(&mut scanner).unwrap(),);
+        assert!(scanner.is_exhausted());
+    }
+}

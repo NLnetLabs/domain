@@ -286,6 +286,7 @@ impl std::error::Error for LongChainError {}
 //============ Testing =======================================================
 
 #[cfg(test)]
+#[cfg(feature = "std")]
 mod test {
     use super::*;
     use crate::base::name::{Dname, RelativeDname, ToLabelIter};
@@ -329,7 +330,6 @@ mod test {
 
     /// Tests that a chain never becomes too long.
     #[test]
-    #[cfg(feature = "std")]
     fn name_limit() {
         use crate::base::name::DnameBuilder;
 
@@ -389,7 +389,7 @@ mod test {
     /// Checks the impl of ToLabelIter: iter_labels and compose_len.
     #[test]
     fn to_label_iter_impl() {
-        fn check_impl<'a, N: ToLabelIter>(name: N, labels: &[&[u8]]) {
+        fn check_impl<N: ToLabelIter>(name: N, labels: &[&[u8]]) {
             let labels = labels.iter().map(|s| Label::from_slice(s).unwrap());
             assert!(name.iter_labels().eq(labels));
             assert_eq!(
@@ -436,7 +436,6 @@ mod test {
 
     /// Tests that composing works as expected.
     #[test]
-    #[cfg(feature = "std")]
     fn compose() {
         use std::vec::Vec;
 

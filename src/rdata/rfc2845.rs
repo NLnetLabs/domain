@@ -665,3 +665,30 @@ impl fmt::Display for Time48 {
         self.0.fmt(f)
     }
 }
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+mod test {
+    use super::*;
+    use crate::base::name::Dname;
+    use crate::base::rdata::test::{test_compose_parse, test_rdlen};
+    use core::str::FromStr;
+    use std::vec::Vec;
+
+    #[test]
+    fn tsig_compose_parse_scan() {
+        let rdata = Tsig::new(
+            Dname::<Vec<u8>>::from_str("key.example.com.").unwrap(),
+            Time48::now(),
+            12,
+            "foo",
+            13,
+            TsigRcode::BadCookie,
+            "",
+        );
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Tsig::parse(parser));
+    }
+}

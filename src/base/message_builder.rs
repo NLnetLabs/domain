@@ -146,9 +146,9 @@ use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
 #[cfg(feature = "std")]
 use octseq::array::Array;
-use octseq::builder::{
-    infallible, FreezeBuilder, OctetsBuilder, ShortBuf, Truncate,
-};
+#[cfg(any(feature = "std", feature = "bytes"))]
+use octseq::builder::infallible;
+use octseq::builder::{FreezeBuilder, OctetsBuilder, ShortBuf, Truncate};
 use octseq::octets::Octets;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
