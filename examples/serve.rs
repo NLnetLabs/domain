@@ -1,5 +1,4 @@
 // TODO: Split into separate examples?
-// TODO: Add a buffered reader example?
 use std::{
     future::Pending,
     io,
@@ -177,6 +176,42 @@ impl AsyncAccept for LocalTfoListener {
     }
 }
 
+struct LocalBufferedListener(TcpListener);
+
+impl std::ops::DerefMut for LocalBufferedListener {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::ops::Deref for LocalBufferedListener {
+    type Target = TcpListener;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsyncAccept for LocalBufferedListener {
+    type Addr = SocketAddr;
+
+    type Stream = tokio::io::BufReader<TcpStream>;
+
+    fn poll_accept(
+        &self,
+        cx: &mut Context,
+    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+        match TcpListener::poll_accept(self, cx) {
+            Poll::Ready(Ok((stream, addr))) => {
+                let stream = tokio::io::BufReader::new(stream);
+                Poll::Ready(Ok((stream, addr)))
+            }
+            Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>> {
     #[allow(clippy::type_complexity)]
     fn query(
@@ -263,8 +298,12 @@ async fn main() {
     //   192.0.2.1
     //    ..
     //   ;; communications error to 127.0.0.1#8082: end of file
+    //
+    // This example also demonstrates wrapping the TcpStream inside a
+    // BufReader to minimize overhead from system I/O calls.
 
     let listener = TcpListener::bind("127.0.0.1:8082").await.unwrap();
+    let listener = LocalBufferedListener(listener);
     let count = Arc::new(AtomicU8::new(5));
     let svc = service(count).into();
     let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc));
