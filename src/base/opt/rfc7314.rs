@@ -94,3 +94,24 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     }
 }
 
+//============ Testing ======================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+mod test {
+    use super::*;
+    use super::super::test::test_option_compose_parse;
+    
+    #[test]
+    fn expire_compose_parse() {
+        test_option_compose_parse(
+            &Expire::new(None),
+            |parser| Expire::parse(parser)
+        );
+        test_option_compose_parse(
+            &Expire::new(Some(12)),
+            |parser| Expire::parse(parser)
+        );
+    }
+}
+

@@ -770,14 +770,24 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
 //============ Tests =========================================================
 
 #[cfg(test)]
-#[cfg(feature = "std")]
-mod test {
+#[cfg(all(feature = "std", feature = "bytes"))]
+pub(super) mod test {
     use super::*;
+    use crate::base::rdata::test::{test_compose_parse, test_rdlen};
     use crate::base::record::ParsedRecord;
     use crate::base::wire::Compose;
     use crate::base::{opt, MessageBuilder};
+    use bytes::{Bytes, BytesMut};
+    use core::fmt::Debug;
     use octseq::builder::infallible;
     use std::vec::Vec;
+
+    #[test]
+    fn opt_compose_parse_scan() {
+        let rdata = Opt::from_octets("fo\x00\x03foo").unwrap();
+        test_rdlen(&rdata);
+        test_compose_parse(&rdata, |parser| Opt::parse(parser));
+    }
 
     #[test]
     fn opt_record_header() {
@@ -822,5 +832,21 @@ mod test {
         let opt = msg.opt().unwrap();
         assert_eq!(Some(Ok(nsid)), opt.iter::<opt::Nsid<_>>().next());
         assert_eq!(Some(Ok(cookie)), opt.iter::<opt::Cookie>().next());
+    }
+
+    pub fn test_option_compose_parse<In, F, Out>(data: &In, parse: F)
+    where
+        In: ComposeOptData + PartialEq<Out> + Debug,
+        F: FnOnce(&mut Parser<Bytes>) -> Result<Out, ParseError>,
+        Out: Debug,
+    {
+        let mut buf = BytesMut::new();
+        infallible(data.compose_option(&mut buf));
+        let buf = buf.freeze();
+        assert_eq!(buf.len(), usize::from(data.compose_len()));
+        let mut parser = Parser::from_ref(&buf);
+        let parsed = (parse)(&mut parser).unwrap();
+        assert_eq!(parser.remaining(), 0);
+        assert_eq!(*data, parsed);
     }
 }

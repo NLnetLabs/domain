@@ -8,8 +8,8 @@ use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
+use core::{fmt, hash, str};
 use core::convert::TryFrom;
-use core::{fmt, str};
 
 //------------ ExtendedError -------------------------------------------------
 
@@ -153,29 +153,49 @@ impl<Octs: AsRef<[u8]>> fmt::Display for ExtendedError<Octs> {
     }
 }
 
+//--- PartialEq and Eq
+
+impl<Octs, Other> PartialEq<ExtendedError<Other>> for ExtendedError<Octs>
+where
+    Octs: AsRef<[u8]>,
+    Other: AsRef<[u8]>,
+{ 
+    fn eq(&self, other: &ExtendedError<Other>) -> bool {
+       self.code.eq(&other.code)
+       && self.text().as_ref().map(AsRef::as_ref).eq(
+           &other.text().as_ref().map(AsRef::as_ref)
+       )
+    }
+}
+
+impl<Octs: AsRef<[u8]>> Eq for ExtendedError<Octs> { }
+
+//--- Hash
+
+impl<Octs: AsRef<[u8]>> hash::Hash for ExtendedError<Octs> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.code.hash(state);
+        self.text().as_ref().map(AsRef::as_ref).hash(state);
+    }
+}
+
 //============ Tests =========================================================
 
-#[cfg(all(test, feature="std"))]
+#[cfg(all(test, feature="std", feature = "bytes"))]
 mod tests {
     use super::*;
-    use octseq::builder::infallible;
+    use super::super::test::test_option_compose_parse;
     use core::convert::TryInto;
-    use std::vec::Vec;
 
     #[test]
-    fn compose() {
+    fn nsid_compose_parse() {
         let ede: ExtendedError<&[u8]> = (
             ExtendedErrorCode::StaleAnswer, "some text".as_ref()
         ).try_into().unwrap();
-
-        let mut buf = Vec::new();
-        infallible(ede.compose_option(&mut buf));
-
-        let parsed = ExtendedError::parse(
-            &mut Parser::from_ref(buf.as_slice())
-        ).unwrap();
-        assert_eq!(ede.code, parsed.code);
-        assert_eq!(ede.text, parsed.text);
+        test_option_compose_parse(
+            &ede,
+            |parser| ExtendedError::parse(parser)
+        );
     }
 
     #[test]

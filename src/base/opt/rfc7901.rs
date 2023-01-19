@@ -9,13 +9,15 @@ use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
+use core::hash;
+use core::cmp::Ordering;
 
 
 //------------ Chain --------------------------------------------------------
 
 // TODO Impl more traits. We can’t derive them because that would force
 //      trait boundaries on Octs.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Chain<Name> {
     start: Name
 }
@@ -73,10 +75,44 @@ impl<Name: ToDname> ComposeOptData for Chain<Name> {
     }
 }
 
+//--- Display
+
 impl<Name: fmt::Display> fmt::Display for Chain<Name> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.start)?;
         Ok(())
+    }
+}
+
+//--- PartialEq and Eq
+
+impl<Name: PartialEq<Other>, Other> PartialEq<Chain<Other>> for Chain<Name> {
+    fn eq(&self, other: &Chain<Other>) -> bool {
+        self.start().eq(other.start())
+    }
+}
+
+impl<Name: Eq> Eq for Chain<Name> { }
+
+//--- PartialOrd and Ord
+
+impl<Name: PartialOrd<Other>, Other> PartialOrd<Chain<Other>> for Chain<Name> {
+    fn partial_cmp(&self, other: &Chain<Other>) -> Option<Ordering> {
+        self.start().partial_cmp(other.start())
+    }
+}
+
+impl<Name: Ord> Ord for Chain<Name> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.start().cmp(other.start())
+    }
+}
+
+//--- Hash
+
+impl<Name: hash::Hash> hash::Hash for Chain<Name> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.start().hash(state)
     }
 }
 
@@ -87,6 +123,25 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
         &mut self, start: impl ToDname
     ) -> Result<(), Target::AppendError> {
         self.push(&Chain::new(start))
+    }
+}
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+mod test {
+    use super::*;
+    use super::super::test::test_option_compose_parse;
+    use std::vec::Vec;
+    use core::str::FromStr;
+    
+    #[test]
+    fn chain_compose_parse() {
+        test_option_compose_parse(
+            &Chain::new(Dname::<Vec<u8>>::from_str("example.com").unwrap()),
+            |parser| Chain::parse(parser)
+        );
     }
 }
 

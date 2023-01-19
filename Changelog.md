@@ -4,6 +4,7 @@
 
 Breaking Changes
 
+* The minimal required Rust version is now 1.65. ([#160])
 * The generic octets foundation has been moved to a new crate *[octseq]*
   and completely revamped with Generic Associated Types stabilized in Rust
   1.65. This required changes all over the code but, hopefully, should
