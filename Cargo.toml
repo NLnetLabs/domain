@@ -80,3 +80,7 @@ required-features = ["resolv"]
 name = "resolv-sync"
 required-features = ["resolv-sync"]
 
+[[example]]
+name = "client"
+required-features = ["std", "rand"]
+

@@ -7,14 +7,15 @@ use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
-use core::{fmt, slice};
+use core::{borrow, fmt, hash, slice};
+use core::cmp::Ordering;
 
 
 //------------ Dau, Dhu, N3u -------------------------------------------------
 
 macro_rules! option_type {
     ( $name:ident, $fn:ident ) => {
-        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[derive(Clone, Copy, Debug)]
         pub struct $name<Octs> {
             octets: Octs,
         }
@@ -22,6 +23,24 @@ macro_rules! option_type {
         impl<Octs> $name<Octs> {
             pub fn from_octets(octets: Octs) -> Self {
                 $name { octets }
+            }
+
+            pub fn as_octets(&self) -> &Octs {
+                &self.octets
+            }
+
+            pub fn into_octets(self) -> Octs {
+                self.octets
+            }
+
+            pub fn as_slice(&self) -> &[u8]
+            where Octs: AsRef<[u8]> {
+                self.octets.as_ref()
+            }
+
+            pub fn as_slice_mut(&mut self) -> &mut [u8]
+            where Octs: AsMut<[u8]> {
+                self.octets.as_mut()
             }
 
             pub fn iter(&self) -> SecAlgsIter
@@ -39,7 +58,36 @@ macro_rules! option_type {
             }
         }
 
-        //--- CodeOptData and ComposeOptData
+        //--- AsRef, AsMut, Borrow, BorrowMut
+
+        impl<Octs: AsRef<[u8]>> AsRef<[u8]> for $name<Octs> {
+            fn as_ref(&self) -> &[u8] {
+                self.as_slice()
+            }
+        }
+
+        impl<Octs: AsMut<[u8]>> AsMut<[u8]> for $name<Octs> {
+            fn as_mut(&mut self) -> &mut [u8] {
+                self.as_slice_mut()
+            }
+        }
+
+        impl<Octs: AsRef<[u8]>> borrow::Borrow<[u8]> for $name<Octs> {
+            fn borrow(&self) -> &[u8] {
+                self.as_slice()
+            }
+        }
+
+        impl<Octs> borrow::BorrowMut<[u8]> for $name<Octs>
+        where
+            Octs: AsMut<[u8]> + AsRef<[u8]>,
+        {
+            fn borrow_mut(&mut self) -> &mut [u8] {
+                self.as_slice_mut()
+            }
+        }
+
+        //--- OptData etc.
         
         impl<Octs> OptData for $name<Octs> {
             fn code(&self) -> OptionCode {
@@ -104,6 +152,46 @@ macro_rules! option_type {
             }
         }
 
+        //--- PartialEq and Eq
+
+        impl<Octs, Other> PartialEq<Other> for $name<Octs>
+        where
+            Octs: AsRef<[u8]>,
+            Other: AsRef<[u8]>,
+        {
+            fn eq(&self, other: &Other) -> bool {
+                self.as_slice().eq(other.as_ref())
+            }
+        }
+
+        impl<Octs: AsRef<[u8]>> Eq for $name<Octs> { }
+
+        //--- PartialOrd and Ord
+
+        impl<Octs, Other> PartialOrd<Other> for $name<Octs>
+        where
+            Octs: AsRef<[u8]>,
+            Other: AsRef<[u8]>,
+        {
+            fn partial_cmp(&self, other: &Other) -> Option<Ordering> {
+                self.as_slice().partial_cmp(other.as_ref())
+            }
+        }
+
+        impl<Octs: AsRef<[u8]>> Ord for $name<Octs> {
+            fn cmp(&self, other: &Self) -> Ordering {
+                self.as_slice().cmp(other.as_slice())
+            }
+        }
+
+        //--- Hash
+
+        impl<Octs: AsRef<[u8]>> hash::Hash for $name<Octs> {
+            fn hash<H: hash::Hasher>(&self, state: &mut H) {
+                self.as_slice().hash(state)
+            }
+        }
+
         //------------ OptBuilder --------------------------------------------
 
         impl<'a, Target: Composer> OptBuilder<'a, Target> {
@@ -139,3 +227,19 @@ impl<'a> Iterator for SecAlgsIter<'a> {
     }
 }
 
+//============ Testing ======================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+mod test {
+    use super::*;
+    use super::super::test::test_option_compose_parse;
+    
+    #[test]
+    fn dau_compose_parse() {
+        test_option_compose_parse(
+            &Dau::from_octets("foo"),
+            |parser| Dau::parse(parser)
+        );
+    }
+}

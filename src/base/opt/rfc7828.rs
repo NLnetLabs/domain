@@ -80,3 +80,20 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     }
 }
 
+//============ Testing ======================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+mod test {
+    use super::*;
+    use super::super::test::test_option_compose_parse;
+    
+    #[test]
+    fn tcp_keepalive_compose_parse() {
+        test_option_compose_parse(
+            &TcpKeepalive::new(12),
+            |parser| TcpKeepalive::parse(parser)
+        );
+    }
+}
+

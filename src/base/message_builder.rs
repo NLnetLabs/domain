@@ -67,7 +67,8 @@
 //! The following example builds a message with both name compression and
 //! the stream length and simply puts two A records into it.
 //!
-//! ```
+#![cfg_attr(feature = "std", doc = "```")]
+#![cfg_attr(not(feature = "std"), doc = "```ignore")]
 //! use std::str::FromStr;
 //! use domain::base::{
 //!     Dname, MessageBuilder, Rtype, StaticCompressor, StreamTarget
@@ -506,7 +507,8 @@ impl<Target: Composer> QuestionBuilder<Target> {
     ///
     /// In other words, the options are:
     ///
-    /// ```
+    #[cfg_attr(feature = "std", doc = "```")]
+    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
     /// use domain::base::{Dname, MessageBuilder, Question, Rtype};
     /// use domain::base::iana::Class;
     ///
@@ -739,7 +741,8 @@ impl<Target: Composer> AnswerBuilder<Target> {
     ///
     /// In other words, you can do the following things:
     ///
-    /// ```
+    #[cfg_attr(feature = "std", doc = "```")]
+    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
     /// use domain::base::{Dname, MessageBuilder, Record, Rtype};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
@@ -982,7 +985,8 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     ///
     /// In other words, you can do the following things:
     ///
-    /// ```
+    #[cfg_attr(feature = "std", doc = "```")]
+    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
     /// use domain::base::{Dname, MessageBuilder, Record, Rtype};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
@@ -1232,7 +1236,8 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     ///
     /// In other words, you can do the following things:
     ///
-    /// ```
+    #[cfg_attr(feature = "std", doc = "```")]
+    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
     /// use domain::base::{Dname, MessageBuilder, Record, Rtype};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;

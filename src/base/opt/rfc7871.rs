@@ -274,11 +274,13 @@ impl fmt::Display for ClientSubnet {
 
 //============ Testing =======================================================
 
-#[cfg(all(test, feature="std"))]
+#[cfg(all(test, feature="std", feature = "bytes"))]
 mod tests {
     use super::*;
+    use super::super::test::test_option_compose_parse;
     use octseq::builder::infallible;
     use std::vec::Vec;
+    use core::str::FromStr;
 
     macro_rules! check {
         ($name:ident, $addr:expr, $prefix:expr, $exp:expr, $ok:expr) => {
@@ -310,4 +312,12 @@ mod tests {
     check!(prefix_min, "192.0.2.0", 0, "0.0.0.0", true);
     check!(prefix_max, "192.0.2.0", 32, "192.0.2.0", true);
     check!(prefix_too_long, "192.0.2.0", 100, "192.0.2.0", false);
+    
+    #[test]
+    fn client_subnet_compose_parse() {
+        test_option_compose_parse(
+            &ClientSubnet::new(4, 6, IpAddr::from_str("127.0.0.1").unwrap()),
+            |parser| ClientSubnet::parse(parser)
+        );
+    }
 }

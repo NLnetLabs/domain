@@ -1,7 +1,5 @@
 //! EDNS Options from RFC 8145.
 
-use core::fmt;
-use core::convert::TryInto;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Compose, Composer, FormError, ParseError};
@@ -9,11 +7,14 @@ use super::{OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
+use core::{borrow, fmt, hash};
+use core::cmp::Ordering;
+use core::convert::TryInto;
 
 
 //------------ KeyTag -------------------------------------------------------
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct KeyTag<Octs> {
     octets: Octs,
 }
@@ -21,6 +22,24 @@ pub struct KeyTag<Octs> {
 impl<Octs> KeyTag<Octs> {
     pub fn new(octets: Octs) -> Self {
         KeyTag { octets }
+    }
+
+    pub fn as_octets(&self) -> &Octs {
+        &self.octets
+    }
+
+    pub fn into_octets(self) -> Octs {
+        self.octets
+    }
+
+    pub fn as_slice(&self) -> &[u8]
+    where Octs: AsRef<[u8]> {
+        self.octets.as_ref()
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [u8]
+    where Octs: AsMut<[u8]> {
+        self.octets.as_mut()
     }
 
     pub fn iter(&self) -> KeyTagIter
@@ -41,6 +60,31 @@ impl<Octs> KeyTag<Octs> {
     }
 }
 
+//--- AsRef, AsMut, Borrow, BorrowMut
+
+impl<Octs: AsRef<[u8]>> AsRef<[u8]> for KeyTag<Octs> {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl<Octs: AsMut<[u8]>> AsMut<[u8]> for KeyTag<Octs> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.as_slice_mut()
+    }
+}
+
+impl<Octs: AsRef<[u8]>> borrow::Borrow<[u8]> for KeyTag<Octs> {
+    fn borrow(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl<Octs: AsMut<[u8]> + AsRef<[u8]>> borrow::BorrowMut<[u8]> for KeyTag<Octs> {
+    fn borrow_mut(&mut self) -> &mut [u8] {
+        self.as_slice_mut()
+    }
+}
 
 //--- OptData
 
@@ -108,6 +152,38 @@ impl<Octets: AsRef<[u8]>> fmt::Display  for KeyTag<Octets> {
     }
 }
 
+//--- PartialEq and Eq
+
+impl<Octs: AsRef<[u8]>, Other: AsRef<[u8]>> PartialEq<Other> for KeyTag<Octs> {
+    fn eq(&self, other: &Other) -> bool {
+        self.as_slice().eq(other.as_ref())
+    }
+}
+
+impl<Octs: AsRef<[u8]>> Eq for KeyTag<Octs> { }
+
+//--- PartialOrd and Ord
+
+impl<Octs: AsRef<[u8]>, Other: AsRef<[u8]>> PartialOrd<Other> for KeyTag<Octs> {
+    fn partial_cmp(&self, other: &Other) -> Option<Ordering> {
+        self.as_slice().partial_cmp(other.as_ref())
+    }
+}
+
+impl<Octs: AsRef<[u8]>> Ord for KeyTag<Octs> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_slice().cmp(other.as_slice())
+    }
+}
+
+//--- Hash
+
+impl<Octs: AsRef<[u8]>> hash::Hash for KeyTag<Octs> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.as_slice().hash(state)
+    }
+}
+
 
 //------------ KeyTagIter ----------------------------------------------------
 
@@ -147,6 +223,23 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
                 Ok(())
             }
         )
+    }
+}
+
+//============ Testing ======================================================
+
+#[cfg(test)]
+#[cfg(all(feature = "std", feature = "bytes"))]
+mod test {
+    use super::*;
+    use super::super::test::test_option_compose_parse;
+    
+    #[test]
+    fn nsid_compose_parse() {
+        test_option_compose_parse(
+            &KeyTag::new("fooo"),
+            |parser| KeyTag::parse(parser)
+        );
     }
 }
 
