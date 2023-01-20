@@ -16,36 +16,13 @@ use core::cmp::Ordering;
 macro_rules! option_type {
     ( $name:ident, $fn:ident ) => {
         #[derive(Clone, Copy, Debug)]
-        pub struct $name<Octs> {
+        pub struct $name<Octs: ?Sized> {
             octets: Octs,
         }
 
         impl<Octs> $name<Octs> {
             pub fn from_octets(octets: Octs) -> Self {
                 $name { octets }
-            }
-
-            pub fn as_octets(&self) -> &Octs {
-                &self.octets
-            }
-
-            pub fn into_octets(self) -> Octs {
-                self.octets
-            }
-
-            pub fn as_slice(&self) -> &[u8]
-            where Octs: AsRef<[u8]> {
-                self.octets.as_ref()
-            }
-
-            pub fn as_slice_mut(&mut self) -> &mut [u8]
-            where Octs: AsMut<[u8]> {
-                self.octets.as_mut()
-            }
-
-            pub fn iter(&self) -> SecAlgsIter
-            where Octs: AsRef<[u8]> {
-                SecAlgsIter::new(self.octets.as_ref())
             }
 
             pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
@@ -58,21 +35,79 @@ macro_rules! option_type {
             }
         }
 
+        impl $name<[u8]> {
+            pub fn from_slice(slice: &[u8]) -> &Self {
+                unsafe { &*(slice as *const [u8] as *const Self) }
+            }
+
+            pub fn from_slice_mut(slice: &mut [u8]) -> &mut Self {
+                unsafe { &mut *(slice as *mut [u8] as *mut Self) }
+            }
+        }
+
+        impl<Octs: ?Sized> $name<Octs> {
+            pub fn as_octets(&self) -> &Octs {
+                &self.octets
+            }
+
+            pub fn into_octets(self) -> Octs
+            where
+                Octs: Sized,
+            {
+                self.octets
+            }
+
+            pub fn as_slice(&self) -> &[u8]
+            where
+                Octs: AsRef<[u8]>,
+            {
+                self.octets.as_ref()
+            }
+
+            pub fn as_slice_mut(&mut self) -> &mut [u8]
+            where
+                Octs: AsMut<[u8]>,
+            {
+                self.octets.as_mut()
+            }
+
+            pub fn for_slice(&self) -> &$name<[u8]>
+            where
+                Octs: AsRef<[u8]>,
+            {
+                $name::from_slice(self.octets.as_ref())
+            }
+
+            pub fn for_slice_mut(&mut self) -> &mut $name<[u8]>
+            where
+                Octs: AsMut<[u8]>,
+            {
+                $name::from_slice_mut(self.octets.as_mut())
+            }
+
+            pub fn iter(&self) -> SecAlgsIter
+            where
+                Octs: AsRef<[u8]>,
+            {
+                SecAlgsIter::new(self.octets.as_ref())
+            }
+        }
+
         //--- AsRef, AsMut, Borrow, BorrowMut
 
-        impl<Octs: AsRef<[u8]>> AsRef<[u8]> for $name<Octs> {
+        impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for $name<Octs> {
             fn as_ref(&self) -> &[u8] {
                 self.as_slice()
             }
         }
 
-        impl<Octs: AsMut<[u8]>> AsMut<[u8]> for $name<Octs> {
+        impl<Octs: AsMut<[u8]> + ?Sized> AsMut<[u8]> for $name<Octs> {
             fn as_mut(&mut self) -> &mut [u8] {
                 self.as_slice_mut()
             }
         }
 
-        impl<Octs: AsRef<[u8]>> borrow::Borrow<[u8]> for $name<Octs> {
+        impl<Octs: AsRef<[u8]> + ?Sized> borrow::Borrow<[u8]> for $name<Octs> {
             fn borrow(&self) -> &[u8] {
                 self.as_slice()
             }
@@ -80,7 +115,7 @@ macro_rules! option_type {
 
         impl<Octs> borrow::BorrowMut<[u8]> for $name<Octs>
         where
-            Octs: AsMut<[u8]> + AsRef<[u8]>,
+            Octs: AsMut<[u8]> + AsRef<[u8]> + ?Sized,
         {
             fn borrow_mut(&mut self) -> &mut [u8] {
                 self.as_slice_mut()
@@ -89,7 +124,7 @@ macro_rules! option_type {
 
         //--- OptData etc.
         
-        impl<Octs> OptData for $name<Octs> {
+        impl<Octs: ?Sized> OptData for $name<Octs> {
             fn code(&self) -> OptionCode {
                 OptionCode::$name
             }
@@ -110,7 +145,7 @@ macro_rules! option_type {
             }
         }
 
-        impl<Octs: AsRef<[u8]>> ComposeOptData for $name<Octs> {
+        impl<Octs: AsRef<[u8]> + ?Sized> ComposeOptData for $name<Octs> {
             fn compose_len(&self) -> u16 {
                 self.octets.as_ref().len().try_into().expect("long option data")
             }
@@ -125,7 +160,7 @@ macro_rules! option_type {
         
         //--- IntoIter
 
-        impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a $name<Octs> {
+        impl<'a, Octs: AsRef<[u8]> + ?Sized> IntoIterator for &'a $name<Octs> {
             type Item = SecAlg;
             type IntoIter = SecAlgsIter<'a>;
 
@@ -136,7 +171,7 @@ macro_rules! option_type {
 
         //--- Display
 
-        impl<Octets: AsRef<[u8]>> fmt::Display for $name<Octets> {
+        impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display for $name<Octets> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 let mut first = true;
 
@@ -156,29 +191,29 @@ macro_rules! option_type {
 
         impl<Octs, Other> PartialEq<Other> for $name<Octs>
         where
-            Octs: AsRef<[u8]>,
-            Other: AsRef<[u8]>,
+            Octs: AsRef<[u8]> + ?Sized,
+            Other: AsRef<[u8]> + ?Sized,
         {
             fn eq(&self, other: &Other) -> bool {
                 self.as_slice().eq(other.as_ref())
             }
         }
 
-        impl<Octs: AsRef<[u8]>> Eq for $name<Octs> { }
+        impl<Octs: AsRef<[u8]> + ?Sized> Eq for $name<Octs> { }
 
         //--- PartialOrd and Ord
 
         impl<Octs, Other> PartialOrd<Other> for $name<Octs>
         where
-            Octs: AsRef<[u8]>,
-            Other: AsRef<[u8]>,
+            Octs: AsRef<[u8]> + ?Sized,
+            Other: AsRef<[u8]> + ?Sized,
         {
             fn partial_cmp(&self, other: &Other) -> Option<Ordering> {
                 self.as_slice().partial_cmp(other.as_ref())
             }
         }
 
-        impl<Octs: AsRef<[u8]>> Ord for $name<Octs> {
+        impl<Octs: AsRef<[u8]> + ?Sized> Ord for $name<Octs> {
             fn cmp(&self, other: &Self) -> Ordering {
                 self.as_slice().cmp(other.as_slice())
             }
@@ -186,7 +221,7 @@ macro_rules! option_type {
 
         //--- Hash
 
-        impl<Octs: AsRef<[u8]>> hash::Hash for $name<Octs> {
+        impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for $name<Octs> {
             fn hash<H: hash::Hasher>(&self, state: &mut H) {
                 self.as_slice().hash(state)
             }
@@ -196,7 +231,7 @@ macro_rules! option_type {
 
         impl<'a, Target: Composer> OptBuilder<'a, Target> {
             pub fn $fn(
-                &mut self, octets: &impl AsRef<[u8]>
+                &mut self, octets: &(impl AsRef<[u8]> + ?Sized)
             ) -> Result<(), Target::AppendError> {
                 self.push(&$name::from_octets(octets.as_ref()))
             }

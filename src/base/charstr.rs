@@ -27,7 +27,7 @@ use super::cmp::CanonicalOrd;
 use super::scan::{BadSymbol, Scanner, Symbol, SymbolCharsError};
 use super::wire::{Compose, ParseError};
 #[cfg(feature = "bytes")]
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use core::{cmp, fmt, hash, ops, str};
 use octseq::builder::FreezeBuilder;
 #[cfg(feature = "serde")]
@@ -72,11 +72,8 @@ impl<Octs: ?Sized> CharStr<Octs> {
     where
         Octs: AsRef<[u8]> + Sized,
     {
-        if octets.as_ref().len() > 255 {
-            Err(CharStrError)
-        } else {
-            Ok(unsafe { Self::from_octets_unchecked(octets) })
-        }
+        CharStr::check_slice(octets.as_ref())?;
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
     /// Creates a character string from octets without length check.
@@ -84,14 +81,59 @@ impl<Octs: ?Sized> CharStr<Octs> {
     /// # Safety
     ///
     /// The caller has to make sure that `octets` is at most 255 octets
-    /// long. Otherwise, the behaviour is undefined.
+    /// long. Otherwise, the behavior is undefined.
     pub unsafe fn from_octets_unchecked(octets: Octs) -> Self
     where
         Octs: Sized,
     {
         CharStr(octets)
     }
+}
 
+impl CharStr<[u8]> {
+    /// Creates a character string from an octets slice.
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, CharStrError> {
+        Self::check_slice(slice)?;
+        Ok(unsafe { Self::from_slice_unchecked(slice) })
+    }
+
+    /// Creates a new empty character string on an octets slice.
+    pub fn empty_slice() -> &'static Self {
+        unsafe { Self::from_slice_unchecked(b"".as_ref()) }
+    }
+
+    /// Creates a character string from an octets slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to make sure that `octets` is at most 255 octets
+    /// long. Otherwise, the behaviour is undefined.
+    pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        &*(slice as *const [u8] as *const Self)
+    }
+
+    /// Creates a character string from a mutable slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to make sure that `octets` is at most 255 octets
+    /// long. Otherwise, the behaviour is undefined.
+    unsafe fn from_slice_mut_unchecked(slice: &mut [u8]) -> &mut Self {
+        &mut *(slice as *mut [u8] as *mut Self)
+    }
+
+    /// Checks whether an octets slice contains a correct character string.
+    fn check_slice(slice: &[u8]) -> Result<(), CharStrError> {
+        if slice.len() > 255 {
+            Err(CharStrError)
+        }
+        else {
+            Ok(())
+        }
+    }
+}
+
+impl<Octs: ?Sized> CharStr<Octs> {
     /// Creates a new empty builder for this character string type.
     pub fn builder() -> CharStrBuilder<Octs::Builder>
     where
@@ -123,19 +165,19 @@ impl<Octs: ?Sized> CharStr<Octs> {
     }
 
     /// Returns a character string atop a slice of the content.
-    pub fn for_slice(&self) -> CharStr<&[u8]>
+    pub fn for_slice(&self) -> &CharStr<[u8]>
     where
         Octs: AsRef<[u8]>,
     {
-        unsafe { CharStr::from_octets_unchecked(self.0.as_ref()) }
+        unsafe { CharStr::from_slice_unchecked(self.0.as_ref()) }
     }
 
     /// Returns a character string atop a mutable slice of the content.
-    pub fn for_slice_mut(&mut self) -> CharStr<&mut [u8]>
+    pub fn for_slice_mut(&mut self) -> &mut CharStr<[u8]>
     where
         Octs: AsMut<[u8]>,
     {
-        unsafe { CharStr::from_octets_unchecked(self.0.as_mut()) }
+        unsafe { CharStr::from_slice_mut_unchecked(self.0.as_mut()) }
     }
 
     /// Returns a reference to a slice of the character string’s data.
@@ -206,36 +248,6 @@ impl<Octets> CharStr<Octets> {
     }
 }
 
-#[cfg(feature = "bytes")]
-#[cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
-impl CharStr<Bytes> {
-    /// Creates a new character string from a bytes value.
-    ///
-    /// Returns succesfully if the bytes slice can indeed be used as a
-    /// character string, i.e., it is not longer than 255 bytes.
-    pub fn from_bytes(bytes: Bytes) -> Result<Self, CharStrError> {
-        if bytes.len() > 255 {
-            Err(CharStrError)
-        } else {
-            Ok(unsafe { Self::from_octets_unchecked(bytes) })
-        }
-    }
-}
-
-impl CharStr<[u8]> {
-    /// Creates a new character string from an octet slice.
-    ///
-    /// If the byte slice is longer than 255 bytes, the function will return
-    /// an error.
-    pub fn from_slice(slice: &[u8]) -> Result<&Self, CharStrError> {
-        if slice.len() > 255 {
-            Err(CharStrError)
-        } else {
-            Ok(unsafe { &*(slice as *const [u8] as *const CharStr<[u8]>) })
-        }
-    }
-}
-
 //--- OctetsFrom
 
 impl<Octs, SrcOcts> OctetsFrom<CharStr<SrcOcts>> for CharStr<Octs>
@@ -282,6 +294,8 @@ where
 }
 
 //--- Deref and AsRef
+//
+// No Borrow as character strings compare ignoring case.
 
 impl<Octets: ?Sized> ops::Deref for CharStr<Octets> {
     type Target = Octets;
@@ -375,7 +389,7 @@ impl<T: AsRef<[u8]> + ?Sized> hash::Hash for CharStr<T> {
     }
 }
 
-//--- Display
+//--- Display and Debug
 
 impl<T: AsRef<[u8]> + ?Sized> fmt::Display for CharStr<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -404,6 +418,14 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::UpperHex for CharStr<T> {
     }
 }
 
+impl<T: AsRef<[u8]> + ?Sized> fmt::Debug for CharStr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_tuple("CharStr")
+            .field(&format_args!("{}", self))
+            .finish()
+    }
+}
+
 //--- IntoIterator
 
 impl<T: AsRef<[u8]>> IntoIterator for CharStr<T> {
@@ -424,20 +446,13 @@ impl<'a, T: AsRef<[u8]> + ?Sized + 'a> IntoIterator for &'a CharStr<T> {
     }
 }
 
-//--- Debug
-
-impl<T: AsRef<[u8]> + ?Sized> fmt::Debug for CharStr<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_tuple("CharStr")
-            .field(&format_args!("{}", self))
-            .finish()
-    }
-}
-
 //--- Serialize and Deserialize
 
 #[cfg(feature = "serde")]
-impl<T: AsRef<[u8]> + SerializeOctets> serde::Serialize for CharStr<T> {
+impl<T> serde::Serialize for CharStr<T>
+where
+    T: AsRef<[u8]> + SerializeOctets + ?Sized
+{
     fn serialize<S: serde::Serializer>(
         &self,
         serializer: S,
@@ -775,7 +790,7 @@ pub struct CharStrError;
 
 impl fmt::Display for CharStrError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("illegal character string")
+        f.write_str("long character string")
     }
 }
 
@@ -863,22 +878,17 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "bytes")]
-    fn from_bytes() {
+    fn from_octets() {
         assert_eq!(
-            CharStr::from_bytes(bytes::Bytes::from_static(b"01234"))
-                .unwrap()
-                .as_slice(),
+            CharStr::from_octets("01234").unwrap().as_slice(),
             b"01234"
         );
         assert_eq!(
-            CharStr::from_bytes(bytes::Bytes::from_static(b""))
-                .unwrap()
-                .as_slice(),
+            CharStr::from_octets("").unwrap().as_slice(),
             b""
         );
-        assert!(CharStr::from_bytes(vec![0; 255].into()).is_ok());
-        assert!(CharStr::from_bytes(vec![0; 256].into()).is_err());
+        assert!(CharStr::from_octets(vec![0; 255]).is_ok());
+        assert!(CharStr::from_octets(vec![0; 256]).is_err());
     }
 
     #[test]

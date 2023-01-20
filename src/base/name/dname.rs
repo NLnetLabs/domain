@@ -13,7 +13,7 @@ use super::traits::{ToDname, ToLabelIter};
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
-use core::{cmp, fmt, hash, ops, str};
+use core::{cmp, fmt, hash, str};
 use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, Truncate};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
@@ -258,11 +258,11 @@ impl<Octs: ?Sized> Dname<Octs> {
     }
 
     /// Returns a domain name for the octets slice of the content.
-    pub fn for_slice(&self) -> Dname<&[u8]>
+    pub fn for_slice(&self) -> &Dname<[u8]>
     where
         Octs: AsRef<[u8]>,
     {
-        unsafe { Dname::from_octets_unchecked(self.0.as_ref()) }
+        unsafe { Dname::from_slice_unchecked(self.0.as_ref()) }
     }
 }
 
@@ -274,6 +274,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     /// Returns whether the name is the root label only.
     pub fn is_root(&self) -> bool {
         self.0.as_ref().len() == 1
+    }
+
+    /// Returns the length of the domain name.
+    #[allow(clippy::len_without_is_empty)] // never empty ...
+    pub fn len(&self) -> usize {
+        self.0.as_ref().len()
     }
 }
 
@@ -495,7 +501,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> Dname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     /// Splits the name into two at the given position.
     ///
     /// Returns a pair of the left and right part of the split name.
@@ -531,7 +537,7 @@ impl<Octs: AsRef<[u8]>> Dname<Octs> {
     /// it is out of bounds.
     pub fn truncate(mut self, len: usize) -> RelativeDname<Octs>
     where
-        Octs: Truncate,
+        Octs: Truncate + Sized,
     {
         self.check_index(len);
         self.0.truncate(len);
@@ -574,7 +580,7 @@ impl<Octs: AsRef<[u8]>> Dname<Octs> {
         base: &N,
     ) -> Result<RelativeDname<Octs>, Self>
     where
-        Octs: Truncate,
+        Octs: Truncate + Sized,
     {
         if self.ends_with(base) {
             let len = self.0.as_ref().len() - usize::from(base.compose_len());
@@ -620,18 +626,16 @@ impl<Octs> Dname<Octs> {
     }
 }
 
-//--- Deref and AsRef
+//--- AsRef
 
-impl<Octs: ?Sized> ops::Deref for Dname<Octs> {
-    type Target = Octs;
-
-    fn deref(&self) -> &Octs {
+impl<Octs> AsRef<Octs> for Dname<Octs> {
+    fn as_ref(&self) -> &Octs {
         &self.0
     }
 }
 
-impl<Octs: AsRef<T> + ?Sized, T: ?Sized> AsRef<T> for Dname<Octs> {
-    fn as_ref(&self) -> &T {
+impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for Dname<Octs> {
+    fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }
 }
@@ -807,7 +811,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Dname<Octs> {
 #[cfg(feature = "serde")]
 impl<Octs> serde::Serialize for Dname<Octs>
 where
-    Octs: AsRef<[u8]> + SerializeOctets,
+    Octs: AsRef<[u8]> + SerializeOctets + ?Sized,
 {
     fn serialize<S: serde::Serializer>(
         &self,

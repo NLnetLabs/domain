@@ -15,36 +15,13 @@ use core::convert::TryInto;
 //------------ KeyTag -------------------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct KeyTag<Octs> {
+pub struct KeyTag<Octs: ?Sized> {
     octets: Octs,
 }
 
 impl<Octs> KeyTag<Octs> {
-    pub fn new(octets: Octs) -> Self {
+    pub fn from_octets(octets: Octs) -> Self {
         KeyTag { octets }
-    }
-
-    pub fn as_octets(&self) -> &Octs {
-        &self.octets
-    }
-
-    pub fn into_octets(self) -> Octs {
-        self.octets
-    }
-
-    pub fn as_slice(&self) -> &[u8]
-    where Octs: AsRef<[u8]> {
-        self.octets.as_ref()
-    }
-
-    pub fn as_slice_mut(&mut self) -> &mut [u8]
-    where Octs: AsMut<[u8]> {
-        self.octets.as_mut()
-    }
-
-    pub fn iter(&self) -> KeyTagIter
-    where Octs: AsRef<[u8]> {
-        KeyTagIter(self.octets.as_ref())
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
@@ -55,32 +32,77 @@ impl<Octs> KeyTag<Octs> {
             Err(FormError::new("invalid keytag length").into())
         }
         else {
-            Ok(Self::new(parser.parse_octets(len)?))
+            Ok(Self::from_octets(parser.parse_octets(len)?))
         }
+    }
+}
+
+impl KeyTag<[u8]> {
+    pub fn from_slice(slice: &[u8]) -> &Self {
+        unsafe { &*(slice as *const [u8] as *const Self) }
+    }
+
+    pub fn from_slice_mut(slice: &mut [u8]) -> &mut Self {
+        unsafe { &mut *(slice as *mut [u8] as *mut Self) }
+    }
+}
+
+impl<Octs: ?Sized> KeyTag<Octs> {
+    pub fn as_octets(&self) -> &Octs {
+        &self.octets
+    }
+
+    pub fn into_octets(self) -> Octs
+    where
+        Octs: Sized,
+    {
+        self.octets
+    }
+
+    pub fn as_slice(&self) -> &[u8]
+    where
+        Octs: AsRef<[u8]>,
+    {
+        self.octets.as_ref()
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [u8]
+    where
+        Octs: AsMut<[u8]>,
+    {
+        self.octets.as_mut()
+    }
+
+    pub fn iter(&self) -> KeyTagIter
+    where Octs: AsRef<[u8]> {
+        KeyTagIter(self.octets.as_ref())
     }
 }
 
 //--- AsRef, AsMut, Borrow, BorrowMut
 
-impl<Octs: AsRef<[u8]>> AsRef<[u8]> for KeyTag<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for KeyTag<Octs> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-impl<Octs: AsMut<[u8]>> AsMut<[u8]> for KeyTag<Octs> {
+impl<Octs: AsMut<[u8]> + ?Sized> AsMut<[u8]> for KeyTag<Octs> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.as_slice_mut()
     }
 }
 
-impl<Octs: AsRef<[u8]>> borrow::Borrow<[u8]> for KeyTag<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> borrow::Borrow<[u8]> for KeyTag<Octs> {
     fn borrow(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-impl<Octs: AsMut<[u8]> + AsRef<[u8]>> borrow::BorrowMut<[u8]> for KeyTag<Octs> {
+impl<Octs> borrow::BorrowMut<[u8]> for KeyTag<Octs>
+where
+    Octs: AsMut<[u8]> + AsRef<[u8]> + ?Sized
+{
     fn borrow_mut(&mut self) -> &mut [u8] {
         self.as_slice_mut()
     }
@@ -88,7 +110,7 @@ impl<Octs: AsMut<[u8]> + AsRef<[u8]>> borrow::BorrowMut<[u8]> for KeyTag<Octs> {
 
 //--- OptData
 
-impl<Octs> OptData for KeyTag<Octs> {
+impl<Octs: ?Sized> OptData for KeyTag<Octs> {
     fn code(&self) -> OptionCode {
         OptionCode::KeyTag
     }
@@ -108,7 +130,7 @@ impl<'a, Octs: Octets> ParseOptData<'a, Octs> for KeyTag<Octs::Range<'a>> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> ComposeOptData for KeyTag<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> ComposeOptData for KeyTag<Octs> {
     fn compose_len(&self) -> u16 {
         self.octets.as_ref().len().try_into().expect("long option data")
     }
@@ -123,7 +145,7 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for KeyTag<Octs> {
 
 //--- IntoIterator
 
-impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a KeyTag<Octs> {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> IntoIterator for &'a KeyTag<Octs> {
     type Item = u16;
     type IntoIter = KeyTagIter<'a>;
 
@@ -135,7 +157,7 @@ impl<'a, Octs: AsRef<[u8]>> IntoIterator for &'a KeyTag<Octs> {
 
 //--- Display
 
-impl<Octets: AsRef<[u8]>> fmt::Display  for KeyTag<Octets> {
+impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display  for KeyTag<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut first = true;
         
@@ -154,23 +176,31 @@ impl<Octets: AsRef<[u8]>> fmt::Display  for KeyTag<Octets> {
 
 //--- PartialEq and Eq
 
-impl<Octs: AsRef<[u8]>, Other: AsRef<[u8]>> PartialEq<Other> for KeyTag<Octs> {
+impl<Octs, Other> PartialEq<Other> for KeyTag<Octs>
+where
+    Octs: AsRef<[u8]> + ?Sized,
+    Other: AsRef<[u8]> + ?Sized,
+{
     fn eq(&self, other: &Other) -> bool {
         self.as_slice().eq(other.as_ref())
     }
 }
 
-impl<Octs: AsRef<[u8]>> Eq for KeyTag<Octs> { }
+impl<Octs: AsRef<[u8]> + ?Sized> Eq for KeyTag<Octs> { }
 
 //--- PartialOrd and Ord
 
-impl<Octs: AsRef<[u8]>, Other: AsRef<[u8]>> PartialOrd<Other> for KeyTag<Octs> {
+impl<Octs, Other> PartialOrd<Other> for KeyTag<Octs>
+where
+    Octs: AsRef<[u8]> + ?Sized,
+    Other: AsRef<[u8]> + ?Sized,
+{
     fn partial_cmp(&self, other: &Other) -> Option<Ordering> {
         self.as_slice().partial_cmp(other.as_ref())
     }
 }
 
-impl<Octs: AsRef<[u8]>> Ord for KeyTag<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Ord for KeyTag<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.as_slice().cmp(other.as_slice())
     }
@@ -178,7 +208,7 @@ impl<Octs: AsRef<[u8]>> Ord for KeyTag<Octs> {
 
 //--- Hash
 
-impl<Octs: AsRef<[u8]>> hash::Hash for KeyTag<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for KeyTag<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.as_slice().hash(state)
     }
@@ -209,7 +239,7 @@ impl<'a> Iterator for KeyTagIter<'a> {
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
     pub fn key_tag(
-        &mut self, tags: &impl AsRef<[u16]>
+        &mut self, tags: &(impl AsRef<[u16]> + ?Sized)
     ) -> Result<(), Target::AppendError> {
         self.push_raw_option(
             OptionCode::KeyTag,
@@ -237,7 +267,7 @@ mod test {
     #[test]
     fn nsid_compose_parse() {
         test_option_compose_parse(
-            &KeyTag::new("fooo"),
+            &KeyTag::from_octets("fooo"),
             |parser| KeyTag::parse(parser)
         );
     }

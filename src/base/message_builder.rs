@@ -1505,12 +1505,12 @@ where
 /// header values of the record and push options to the record data.
 ///
 /// [`AdditionalBuilder::opt`]: struct.AdditonalBuilder.html#method.opt
-pub struct OptBuilder<'a, Target: AsRef<[u8]> + AsMut<[u8]>> {
+pub struct OptBuilder<'a, Target: ?Sized> {
     start: usize,
     target: &'a mut Target,
 }
 
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
+impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
     /// Creates a new opt builder atop an additional builder.
     fn new(target: &'a mut Target) -> Result<Self, ShortBuf> {
         let start = target.as_ref().len();
@@ -1544,7 +1544,7 @@ impl<'a, Target: Composer> OptBuilder<'a, Target> {
     }
 
     /// Appends an option to the OPT record.
-    pub fn push<Opt: ComposeOptData>(
+    pub fn push<Opt: ComposeOptData + ?Sized>(
         &mut self,
         opt: &Opt,
     ) -> Result<(), Target::AppendError> {

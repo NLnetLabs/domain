@@ -47,20 +47,10 @@
 #[macro_use]
 mod macros;
 
-pub mod rfc1035;
-pub mod rfc2782;
-pub mod rfc2845;
-pub mod rfc3596;
-pub mod rfc4034;
-pub mod rfc5155;
-pub mod rfc6672;
-pub mod rfc7344;
-pub mod svcb;
-
-// The rdata_types! macro (defined in self::macros) re-exports the record data
-// types here and creates the ZoneRecordData and AllRecordData enums
-// containing all record types that can appear in a zone and all record
-// types that exist.
+// The rdata_types! macro (defined in self::macros) defines the modules
+// containing the record data types, re-exports those here, and creates the
+// ZoneRecordData and AllRecordData enums containing all record types that
+// can appear in a zone file and all record types that exist.
 //
 // All record data types listed here MUST have the same name as the
 // `Rtype` variant they implement – some of the code implemented by the macro
@@ -69,10 +59,8 @@ pub mod svcb;
 // Add any new module here and then add all record types in that module that
 // can appear in zone files under "zone" and all others under "pseudo".
 // Your type can be generic over an octet type "O" and a domain name type "N".
-// Add these as needed.
-//
-// Each type entry has to be followed by a comma, even the last one. The macro
-// is messy enough as it is ...
+// Add these as needed. Trait bounds on them differ for different methods, so
+// check the bounds on ZoneRecordData and AllRecordData if there are errors.
 rdata_types! {
     rfc1035::{
         zone {
@@ -92,7 +80,7 @@ rdata_types! {
             Txt<O>,
         }
         pseudo {
-            Null<O>,
+            Null<O>
         }
     }
     rfc2782::{

@@ -22,7 +22,7 @@ use super::wire::{Composer, ParseError};
 use crate::rdata::rfc1035::Cname;
 use core::marker::PhantomData;
 use core::{fmt, mem};
-use octseq::{Octets, OctetsFrom, Parser, ShortBuf};
+use octseq::{Octets, OctetsFrom, Parser};
 
 //------------ Message -------------------------------------------------------
 
@@ -156,35 +156,67 @@ pub struct Message<Octs: ?Sized> {
 
 /// # Creation and Conversion
 ///
-impl<Octs: ?Sized> Message<Octs> {
+impl<Octs> Message<Octs> {
     /// Creates a message from an octets sequence.
     ///
     /// This fails if the slice is too short to even contain a complete
     /// header section.  No further checks are done, though, so if this
     /// function returns ok, the message may still be broken with other
     /// methods returning errors later one.
-    pub fn from_octets(octets: Octs) -> Result<Self, ShortBuf>
+    pub fn from_octets(octets: Octs) -> Result<Self, ShortMessage>
     where
-        Octs: AsRef<[u8]> + Sized,
+        Octs: AsRef<[u8]>,
     {
-        if octets.as_ref().len() < mem::size_of::<HeaderSection>() {
-            Err(ShortBuf)
-        } else {
-            Ok(unsafe { Self::from_octets_unchecked(octets) })
-        }
+        Message::check_slice(octets.as_ref())?;
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
     /// Creates a message from a bytes value without checking.
     ///
+    /// # Safety
+    ///
     /// The methods for header access rely on the octets being at least as
-    /// long as a header, so this is unsafe.
-    pub(super) unsafe fn from_octets_unchecked(octets: Octs) -> Self
-    where
-        Octs: Sized,
-    {
+    /// long as a header. If the sequence is shorter, the behavior is
+    /// undefined.
+    pub(super) unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         Message { octets }
     }
+}
 
+impl Message<[u8]> {
+    /// Creates a message from an octets slice.
+    ///
+    /// This fails if the slice is too short to even contain a complete
+    /// header section.  No further checks are done, though, so if this
+    /// function returns ok, the message may still be broken with other
+    /// methods returning errors later one.
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, ShortMessage> {
+        Message::check_slice(slice)?;
+        Ok(unsafe { Self::from_slice_unchecked(slice) })
+    }
+
+    /// Creates a message from a bytes value without checking.
+    ///
+    /// # Safety
+    ///
+    /// The methods for header access rely on the octets being at least as
+    /// long as a header. If the sequence is shorter, the behavior is
+    /// undefined.
+    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        &*(slice as *const [u8] as *const Self)
+    }
+
+    /// Checks that the slice can be used for a message.
+    fn check_slice(slice: &[u8]) -> Result<(), ShortMessage> {
+        if slice.len() < mem::size_of::<HeaderSection>() {
+            Err(ShortMessage(()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<Octs: ?Sized> Message<Octs> {
     /// Returns a reference to the underlying octets sequence.
     pub fn as_octets(&self) -> &Octs {
         &self.octets
@@ -222,9 +254,7 @@ impl<Octs: ?Sized> Message<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        unsafe {
-            &*(self.octets.as_ref() as *const [u8] as *const Message<[u8]>)
-        }
+        unsafe { Message::from_slice_unchecked(self.octets.as_ref()) }
     }
 }
 
@@ -596,6 +626,9 @@ impl<Octs: Octets + ?Sized> Message<Octs> {
 
 //--- AsRef
 
+// Octs here can’t be ?Sized or it’ll conflict with AsRef<[u8]> below.
+// But [u8] is covered by that impl anyway, so no harm done.
+//
 impl<Octs> AsRef<Octs> for Message<Octs> {
     fn as_ref(&self) -> &Octs {
         &self.octets
@@ -931,7 +964,7 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
     }
 }
 
-//--- Clone
+//--- Clone and Copy
 
 impl<'a, Octs: ?Sized> Clone for RecordSection<'a, Octs> {
     fn clone(&self) -> Self {
@@ -1102,6 +1135,22 @@ where
 }
 
 //============ Error Types ===================================================
+
+//------------ ShortMessage --------------------------------------------------
+
+/// A message was too short to even contain the header.
+#[derive(Clone, Copy, Debug)]
+pub struct ShortMessage(());
+
+impl fmt::Display for ShortMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("short message")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ShortMessage {}
+
 
 //------------ CopyRecordsError ----------------------------------------------
 
