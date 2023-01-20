@@ -234,7 +234,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     ///
     /// The method converts the message builder into an answer builder ready
     /// to receive the answer for the question.
-    pub fn start_answer<Octs: Octets>(
+    pub fn start_answer<Octs: Octets + ?Sized>(
         mut self,
         msg: &Message<Octs>,
         rcode: Rcode,
