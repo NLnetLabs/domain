@@ -37,6 +37,12 @@ Breaking Changes
 * Dropped `Deref` impls for `Dname<_>`, `RelativeDname<_>`. ([#168])
 * Renamed `opt::KeyTag::new` to `opt::KeyTag::from_octets`. ([#168])
 * Renamed `rdata::Txt::try_from_slice` to `build_from_slice`. ([#168])
+* The `new` method of the following record data types now check whether
+  the wire format representation of the record data is too long and thus
+  returns a result: `Tsig<_, _>`, `Dnskey<_>`, `Rrsig<_, _>`, `Ds<_>`, 
+  `Cdnskey<_>`, `Cds<_>`. ([#169])
+* The `new` function for `rdata::Null<_>` has been replaced with a
+  `from_octets` and `from_slice` pair. The `Deref` impl was removed. ([#169])
 
 New
 
@@ -52,6 +58,7 @@ Other Changes
 [#157]: https://github.com/NLnetLabs/domain/pull/157
 [#160]: https://github.com/NLnetLabs/domain/pull/160
 [#168]: https://github.com/NLnetLabs/domain/pull/168
+[#169]: https://github.com/NLnetLabs/domain/pull/169
 [Martin Fischer]: https://push-f.com/
 [octseq]: https://crates.io/crates/octseq
 
