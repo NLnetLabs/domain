@@ -1151,7 +1151,6 @@ impl fmt::Display for ShortMessage {
 #[cfg(feature = "std")]
 impl std::error::Error for ShortMessage {}
 
-
 //------------ CopyRecordsError ----------------------------------------------
 
 /// An error occurrd while copying records.

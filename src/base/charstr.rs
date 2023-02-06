@@ -126,8 +126,7 @@ impl CharStr<[u8]> {
     fn check_slice(slice: &[u8]) -> Result<(), CharStrError> {
         if slice.len() > 255 {
             Err(CharStrError)
-        }
-        else {
+        } else {
             Ok(())
         }
     }
@@ -451,7 +450,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized + 'a> IntoIterator for &'a CharStr<T> {
 #[cfg(feature = "serde")]
 impl<T> serde::Serialize for CharStr<T>
 where
-    T: AsRef<[u8]> + SerializeOctets + ?Sized
+    T: AsRef<[u8]> + SerializeOctets + ?Sized,
 {
     fn serialize<S: serde::Serializer>(
         &self,
@@ -883,10 +882,7 @@ mod test {
             CharStr::from_octets("01234").unwrap().as_slice(),
             b"01234"
         );
-        assert_eq!(
-            CharStr::from_octets("").unwrap().as_slice(),
-            b""
-        );
+        assert_eq!(CharStr::from_octets("").unwrap().as_slice(), b"");
         assert!(CharStr::from_octets(vec![0; 255]).is_ok());
         assert!(CharStr::from_octets(vec![0; 256]).is_err());
     }
