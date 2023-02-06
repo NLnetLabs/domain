@@ -68,7 +68,10 @@
 //! # Zone File Processing
 //!
 //! Handling for the text format for DNS data from zone files is available
-//! via the [zonefile] module. See there for more information.
+//! via the crate’s
+#![cfg_attr(feature = "zonefile", doc = "[zonefile][crate::zonefile]")]
+#![cfg_attr(not(feature = "zonefile"), doc = "zonefile")]
+//!  module. See there for more information.
 //!
 //!
 //! # Support for `no_std`

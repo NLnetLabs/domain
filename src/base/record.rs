@@ -70,8 +70,10 @@ use octseq::parse::Parser;
 /// the generics through type inference. Secondly, you can parse a record
 /// from an existing message. [`Message`] and its friends provide a way to
 /// do that; see there for all the details. Finally, you can scan a record
-/// from zone file format. See the [`domain::zonefile`] module for
-/// that.
+/// from zone file format. See the crate’s
+#[cfg_attr(feature = "zonefile", doc = "[zonefile][crate::zonefile]")]
+#[cfg_attr(not(feature = "zonefile"), doc = "zonefile")]
+/// module for that.
 ///
 /// [`new`]: #method.new
 /// [`Message`]: ../message/struct.Message.html

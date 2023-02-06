@@ -15,7 +15,7 @@
 //! This module provides a simple scanner that uses a sequence of strings as
 //! its source and can be used to, for instance, read record data from
 //! command line arguments. A “proper” scanner is included in the
-#![cfg_attr(feature = "zonefile", doc = "[zonefile]")]
+#![cfg_attr(feature = "zonefile", doc = "[zonefile][crate::zonefile]")]
 #![cfg_attr(not(feature = "zonefile"), doc = "zonefile")]
 //! module.
 #![allow(clippy::manual_range_contains)] // Hard disagree.

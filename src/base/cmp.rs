@@ -11,9 +11,8 @@
 //! as they are for comparisons. In order to make it clear when this mode
 //! of comparision is used, this module defines a new trait [`CanonicalOrd`]
 //! that allows types to define how they should be compared in the context of
-//! DNSSEC. The trait is accompanied by
-//! [`Compose::compose_canonical`][super::octets::Compose::compose_canonical]
-//! which produces the canonical form of this data.
+//! DNSSEC. The trait is accompanied by `compose_canonical` methods on all
+//! types that have or may have a canonical form.
 
 use core::cmp::Ordering;
 

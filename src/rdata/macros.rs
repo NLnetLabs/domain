@@ -472,61 +472,6 @@ macro_rules! rdata_types {
             }
         }
 
-        /*
-        //--- Serialize and Deserialize
-
-        #[cfg(feature = "serde")]
-        impl<O, N> serde::Serialize for ZoneRecordData<O, N>
-        where
-            O: AsRef<[u8]> + crate::base::octets::SerializeOctets,
-            N: serde::Serialize,
-        {
-            fn serialize<S: serde::Serializer>(
-                &self, serializer: S
-            ) -> Result<S::Ok, S::Error> {
-                use crate::base::iana::Rtype;
-
-                match *self {
-                    $( $( $(
-                        ZoneRecordData::$mtype(ref inner) => {
-                            serializer.serialize_newtype_variant(
-                                "ZoneRecordData",
-                                Rtype::$mtype.to_int().into(),
-                                stringify!($mtype),
-                                inner
-                            )
-                        }
-                    )* )* )*
-                    ZoneRecordData::Unknown(ref inner) => {
-                        serializer.serialize_newtype_variant(
-                            "ZoneRecordData",
-                            u32::MAX,
-                            "Unknown",
-                            inner
-                        )
-                    }
-                }
-            }
-        }
-
-        #[cfg(feature = "serde")]
-        impl<'de, O, N> serde::Deserialize<'de> for ZoneRecordData<O, N>
-        where
-            O: crate::base::octets::FromBuilder
-                + crate::base::octets::DeserializeOctets<'de>,
-            <O as crate::base::octets::FromBuilder>::Builder:
-                crate::base::octets::OctetsBuilder<Octets = O>
-                + crate::base::octets::EmptyBuilder,
-            N: serde::Deserialize<'de>,
-        {
-            fn deserialize<D: serde::Deserializer<'de>>(
-                _deserializer: D
-            ) -> Result<Self, D::Error> {
-                unimplemented!()
-            }
-        }
-        */
-
         //------------- AllRecordData ----------------------------------------
 
         /// Record data for all record types.
@@ -561,21 +506,6 @@ macro_rules! rdata_types {
                             inner.rtype()
                         }
                     )* )* )*
-
-                    /*
-                    $( $( $(
-                        AllRecordData::$mtype(_) => {
-                            <$mtype $( < $( $mn ),* > )*
-                                as $crate::base::rdata::RtypeRecordData>::RTYPE
-                        }
-                    )* )* )*
-                    $( $( $(
-                        AllRecordData::$ptype(_) => {
-                            <$ptype $( < $( $pn ),* > )*
-                                as $crate::base::rdata::RtypeRecordData>::RTYPE
-                        }
-                    )* )* )*
-                    */
 
                     AllRecordData::Opt(_) => $crate::base::iana::Rtype::Opt,
                     AllRecordData::Unknown(ref inner) => inner.rtype(),

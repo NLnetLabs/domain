@@ -501,9 +501,10 @@ impl<Target: Composer> QuestionBuilder<Target> {
     /// Appends a question to the question section.
     ///
     /// This method accepts anything that implements the [`ComposeQuestion`]
-    /// trait. Apart from an actual [`Question`] or a reference to it, this
-    /// can also be a tuple of a domain name, record type, and class or, if
-    /// the class is the usual IN, a pair of just the name and type.
+    /// trait. Apart from an actual [`Question`][super::question::Question]
+    /// or a reference to it, this can also be a tuple of a domain name,
+    /// record type, and class or, if the class is the usual IN, a pair of
+    /// just the name and type.
     ///
     /// In other words, the options are:
     ///

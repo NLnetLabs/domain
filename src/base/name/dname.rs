@@ -268,8 +268,6 @@ impl<Octs: ?Sized> Dname<Octs> {
 
 /// # Properties
 ///
-/// More of the usual methods on octets sequences, such as `len`, are
-/// available via the implementation of `Deref<Target = Octs>`.
 impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     /// Returns whether the name is the root label only.
     pub fn is_root(&self) -> bool {
