@@ -9,14 +9,16 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::net::Ipv4Addr;
-use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use crate::base::rdata::{
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+};
 use crate::base::scan::{Scan, Scanner, ScannerError, Symbol};
 use crate::base::serial::Serial;
-use crate::base::wire::{Compose, Composer, Parse, ParseError};
+use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::cmp::Ordering;
-use core::convert::Infallible;
+use core::convert::{Infallible, TryFrom};
 use core::str::FromStr;
 use core::{fmt, hash, ops, str};
 use octseq::builder::{
@@ -937,7 +939,7 @@ dname_type_well_known! {
 /// The Null record type is defined in RFC 1035, section 3.3.10.
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Null<Octs> {
+pub struct Null<Octs: ?Sized> {
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -953,20 +955,53 @@ pub struct Null<Octs> {
 }
 
 impl<Octs> Null<Octs> {
-    /// Creates new, empty owned Null record data.
-    pub fn new(data: Octs) -> Self {
-        Null { data }
+    /// Creates new NULL record data from the given octets.
+    ///
+    /// The function will fail if `data` is longer than 65,535 octets.
+    pub fn from_octets(data: Octs) -> Result<Self, LongRecordData>
+    where Octs: AsRef<[u8]> {
+        Null::check_slice(data.as_ref())?;
+        Ok(unsafe { Self::from_octets_unchecked(data) })
     }
 
+    /// Creates new NULL record data without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to ensure that `data` is at most 65,535 octets long.
+    pub unsafe fn from_octets_unchecked(data: Octs) -> Self {
+        Null { data }
+    }
+}
+
+impl Null<[u8]> {
+    /// Creates new NULL record data from an octets slice.
+    ///
+    /// The function will fail if `data` is longer than 65,535 octets.
+    pub fn from_slice(data: &[u8]) -> Result<&Self, LongRecordData> {
+        Self::check_slice(data)?;
+        Ok(unsafe { Self::from_slice_unchecked(data) })
+    }
+
+    /// Creates new NULL record from an octets slice data without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to ensure that `data` is at most 65,535 octets long.
+    pub unsafe fn from_slice_unchecked(data: &[u8]) -> &Self {
+        &*(data as *const [u8] as *const Self)
+    }
+
+    /// Checks that a slice can be used for NULL record data.
+    fn check_slice(slice: &[u8]) -> Result<(), LongRecordData> {
+        LongRecordData::check_len(slice.len())
+    }
+}
+
+impl<Octs: ?Sized> Null<Octs> {
     /// The raw content of the record.
     pub fn data(&self) -> &Octs {
         &self.data
-    }
-
-    pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
-        self,
-    ) -> Result<Null<Target>, Target::Error> {
-        Ok(Null::new(self.data.try_octets_into()?))
     }
 }
 
@@ -981,11 +1016,23 @@ impl<Octs: AsRef<[u8]>> Null<Octs> {
 }
 
 impl<Octs> Null<Octs> {
+    pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Null<Target>, Target::Error> {
+        Ok(unsafe {
+            Null::from_octets_unchecked(self.data.try_octets_into()?)
+        })
+    }
+}
+
+impl<Octs> Null<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
-        parser.parse_octets(len).map(Self::new).map_err(Into::into)
+        parser.parse_octets(len).map(|res| {
+            unsafe { Self::from_octets_unchecked(res) }
+        }).map_err(Into::into)
     }
 }
 
@@ -994,15 +1041,11 @@ impl<SrcOcts> Null<SrcOcts> {
     where
         Octs: OctetsFrom<SrcOcts>,
     {
-        Ok(Null::new(self.data.try_octets_into().map_err(Into::into)?))
-    }
-}
-
-//--- From
-
-impl<Octs> From<Octs> for Null<Octs> {
-    fn from(data: Octs) -> Self {
-        Self::new(data)
+        Ok(unsafe {
+            Null::from_octets_unchecked(
+                self.data.try_octets_into().map_err(Into::into)?
+            )
+        })
     }
 }
 
@@ -1015,7 +1058,9 @@ where
     type Error = Octs::Error;
 
     fn try_octets_from(source: Null<SrcOcts>) -> Result<Self, Self::Error> {
-        Octs::try_octets_from(source.data).map(Self::new)
+        Octs::try_octets_from(source.data).map(|res| {
+            unsafe { Self::from_octets_unchecked(res) }
+        })
     }
 }
 
@@ -1023,22 +1068,22 @@ where
 
 impl<Octs, Other> PartialEq<Null<Other>> for Null<Octs>
 where
-    Octs: AsRef<[u8]>,
-    Other: AsRef<[u8]>,
+    Octs: AsRef<[u8]> + ?Sized,
+    Other: AsRef<[u8]> + ?Sized,
 {
     fn eq(&self, other: &Null<Other>) -> bool {
         self.data.as_ref().eq(other.data.as_ref())
     }
 }
 
-impl<Octs: AsRef<[u8]>> Eq for Null<Octs> {}
+impl<Octs: AsRef<[u8]> + ?Sized> Eq for Null<Octs> {}
 
 //--- PartialOrd, CanonicalOrd, and Ord
 
 impl<Octs, Other> PartialOrd<Null<Other>> for Null<Octs>
 where
-    Octs: AsRef<[u8]>,
-    Other: AsRef<[u8]>,
+    Octs: AsRef<[u8]> + ?Sized,
+    Other: AsRef<[u8]> + ?Sized,
 {
     fn partial_cmp(&self, other: &Null<Other>) -> Option<Ordering> {
         self.data.as_ref().partial_cmp(other.data.as_ref())
@@ -1047,15 +1092,15 @@ where
 
 impl<Octs, Other> CanonicalOrd<Null<Other>> for Null<Octs>
 where
-    Octs: AsRef<[u8]>,
-    Other: AsRef<[u8]>,
+    Octs: AsRef<[u8]> + ?Sized,
+    Other: AsRef<[u8]> + ?Sized,
 {
     fn canonical_cmp(&self, other: &Null<Other>) -> Ordering {
         self.data.as_ref().cmp(other.data.as_ref())
     }
 }
 
-impl<Octs: AsRef<[u8]>> Ord for Null<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Ord for Null<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.data.as_ref().cmp(other.data.as_ref())
     }
@@ -1063,7 +1108,7 @@ impl<Octs: AsRef<[u8]>> Ord for Null<Octs> {
 
 //--- Hash
 
-impl<Octs: AsRef<[u8]>> hash::Hash for Null<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Null<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.data.as_ref().hash(state)
     }
@@ -1071,7 +1116,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Null<Octs> {
 
 //--- RecordData, ParseRecordData, ComposeRecordData
 
-impl<Octs> RecordData for Null<Octs> {
+impl<Octs: ?Sized> RecordData for Null<Octs> {
     fn rtype(&self) -> Rtype {
         Rtype::Null
     }
@@ -1093,7 +1138,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]>> ComposeRecordData for Null<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> ComposeRecordData for Null<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(
             u16::try_from(self.data.as_ref().len()).expect("long NULL rdata"),
@@ -1112,16 +1157,6 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Null<Octs> {
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
         self.compose_rdata(target)
-    }
-}
-
-//--- Deref
-
-impl<Octs> ops::Deref for Null<Octs> {
-    type Target = Octs;
-
-    fn deref(&self) -> &Self::Target {
-        &self.data
     }
 }
 
@@ -1570,7 +1605,7 @@ impl<Octs: FromBuilder> Txt<Octs> {
 
 impl<Octs> Txt<Octs> {
     /// Creates new TXT record data from its encoded content.
-    pub fn from_octets(octets: Octs) -> Result<Self, CharStrError>
+    pub fn from_octets(octets: Octs) -> Result<Self, TxtError>
     where
         Octs: AsRef<[u8]>
     {
@@ -1587,7 +1622,40 @@ impl<Octs> Txt<Octs> {
     unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         Txt(octets)
     }
+}
 
+impl Txt<[u8]> {
+    /// Creates new TXT record data on an octets slice.
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, TxtError> {
+        Txt::check_slice(slice)?;
+        Ok(unsafe { Txt::from_slice_unchecked(slice) })
+    }
+
+    /// Creates new TXT record data on an octets slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The passed octets must contain correctly encoded TXT record data,
+    /// that is a sequence of encoded character strings.
+    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        unsafe { &*(slice as *const [u8] as *const Self) }
+    }
+
+    /// Checks that a slice contains correctly encoded TXT data.
+    fn check_slice(mut slice: &[u8]) -> Result<(), TxtError> {
+        LongRecordData::check_len(slice.len())?;
+        while let Some(&len) = slice.first() {
+            let len = usize::from(len);
+            if slice.len() <= len {
+                return Err(TxtError(TxtErrorInner::ShortInput));
+            }
+            slice = &slice[len + 1..];
+        }
+        Ok(())
+    }
+}
+
+impl<Octs> Txt<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError>
@@ -1605,36 +1673,6 @@ impl<Octs> Txt<Octs> {
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         scanner.scan_charstr_entry().map(Txt)
-    }
-}
-
-impl Txt<[u8]> {
-    /// Creates new TXT record data on an octets slice.
-    pub fn from_slice(slice: &[u8]) -> Result<&Self, CharStrError> {
-        Txt::check_slice(slice)?;
-        Ok(unsafe { Txt::from_slice_unchecked(slice) })
-    }
-
-    /// Creates new TXT record data on an octets slice without checking.
-    ///
-    /// # Safety
-    ///
-    /// The passed octets must contain correctly encoded TXT record data,
-    /// that is a sequence of encoded character strings.
-    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
-        unsafe { &*(slice as *const [u8] as *const Self) }
-    }
-
-    /// Checks that a slice contains correctly encoded TXT data.
-    fn check_slice(mut slice: &[u8]) -> Result<(), CharStrError> {
-        while let Some(&len) = slice.first() {
-            let len = usize::from(len);
-            if slice.len() <= len {
-                return Err(CharStrError);
-            }
-            slice = &slice[len + 1..];
-        }
-        Ok(())
     }
 }
 
@@ -2176,7 +2214,48 @@ impl<Builder: OctetsBuilder + EmptyBuilder> Default for TxtBuilder<Builder> {
     }
 }
 
-//============ Testing ======================================================
+//============ Error Types ===================================================
+
+//------------ TxtError ------------------------------------------------------
+
+/// An octets sequence does not form valid TXT record data.
+#[derive(Clone, Copy, Debug)]
+pub struct TxtError(TxtErrorInner);
+
+#[derive(Clone, Copy, Debug)]
+enum TxtErrorInner {
+    Long(LongRecordData),
+    ShortInput,
+}
+
+impl TxtError {
+    pub fn as_str(self) -> &'static str {
+        match self.0 {
+            TxtErrorInner::Long(err) => err.as_str(),
+            TxtErrorInner::ShortInput => "short input",
+        }
+    }
+}
+
+impl From<LongRecordData> for TxtError {
+    fn from(err: LongRecordData) -> TxtError {
+        TxtError(TxtErrorInner::Long(err))
+    }
+}
+
+impl From<TxtError> for FormError {
+    fn from(err: TxtError) -> FormError {
+        FormError::new(err.as_str())
+    }
+}
+
+impl fmt::Display for TxtError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+//============ Testing =======================================================
 
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
@@ -2276,7 +2355,7 @@ mod test {
 
     #[test]
     fn null_compose_parse_scan() {
-        let rdata = Null::new("foo");
+        let rdata = Null::from_octets("foo").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Null::parse(parser));
     }

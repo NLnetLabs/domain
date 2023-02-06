@@ -1406,6 +1406,9 @@ impl Variables {
             key.name.clone(),
             Class::Any,
             0,
+            // The only reason creating TSIG record data can fail here is
+            // that the hmac is unreasonable large. Since we control its
+            // creation, panicing in this case is fine.
             Tsig::new(
                 key.algorithm().to_dname(),
                 self.time_signed,
@@ -1414,7 +1417,8 @@ impl Variables {
                 original_id,
                 self.error,
                 other,
-            ),
+            )
+            .expect("long MAC"),
         ))
     }
 
@@ -1656,6 +1660,7 @@ impl<K: AsRef<Key>> ServerError<K> {
                     tsig.owner(),
                     tsig.class(),
                     tsig.ttl(),
+                    // The TSIG record data can never ever be to long.
                     Tsig::new(
                         tsig.data().algorithm(),
                         tsig.data().time_signed(),
@@ -1664,7 +1669,8 @@ impl<K: AsRef<Key>> ServerError<K> {
                         msg.header().id(),
                         error,
                         b"",
-                    ),
+                    )
+                    .expect("long record data"),
                 ))?;
             }
             ServerErrorInner::Signed { context, variables } => {

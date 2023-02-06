@@ -74,7 +74,7 @@ impl<N, D> SortedRecords<N, D> {
         N: ToDname + Clone,
         D: RecordData + ComposeRecordData,
         Key: SigningKey,
-        Octets: From<Key::Signature>,
+        Octets: From<Key::Signature> + AsRef<[u8]>,
         ApexName: ToDname + Clone,
     {
         let mut res = Vec::new();
@@ -154,7 +154,9 @@ impl<N, D> SortedRecords<N, D> {
                     name.owner().clone(),
                     name.class(),
                     rrset.ttl(),
-                    rrsig.into_rrsig(key.sign(&buf)?.into()),
+                    rrsig
+                        .into_rrsig(key.sign(&buf)?.into())
+                        .expect("long signature"),
                 ));
             }
         }

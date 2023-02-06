@@ -7,7 +7,9 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
-use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use crate::base::rdata::{
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
 use core::cmp::Ordering;
@@ -77,15 +79,48 @@ pub struct Tsig<Octs, Name> {
 }
 
 impl<O, N> Tsig<O, N> {
-    /// Creates a new TSIG record from its components.
+    /// Creates new TSIG record data from its components.
     ///
-    /// See the access methods for an explanation of these components.
-    ///
-    /// # Panics
-    ///
-    /// Since `time_signed` is actually a 48 bit integer, the function will
-    /// panic of the upper 16 bits are not all 0.
+    /// See the access methods for an explanation of these components. The
+    /// function will return an error if the wire format length of the record
+    /// would exceed 65,535 octets.
     pub fn new(
+        algorithm: N,
+        time_signed: Time48,
+        fudge: u16,
+        mac: O,
+        original_id: u16,
+        error: TsigRcode,
+        other: O,
+    ) -> Result<Self, LongRecordData>
+    where O: AsRef<[u8]>, N: ToDname {
+        LongRecordData::check_len(
+            6 // time_signed
+            + 2 // fudge
+            + 2 // MAC length
+            + 2 // original ID
+            + 2 // error
+            + 2 // other length
+            + usize::from(algorithm.compose_len()).checked_add(
+                mac.as_ref().len()
+            ).expect("long MAC").checked_add(
+                other.as_ref().len()
+            ).expect("long TSIG")
+        )?;
+        Ok(unsafe {
+            Tsig::new_unchecked(
+                algorithm, time_signed, fudge, mac, original_id, error, other,
+            )
+        })
+    }
+
+    /// Creates new TSIG record data without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that the wire format length of the
+    /// created record will not exceed 65,535 octets.
+    pub unsafe fn new_unchecked(
         algorithm: N,
         time_signed: Time48,
         fudge: u16,
@@ -214,15 +249,17 @@ impl<O, N> Tsig<O, N> {
         TOcts: OctetsFrom<O>,
         TName: OctetsFrom<N, Error = TOcts::Error>,
     {
-        Ok(Tsig::new(
-            self.algorithm.try_octets_into()?,
-            self.time_signed,
-            self.fudge,
-            self.mac.try_octets_into()?,
-            self.original_id,
-            self.error,
-            self.other.try_octets_into()?,
-        ))
+        Ok(unsafe {
+            Tsig::new_unchecked(
+                self.algorithm.try_octets_into()?,
+                self.time_signed,
+                self.fudge,
+                self.mac.try_octets_into()?,
+                self.original_id,
+                self.error,
+                self.other.try_octets_into()?,
+            )
+        })
     }
 }
 
@@ -246,15 +283,17 @@ impl<Octs, NOcts> Tsig<Octs, ParsedDname<NOcts>> {
             other,
         } = self;
 
-        Ok(Tsig::new(
-            algorithm.flatten_into()?,
-            time_signed,
-            fudge,
-            mac.try_octets_into().map_err(Into::into)?,
-            original_id,
-            error,
-            other.try_octets_into().map_err(Into::into)?,
-        ))
+        Ok(unsafe {
+            Tsig::new_unchecked(
+                algorithm.flatten_into()?,
+                time_signed,
+                fudge,
+                mac.try_octets_into().map_err(Into::into)?,
+                original_id,
+                error,
+                other.try_octets_into().map_err(Into::into)?,
+            )
+        })
     }
 }
 
@@ -271,14 +310,10 @@ impl<Octs> Tsig<Octs, ParsedDname<Octs>> {
         let error = TsigRcode::parse(parser)?;
         let other_len = u16::parse(parser)?;
         let other = parser.parse_octets(other_len as usize)?;
-        Ok(Tsig {
-            algorithm,
-            time_signed,
-            fudge,
-            mac,
-            original_id,
-            error,
-            other,
+        Ok(unsafe {
+            Tsig::new_unchecked(
+                algorithm, time_signed, fudge, mac, original_id, error, other,
+            )
         })
     }
 }
@@ -297,15 +332,17 @@ where
     fn try_octets_from(
         source: Tsig<SrcOctets, SrcName>,
     ) -> Result<Self, Self::Error> {
-        Ok(Tsig::new(
-            Name::try_octets_from(source.algorithm)?,
-            source.time_signed,
-            source.fudge,
-            Octs::try_octets_from(source.mac)?,
-            source.original_id,
-            source.error,
-            Octs::try_octets_from(source.other)?,
-        ))
+        Ok(unsafe {
+            Tsig::new_unchecked(
+                Name::try_octets_from(source.algorithm)?,
+                source.time_signed,
+                source.fudge,
+                Octs::try_octets_from(source.mac)?,
+                source.original_id,
+                source.error,
+                Octs::try_octets_from(source.other)?,
+            )
+        })
     }
 }
 
@@ -666,7 +703,7 @@ impl fmt::Display for Time48 {
     }
 }
 
-//============ Testing ======================================================
+//============ Testing =======================================================
 
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
@@ -687,7 +724,7 @@ mod test {
             13,
             TsigRcode::BadCookie,
             "",
-        );
+        ).unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Tsig::parse(parser));
     }
