@@ -25,6 +25,18 @@ Breaking Changes
   environment. ([#152])
 * Parsing of representation format and zonefiles has been completely
   re-written. ([#142], based on work in [#109] by [Martin Fischer])
+* All types that wrap an octets sequence only now allow unsized octets
+  sequence types. They all have an associated function `from_slice` to
+  create a reference to a value wrapping an (unsized) octets slice and
+  method `for_slice` that converts a `&self` into such a reference. Where
+  the latter already existed but returned a value wrapping a `&[u8]` (e.g.,
+  `Dname<_>` and `Message<_>`, the return type has changed accordingly.
+  ([#168])
+* Removed `CharStr::from_bytes`. Use `CharStr::from_octets` instead. ([#168])
+* `Message::from_octets` now returns a new error type `ShortMessage`. ([#168])
+* Dropped `Deref` impls for `Dname<_>`, `RelativeDname<_>`. ([#168])
+* Renamed `opt::KeyTag::new` to `opt::KeyTag::from_octets`. ([#168])
+* Renamed `rdata::Txt::try_from_slice` to `build_from_slice`. ([#168])
 
 New
 
@@ -39,6 +51,7 @@ Other Changes
 [#152]: https://github.com/NLnetLabs/domain/pull/152
 [#157]: https://github.com/NLnetLabs/domain/pull/157
 [#160]: https://github.com/NLnetLabs/domain/pull/160
+[#168]: https://github.com/NLnetLabs/domain/pull/168
 [Martin Fischer]: https://push-f.com/
 [octseq]: https://crates.io/crates/octseq
 
