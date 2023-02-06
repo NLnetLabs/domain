@@ -71,7 +71,7 @@ use octseq::parse::Parser;
 /// [`iter`]: #method.iter
 /// [`OptRecord`]: struct.OptRecord.html
 #[derive(Clone)]
-pub struct Opt<Octs> {
+pub struct Opt<Octs: ?Sized> {
     octets: Octs,
 }
 
@@ -81,13 +81,54 @@ impl<Octs: AsRef<[u8]>> Opt<Octs> {
     /// The function checks whether the octets contain a sequence of
     /// options. It does not check whether the options themselves are valid.
     pub fn from_octets(octets: Octs) -> Result<Self, ParseError> {
-        let mut parser = Parser::from_ref(octets.as_ref());
+        Opt::check_slice(octets.as_ref())?;
+        Ok(Opt { octets })
+    }
+
+    /// Parses OPT record data from the beginning of a parser.
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError> {
+        let len = parser.remaining();
+        Self::from_octets(parser.parse_octets(len)?)
+    }
+}
+
+impl Opt<[u8]> {
+    /// Creates OPT record data from an octets slice.
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, ParseError> {
+        Self::check_slice(slice)?;
+        Ok(unsafe { Self::from_slice_unchecked(slice) })
+    }
+
+    /// Creates OPT record data from an octets slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that the slice contains correctly encoded
+    /// OPT record data. The data of the options themselves does not need to
+    /// be correct.
+    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        &*(slice as *const [u8] as *const Self)
+    }
+
+    /// Checks that the slice contains acceptable OPT record data.
+    fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
+        let mut parser = Parser::from_ref(slice);
         while parser.remaining() > 0 {
             parser.advance(2)?;
             let len = parser.parse_u16()?;
             parser.advance(len as usize)?;
         }
-        Ok(Opt { octets })
+        Ok(())
+    }
+}
+
+impl<Octs: AsRef<[u8]> + ?Sized> Opt<Octs> {
+    /// Returns the length of the OPT record data.
+    #[allow(clippy::len_without_is_empty)] // never empty.
+    pub fn len(&self) -> usize {
+        self.octets.as_ref().len()
     }
 
     /// Returns an iterator over options of a given type.
@@ -100,13 +141,6 @@ impl<Octs: AsRef<[u8]>> Opt<Octs> {
         Data: ParseOptData<'s, Octs>,
     {
         OptIter::new(&self.octets)
-    }
-
-    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>,
-    ) -> Result<Self, ParseError> {
-        let len = parser.remaining();
-        Self::from_octets(parser.parse_octets(len)?)
     }
 }
 
@@ -127,29 +161,29 @@ where
 
 impl<Octs, Other> PartialEq<Opt<Other>> for Opt<Octs>
 where
-    Octs: AsRef<[u8]>,
-    Other: AsRef<[u8]>,
+    Octs: AsRef<[u8]> + ?Sized,
+    Other: AsRef<[u8]> + ?Sized,
 {
     fn eq(&self, other: &Opt<Other>) -> bool {
         self.octets.as_ref().eq(other.octets.as_ref())
     }
 }
 
-impl<Octs: AsRef<[u8]>> Eq for Opt<Octs> {}
+impl<Octs: AsRef<[u8]> + ?Sized> Eq for Opt<Octs> {}
 
 //--- PartialOrd and Ord
 
 impl<Octs, Other> PartialOrd<Opt<Other>> for Opt<Octs>
 where
-    Octs: AsRef<[u8]>,
-    Other: AsRef<[u8]>,
+    Octs: AsRef<[u8]> + ?Sized,
+    Other: AsRef<[u8]> + ?Sized,
 {
     fn partial_cmp(&self, other: &Opt<Other>) -> Option<Ordering> {
         self.octets.as_ref().partial_cmp(other.octets.as_ref())
     }
 }
 
-impl<Octs: AsRef<[u8]>> Ord for Opt<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Ord for Opt<Octs> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.octets.as_ref().cmp(other.octets.as_ref())
     }
@@ -157,7 +191,7 @@ impl<Octs: AsRef<[u8]>> Ord for Opt<Octs> {
 
 //--- Hash
 
-impl<Octs: AsRef<[u8]>> hash::Hash for Opt<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Opt<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.octets.as_ref().hash(state)
     }
@@ -165,7 +199,7 @@ impl<Octs: AsRef<[u8]>> hash::Hash for Opt<Octs> {
 
 //--- RecordData, ParseRecordData, and ComposeRecordData
 
-impl<Octs> RecordData for Opt<Octs> {
+impl<Octs: ?Sized> RecordData for Opt<Octs> {
     fn rtype(&self) -> Rtype {
         Rtype::Opt
     }
@@ -187,7 +221,7 @@ where
     }
 }
 
-impl<Octs: AsRef<[u8]>> ComposeRecordData for Opt<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> ComposeRecordData for Opt<Octs> {
     fn rdlen(&self, _compress: bool) -> Option<u16> {
         Some(u16::try_from(self.octets.as_ref().len()).expect("long OPT"))
     }
@@ -209,14 +243,14 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Opt<Octs> {
 
 //--- Display
 
-impl<Octs: AsRef<[u8]>> fmt::Display for Opt<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Opt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // XXX TODO Print this properly.
         f.write_str("OPT ...")
     }
 }
 
-impl<Octs: AsRef<[u8]>> fmt::Debug for Opt<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("Opt(")?;
         fmt::Display::fmt(self, f)?;
@@ -527,7 +561,7 @@ impl OptionHeader {
 /// particular option. After such an error you can continue to iterate until
 /// `None` indicates that you’ve reached the end of the record.
 #[derive(Clone, Debug)]
-pub struct OptIter<'a, Octs: Octets, D: ParseOptData<'a, Octs>> {
+pub struct OptIter<'a, Octs: ?Sized, D> {
     /// A parser for the OPT record data.
     parser: Parser<'a, Octs>,
 
@@ -535,7 +569,11 @@ pub struct OptIter<'a, Octs: Octets, D: ParseOptData<'a, Octs>> {
     marker: PhantomData<D>,
 }
 
-impl<'a, Octs: Octets, D: ParseOptData<'a, Octs>> OptIter<'a, Octs, D> {
+impl<'a, Octs, D> OptIter<'a, Octs, D>
+where
+    Octs: Octets + ?Sized,
+    D: ParseOptData<'a, Octs>,
+{
     /// Creates an iterator from a reference to the OPT record data.
     fn new(octets: &'a Octs) -> Self {
         OptIter {
@@ -565,7 +603,7 @@ impl<'a, Octs: Octets, D: ParseOptData<'a, Octs>> OptIter<'a, Octs, D> {
 
 impl<'a, Octs, Data> Iterator for OptIter<'a, Octs, Data>
 where
-    Octs: Octets,
+    Octs: Octets + ?Sized,
     Data: ParseOptData<'a, Octs>,
 {
     type Item = Result<Data, ParseError>;

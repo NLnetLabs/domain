@@ -12,7 +12,7 @@ use super::traits::{ToLabelIter, ToRelativeDname};
 use bytes::Bytes;
 use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
-use core::{cmp, fmt, hash, ops};
+use core::{cmp, fmt, hash};
 #[cfg(feature = "serde")]
 use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::builder::{FreezeBuilder, IntoBuilder, Truncate};
@@ -206,11 +206,11 @@ impl<Octs: ?Sized> RelativeDname<Octs> {
     }
 
     /// Returns a domain name for the octets slice of the content.
-    pub fn for_slice(&self) -> RelativeDname<&[u8]>
+    pub fn for_slice(&self) -> &RelativeDname<[u8]>
     where
         Octs: AsRef<[u8]>,
     {
-        unsafe { RelativeDname::from_octets_unchecked(self.0.as_ref()) }
+        unsafe { RelativeDname::from_slice_unchecked(self.0.as_ref()) }
     }
 }
 
@@ -267,6 +267,20 @@ impl<Octs> RelativeDname<Octs> {
         Octs: AsRef<[u8]>,
     {
         self.chain(Dname::root()).unwrap()
+    }
+}
+
+/// # Properties
+///
+impl<Octs: AsRef<[u8]> + ?Sized> RelativeDname<Octs> {
+    /// Returns the length of the name.
+    pub fn len(&self) -> usize {
+        self.0.as_ref().len()
+    }
+
+    /// Returns whether the name is empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.as_ref().is_empty()
     }
 }
 
@@ -406,7 +420,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> RelativeDname<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> RelativeDname<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> RelativeDname<Octs> {
     /// Splits the name into two at the given position.
     ///
     /// Returns a pair of the left and right part of the split name.
@@ -500,18 +514,16 @@ impl<Octs: AsRef<[u8]>> RelativeDname<Octs> {
     }
 }
 
-//--- Deref and AsRef
+//--- AsRef
 
-impl<Octs: ?Sized> ops::Deref for RelativeDname<Octs> {
-    type Target = Octs;
-
-    fn deref(&self) -> &Octs {
+impl<Octs> AsRef<Octs> for RelativeDname<Octs> {
+    fn as_ref(&self) -> &Octs {
         &self.0
     }
 }
 
-impl<Octs: AsRef<T> + ?Sized, T: ?Sized> AsRef<T> for RelativeDname<Octs> {
-    fn as_ref(&self) -> &T {
+impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for RelativeDname<Octs> {
+    fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }
 }
@@ -643,7 +655,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for RelativeDname<Octs> {
 #[cfg(feature = "serde")]
 impl<Octs> serde::Serialize for RelativeDname<Octs>
 where
-    Octs: AsRef<[u8]> + SerializeOctets,
+    Octs: AsRef<[u8]> + SerializeOctets + ?Sized,
 {
     fn serialize<S: serde::Serializer>(
         &self,

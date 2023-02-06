@@ -320,8 +320,17 @@ where
 
 //--- AsRef
 
-impl<Octets: AsRef<T>, T> AsRef<T> for UncertainDname<Octets> {
-    fn as_ref(&self) -> &T {
+impl<Octs> AsRef<Octs> for UncertainDname<Octs> {
+    fn as_ref(&self) -> &Octs {
+        match *self {
+            UncertainDname::Absolute(ref name) => name.as_ref(),
+            UncertainDname::Relative(ref name) => name.as_ref(),
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]>> AsRef<[u8]> for UncertainDname<Octs> {
+    fn as_ref(&self) -> &[u8] {
         match *self {
             UncertainDname::Absolute(ref name) => name.as_ref(),
             UncertainDname::Relative(ref name) => name.as_ref(),

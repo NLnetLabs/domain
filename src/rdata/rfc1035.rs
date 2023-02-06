@@ -1553,11 +1553,11 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
 ///
 /// The Txt record type is defined in RFC 1035, section 3.3.14.
 #[derive(Clone)]
-pub struct Txt<Octs>(Octs);
+pub struct Txt<Octs: ?Sized>(Octs);
 
 impl<Octs: FromBuilder> Txt<Octs> {
     /// Creates a new Txt record from a single character string.
-    pub fn try_from_slice(text: &[u8]) -> Result<Self, ShortBuf>
+    pub fn build_from_slice(text: &[u8]) -> Result<Self, ShortBuf>
     where
         <Octs as FromBuilder>::Builder:
             EmptyBuilder + AsRef<[u8]> + AsMut<[u8]>,
@@ -1568,19 +1568,77 @@ impl<Octs: FromBuilder> Txt<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> Txt<Octs> {
-    /// Creates a new TXT record from its encoded content.
-    pub fn from_octets(octets: Octs) -> Result<Self, CharStrError> {
-        let mut tmp = octets.as_ref();
-        while !tmp.is_empty() {
-            if tmp.len() <= tmp[0] as usize {
-                return Err(CharStrError);
-            }
-            tmp = &tmp[(tmp[0] as usize) + 1..];
-        }
-        Ok(Txt(octets))
+impl<Octs> Txt<Octs> {
+    /// Creates new TXT record data from its encoded content.
+    pub fn from_octets(octets: Octs) -> Result<Self, CharStrError>
+    where
+        Octs: AsRef<[u8]>
+    {
+        Txt::check_slice(octets.as_ref())?;
+        Ok(unsafe { Txt::from_octets_unchecked(octets) })
     }
 
+    /// Creates new TXT record data without checking.
+    ///
+    /// # Safety
+    ///
+    /// The passed octets must contain correctly encoded TXT record data,
+    /// that is a sequence of encoded character strings. 
+    unsafe fn from_octets_unchecked(octets: Octs) -> Self {
+        Txt(octets)
+    }
+
+    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Self, ParseError>
+    where Octs: AsRef<[u8]> {
+        let len = parser.remaining();
+        let text = parser.parse_octets(len)?;
+        let mut tmp = Parser::from_ref(text.as_ref());
+        while tmp.remaining() != 0 {
+            CharStr::skip(&mut tmp)?
+        }
+        Ok(Txt(text))
+    }
+
+    pub fn scan<S: Scanner<Octets = Octs>>(
+        scanner: &mut S,
+    ) -> Result<Self, S::Error> {
+        scanner.scan_charstr_entry().map(Txt)
+    }
+}
+
+impl Txt<[u8]> {
+    /// Creates new TXT record data on an octets slice.
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, CharStrError> {
+        Txt::check_slice(slice)?;
+        Ok(unsafe { Txt::from_slice_unchecked(slice) })
+    }
+
+    /// Creates new TXT record data on an octets slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The passed octets must contain correctly encoded TXT record data,
+    /// that is a sequence of encoded character strings.
+    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        unsafe { &*(slice as *const [u8] as *const Self) }
+    }
+
+    /// Checks that a slice contains correctly encoded TXT data.
+    fn check_slice(mut slice: &[u8]) -> Result<(), CharStrError> {
+        while let Some(&len) = slice.first() {
+            let len = usize::from(len);
+            if slice.len() <= len {
+                return Err(CharStrError);
+            }
+            slice = &slice[len + 1..];
+        }
+        Ok(())
+    }
+}
+
+impl<Octs: AsRef<[u8]> + ?Sized> Txt<Octs> {
     /// Returns an iterator over the text items.
     ///
     /// The Txt format contains one or more length-delimited byte strings.
@@ -1593,8 +1651,9 @@ impl<Octs: AsRef<[u8]>> Txt<Octs> {
         TxtCharStrIter(Parser::from_ref(self.0.as_ref()))
     }
 
+    /// Returns the content if it consists of a single character string.
     pub fn as_flat_slice(&self) -> Option<&[u8]> {
-        if self.0.as_ref()[0] as usize == self.0.as_ref().len() - 1 {
+        if usize::from(self.0.as_ref()[0]) == self.0.as_ref().len() - 1 {
             Some(&self.0.as_ref()[1..])
         } else {
             None
@@ -1639,28 +1698,6 @@ impl<Octs: AsRef<[u8]>> Txt<Octs> {
             Into<Infallible>,
     {
         infallible(self.try_text())
-    }
-}
-
-impl<Octs> Txt<Octs> {
-    pub fn scan<S: Scanner<Octets = Octs>>(
-        scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        scanner.scan_charstr_entry().map(Txt)
-    }
-}
-
-impl<Octs: AsRef<[u8]>> Txt<Octs> {
-    pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        parser: &mut Parser<'a, Src>,
-    ) -> Result<Self, ParseError> {
-        let len = parser.remaining();
-        let text = parser.parse_octets(len)?;
-        let mut tmp = Parser::from_ref(text.as_ref());
-        while tmp.remaining() != 0 {
-            CharStr::skip(&mut tmp)?
-        }
-        Ok(Txt(text))
     }
 }
 
@@ -2287,19 +2324,19 @@ mod test {
     #[test]
     fn txt_from_slice() {
         let short = b"01234";
-        let txt: Txt<Vec<u8>> = Txt::try_from_slice(short).unwrap();
+        let txt: Txt<Vec<u8>> = Txt::build_from_slice(short).unwrap();
         assert_eq!(Some(&short[..]), txt.as_flat_slice());
         assert_eq!(short.to_vec(), txt.text::<Vec<u8>>());
 
         // One full slice
         let full = short.repeat(51);
-        let txt: Txt<Vec<u8>> = Txt::try_from_slice(&full).unwrap();
+        let txt: Txt<Vec<u8>> = Txt::build_from_slice(&full).unwrap();
         assert_eq!(Some(&full[..]), txt.as_flat_slice());
         assert_eq!(full.to_vec(), txt.text::<Vec<u8>>());
 
         // Two slices: 255, 5
         let long = short.repeat(52);
-        let txt: Txt<Vec<u8>> = Txt::try_from_slice(&long).unwrap();
+        let txt: Txt<Vec<u8>> = Txt::build_from_slice(&long).unwrap();
         assert_eq!(None, txt.as_flat_slice());
         assert_eq!(long.to_vec(), txt.text::<Vec<u8>>());
 

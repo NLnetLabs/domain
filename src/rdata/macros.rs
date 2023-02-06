@@ -8,12 +8,12 @@ macro_rules! rdata_types {
         $module:ident::{
             $(
                 zone {
-                    $( $mtype:ident $( < $( $mn:ident ),* > )*, )*
+                    $( $mtype:ident $( < $( $mn:ident ),* > ),* $(,)? )*
                 }
             )*
             $(
                 pseudo {
-                    $( $ptype:ident $( < $( $pn:ident ),* > )*, )*
+                    $( $ptype:ident $( < $( $pn:ident ),* > ),*  $(,)? )*
                 }
             )*
 
@@ -24,6 +24,10 @@ macro_rules! rdata_types {
                 $( $( $mtype, )* )*
                 $( $( $ptype ),* )*
             };
+        )*
+
+        $(
+            pub mod $module;
         )*
 
         use crate::base::name::{ParsedDname, PushError, ToDname};
