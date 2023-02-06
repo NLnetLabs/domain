@@ -455,8 +455,7 @@ impl LongRecordData {
     pub fn check_len(len: usize) -> Result<(), Self> {
         if len > usize::from(u16::MAX) {
             Err(LongRecordData())
-        }
-        else {
+        } else {
             Ok(())
         }
     }

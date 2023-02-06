@@ -115,7 +115,7 @@ impl Opt<[u8]> {
     /// Checks that the slice contains acceptable OPT record data.
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
         if slice.len() > usize::from(u16::MAX) {
-            return Err(FormError::new("long record data").into())
+            return Err(FormError::new("long record data").into());
         }
         let mut parser = Parser::from_ref(slice);
         while parser.remaining() > 0 {

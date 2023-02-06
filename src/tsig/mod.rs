@@ -1417,7 +1417,8 @@ impl Variables {
                 original_id,
                 self.error,
                 other,
-            ).expect("long MAC"),
+            )
+            .expect("long MAC"),
         ))
     }
 
@@ -1668,7 +1669,8 @@ impl<K: AsRef<Key>> ServerError<K> {
                         msg.header().id(),
                         error,
                         b"",
-                    ).expect("long record data"),
+                    )
+                    .expect("long record data"),
                 ))?;
             }
             ServerErrorInner::Signed { context, variables } => {

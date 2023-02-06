@@ -154,9 +154,9 @@ impl<N, D> SortedRecords<N, D> {
                     name.owner().clone(),
                     name.class(),
                     rrset.ttl(),
-                    rrsig.into_rrsig(key.sign(&buf)?.into()).expect(
-                        "long signature"
-                    ),
+                    rrsig
+                        .into_rrsig(key.sign(&buf)?.into())
+                        .expect("long signature"),
                 ));
             }
         }

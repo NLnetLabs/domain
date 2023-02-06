@@ -415,7 +415,8 @@ mod test {
                 "4G1EuAuPHTmpXAsNfGXQhFjogECbvGg0VxBCN8f47I0=",
             )
             .unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             dnskey.digest(&owner, DigestAlg::Sha256).unwrap().as_ref(),
             expected.digest()
@@ -520,7 +521,8 @@ mod test {
                     F+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
                 )
                 .unwrap(),
-            ).unwrap(),
+            )
+            .unwrap(),
             Dnskey::new(
                 256,
                 3,
@@ -530,7 +532,8 @@ mod test {
                     d8KqXXFJkqmVfRvMGPmM1x8fGAa2XhSA==",
                 )
                 .unwrap(),
-            ).unwrap(),
+            )
+            .unwrap(),
         );
 
         let owner = Dname::from_str("cloudflare.com.").unwrap();
@@ -548,7 +551,8 @@ mod test {
                 zcJBLvRmofYFDAhju21p1uTfLaYHrg==",
             )
             .unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
 
@@ -563,7 +567,8 @@ mod test {
                     "m1NELLVVQKl4fHVn/KKdeNO0PrYKGT3IGbYseT8XcKo=",
                 )
                 .unwrap(),
-            ).unwrap(),
+            )
+            .unwrap(),
             Dnskey::new(
                 256,
                 3,
@@ -572,12 +577,13 @@ mod test {
                     "2tstZAjgmlDTePn0NVXrAHBJmg84LoaFVxzLl1anjGI=",
                 )
                 .unwrap(),
-            ).unwrap(),
+            )
+            .unwrap(),
         );
 
-        let owner = Dname::from_octets(
-            Vec::from(b"\x07ED25519\x02nl\x00".as_ref())
-        ).unwrap();
+        let owner =
+            Dname::from_octets(Vec::from(b"\x07ED25519\x02nl\x00".as_ref()))
+                .unwrap();
         let rrsig = Rrsig::new(
             Rtype::Dnskey,
             SecAlg::Ed25519,
@@ -592,7 +598,8 @@ mod test {
                 QdtgPXja7YkTaqzrYUbYk01J8ICsAA==",
             )
             .unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
 
@@ -617,7 +624,8 @@ mod test {
                 dg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==",
             )
             .unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut records: Vec<Record<Dname, ZoneRecordData<Vec<u8>, Dname>>> =
             [&ksk, &zsk]
@@ -656,7 +664,8 @@ mod test {
                 vh0z2542lzMKR4Dh8uZffQ==",
             )
             .unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         let rrsig = Rrsig::new(
             Rtype::Mx,
             SecAlg::RsaSha1,
@@ -673,7 +682,8 @@ mod test {
                  36SR5xBni8vHI=",
             )
             .unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         let record = Record::new(
             Dname::from_str("a.z.w.example.").unwrap(),
             Class::In,
