@@ -75,7 +75,7 @@ macro_rules! rdata_types {
             Unknown($crate::base::rdata::UnknownRecordData<O>),
         }
 
-        impl<Octets: AsRef<[u8]>, Name> ZoneRecordData<Octets, Name> {
+        impl<Octets: AsRef<[u8]>, Name: ToDname> ZoneRecordData<Octets, Name> {
             /// Scans a value of the given rtype.
             ///
             /// If the record data is given via the notation for unknown

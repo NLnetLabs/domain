@@ -4,8 +4,10 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::PushError;
-use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
-use crate::base::scan::{Scan, Scanner};
+use crate::base::rdata::{
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+};
+use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
@@ -50,6 +52,29 @@ impl<Octs> Cdnskey<Octs> {
         protocol: u8,
         algorithm: SecAlg,
         public_key: Octs,
+    ) -> Result<Self, LongRecordData>
+    where Octs: AsRef<[u8]> {
+        LongRecordData::check_len(
+            usize::from(
+                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN
+            ).checked_add(public_key.as_ref().len()).expect("long key")
+        )?;
+        Ok(unsafe {
+            Cdnskey::new_unchecked(flags, protocol, algorithm, public_key)
+        })
+    }
+
+    /// Creates new CDNSKEY record data without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that wire format representation of the
+    /// record data is at most 65,535 octets long.
+    pub unsafe fn new_unchecked(
+        flags: u16,
+        protocol: u8,
+        algorithm: SecAlg,
+        public_key: Octs,
     ) -> Self {
         Cdnskey {
             flags,
@@ -78,12 +103,14 @@ impl<Octs> Cdnskey<Octs> {
     pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
         self,
     ) -> Result<Cdnskey<Target>, Target::Error> {
-        Ok(Cdnskey::new(
-            self.flags,
-            self.protocol,
-            self.algorithm,
-            self.public_key.try_octets_into()?,
-        ))
+        Ok(unsafe {
+            Cdnskey::new_unchecked(
+                self.flags,
+                self.protocol,
+                self.algorithm,
+                self.public_key.try_octets_into()?,
+            )
+        })
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
@@ -93,23 +120,26 @@ impl<Octs> Cdnskey<Octs> {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
         };
-        Ok(Self::new(
-            u16::parse(parser)?,
-            u8::parse(parser)?,
-            SecAlg::parse(parser)?,
-            parser.parse_octets(len)?,
-        ))
+        Ok(unsafe {
+            Self::new_unchecked(
+                u16::parse(parser)?,
+                u8::parse(parser)?,
+                SecAlg::parse(parser)?,
+                parser.parse_octets(len)?,
+            )
+        })
     }
 
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        Ok(Self::new(
+    ) -> Result<Self, S::Error>
+    where Octs: AsRef<[u8]> {
+        Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ))
+        ).map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -124,12 +154,14 @@ impl<SrcOcts> Cdnskey<SrcOcts> {
             algorithm,
             public_key,
         } = self;
-        Ok(Cdnskey::new(
-            flags,
-            protocol,
-            algorithm,
-            public_key.try_octets_into().map_err(Into::into)?,
-        ))
+        Ok(unsafe {
+            Cdnskey::new_unchecked(
+                flags,
+                protocol,
+                algorithm,
+                public_key.try_octets_into().map_err(Into::into)?,
+            )
+        })
     }
 }
 
@@ -144,12 +176,14 @@ where
     fn try_octets_from(
         source: Cdnskey<SrcOcts>,
     ) -> Result<Self, Self::Error> {
-        Ok(Cdnskey::new(
-            source.flags,
-            source.protocol,
-            source.algorithm,
-            Octs::try_octets_from(source.public_key)?,
-        ))
+        Ok(unsafe {
+            Cdnskey::new_unchecked(
+                source.flags,
+                source.protocol,
+                source.algorithm,
+                Octs::try_octets_from(source.public_key)?,
+            )
+        })
     }
 }
 
@@ -334,6 +368,29 @@ impl<Octs> Cds<Octs> {
         algorithm: SecAlg,
         digest_type: DigestAlg,
         digest: Octs,
+    ) -> Result<Self, LongRecordData>
+    where Octs: AsRef<[u8]> {
+        LongRecordData::check_len(
+            usize::from(
+                u16::COMPOSE_LEN + SecAlg::COMPOSE_LEN + DigestAlg::COMPOSE_LEN
+            ).checked_add(digest.as_ref().len()).expect("long digest")
+        )?;
+        Ok(unsafe {
+            Cds::new_unchecked(key_tag, algorithm, digest_type, digest)
+        })
+    }
+
+    /// Creates new CDS record data without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that wire format representation of the
+    /// record data is at most 65,535 octets long.
+    pub unsafe fn new_unchecked(
+        key_tag: u16,
+        algorithm: SecAlg,
+        digest_type: DigestAlg,
+        digest: Octs,
     ) -> Self {
         Cds {
             key_tag,
@@ -366,12 +423,14 @@ impl<Octs> Cds<Octs> {
     pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
         self,
     ) -> Result<Cds<Target>, Target::Error> {
-        Ok(Cds::new(
-            self.key_tag,
-            self.algorithm,
-            self.digest_type,
-            self.digest.try_octets_into()?,
-        ))
+        Ok(unsafe {
+            Cds::new_unchecked(
+                self.key_tag,
+                self.algorithm,
+                self.digest_type,
+                self.digest.try_octets_into()?,
+            )
+        })
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
@@ -381,23 +440,26 @@ impl<Octs> Cds<Octs> {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
         };
-        Ok(Self::new(
-            u16::parse(parser)?,
-            SecAlg::parse(parser)?,
-            DigestAlg::parse(parser)?,
-            parser.parse_octets(len)?,
-        ))
+        Ok(unsafe {
+            Self::new_unchecked(
+                u16::parse(parser)?,
+                SecAlg::parse(parser)?,
+                DigestAlg::parse(parser)?,
+                parser.parse_octets(len)?,
+            )
+        })
     }
 
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        Ok(Self::new(
+    ) -> Result<Self, S::Error>
+    where Octs: AsRef<[u8]> {
+        Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
-        ))
+        ).map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -406,18 +468,14 @@ impl<SrcOcts> Cds<SrcOcts> {
     where
         Octs: OctetsFrom<SrcOcts>,
     {
-        let Self {
-            key_tag,
-            algorithm,
-            digest_type,
-            digest,
-        } = self;
-        Ok(Cds::new(
-            key_tag,
-            algorithm,
-            digest_type,
-            digest.try_octets_into().map_err(Into::into)?,
-        ))
+        Ok(unsafe {
+            Cds::new_unchecked(
+                self.key_tag,
+                self.algorithm,
+                self.digest_type,
+                self.digest.try_octets_into().map_err(Into::into)?,
+            )
+        })
     }
 }
 
@@ -430,12 +488,14 @@ where
     type Error = Octs::Error;
 
     fn try_octets_from(source: Cds<SrcOcts>) -> Result<Self, Self::Error> {
-        Ok(Cds::new(
-            source.key_tag,
-            source.algorithm,
-            source.digest_type,
-            Octs::try_octets_from(source.digest)?,
-        ))
+        Ok(unsafe {
+            Cds::new_unchecked(
+                source.key_tag,
+                source.algorithm,
+                source.digest_type,
+                Octs::try_octets_from(source.digest)?,
+            )
+        })
     }
 }
 
@@ -623,7 +683,7 @@ mod test {
 
     #[test]
     fn cdnskey_compose_parse_scan() {
-        let rdata = Cdnskey::new(10, 11, SecAlg::RsaSha1, b"key");
+        let rdata = Cdnskey::new(10, 11, SecAlg::RsaSha1, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cdnskey::parse(parser));
         test_scan(&["10", "11", "RSASHA1", "a2V5"], Cdnskey::scan, &rdata);
@@ -633,7 +693,9 @@ mod test {
 
     #[test]
     fn cds_compose_parse_scan() {
-        let rdata = Cds::new(10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key");
+        let rdata = Cds::new(
+            10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key"
+        ).unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Cds::parse(parser));
         test_scan(&["10", "RSASHA1", "2", "6b6579"], Cds::scan, &rdata);

@@ -243,11 +243,8 @@ impl<Octs> UnknownRecordData<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        if data.as_ref().len() > 0xFFFF {
-            Err(LongRecordData())
-        } else {
-            Ok(UnknownRecordData { rtype, data })
-        }
+        LongRecordData::check_len(data.as_ref().len())?;
+        Ok(UnknownRecordData { rtype, data })
     }
 
     /// Returns the record type this data is for.
@@ -450,9 +447,24 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
 #[derive(Clone, Copy, Debug)]
 pub struct LongRecordData();
 
+impl LongRecordData {
+    pub fn as_str(self) -> &'static str {
+        "record data too long"
+    }
+
+    pub fn check_len(len: usize) -> Result<(), Self> {
+        if len > usize::from(u16::MAX) {
+            Err(LongRecordData())
+        }
+        else {
+            Ok(())
+        }
+    }
+}
+
 impl fmt::Display for LongRecordData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("record data too long")
+        f.write_str(self.as_str())
     }
 }
 

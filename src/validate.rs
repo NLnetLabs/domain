@@ -382,8 +382,8 @@ mod test {
         )
         .unwrap();
         (
-            Dnskey::new(257, 3, SecAlg::RsaSha256, ksk),
-            Dnskey::new(256, 3, SecAlg::RsaSha256, zsk),
+            Dnskey::new(257, 3, SecAlg::RsaSha256, ksk).unwrap(),
+            Dnskey::new(256, 3, SecAlg::RsaSha256, zsk).unwrap(),
         )
     }
 
@@ -398,8 +398,8 @@ mod test {
         )
         .unwrap();
         (
-            Dnskey::new(257, 3, SecAlg::RsaSha256, ksk),
-            Dnskey::new(256, 3, SecAlg::RsaSha256, zsk),
+            Dnskey::new(257, 3, SecAlg::RsaSha256, ksk).unwrap(),
+            Dnskey::new(256, 3, SecAlg::RsaSha256, zsk).unwrap(),
         )
     }
 
@@ -415,7 +415,7 @@ mod test {
                 "4G1EuAuPHTmpXAsNfGXQhFjogECbvGg0VxBCN8f47I0=",
             )
             .unwrap(),
-        );
+        ).unwrap();
         assert_eq!(
             dnskey.digest(&owner, DigestAlg::Sha256).unwrap().as_ref(),
             expected.digest()
@@ -474,7 +474,7 @@ mod test {
                 "otBkINZAQu7AvPKjr/xWIEE7+SoZtKgF8bzVynX6bfJMJuPay8jPvNmwXkZOdSoYlvFp0bk9JWJKCh8y5uoNfMFkN6OSrDkr3t0E+c8c0Mnmwkk5CETH3Gqxthi0yyRX5T4VlHU06/Ks4zI+XAgl3FBpOc554ivdzez8YCjAIGx7XgzzooEb7heMSlLc7S7/HNjw51TPRs4RxrAVcezieKCzPPpeWBhjE6R3oiSwrl0SBD4/yplrDlr7UHs/Atcm3MSgemdyr2sOoOUkVQCVpcj3SQQezoD2tCM7861CXEQdg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==",
             )
             .unwrap()
-        );
+        ).unwrap();
         rrsig_verify_dnskey(ksk, zsk, rrsig);
 
         // Test 1024b long key
@@ -492,7 +492,7 @@ mod test {
                 "j1s1IPMoZd0mbmelNVvcbYNe2tFCdLsLpNCnQ8xW6d91ujwPZ2yDlc3lU3hb+Jq3sPoj+5lVgB7fZzXQUQTPFWLF7zvW49da8pWuqzxFtg6EjXRBIWH5rpEhOcr+y3QolJcPOTx+/utCqt2tBKUUy3LfM6WgvopdSGaryWdwFJPW7qKHjyyLYxIGx5AEuLfzsA5XZf8CmpUheSRH99GRZoIB+sQzHuelWGMQ5A42DPvOVZFmTpIwiT2QaIpid4nJ7jNfahfwFrCoS+hvqjK9vktc5/6E/Mt7DwCQDaPt5cqDfYltUitQy+YA5YP5sOhINChYadZe+2N80OA+RKz0mA==",
             )
             .unwrap()
-        );
+        ).unwrap();
         rrsig_verify_dnskey(ksk, zsk, rrsig.clone());
 
         // Test that 512b short RSA DNSKEY is not supported (too short)
@@ -501,7 +501,7 @@ mod test {
         )
         .unwrap();
 
-        let short_key = Dnskey::new(256, 3, SecAlg::RsaSha256, data);
+        let short_key = Dnskey::new(256, 3, SecAlg::RsaSha256, data).unwrap();
         let err = rrsig
             .verify_signed_data(&short_key, &vec![0; 100])
             .unwrap_err();
@@ -520,7 +520,7 @@ mod test {
                     F+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
                 )
                 .unwrap(),
-            ),
+            ).unwrap(),
             Dnskey::new(
                 256,
                 3,
@@ -530,7 +530,7 @@ mod test {
                     d8KqXXFJkqmVfRvMGPmM1x8fGAa2XhSA==",
                 )
                 .unwrap(),
-            ),
+            ).unwrap(),
         );
 
         let owner = Dname::from_str("cloudflare.com.").unwrap();
@@ -548,7 +548,7 @@ mod test {
                 zcJBLvRmofYFDAhju21p1uTfLaYHrg==",
             )
             .unwrap(),
-        );
+        ).unwrap();
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
 
@@ -563,7 +563,7 @@ mod test {
                     "m1NELLVVQKl4fHVn/KKdeNO0PrYKGT3IGbYseT8XcKo=",
                 )
                 .unwrap(),
-            ),
+            ).unwrap(),
             Dnskey::new(
                 256,
                 3,
@@ -572,12 +572,12 @@ mod test {
                     "2tstZAjgmlDTePn0NVXrAHBJmg84LoaFVxzLl1anjGI=",
                 )
                 .unwrap(),
-            ),
+            ).unwrap(),
         );
 
-        let owner =
-            Dname::from_octets(Vec::from(b"\x07ED25519\x02nl\x00".as_ref()))
-                .unwrap();
+        let owner = Dname::from_octets(
+            Vec::from(b"\x07ED25519\x02nl\x00".as_ref())
+        ).unwrap();
         let rrsig = Rrsig::new(
             Rtype::Dnskey,
             SecAlg::Ed25519,
@@ -592,7 +592,7 @@ mod test {
                 QdtgPXja7YkTaqzrYUbYk01J8ICsAA==",
             )
             .unwrap(),
-        );
+        ).unwrap();
         rrsig_verify_dnskey(ksk, zsk, rrsig);
     }
 
@@ -617,7 +617,7 @@ mod test {
                 dg5fjeHDtz285xHt5HJpA5cOcctRo4ihybfow/+V7AQ==",
             )
             .unwrap(),
-        );
+        ).unwrap();
 
         let mut records: Vec<Record<Dname, ZoneRecordData<Vec<u8>, Dname>>> =
             [&ksk, &zsk]
@@ -656,7 +656,7 @@ mod test {
                 vh0z2542lzMKR4Dh8uZffQ==",
             )
             .unwrap(),
-        );
+        ).unwrap();
         let rrsig = Rrsig::new(
             Rtype::Mx,
             SecAlg::RsaSha1,
@@ -673,7 +673,7 @@ mod test {
                  36SR5xBni8vHI=",
             )
             .unwrap(),
-        );
+        ).unwrap();
         let record = Record::new(
             Dname::from_str("a.z.w.example.").unwrap(),
             Class::In,

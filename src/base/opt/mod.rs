@@ -114,6 +114,9 @@ impl Opt<[u8]> {
 
     /// Checks that the slice contains acceptable OPT record data.
     fn check_slice(slice: &[u8]) -> Result<(), ParseError> {
+        if slice.len() > usize::from(u16::MAX) {
+            return Err(FormError::new("long record data").into())
+        }
         let mut parser = Parser::from_ref(slice);
         while parser.remaining() > 0 {
             parser.advance(2)?;
@@ -126,9 +129,13 @@ impl Opt<[u8]> {
 
 impl<Octs: AsRef<[u8]> + ?Sized> Opt<Octs> {
     /// Returns the length of the OPT record data.
-    #[allow(clippy::len_without_is_empty)] // never empty.
     pub fn len(&self) -> usize {
         self.octets.as_ref().len()
+    }
+
+    /// Returns whether the OPT record data is empty.
+    pub fn is_empty(&self) -> bool {
+        self.octets.as_ref().is_empty()
     }
 
     /// Returns an iterator over options of a given type.

@@ -52,7 +52,7 @@ impl<'a> Key<'a> {
                 3,
                 SecAlg::EcdsaP256Sha256,
                 public_key,
-            ),
+            ).expect("long key"),
             key: RingKey::Ecdsa(keypair),
             rng,
         })
@@ -82,7 +82,7 @@ impl<'a> SigningKey for Key<'a> {
             self.dnskey.algorithm(),
             DigestAlg::Sha256,
             digest,
-        ))
+        ).expect("long digest"))
     }
 
     fn sign(&self, msg: &[u8]) -> Result<Self::Signature, Self::Error> {

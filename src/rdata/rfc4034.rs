@@ -7,7 +7,9 @@
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
-use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use crate::base::rdata::{
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+};
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
@@ -55,6 +57,36 @@ pub struct Dnskey<Octs> {
 
 impl<Octs> Dnskey<Octs> {
     pub fn new(
+        flags: u16,
+        protocol: u8,
+        algorithm: SecAlg,
+        public_key: Octs,
+    ) -> Result<Self, LongRecordData>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        LongRecordData::check_len(
+            usize::from(
+                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN
+            ).checked_add(
+                public_key.as_ref().len()
+            ).expect("long key")
+        )?;
+        Ok(Dnskey {
+            flags,
+            protocol,
+            algorithm,
+            public_key,
+        })
+    }
+
+    /// Creates new DNSKEY record data without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that wire format representation of the
+    /// record data is at most 65,535 octets long.
+    pub unsafe fn new_unchecked(
         flags: u16,
         protocol: u8,
         algorithm: SecAlg,
@@ -176,12 +208,14 @@ impl<Octs> Dnskey<Octs> {
     pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
         self,
     ) -> Result<Dnskey<Target>, Target::Error> {
-        Ok(Dnskey::new(
-            self.flags,
-            self.protocol,
-            self.algorithm,
-            self.public_key.try_octets_into()?,
-        ))
+        Ok(unsafe {
+            Dnskey::new_unchecked(
+                self.flags,
+                self.protocol,
+                self.algorithm,
+                self.public_key.try_octets_into()?,
+            )
+        })
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
@@ -191,23 +225,26 @@ impl<Octs> Dnskey<Octs> {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
         };
-        Ok(Self::new(
-            u16::parse(parser)?,
-            u8::parse(parser)?,
-            SecAlg::parse(parser)?,
-            parser.parse_octets(len)?,
-        ))
+        Ok(unsafe {
+            Self::new_unchecked(
+                u16::parse(parser)?,
+                u8::parse(parser)?,
+                SecAlg::parse(parser)?,
+                parser.parse_octets(len)?,
+            )
+        })
     }
 
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        Ok(Self::new(
+    ) -> Result<Self, S::Error>
+    where Octs: AsRef<[u8]> {
+        Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ))
+        ).map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -223,12 +260,14 @@ impl<SrcOcts> Dnskey<SrcOcts> {
             public_key,
         } = self;
 
-        Ok(Dnskey::new(
-            flags,
-            protocol,
-            algorithm,
-            public_key.try_octets_into().map_err(Into::into)?,
-        ))
+        Ok(unsafe {
+            Dnskey::new_unchecked(
+                flags,
+                protocol,
+                algorithm,
+                public_key.try_octets_into().map_err(Into::into)?,
+            )
+        })
     }
 }
 
@@ -241,12 +280,14 @@ where
     type Error = Octs::Error;
 
     fn try_octets_from(source: Dnskey<SrcOcts>) -> Result<Self, Self::Error> {
-        Ok(Dnskey::new(
-            source.flags,
-            source.protocol,
-            source.algorithm,
-            Octs::try_octets_from(source.public_key)?,
-        ))
+        Ok(unsafe {
+            Dnskey::new_unchecked(
+                source.flags,
+                source.protocol,
+                source.algorithm,
+                Octs::try_octets_from(source.public_key)?,
+            )
+        })
     }
 }
 
@@ -433,7 +474,10 @@ impl<Name> ProtoRrsig<Name> {
         }
     }
 
-    pub fn into_rrsig<Octs>(self, signature: Octs) -> Rrsig<Octs, Name> {
+    pub fn into_rrsig<Octs: AsRef<[u8]>>(
+        self, signature: Octs
+    ) -> Result<Rrsig<Octs, Name>, LongRecordData>
+    where Name: ToDname {
         Rrsig::new(
             self.type_covered,
             self.algorithm,
@@ -595,6 +639,55 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         key_tag: u16,
         signer_name: Name,
         signature: Octs,
+    ) -> Result<Self, LongRecordData>
+    where Octs: AsRef<[u8]>, Name: ToDname {
+        LongRecordData::check_len(
+            usize::from(
+                  Rtype::COMPOSE_LEN
+                + SecAlg::COMPOSE_LEN
+                + u8::COMPOSE_LEN
+                + u32::COMPOSE_LEN
+                + Serial::COMPOSE_LEN
+                + Serial::COMPOSE_LEN
+                + u16::COMPOSE_LEN
+                + signer_name.compose_len()
+            ).checked_add(
+               signature.as_ref().len()
+            )
+            .expect("long signature")
+        )?;
+        Ok(unsafe {
+            Rrsig::new_unchecked(
+                type_covered,
+                algorithm,
+                labels,
+                original_ttl,
+                expiration,
+                inception,
+                key_tag,
+                signer_name,
+                signature,
+            )
+        })
+    }
+
+    /// Creates new RRSIG record data without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that wire format representation of the
+    /// record data is at most 65,535 octets long.
+    #[allow(clippy::too_many_arguments)] // XXX Consider changing.
+    pub unsafe fn new_unchecked(
+        type_covered: Rtype,
+        algorithm: SecAlg,
+        labels: u8,
+        original_ttl: u32,
+        expiration: Serial,
+        inception: Serial,
+        key_tag: u16,
+        signer_name: Name,
+        signature: Octs,
     ) -> Self {
         Rrsig {
             type_covered,
@@ -656,23 +749,29 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         TOcts: OctetsFrom<Octs>,
         TName: OctetsFrom<Name, Error = TOcts::Error>,
     {
-        Ok(Rrsig::new(
-            self.type_covered,
-            self.algorithm,
-            self.labels,
-            self.original_ttl,
-            self.expiration,
-            self.inception,
-            self.key_tag,
-            TName::try_octets_from(self.signer_name)?,
-            TOcts::try_octets_from(self.signature)?,
-        ))
+        Ok(unsafe {
+            Rrsig::new_unchecked(
+                self.type_covered,
+                self.algorithm,
+                self.labels,
+                self.original_ttl,
+                self.expiration,
+                self.inception,
+                self.key_tag,
+                TName::try_octets_from(self.signer_name)?,
+                TOcts::try_octets_from(self.signature)?,
+            )
+        })
     }
 
     pub fn scan<S: Scanner<Octets = Octs, Dname = Name>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        Ok(Self::new(
+    ) -> Result<Self, S::Error>
+    where
+        Octs: AsRef<[u8]>,
+        Name: ToDname,
+    {
+        Self::new(
             Rtype::scan(scanner)?,
             SecAlg::scan(scanner)?,
             u8::scan(scanner)?,
@@ -682,7 +781,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
             u16::scan(scanner)?,
             scanner.scan_dname()?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ))
+        ).map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -709,17 +808,19 @@ impl<Octs, NOcts> Rrsig<Octs, ParsedDname<NOcts>> {
             signature,
         } = self;
 
-        Ok(Rrsig::new(
-            type_covered,
-            algorithm,
-            labels,
-            original_ttl,
-            expiration,
-            inception,
-            key_tag,
-            signer_name.flatten_into()?,
-            Target::try_octets_from(signature).map_err(Into::into)?,
-        ))
+        Ok(unsafe {
+            Rrsig::new_unchecked(
+                type_covered,
+                algorithm,
+                labels,
+                original_ttl,
+                expiration,
+                inception,
+                key_tag,
+                signer_name.flatten_into()?,
+                Target::try_octets_from(signature).map_err(Into::into)?,
+            )
+        })
     }
 }
 
@@ -737,17 +838,19 @@ impl<Octs> Rrsig<Octs, ParsedDname<Octs>> {
         let signer_name = ParsedDname::parse(parser)?;
         let len = parser.remaining();
         let signature = parser.parse_octets(len)?;
-        Ok(Self::new(
-            type_covered,
-            algorithm,
-            labels,
-            original_ttl,
-            expiration,
-            inception,
-            key_tag,
-            signer_name,
-            signature,
-        ))
+        Ok(unsafe {
+            Self::new_unchecked(
+                type_covered,
+                algorithm,
+                labels,
+                original_ttl,
+                expiration,
+                inception,
+                key_tag,
+                signer_name,
+                signature,
+            )
+        })
     }
 }
 
@@ -765,17 +868,19 @@ where
     fn try_octets_from(
         source: Rrsig<SrcOcts, SrcName>,
     ) -> Result<Self, Self::Error> {
-        Ok(Rrsig::new(
-            source.type_covered,
-            source.algorithm,
-            source.labels,
-            source.original_ttl,
-            source.expiration,
-            source.inception,
-            source.key_tag,
-            Name::try_octets_from(source.signer_name)?,
-            Octs::try_octets_from(source.signature)?,
-        ))
+        Ok(unsafe {
+            Rrsig::new_unchecked(
+                source.type_covered,
+                source.algorithm,
+                source.labels,
+                source.original_ttl,
+                source.expiration,
+                source.inception,
+                source.key_tag,
+                Name::try_octets_from(source.signer_name)?,
+                Octs::try_octets_from(source.signature)?,
+            )
+        })
     }
 }
 
@@ -1353,6 +1458,30 @@ impl<Octs> Ds<Octs> {
         algorithm: SecAlg,
         digest_type: DigestAlg,
         digest: Octs,
+    ) -> Result<Self, LongRecordData>
+    where Octs: AsRef<[u8]> {
+        LongRecordData::check_len(
+            usize::from(
+                u16::COMPOSE_LEN + SecAlg::COMPOSE_LEN + DigestAlg::COMPOSE_LEN
+            ).checked_add(digest.as_ref().len()).expect("long digest")
+        )?;
+        Ok(unsafe {
+            Ds::new_unchecked(key_tag, algorithm, digest_type, digest)
+        })
+    }
+
+
+    /// Creates new DS record data without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that wire format representation of the
+    /// record data is at most 65,535 octets long.
+    pub unsafe fn new_unchecked(
+        key_tag: u16,
+        algorithm: SecAlg,
+        digest_type: DigestAlg,
+        digest: Octs,
     ) -> Self {
         Ds {
             key_tag,
@@ -1385,12 +1514,14 @@ impl<Octs> Ds<Octs> {
     pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(
         self,
     ) -> Result<Ds<Target>, Target::Error> {
-        Ok(Ds::new(
-            self.key_tag,
-            self.algorithm,
-            self.digest_type,
-            self.digest.try_octets_into()?,
-        ))
+        Ok(unsafe {
+            Ds::new_unchecked(
+                self.key_tag,
+                self.algorithm,
+                self.digest_type,
+                self.digest.try_octets_into()?,
+            )
+        })
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
@@ -1400,23 +1531,26 @@ impl<Octs> Ds<Octs> {
             Some(len) => len,
             None => return Err(ParseError::ShortInput),
         };
-        Ok(Self::new(
-            u16::parse(parser)?,
-            SecAlg::parse(parser)?,
-            DigestAlg::parse(parser)?,
-            parser.parse_octets(len)?,
-        ))
+        Ok(unsafe {
+            Self::new_unchecked(
+                u16::parse(parser)?,
+                SecAlg::parse(parser)?,
+                DigestAlg::parse(parser)?,
+                parser.parse_octets(len)?,
+            )
+        })
     }
 
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
-    ) -> Result<Self, S::Error> {
-        Ok(Self::new(
+    ) -> Result<Self, S::Error>
+    where Octs: AsRef<[u8]> {
+        Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
-        ))
+        ).map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -1431,12 +1565,14 @@ impl<SrcOcts> Ds<SrcOcts> {
             digest_type,
             digest,
         } = self;
-        Ok(Ds::new(
-            key_tag,
-            algorithm,
-            digest_type,
-            digest.try_octets_into().map_err(Into::into)?,
-        ))
+        Ok(unsafe {
+            Ds::new_unchecked(
+                key_tag,
+                algorithm,
+                digest_type,
+                digest.try_octets_into().map_err(Into::into)?,
+            )
+        })
     }
 }
 
@@ -1449,12 +1585,14 @@ where
     type Error = Octs::Error;
 
     fn try_octets_from(source: Ds<SrcOcts>) -> Result<Self, Self::Error> {
-        Ok(Ds::new(
-            source.key_tag,
-            source.algorithm,
-            source.digest_type,
-            Octs::try_octets_from(source.digest)?,
-        ))
+        Ok(unsafe {
+            Ds::new_unchecked(
+                source.key_tag,
+                source.algorithm,
+                source.digest_type,
+                Octs::try_octets_from(source.digest)?,
+            )
+        })
     }
 }
 
@@ -2281,7 +2419,7 @@ mod test {
 
     #[test]
     fn dnskey_compose_parse_scan() {
-        let rdata = Dnskey::new(10, 11, SecAlg::RsaSha1, b"key");
+        let rdata = Dnskey::new(10, 11, SecAlg::RsaSha1, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
         test_scan(&["10", "11", "RSASHA1", "a2V5"], Dnskey::scan, &rdata);
@@ -2301,7 +2439,7 @@ mod test {
             15,
             Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
             b"key",
-        );
+        ).unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Rrsig::parse(parser));
         test_scan(
@@ -2341,7 +2479,9 @@ mod test {
 
     #[test]
     fn ds_compose_parse_scan() {
-        let rdata = Ds::new(10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key");
+        let rdata = Ds::new(
+            10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key"
+        ).unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
         test_scan(&["10", "RSASHA1", "2", "6b6579"], Ds::scan, &rdata);
@@ -2440,7 +2580,7 @@ mod test {
                      KLZ02cRWXqM="
                 )
                 .unwrap()
-            )
+            ).unwrap()
             .key_tag(),
             59944
         );
@@ -2460,7 +2600,7 @@ mod test {
                     9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU="
                 )
                 .unwrap()
-            )
+            ).unwrap()
             .key_tag(),
             20326
         );
@@ -2476,7 +2616,7 @@ mod test {
                     C+7Eoi12SqybMTicD3Ezwa9XbG1iPjmjhbMrLh7MSQpX"
                 )
                 .unwrap()
-            )
+            ).unwrap()
             .key_tag(),
             18698
         );
@@ -2484,8 +2624,9 @@ mod test {
 
     #[test]
     fn dnskey_flags() {
-        let dnskey =
-            Dnskey::new(257, 3, SecAlg::RsaSha256, bytes::Bytes::new());
+        let dnskey = Dnskey::new(
+            257, 3, SecAlg::RsaSha256, bytes::Bytes::new()
+        ).unwrap();
         assert!(dnskey.is_zsk());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());
