@@ -365,6 +365,7 @@ impl ResolvConf {
     /// Creates a default configuration for this system.
     ///
     /// XXX This currently only works for Unix-y systems.
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         let mut res = ResolvConf::new();
         let _ = res.parse_file("/etc/resolv.conf");
