@@ -106,6 +106,7 @@
 #![no_std]
 #![allow(renamed_and_removed_lints)]
 #![allow(clippy::unknown_clippy_lints)]
+#![allow(clippy::uninlined_format_args)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(any(feature = "std"))]

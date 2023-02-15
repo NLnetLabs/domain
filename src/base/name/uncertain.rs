@@ -339,8 +339,8 @@ where
         use UncertainDname::*;
 
         match (self, other) {
-            (&Absolute(ref l), &Absolute(ref r)) => l.eq(r),
-            (&Relative(ref l), &Relative(ref r)) => l.eq(r),
+            (Absolute(l), Absolute(r)) => l.eq(r),
+            (Relative(l), Relative(r)) => l.eq(r),
             _ => false,
         }
     }

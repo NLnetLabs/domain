@@ -361,7 +361,7 @@ where
     C: Iterator<Item = char>,
 {
     let ch = chars.next().ok_or(LabelFromStrError::UnexpectedEnd)?;
-    if ('0'..='9').contains(&ch) {
+    if ch.is_ascii_digit() {
         let v = ch.to_digit(10).unwrap() * 100
             + chars
                 .next()
