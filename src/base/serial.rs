@@ -92,6 +92,7 @@ impl Serial {
     ///
     /// [RRSIG]: ../../rdata/rfc4034/struct.Rrsig.html
     #[cfg(feature = "master")]
+    #[allow(deprecated)]
     pub fn scan_rrsig<C: CharSource>(
         scanner: &mut Scanner<C>,
     ) -> Result<Self, ScanError> {
