@@ -4,7 +4,7 @@
 //!
 //! [RFC 1035]: https://tools.ietf.org/html/rfc1035
 
-use crate::base::charstr::{CharStr, CharStrError};
+use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
@@ -2173,6 +2173,8 @@ impl<Builder: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> TxtBuilder<Builder> {
         &mut self,
         s: &str,
     ) -> Result<(), E> {
+        use crate::base::charstr::CharStrError;
+
         self.close_char_str();
         self.start = Some(self.builder.as_ref().len());
         self.builder_append_slice(&[0]).map_err(E::custom)?;

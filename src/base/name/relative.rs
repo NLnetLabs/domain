@@ -12,11 +12,11 @@ use super::traits::{ToLabelIter, ToRelativeDname};
 use bytes::Bytes;
 use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
-use core::{cmp, fmt, hash};
-#[cfg(feature = "serde")]
 use core::str::FromStr;
-use octseq::builder::{EmptyBuilder, FromBuilder};
-use octseq::builder::{FreezeBuilder, IntoBuilder, Truncate};
+use core::{cmp, fmt, hash};
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder, Truncate,
+};
 use octseq::octets::{Octets, OctetsFrom};
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
@@ -123,7 +123,6 @@ impl<Octs> RelativeDname<Octs> {
             Err(RelativeFromStrError::AbsoluteName)
         }
     }
-
 }
 
 impl RelativeDname<[u8]> {
@@ -950,7 +949,6 @@ impl std::error::Error for RelativeDnameError {}
 
 //------------ RelativeFromStrError ------------------------------------------
 
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum RelativeFromStrError {
@@ -1147,14 +1145,13 @@ mod test {
     #[cfg(feature = "std")]
     fn from_str() {
         // empty name
-        assert_eq!(
-            RelativeDname::vec_from_str("").unwrap().as_slice(),
-            b""
-        );
+        assert_eq!(RelativeDname::vec_from_str("").unwrap().as_slice(), b"");
 
         // relative name
         assert_eq!(
-            RelativeDname::vec_from_str("www.example").unwrap().as_slice(),
+            RelativeDname::vec_from_str("www.example")
+                .unwrap()
+                .as_slice(),
             b"\x03www\x07example"
         );
 
