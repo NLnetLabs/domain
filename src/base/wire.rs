@@ -126,6 +126,32 @@ compose_to_be_bytes!(u64);
 compose_to_be_bytes!(i128);
 compose_to_be_bytes!(u128);
 
+impl Compose for Ipv4Addr {
+    const COMPOSE_LEN: u16 = 4;
+
+    fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.octets())
+    }
+}
+
+impl Compose for Ipv6Addr {
+    const COMPOSE_LEN: u16 = 16;
+
+    fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&self.octets())
+    }
+}
+
+// No impl for [u8; const N: usize] because we can’t guarantee a correct
+// COMPOSE_LEN -- it may be longer than a u16 can hold.
+
+
 //------------ Parse ------------------------------------------------------
 
 /// An extension trait to add parsing to foreign types.
@@ -194,6 +220,15 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
         let mut buf = [0u8; 16];
         parser.parse_buf(&mut buf)?;
         Ok(buf.into())
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]> + ?Sized, const N: usize> Parse<'a, Octs>
+for [u8; N] {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        let mut res = [0u8; N];
+        parser.parse_buf(&mut res)?;
+        Ok(res)
     }
 }
 
