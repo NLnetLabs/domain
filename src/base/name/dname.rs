@@ -97,6 +97,9 @@ impl<Octs> Dname<Octs> {
     /// ASCII character should be encoded by a backslash followed by its
     /// three digit decimal value.
     ///
+    /// If Internationalized Domain Names are to be used, the labels already
+    /// need to be in punycode-encoded form.
+    ///
     /// The name will always be an absolute name. If the last character in the
     /// sequence is not a dot, the function will quietly add a root label,
     /// anyway. In most cases, this is likely what you want. If it isn’t,
@@ -665,6 +668,11 @@ where
     type Err = FromStrError;
 
     /// Parses a string into an absolute domain name.
+    ///
+    /// The name needs to be formatted in representation format, i.e., as a
+    /// sequence of labels separated by dots. If Internationalized Domain
+    /// Name (IDN) labels are to be used, these need to be given in punycode
+    /// encoded form.
     ///
     /// The implementation assumes that the string refers to an absolute name
     /// whether it ends in a dot or not. If you need to be able to distinguish

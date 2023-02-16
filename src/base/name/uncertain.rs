@@ -111,6 +111,9 @@ impl<Octets> UncertainDname<Octets> {
     /// ASCII character should be encoded by a backslash followed by its
     /// three digit decimal value.
     ///
+    /// If Internationalized Domain Names are to be used, the labels already
+    /// need to be in punycode-encoded form.
+    ///
     /// If the last character is a dot, the name will be absolute, otherwise
     /// it will be relative.
     ///
