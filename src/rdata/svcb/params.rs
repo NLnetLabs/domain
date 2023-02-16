@@ -942,7 +942,6 @@ mod test {
         builder.push(
             &UnknownSvcbValue::new(8.into(), b"225").unwrap()
         ).unwrap();
-        eprintln!("{:?}", builder.octets);
         assert_eq!(
             builder.freeze::<Octets512>().unwrap().as_slice(),
             b"\x00\x01\x00\x03223\
@@ -963,7 +962,6 @@ mod test {
         builder.push(
             &UnknownSvcbValue::new(2.into(), b"224").unwrap()
         ).unwrap();
-        eprintln!("{:?}", builder.octets);
         assert_eq!(
             builder.freeze::<Octets512>().unwrap().as_slice(),
             b"\x00\x01\x00\x03223\
