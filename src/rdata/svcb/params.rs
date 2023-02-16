@@ -38,6 +38,12 @@ impl<Octs> SvcbParams<Octs> {
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
+    /// Creates a new value from an octets sequence without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to ensure that `octets` contains a properly formatted
+    /// SVCB params value.
     pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         SvcbParams { octets }
     }
@@ -45,10 +51,16 @@ impl<Octs> SvcbParams<Octs> {
 
 impl SvcbParams<[u8]> {
     pub fn from_slice(slice: &[u8]) -> Result<&Self, SvcbParamsError> {
-        SvcbParams::check_slice(slice.as_ref())?;
+        SvcbParams::check_slice(slice)?;
         Ok(unsafe { Self::from_slice_unchecked(slice) })
     }
 
+    /// Creates a new value from a slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to ensure that `slice` contains a properly formatted
+    /// SVCB params value.
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         &*(slice as *const [u8] as *const Self)
     }
@@ -116,7 +128,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> SvcbParams<Octs> {
         self.octets.as_ref().len()
     }
 
-    pub fn is_emtpy(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.octets.as_ref().is_empty()
     }
 

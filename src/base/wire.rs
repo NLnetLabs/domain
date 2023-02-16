@@ -151,7 +151,6 @@ impl Compose for Ipv6Addr {
 // No impl for [u8; const N: usize] because we can’t guarantee a correct
 // COMPOSE_LEN -- it may be longer than a u16 can hold.
 
-
 //------------ Parse ------------------------------------------------------
 
 /// An extension trait to add parsing to foreign types.
@@ -224,7 +223,8 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized, const N: usize> Parse<'a, Octs>
-for [u8; N] {
+    for [u8; N]
+{
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         let mut res = [0u8; N];
         parser.parse_buf(&mut res)?;

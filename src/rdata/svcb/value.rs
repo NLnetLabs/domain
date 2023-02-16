@@ -219,12 +219,24 @@ macro_rules! octets_wrapper {
         pub struct $name<Octs: ?Sized>(Octs);
 
         impl<Octs> $name<Octs> {
+            /// Creates a new value from octets without checking.
+            ///
+            /// # Safety
+            ///
+            /// The caller has to ensure that `octets` contains a properly
+            /// formated value of at most 65,535 octets.
             pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
                 $name(octets)
             }
         }
 
         impl $name<[u8]> {
+            /// Creates a new value for a slice without checking.
+            ///
+            /// # Safety
+            ///
+            /// The caller has to ensure that `slice` contains a properly
+            /// formated value of at most 65,535 octets.
             pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
                 &*(slice as *const [u8] as *const Self)
             }
@@ -556,8 +568,8 @@ impl<Target> AlpnBuilder<Target> {
 pub struct NoDefaultAlpn;
 
 impl NoDefaultAlpn {
-    pub fn parse<'a, Src: Octets + ?Sized>(
-        _parser: &mut Parser<'a, Src>,
+    pub fn parse<Src: Octets + ?Sized>(
+        _parser: &mut Parser<Src>,
     ) -> Result<Self, ParseError> {
         Ok(Self)
     }
@@ -615,8 +627,8 @@ impl Port {
         Port(port)
     }
 
-    pub fn parse<'a, Src: Octets + ?Sized>(
-        parser: &mut Parser<'a, Src>,
+    pub fn parse<Src: Octets + ?Sized>(
+        parser: &mut Parser<Src>,
     ) -> Result<Self, ParseError> {
         u16::parse(parser).map(Port::new)
     }
