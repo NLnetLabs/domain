@@ -47,6 +47,9 @@ Breaking Changes
 New
 
 * `Display` impls are now available for all EDNS0 options. ([#157])
+* Adds a `FromStr` implementation and related functions to
+  `RelativeDname`. ([#177])
+
 
 Bug Fixes
 
@@ -59,6 +62,7 @@ Other Changes
 [#160]: https://github.com/NLnetLabs/domain/pull/160
 [#168]: https://github.com/NLnetLabs/domain/pull/168
 [#169]: https://github.com/NLnetLabs/domain/pull/169
+[#177]: https://github.com/NLnetLabs/domain/pull/177
 [Martin Fischer]: https://push-f.com/
 [octseq]: https://crates.io/crates/octseq
 
