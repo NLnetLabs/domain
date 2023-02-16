@@ -68,7 +68,8 @@ pub use self::label::{
 };
 pub use self::parsed::{ParsedDname, ParsedDnameIter, ParsedSuffixIter};
 pub use self::relative::{
-    DnameIter, RelativeDname, RelativeDnameError, StripSuffixError,
+    DnameIter, RelativeDname, RelativeDnameError, RelativeFromStrError,
+    StripSuffixError,
 };
 pub use self::traits::{ToDname, ToLabelIter, ToRelativeDname};
 pub use self::uncertain::UncertainDname;

@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::wire::ParseError;
-use super::builder::{DnameBuilder, PushError};
+use super::builder::{DnameBuilder, FromStrError, PushError};
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::{Label, LabelTypeError, SplitLabelError};
@@ -12,10 +12,11 @@ use super::traits::{ToLabelIter, ToRelativeDname};
 use bytes::Bytes;
 use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
+use core::str::FromStr;
 use core::{cmp, fmt, hash};
-#[cfg(feature = "serde")]
-use octseq::builder::{EmptyBuilder, FromBuilder};
-use octseq::builder::{FreezeBuilder, IntoBuilder, Truncate};
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder, Truncate,
+};
 use octseq::octets::{Octets, OctetsFrom};
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
@@ -93,6 +94,35 @@ impl<Octs> RelativeDname<Octs> {
             RelativeDname::from_octets_unchecked(b"\x01*".as_ref().into())
         }
     }
+
+    /// Creates a domain name from a sequence of characters.
+    ///
+    /// The sequence must result in a domain name in representation format.
+    /// That is, its labels should be separated by dots.
+    /// Actual dots, white space and backslashes should be escaped by a
+    /// preceeding backslash, and any byte value that is not a printable
+    /// ASCII character should be encoded by a backslash followed by its
+    /// three digit decimal value.
+    ///
+    /// If Internationalized Domain Names are to be used, the labels already
+    /// need to be in punycode-encoded form.
+    pub fn from_chars<C>(chars: C) -> Result<Self, RelativeFromStrError>
+    where
+        Octs: FromBuilder,
+        <Octs as FromBuilder>::Builder: EmptyBuilder
+            + FreezeBuilder<Octets = Octs>
+            + AsRef<[u8]>
+            + AsMut<[u8]>,
+        C: IntoIterator<Item = char>,
+    {
+        let mut builder = DnameBuilder::<Octs::Builder>::new();
+        builder.append_chars(chars)?;
+        if builder.in_label() || builder.is_empty() {
+            Ok(builder.finish())
+        } else {
+            Err(RelativeFromStrError::AbsoluteName)
+        }
+    }
 }
 
 impl RelativeDname<[u8]> {
@@ -161,6 +191,11 @@ impl RelativeDname<Vec<u8>> {
     pub fn wildcard_vec() -> Self {
         Self::wildcard()
     }
+
+    /// Parses a string into a relative name atop a `Vec<u8>`.
+    pub fn vec_from_str(s: &str) -> Result<Self, RelativeFromStrError> {
+        FromStr::from_str(s)
+    }
 }
 
 #[cfg(feature = "bytes")]
@@ -173,6 +208,11 @@ impl RelativeDname<Bytes> {
     /// Creates a wildcard relative name atop a bytes value.
     pub fn wildcard_bytes() -> Self {
         Self::wildcard()
+    }
+
+    /// Parses a string into a relative name atop a `Bytes`.
+    pub fn bytes_from_str(s: &str) -> Result<Self, RelativeFromStrError> {
+        FromStr::from_str(s)
     }
 }
 
@@ -544,6 +584,32 @@ where
     }
 }
 
+//--- FromStr
+
+impl<Octs> FromStr for RelativeDname<Octs>
+where
+    Octs: FromBuilder,
+    <Octs as FromBuilder>::Builder: EmptyBuilder
+        + FreezeBuilder<Octets = Octs>
+        + AsRef<[u8]>
+        + AsMut<[u8]>,
+{
+    type Err = RelativeFromStrError;
+
+    /// Parses a string into an absolute domain name.
+    ///
+    /// The name needs to be formatted in representation format, i.e., as a
+    /// sequence of labels separated by dots. If Internationalized Domain
+    /// Name (IDN) labels are to be used, these need to be given in punycode
+    /// encoded form.
+    ///
+    /// This implementation will error if the name ends in a dot since that
+    /// indicates an absolute name.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_chars(s.chars())
+    }
+}
+
 //--- ToLabelIter and ToRelativeDname
 
 impl<Octs> ToLabelIter for RelativeDname<Octs>
@@ -881,6 +947,42 @@ impl fmt::Display for RelativeDnameError {
 #[cfg(feature = "std")]
 impl std::error::Error for RelativeDnameError {}
 
+//------------ RelativeFromStrError ------------------------------------------
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum RelativeFromStrError {
+    /// The name could not be parsed.
+    FromStr(FromStrError),
+
+    /// The parsed name was ended in a dot.
+    AbsoluteName,
+}
+
+//--- From
+
+impl From<FromStrError> for RelativeFromStrError {
+    fn from(src: FromStrError) -> Self {
+        Self::FromStr(src)
+    }
+}
+
+//--- Display and Error
+
+impl fmt::Display for RelativeFromStrError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RelativeFromStrError::FromStr(err) => err.fmt(f),
+            RelativeFromStrError::AbsoluteName => {
+                f.write_str("absolute domain name")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RelativeFromStrError {}
+
 //------------ StripSuffixError ----------------------------------------------
 
 /// An attempt was made to strip a suffix that wasn’t actually a suffix.
@@ -1037,6 +1139,24 @@ mod test {
             RelativeDname::from_slice(b"\xccasdasds"),
             Err(RelativeDnameError::CompressedName)
         );
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn from_str() {
+        // empty name
+        assert_eq!(RelativeDname::vec_from_str("").unwrap().as_slice(), b"");
+
+        // relative name
+        assert_eq!(
+            RelativeDname::vec_from_str("www.example")
+                .unwrap()
+                .as_slice(),
+            b"\x03www\x07example"
+        );
+
+        // absolute name
+        assert!(RelativeDname::vec_from_str("www.example.com.").is_err());
     }
 
     #[test]
