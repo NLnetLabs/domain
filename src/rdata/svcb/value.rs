@@ -967,7 +967,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for DohPath<Octs> {
 //------------ BuildValueError -----------------------------------------------
 
 /// An error happened while constructing an SVCB value.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildValueError {
     /// The value would exceed the allow length of a value.
     LongSvcbValue,
@@ -981,6 +981,20 @@ impl<T: Into<ShortBuf>> From<T> for BuildValueError {
         Self::ShortBuf
     }
 }
+
+//--- Display and Error
+
+impl fmt::Display for BuildValueError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::LongSvcbValue => f.write_str("long SVCB value"),
+            Self::ShortBuf => ShortBuf.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BuildValueError {}
 
 //------------ PushAlpnError -------------------------------------------------
 
@@ -1004,6 +1018,21 @@ impl<T: Into<ShortBuf>> From<T> for AlpnPushError {
         Self::ShortBuf
     }
 }
+
+//--- Display and Error
+
+impl fmt::Display for AlpnPushError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::InvalidProtocol => f.write_str("invalid ALPN protocol"),
+            Self::LongSvcbValue => f.write_str("long SVCB value"),
+            Self::ShortBuf => ShortBuf.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for AlpnPushError {}
 
 //============ Tests =========================================================
 
