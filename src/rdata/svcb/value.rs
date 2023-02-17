@@ -11,8 +11,10 @@ use octseq::builder::{
 };
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
+use octseq::str::Str;
 use core::{fmt, hash, str};
 use core::fmt::Write as _;
+use core::str::FromStr;
 
 //------------ AllValues -----------------------------------------------------
 
@@ -680,7 +682,6 @@ impl fmt::Display for Port {
     }
 }
 
-
 //------------ Ech -----------------------------------------------------------
 
 octets_wrapper!(Ech);
@@ -927,6 +928,33 @@ impl<Octs: AsRef<[u8]>> DohPath<Octs> {
     }
 }
 
+//--- TryFrom and FromStr
+
+impl<Octs: AsRef<[u8]>> TryFrom<Str<Octs>> for DohPath<Octs> {
+    type Error = LongSvcbValue;
+
+    fn try_from(src: Str<Octs>) -> Result<Self, Self::Error> {
+        Self::from_octets(src.into_octets())
+    }
+}
+
+impl<Octs> FromStr for DohPath<Octs>
+where
+    Octs: FromBuilder,
+    <Octs as FromBuilder>::Builder:
+        EmptyBuilder
+        + FreezeBuilder<Octets = Octs>
+{
+    type Err = BuildValueError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        DohPath::check_slice(s.as_bytes())?;
+        let mut res: <Octs as FromBuilder>::Builder = EmptyBuilder::empty();
+        res.append_slice(s.as_bytes()).map_err(Into::into)?;
+        Ok(unsafe { Self::from_octets_unchecked(res.freeze()) })
+    }
+}
+
 //--- Display
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for DohPath<Octs> {
@@ -974,6 +1002,12 @@ pub enum BuildValueError {
 
     /// The underlying octets builder ran out of buffer space.
     ShortBuf,
+}
+
+impl From<LongSvcbValue> for BuildValueError {
+    fn from(_: LongSvcbValue) -> Self {
+        Self::LongSvcbValue
+    }
 }
 
 impl<T: Into<ShortBuf>> From<T> for BuildValueError {
