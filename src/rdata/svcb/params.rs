@@ -1,5 +1,5 @@
 use super::value::AllValues;
-use crate::base::iana::SvcbParamKey;
+use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
 use crate::base::wire::{Compose, Parse, ParseError};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, ShortBuf};
@@ -9,11 +9,11 @@ use core::{cmp, fmt, hash};
 use core::cmp::Ordering;
 use core::marker::PhantomData;
 
-//------------ SvcbParams ----------------------------------------------------
+//------------ SvcParams -----------------------------------------------------
 
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct SvcbParams<Octs: ?Sized> {
+pub struct SvcParams<Octs: ?Sized> {
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -31,10 +31,10 @@ pub struct SvcbParams<Octs: ?Sized> {
     octets: Octs,
 }
 
-impl<Octs> SvcbParams<Octs> {
-    pub fn from_octets(octets: Octs) -> Result<Self, SvcbParamsError>
+impl<Octs> SvcParams<Octs> {
+    pub fn from_octets(octets: Octs) -> Result<Self, SvcParamsError>
     where Octs: AsRef<[u8]> {
-        SvcbParams::check_slice(octets.as_ref())?;
+        SvcParams::check_slice(octets.as_ref())?;
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
@@ -45,13 +45,13 @@ impl<Octs> SvcbParams<Octs> {
     /// The caller has to ensure that `octets` contains a properly formatted
     /// SVCB params value.
     pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
-        SvcbParams { octets }
+        SvcParams { octets }
     }
 }
 
-impl SvcbParams<[u8]> {
-    pub fn from_slice(slice: &[u8]) -> Result<&Self, SvcbParamsError> {
-        SvcbParams::check_slice(slice)?;
+impl SvcParams<[u8]> {
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, SvcParamsError> {
+        SvcParams::check_slice(slice)?;
         Ok(unsafe { Self::from_slice_unchecked(slice) })
     }
 
@@ -65,7 +65,7 @@ impl SvcbParams<[u8]> {
         &*(slice as *const [u8] as *const Self)
     }
 
-    fn check_slice(slice: &[u8]) -> Result<(), SvcbParamsError> {
+    fn check_slice(slice: &[u8]) -> Result<(), SvcParamsError> {
         let mut parser = Parser::from_ref(slice);
         let mut last_key = None;
         while parser.remaining() > 0 {
@@ -83,23 +83,23 @@ impl SvcbParams<[u8]> {
     }
 }
 
-impl<Octs> SvcbParams<Octs> {
+impl<Octs> SvcParams<Octs> {
     pub fn from_values<F>(op: F) -> Result<Self, PushError>
     where
         Octs: FromBuilder,
         <Octs  as FromBuilder>::Builder:
             AsRef<[u8]> + OctetsBuilder + EmptyBuilder,
         F: FnOnce(
-            &mut SvcbParamsBuilder<<Octs  as FromBuilder>::Builder>
+            &mut SvcParamsBuilder<<Octs  as FromBuilder>::Builder>
         ) -> Result<(), PushError>,
     {
-        let mut res = SvcbParamsBuilder::empty();
+        let mut res = SvcParamsBuilder::empty();
         op(&mut res)?;
         res.freeze().map_err(Into::into)
     }
 }
 
-impl<Octs: AsRef<[u8]>> SvcbParams<Octs> {
+impl<Octs: AsRef<[u8]>> SvcParams<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
@@ -109,19 +109,19 @@ impl<Octs: AsRef<[u8]>> SvcbParams<Octs> {
     }
 }
 
-impl<Octs: ?Sized> SvcbParams<Octs> {
+impl<Octs: ?Sized> SvcParams<Octs> {
     pub fn as_octets(&self) -> &Octs {
         &self.octets
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> SvcbParams<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> SvcParams<Octs> {
     pub fn as_slice(&self) -> &[u8] {
         self.octets.as_ref()
     }
 
-    pub fn for_slice(&self) -> &SvcbParams<[u8]> {
-        unsafe { SvcbParams::from_slice_unchecked(self.octets.as_ref()) }
+    pub fn for_slice(&self) -> &SvcParams<[u8]> {
+        unsafe { SvcParams::from_slice_unchecked(self.octets.as_ref()) }
     }
 
     pub fn len(&self) -> usize {
@@ -150,36 +150,36 @@ impl<Octs: AsRef<[u8]> + ?Sized> SvcbParams<Octs> {
 
 //--- OctetsFrom
 
-impl<SrcOcts, Octs> OctetsFrom<SvcbParams<SrcOcts>> for SvcbParams<Octs>
+impl<SrcOcts, Octs> OctetsFrom<SvcParams<SrcOcts>> for SvcParams<Octs>
 where Octs: OctetsFrom<SrcOcts> {
     type Error = Octs::Error;
 
     fn try_octets_from(
-        src: SvcbParams<SrcOcts>
+        src: SvcParams<SrcOcts>
     ) -> Result<Self, Self::Error> {
         Ok(unsafe {
-            SvcbParams::from_octets_unchecked(src.octets.try_octets_into()?)
+            SvcParams::from_octets_unchecked(src.octets.try_octets_into()?)
         })
     }
 }
 
 //--- PartialEq and Eq
 
-impl<Octs, OtherOcts> PartialEq<SvcbParams<OtherOcts>> for SvcbParams<Octs>
+impl<Octs, OtherOcts> PartialEq<SvcParams<OtherOcts>> for SvcParams<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
     OtherOcts: AsRef<[u8]> + ?Sized,
 {
-    fn eq(&self, other: &SvcbParams<OtherOcts>) -> bool {
+    fn eq(&self, other: &SvcParams<OtherOcts>) -> bool {
         self.as_slice().eq(other.as_slice())
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> Eq for SvcbParams<Octs> { }
+impl<Octs: AsRef<[u8]> + ?Sized> Eq for SvcParams<Octs> { }
 
 //--- Hash
 
-impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for SvcbParams<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for SvcParams<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.as_slice().hash(state)
     }
@@ -187,19 +187,19 @@ impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for SvcbParams<Octs> {
 
 //--- PartialOrd and Ord
 
-impl<Octs, OtherOcts> PartialOrd<SvcbParams<OtherOcts>> for SvcbParams<Octs>
+impl<Octs, OtherOcts> PartialOrd<SvcParams<OtherOcts>> for SvcParams<Octs>
 where
     Octs: AsRef<[u8]> + ?Sized,
     OtherOcts: AsRef<[u8]> + ?Sized,
 {
     fn partial_cmp(
-        &self, other: &SvcbParams<OtherOcts>
+        &self, other: &SvcParams<OtherOcts>
     ) -> Option<cmp::Ordering> {
         self.as_slice().partial_cmp(other.as_slice())
     }
 }
 
-impl<Octs: AsRef<[u8]> + ?Sized> Ord for SvcbParams<Octs> {
+impl<Octs: AsRef<[u8]> + ?Sized> Ord for SvcParams<Octs> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.as_slice().cmp(other.as_slice())
     }
@@ -207,19 +207,19 @@ impl<Octs: AsRef<[u8]> + ?Sized> Ord for SvcbParams<Octs> {
 
 //--- Display and Debug
 
-impl<Octs: Octets + ?Sized> fmt::Display for SvcbParams<Octs> {
+impl<Octs: Octets + ?Sized> fmt::Display for SvcParams<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut parser = Parser::from_ref(self.as_slice());
         while parser.remaining() > 0 {
-            let key = SvcbParamKey::parse(
+            let key = SvcParamKey::parse(
                 &mut parser
             ).expect("invalid SvcbParam");
             let len = usize::from(
-                u16::parse(&mut parser).expect("invalid SvcbParam")
+                u16::parse(&mut parser).expect("invalid SvcParam")
             );
             let mut parser = parser.parse_parser(
                 len
-            ).expect("invalid SvcbParam");
+            ).expect("invalid SvcParam");
             write!(
                 f, "{}", super::value::AllValues::parse_any(key, &mut parser)
             )?;
@@ -228,9 +228,9 @@ impl<Octs: Octets + ?Sized> fmt::Display for SvcbParams<Octs> {
     }
 }
 
-impl<Octs: Octets + ?Sized> fmt::Debug for SvcbParams<Octs> {
+impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_tuple("SvcbParams").field(
+        f.debug_tuple("SvcParams").field(
             &format_args!("{}", self)
         ).finish()
     }
@@ -256,9 +256,9 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized, Value> ValueIter<'a, Octs, Value> {
     fn next_step(&mut self) -> Result<Option<Value>, ParseError>
     where
         Octs: Octets,
-        Value: ParseSvcbValue<'a, Octs>,
+        Value: ParseSvcParamValue<'a, Octs>,
     {
-        let key = SvcbParamKey::parse(&mut self.parser)?;
+        let key = SvcParamKey::parse(&mut self.parser)?;
         let len = usize::from(u16::parse(&mut self.parser)?);
         let mut parser = self.parser.parse_parser(len)?;
         let res = Value::parse_value(key, &mut parser)?;
@@ -274,7 +274,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized, Value> ValueIter<'a, Octs, Value> {
 impl<'a, Octs, Value> Iterator for ValueIter<'a, Octs, Value>
 where
     Octs: Octets + ?Sized,
-    Value: ParseSvcbValue<'a, Octs>,
+    Value: ParseSvcParamValue<'a, Octs>,
 {
     type Item = Result<Value, ParseError>;
 
@@ -294,19 +294,19 @@ where
     }
 }
 
-//------------ SvcbValue, ParseSvcbValue, ComposeSvcbValue -------------------
+//------------ SvcParamValue, ParseSvcParamValue, ComposeSvcParamValue -------
 
-pub trait SvcbValue {
-    fn key(&self) -> SvcbParamKey;
+pub trait SvcParamValue {
+    fn key(&self) -> SvcParamKey;
 }
 
-pub trait ParseSvcbValue<'a, Octs: ?Sized>: SvcbValue + Sized {
+pub trait ParseSvcParamValue<'a, Octs: ?Sized>: SvcParamValue + Sized {
     fn parse_value(
-        key: SvcbParamKey, parser: &mut Parser<'a, Octs>,
+        key: SvcParamKey, parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError>;
 }
 
-pub trait ComposeSvcbValue: SvcbValue {
+pub trait ComposeSvcParamValue: SvcParamValue {
     fn compose_len(&self) -> u16;
 
     fn compose_value<Target: OctetsBuilder + ?Sized>(
@@ -314,22 +314,22 @@ pub trait ComposeSvcbValue: SvcbValue {
     ) -> Result<(), Target::AppendError>;
 }
 
-//------------ UnknownSvcbValue ----------------------------------------------
+//------------ UnknownSvcParam -----------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct UnknownSvcbValue<Octs> {
+pub struct UnknownSvcParam<Octs> {
     /// The key of the value.
-    key: SvcbParamKey,
+    key: SvcParamKey,
 
     /// The octets of the value.
     value: Octs,
 }
 
-impl<Octs> UnknownSvcbValue<Octs> {
+impl<Octs> UnknownSvcParam<Octs> {
     /// Creates a new SVCB parameter value from the given key and data.
-    pub fn new(key: SvcbParamKey, value: Octs) -> Result<Self, LongSvcbValue>
+    pub fn new(key: SvcParamKey, value: Octs) -> Result<Self, LongSvcParam>
     where Octs: AsRef<[u8]> {
-        LongSvcbValue::check_len(value.as_ref().len())?;
+        LongSvcParam::check_len(value.as_ref().len())?;
         Ok(unsafe { Self::new_unchecked(key, value) })
     }
 
@@ -339,14 +339,14 @@ impl<Octs> UnknownSvcbValue<Octs> {
     ///
     /// The called needs to make sure that `value` is not longer than
     /// 65,535 octets.
-    pub unsafe fn new_unchecked(key: SvcbParamKey, value: Octs) -> Self {
-        UnknownSvcbValue { key, value }
+    pub unsafe fn new_unchecked(key: SvcParamKey, value: Octs) -> Self {
+        Self { key, value }
     }
 }
 
-impl<Octs: AsRef<[u8]>> UnknownSvcbValue<Octs> {
+impl<Octs: AsRef<[u8]>> UnknownSvcParam<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
-        key: SvcbParamKey,
+        key: SvcParamKey,
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         Self::new(
@@ -357,7 +357,7 @@ impl<Octs: AsRef<[u8]>> UnknownSvcbValue<Octs> {
     pub fn parse_param<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
-        let key = SvcbParamKey::parse(parser)?;
+        let key = SvcParamKey::parse(parser)?;
         let len = usize::from(u16::parse(parser)?);
         let value = parser.parse_octets(len)?;
         Ok(unsafe { Self::new_unchecked(key, value) })
@@ -372,9 +372,9 @@ impl<Octs: AsRef<[u8]>> UnknownSvcbValue<Octs> {
     }
 }
 
-impl<Octs> UnknownSvcbValue<Octs> {
+impl<Octs> UnknownSvcParam<Octs> {
     /// Returns the key of the value.
-    pub fn key(&self) -> SvcbParamKey {
+    pub fn key(&self) -> SvcParamKey {
         self.key
     }
 
@@ -398,19 +398,19 @@ impl<Octs> UnknownSvcbValue<Octs> {
 
 //--- AsRef and AsMut
 
-impl<Octs> AsRef<Octs> for UnknownSvcbValue<Octs> {
+impl<Octs> AsRef<Octs> for UnknownSvcParam<Octs> {
     fn as_ref(&self) -> &Octs {
         self.value()
     }
 }
 
-impl<Octs: AsRef<[u8]>> AsRef<[u8]> for UnknownSvcbValue<Octs> {
+impl<Octs: AsRef<[u8]>> AsRef<[u8]> for UnknownSvcParam<Octs> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
     }
 }
 
-impl<Octs: AsMut<[u8]>> AsMut<[u8]> for UnknownSvcbValue<Octs> {
+impl<Octs: AsMut<[u8]>> AsMut<[u8]> for UnknownSvcParam<Octs> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.as_slice_mut()
     }
@@ -418,39 +418,39 @@ impl<Octs: AsMut<[u8]>> AsMut<[u8]> for UnknownSvcbValue<Octs> {
 
 //--- PartialEq and Eq
 
-impl<Octs, OtherOcts> PartialEq<UnknownSvcbValue<OtherOcts>>
-for UnknownSvcbValue<Octs>
+impl<Octs, OtherOcts> PartialEq<UnknownSvcParam<OtherOcts>>
+for UnknownSvcParam<Octs>
 where
     Octs: AsRef<[u8]>,
     OtherOcts: AsRef<[u8]>,
 {
-    fn eq(&self, other: &UnknownSvcbValue<OtherOcts>) -> bool {
+    fn eq(&self, other: &UnknownSvcParam<OtherOcts>) -> bool {
         self.as_slice().eq(other.as_slice())
     }
 }
 
-impl<Octs: AsRef<[u8]>> Eq for UnknownSvcbValue<Octs> { }
+impl<Octs: AsRef<[u8]>> Eq for UnknownSvcParam<Octs> { }
 
 //--- Hash
 
-impl<Octs: AsRef<[u8]>> hash::Hash for UnknownSvcbValue<Octs> {
+impl<Octs: AsRef<[u8]>> hash::Hash for UnknownSvcParam<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.as_slice().hash(state)
     }
 }
 
-//--- SvcbValue et al.
+//--- SvcParamValue et al.
 
-impl<Octs> SvcbValue for UnknownSvcbValue<Octs> {
-    fn key(&self) -> SvcbParamKey {
+impl<Octs> SvcParamValue for UnknownSvcParam<Octs> {
+    fn key(&self) -> SvcParamKey {
         self.key
     }
 }
 
-impl<'a, Octs: Octets + ?Sized> ParseSvcbValue<'a, Octs>
-for UnknownSvcbValue<Octs::Range<'a>> {
+impl<'a, Octs: Octets + ?Sized> ParseSvcParamValue<'a, Octs>
+for UnknownSvcParam<Octs::Range<'a>> {
     fn parse_value(
-        key: SvcbParamKey,
+        key: SvcParamKey,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
         Self::new(
@@ -459,7 +459,7 @@ for UnknownSvcbValue<Octs::Range<'a>> {
     }
 }
 
-impl<Octs: AsRef<[u8]>> ComposeSvcbValue for UnknownSvcbValue<Octs> {
+impl<Octs: AsRef<[u8]>> ComposeSvcParamValue for UnknownSvcParam<Octs> {
     fn compose_len(&self) -> u16 {
         u16::try_from(self.as_slice().len()).expect("long value")
     }
@@ -473,7 +473,7 @@ impl<Octs: AsRef<[u8]>> ComposeSvcbValue for UnknownSvcbValue<Octs> {
 
 //--- Display and Debug
 
-impl<Octs: AsRef<[u8]>> fmt::Display for UnknownSvcbValue<Octs> {
+impl<Octs: AsRef<[u8]>> fmt::Display for UnknownSvcParam<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.key)?;
         let slice = self.value.as_ref();
@@ -488,26 +488,26 @@ impl<Octs: AsRef<[u8]>> fmt::Display for UnknownSvcbValue<Octs> {
 }
 
 
-//------------ SvcbParamsBuilder ---------------------------------------------
+//------------ SvcParamsBuilder ----------------------------------------------
 
 #[derive(Clone, Debug)]
-pub struct SvcbParamsBuilder<Octs> {
+pub struct SvcParamsBuilder<Octs> {
     octets: Octs,
 }
 
-impl<Octs> SvcbParamsBuilder<Octs> {
+impl<Octs> SvcParamsBuilder<Octs> {
     pub fn empty() -> Self
     where Octs: EmptyBuilder {
         Self { octets: Octs::empty() }
     }
 
     pub fn from_params<Src: Octets + ?Sized>(
-        params: &SvcbParams<Src>
+        params: &SvcParams<Src>
     ) -> Result<Self, ShortBuf>
     where Octs: AsRef<[u8]> + OctetsBuilder + EmptyBuilder {
         let mut octets = Octs::empty();
-        for item in params.iter::<UnknownSvcbValue<_>>() {
-            let item = item.expect("invalid SvcbParams");
+        for item in params.iter::<UnknownSvcParam<_>>() {
+            let item = item.expect("invalid SvcParams");
             let start = u32::try_from(
                 octets.as_ref().len()
             ).map_err(|_| ShortBuf)?.checked_add(
@@ -525,7 +525,7 @@ impl<Octs> SvcbParamsBuilder<Octs> {
     }
 
     pub fn push(
-        &mut self, value: &impl ComposeSvcbValue
+        &mut self, value: &impl ComposeSvcParamValue
     ) -> Result<(), PushError>
     where Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
         // If octets is emtpy, we can just append ourselves and be done.
@@ -556,7 +556,7 @@ impl<Octs> SvcbParamsBuilder<Octs> {
 
         while parser.remaining() > 0 {
             let tmp_start = u32::try_from(parser.pos()).unwrap();
-            let tmp = UnknownSvcbValue::parse_param(&mut parser).unwrap();
+            let tmp = UnknownSvcParam::parse_param(&mut parser).unwrap();
             let tmp_end = u32::try_from(parser.pos()).unwrap();
             let tmp_key = tmp.key();
             match tmp_key.cmp(&value.key()) {
@@ -618,7 +618,7 @@ impl<Octs> SvcbParamsBuilder<Octs> {
     pub fn freeze<Target>(
         &self
     ) -> Result<
-        SvcbParams<Target>,
+        SvcParams<Target>,
         <<Target as FromBuilder>::Builder as OctetsBuilder>::AppendError
     >
     where
@@ -638,12 +638,12 @@ impl<Octs> SvcbParamsBuilder<Octs> {
                 }
                 let pos = usize::try_from(pos).unwrap();
                 parser.seek(pos).unwrap();
-                let param = UnknownSvcbValue::parse_param(&mut parser).unwrap();
+                let param = UnknownSvcParam::parse_param(&mut parser).unwrap();
                 param.compose_param(&mut target)?;
             }
         }
         Ok(unsafe {
-            SvcbParams::from_octets_unchecked(
+            SvcParams::from_octets_unchecked(
                 Target::from_builder(target)
             )
         })
@@ -652,62 +652,62 @@ impl<Octs> SvcbParamsBuilder<Octs> {
 
 //============ Error Types ===================================================
 
-//------------ SvcbParamsError -----------------------------------------------
+//------------ SvcParamsError -----------------------------------------------
 
-pub struct SvcbParamsError(ParseError);
+pub struct SvcParamsError(ParseError);
 
-impl From<ShortInput> for SvcbParamsError {
+impl From<ShortInput> for SvcParamsError {
     fn from(err: ShortInput) -> Self {
         ParseError::from(err).into()
     }
 }
     
-impl From<ParseError> for SvcbParamsError {
+impl From<ParseError> for SvcParamsError {
     fn from(err: ParseError) -> Self {
-        SvcbParamsError(err)
+        SvcParamsError(err)
     }
 }
 
-impl From<SvcbParamsError> for ParseError {
-    fn from(err: SvcbParamsError) -> Self {
+impl From<SvcParamsError> for ParseError {
+    fn from(err: SvcParamsError) -> Self {
         err.0
     }
 }
 
-//------------ LongSvcbValue -------------------------------------------------
+//------------ LongSvcParam --------------------------------------------------
 
 /// The octets sequence to be used for record data is too long.
 #[derive(Clone, Copy, Debug)]
-pub struct LongSvcbValue();
+pub struct LongSvcParam(());
 
-impl LongSvcbValue {
+impl LongSvcParam {
     pub fn as_str(self) -> &'static str {
-        "SVCB parameter too long"
+        "service parameter too long"
     }
 
     pub fn check_len(len: usize) -> Result<(), Self> {
         if len > usize::from(u16::MAX) {
-            Err(LongSvcbValue())
+            Err(LongSvcParam(()))
         } else {
             Ok(())
         }
     }
 }
 
-impl From<LongSvcbValue> for ParseError {
-    fn from(src: LongSvcbValue) -> Self {
+impl From<LongSvcParam> for ParseError {
+    fn from(src: LongSvcParam) -> Self {
         ParseError::form_error(src.as_str())
     }
 }
 
-impl fmt::Display for LongSvcbValue {
+impl fmt::Display for LongSvcParam {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for LongSvcbValue {}
+impl std::error::Error for LongSvcParam {}
 
 
 //------------ PushError -----------------------------------------------------
@@ -734,8 +734,8 @@ mod test {
     use octseq::array::Array;
 
     type Octets512 = Array<512>;
-    type Params512 = SvcbParams<Array<512>>;
-    type Builder512 = SvcbParamsBuilder<Array<512>>;
+    type Params512 = SvcParams<Array<512>>;
+    type Builder512 = SvcParamsBuilder<Array<512>>;
 
     fn octets512(slice: impl AsRef<[u8]>) -> Octets512 {
         Octets512::try_from(slice.as_ref()).unwrap()
@@ -750,7 +750,7 @@ mod test {
         ( $rdata:expr, [ $( $value:expr )* ] ) => {
             // parse test
             let mut parser = Parser::from_ref($rdata.as_ref());
-            let params = SvcbParams::parse(&mut parser).unwrap();
+            let params = SvcParams::parse(&mut parser).unwrap();
 
             let mut param_iter = params.iter_all();
             $(
@@ -796,7 +796,7 @@ mod test {
               \x00\x05\
               \x68\x65\x6c\x6c\x6f",
             [
-                UnknownSvcbValue::new(
+                UnknownSvcParam::new(
                     0x029b.into(),
                     octets512(b"hello")
                 ).unwrap()
@@ -811,7 +811,7 @@ mod test {
               \x00\x09\
               \x68\x65\x6c\x6c\x6f\xd2\x71\x6f\x6f",
             [
-                UnknownSvcbValue::new(
+                UnknownSvcParam::new(
                     0x029b.into(),
                     octets512(b"\x68\x65\x6c\x6c\x6f\xd2\x71\x6f\x6f"),
                 ).unwrap()
@@ -864,13 +864,13 @@ mod test {
     #[cfg(feature = "std")]
     #[test]
     fn test_representation() {
-        use crate::base::iana::svcb::SVCB_PARAM_KEY_PRIVATE_RANGE_BEGIN;
+        use crate::base::iana::svcb::SVC_PARAM_KEY_PRIVATE_RANGE_BEGIN;
 
         let mandatory = value::Mandatory::<Octets512>::from_keys(
             [
-                SvcbParamKey::Alpn,
-                SvcbParamKey::Ipv4Hint,
-                SVCB_PARAM_KEY_PRIVATE_RANGE_BEGIN.into()
+                SvcParamKey::Alpn,
+                SvcParamKey::Ipv4Hint,
+                SVC_PARAM_KEY_PRIVATE_RANGE_BEGIN.into()
             ].into_iter()
         ).unwrap();
         assert_eq!(
@@ -934,13 +934,13 @@ mod test {
     fn three_values_in_order() {
         let mut builder = Builder512::empty();
         builder.push(
-            &UnknownSvcbValue::new(1.into(), b"223").unwrap()
+            &UnknownSvcParam::new(1.into(), b"223").unwrap()
         ).unwrap();
         builder.push(
-            &UnknownSvcbValue::new(2.into(), b"224").unwrap()
+            &UnknownSvcParam::new(2.into(), b"224").unwrap()
         ).unwrap();
         builder.push(
-            &UnknownSvcbValue::new(8.into(), b"225").unwrap()
+            &UnknownSvcParam::new(8.into(), b"225").unwrap()
         ).unwrap();
         assert_eq!(
             builder.freeze::<Octets512>().unwrap().as_slice(),
@@ -954,13 +954,13 @@ mod test {
     fn three_values_out_of_order() {
         let mut builder = Builder512::empty();
         builder.push(
-            &UnknownSvcbValue::new(1.into(), b"223").unwrap()
+            &UnknownSvcParam::new(1.into(), b"223").unwrap()
         ).unwrap();
         builder.push(
-            &UnknownSvcbValue::new(8.into(), b"225").unwrap()
+            &UnknownSvcParam::new(8.into(), b"225").unwrap()
         ).unwrap();
         builder.push(
-            &UnknownSvcbValue::new(2.into(), b"224").unwrap()
+            &UnknownSvcParam::new(2.into(), b"224").unwrap()
         ).unwrap();
         assert_eq!(
             builder.freeze::<Octets512>().unwrap().as_slice(),
@@ -974,14 +974,14 @@ mod test {
     fn three_values_with_collision() {
         let mut builder = Builder512::empty();
         builder.push(
-            &UnknownSvcbValue::new(1.into(), b"223").unwrap()
+            &UnknownSvcParam::new(1.into(), b"223").unwrap()
         ).unwrap();
         builder.push(
-            &UnknownSvcbValue::new(8.into(), b"225").unwrap()
+            &UnknownSvcParam::new(8.into(), b"225").unwrap()
         ).unwrap();
         assert!(
             builder.push(
-                &UnknownSvcbValue::new(8.into(), b"224").unwrap()
+                &UnknownSvcParam::new(8.into(), b"224").unwrap()
             ).is_err()
         );
     }

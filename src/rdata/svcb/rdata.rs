@@ -1,4 +1,4 @@
-use super::SvcbParams;
+use super::SvcParams;
 use crate::base::iana::Rtype;
 use crate::base::name::{
     Dname, ParsedDname, PushError as PushNameError, ToDname
@@ -35,7 +35,7 @@ use core::marker::PhantomData;
 pub struct SvcbRdata<Variant, Octs, Name> {
     priority: u16,
     target: Name,
-    params: SvcbParams<Octs>,
+    params: SvcParams<Octs>,
     marker: PhantomData<Variant>,
 }
 
@@ -54,7 +54,7 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
     /// Returns an error if the wire format of the record data would exceed
     /// the length of 65,535 octets.
     pub fn new(
-        priority: u16, target: Name, params: SvcbParams<Octs>
+        priority: u16, target: Name, params: SvcParams<Octs>
     ) -> Result<Self, LongRecordData>
     where Octs: AsRef<[u8]>, Name: ToDname {
         LongRecordData::check_len(
@@ -72,7 +72,7 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
     /// The called must ensure that the wire format of the record data does
     /// not exceed a length of 65,535 octets.
     pub unsafe fn new_unchecked(
-        priority: u16, target: Name, params: SvcbParams<Octs>
+        priority: u16, target: Name, params: SvcParams<Octs>
     ) -> Self {
         SvcbRdata { priority, target, params, marker: PhantomData }
     }
@@ -89,7 +89,7 @@ impl<Variant, Octs: AsRef<[u8]>> SvcbRdata<Variant, Octs, ParsedDname<Octs>> {
     ) -> Result<Self, ParseError> {
         let priority = u16::parse(parser)?;
         let target = ParsedDname::parse(parser)?;
-        let params = SvcbParams::parse(parser)?;
+        let params = SvcParams::parse(parser)?;
         Ok(unsafe {
             Self::new_unchecked(priority, target, params)
         })
@@ -106,7 +106,7 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
     }
 
     /// Returns the parameters.
-    pub fn params(&self) -> &SvcbParams<Octs> {
+    pub fn params(&self) -> &SvcParams<Octs> {
         &self.params
     }
 
@@ -342,7 +342,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::UnknownSvcbValue;
+    use super::super::UnknownSvcParam;
     use super::super::value::AllValues;
     use crate::base::Dname;
     use octseq::array::Array;
@@ -350,7 +350,7 @@ mod test {
 
     type Octets512 = Array<512>;
     type Dname512 = Dname<Array<512>>;
-    type Params512 = SvcbParams<Array<512>>;
+    type Params512 = SvcParams<Array<512>>;
 
     // We only do two tests here to see if the SvcbRdata type itself is
     // working properly. Tests for all the value types live in
@@ -423,7 +423,7 @@ mod test {
             svcb.priority, svcb.target,
             Params512::from_values(|builder| {
                 builder.push(
-                    &UnknownSvcbValue::new(0x029b.into(), b"hello").unwrap()
+                    &UnknownSvcParam::new(0x029b.into(), b"hello").unwrap()
                 )
             }).unwrap()
         ).unwrap();
