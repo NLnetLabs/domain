@@ -37,10 +37,16 @@ use std::vec::Vec;
 /// Otherwise, you would receive a [`ParsedDname`] which can be converted into
 /// `Dname` via [`ToDname::to_dname`].
 ///
+/// The canonical way to convert a domain name into its presentation format is
+/// using [`to_string`] or by using its [`Display`] implementation (which
+/// performs no allocations).
+///
 /// [`DnameBuilder`]: struct.DnameBuilder.html
 /// [`ParsedDname`]: struct.ParsedDname.html
 /// [`RelativeDname`]: struct.RelativeDname.html
 /// [`ToDname::to_dname`]: trait.ToDname.html#method.to_dname
+/// [`to_string`]: `std::string::ToString::to_string`
+/// [`Display`]: `std::fmt::Display`
 #[derive(Clone)]
 pub struct Dname<Octs: ?Sized>(Octs);
 
