@@ -48,18 +48,20 @@ type OctetsVec = Vec<u8>;
 /// `service`.
 ///
 /// The value returned upon success can be turned into a stream of
-/// `ResolvedSrvItem`s corresponding to the found SRV records, ordered as per
+/// [`ResolvedSrvItem`]s corresponding to the found SRV records, ordered as per
 /// the usage rules defined in [RFC 2782]. If no matching SRV record is found,
 /// A/AAAA queries on the bare domain name `name` will be attempted, yielding
 /// a single element upon success using the port given by `fallback_port`,
 /// typcially the standard port for the service in question.
 ///
 /// Each item in the stream can be turned into an iterator over socket
-/// addresses as accepted by, for instance, `TcpStream::connect`.
+/// addresses as accepted by, for instance, [`TcpStream::connect`].
 ///
 /// The future resolves to `None` whenever the request service is
 /// “decidedly not available” at the requested domain, that is there is a
 /// single SRV record with the root label as its target.
+///
+///[`TcpStream::connect`]: tokio::net::TcpStream::connect
 pub async fn lookup_srv(
     resolver: &impl Resolver,
     service: impl ToRelativeDname,
