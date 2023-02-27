@@ -106,9 +106,16 @@ mod test {
     use super::super::test::test_option_compose_parse;
     
     #[test]
-    fn tcp_keepalive_compose_parse() {
+    fn tcp_keepalive_compose_parse_none() {
         test_option_compose_parse(
-            &TcpKeepalive::new(12),
+            &TcpKeepalive::new(None),
+            |parser| TcpKeepalive::parse(parser)
+        );
+    }
+    #[test]
+    fn tcp_keepalive_compose_parse_some() {
+        test_option_compose_parse(
+            &TcpKeepalive::new(Some(12)),
             |parser| TcpKeepalive::parse(parser)
         );
     }
