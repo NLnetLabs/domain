@@ -29,8 +29,7 @@ impl TcpKeepalive {
     pub fn parse<Octs: AsRef<[u8]>>(
         parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
-        let len = parser.remaining();
-        if len == 0 {
+        if parser.remaining() == 0 {
             Ok(Self::new(None))
         } else {
             u16::parse(parser).map(|v| Self::new(Some(v)))
