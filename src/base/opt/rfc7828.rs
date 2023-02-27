@@ -29,12 +29,12 @@ impl TcpKeepalive {
     pub fn parse<Octs: AsRef<[u8]>>(
         parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
-	let len = parser.remaining();
-	if len == 0 {
-		Ok(Self::new(None))
-	} else {
-		u16::parse(parser).map(|v| Self::new(Some(v)))
-	}
+        let len = parser.remaining();
+        if len == 0 {
+            Ok(Self::new(None))
+        } else {
+            u16::parse(parser).map(|v| Self::new(Some(v)))
+        }
     }
 }
 
@@ -62,40 +62,28 @@ impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for TcpKeepalive {
 
 impl ComposeOptData for TcpKeepalive {
     fn compose_len(&self) -> u16 {
-	match self.0 {
-		Some(_) => {
-			u16::COMPOSE_LEN
-		}
-		None => {
-			0
-		}
-	}
+        match self.0 {
+            Some(_) => u16::COMPOSE_LEN,
+            None => 0,
+        }
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
-	match self.0 {
-		Some(v) => {
-			v.compose(target)
-		}
-		None => {
-			Ok(())
-		}
-	}
+        match self.0 {
+            Some(v) => v.compose(target),
+            None => Ok(()),
+        }
     }
 }
 
 impl fmt::Display for TcpKeepalive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-	match self.0 {
-		Some(v) => {
-			write!(f, "{}", v)
-		}
-		None => {
-			write!(f, "")
-		}
-	}
+        match self.0 {
+            Some(v) => write!(f, "{}", v),
+            None => write!(f, ""),
+        }
     }
 }
 
