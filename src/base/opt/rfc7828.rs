@@ -11,22 +11,29 @@ use octseq::parse::Parser;
 
 //------------ TcpKeepalive --------------------------------------------------
 
+// According to RFC 7826, the edns-tcp-keepalive option is empty in
+// the client to server direction, and has a 16-bit timeout value in the
+// other direction.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TcpKeepalive(u16);
+pub struct TcpKeepalive(Option<u16>);
 
 impl TcpKeepalive {
-    pub fn new(timeout: u16) -> Self {
+    pub fn new(timeout: Option<u16>) -> Self {
         TcpKeepalive(timeout)
     }
 
-    pub fn timeout(self) -> u16 {
+    pub fn timeout(self) -> Option<u16> {
         self.0
     }
 
     pub fn parse<Octs: AsRef<[u8]>>(
         parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
-        u16::parse(parser).map(Self::new)
+        if parser.remaining() == 0 {
+            Ok(Self::new(None))
+        } else {
+            u16::parse(parser).map(|v| Self::new(Some(v)))
+        }
     }
 }
 
@@ -54,19 +61,28 @@ impl<'a, Octs: AsRef<[u8]>> ParseOptData<'a, Octs> for TcpKeepalive {
 
 impl ComposeOptData for TcpKeepalive {
     fn compose_len(&self) -> u16 {
-        u16::COMPOSE_LEN
+        match self.0 {
+            Some(_) => u16::COMPOSE_LEN,
+            None => 0,
+        }
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
-        self.0.compose(target)
+        match self.0 {
+            Some(v) => v.compose(target),
+            None => Ok(()),
+        }
     }
 }
 
 impl fmt::Display for TcpKeepalive {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
+        match self.0 {
+            Some(v) => write!(f, "{}", v),
+            None => write!(f, ""),
+        }
     }
 }
 
@@ -74,7 +90,7 @@ impl fmt::Display for TcpKeepalive {
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
     pub fn tcp_keepalive(
-        &mut self, timeout: u16
+        &mut self, timeout: Option<u16>
     ) -> Result<(), Target::AppendError> {
         self.push(&TcpKeepalive::new(timeout))
     }
@@ -89,9 +105,16 @@ mod test {
     use super::super::test::test_option_compose_parse;
     
     #[test]
-    fn tcp_keepalive_compose_parse() {
+    fn tcp_keepalive_compose_parse_none() {
         test_option_compose_parse(
-            &TcpKeepalive::new(12),
+            &TcpKeepalive::new(None),
+            |parser| TcpKeepalive::parse(parser)
+        );
+    }
+    #[test]
+    fn tcp_keepalive_compose_parse_some() {
+        test_option_compose_parse(
+            &TcpKeepalive::new(Some(12)),
             |parser| TcpKeepalive::parse(parser)
         );
     }
