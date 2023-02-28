@@ -89,7 +89,7 @@ fn main() {
     }
 
     // Display is only implemented for some OPTs at the time of writing
-    for option in response.opt().unwrap().iter::<AllOptData<_, _>>() {
+    for option in response.opt().unwrap().iter::<AllOptData<_>>() {
         let opt = option.unwrap();
         match opt {
             AllOptData::Nsid(nsid) => println!("{}", nsid),
