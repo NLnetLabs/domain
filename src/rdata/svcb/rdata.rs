@@ -1,3 +1,7 @@
+//! The SCVB/HTTPS record data.
+//!
+//! This is a private module. It’s public types are re-exported by the
+//! parent.
 use super::SvcParams;
 use crate::base::iana::Rtype;
 use crate::base::name::{
@@ -15,6 +19,45 @@ use core::marker::PhantomData;
 
 //------------ Svcb and Https ------------------------------------------------
 
+/// Service binding record data.
+///
+/// This type provides the record data for the various service binding record
+/// types. The particular record type is encoded via the `Variant` type
+/// argument with marker types representing the concrete types. Currently
+/// these are `ScvbVariant` for the SVCB record type and `HttpsVariant` for
+/// HTTPS. The aliases `Svcb<..>` and `Https<..>` are available for less
+/// typing.
+///
+/// The service binding record data contains three fields: a integer
+/// priority, a target name – the type of which is determined by the `Name`
+/// type argument –, and a sequence of service parameters. A separate type
+/// [`SvcParams`] has been defined for those which is generic over an
+/// octets sequence determined by the `Octs` type argument.
+///
+/// The record can be used in one of two modes, ‘alias mode’ or ‘service
+/// mode.’
+///
+/// In alias mode, there should only be one record with its priority set to
+/// 0 and no service parameters. In this case, the target name indicates the
+/// name that actually provides the service and should be resolved further.
+/// The root name can be used as the target name to indicate that the
+/// particular service is not being provided.
+///
+/// In ‘service mode,’ one or more records can exist and used in the order
+/// provided by the priority field with lower priority looked at first. Each
+/// record describes an alternative endpoint for the service and parameters
+/// for its use. What exactly this means depends on the protocol in question.
+///
+/// The owner name of service binding records determines which service the
+/// records apply to. The domain name for which the service is provided is
+/// prefixed by first the port and protocol of the service, both as
+/// underscore labels. So, for HTTPS on port 443, the prefix would be
+/// `_443._https`. However, the HTTPS record type allows to drop the prefix
+/// in that particular case.
+///
+/// Note that the above is a wholy inadequate summary of service bindings
+/// records. For accurate details, see
+/// [draft-ietf-dnsop-svcb-https](https://datatracker.ietf.org/doc/html/draft-ietf-dnsop-svcb-https/).
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
@@ -33,19 +76,46 @@ use core::marker::PhantomData;
     )
 )]
 pub struct SvcbRdata<Variant, Octs, Name> {
+    /// The priority field of the service binding record.
     priority: u16,
+
+    /// The target field of the service binding record.
     target: Name,
+
+    /// The parameters field of the service binding record.
     params: SvcParams<Octs>,
+
+    /// A marker for the variant.
     marker: PhantomData<Variant>,
 }
 
+/// The marker type for the SVCB record type.
+///
+/// Use this as the `Variant` type argument of the
+/// [`SvcbRdata<..>`][SvcbRdata] type to select an SVCB record.
 #[derive(Clone, Copy, Debug)]
 pub struct SvcbVariant;
 
+/// The marker type for the HTTPS record type.
+///
+/// Use this as the `Variant` type argument of the
+/// [`SvcbRdata<..>`][SvcbRdata] type to select an HTTPS record.
 #[derive(Clone, Copy, Debug)]
 pub struct HttpsVariant;
 
+/// A type alias for record data of the SVCB record type.
+///
+/// The SVCB record type is the generic type for service bindings of any
+/// service for which no special record type exists.
+///
+/// See [`SvcbRdata<..>`][SvcbRdata] for details.
 pub type Svcb<Octs, Name> = SvcbRdata<SvcbVariant, Octs, Name>;
+
+/// A type alias for record data of the HTTPS record type.
+///
+/// The HTTPS record type is the service binding type for the HTTPS service.
+///
+/// See [`SvcbRdata<..>`][SvcbRdata] for details.
 pub type Https<Octs, Name> = SvcbRdata<HttpsVariant, Octs, Name>;
 
 impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
@@ -76,14 +146,10 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
     ) -> Self {
         SvcbRdata { priority, target, params, marker: PhantomData }
     }
-
-    /// Returns the priority.
-    pub fn priority(&self) -> u16 {
-        self.priority
-    }
 }
 
 impl<Variant, Octs: AsRef<[u8]>> SvcbRdata<Variant, Octs, ParsedDname<Octs>> {
+    /// Parses service bindings record data from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
@@ -97,6 +163,25 @@ impl<Variant, Octs: AsRef<[u8]>> SvcbRdata<Variant, Octs, ParsedDname<Octs>> {
 }
 
 impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
+    /// Returns the priority.
+    pub fn priority(&self) -> u16 {
+        self.priority
+    }
+
+    /// Returns whether this service binding is in alias mode.
+    ///
+    /// This is identical to `self.priority() == 0`.
+    pub fn is_alias(&self) -> bool {
+        self.priority == 0
+    }
+
+    /// Returns whether this service binding is in service mode.
+    ///
+    /// This is identical to `self.priority() != 0`.
+    pub fn is_service(&self) -> bool {
+        self.priority != 0
+    }
+
     /// Returns the target name.
     ///
     /// Note the target name won't be translated to the owner automatically

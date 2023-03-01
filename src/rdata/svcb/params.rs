@@ -1,3 +1,7 @@
+//! Handling of service binding parameters.
+//!
+//! This is a private module. It’s public types are re-exported by the
+//! parent.
 use super::value::AllValues;
 use crate::base::iana::SvcParamKey;
 use crate::base::scan::Symbol;
@@ -11,6 +15,54 @@ use core::marker::PhantomData;
 
 //------------ SvcParams -----------------------------------------------------
 
+/// A sequence of service binding parameters.
+///
+/// These parameters provide information helpful when trying to connect to an
+/// endpoint offering a service. They consist of a sequence of parameter
+/// values. Each value has a type and some data specific to that type. The
+/// type is provided through a `u16` key with values assigned via an IANA
+/// registry. The key and registry are available through
+/// [`SvcParamKey`][crate::base::iana::SvcParamKey]. Each key is only allowed
+/// to appear at most once in the parameter sequence. Values need to be
+/// ordered by their key’s integer value.
+///
+/// A value of the `SvcParams` type contains a sequence of values in their
+/// wire-format encoded form. It guarantees that this content is correctly
+/// encoded. It does not guarantee that the content of the individual
+/// parameter value is correct. It also does not guarantee any size limit
+/// to the octets sequence.
+///
+/// You can create a value of this type through parsing or manually via
+/// [`from_octets`][Self::from_octets] or [`from_slice`][Self::from_slice].
+/// You can also build a new value from scratch via the [`SvcParamsBuilder`].
+/// The [`from_values`][Self::from_values] function provides a shortcut that
+/// crates the builder, passes it to a closure, and returns the finished
+/// parameter sequence.
+///
+/// Access to the values of the parameter sequence happens through a mechanism
+/// similar to record data: Various types exist that implement either a
+/// specific value type or a group of types. These types need to implement the
+/// [`SvcParamValue`] and [`ParseSvcParamValue`] traits to be used to access
+/// values. They can be used as a type parameter to the [`iter`][Self::iter]
+/// method to acquire an iterator over all the values that they understand.
+/// Since every concrete value can only be present once, the
+/// [`first`][Self::first] method can be used together with a value type
+/// implementing that concrete value to get the value if present. As a
+/// convenience, methods exist for every currently defined value type which
+/// return a value of that type if present.
+///
+/// The type [`UnknownSvcParam`] can be used to represent any value type with
+/// the value as a octets sequence. The [`AllValues`] enum provides typed
+/// access to all known value types.
+///
+/// # Wire Format
+///
+/// The wire format of a parameter sequence consists of a sequence of
+/// values. Each value is encoded as a 16 bit parameter key – represented
+/// by [`SvcParamKey`][crate::base::iana::SvcParamKey] in this crate –,
+/// followed by an unsigned 16 bit length value, followed by this many
+/// octets. Since the sequence is the last element in the record data, it
+/// is limited by the length of the record data only.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SvcParams<Octs: ?Sized> {
@@ -32,6 +84,12 @@ pub struct SvcParams<Octs: ?Sized> {
 }
 
 impl<Octs> SvcParams<Octs> {
+    /// Creates a parameter sequence from an octets sequence.
+    ///
+    /// The method checks that `octets` contains a parameter sequence that is
+    /// correctly encoded in wire format. It does not check that the
+    /// individual values are correctly encoded. It also does not check for
+    /// any length limit.
     pub fn from_octets(octets: Octs) -> Result<Self, SvcParamsError>
     where Octs: AsRef<[u8]> {
         SvcParams::check_slice(octets.as_ref())?;
@@ -43,13 +101,19 @@ impl<Octs> SvcParams<Octs> {
     /// # Safety
     ///
     /// The caller has to ensure that `octets` contains a properly formatted
-    /// SVCB params value.
+    /// parameter sequence.
     pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         SvcParams { octets }
     }
 }
 
 impl SvcParams<[u8]> {
+    /// Creates a parameter sequence from an octets slice.
+    ///
+    /// The method checks that `slice` contains a parameter sequence that is
+    /// correctly encoded in wire format. It does not check that the
+    /// individual values are correctly encoded. It also does not check for
+    /// any length limit.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, SvcParamsError> {
         SvcParams::check_slice(slice)?;
         Ok(unsafe { Self::from_slice_unchecked(slice) })
@@ -60,11 +124,12 @@ impl SvcParams<[u8]> {
     /// # Safety
     ///
     /// The caller has to ensure that `slice` contains a properly formatted
-    /// SVCB params value.
+    /// parameter sequence.
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         &*(slice as *const [u8] as *const Self)
     }
 
+    /// Checks that a slice contains a correctly encoded parameters sequence.
     fn check_slice(slice: &[u8]) -> Result<(), SvcParamsError> {
         let mut parser = Parser::from_ref(slice);
         let mut last_key = None;
@@ -84,6 +149,11 @@ impl SvcParams<[u8]> {
 }
 
 impl<Octs> SvcParams<Octs> {
+    /// Creates a parameter sequence by constructing it from values.
+    ///
+    /// The method expects a closure that receives an [`SvcParamsBuilder`]
+    /// which it should push all the required values to. Once it returns,
+    /// this builder is frozen into an `SvcParams` value and returned.
     pub fn from_values<F>(op: F) -> Result<Self, PushError>
     where
         Octs: FromBuilder,
@@ -100,6 +170,7 @@ impl<Octs> SvcParams<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> SvcParams<Octs> {
+    /// Parses a parameter sequence from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized + 'a>(
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
@@ -110,41 +181,74 @@ impl<Octs: AsRef<[u8]>> SvcParams<Octs> {
 }
 
 impl<Octs: ?Sized> SvcParams<Octs> {
+    /// Returns a reference to the underlying octets sequence.
     pub fn as_octets(&self) -> &Octs {
         &self.octets
     }
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> SvcParams<Octs> {
+    /// Returns a slice of the underlying octets sequence.
     pub fn as_slice(&self) -> &[u8] {
         self.octets.as_ref()
     }
 
+    /// Returns a parameter sequence atop a slice of this value’s octets.
     pub fn for_slice(&self) -> &SvcParams<[u8]> {
         unsafe { SvcParams::from_slice_unchecked(self.octets.as_ref()) }
     }
 
+    /// Returns the length of the parameter sequence in octets.
     pub fn len(&self) -> usize {
         self.octets.as_ref().len()
     }
 
+    /// Returns whether the parameters sequences is empty.
     pub fn is_empty(&self) -> bool {
         self.octets.as_ref().is_empty()
     }
 
-    pub fn compose<Target: OctetsBuilder + ?Sized>(
-        &self, target: &mut Target
-    ) -> Result<(), Target::AppendError> {
-        target.append_slice(self.octets.as_ref())
+    /// Returns the first value of type `Value`.
+    ///
+    /// This method is intended to be used with value types implementing a
+    /// specific type. Since only one instance is allowed to be present,
+    /// this method also returns `None` if the first value fails parsing,
+    /// assuming that the value is unusable and should be ignored.
+    ///
+    /// This may not be the correct behaviour in all cases. Please use
+    /// `self.iter::<Value>().next()` to get an optional parsing result.
+    pub fn first<'s, Value>(&'s self) -> Option<Value>
+    where
+        Octs: Octets,
+        Value: ParseSvcParamValue<'s, Octs>,
+    {
+        self.iter::<Value>().next().and_then(Result::ok)
     }
 
+    /// Returns an iterator over all values accepted by `Value`.
     pub fn iter<Value>(&self) -> ValueIter<Octs, Value> {
         ValueIter::new(self.as_octets())
     }
 
+    /// Returns an iterator over all values.
     pub fn iter_all(&self) -> ValueIter<Octs, AllValues<Octs>>
     where Octs: Sized {
         self.iter()
+    }
+
+    /// Returns an iterator over all values in their raw form.
+    pub fn iter_raw(
+        &self
+    ) -> impl Iterator<Item = UnknownSvcParam<Octs::Range<'_>>>
+    where Octs: Octets + Sized {
+        self.iter().map(|item| item.expect("parsing cannot have failed"))
+    }
+
+    /// Composes the wire-format of the parameter sequence.
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        &self, target: &mut Target
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.octets.as_ref())
     }
 }
 
@@ -210,6 +314,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Ord for SvcParams<Octs> {
 impl<Octs: Octets + ?Sized> fmt::Display for SvcParams<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut parser = Parser::from_ref(self.as_slice());
+        let mut first = true;
         while parser.remaining() > 0 {
             let key = SvcParamKey::parse(
                 &mut parser
@@ -220,6 +325,12 @@ impl<Octs: Octets + ?Sized> fmt::Display for SvcParams<Octs> {
             let mut parser = parser.parse_parser(
                 len
             ).expect("invalid SvcParam");
+            if first {
+                first = false;
+            }
+            else {
+                f.write_str(" ")?;
+            }
             write!(
                 f, "{}", super::value::AllValues::parse_any(key, &mut parser)
             )?;
@@ -239,6 +350,10 @@ impl<Octs: Octets + ?Sized> fmt::Debug for SvcParams<Octs> {
 
 //------------ ValueIter -----------------------------------------------------
 
+/// An iterator over the values in a parameter sequence.
+///
+/// The iterator skips over those values that `Value` does not accept. It
+/// returns the result of trying to parse the value into `Value`.
 #[derive(Clone, Debug)]
 pub struct ValueIter<'a, Octs: ?Sized, Value> {
     parser: Parser<'a, Octs>,
@@ -296,19 +411,34 @@ where
 
 //------------ SvcParamValue, ParseSvcParamValue, ComposeSvcParamValue -------
 
+/// A type representing a service binding parameter value.
 pub trait SvcParamValue {
+    /// Returns the parameter key of the value.
     fn key(&self) -> SvcParamKey;
 }
 
+/// A service binding parameter value that can be parse from wire format.
 pub trait ParseSvcParamValue<'a, Octs: ?Sized>: SvcParamValue + Sized {
+    /// Parse a parameter value from wire format.
+    ///
+    /// The method should return `Ok(None)` if the type cannot parse values
+    /// with `key`. It should return an error if parsing fails.
     fn parse_value(
         key: SvcParamKey, parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError>;
 }
 
+/// A service binding parameter value that can be composed into wire format.
+///
+/// All value types need to be able to calculate the length of their
+/// wire format. This length needs to fit into a `u16`. It is the
+/// responsibility of the value type to ensure that it will not grow too
+/// large.
 pub trait ComposeSvcParamValue: SvcParamValue {
+    /// Returns the length of the composed value.
     fn compose_len(&self) -> u16;
 
+    /// Appends the wire format of the value to the end of `target`.
     fn compose_value<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target,
     ) -> Result<(), Target::AppendError>;
@@ -316,6 +446,10 @@ pub trait ComposeSvcParamValue: SvcParamValue {
 
 //------------ UnknownSvcParam -----------------------------------------------
 
+/// A service binding parameter value in its raw form.
+///
+/// This type can be used for any value type. It keeps the value’s data in
+/// its raw wire format.
 #[derive(Clone, Debug)]
 pub struct UnknownSvcParam<Octs> {
     /// The key of the value.
@@ -326,7 +460,9 @@ pub struct UnknownSvcParam<Octs> {
 }
 
 impl<Octs> UnknownSvcParam<Octs> {
-    /// Creates a new SVCB parameter value from the given key and data.
+    /// Creates a new parameter value from the given key and data.
+    ///
+    /// The function returns an error if `value` is longer than 65,535 octets.
     pub fn new(key: SvcParamKey, value: Octs) -> Result<Self, LongSvcParam>
     where Octs: AsRef<[u8]> {
         LongSvcParam::check_len(value.as_ref().len())?;
@@ -345,6 +481,7 @@ impl<Octs> UnknownSvcParam<Octs> {
 }
 
 impl<Octs: AsRef<[u8]>> UnknownSvcParam<Octs> {
+    /// Parses a parameter value’s data from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         key: SvcParamKey,
         parser: &mut Parser<'a, Src>,
@@ -354,6 +491,9 @@ impl<Octs: AsRef<[u8]>> UnknownSvcParam<Octs> {
         ).map_err(Into::into)
     }
 
+    /// Parses a full parameter from the wire format.
+    ///
+    /// This function parses the key, length, and data of the parameter.
     pub fn parse_param<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -363,6 +503,9 @@ impl<Octs: AsRef<[u8]>> UnknownSvcParam<Octs> {
         Ok(unsafe { Self::new_unchecked(key, value) })
     }
 
+    /// Appends the wire format of the full parameter to the target.
+    ///
+    /// This includes the key and length of the parameter.
     pub fn compose_param<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
@@ -490,17 +633,41 @@ impl<Octs: AsRef<[u8]>> fmt::Display for UnknownSvcParam<Octs> {
 
 //------------ SvcParamsBuilder ----------------------------------------------
 
+/// A builder for a service parameter sequence.
+///
+/// This type wraps an octets builder and allows appending parameter values.
+/// You can create a new empty builder using the [`empty`][Self::empty]
+/// function or copy an existing value through
+/// [`from_params`][Self::from_params].
+///
+/// You can add additional values using the [`push`][Self::push] method.
+/// There are also dedicated methods for all known value types. The builder
+/// will make sure that each parameter key can only appear once. Thus,
+/// pushing values may fail if a value is already present.
+///
+/// The builder also takes care of sorting the values into their correct
+/// order. So you can push them in any order.
+///
+/// It only sorts the items when producing a frozen value via the
+/// [`freeze`][Self::freeze] method.
 #[derive(Clone, Debug)]
 pub struct SvcParamsBuilder<Octs> {
+    /// The octets builder.
     octets: Octs,
 }
 
 impl<Octs> SvcParamsBuilder<Octs> {
+    /// Creates an empty parameter builder.
     pub fn empty() -> Self
     where Octs: EmptyBuilder {
         Self { octets: Octs::empty() }
     }
 
+    /// Creates a parameter builder from an existing parameter sequence.
+    ///
+    /// The function creates a new empty builder and copies over the content
+    /// of `params`. It can fail if the octets builder is not capable of
+    /// providing enough space to hold the content of `params`.
     pub fn from_params<Src: Octets + ?Sized>(
         params: &SvcParams<Src>
     ) -> Result<Self, ShortBuf>
@@ -524,8 +691,24 @@ impl<Octs> SvcParamsBuilder<Octs> {
         Ok(Self { octets })
     }
 
-    pub fn push(
-        &mut self, value: &impl ComposeSvcParamValue
+    /// Adds a new value to the builder.
+    ///
+    /// The method will return an error if a value with this key is already
+    /// present or if there isn’t enough space left in the builder’s buffer.
+    pub fn push<Value: ComposeSvcParamValue + ?Sized>(
+        &mut self, value: &Value
+    ) -> Result<(), PushError>
+    where Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
+        self.push_raw(
+            value.key(), value.compose_len(), |octs| value.compose_value(octs)
+        )
+    }
+
+    pub(super) fn push_raw(
+        &mut self,
+        key: SvcParamKey,
+        value_len: u16,
+        value: impl FnOnce(&mut Octs) -> Result<(), Octs::AppendError>
     ) -> Result<(), PushError>
     where Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]> {
         // If octets is emtpy, we can just append ourselves and be done.
@@ -533,9 +716,9 @@ impl<Octs> SvcParamsBuilder<Octs> {
             self.octets.append_slice(
                 &u32::from(u32::COMPOSE_LEN).to_ne_bytes()
             )?;
-            value.key().compose(&mut self.octets)?;
-            value.compose_len().compose(&mut self.octets)?;
-            value.compose_value(&mut self.octets)?;
+            key.compose(&mut self.octets)?;
+            value_len.compose(&mut self.octets)?;
+            (value)(&mut self.octets)?;
             u32::MAX.compose(&mut self.octets)?;
             return Ok(())
         }
@@ -559,7 +742,7 @@ impl<Octs> SvcParamsBuilder<Octs> {
             let tmp = UnknownSvcParam::parse_param(&mut parser).unwrap();
             let tmp_end = u32::try_from(parser.pos()).unwrap();
             let tmp_key = tmp.key();
-            match tmp_key.cmp(&value.key()) {
+            match tmp_key.cmp(&key) {
                 Ordering::Equal => return Err(PushError::DuplicateKey),
                 Ordering::Less => {
                     match pre {
@@ -590,9 +773,9 @@ impl<Octs> SvcParamsBuilder<Octs> {
         }
 
         // Append the value.
-        value.key().compose(&mut self.octets)?;
-        value.compose_len().compose(&mut self.octets)?;
-        value.compose_value(&mut self.octets)?;
+        key.compose(&mut self.octets)?;
+        value_len.compose(&mut self.octets)?;
+        (value)(&mut self.octets)?;
 
         // Append the pointer to the next value. MAX means none.
         self.octets.append_slice(
@@ -615,6 +798,12 @@ impl<Octs> SvcParamsBuilder<Octs> {
         Ok(())
     }
 
+    /// Freezes the builder to a parameter sequence.
+    ///
+    /// Because the values may need to be resorted, this method actually
+    /// produces a new octets sequence. This is why it doesn’t consume the
+    /// builder and may fail if the target octet’s builder can’t provide
+    /// enough space.
     pub fn freeze<Target>(
         &self
     ) -> Result<
@@ -654,6 +843,7 @@ impl<Octs> SvcParamsBuilder<Octs> {
 
 //------------ SvcParamsError -----------------------------------------------
 
+/// An octets sequence was not a valid service bindings parameter sequence.
 pub struct SvcParamsError(ParseError);
 
 impl From<ShortInput> for SvcParamsError {
@@ -712,9 +902,14 @@ impl std::error::Error for LongSvcParam {}
 
 //------------ PushError -----------------------------------------------------
 
+/// An error happened when pushing values to a parameters builder.
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub enum PushError {
+    /// A value with this key is already present.
     DuplicateKey,
+
+    /// The octets builder does not have enough space to append the value.
     ShortBuf,
 }
 
@@ -723,6 +918,18 @@ impl<T: Into<ShortBuf>> From<T> for PushError {
         PushError::ShortBuf
     }
 }
+
+impl fmt::Display for PushError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PushError::DuplicateKey => f.write_str("duplicate key"),
+            PushError::ShortBuf => ShortBuf.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PushError {}
 
 
 //============ Tests =========================================================

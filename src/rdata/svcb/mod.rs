@@ -11,7 +11,7 @@
 //! with the HTTPS protocol and can be used without a prefix. Additional
 //! record types for other protocols may be defined in the future.
 //!
-//! The type [`SvcbRdata<..>`][SvncRdata] implements the record data of all
+//! The type [`SvcbRdata<..>`][SvcbRdata] implements the record data of all
 //! of these types. It takes a marker struct as its first type argument.
 //! Type aliases for the two current types are provided via [`Svcb`] and
 //! [`Https`]. Like most complex record data types, they still are generic
@@ -23,8 +23,8 @@
 //! sequence of service parameters further describing properties of the
 //! service. These parameters are represented by the [SvcParams] type.
 //! They consist of a sequence of different parameter values. Types for
-//! the defined values are available in the [_value_] sub-module. A new
-//! sequence of values can be constructed using the [`SvbParamsBuilder`]
+//! the defined values are available in the [_value_][self::value] sub-module.
+//! A new sequence of values can be constructed using the [`SvcParamsBuilder`]
 //! type.
 //!
 pub use self::params::{
