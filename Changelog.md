@@ -43,6 +43,13 @@ Breaking Changes
   `Cdnskey<_>`, `Cds<_>`. ([#169])
 * The `new` function for `rdata::Null<_>` has been replaced with a
   `from_octets` and `from_slice` pair. The `Deref` impl was removed. ([#169])
+* The `rdata::svcb` module has been refactored to work in the same way as
+  other type-length-value constructs. The names of types, methods, and
+  functions have changed both to match the usual nomenclature as well as
+  to match the terms used in the SVCB draft. ([#176])
+* The `base::iana::SvcbParamKey` type has been renamed to `SvcParamKey`
+  to match the terms used in the SVCB draft. ([#176])
+  
 
 New
 
@@ -62,6 +69,7 @@ Other Changes
 [#160]: https://github.com/NLnetLabs/domain/pull/160
 [#168]: https://github.com/NLnetLabs/domain/pull/168
 [#169]: https://github.com/NLnetLabs/domain/pull/169
+[#176]: https://github.com/NLnetLabs/domain/pull/176
 [#177]: https://github.com/NLnetLabs/domain/pull/177
 [Martin Fischer]: https://push-f.com/
 [octseq]: https://crates.io/crates/octseq
