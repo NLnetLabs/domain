@@ -2,11 +2,9 @@
 
 use core::fmt;
 
-//------------ Service Binding Parameters -----------
-
 int_enum! {
     =>
-    SvcbParamKey, u16;
+    SvcParamKey, u16;
 
     (Mandatory => 0, b"Mandatory keys in this RR")
     (Alpn => 1, b"Additional supported protocols")
@@ -20,11 +18,11 @@ int_enum! {
     (DohPath => 7, b"DNS over HTTPS path template")
 }
 
-pub const SVCB_PARAM_KEY_PRIVATE_RANGE_BEGIN: u16 = 65280;
-pub const SVCB_PARAM_KEY_PRIVATE_RANGE_END: u16 = 65534;
-pub const SVCB_PARAM_KEY_INVALID: u16 = 65535;
+pub const SVC_PARAM_KEY_PRIVATE_RANGE_BEGIN: u16 = 65280;
+pub const SVC_PARAM_KEY_PRIVATE_RANGE_END: u16 = 65534;
+pub const SVC_PARAM_KEY_INVALID: u16 = 65535;
 
-impl fmt::Display for SvcbParamKey {
+impl fmt::Display for SvcParamKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s = match self {
             Self::Mandatory => "mandatory",

@@ -693,6 +693,7 @@ pub struct UnknownOptData<Octs> {
 
 impl<Octs> UnknownOptData<Octs> {
     /// Creates a new option from the code and data.
+    /// XXX Rename to `new`.
     pub fn from_octets(code: OptionCode, data: Octs) -> Self {
         UnknownOptData { code, data }
     }
@@ -705,11 +706,6 @@ impl<Octs> UnknownOptData<Octs> {
     /// Returns a reference for to the option data.
     pub fn data(&self) -> &Octs {
         &self.data
-    }
-
-    /// Returns a mutable reference to the option data.
-    pub fn data_mut(&mut self) -> &mut Octs {
-        &mut self.data
     }
 
     /// Returns a slice of the option data.
@@ -729,33 +725,11 @@ impl<Octs> UnknownOptData<Octs> {
     }
 }
 
-//--- Deref and DerefMut
-
-impl<Octs> ops::Deref for UnknownOptData<Octs> {
-    type Target = Octs;
-
-    fn deref(&self) -> &Self::Target {
-        self.data()
-    }
-}
-
-impl<Octs> ops::DerefMut for UnknownOptData<Octs> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.data_mut()
-    }
-}
-
 //--- AsRef and AsMut
 
 impl<Octs> AsRef<Octs> for UnknownOptData<Octs> {
     fn as_ref(&self) -> &Octs {
         self.data()
-    }
-}
-
-impl<Octs> AsMut<Octs> for UnknownOptData<Octs> {
-    fn as_mut(&mut self) -> &mut Octs {
-        self.data_mut()
     }
 }
 
