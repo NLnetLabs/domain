@@ -49,6 +49,9 @@ Breaking Changes
   to match the terms used in the SVCB draft. ([#176])
 * The `base::iana::SvcbParamKey` type has been renamed to `SvcParamKey`
   to match the terms used in the SVCB draft. ([#176])
+* The `TcpKeepalive` option has been changed to use an `Option<u16>` as
+  its data and allow for an empty option in accordance with the RFC.
+  ([#185])
   
 
 New
@@ -71,6 +74,7 @@ Other Changes
 [#169]: https://github.com/NLnetLabs/domain/pull/169
 [#176]: https://github.com/NLnetLabs/domain/pull/176
 [#177]: https://github.com/NLnetLabs/domain/pull/177
+[#185]: https://github.com/NLnetLabs/domain/pull/185
 [Martin Fischer]: https://push-f.com/
 [octseq]: https://crates.io/crates/octseq
 
