@@ -7,6 +7,7 @@ use crate::base::name::{Dname, ToDname, ToRelativeDname};
 use crate::base::wire::ParseError;
 use crate::rdata::{Aaaa, Srv, A};
 use crate::resolv::resolver::Resolver;
+use core::fmt;
 use futures::stream;
 use futures::stream::{Stream, StreamExt};
 use octseq::octets::Octets;
@@ -363,6 +364,18 @@ pub enum SrvError {
     MalformedAnswer,
     Query(io::Error),
 }
+
+impl fmt::Display for SrvError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SrvError::LongName => write!(f, "name too long"),
+            SrvError::MalformedAnswer => write!(f, "malformed answer"),
+            SrvError::Query(e) => write!(f, "error executing query {}", e),
+        }
+    }
+}
+
+impl std::error::Error for SrvError {}
 
 impl From<io::Error> for SrvError {
     fn from(err: io::Error) -> SrvError {
