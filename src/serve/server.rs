@@ -91,14 +91,25 @@ use crate::base::{octets::OctetsBuilder, Message, StreamTarget};
 
 use super::sock::{AsyncAccept, AsyncDgramSock};
 
-//------------ ServiceError --------------------------------------------------
+//------------ DgramServerEvent ----------------------------------------------
 
-enum ServerEvent<T, U, V, W> {
-    Accept(T, U),
-    AcceptError(V),
+enum DgramServerEvent<Msg, Addr, RecvErr, CommandErr> {
+    Recv(Msg, Addr),
+    RecvError(RecvErr),
     Command(ServiceCommand),
-    CommandError(W),
+    CommandError(CommandErr),
 }
+
+//------------ StreamServerEvent ---------------------------------------------
+
+enum StreamServerEvent<Stream, Addr, AcceptErr, CommandErr> {
+    Accept(Stream, Addr),
+    AcceptError(AcceptErr),
+    Command(ServiceCommand),
+    CommandError(CommandErr),
+}
+
+//------------ ConnectionEvent -----------------------------------------------
 
 enum ConnectionEvent<T> {
     /// RFC 7766 6.2.4 "Under normal operation DNS clients typically initiate
@@ -123,6 +134,8 @@ enum ConnectionEvent<T> {
 
     ServiceError(ServiceError<T>),
 }
+
+//------------ ServiceError --------------------------------------------------
 
 pub enum ServiceError<T> {
     ServiceSpecificError(T),
@@ -341,9 +354,11 @@ impl ServerMetrics {
 //------------ DgramServer ---------------------------------------------------
 
 pub struct DgramServer<Sock, Buf, Svc> {
+    command_rx: watch::Receiver<ServiceCommand>,
+    command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
     sock: Arc<Sock>,
     buf: Buf,
-    service: Svc,
+    service: Arc<Svc>,
     metrics: Arc<ServerMetrics>,
 }
 
@@ -353,10 +368,14 @@ where
     Buf: BufSource,
     Svc: Service<Buf::Output>,
 {
-    pub fn new(sock: Sock, buf: Buf, service: Svc) -> Self {
+    pub fn new(sock: Sock, buf: Buf, service: Arc<Svc>) -> Self {
+        let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
+        let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::new());
 
         DgramServer {
+            command_tx,
+            command_rx,
             sock: sock.into(),
             buf,
             service,
@@ -364,37 +383,48 @@ where
         }
     }
 
-    pub async fn run(self: Arc<Self>) -> Result<(), io::Error> {
-        loop {
-            let (msg, addr) = self.recv_from().await?;
-            let msg = match Message::from_octets(msg) {
-                Ok(msg) => msg,
-                Err(_) => continue,
-            };
+    pub fn shutdown(
+        &self,
+    ) -> Result<(), watch::error::SendError<ServiceCommand>> {
+        eprintln!("Sending shutdown command");
+        self.command_tx
+            .lock()
+            .unwrap()
+            .send(ServiceCommand::Shutdown)
+    }
 
-            let metrics = self.metrics.clone();
-            let sock = self.sock.clone();
-            let txn = self.service.call(msg);
-            tokio::spawn(async move {
-                metrics
-                    .num_inflight_requests
-                    .fetch_add(1, Ordering::Relaxed);
-                match txn {
-                    Ok(Transaction::Single(call_fut)) => {
-                        if let Ok(call_result) = call_fut.await {
-                            Self::handle_call_result(
-                                &sock,
-                                &addr,
-                                call_result,
-                            )
-                            .await;
-                        }
-                    }
-                    Ok(Transaction::Stream(stream)) => {
-                        pin_mut!(stream);
-                        while let Some(response) = stream.next().await {
-                            match response {
-                                Ok(call_result) => {
+    pub async fn run(self: Arc<Self>) -> Result<(), io::Error> {
+        let mut command_rx = self.command_rx.clone();
+
+        loop {
+            let command_fut = command_rx.changed();
+            let recv_fut = self.recv_from();
+
+            pin_mut!(command_fut);
+            pin_mut!(recv_fut);
+
+            match (
+                select(recv_fut, command_fut).await,
+                self.command_rx.clone(), // this is crazy
+            )
+                .into()
+            {
+                DgramServerEvent::Recv(msg, addr) => {
+                    let msg = match Message::from_octets(msg) {
+                        Ok(msg) => msg,
+                        Err(_) => continue,
+                    };
+
+                    let metrics = self.metrics.clone();
+                    let sock = self.sock.clone();
+                    let txn = self.service.call(msg);
+                    tokio::spawn(async move {
+                        metrics
+                            .num_inflight_requests
+                            .fetch_add(1, Ordering::Relaxed);
+                        match txn {
+                            Ok(Transaction::Single(call_fut)) => {
+                                if let Ok(call_result) = call_fut.await {
                                     Self::handle_call_result(
                                         &sock,
                                         &addr,
@@ -402,16 +432,54 @@ where
                                     )
                                     .await;
                                 }
-                                Err(_) => break,
                             }
+                            Ok(Transaction::Stream(stream)) => {
+                                pin_mut!(stream);
+                                while let Some(response) = stream.next().await
+                                {
+                                    match response {
+                                        Ok(call_result) => {
+                                            Self::handle_call_result(
+                                                &sock,
+                                                &addr,
+                                                call_result,
+                                            )
+                                            .await;
+                                        }
+                                        Err(_) => break,
+                                    }
+                                }
+                            }
+                            Err(_err) => todo!(),
                         }
-                    }
-                    Err(_err) => todo!(),
+                        metrics
+                            .num_inflight_requests
+                            .fetch_sub(1, Ordering::Relaxed);
+                    });
                 }
-                metrics
-                    .num_inflight_requests
-                    .fetch_sub(1, Ordering::Relaxed);
-            });
+                DgramServerEvent::RecvError(err) => {
+                    eprintln!("DgramServer receive message error: {err}");
+                    todo!();
+                }
+                DgramServerEvent::Command(ServiceCommand::Init) => {
+                    unreachable!()
+                }
+                DgramServerEvent::Command(ServiceCommand::Reconfigure {
+                    ..
+                }) => { /* TODO */ }
+                DgramServerEvent::Command(
+                    ServiceCommand::CloseConnection,
+                ) => {
+                    unreachable!()
+                }
+                DgramServerEvent::Command(ServiceCommand::Shutdown) => {
+                    return Ok(());
+                }
+                DgramServerEvent::CommandError(err) => {
+                    eprintln!("DgramServer receive command error: {err}");
+                    todo!();
+                }
+            }
         }
     }
 
@@ -421,7 +489,8 @@ where
         mut call_result: CallResult<Svc::ResponseOctets>,
     ) {
         if let Some(response) = call_result.response() {
-            let _ = Self::send_to(sock, response.as_dgram_slice(), addr);
+            let _ =
+                Self::send_to(sock, response.as_dgram_slice(), addr).await;
         }
     }
 
@@ -448,17 +517,6 @@ where
             Ok(())
         }
     }
-}
-
-//------------ StreamServer --------------------------------------------------
-
-pub struct StreamServer<Listener, Buf, Svc> {
-    command_rx: watch::Receiver<ServiceCommand>,
-    command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
-    listener: Arc<Listener>,
-    buf: Arc<Buf>,
-    service: Arc<Svc>,
-    metrics: Arc<ServerMetrics>,
 }
 
 struct StreamState<Listener, Buf, Svc>
@@ -494,18 +552,8 @@ where
     //     request, even after intervals of many seconds due to system
     //     load, query retransmission timeouts, etc."
     //
-    // And: RFC 7766 6.2.3: "DNS messages delivered over TCP might arrive in
-    // multiple segments.  A DNS server that resets its idle timeout after
-    // receiving a single segment might be vulnerable to a "slow-read attack".
-    // For this reason, servers SHOULD reset the idle timeout on the receipt
-    // of a full DNS message, rather than on receipt of any part of a DNS
-    // message."
-    last_full_msg_received_at: Option<DateTime<Utc>>,
-
-    // RFC 7766 3: "A DNS server considers an established DNS-over-TCP session
-    // to be idle when it has sent responses to all the queries it has
-    // received on that connection."
-    response_queue_emptied_at: Option<DateTime<Utc>>,
+    //
+    idle_timer_reset_at: DateTime<Utc>,
 
     idle_timeout: chrono::Duration,
 }
@@ -526,41 +574,61 @@ where
         Self {
             stream_tx,
             result_q_tx,
-            last_full_msg_received_at: None,
-            response_queue_emptied_at: None,
+            idle_timer_reset_at: Utc::now(),
             idle_timeout,
         }
     }
 
+    /// How long from now should this connection be timed out?
+    ///
+    /// When we (will) have been sat idle for longer than the configured idle
+    /// timeout for this connection.
+    pub fn timeout_at(&self) -> chrono::Duration {
+        self.idle_timeout
+            .checked_sub(&self.idle_time())
+            .unwrap_or(chrono::Duration::zero())
+    }
+
+    pub fn timeout_at_std(&self) -> Duration {
+        self.timeout_at().to_std().unwrap_or_default()
+    }
+
+    /// How long has this connection been sat idle?
     pub fn idle_time(&self) -> chrono::Duration {
-        if let Some(ts) = self.last_full_msg_received_at {
-            Utc::now().signed_duration_since(ts)
-        } else {
-            self.idle_timeout
-        }
+        Utc::now().signed_duration_since(self.idle_timer_reset_at)
+    }
+
+    fn reset_idle_timer(&mut self) {
+        self.idle_timer_reset_at = Utc::now()
     }
 
     fn full_msg_received(&mut self) {
-        self.last_full_msg_received_at = Some(Utc::now());
+        // RFC 7766 6.2.3: "DNS messages delivered over TCP might arrive in
+        // multiple segments.  A DNS server that resets its idle timeout after
+        // receiving a single segment might be vulnerable to a "slow-read
+        // attack". For this reason, servers SHOULD reset the idle timeout on
+        // the receipt of a full DNS message, rather than on receipt of any
+        // part of a DNS message."
+        self.reset_idle_timer()
     }
 
     fn response_queue_emptied(&mut self) {
-        self.response_queue_emptied_at = Some(Utc::now());
+        // RFC 7766 3: "A DNS server considers an established DNS-over-TCP
+        // session to be idle when it has sent responses to all the queries it
+        // has received on that connection."
+        self.reset_idle_timer()
     }
 }
 
-struct ConnectedStream<Listener, Buf, Svc>
-where
-    Listener: AsyncAccept + Send + 'static,
-    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-{
-    buf_source: Arc<Buf>,
-    metrics: Arc<ServerMetrics>,
+//------------ StreamServer --------------------------------------------------
+
+pub struct StreamServer<Listener, Buf, Svc> {
+    command_rx: watch::Receiver<ServiceCommand>,
+    command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
+    listener: Arc<Listener>,
+    buf: Arc<Buf>,
     service: Arc<Svc>,
-    stream: Option<Listener::Stream>,
+    metrics: Arc<ServerMetrics>,
 }
 
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
@@ -622,7 +690,7 @@ where
             )
                 .into()
             {
-                ServerEvent::Accept(stream, _addr) => {
+                StreamServerEvent::Accept(stream, _addr) => {
                     let conn = ConnectedStream::<Listener, Buf, Svc>::new(
                         self.service.clone(),
                         self.buf.clone(),
@@ -632,26 +700,28 @@ where
                     tokio::spawn(conn.run(self.command_rx.clone()));
                 }
 
-                ServerEvent::AcceptError(_err) => {
-                    eprintln!("Accept err");
+                StreamServerEvent::AcceptError(err) => {
+                    eprintln!("StreamServer accept error: {err}");
                     todo!()
                 }
 
-                ServerEvent::Command(ServiceCommand::Init) => unreachable!(),
+                StreamServerEvent::Command(ServiceCommand::Init) => {
+                    unreachable!()
+                }
 
-                ServerEvent::Command(ServiceCommand::Reconfigure {
+                StreamServerEvent::Command(ServiceCommand::Reconfigure {
                     ..
                 }) => { /* TO DO */ }
 
-                ServerEvent::Command(ServiceCommand::CloseConnection {
-                    ..
-                }) => unreachable!(),
+                StreamServerEvent::Command(
+                    ServiceCommand::CloseConnection { .. },
+                ) => unreachable!(),
 
-                ServerEvent::Command(ServiceCommand::Shutdown) => {
+                StreamServerEvent::Command(ServiceCommand::Shutdown) => {
                     return Ok(());
                 }
 
-                ServerEvent::CommandError(err) => {
+                StreamServerEvent::CommandError(err) => {
                     eprintln!("StreamServer receive command error: {err}");
                     todo!();
                 }
@@ -666,12 +736,32 @@ where
     }
 }
 
+//------------ ProcessActionResult -------------------------------------------
+
 enum ProcessActionResult<T> {
     CommandReceived,
     CallResultReceived(T),
 }
 
+//------------ CommandNotification -------------------------------------------
+
 type CommandNotification = Result<(), RecvError>;
+
+//------------ ConnectedStream -----------------------------------------------
+
+struct ConnectedStream<Listener, Buf, Svc>
+where
+    Listener: AsyncAccept + Send + 'static,
+    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    buf_source: Arc<Buf>,
+    metrics: Arc<ServerMetrics>,
+    service: Arc<Svc>,
+    stream: Option<Listener::Stream>,
+}
 
 impl<Listener, Buf, Svc> ConnectedStream<Listener, Buf, Svc>
 where
@@ -806,38 +896,8 @@ where
         // we must keep using the same future until it finally resolves when
         // the read is complete or results in an error.
         'read: loop {
-            // Per RFC 7766 3 and 6.2.3 we should reset the idle timer to zero
-            // when sending a response or on receipt of a "full DNS message,
-            // rather than on receipt of any part of a DNS message", i.e. idle
-            // time from the server perspective is time spent without
-            // receiving a request or sending a response.
-            // TODO: timeout() at a point determined either since last send
-            // or override it based on EDNS(0) timeout settings??? RFC 7828
-            // section 3 says "This document specifies a new EDNS0 [RFC6891]
-            // option, edns-tcp-keepalive, which can be used by DNS clients
-            // and servers to signal a willingness to keep an idle TCP session
-            // open to conduct future DNS transactions, with the idle timeout
-            // being specified by the server. This specification does not
-            // distinguish between different types of DNS client and server
-            // in the use of this option. [RFC7766] defines an 'idle DNS-over-
-            // TCP session' from both the client and server perspective.  The
-            // idle timeout described here begins when the idle condition is
-            // met per that definition and should be reset when that condition
-            // is lifted, i.e., when a client sends a message or when a server
-            // receives a message on an idle connection.". As the service
-            // may receive requests out of order and at some arbitrary delay
-            // caused by the async runtime the service is not best placed to
-            // work out when the last request was fully received, except if
-            // we give it those timestamps, and even then it isn't able to
-            // determine at all when responses are actually written back to
-            // the client because that is handled by us, not by the service.
-            // So determining the moment at which a connection is idle has
-            // to be done by us, but that determination may be influenced by
-            // the service by telling us relevant information that it gleaned
-            // from the DNS request message details such as EDNS(0) keep alive
-            // values.
             let stream_read_fut = timeout(
-                state.idle_time().to_std().unwrap(), // unwrap() here should never fail
+                state.timeout_at_std(),
                 stream_rx.read_exact(buf.as_mut()),
             );
             let mut stream_read_fut = Box::pin(stream_read_fut);
@@ -949,10 +1009,26 @@ where
                     ServiceCommand::CloseConnection => unreachable!(),
                     ServiceCommand::Init => unreachable!(),
                     ServiceCommand::Reconfigure { idle_timeout } => {
+                        // Support RFC 7828 "The edns-tcp-keepalive EDNS0
+                        // Option". This cannot be done by the caller as it
+                        // requires knowing (a) when the last message was
+                        // received and (b) when all pending messages have
+                        // been sent, neither of which is known to the caller.
+                        // However we also don't want to parse and understand
+                        // DNS messages in this layer, it is left to the
+                        // caller to process received messages and construct
+                        // appropriate responses. If the caller detects an
+                        // EDNS0 edns-tcp-keepalive option it can use this
+                        // reconfigure mechanism to signal to us that we
+                        // should adjust the point at which we will consider
+                        // the connectin to be idle and thus potentially
+                        // worthy of timing out.
                         eprintln!("Server connection timeout reconfigured to {idle_timeout:?}");
-                        state.idle_timeout =
-                            chrono::Duration::from_std(idle_timeout).unwrap();
-                        // TOOD: Check this unwrap()
+                        if let Ok(timeout) =
+                            chrono::Duration::from_std(idle_timeout)
+                        {
+                            state.idle_timeout = timeout;
+                        }
                     }
                     ServiceCommand::Shutdown => {
                         return Err(ConnectionEvent::DisconnectWithFlush);
@@ -1114,7 +1190,11 @@ where
                 eprintln!("Write error: {err}");
                 todo!()
             }
-            state.response_queue_emptied();
+            if state.result_q_tx.capacity()
+                == state.result_q_tx.max_capacity()
+            {
+                state.response_queue_emptied();
+            }
             self.metrics
                 .num_pending_writes
                 .fetch_sub(1, Ordering::Relaxed);
@@ -1139,28 +1219,80 @@ where
     }
 }
 
-impl<T, U, V, W, X, Y>
+//------------ From ... for DgramServerEvent ---------------------------------
+
+// Used by DgramServer::run() via select(..).await.into() to make the match
+// arms more readable.
+impl<Msg, Addr, RecvErr, W, CommandErr, Y>
     From<(
-        Either<(Result<(T, U), V>, W), (Result<(), X>, Y)>,
+        Either<
+            (Result<(Msg, Addr), RecvErr>, W),
+            (Result<(), CommandErr>, Y),
+        >,
         watch::Receiver<ServiceCommand>,
-    )> for ServerEvent<T, U, V, X>
+    )> for DgramServerEvent<Msg, Addr, RecvErr, CommandErr>
 {
     fn from(
         (value, mut command_rx): (
-            Either<(Result<(T, U), V>, W), (Result<(), X>, Y)>,
+            Either<
+                (Result<(Msg, Addr), RecvErr>, W),
+                (Result<(), CommandErr>, Y),
+            >,
+            watch::Receiver<ServiceCommand>,
+        ),
+    ) -> Self {
+        match value {
+            Either::Left((Ok((msg, addr)), _)) => {
+                DgramServerEvent::Recv(msg, addr)
+            }
+            Either::Left((Err(err), _)) => DgramServerEvent::RecvError(err),
+            Either::Right((Ok(()), _)) => {
+                let cmd = *command_rx.borrow_and_update();
+                DgramServerEvent::Command(cmd)
+            }
+            Either::Right((Err(err), _)) => {
+                DgramServerEvent::CommandError(err)
+            }
+        }
+    }
+}
+
+//------------ From ... for StreamServerEvent --------------------------------
+
+// Used by StreamServer::run() via select(..).await.into() to make the match
+// arms more readable.
+impl<Stream, Addr, AcceptErr, W, CommandErr, Y>
+    From<(
+        Either<
+            (Result<(Stream, Addr), AcceptErr>, W),
+            (Result<(), CommandErr>, Y),
+        >,
+        watch::Receiver<ServiceCommand>,
+    )> for StreamServerEvent<Stream, Addr, AcceptErr, CommandErr>
+{
+    fn from(
+        (value, mut command_rx): (
+            Either<
+                (Result<(Stream, Addr), AcceptErr>, W),
+                (Result<(), CommandErr>, Y),
+            >,
             watch::Receiver<ServiceCommand>,
         ),
     ) -> Self {
         match value {
             Either::Left((Ok((stream, addr)), _)) => {
-                ServerEvent::Accept(stream, addr)
+                StreamServerEvent::Accept(stream, addr)
             }
-            Either::Left((Err(err), _)) => ServerEvent::AcceptError(err),
+            Either::Left((Err(err), _)) => {
+                StreamServerEvent::AcceptError(err)
+            }
             Either::Right((Ok(()), _)) => {
                 let cmd = *command_rx.borrow_and_update();
-                ServerEvent::Command(cmd)
+                StreamServerEvent::Command(cmd)
             }
-            Either::Right((Err(err), _)) => ServerEvent::CommandError(err),
+            Either::Right((Err(err), _)) => {
+                StreamServerEvent::CommandError(err)
+            }
         }
     }
 }

@@ -21,14 +21,14 @@ use domain::{
     rdata::A,
     serve::{
         server::{
-            BufSource, CallResult, Service, ServiceCommand, ServiceError,
-            StreamServer, Transaction,
+            BufSource, CallResult, DgramServer, Service, ServiceCommand,
+            ServiceError, StreamServer, Transaction,
         },
         sock::AsyncAccept,
     },
 };
 use futures::{stream::Once, Future, Stream};
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio_tfo::{TfoListener, TfoStream};
 
 // Helper fn to create a dummy response to send back to the client
@@ -176,15 +176,15 @@ impl AsyncAccept for LocalTfoListener {
     }
 }
 
-struct LocalBufferedListener(TcpListener);
+struct BufferedTcpListener(TcpListener);
 
-impl std::ops::DerefMut for LocalBufferedListener {
+impl std::ops::DerefMut for BufferedTcpListener {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl std::ops::Deref for LocalBufferedListener {
+impl std::ops::Deref for BufferedTcpListener {
     type Target = TcpListener;
 
     fn deref(&self) -> &Self::Target {
@@ -192,7 +192,7 @@ impl std::ops::Deref for LocalBufferedListener {
     }
 }
 
-impl AsyncAccept for LocalBufferedListener {
+impl AsyncAccept for BufferedTcpListener {
     type Addr = SocketAddr;
 
     type Stream = tokio::io::BufReader<TcpStream>;
@@ -244,6 +244,36 @@ fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>> {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    let svc = Arc::new(MyService);
+
+    let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
+    let srv =
+        Arc::new(DgramServer::new(udpsocket, VecBufSource, svc.clone()));
+    let udp_join_handle = tokio::spawn(srv.run());
+
+    // This UDP example sets IP_MTU_DISCOVER via setsockopt(), using the
+    // libc crate (as the nix crate doesn't support IP_MTU_DISCOVER at the
+    // time of writing). This example is inspired by
+    // https://mailarchive.ietf.org/arch/msg/dnsop/Zy3wbhHephubsy2uJesGeDst4F4/
+    let udpsocket = UdpSocket::bind("127.0.0.1:8054").await.unwrap();
+    let fd = <UdpSocket as std::os::fd::AsRawFd>::as_raw_fd(&udpsocket);
+    let result = unsafe {
+        libc::setsockopt(
+            fd,
+            libc::IPPROTO_UDP,
+            libc::IP_MTU_DISCOVER,
+            &libc::IP_PMTUDISC_OMIT as *const libc::c_int
+                as *const libc::c_void,
+            std::mem::size_of_val(&libc::IP_PMTUDISC_OMIT) as libc::socklen_t,
+        )
+    };
+    // TODO: result will be 0 for success, -1 for error (with the error code
+    // available via Error::last_os_error().raw_os_error())
+    eprintln!("setsockopt result = {}", result);
+    let srv =
+        Arc::new(DgramServer::new(udpsocket, VecBufSource, svc.clone()));
+    let udp_mtu_join_handle = tokio::spawn(srv.run());
+
     // Demonstrate manually binding to two separate IPv4 and IPv6 sockets and
     // then listening on both at once using a single server instance. (e.g.
     // for on platforms that don't support binding to IPv4 and IPv6 at once
@@ -260,16 +290,15 @@ async fn main() {
 
     let listener = DoubleListener::new(v4listener, v6listener);
 
-    let svc = Arc::new(MyService);
     let srv =
         Arc::new(StreamServer::new(listener, VecBufSource, svc.clone()));
-    let join_handle = tokio::spawn(srv.run());
+    let tcp_join_handle = tokio::spawn(srv.run());
 
     // Demonstrate listening with TCP Fast Open enabled (via the tokio-tfo crate).
     // On Linux strace can be used to show that the socket options are indeed
     // set as expected, e.g.:
     //
-    //   > strace -e trace=setsockopt cargo run --example serve --features serve,tokio-tfo --release
+    //  > strace -e trace=setsockopt cargo run --example serve --features serve,tokio-tfo --release
     //     Finished release [optimized] target(s) in 0.12s
     //      Running `target/release/examples/serve`
     //   setsockopt(6, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
@@ -303,7 +332,7 @@ async fn main() {
     // BufReader to minimize overhead from system I/O calls.
 
     let listener = TcpListener::bind("127.0.0.1:8082").await.unwrap();
-    let listener = LocalBufferedListener(listener);
+    let listener = BufferedTcpListener(listener);
     let count = Arc::new(AtomicU8::new(5));
     let svc = service(count).into();
     let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc));
@@ -311,7 +340,9 @@ async fn main() {
 
     // Keep the services running in the background
 
-    let _ = join_handle.await.unwrap().unwrap();
+    let _ = udp_join_handle.await.unwrap().unwrap();
+    let _ = udp_mtu_join_handle.await.unwrap().unwrap();
+    let _ = tcp_join_handle.await.unwrap().unwrap();
     let _ = tfo_join_handle.await.unwrap().unwrap();
     let _ = fn_join_handle.await.unwrap().unwrap();
 }
