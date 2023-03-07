@@ -37,13 +37,15 @@ use tokio::sync::Notify;
 use tokio::time::sleep;
 
 const ERR_IDLE_TIMEOUT: &str = "idle connection was closed";
+const ERR_READ_ERROR: &str = "read error";
+const ERR_WRITE_ERROR: &str = "write error";
 
 // From RFC 7828. This should go somewhere with the option parsing
 const EDNS_TCP_KEEPALIE_TO_MS: u64 = 100;
 
 enum SingleQueryState {
 	Busy,
-	Done(Result<Message<Bytes>, &'static str>),
+	Done(Result<Message<Bytes>, Arc<std::io::Error>>),
 	Canceled,
 }
 
@@ -70,6 +72,8 @@ enum ConnState {
 	Active,
 	Idle(Instant),
 	IdleTimeout,
+	ReadError,
+	WriteError,
 }
 
 struct Keepalive {
@@ -230,48 +234,111 @@ impl InnerTcpConnection {
 		}
 	}
 
-	async fn reader(&self, sock: &mut ReadHalf<'_>) {
+	async fn reader(&self, sock: &mut ReadHalf<'_>) -> Result<(), &str> {
 		loop {
-		    let len = sock.read_u16().await.unwrap() as usize;
+		    let read_res = sock.read_u16().await;
+		    let len = match read_res {
+			Ok(len) => len,
+			Err(error) => {
+			    self.tcp_error(error);
+			    let mut keepalive = self.keepalive.lock().unwrap();
+			    keepalive.state = ConnState::ReadError;
+			    return Err(ERR_READ_ERROR);
+			}
+		    } as usize;
 
 		    let mut buf = BytesMut::with_capacity(len);
 			
-		    let reslen = sock.read_buf(&mut buf).await.unwrap();
+		    let read_res = sock.read_buf(&mut buf).await;
+		    match read_res {
+			Ok(_) => (),	// We don't need the result
+			Err(error) => {
+			    self.tcp_error(error);
+			    let mut keepalive = self.keepalive.lock().unwrap();
+			    keepalive.state = ConnState::ReadError;
+			    return Err(ERR_READ_ERROR);
+			}
+		    };
 			
 		    let reply_message = Message::<Bytes>::from_octets(buf.into());
-		    if let Ok(answer) = reply_message {
-			// Check for a edns-tcp-keepalive option
-			let opt_record = answer.opt();
-			if let Some(ref opts) = opt_record {
-				self.handle_opts(opts);
-			};
-			self.insert_answer(answer);
 
-		    // else try with the next message.
-		    } else {
-			panic!("Read error");
-			//return Err(io::Error::new(
-			   // io::ErrorKind::Other,
-			 //   "short buf",
-			//));
+		    match reply_message {
+			Ok(answer) => {
+			    // Check for a edns-tcp-keepalive option
+			    let opt_record = answer.opt();
+			    if let Some(ref opts) = opt_record {
+				    self.handle_opts(opts);
+			    };
+			    self.insert_answer(answer);
+			}
+			Err(_) => {
+			    // The only possible error is short message
+			    let error = io::Error::new(io::ErrorKind::Other,
+				"short buf");
+			    self.tcp_error(error);
+			    let mut keepalive = self.keepalive.lock().unwrap();
+			    keepalive.state = ConnState::ReadError;
+			    return Err(ERR_READ_ERROR);
+			}
 		    }
 		}
 	}
 
-	async fn writer(&self, sock: &mut WriteHalf<'_>) {
+	fn tcp_error(&self, error: std::io::Error) {
+		// Update all requests that are in progress. Don't wait for
+		// any reply that may be on its way.
+		let arc_error = Arc::new(error);
+		let mut query_vec = self.query_vec.lock().unwrap();
+		for query in &mut query_vec.vec {
+			match query {
+				None => {
+					continue;
+				}
+				Some(q) => {
+					match q.state {
+						SingleQueryState::Busy => {
+							q.state =
+							SingleQueryState::
+								Done(Err(
+								arc_error
+								.clone()));
+							q.complete.
+								notify_one();
+						}
+						SingleQueryState::Done(_) |
+						SingleQueryState::Canceled =>
+							// Nothing to do
+							()
+					}
+				}
+			}
+		}
+	}
+
+	async fn writer(&self, sock: &mut WriteHalf<'_>) ->
+		Result<(), &'static str> {
 		loop {
 			let mut tx_queue = self.tx_queue.lock().unwrap();
 			let head = tx_queue.pop_front();
 			drop(tx_queue);
 			match head {
 			Some(vec) => {
-				sock.write_all(&vec).await;
+				let res = sock.write_all(&vec).await;
+				if let Err(error) = res {
+					self.tcp_error(error);
+					let mut keepalive =
+						self.keepalive.lock().unwrap();
+					keepalive.state =
+						ConnState::WriteError;
+					return Err(ERR_WRITE_ERROR);
+				}
 				()
 			}
 			None =>
 				break,
 			}
 		}
+		Ok(())
 	}
 
 	pub async fn worker(&self) -> Option<()> {
@@ -284,21 +351,38 @@ impl InnerTcpConnection {
 		loop {
 			let writer_fut = self.writer(&mut write_stream);
 
-			println!("worker: before writer");
 			tokio::select! {
-				read = &mut reader_fut => {
-					panic!("reader terminated");
+				res = &mut reader_fut => {
+					match res {
+					    Ok(_) =>
+						// The reader should not
+						// terminate without
+						// error.
+						panic!("reader terminated"),
+					    Err(_) =>
+						// Reader failed. Break
+						// out of loop and
+						// shut down
+						break
+					}
 				}
-				write = writer_fut => {
-					// The writer is done. Wait 
-					// for a notify
-					()
+				res = writer_fut => {
+					match res {
+						Ok(_) =>
+							// The writer is done.
+							// Wait for a notify.
+							(),
+						Err(_) =>
+							// Writer failed. Break
+							// out of loop and
+							// shut down
+						break
+					}
 				}
 			}
 
 			let notify_fut = self.worker_notify.notified();
 
-			println!("worker: before reader");
 			let mut opt_timeout: Option<Duration> = None;
 			let mut keepalive = self.keepalive.lock().unwrap();
 			if let ConnState::Idle(instant) = keepalive.state {
@@ -323,10 +407,20 @@ impl InnerTcpConnection {
 			if let Some(timeout) = opt_timeout {
 				let sleep_fut = sleep(timeout);
 
-				println!("sleeping for {:?}", timeout);
 				tokio::select! {
-					read = &mut reader_fut => {
-						panic!("reader terminated");
+					res = &mut reader_fut => {
+					    match res {
+						Ok(_) =>
+						    // The reader should not
+						    // terminate without
+						    // error.
+						    panic!("reader terminated"),
+						Err(_) =>
+						    // Reader failed. Break
+						    // out of loop and
+						    // shut down
+						    break
+					    }
 					}
 					_ = notify_fut => {
 						// Got notified, start writing
@@ -340,8 +434,19 @@ impl InnerTcpConnection {
 				}
 			} else {
 				tokio::select! {
-					read = &mut reader_fut => {
-						panic!("reader terminated");
+					res = &mut reader_fut => {
+					    match res {
+						Ok(_) =>
+						    // The reader should not
+						    // terminate without
+						    // error.
+						    panic!("reader terminated"),
+						Err(_) =>
+						    // Reader failed. Break
+						    // out of loop and
+						    // shut down
+						    break
+					    }
 					}
 					_ = notify_fut => {
 						// Got notified, start writing
@@ -349,8 +454,6 @@ impl InnerTcpConnection {
 					}
 				}
 			}
-
-			println!("worker: got notified");
 
 			// Check if the connection is idle
 			let keepalive = self.keepalive.lock().unwrap();
@@ -361,17 +464,19 @@ impl InnerTcpConnection {
 				ConnState::IdleTimeout => {
 					break
 				}
+				ConnState::ReadError |
+				ConnState::WriteError => {
+					panic!("Should not be here");
+				}
 			}
 			drop(keepalive);
 		}
 
-		// Send FIN to server
-		println!("worker: sending FIN");
-		write_stream.shutdown().await;
+		// Send FIN to server. Ignore any errors.
+		let _ = write_stream.shutdown().await;
 
 		// Stay around until the last query result is collected
 		loop {
-			println!("worker: checking query count");
 			let query_vec = self.query_vec.lock().unwrap();
 			if query_vec.count == 0 {
 				// We are done
@@ -379,7 +484,6 @@ impl InnerTcpConnection {
 			}
 			drop(query_vec);
 
-			println!("waiting for last query to end");
 			self.worker_notify.notified().await;
 		}
 		None
@@ -459,7 +563,7 @@ impl InnerTcpConnection {
 
 	pub async fn query<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>
 		(&self, query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Target>>>)
-		-> Result<Message<Bytes>, &'static str> {
+		-> Result<Message<Bytes>, Arc<std::io::Error>> {
 		let index = self.insert();
 		let ind16: u16 = index.try_into().unwrap();
 
@@ -484,7 +588,6 @@ impl InnerTcpConnection {
 			complete.clone();
 		drop(query_vec);
 		local_notify.notified().await;
-		println!("Got reply");
 
 		// Get the lock again to take a look
 		let mut query_vec = self.query_vec.lock().unwrap();
@@ -536,6 +639,12 @@ impl InnerTcpConnection {
 				// The connection has been closed. Report error
 				return Err(ERR_IDLE_TIMEOUT);
 			}
+			ConnState::ReadError => {
+				return Err(ERR_READ_ERROR);
+			}
+			ConnState::WriteError => {
+				return Err(ERR_WRITE_ERROR);
+			}
 		}
 
 		let mut do_keepalive = false;
@@ -562,14 +671,29 @@ impl InnerTcpConnection {
 			let mut msgadd = query_msg.clone().additional();
 
 				// send an empty keepalive option
-				msgadd.opt(|opt| {
+				let res = msgadd.opt(|opt| {
 					opt.tcp_keepalive(None)
 				});
-				self.queue_query(&msgadd);
+				match res {
+					Ok(_) =>
+					    self.queue_query(&msgadd),
+					Err(_) => {
+						// Adding keepalive option
+						// failed. Send the original
+						// request and turn the
+						// send_keepalive flag back on
+						let mut keepalive =
+							self.keepalive.lock()
+							.unwrap();
+						keepalive.send_keepalive =
+							true;
+						drop(keepalive);
+						self.queue_query(query_msg);
+					}
+				}
 			} else {
 				self.queue_query(query_msg);
 			}
-
 
 			// Now kick the worker to transmit the query
 			self.worker_notify.notify_one();
@@ -577,8 +701,9 @@ impl InnerTcpConnection {
 			Ok(index)
 		}
 
-		pub async fn get_result<Octs: Octets>(&self, query_msg: &Message<Octs>,
-			index: usize) -> Result<Message<Bytes>, &'static str> {
+		pub async fn get_result<Octs: Octets>(&self,
+			query_msg: &Message<Octs>, index: usize) ->
+			Result<Message<Bytes>, Arc<std::io::Error>> {
 			// Wait for reply
 			let mut query_vec = self.query_vec.lock().unwrap();
 			let local_notify = query_vec.vec[index].as_mut().unwrap().
@@ -590,7 +715,6 @@ impl InnerTcpConnection {
 			let mut query_vec = self.query_vec.lock().unwrap();
 			let opt_q = query_vec.vec[index].take();
 			query_vec.count = query_vec.count - 1;
-			println!("get_result: query count is now {}", query_vec.count);
 			if query_vec.count == 0 {
 				// The worker may be waiting for this
 				self.worker_notify.notify_one();
@@ -658,7 +782,7 @@ impl TcpConnection {
 	}
 	pub async fn query<Octs: OctetsBuilder + AsMut<[u8]> + AsRef<[u8]>>
 		(&self, query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>)
-		-> Result<Message<Bytes>, &'static str> {
+		-> Result<Message<Bytes>, Arc<std::io::Error>> {
 		self.inner.query(query_msg).await
 	}
 	pub fn query2<OctsBuilder: OctetsBuilder + AsMut<[u8]> + AsRef<[u8]> +
@@ -686,7 +810,7 @@ impl Query {
 			state: QueryState::Busy(index) }
 	}
 	pub async fn get_result(&mut self) ->
-		Result<Message<Bytes>, &'static str> {
+		Result<Message<Bytes>, Arc<std::io::Error>> {
 		// Just the result of get_result on tranport. We should record
 		// that we got an answer to avoid asking again
 		match self.state {
