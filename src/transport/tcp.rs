@@ -561,61 +561,7 @@ impl InnerTcpConnection {
 		tx_queue.push_back(vec.to_vec());
 	}
 
-	pub async fn query<Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>>
-		(&self, query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Target>>>)
-		-> Result<Message<Bytes>, Arc<std::io::Error>> {
-		let index = self.insert();
-		let ind16: u16 = index.try_into().unwrap();
-
-		// We set the ID to the array index. Defense in depth
-		// suggests that a random ID is better because it works
-		// even if TCP sequence numbers could be predicted. However,
-		// Section 9.3 of RFC 5452 recommends retrying over TCP
-		// if many spoofed answers arrive over UDP: "TCP, by the
-		// nature of its use of sequence numbers, is far more
-		// resilient against forgery by third parties."
-		let hdr = query_msg.header_mut();
-		hdr.set_id(ind16);
-
-		self.queue_query(query_msg);
-
-		// Now kick the worker to transmit the query
-		self.worker_notify.notify_one();
-
-		// Wait for reply
-		let mut query_vec = self.query_vec.lock().unwrap();
-		let local_notify = query_vec.vec[index].as_mut().unwrap().
-			complete.clone();
-		drop(query_vec);
-		local_notify.notified().await;
-
-		// Get the lock again to take a look
-		let mut query_vec = self.query_vec.lock().unwrap();
-		let opt_q = query_vec.vec[index].take();
-		query_vec.count = query_vec.count - 1;
-		drop(query_vec);
-
-		if let Some(q) = opt_q
-		{
-			if let SingleQueryState::Done(result) = q.state
-			{
-				if let Ok(answer) = &result
-				{
-					if !answer.is_answer(&query_msg.
-						as_message()) {
-					    // Wrong answer, try again?
-					    panic!("wrong answer");
-					}
-				}
-				return result;
-			}
-			panic!("inconsistent state");
-		}
-
-		panic!("inconsistent state");
-	}
-
-	pub fn query2<Octs: OctetsBuilder + AsMut<[u8]> + AsRef<[u8]> +
+	pub fn query<Octs: OctetsBuilder + AsMut<[u8]> + AsRef<[u8]> +
 		Composer + Clone>
 		(&self,
 		query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>
@@ -780,17 +726,12 @@ impl TcpConnection {
 	pub async fn worker(&self) -> Option<()> {
 		self.inner.worker().await
 	}
-	pub async fn query<Octs: OctetsBuilder + AsMut<[u8]> + AsRef<[u8]>>
-		(&self, query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>)
-		-> Result<Message<Bytes>, Arc<std::io::Error>> {
-		self.inner.query(query_msg).await
-	}
-	pub fn query2<OctsBuilder: OctetsBuilder + AsMut<[u8]> + AsRef<[u8]> +
+	pub fn query<OctsBuilder: OctetsBuilder + AsMut<[u8]> + AsRef<[u8]> +
 		Composer + Clone>
 		(&self, query_msg: &mut MessageBuilder<StaticCompressor
 		<StreamTarget<OctsBuilder>>>)
 			-> Result<Query, &'static str> {
-		let index = self.inner.query2(query_msg)?;
+		let index = self.inner.query(query_msg)?;
 		let msg = &query_msg.as_message();
 		Ok(Query::new(self, msg, index))
 	}
