@@ -1247,7 +1247,7 @@ impl<Octs: Octets + ?Sized> fmt::Display for Ipv6Hint<Octs> {
 
 impl<Octs: Octets + ?Sized> SvcParams<Octs> {
     /// Returns the content of the ‘ipv6hint’ value if present.
-    pub fn ip64hint(&self) -> Option<Ipv6Hint<Octs::Range<'_>>> {
+    pub fn ipv6hint(&self) -> Option<Ipv6Hint<Octs::Range<'_>>> {
         self.first()
     }
 }
