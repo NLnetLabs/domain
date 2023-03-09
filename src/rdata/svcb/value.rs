@@ -1131,16 +1131,16 @@ impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
 octets_wrapper!(
     /// The ‘ipv6hint’ service parameter value.
     ///
-    /// This values provides a list of IPv4 addresses that the client may use
+    /// This values provides a list of IPv6 addresses that the client may use
     /// to connect to the endpoint. The value is intended to speed up
-    /// connecting but not to replace the A query to get the actual IPv4
+    /// connecting but not to replace the A query to get the actual IPv6
     /// addresses of the endpoint. That is, the client can start an A query
     /// and at the same time connect to an IP address from the value. If the
     /// A query doesn’t return this IP address, it may want to start again
     /// with an address from the response.
     ///
     /// The type contains the value in its wire format which consists of the
-    /// sequence of IPv4 addresses.
+    /// sequence of IPv6 addresses.
     Ipv6Hint,
     Ipv6HintIter
 );
@@ -1155,7 +1155,7 @@ impl<Octs: AsRef<[u8]>> Ipv6Hint<Octs> {
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
-    /// Creates a new value from a list of IPv4 addresses.
+    /// Creates a new value from a list of IPv6 addresses.
     ///
     /// The function will fail if the iterator returns more than 16,383
     /// addresses or if the octets builder to be used for building runs out
@@ -1189,7 +1189,7 @@ impl Ipv6Hint<[u8]> {
         Ok(unsafe { Self::from_slice_unchecked(slice) })
     }
 
-    /// Checks that a slice contains a correctly encoded ipv4hint value.
+    /// Checks that a slice contains a correctly encoded ipv6hint value.
     ///
     /// It checks that the length is divisible by16 and not longer than
     /// 65,535 octets.
@@ -1203,7 +1203,7 @@ impl Ipv6Hint<[u8]> {
 }
 
 impl<Octs: AsRef<[u8]>> Ipv6Hint<Octs> {
-    /// Parses an ‘ipv4hint’ value from its wire format.
+    /// Parses an ‘ipv6hint’ value from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
