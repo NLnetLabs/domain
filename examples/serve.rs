@@ -20,11 +20,13 @@ use domain::{
     },
     rdata::A,
     serve::{
-        server::{
-            BufSource, CallResult, DgramServer, Service, ServiceCommand,
-            ServiceError, StreamServer, Transaction,
+        buf::BufSource,
+        dgram::DgramServer,
+        service::{
+            CallResult, Service, ServiceCommand, ServiceError, Transaction,
         },
         sock::AsyncAccept,
+        stream::StreamServer,
     },
 };
 use futures::{stream::Once, Future, Stream};
@@ -247,8 +249,12 @@ async fn main() {
     let svc = Arc::new(MyService);
 
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
-    let srv =
-        Arc::new(DgramServer::new(udpsocket, VecBufSource, svc.clone()));
+    let buf_source = Arc::new(VecBufSource);
+    let srv = Arc::new(DgramServer::new(
+        udpsocket,
+        buf_source.clone(),
+        svc.clone(),
+    ));
     let udp_join_handle = tokio::spawn(srv.run());
 
     // This UDP example sets IP_MTU_DISCOVER via setsockopt(), using the
@@ -270,8 +276,11 @@ async fn main() {
     // TODO: result will be 0 for success, -1 for error (with the error code
     // available via Error::last_os_error().raw_os_error())
     eprintln!("setsockopt result = {}", result);
-    let srv =
-        Arc::new(DgramServer::new(udpsocket, VecBufSource, svc.clone()));
+    let srv = Arc::new(DgramServer::new(
+        udpsocket,
+        buf_source.clone(),
+        svc.clone(),
+    ));
     let udp_mtu_join_handle = tokio::spawn(srv.run());
 
     // Demonstrate manually binding to two separate IPv4 and IPv6 sockets and

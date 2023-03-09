@@ -7,10 +7,12 @@
 
 use tokio::net::{TcpListener, UdpSocket};
 
-use self::server::{DgramServer, StreamServer};
+pub type UdpServer<Buf, Svc> = dgram::DgramServer<UdpSocket, Buf, Svc>;
+pub type TcpServer<Buf, Svc> = stream::StreamServer<TcpListener, Buf, Svc>;
 
-pub type UdpServer<Buf, Svc> = DgramServer<UdpSocket, Buf, Svc>;
-pub type TcpServer<Buf, Svc> = StreamServer<TcpListener, Buf, Svc>;
-
+pub mod buf;
+pub mod dgram;
 pub mod server;
+pub mod service;
 pub mod sock;
+pub mod stream;

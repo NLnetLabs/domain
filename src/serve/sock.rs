@@ -18,13 +18,19 @@ pub trait AsyncDgramSock {
         cx: &mut Context,
         data: &[u8],
         dest: &Self::Addr,
-    ) -> Poll<Result<usize, io::Error>>;
+    ) -> Poll<io::Result<usize>>;
 
     fn poll_recv_from(
         &self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<Result<Self::Addr, io::Error>>;
+    ) -> Poll<io::Result<Self::Addr>>;
+
+    fn poll_peek_from(
+        &self,
+        cx: &mut Context,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<Self::Addr>>;
 }
 
 impl AsyncDgramSock for UdpSocket {
@@ -45,6 +51,14 @@ impl AsyncDgramSock for UdpSocket {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<Result<Self::Addr, io::Error>> {
         UdpSocket::poll_recv_from(self.deref(), cx, buf)
+    }
+
+    fn poll_peek_from(
+        &self,
+        cx: &mut Context,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<Self::Addr, io::Error>> {
+        UdpSocket::poll_peek_from(self.deref(), cx, buf)
     }
 }
 
