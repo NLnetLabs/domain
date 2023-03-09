@@ -1133,10 +1133,10 @@ octets_wrapper!(
     ///
     /// This values provides a list of IPv6 addresses that the client may use
     /// to connect to the endpoint. The value is intended to speed up
-    /// connecting but not to replace the A query to get the actual IPv6
-    /// addresses of the endpoint. That is, the client can start an A query
+    /// connecting but not to replace the AAAA query to get the actual IPv6
+    /// addresses of the endpoint. That is, the client can start an AAAA query
     /// and at the same time connect to an IP address from the value. If the
-    /// A query doesn’t return this IP address, it may want to start again
+    /// AAAA query doesn’t return this IP address, it may want to start again
     /// with an address from the response.
     ///
     /// The type contains the value in its wire format which consists of the
