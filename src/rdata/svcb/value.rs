@@ -806,7 +806,7 @@ impl<Octs: Octets + ?Sized> SvcParams<Octs> {
 
 impl<Octs: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>> SvcParamsBuilder<Octs> {
     /// Adds the [`NoDefaultAlpn`] value.
-    pub fn no_default_apln(&mut self) -> Result<(), PushError> {
+    pub fn no_default_alpn(&mut self) -> Result<(), PushError> {
         self.push(&NoDefaultAlpn)
     }
 }
