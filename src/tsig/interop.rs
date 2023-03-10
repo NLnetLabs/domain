@@ -7,7 +7,7 @@ use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
 use crate::base::name::Dname;
-use crate::rdata::rfc2845::Time48;
+use crate::rdata::tsig::Time48;
 use crate::rdata::{Soa, A};
 use crate::test::nsd;
 use crate::tsig;

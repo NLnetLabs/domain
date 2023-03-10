@@ -43,7 +43,7 @@
 //! [RFC 2104]: https://tools.ietf.org/html/rfc2104
 //! [RFC 2845]: https://tools.ietf.org/html/rfc2845
 //! [RFC 4635]: https://tools.ietf.org/html/rfc4653
-//! [TSIG]: ../rdata/rfc2845/struct.Tsig.html
+//! [TSIG]: ../rdata/tsig/struct.Tsig.html
 //! [`Algorithm`]: enum.Algorithm.html
 //! [`Key`]: enum.Key.html
 //! [`KeyStore`]: trait.KeyStore.html
@@ -65,7 +65,7 @@ use crate::base::message_builder::{
 use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
-use crate::rdata::rfc2845::{Time48, Tsig};
+use crate::rdata::tsig::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
 use core::{cmp, fmt, mem, ops, str};
 use octseq::octets::Octets;
