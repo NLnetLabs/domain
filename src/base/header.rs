@@ -95,7 +95,7 @@ impl Header {
     /// This function panics if the slice is less than four octets long.
     pub fn for_message_slice_mut(s: &mut [u8]) -> &mut Header {
         assert!(s.len() >= mem::size_of::<Header>());
-        unsafe { &mut *(s.as_ptr() as *mut Header) }
+        unsafe { &mut *(s.as_mut_ptr() as *mut Header) }
     }
 
     /// Returns a reference to the underlying octets slice.
@@ -504,7 +504,7 @@ impl HeaderCounts {
     pub fn for_message_slice_mut(message: &mut [u8]) -> &mut Self {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
         unsafe {
-            &mut *((message[mem::size_of::<Header>()..].as_ptr())
+            &mut *((message[mem::size_of::<Header>()..].as_mut_ptr())
                 as *mut HeaderCounts)
         }
     }
@@ -794,7 +794,7 @@ impl HeaderSection {
     /// This function panics if the octets slice is shorter than 12 octets.
     pub fn for_message_slice_mut(s: &mut [u8]) -> &mut HeaderSection {
         assert!(s.len() >= mem::size_of::<HeaderSection>());
-        unsafe { &mut *(s.as_ptr() as *mut HeaderSection) }
+        unsafe { &mut *(s.as_mut_ptr() as *mut HeaderSection) }
     }
 
     /// Returns a reference to the underlying octets slice.

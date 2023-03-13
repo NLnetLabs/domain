@@ -301,7 +301,7 @@ impl OptHeader {
     /// Returns a mutable reference pointing into a record’s octets.
     pub fn for_record_slice_mut(slice: &mut [u8]) -> &mut OptHeader {
         assert!(slice.len() >= mem::size_of::<Self>());
-        unsafe { &mut *(slice.as_ptr() as *mut OptHeader) }
+        unsafe { &mut *(slice.as_mut_ptr() as *mut OptHeader) }
     }
 
     /// Returns the UDP payload size.
