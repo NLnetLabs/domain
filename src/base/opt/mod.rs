@@ -25,16 +25,16 @@
 #[macro_use]
 mod macros;
 opt_types! {
-    rfc5001::{Nsid<Octs>};
-    rfc6975::{Dau<Octs>, Dhu<Octs>, N3u<Octs>};
-    rfc7314::{Expire};
-    rfc7828::{TcpKeepalive};
-    rfc7830::{Padding};
-    rfc7871::{ClientSubnet};
-    rfc7873::{Cookie};
-    rfc7901::{Chain<Name>};
-    rfc8145::{KeyTag<Octs>};
-    rfc8914::{ExtendedError<Octs>};
+    nsid::{Nsid<Octs>};
+    algsig::{Dau<Octs>, Dhu<Octs>, N3u<Octs>};
+    expire::{Expire};
+    keepalive::{TcpKeepalive};
+    padding::{Padding};
+    subnet::{ClientSubnet};
+    cookie::{Cookie};
+    chain::{Chain<Name>};
+    keytag::{KeyTag<Octs>};
+    exterr::{ExtendedError<Octs>};
 }
 
 //============ Module Content ================================================
