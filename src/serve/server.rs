@@ -306,8 +306,10 @@ mod tests {
 
     impl AsyncAccept for MockListener {
         type Addr = ();
-
-        type Stream = MockStream;
+        type Error = io::Error;
+        type StreamType = MockStream;
+        type Stream =
+            futures::future::Ready<Result<Self::StreamType, io::Error>>;
 
         fn poll_accept(
             &self,
@@ -329,7 +331,10 @@ mod tests {
                         {
                             last_accept.replace(Instant::now());
                             return Poll::Ready(Ok((
-                                MockStream::new(messages, new_message_every),
+                                futures::future::ready(Ok(MockStream::new(
+                                    messages,
+                                    new_message_every,
+                                ))),
                                 (),
                             )));
                         } else {

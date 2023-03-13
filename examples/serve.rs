@@ -1,8 +1,10 @@
 // TODO: Split into separate examples?
 use std::{
+    fs::File,
     future::Pending,
-    io,
+    io::{self, BufReader},
     net::SocketAddr,
+    path::Path,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
@@ -30,7 +32,12 @@ use domain::{
     },
 };
 use futures::{stream::Once, Future, Stream};
+use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
+use tokio_rustls::{
+    rustls::{self, Certificate, PrivateKey},
+    TlsAcceptor,
+};
 use tokio_tfo::{TfoListener, TfoStream};
 
 // Helper fn to create a dummy response to send back to the client
@@ -132,7 +139,9 @@ impl DoubleListener {
 /// Combine two streams into one by interleaving the output of both as it is produced.
 impl AsyncAccept for DoubleListener {
     type Addr = SocketAddr;
-    type Stream = TcpStream;
+    type Error = io::Error;
+    type StreamType = TcpStream;
+    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
@@ -143,9 +152,17 @@ impl AsyncAccept for DoubleListener {
             true => (&self.b, &self.a),
         };
 
-        match TcpListener::poll_accept(x, cx) {
+        match TcpListener::poll_accept(x, cx).map(|res| {
+            res.map(|(stream, addr)| {
+                (futures::future::ready(Ok(stream)), addr)
+            })
+        }) {
             Poll::Ready(res) => Poll::Ready(res),
-            Poll::Pending => TcpListener::poll_accept(y, cx),
+            Poll::Pending => TcpListener::poll_accept(y, cx).map(|res| {
+                res.map(|(stream, addr)| {
+                    (futures::future::ready(Ok(stream)), addr)
+                })
+            }),
         }
     }
 }
@@ -168,13 +185,19 @@ impl std::ops::Deref for LocalTfoListener {
 
 impl AsyncAccept for LocalTfoListener {
     type Addr = SocketAddr;
-    type Stream = TfoStream;
+    type Error = io::Error;
+    type StreamType = TfoStream;
+    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
         cx: &mut Context,
     ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
-        TfoListener::poll_accept(self, cx)
+        TfoListener::poll_accept(self, cx).map(|res| {
+            res.map(|(stream, addr)| {
+                (futures::future::ready(Ok(stream)), addr)
+            })
+        })
     }
 }
 
@@ -196,8 +219,9 @@ impl std::ops::Deref for BufferedTcpListener {
 
 impl AsyncAccept for BufferedTcpListener {
     type Addr = SocketAddr;
-
-    type Stream = tokio::io::BufReader<TcpStream>;
+    type Error = io::Error;
+    type StreamType = tokio::io::BufReader<TcpStream>;
+    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
@@ -206,11 +230,42 @@ impl AsyncAccept for BufferedTcpListener {
         match TcpListener::poll_accept(self, cx) {
             Poll::Ready(Ok((stream, addr))) => {
                 let stream = tokio::io::BufReader::new(stream);
-                Poll::Ready(Ok((stream, addr)))
+                Poll::Ready(Ok((futures::future::ready(Ok(stream)), addr)))
             }
             Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+pub struct RustlsTcpListener {
+    listener: TcpListener,
+    acceptor: tokio_rustls::TlsAcceptor,
+}
+
+impl RustlsTcpListener {
+    pub fn new(
+        listener: TcpListener,
+        acceptor: tokio_rustls::TlsAcceptor,
+    ) -> Self {
+        Self { listener, acceptor }
+    }
+}
+
+impl AsyncAccept for RustlsTcpListener {
+    type Addr = SocketAddr;
+    type Error = io::Error;
+    type StreamType = tokio_rustls::server::TlsStream<TcpStream>;
+    type Stream = tokio_rustls::Accept<TcpStream>;
+
+    #[allow(clippy::type_complexity)]
+    fn poll_accept(
+        &self,
+        cx: &mut Context,
+    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+        TcpListener::poll_accept(&self.listener, cx).map(|res| {
+            res.map(|(stream, addr)| (self.acceptor.accept(stream), addr))
+        })
     }
 }
 
@@ -230,13 +285,15 @@ fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>> {
             .unwrap();
 
         Transaction::Single(async move {
+            eprintln!("Sleeping for 100ms");
+            tokio::time::sleep(Duration::from_millis(100)).await;
             let mut target = StreamTarget::new_vec();
             target
                 .append_slice(&mk_answer(&message).into_octets())
                 .unwrap();
-            let idle_timeout = Duration::from_millis(cnt.into());
+            let idle_timeout = Duration::from_millis((50 * cnt).into());
             let cmd = ServiceCommand::Reconfigure { idle_timeout };
-            eprintln!("Setting read timeout to {idle_timeout:?}");
+            eprintln!("Setting idle timeout to {idle_timeout:?}");
             Ok(CallResult::with_feedback(target, cmd))
         })
     }
@@ -320,7 +377,7 @@ async fn main() {
         .unwrap();
     let tfo_listener = LocalTfoListener(tfo_listener);
     let tfo_srv =
-        Arc::new(StreamServer::new(tfo_listener, VecBufSource, svc));
+        Arc::new(StreamServer::new(tfo_listener, VecBufSource, svc.clone()));
     let tfo_join_handle = tokio::spawn(tfo_srv.run());
 
     // Demonstrate using a simple function instead of a struct as the service
@@ -343,9 +400,46 @@ async fn main() {
     let listener = TcpListener::bind("127.0.0.1:8082").await.unwrap();
     let listener = BufferedTcpListener(listener);
     let count = Arc::new(AtomicU8::new(5));
-    let svc = service(count).into();
-    let srv = Arc::new(StreamServer::new(listener, VecBufSource, svc));
+    let srv = Arc::new(StreamServer::new(
+        listener,
+        VecBufSource,
+        service(count).into(),
+    ));
     let fn_join_handle = tokio::spawn(srv.run());
+
+    // Demonstrate using a TLS secured TCP DNS server.
+    fn load_certs(path: &Path) -> io::Result<Vec<Certificate>> {
+        certs(&mut BufReader::new(File::open(path)?))
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid cert")
+            })
+            .map(|mut certs| certs.drain(..).map(Certificate).collect())
+    }
+
+    fn load_keys(path: &Path) -> io::Result<Vec<PrivateKey>> {
+        rsa_private_keys(&mut BufReader::new(File::open(path)?))
+            .map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid key")
+            })
+            .map(|mut keys| keys.drain(..).map(PrivateKey).collect())
+    }
+
+    // https://github.com/rustls/hyper-rustls/blob/main/examples/ has sample
+    // certificate and key files that can be used here.
+    let certs = load_certs(&Path::new("/tmp/my.crt")).unwrap();
+    let mut keys = load_keys(&Path::new("/tmp/my.key")).unwrap();
+
+    let config = rustls::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(certs, keys.remove(0))
+        .unwrap();
+    let acceptor = TlsAcceptor::from(Arc::new(config));
+    let listener = TcpListener::bind("127.0.0.1:8443").await.unwrap();
+    let listener = RustlsTcpListener::new(listener, acceptor);
+    let srv =
+        Arc::new(StreamServer::new(listener, VecBufSource, svc.clone()));
+    let tls_join_handle = tokio::spawn(srv.run());
 
     // Keep the services running in the background
 
@@ -354,4 +448,5 @@ async fn main() {
     let _ = tcp_join_handle.await.unwrap().unwrap();
     let _ = tfo_join_handle.await.unwrap().unwrap();
     let _ = fn_join_handle.await.unwrap().unwrap();
+    let _ = tls_join_handle.await.unwrap().unwrap();
 }

@@ -1,10 +1,11 @@
 //! Network socket abstractions.
 
+use futures::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::task::{Context, Poll};
-use tokio::io::ReadBuf;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 //------------ AsyncDgramSock ------------------------------------------------
@@ -66,7 +67,9 @@ impl AsyncDgramSock for UdpSocket {
 
 pub trait AsyncAccept {
     type Addr: Sized + Send;
-    type Stream;
+    type Error: Send;
+    type StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static;
+    type Stream: Future<Output = Result<Self::StreamType, Self::Error>> + Send;
 
     #[allow(clippy::type_complexity)]
     fn poll_accept(
@@ -77,13 +80,19 @@ pub trait AsyncAccept {
 
 impl AsyncAccept for TcpListener {
     type Addr = SocketAddr;
-    type Stream = TcpStream;
+    type Error = io::Error;
+    type StreamType = TcpStream;
+    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
 
     #[allow(clippy::type_complexity)]
     fn poll_accept(
         &self,
         cx: &mut Context,
     ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
-        TcpListener::poll_accept(self, cx)
+        TcpListener::poll_accept(self, cx).map(|res| {
+            res.map(|(stream, addr)| {
+                (futures::future::ready(Ok(stream)), addr)
+            })
+        })
     }
 }

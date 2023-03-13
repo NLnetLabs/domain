@@ -34,144 +34,6 @@ use super::{
     sock::AsyncAccept,
 };
 
-//------------ StreamServerEvent ---------------------------------------------
-
-pub enum StreamServerEvent<Stream, Addr, AcceptErr, CommandErr> {
-    Accept(Stream, Addr),
-    AcceptError(AcceptErr),
-    Command(ServiceCommand),
-    CommandError(CommandErr),
-}
-
-//------------ ConnectionEvent -----------------------------------------------
-
-enum ConnectionEvent<T> {
-    /// RFC 7766 6.2.4 "Under normal operation DNS clients typically initiate
-    /// connection closing on idle connections; however, DNS servers can close
-    /// the connection if the idle timeout set by local policy is exceeded.
-    /// Also, connections can be closed by either end under unusual conditions
-    /// such as defending against an attack or system failure reboot."
-    ///
-    /// And: RFC 7766 3 "A DNS server considers an established DNS-over-TCP
-    /// session to be idle when it has sent responses to all the queries it
-    /// has received on that connection."
-    DisconnectWithoutFlush,
-
-    /// RFC 7766 6.2.3 "If a DNS server finds that a DNS client has closed a
-    /// TCP session (or if the session has been otherwise interrupted) before
-    /// all pending responses have been sent, then the server MUST NOT attempt
-    /// to send those responses.  Of course, the DNS server MAY cache those
-    /// responses."
-    DisconnectWithFlush,
-
-    ReadSucceeded,
-
-    ServiceError(ServiceError<T>),
-}
-
-//------------ StreamState ---------------------------------------------------
-
-pub struct StreamState<Listener, Buf, Svc>
-where
-    Listener: AsyncAccept + Send + 'static,
-    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-{
-    stream_tx: WriteHalf<Listener::Stream>,
-
-    result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
-
-    // RFC 1035 7.1: "Since a resolver must be able to multiplex multiple
-    // requests if it is to perform its function efficiently, each pending
-    // request is usually represented in some block of state information.
-    // This state block will typically contain:
-    //
-    //   - A timestamp indicating the time the request began.
-    //     The timestamp is used to decide whether RRs in the database
-    //     can be used or are out of date.  This timestamp uses the
-    //     absolute time format previously discussed for RR storage in
-    //     zones and caches.  Note that when an RRs TTL indicates a
-    //     relative time, the RR must be timely, since it is part of a
-    //     zone.  When the RR has an absolute time, it is part of a
-    //     cache, and the TTL of the RR is compared against the timestamp
-    //     for the start of the request.
-
-    //     Note that using the timestamp is superior to using a current
-    //     time, since it allows RRs with TTLs of zero to be entered in
-    //     the cache in the usual manner, but still used by the current
-    //     request, even after intervals of many seconds due to system
-    //     load, query retransmission timeouts, etc."
-    //
-    //
-    idle_timer_reset_at: DateTime<Utc>,
-
-    idle_timeout: chrono::Duration,
-}
-
-impl<Listener, Buf, Svc> StreamState<Listener, Buf, Svc>
-where
-    Listener: AsyncAccept + Send + 'static,
-    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-{
-    fn new(
-        stream_tx: WriteHalf<Listener::Stream>,
-        result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
-        idle_timeout: chrono::Duration,
-    ) -> Self {
-        Self {
-            stream_tx,
-            result_q_tx,
-            idle_timer_reset_at: Utc::now(),
-            idle_timeout,
-        }
-    }
-
-    /// How long from now should this connection be timed out?
-    ///
-    /// When we (will) have been sat idle for longer than the configured idle
-    /// timeout for this connection.
-    pub fn timeout_at(&self) -> chrono::Duration {
-        self.idle_timeout
-            .checked_sub(&self.idle_time())
-            .unwrap_or(chrono::Duration::zero())
-    }
-
-    pub fn timeout_at_std(&self) -> Duration {
-        self.timeout_at().to_std().unwrap_or_default()
-    }
-
-    /// How long has this connection been sat idle?
-    pub fn idle_time(&self) -> chrono::Duration {
-        Utc::now().signed_duration_since(self.idle_timer_reset_at)
-    }
-
-    fn reset_idle_timer(&mut self) {
-        self.idle_timer_reset_at = Utc::now()
-    }
-
-    fn full_msg_received(&mut self) {
-        // RFC 7766 6.2.3: "DNS messages delivered over TCP might arrive in
-        // multiple segments.  A DNS server that resets its idle timeout after
-        // receiving a single segment might be vulnerable to a "slow-read
-        // attack". For this reason, servers SHOULD reset the idle timeout on
-        // the receipt of a full DNS message, rather than on receipt of any
-        // part of a DNS message."
-        self.reset_idle_timer()
-    }
-
-    fn response_queue_emptied(&mut self) {
-        // RFC 7766 3: "A DNS server considers an established DNS-over-TCP
-        // session to be idle when it has sent responses to all the queries it
-        // has received on that connection."
-        self.reset_idle_timer()
-    }
-}
-
 //------------ StreamServer --------------------------------------------------
 
 pub struct StreamServer<Listener, Buf, Svc> {
@@ -186,7 +48,6 @@ pub struct StreamServer<Listener, Buf, Svc> {
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
-    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
@@ -222,7 +83,6 @@ where
     pub fn shutdown(
         &self,
     ) -> Result<(), watch::error::SendError<ServiceCommand>> {
-        eprintln!("Sending shutdown command");
         self.command_tx
             .lock()
             .unwrap()
@@ -247,17 +107,32 @@ where
                 .into()
             {
                 StreamServerEvent::Accept(stream, _addr) => {
-                    let conn = ConnectedStream::<Listener, Buf, Svc>::new(
-                        self.service.clone(),
-                        self.buf.clone(),
-                        self.metrics.clone(),
-                        stream,
-                    );
-                    tokio::spawn(conn.run(self.command_rx.clone()));
+                    let conn_command_rx = self.command_rx.clone();
+                    let conn_service = self.service.clone();
+                    let conn_buf = self.buf.clone();
+                    let conn_metrics = self.metrics.clone();
+                    let conn_fut = async move {
+                        if let Ok(stream) = stream.await {
+                            let conn = ConnectedStream::<
+                                Listener::StreamType,
+                                Buf,
+                                Svc,
+                            >::new(
+                                conn_service,
+                                conn_buf,
+                                conn_metrics,
+                                stream,
+                            );
+                            conn.run(conn_command_rx).await
+                        }
+                    };
+                    tokio::spawn(conn_fut);
                 }
 
                 StreamServerEvent::AcceptError(err) => {
-                    eprintln!("StreamServer accept error: {err}");
+                    eprintln!(
+                        "Error while accepting stream connections: {err}"
+                    );
                     todo!()
                 }
 
@@ -278,7 +153,7 @@ where
                 }
 
                 StreamServerEvent::CommandError(err) => {
-                    eprintln!("StreamServer receive command error: {err}");
+                    eprintln!("Error while processing command: {err}");
                     todo!();
                 }
             }
@@ -294,10 +169,9 @@ where
 
 //------------ ConnectedStream -----------------------------------------------
 
-struct ConnectedStream<Listener, Buf, Svc>
+struct ConnectedStream<Stream, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + 'static,
-    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
@@ -305,13 +179,12 @@ where
     buf_source: Arc<Buf>,
     metrics: Arc<ServerMetrics>,
     service: Arc<Svc>,
-    stream: Option<Listener::Stream>,
+    stream: Option<Stream>,
 }
 
-impl<Listener, Buf, Svc> ConnectedStream<Listener, Buf, Svc>
+impl<Stream, Buf, Svc> ConnectedStream<Stream, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + 'static,
-    Listener::Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
@@ -320,7 +193,7 @@ where
         service: Arc<Svc>,
         buf_source: Arc<Buf>,
         metrics: Arc<ServerMetrics>,
-        stream: Listener::Stream,
+        stream: Stream,
     ) -> Self {
         Self {
             buf_source,
@@ -350,7 +223,7 @@ where
     async fn run_until_error(
         &self,
         mut command_rx: watch::Receiver<ServiceCommand>,
-        stream: Listener::Stream,
+        stream: Stream,
     ) {
         let (mut stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, mut result_q_rx) =
@@ -373,9 +246,19 @@ where
                 )
                 .await
             {
-                if matches!(err, ConnectionEvent::DisconnectWithFlush) {
-                    self.flush_write_queue(&mut state, &mut result_q_rx)
-                        .await;
+                match err {
+                    ConnectionEvent::DisconnectWithoutFlush => {
+                        break;
+                    }
+                    ConnectionEvent::DisconnectWithFlush => {
+                        self.flush_write_queue(&mut state, &mut result_q_rx)
+                            .await;
+                        break;
+                    }
+                    ConnectionEvent::ReadSucceeded => unreachable!(),
+                    ConnectionEvent::ServiceError(err) => {
+                        eprintln!("Service error: {}", err);
+                    }
                 }
             }
         }
@@ -384,8 +267,8 @@ where
     async fn transceive_one_request(
         &self,
         command_rx: &mut watch::Receiver<ServiceCommand>,
-        state: &mut StreamState<Listener, Buf, Svc>,
-        stream_rx: &mut ReadHalf<<Listener as AsyncAccept>::Stream>,
+        state: &mut StreamState<Stream, Buf, Svc>,
+        stream_rx: &mut ReadHalf<Stream>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
         msg_size_buf: &mut <Buf as BufSource>::Output,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
@@ -423,8 +306,8 @@ where
     async fn transceive_until(
         &self,
         command_rx: &mut watch::Receiver<ServiceCommand>,
-        state: &mut StreamState<Listener, Buf, Svc>,
-        stream_rx: &mut ReadHalf<Listener::Stream>,
+        state: &mut StreamState<Stream, Buf, Svc>,
+        stream_rx: &mut ReadHalf<Stream>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
         buf: &mut <Buf as BufSource>::Output,
     ) -> Result<ConnectionEvent<Svc::Error>, ConnectionEvent<Svc::Error>>
@@ -509,7 +392,7 @@ where
                                 io::ErrorKind::TimedOut
                                 | io::ErrorKind::Interrupted => {
                                     // These errors might be recoverable, try again
-                                    println!(
+                                    eprintln!(
                                         "Warn: Stream read failed: {err}"
                                     );
                                     continue 'read;
@@ -551,8 +434,12 @@ where
                 // Process any command received from the parent server.
                 let command = *command_rx.borrow_and_update();
                 match command {
-                    ServiceCommand::CloseConnection => unreachable!(),
-                    ServiceCommand::Init => unreachable!(),
+                    ServiceCommand::CloseConnection => {
+                        unreachable!()
+                    }
+                    ServiceCommand::Init => {
+                        unreachable!()
+                    }
                     ServiceCommand::Reconfigure { idle_timeout } => {
                         // Support RFC 7828 "The edns-tcp-keepalive EDNS0
                         // Option". This cannot be done by the caller as it
@@ -631,7 +518,7 @@ where
 
     async fn process_message(
         &self,
-        state: &StreamState<Listener, Buf, Svc>,
+        state: &StreamState<Stream, Buf, Svc>,
         buf: <Buf as BufSource>::Output,
         service: Arc<Svc>,
     ) -> Result<(), ServiceError<Svc::Error>> {
@@ -704,7 +591,7 @@ where
 
     async fn flush_write_queue(
         &self,
-        state: &mut StreamState<Listener, Buf, Svc>,
+        state: &mut StreamState<Stream, Buf, Svc>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
     ) {
         // Stop accepting new response messages (should we check
@@ -719,7 +606,7 @@ where
 
     async fn apply_call_result(
         &self,
-        state: &mut StreamState<Listener, Buf, Svc>,
+        state: &mut StreamState<Stream, Buf, Svc>,
         mut call_result: CallResult<Svc::ResponseOctets>,
     ) {
         if let Some(msg) = call_result.response() {
@@ -756,6 +643,142 @@ where
                 }
             }
         }
+    }
+}
+
+//------------ StreamServerEvent ---------------------------------------------
+
+pub enum StreamServerEvent<Stream, Addr, AcceptErr, CommandErr> {
+    Accept(Stream, Addr),
+    AcceptError(AcceptErr),
+    Command(ServiceCommand),
+    CommandError(CommandErr),
+}
+
+//------------ ConnectionEvent -----------------------------------------------
+
+enum ConnectionEvent<T> {
+    /// RFC 7766 6.2.4 "Under normal operation DNS clients typically initiate
+    /// connection closing on idle connections; however, DNS servers can close
+    /// the connection if the idle timeout set by local policy is exceeded.
+    /// Also, connections can be closed by either end under unusual conditions
+    /// such as defending against an attack or system failure reboot."
+    ///
+    /// And: RFC 7766 3 "A DNS server considers an established DNS-over-TCP
+    /// session to be idle when it has sent responses to all the queries it
+    /// has received on that connection."
+    DisconnectWithoutFlush,
+
+    /// RFC 7766 6.2.3 "If a DNS server finds that a DNS client has closed a
+    /// TCP session (or if the session has been otherwise interrupted) before
+    /// all pending responses have been sent, then the server MUST NOT attempt
+    /// to send those responses.  Of course, the DNS server MAY cache those
+    /// responses."
+    DisconnectWithFlush,
+
+    ReadSucceeded,
+
+    ServiceError(ServiceError<T>),
+}
+
+//------------ StreamState ---------------------------------------------------
+
+pub struct StreamState<Stream, Buf, Svc>
+where
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    stream_tx: WriteHalf<Stream>,
+
+    result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
+
+    // RFC 1035 7.1: "Since a resolver must be able to multiplex multiple
+    // requests if it is to perform its function efficiently, each pending
+    // request is usually represented in some block of state information.
+    // This state block will typically contain:
+    //
+    //   - A timestamp indicating the time the request began.
+    //     The timestamp is used to decide whether RRs in the database
+    //     can be used or are out of date.  This timestamp uses the
+    //     absolute time format previously discussed for RR storage in
+    //     zones and caches.  Note that when an RRs TTL indicates a
+    //     relative time, the RR must be timely, since it is part of a
+    //     zone.  When the RR has an absolute time, it is part of a
+    //     cache, and the TTL of the RR is compared against the timestamp
+    //     for the start of the request.
+
+    //     Note that using the timestamp is superior to using a current
+    //     time, since it allows RRs with TTLs of zero to be entered in
+    //     the cache in the usual manner, but still used by the current
+    //     request, even after intervals of many seconds due to system
+    //     load, query retransmission timeouts, etc."
+    //
+    //
+    idle_timer_reset_at: DateTime<Utc>,
+
+    idle_timeout: chrono::Duration,
+}
+
+impl<Stream, Buf, Svc> StreamState<Stream, Buf, Svc>
+where
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    fn new(
+        stream_tx: WriteHalf<Stream>,
+        result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
+        idle_timeout: chrono::Duration,
+    ) -> Self {
+        Self {
+            stream_tx,
+            result_q_tx,
+            idle_timer_reset_at: Utc::now(),
+            idle_timeout,
+        }
+    }
+
+    /// How long from now should this connection be timed out?
+    ///
+    /// When we (will) have been sat idle for longer than the configured idle
+    /// timeout for this connection.
+    pub fn timeout_at(&self) -> chrono::Duration {
+        self.idle_timeout
+            .checked_sub(&self.idle_time())
+            .unwrap_or(chrono::Duration::zero())
+    }
+
+    pub fn timeout_at_std(&self) -> Duration {
+        self.timeout_at().to_std().unwrap_or_default()
+    }
+
+    /// How long has this connection been sat idle?
+    pub fn idle_time(&self) -> chrono::Duration {
+        Utc::now().signed_duration_since(self.idle_timer_reset_at)
+    }
+
+    fn reset_idle_timer(&mut self) {
+        self.idle_timer_reset_at = Utc::now()
+    }
+
+    fn full_msg_received(&mut self) {
+        // RFC 7766 6.2.3: "DNS messages delivered over TCP might arrive in
+        // multiple segments.  A DNS server that resets its idle timeout after
+        // receiving a single segment might be vulnerable to a "slow-read
+        // attack". For this reason, servers SHOULD reset the idle timeout on
+        // the receipt of a full DNS message, rather than on receipt of any
+        // part of a DNS message."
+        self.reset_idle_timer()
+    }
+
+    fn response_queue_emptied(&mut self) {
+        // RFC 7766 3: "A DNS server considers an established DNS-over-TCP
+        // session to be idle when it has sent responses to all the queries it
+        // has received on that connection."
+        self.reset_idle_timer()
     }
 }
 

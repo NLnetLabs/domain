@@ -20,15 +20,6 @@ use futures::future::Either;
 use futures::{future::select, pin_mut, StreamExt};
 use tokio::{io::ReadBuf, sync::watch};
 
-//------------ DgramServerEvent ----------------------------------------------
-
-pub enum DgramServerEvent<Msg, Addr, RecvErr, CommandErr> {
-    Recv(Msg, Addr),
-    RecvError(RecvErr),
-    Command(ServiceCommand),
-    CommandError(CommandErr),
-}
-
 //------------ DgramServer ---------------------------------------------------
 
 pub struct DgramServer<Sock, Buf, Svc> {
@@ -64,7 +55,6 @@ where
     pub fn shutdown(
         &self,
     ) -> Result<(), watch::error::SendError<ServiceCommand>> {
-        eprintln!("Sending shutdown command");
         self.command_tx
             .lock()
             .unwrap()
@@ -203,6 +193,15 @@ where
             Ok(())
         }
     }
+}
+
+//------------ DgramServerEvent ----------------------------------------------
+
+pub enum DgramServerEvent<Msg, Addr, RecvErr, CommandErr> {
+    Recv(Msg, Addr),
+    RecvError(RecvErr),
+    Command(ServiceCommand),
+    CommandError(CommandErr),
 }
 
 //------------ From ... for DgramServerEvent ---------------------------------
