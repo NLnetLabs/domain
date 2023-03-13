@@ -508,7 +508,7 @@ mod tests {
             let my_service = Arc::new(MyService::new());
             let srv = Arc::new(StreamServer::new(
                 listener,
-                buf,
+                buf.into(),
                 my_service.clone(),
             ));
 

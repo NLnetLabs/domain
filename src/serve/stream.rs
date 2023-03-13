@@ -52,7 +52,7 @@ where
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    pub fn new(listener: Listener, buf: Buf, service: Arc<Svc>) -> Self {
+    pub fn new(listener: Listener, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
 
@@ -66,7 +66,7 @@ where
             command_tx,
             command_rx,
             listener,
-            buf: buf.into(),
+            buf,
             service,
             metrics,
         }

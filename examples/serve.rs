@@ -356,8 +356,11 @@ async fn main() {
 
     let listener = DoubleListener::new(v4listener, v6listener);
 
-    let srv =
-        Arc::new(StreamServer::new(listener, VecBufSource, svc.clone()));
+    let srv = Arc::new(StreamServer::new(
+        listener,
+        buf_source.clone(),
+        svc.clone(),
+    ));
     let tcp_join_handle = tokio::spawn(srv.run());
 
     // Demonstrate listening with TCP Fast Open enabled (via the tokio-tfo crate).
@@ -376,8 +379,11 @@ async fn main() {
         .await
         .unwrap();
     let tfo_listener = LocalTfoListener(tfo_listener);
-    let tfo_srv =
-        Arc::new(StreamServer::new(tfo_listener, VecBufSource, svc.clone()));
+    let tfo_srv = Arc::new(StreamServer::new(
+        tfo_listener,
+        buf_source.clone(),
+        svc.clone(),
+    ));
     let tfo_join_handle = tokio::spawn(tfo_srv.run());
 
     // Demonstrate using a simple function instead of a struct as the service
@@ -402,7 +408,7 @@ async fn main() {
     let count = Arc::new(AtomicU8::new(5));
     let srv = Arc::new(StreamServer::new(
         listener,
-        VecBufSource,
+        buf_source.clone(),
         service(count).into(),
     ));
     let fn_join_handle = tokio::spawn(srv.run());
@@ -437,8 +443,11 @@ async fn main() {
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:8443").await.unwrap();
     let listener = RustlsTcpListener::new(listener, acceptor);
-    let srv =
-        Arc::new(StreamServer::new(listener, VecBufSource, svc.clone()));
+    let srv = Arc::new(StreamServer::new(
+        listener,
+        buf_source.clone(),
+        svc.clone(),
+    ));
     let tls_join_handle = tokio::spawn(srv.run());
 
     // Keep the services running in the background
