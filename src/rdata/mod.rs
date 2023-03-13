@@ -83,22 +83,23 @@ rdata_types! {
             Null<O>
         }
     }
-    rfc2782::{
-        zone {
-            Srv<N>,
-        }
-    }
-    rfc2845::{
-        pseudo {
-            Tsig<O, N>,
-        }
-    }
-    rfc3596::{
+    aaaa::{
         zone {
             Aaaa,
         }
     }
-    rfc4034::{
+    cds::{
+        zone {
+            Cdnskey<O>,
+            Cds<O>,
+        }
+    }
+    dname::{
+        zone {
+            Dname<N>,
+        }
+    }
+    dnssec::{
         zone {
             Dnskey<O>,
             Rrsig<O, N>,
@@ -106,27 +107,26 @@ rdata_types! {
             Ds<O>,
         }
     }
-    rfc6672::{
-        zone {
-            Dname<N>,
-        }
-    }
-    rfc5155::{
+    nsec3::{
         zone {
             Nsec3<O>,
             Nsec3param<O>,
         }
     }
-    rfc7344::{
+    srv::{
         zone {
-            Cdnskey<O>,
-            Cds<O>,
+            Srv<N>,
         }
     }
     svcb::{
         pseudo {
             Svcb<O, N>,
             Https<O, N>,
+        }
+    }
+    tsig::{
+        pseudo {
+            Tsig<O, N>,
         }
     }
 }

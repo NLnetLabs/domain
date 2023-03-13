@@ -7,7 +7,7 @@ use crate::base::name::ToDname;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::serial::Serial;
-use crate::rdata::rfc4034::{ProtoRrsig, RtypeBitmap};
+use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap};
 use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use std::iter::FromIterator;

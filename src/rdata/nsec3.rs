@@ -4,7 +4,7 @@
 //!
 //! [RFC 5155]: https://tools.ietf.org/html/rfc5155
 
-use super::rfc4034::RtypeBitmap;
+use super::dnssec::RtypeBitmap;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Nsec3HashAlg, Rtype};
 use crate::base::name::PushError;
@@ -1480,7 +1480,7 @@ impl std::error::Error for OwnerHashError {}
 #[cfg(test)]
 #[cfg(all(feature = "std", feature = "bytes"))]
 mod test {
-    use super::super::rfc4034::RtypeBitmapBuilder;
+    use super::super::dnssec::RtypeBitmapBuilder;
     use super::*;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
