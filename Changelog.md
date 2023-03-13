@@ -52,14 +52,17 @@ Breaking Changes
 * The `TcpKeepalive` option has been changed to use an `Option<u16>` as
   its data and allow for an empty option in accordance with the RFC.
   ([#185])
-  
+* Renamed the sub-modules of `rdata` that contain record data types to use a
+  name derived from their content rather than their RFC number – with the
+  exception of `rdata::rfc1035`. ([#189])
+* Renamed the sub-modules of `base::opt` that contain option data types to
+  use short-hand names rather than their RFC number. ([#190])
 
 New
 
 * `Display` impls are now available for all EDNS0 options. ([#157])
 * Adds a `FromStr` implementation and related functions to
   `RelativeDname`. ([#177])
-
 
 Bug Fixes
 
@@ -75,6 +78,8 @@ Other Changes
 [#176]: https://github.com/NLnetLabs/domain/pull/176
 [#177]: https://github.com/NLnetLabs/domain/pull/177
 [#185]: https://github.com/NLnetLabs/domain/pull/185
+[#189]: https://github.com/NLnetLabs/domain/pull/189
+[#190]: https://github.com/NLnetLabs/domain/pull/190
 [Martin Fischer]: https://push-f.com/
 [octseq]: https://crates.io/crates/octseq
 
