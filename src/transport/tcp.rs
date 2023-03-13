@@ -5,19 +5,18 @@
 
 // TODO:
 // - errors
-//   - read errors
-//   - write errors
 //   - connect errors? Retry after connection refused?
 //   - server errors
 //     - ID out of range
 //     - ID not in use
 //     - reply for wrong query
 // - timeouts
-//   - channel timeout
 //   - request timeout
+// - limit number of outstanding queries to 32K
 // - create new TCP connection after end/failure of previous one
 
 use std::collections::VecDeque;
+use std::ops::DerefMut;
 use std::sync::Arc;
 use std::sync::Mutex as Std_mutex;
 use std::time::{Duration, Instant};
@@ -38,10 +37,20 @@ use tokio::time::sleep;
 
 const ERR_IDLE_TIMEOUT: &str = "idle connection was closed";
 const ERR_READ_ERROR: &str = "read error";
+const ERR_READ_TIMEOUT: &str = "read timeout";
 const ERR_WRITE_ERROR: &str = "write error";
 
 // From RFC 7828. This should go somewhere with the option parsing
 const EDNS_TCP_KEEPALIE_TO_MS: u64 = 100;
+
+// Implement a simple response timer to see if the connection and the server
+// are alive. Set the timer when the connection goes from idle to busy.
+// Reset the timer each time a reply arrives. Cancel the timer when the
+// connection goes back to idle. When the time expires, mark all outstanding
+// queries as timed out and shutdown the connection.
+//
+// Note: nsd has 120 seconds, unbound has 3 seconds.
+const RESPONSE_TIMEOUT_S: u64 = 19;
 
 enum SingleQueryState {
 	Busy,
@@ -69,14 +78,15 @@ struct Queries {
 }
 
 enum ConnState {
-	Active,
+	Active(Option<Instant>),
 	Idle(Instant),
 	IdleTimeout,
 	ReadError,
+	ReadTimeout,
 	WriteError,
 }
 
-struct Keepalive {
+struct Status {
 	state: ConnState,
 
 	// For edns-tcp-keepalive, we have a boolean the specifies if we
@@ -91,8 +101,8 @@ struct Keepalive {
 struct InnerTcpConnection {
 	stream: Std_mutex<TcpStream>,
 
-	/* keepalive */
-	keepalive: Std_mutex<Keepalive>,
+	/* status */
+	status: Std_mutex<Status>,
 
 	/* Vector with outstanding queries */
 	query_vec: Std_mutex<Queries>,
@@ -124,8 +134,8 @@ impl InnerTcpConnection {
 		let tcp = TcpStream::connect(addr).await?;
 		Ok(Self {
 			stream: Std_mutex::new(tcp),
-			keepalive: Std_mutex::new(Keepalive {
-				state: ConnState::Active,
+			status: Std_mutex::new(Status {
+				state: ConnState::Active(None),
 				send_keepalive: true,
 				idle_timeout: None,
 			}),
@@ -140,7 +150,32 @@ impl InnerTcpConnection {
 			})
 	}
 
+	// Take a query out of query_vec and decrement the query count 
+	fn take_query(&self, index: usize) -> Option<SingleQuery>
+	{
+		let mut query_vec = self.query_vec.lock().unwrap();
+		self.vec_take_query(query_vec.deref_mut(), index)
+	}
+
+	// Very similar to take_query, but sometime the caller already has
+	// a lock on the mutex
+	fn vec_take_query(&self, query_vec: &mut Queries, index: usize) ->
+		Option<SingleQuery>{
+		let query = query_vec.vec[index].take();
+		query_vec.count = query_vec.count - 1;
+		if query_vec.count == 0 {
+			// The worker may be waiting for this
+			self.worker_notify.notify_one();
+		}
+		query
+	}
+
 	fn insert_answer(&self, answer: Message<Bytes>) {
+		// We got an answer, reset the timer
+		let mut status = self.status.lock().unwrap();
+		status.state = ConnState::Active(Some(Instant::now()));
+		drop(status);
+
 		let ind16 = answer.header().id();
 		let index: usize = ind16.into();
 
@@ -174,12 +209,9 @@ impl InnerTcpConnection {
 						//`The query has been
 						// canceled already
 						// Clean up.
-						let _ = query_vec.
-							vec[index].
-							take();
-						query_vec.count =
-							query_vec.
-							count - 1;
+						let _ = self.vec_take_query(
+							query_vec.deref_mut(),
+							index);
 					}
 					SingleQueryState::Done(_) => {
 						// Already got a
@@ -191,18 +223,25 @@ impl InnerTcpConnection {
 		}
 		query_vec.busy = query_vec.busy-1;
 		if query_vec.busy == 0 {
-			let mut keepalive = self.keepalive.lock().unwrap();
-			if keepalive.idle_timeout == None {
+			let mut status = self.status.lock().unwrap();
+
+			// Clear the activity timer. There is no need to do 
+			// this because state will be set to either IdleTimeout
+			// or Idle just below. However, it is nicer to keep 
+			// this indenpendent.
+			status.state = ConnState::Active(None);
+
+			if status.idle_timeout == None {
 				// Assume that we can just move to IdleTimeout
 				// state
-				keepalive.state = ConnState::IdleTimeout;
+				status.state = ConnState::IdleTimeout;
 
 				// Notify the worker. Then the worker can
 				// close the tcp connection
 				self.worker_notify.notify_one();
 			}
 			else {
-				keepalive.state =
+				status.state =
 					ConnState::Idle(Instant::now());
 
 				// Notify the worker. The worker waits for
@@ -214,8 +253,8 @@ impl InnerTcpConnection {
 
 	fn handle_keepalive(&self, opt_value: TcpKeepalive) {
 		if let Some(value) = opt_value.timeout() {
-			let mut keepalive = self.keepalive.lock().unwrap();
-			keepalive.idle_timeout =
+			let mut status = self.status.lock().unwrap();
+			status.idle_timeout =
 				Some(Duration::from_millis(u64::from(value) *
 					EDNS_TCP_KEEPALIE_TO_MS));
 		}
@@ -241,8 +280,8 @@ impl InnerTcpConnection {
 			Ok(len) => len,
 			Err(error) => {
 			    self.tcp_error(error);
-			    let mut keepalive = self.keepalive.lock().unwrap();
-			    keepalive.state = ConnState::ReadError;
+			    let mut status = self.status.lock().unwrap();
+			    status.state = ConnState::ReadError;
 			    return Err(ERR_READ_ERROR);
 			}
 		    } as usize;
@@ -254,8 +293,8 @@ impl InnerTcpConnection {
 			Ok(_) => (),	// We don't need the result
 			Err(error) => {
 			    self.tcp_error(error);
-			    let mut keepalive = self.keepalive.lock().unwrap();
-			    keepalive.state = ConnState::ReadError;
+			    let mut status = self.status.lock().unwrap();
+			    status.state = ConnState::ReadError;
 			    return Err(ERR_READ_ERROR);
 			}
 		    };
@@ -276,8 +315,8 @@ impl InnerTcpConnection {
 			    let error = io::Error::new(io::ErrorKind::Other,
 				"short buf");
 			    self.tcp_error(error);
-			    let mut keepalive = self.keepalive.lock().unwrap();
-			    keepalive.state = ConnState::ReadError;
+			    let mut status = self.status.lock().unwrap();
+			    status.state = ConnState::ReadError;
 			    return Err(ERR_READ_ERROR);
 			}
 		    }
@@ -326,9 +365,9 @@ impl InnerTcpConnection {
 				let res = sock.write_all(&vec).await;
 				if let Err(error) = res {
 					self.tcp_error(error);
-					let mut keepalive =
-						self.keepalive.lock().unwrap();
-					keepalive.state =
+					let mut status =
+						self.status.lock().unwrap();
+					status.state =
 						ConnState::WriteError;
 					return Err(ERR_WRITE_ERROR);
 				}
@@ -384,14 +423,31 @@ impl InnerTcpConnection {
 			let notify_fut = self.worker_notify.notified();
 
 			let mut opt_timeout: Option<Duration> = None;
-			let mut keepalive = self.keepalive.lock().unwrap();
-			if let ConnState::Idle(instant) = keepalive.state {
-				if let Some(timeout) = keepalive.idle_timeout {
+			let mut status = self.status.lock().unwrap();
+			match status.state {
+			    ConnState::Active(opt_instant) => {
+				if let Some(instant) = opt_instant {
+				    let timeout = Duration::from_secs(
+					RESPONSE_TIMEOUT_S);
+				    let elapsed = instant.elapsed();
+				    if elapsed > timeout {
+					let error = io::Error::new(
+						io::ErrorKind::Other,
+						"read timeout");
+					self.tcp_error(error);
+					status.state = ConnState::ReadTimeout;
+					break;
+				    }
+				    opt_timeout = Some(timeout - elapsed);
+				}
+			    }
+			    ConnState::Idle(instant) => {
+				if let Some(timeout) = status.idle_timeout {
 					let elapsed = instant.elapsed();
 					if elapsed >= timeout {
 						// Move to IdleTimeout and end
 						// the loop
-						keepalive.state =
+						status.state =
 							ConnState::IdleTimeout;
 						break;
 					}
@@ -400,8 +456,15 @@ impl InnerTcpConnection {
 				else {
 					panic!("Idle state but no timeout");
 				}
+			    }
+			    ConnState::IdleTimeout |
+			    ConnState::ReadError |
+			    ConnState::WriteError =>
+				(), // No timers here
+			    ConnState::ReadTimeout => panic!(
+				"should not be in loop with ReadTimeout")
 			}
-			drop(keepalive);
+			drop(status);
 
 
 			if let Some(timeout) = opt_timeout {
@@ -456,20 +519,21 @@ impl InnerTcpConnection {
 			}
 
 			// Check if the connection is idle
-			let keepalive = self.keepalive.lock().unwrap();
-			match keepalive.state {
-				ConnState::Active | ConnState::Idle(_) => {
+			let status = self.status.lock().unwrap();
+			match status.state {
+				ConnState::Active(_) | ConnState::Idle(_) => {
 					// Keep going
 				}
 				ConnState::IdleTimeout => {
 					break
 				}
 				ConnState::ReadError |
+				ConnState::ReadTimeout |
 				ConnState::WriteError => {
 					panic!("Should not be here");
 				}
 			}
-			drop(keepalive);
+			drop(status);
 		}
 
 		// Send FIN to server. Ignore any errors.
@@ -567,18 +631,23 @@ impl InnerTcpConnection {
 		query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>
 		) -> Result<usize, &'static str> {
 
-		// Check the state of the connection, fail if the connection is in
-		// IdleTimeout. If the connection is Idle, move it back to Active
-		// Also check for the need to send a keepalive
-		let mut keepalive = self.keepalive.lock().unwrap();
-		match keepalive.state {
-			ConnState::Active => {
-				// Nothing to do
+		// Check the state of the connection, fail if the connection
+		// is in IdleTimeout. If the connection is Idle, move it
+		// back to Active. Also check for the need to send a keepalive
+		let mut status = self.status.lock().unwrap();
+		match status.state {
+			ConnState::Active(timer) => {
+				// Set timer if we don't have one already
+				if timer == None {
+					status.state = ConnState::Active(Some(
+						Instant::now()));
+				}
 				()
 			}
 			ConnState::Idle(_) => {
 				// Go back to active
-				keepalive.state = ConnState::Active;
+				status.state = ConnState::Active(Some(
+					Instant::now()));
 				()
 			}
 			ConnState::IdleTimeout => {
@@ -588,17 +657,20 @@ impl InnerTcpConnection {
 			ConnState::ReadError => {
 				return Err(ERR_READ_ERROR);
 			}
+			ConnState::ReadTimeout => {
+				return Err(ERR_READ_TIMEOUT);
+			}
 			ConnState::WriteError => {
 				return Err(ERR_WRITE_ERROR);
 			}
 		}
 
 		let mut do_keepalive = false;
-		if keepalive.send_keepalive {
+		if status.send_keepalive {
 			do_keepalive = true;
-			keepalive.send_keepalive = false;
+			status.send_keepalive = false;
 		}
-		drop(keepalive);
+		drop(status);
 
 		let index = self.insert();
 		let ind16: u16 = index.try_into().unwrap();
@@ -628,12 +700,12 @@ impl InnerTcpConnection {
 						// failed. Send the original
 						// request and turn the
 						// send_keepalive flag back on
-						let mut keepalive =
-							self.keepalive.lock()
+						let mut status =
+							self.status.lock()
 							.unwrap();
-						keepalive.send_keepalive =
+						status.send_keepalive =
 							true;
-						drop(keepalive);
+						drop(status);
 						self.queue_query(query_msg);
 					}
 				}
@@ -652,21 +724,13 @@ impl InnerTcpConnection {
 			Result<Message<Bytes>, Arc<std::io::Error>> {
 			// Wait for reply
 			let mut query_vec = self.query_vec.lock().unwrap();
-			let local_notify = query_vec.vec[index].as_mut().unwrap().
-				complete.clone();
+			let local_notify = query_vec.vec[index].as_mut().
+				unwrap().complete.clone();
 			drop(query_vec);
 			local_notify.notified().await;
 
-			// Get the lock again to take a look
-			let mut query_vec = self.query_vec.lock().unwrap();
-			let opt_q = query_vec.vec[index].take();
-			query_vec.count = query_vec.count - 1;
-			if query_vec.count == 0 {
-				// The worker may be waiting for this
-				self.worker_notify.notify_one();
-			}
-			drop(query_vec);
-
+			// take a look
+			let opt_q = self.take_query(index);
 			if let Some(q) = opt_q
 			{
 				if let SingleQueryState::Done(result) = q.state
@@ -697,7 +761,8 @@ impl InnerTcpConnection {
 				match &query.state {
 					SingleQueryState::Busy => {
 						query.state =
-							SingleQueryState::Canceled;
+							SingleQueryState::
+								Canceled;
 						return;
 					}
 					SingleQueryState::Canceled => {
@@ -705,11 +770,9 @@ impl InnerTcpConnection {
 					}
 					SingleQueryState::Done(_) => {
 						// Remove the result
-						let _ = query_vec.
-							vec[index].take();
-						query_vec.count =
-							query_vec.count - 1;
-						drop(query_vec);
+						let _ = self.vec_take_query(
+							query_vec.deref_mut(),
+							index);
 					}
 				}
 			}
@@ -748,7 +811,8 @@ impl Query {
 		Self {
 			transport: transport.inner.clone(),
 			query_msg: msg,
-			state: QueryState::Busy(index) }
+			state: QueryState::Busy(index)
+		}
 	}
 	pub async fn get_result(&mut self) ->
 		Result<Message<Bytes>, Arc<std::io::Error>> {
