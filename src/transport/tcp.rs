@@ -39,6 +39,7 @@ const ERR_IDLE_TIMEOUT: &str = "idle connection was closed";
 const ERR_READ_ERROR: &str = "read error";
 const ERR_READ_TIMEOUT: &str = "read timeout";
 const ERR_WRITE_ERROR: &str = "write error";
+const ERR_TOO_MANY_QUERIES: &str = "too many outstanding queries";
 
 // From RFC 7828. This should go somewhere with the option parsing
 const EDNS_TCP_KEEPALIE_TO_MS: u64 = 100;
@@ -273,6 +274,7 @@ impl InnerTcpConnection {
 		}
 	}
 
+	// This function is not async cancellation safe
 	async fn reader(&self, sock: &mut ReadHalf<'_>) -> Result<(), &str> {
 		loop {
 		    let read_res = sock.read_u16().await;
@@ -288,16 +290,43 @@ impl InnerTcpConnection {
 
 		    let mut buf = BytesMut::with_capacity(len);
 			
-		    let read_res = sock.read_buf(&mut buf).await;
-		    match read_res {
-			Ok(_) => (),	// We don't need the result
-			Err(error) => {
-			    self.tcp_error(error);
-			    let mut status = self.status.lock().unwrap();
-			    status.state = ConnState::ReadError;
-			    return Err(ERR_READ_ERROR);
+		    loop {
+			let curlen = buf.len();
+			if curlen >= len {
+				if curlen > len {
+					panic!(
+			"reader: got too much data {curlen}, expetect {len}");
+				}
+
+				// We got what we need
+				break;
 			}
-		    };
+
+			let read_res = sock.read_buf(&mut buf).await;
+
+			match read_res {
+			    Ok(readlen) => {
+				if readlen == 0 {
+				    let error = io::Error::new(
+					io::ErrorKind::Other,
+					"unexpected end of data");
+				    self.tcp_error(error);
+				    let mut status = self.status.lock().
+					unwrap();
+				    status.state = ConnState::ReadError;
+				    return Err(ERR_READ_ERROR);
+				}
+			    }
+			    Err(error) => {
+				self.tcp_error(error);
+				let mut status = self.status.lock().unwrap();
+				status.state = ConnState::ReadError;
+				return Err(ERR_READ_ERROR);
+			    }
+			};
+
+			// Check if we are done at the head of the loop
+		    }
 			
 		    let reply_message = Message::<Bytes>::from_octets(buf.into());
 
@@ -380,6 +409,8 @@ impl InnerTcpConnection {
 		Ok(())
 	}
 
+	// This function is not async cancellation safe because it calls
+	// reader which is not async cancellation safe
 	pub async fn worker(&self) -> Option<()> {
 		let mut stream = self.stream.lock().unwrap();
 		let (mut read_stream, mut write_stream) = stream.split();
@@ -563,20 +594,34 @@ impl InnerTcpConnection {
 
 	// Insert a message in the query vector. Return the index
 	fn insert(&self)
-		-> usize {
+		-> Result<usize, &'static str> {
 		let q = Some(SingleQuery {
 			state: SingleQueryState::Busy,
 			complete: Arc::new(Notify::new()),
 		});
 		let mut query_vec = self.query_vec.lock().unwrap();
+
+		// Fail if there are to many entries already in this vector
+		// We cannot have more than u16::MAX entries because the
+		// index needs to fit in an u16. For efficiency we want to
+		// keep the vector half empty. So we return a failure if
+		// 2*count > u16::MAX
+		if 2*query_vec.count > u16::MAX.into() {
+			return Err(ERR_TOO_MANY_QUERIES);
+		}
+
 		let vec_len = query_vec.vec.len();
-		if vec_len < 2*(query_vec.count+1) {
+
+		// Append if the amount of empty space in the vector is less
+		// than half. But limit vec_len to u16::MAX
+		if vec_len < 2*(query_vec.count+1) && vec_len <
+			u16::MAX.into() {
 			// Just append
 			query_vec.vec.push(q);
 			query_vec.count = query_vec.count + 1;
 			query_vec.busy = query_vec.busy + 1;
 			let index = query_vec.vec.len()-1;
-			return index;
+			return Ok(index);
 		}
 		let loc_curr = query_vec.curr;
 
@@ -589,7 +634,7 @@ impl InnerTcpConnection {
 				None => {
 					Self::insert_at(&mut query_vec,
 						index, q);
-					return index;
+					return Ok(index);
 				}
 			}
 		}
@@ -605,7 +650,7 @@ impl InnerTcpConnection {
 				None => {
 					Self::insert_at(&mut query_vec,
 						index, q);
-					return index;
+					return Ok(index);
 				}
 			}
 		}
@@ -665,6 +710,11 @@ impl InnerTcpConnection {
 			}
 		}
 
+		// Note that insert may fail if there are too many
+		// outstanding queires. First call insert before checking
+		// send_keepalive.
+		let index = self.insert()?;
+
 		let mut do_keepalive = false;
 		if status.send_keepalive {
 			do_keepalive = true;
@@ -672,7 +722,6 @@ impl InnerTcpConnection {
 		}
 		drop(status);
 
-		let index = self.insert();
 		let ind16: u16 = index.try_into().unwrap();
 
 		// We set the ID to the array index. Defense in depth
@@ -737,9 +786,12 @@ impl InnerTcpConnection {
 				{
 					if let Ok(answer) = &result
 					{
-						if !answer.is_answer(query_msg) {
-						    // Wrong answer, try again?
-						    panic!("wrong answer");
+						if !answer.is_answer(
+							query_msg) {
+						    return Err(Arc::new(
+							io::Error::new(
+							io::ErrorKind::Other,
+							"wrong answer")));
 						}
 					}
 					return result;
