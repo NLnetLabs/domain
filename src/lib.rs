@@ -78,6 +78,10 @@
 //!   enable actual signing. For that you will also need to pick a crypto
 //!   module via an additional feature. Currently we only support the `ring`
 //!   module, but support for OpenSSL is coming soon.
+//! * `siphasher`: enables the dependency on the
+//!   [siphasher](https://github.com/jedisct1/rust-siphash) crate which allows
+//!   generating and checking hashes in [standard server
+//!   cookies][crate::base::opt::cookie::StandardServerCookie].
 //! * `smallvec`: enables the use of the `Smallvec` type from the
 //!   [smallvec](https://github.com/servo/rust-smallvec) crate as octet
 //!   sequences.

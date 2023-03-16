@@ -2319,7 +2319,7 @@ mod test {
 
         // Check options
         assert_eq!(opt.udp_payload_size(), 4096);
-        let mut opts = opt.as_opt().iter::<opt::nsid::Nsid<_>>();
+        let mut opts = opt.opt().iter::<opt::nsid::Nsid<_>>();
         assert_eq!(opts.next(), Some(Ok(nsid)));
     }
 

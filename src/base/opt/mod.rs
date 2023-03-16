@@ -45,11 +45,12 @@ use super::name::{Dname, ToDname};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::record::Record;
 use super::wire::{Composer, FormError, ParseError};
+use crate::utils::base16;
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::marker::PhantomData;
-use core::{fmt, hash, mem, ops};
-use octseq::builder::OctetsBuilder;
+use core::{fmt, hash, mem};
+use octseq::builder::{OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 
@@ -148,6 +149,17 @@ impl<Octs: AsRef<[u8]> + ?Sized> Opt<Octs> {
         Data: ParseOptData<'s, Octs>,
     {
         OptIter::new(&self.octets)
+    }
+
+    /// Returns the first option of a given type if present.
+    ///
+    /// If trying to parse this first option fails, returns `None` as well.
+    pub fn first<'s, Data>(&'s self) -> Option<Data>
+    where
+        Octs: Octets,
+        Data: ParseOptData<'s, Octs>,
+    {
+        self.iter::<Data>().next()?.ok()
     }
 }
 
@@ -392,13 +404,7 @@ impl Default for OptHeader {
 /// Because the EDNS specificiation uses parts of the header of the OPT record
 /// to convey some information, a special record type is necessary for OPT
 /// records. You can convert a normal record with [`Opt`] record data into
-/// an `OptRecord` via the [`from_record`] function.
-///
-/// The type derefs to the [`Opt`] type and provides all its functionality
-/// that way.
-///
-/// [`Opt`]: strait.Opt.html
-/// [`from_record`]: #method.from_record
+/// an `OptRecord` via the [`from_record`][OptRecord::from_record] function.
 #[derive(Clone)]
 pub struct OptRecord<Octs> {
     /// The UDP payload size field from the record header.
@@ -468,7 +474,7 @@ impl<Octs> OptRecord<Octs> {
     }
 
     /// Returns a reference to the raw options.
-    pub fn as_opt(&self) -> &Opt<Octs> {
+    pub fn opt(&self) -> &Opt<Octs> {
         &self.data
     }
 }
@@ -502,15 +508,7 @@ where
     }
 }
 
-//--- Deref and AsRef
-
-impl<Octs> ops::Deref for OptRecord<Octs> {
-    type Target = Opt<Octs>;
-
-    fn deref(&self) -> &Opt<Octs> {
-        &self.data
-    }
-}
+//--- AsRef
 
 impl<Octs> AsRef<Opt<Octs>> for OptRecord<Octs> {
     fn as_ref(&self) -> &Opt<Octs> {
@@ -693,9 +691,22 @@ pub struct UnknownOptData<Octs> {
 
 impl<Octs> UnknownOptData<Octs> {
     /// Creates a new option from the code and data.
-    /// XXX Rename to `new`.
-    pub fn from_octets(code: OptionCode, data: Octs) -> Self {
-        UnknownOptData { code, data }
+    ///
+    /// The function returns an error if `data` is longer than 65,535 octets.
+    pub fn new(code: OptionCode, data: Octs) -> Result<Self, LongOptData>
+    where Octs: AsRef<[u8]> {
+        LongOptData::check_len(data.as_ref().len())?;
+        Ok( unsafe { Self::new_unchecked(code, data) })
+    }
+
+    /// Creates a new option data value without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to make sure that `data` is not longer than 65,535
+    /// octets.
+    pub unsafe fn new_unchecked(code: OptionCode, data: Octs) -> Self {
+        Self { code, data }
     }
 
     /// Returns the option code of the option.
@@ -745,7 +756,7 @@ impl<Octs: AsMut<[u8]>> AsMut<[u8]> for UnknownOptData<Octs> {
     }
 }
 
-//--- OptData
+//--- OptData etc.
 
 impl<Octs: AsRef<[u8]>> OptData for UnknownOptData<Octs> {
     fn code(&self) -> OptionCode {
@@ -755,27 +766,21 @@ impl<Octs: AsRef<[u8]>> OptData for UnknownOptData<Octs> {
 
 impl<'a, Octs> ParseOptData<'a, Octs> for UnknownOptData<Octs::Range<'a>>
 where
-    Octs: Octets,
+    Octs: Octets + ?Sized,
 {
     fn parse_option(
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        let len = parser.remaining();
-        parser
-            .parse_octets(len)
-            .map(|data| Some(Self::from_octets(code, data)))
-            .map_err(Into::into)
+        Self::new(
+            code, parser.parse_octets(parser.remaining())?
+        ).map(Some).map_err(Into::into)
     }
 }
 
 impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
     fn compose_len(&self) -> u16 {
-        self.data
-            .as_ref()
-            .len()
-            .try_into()
-            .expect("long option data")
+        self.data.as_ref().len().try_into().expect("long option data")
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
@@ -785,6 +790,90 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
         target.append_slice(self.data.as_ref())
     }
 }
+
+//--- Display
+
+impl<Octs: AsRef<[u8]>> fmt::Display for UnknownOptData<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        base16::display(self.data.as_ref(), f)
+    }
+}
+
+
+//============ Error Types ===================================================
+
+//------------ LongOptData ---------------------------------------------------
+
+/// The octets sequence to be used for option data is too long.
+#[derive(Clone, Copy, Debug)]
+pub struct LongOptData(());
+
+impl LongOptData {
+    pub fn as_str(self) -> &'static str {
+        "option data too long"
+    }
+
+    pub fn check_len(len: usize) -> Result<(), Self> {
+        if len > usize::from(u16::MAX) {
+            Err(Self(()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl From<LongOptData> for ParseError {
+    fn from(src: LongOptData) -> Self {
+        ParseError::form_error(src.as_str())
+    }
+}
+
+impl fmt::Display for LongOptData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for LongOptData {}
+
+//------------ BuildDataError ------------------------------------------------
+
+/// An error happened while constructing an SVCB value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuildDataError {
+    /// The value would exceed the allow length of a value.
+    LongOptData,
+
+    /// The underlying octets builder ran out of buffer space.
+    ShortBuf,
+}
+
+impl From<LongOptData> for BuildDataError {
+    fn from(_: LongOptData) -> Self {
+        Self::LongOptData
+    }
+}
+
+impl<T: Into<ShortBuf>> From<T> for BuildDataError {
+    fn from(_: T) -> Self {
+        Self::ShortBuf
+    }
+}
+
+//--- Display and Error
+
+impl fmt::Display for BuildDataError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::LongOptData => f.write_str("long option data"),
+            Self::ShortBuf => ShortBuf.fmt(f)
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BuildDataError {}
 
 //============ Tests =========================================================
 
@@ -833,9 +922,13 @@ pub(super) mod test {
 
     #[test]
     fn opt_iter() {
+        use self::opt::cookie::{Cookie, ClientCookie};
+
         // Push two options and check that both are parseable
         let nsid = opt::Nsid::from_octets(&b"example"[..]);
-        let cookie = opt::Cookie::new(1234u64.to_be_bytes());
+        let cookie = Cookie::new(
+            ClientCookie::from_octets(1234u64.to_be_bytes()), None
+        );
         let msg = {
             let mut mb = MessageBuilder::new_vec().additional();
             mb.opt(|mb| {
@@ -849,8 +942,8 @@ pub(super) mod test {
 
         // Parse both into specialized types
         let opt = msg.opt().unwrap();
-        assert_eq!(Some(Ok(nsid)), opt.iter::<opt::Nsid<_>>().next());
-        assert_eq!(Some(Ok(cookie)), opt.iter::<opt::Cookie>().next());
+        assert_eq!(Some(Ok(nsid)), opt.opt().iter::<opt::Nsid<_>>().next());
+        assert_eq!(Some(Ok(cookie)), opt.opt().iter::<opt::Cookie>().next());
     }
 
     pub fn test_option_compose_parse<In, F, Out>(data: &In, parse: F)

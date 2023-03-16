@@ -473,7 +473,7 @@ impl<Octs> UnknownSvcParam<Octs> {
     ///
     /// # Safety
     ///
-    /// The called needs to make sure that `value` is not longer than
+    /// The caller needs to make sure that `value` is not longer than
     /// 65,535 octets.
     pub unsafe fn new_unchecked(key: SvcParamKey, value: Octs) -> Self {
         Self { key, value }

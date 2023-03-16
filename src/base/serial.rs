@@ -62,6 +62,11 @@ impl Serial {
         Self(value.as_secs() as u32)
     }
 
+    /// Creates a new serial number from its octets in big endian notation.
+    pub fn from_be_bytes(bytes: [u8; 4]) -> Self {
+        Self(u32::from_be_bytes(bytes))
+    }
+
     /// Returns the serial number as a raw integer.
     pub fn into_int(self) -> u32 {
         self.0
