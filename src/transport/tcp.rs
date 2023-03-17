@@ -97,6 +97,7 @@ struct Status {
 	// specify time in Rust? Currently we specify it in milliseconds.
 	send_keepalive: bool,
 	idle_timeout: Option<Duration>,
+	do_shutdown: bool,
 }
 
 struct InnerTcpConnection {
@@ -112,6 +113,7 @@ struct InnerTcpConnection {
 	tx_queue: Std_mutex<VecDeque<Vec<u8>>>,
 
 	worker_notify: Notify,
+	writer_notify: Notify,
 }
 
 pub struct TcpConnection {
@@ -139,6 +141,7 @@ impl InnerTcpConnection {
 				state: ConnState::Active(None),
 				send_keepalive: true,
 				idle_timeout: None,
+				do_shutdown: false,
 			}),
 			query_vec: Std_mutex::new(Queries {
 				count: 0,
@@ -148,6 +151,7 @@ impl InnerTcpConnection {
 			}),
 			tx_queue: Std_mutex::new(VecDeque::new()),
 			worker_notify: Notify::new(),
+			writer_notify: Notify::new(),
 			})
 	}
 
@@ -383,76 +387,63 @@ impl InnerTcpConnection {
 		}
 	}
 
+	// This function is not async cancellation safe
 	async fn writer(&self, sock: &mut WriteHalf<'_>) ->
 		Result<(), &'static str> {
 		loop {
-			let mut tx_queue = self.tx_queue.lock().unwrap();
-			let head = tx_queue.pop_front();
-			drop(tx_queue);
-			match head {
-			Some(vec) => {
-				let res = sock.write_all(&vec).await;
-				if let Err(error) = res {
-					self.tcp_error(error);
-					let mut status =
-						self.status.lock().unwrap();
-					status.state =
-						ConnState::WriteError;
-					return Err(ERR_WRITE_ERROR);
+			loop {
+				// Check if we need to shutdown
+				let status = self.status.lock().unwrap();
+				let do_shutdown = status.do_shutdown;
+				drop(status);
+
+				if do_shutdown {
+					// Ignore errors
+					_ = sock.shutdown().await;
+
+					// Do we need to clear do_shutdown?
+					break;
 				}
-				()
+
+				let mut tx_queue = self.tx_queue.lock().
+					unwrap();
+				let head = tx_queue.pop_front();
+				drop(tx_queue);
+				match head {
+				Some(vec) => {
+					let res = sock.write_all(&vec).await;
+					if let Err(error) = res {
+						self.tcp_error(error);
+						let mut status =
+							self.status.lock().
+							unwrap();
+						status.state =
+							ConnState::WriteError;
+						return Err(ERR_WRITE_ERROR);
+					}
+					()
+				}
+				None =>
+					break,
+				}
 			}
-			None =>
-				break,
-			}
+
+			self.writer_notify.notified().await;
 		}
-		Ok(())
 	}
 
 	// This function is not async cancellation safe because it calls
-	// reader which is not async cancellation safe
+	// reader and writer which are not async cancellation safe
 	pub async fn worker(&self) -> Option<()> {
 		let mut stream = self.stream.lock().unwrap();
 		let (mut read_stream, mut write_stream) = stream.split();
 
 		let reader_fut = self.reader(&mut read_stream);
 		tokio::pin!(reader_fut);
+		let writer_fut = self.writer(&mut write_stream);
+		tokio::pin!(writer_fut);
 
 		loop {
-			let writer_fut = self.writer(&mut write_stream);
-
-			tokio::select! {
-				res = &mut reader_fut => {
-					match res {
-					    Ok(_) =>
-						// The reader should not
-						// terminate without
-						// error.
-						panic!("reader terminated"),
-					    Err(_) =>
-						// Reader failed. Break
-						// out of loop and
-						// shut down
-						break
-					}
-				}
-				res = writer_fut => {
-					match res {
-						Ok(_) =>
-							// The writer is done.
-							// Wait for a notify.
-							(),
-						Err(_) =>
-							// Writer failed. Break
-							// out of loop and
-							// shut down
-						break
-					}
-				}
-			}
-
-			let notify_fut = self.worker_notify.notified();
-
 			let mut opt_timeout: Option<Duration> = None;
 			let mut status = self.status.lock().unwrap();
 			match status.state {
@@ -498,55 +489,58 @@ impl InnerTcpConnection {
 			drop(status);
 
 
-			if let Some(timeout) = opt_timeout {
-				let sleep_fut = sleep(timeout);
+			// For simplicity, make sure we always have a timeout
+			let timeout = match opt_timeout {
+				Some(timeout) => timeout,
+				None =>
+					// Just use the response timeout
+					Duration::from_secs(RESPONSE_TIMEOUT_S)
+			};
 
-				tokio::select! {
-					res = &mut reader_fut => {
-					    match res {
+			let sleep_fut = sleep(timeout);
+			let notify_fut = self.worker_notify.notified();
+
+			tokio::select! {
+				res = &mut reader_fut => {
+				    match res {
+					Ok(_) =>
+					    // The reader should not
+					    // terminate without
+					    // error.
+					    panic!("reader terminated"),
+					Err(_) =>
+					    // Reader failed. Break
+					    // out of loop and
+					    // shut down
+					    break
+				    }
+				}
+				res = &mut writer_fut => {
+					match res {
 						Ok(_) =>
-						    // The reader should not
-						    // terminate without
-						    // error.
-						    panic!("reader terminated"),
-						Err(_) =>
-						    // Reader failed. Break
-						    // out of loop and
-						    // shut down
-						    break
-					    }
-					}
-					_ = notify_fut => {
-						// Got notified, start writing
-						()
-					}
-					_ = sleep_fut => {
-						// Idle timeout expired, just
-						// continue with the loop
-						()
+						// The writer should not
+						// terminate without
+						// error.
+					    panic!("reader terminated"),
+					Err(_) =>
+						// Writer failed. Break
+						// out of loop and
+						// shut down
+						break
 					}
 				}
-			} else {
-				tokio::select! {
-					res = &mut reader_fut => {
-					    match res {
-						Ok(_) =>
-						    // The reader should not
-						    // terminate without
-						    // error.
-						    panic!("reader terminated"),
-						Err(_) =>
-						    // Reader failed. Break
-						    // out of loop and
-						    // shut down
-						    break
-					    }
-					}
-					_ = notify_fut => {
-						// Got notified, start writing
-						()
-					}
+
+				_ = sleep_fut => {
+					// Timeout expired, just
+					// continue with the loop
+					()
 				}
+				_ = notify_fut => {
+					// Got notifies, go through the loop
+					// to see what changed.
+					()
+				}
+
 			}
 
 			// Check if the connection is idle
@@ -567,8 +561,18 @@ impl InnerTcpConnection {
 			drop(status);
 		}
 
-		// Send FIN to server. Ignore any errors.
-		let _ = write_stream.shutdown().await;
+		// We can't see a FIN directly because the writer_fut owns
+		// write_stream.
+		let mut status = self.status.lock().unwrap();
+		status.do_shutdown = true;
+		drop(status);
+
+		// Kick writer
+		self.writer_notify.notify_one();
+
+		// Wait for writer to terminate. Ignore the result. We may
+		// want a timer here
+		_ = writer_fut.await;
 
 		// Stay around until the last query result is collected
 		loop {
@@ -762,8 +766,8 @@ impl InnerTcpConnection {
 				self.queue_query(query_msg);
 			}
 
-			// Now kick the worker to transmit the query
-			self.worker_notify.notify_one();
+			// Now kick the writer to transmit the query
+			self.writer_notify.notify_one();
 
 			Ok(index)
 		}
