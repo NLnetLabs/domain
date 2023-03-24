@@ -16,32 +16,56 @@
 //! The DNS Cookie mechanism is defined in [RFC 7873]. Guidance for creating
 //! client and server cookies is provided by [RFC 9018].
 //!
-//!
-//!
 //! [RFC 7873]: https://tools.ietf.org/html/rfc7873
 //! [RFC 9018]: https://tools.ietf.org/html/rfc9018
 
 use core::{fmt, hash};
 use octseq::array::Array;
 use octseq::builder::OctetsBuilder;
+use octseq::octets::Octets;
 use octseq::parse::Parser;
 use crate::base::Serial;
 use crate::utils::base16;
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Composer, ParseError};
-use super::{OptData, ComposeOptData, ParseOptData};
+use super::{Opt, OptData, ComposeOptData, ParseOptData};
 
 
 //------------ Cookie --------------------------------------------------------
 
+/// Option data for a DNS cookie.
+///
+/// A value of this type carries two parts: A mandatory [`ClientCookie`] and
+/// an optional [`ServerCookie`]. The client cookie is chosen by, yes, the
+/// client and added to a request when contacting a specific server for the
+/// first time. When responding, a server calculates a server cookie from the
+/// client cookie and adds both of them to the response. The client remembers
+/// both and includes them in subsequent requests. The server can now check
+/// that the the server cookie was indeed calculated by it and treat the
+/// repeat customer differently.
+///
+/// While you can create a new cookie using the [`new`][Self::new] method,
+/// shortcuts are available for the standard workflow. A new initial cookie
+/// can be created via [`create_initial`][Self::create_initial]. As this will
+/// be a random client cookie, it needs the `rand` feature. The server can
+/// check whether a received cookie includes a server cookie created by it
+/// via the [`check_server_hash`][Self::check_server_hash] method. It needs
+/// the SipHash-2-4 algorithm and is thus available if the `siphasher` feature
+/// is enabled. The same feature also enables the
+/// [`create_response`][Self::create_response] method which creates the server
+/// cookie to be included in a response.
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Cookie {
+    /// The client cookie.
     client: ClientCookie, 
+
+    /// The optional server cookie.
     server: Option<ServerCookie>,
 }
 
 impl Cookie {
+    /// Creates a new cookie from client and optional server cookie.
     pub fn new(
         client: ClientCookie,
         server: Option<ServerCookie>
@@ -49,14 +73,17 @@ impl Cookie {
         Cookie { client, server }
     }
 
+    /// Returns the client cookie.
     pub fn client(&self) -> ClientCookie {
         self.client
     }
 
+    /// Returns a reference to the server cookie if present.
     pub fn server(&self) -> Option<&ServerCookie> {
         self.server.as_ref()
     }
 
+    /// Parses the cookie from its wire format.
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
@@ -98,6 +125,12 @@ impl Cookie {
         }).unwrap_or(false)
     }
 
+    /// Creates a random client cookie for including in an initial request.
+    #[cfg(feature = "rand")]
+    pub fn create_initial() -> Self {
+        Self::new(ClientCookie::new_random(), None)
+    }
+
     /// Creates a standard format cookie option for sending a response.
     ///
     /// This method uses the client cookie and the additional values provided
@@ -109,14 +142,14 @@ impl Cookie {
         client_ip: crate::base::net::IpAddr,
         secret: &[u8; 16]
     ) -> Self {
-        Self {
-            client: self.client,
-            server: Some(
+        Self::new(
+            self.client,
+            Some(
                 StandardServerCookie::calculate(
                     self.client, timestamp, client_ip, secret
                 ).into()
             )
-        }
+        )
     }
 }
 
@@ -177,11 +210,30 @@ impl fmt::Display for Cookie {
 }
 
 
+//--- Extending Opt and OptBuilder
+
+impl<Octs: Octets> Opt<Octs> {
+    /// Returns the first cookie option if present.
+    pub fn cookie(&self) -> Option<Cookie> {
+        self.first()
+    }
+}
+
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    /// Appends a new cookie option.
     pub fn cookie(
-        &mut self, client: ClientCookie, server: Option<ServerCookie>
+        &mut self, cookie: Cookie,
     ) -> Result<(), Target::AppendError> {
-        self.push(&Cookie::new(client, server))
+        self.push(&cookie)
+    }
+
+    /// Appends a new initial client cookie.
+    ///
+    /// The appened cookie will have a random client cookie portion and no
+    /// server cookie. See [`Cookie`] for more information about cookies.
+    #[cfg(feature = "rand")]
+    pub fn initial_cookie(&mut self) -> Result<(), Target::AppendError> {
+        self.push(&Cookie::create_initial())
     }
 }
 
@@ -236,8 +288,10 @@ impl ClientCookie {
         Ok(res)
     }
 
+    /// The length of the wire format of a client cookie.
     pub const COMPOSE_LEN: u16 = 8;
 
+    /// Appends the wire format of the client cookie to the target.
     pub fn compose<Target: OctetsBuilder + ?Sized>(
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
@@ -517,11 +571,9 @@ impl StandardServerCookie {
     /// octets array.
     //
     // XXX The hash implementation for SipHash-2-4 returns the result as
-    // a `u64` whereas RFC 9018 assumes it is returned as a octets array in
-    // a standard ordering. The test vectors in the appendix make it seem
-    // that this ordering translates to the little endian encoding of the
-    // `u64` at least when used on a little-endian system. This has not been
-    // tested on a big-endian system yet.
+    // a `u64` whereas RFC 9018 assumes it is returned as an octets array in
+    // a standard ordering. Somewhat surprisingly, this ordering turns out to
+    // be little endian.
     #[cfg(feature = "siphasher")]
     fn calculate_hash(
         self,
