@@ -373,10 +373,8 @@ impl InnerTcpConnection {
                         }
                         SingleQueryState::Done(_)
                         | SingleQueryState::Canceled =>
-                        // Nothing to do
-                        {
-                            ()
-                        }
+                            // Nothing to do
+                            {}
                     }
                 }
             }
