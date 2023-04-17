@@ -63,6 +63,8 @@ New
 * `Display` impls are now available for all EDNS0 options. ([#157])
 * Adds a `FromStr` implementation and related functions to
   `RelativeDname`. ([#177])
+* Add a `Debug` impl to `base::message::Message` so it can be unwrapped
+  etc. ([#199])
 
 Bug Fixes
 
@@ -80,6 +82,7 @@ Other Changes
 [#185]: https://github.com/NLnetLabs/domain/pull/185
 [#189]: https://github.com/NLnetLabs/domain/pull/189
 [#190]: https://github.com/NLnetLabs/domain/pull/190
+[#199]: https://github.com/NLnetLabs/domain/pull/199
 [Martin Fischer]: https://push-f.com/
 [octseq]: https://crates.io/crates/octseq
 
