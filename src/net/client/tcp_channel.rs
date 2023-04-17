@@ -500,7 +500,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
 	// any reply that may be on its way.
 	let arc_error = Arc::new(error);
 	for index in 0..query_vec.vec.len() {
-	    if !query_vec.vec[index].is_none() {
+	    if query_vec.vec[index].is_some() {
 		let sender = Self::take_query(query_vec, index)
 		    .expect("we tested is_none before");
 		_ = sender.send(Err(arc_error.clone()));
@@ -512,8 +512,8 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     /// option.
     fn handle_opts<Octs2: Octets + AsRef<[u8]>>
 	(opts: &OptRecord<Octs2>, status: &mut Status) {
-	for option in opts.iter() {
-	    if let Ok(AllOptData::TcpKeepalive(tcpkeepalive)) = option {
+	for option in opts.iter().flatten() {
+	    if let AllOptData::TcpKeepalive(tcpkeepalive) = option {
 		Self::handle_keepalive(tcpkeepalive, status);
 	    }
 	}
