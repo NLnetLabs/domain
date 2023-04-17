@@ -17,31 +17,33 @@
 //   - request timeout
 // - create new TCP connection after end/failure of previous one
 
+use bytes;
+use bytes::{Bytes, BytesMut};
 use core::convert::From;
+use futures::lock::Mutex as Futures_mutex;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
-use futures::lock::Mutex as Futures_mutex;
-use bytes;
-use bytes::{Bytes, BytesMut};
 
-use crate::base::{Message, MessageBuilder, opt::{AllOptData, OptRecord,
-    TcpKeepalive}, StaticCompressor, StreamTarget};
 use crate::base::wire::Composer;
+use crate::base::{
+    opt::{AllOptData, OptRecord, TcpKeepalive},
+    Message, MessageBuilder, StaticCompressor, StreamTarget,
+};
 use octseq::{Octets, OctetsBuilder};
 
 use tokio::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::net::tcp::ReadHalf;
+use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 
 /// Error returned when too many queries are currently active.
 const ERR_TOO_MANY_QUERIES: &str = "too many outstanding queries";
 
-/// Constant from RFC 7828. How to convert the value on the 
+/// Constant from RFC 7828. How to convert the value on the
 /// edns-tcp-keepalive option to milliseconds.
 // This should go somewhere with the option parsing
 const EDNS_TCP_KEEPALIE_TO_MS: u64 = 100;
@@ -116,7 +118,7 @@ struct InnerTcpConnection<Octs: OctetsBuilder> {
     receiver: Futures_mutex<Option<mpsc::Receiver<ChanReq<Octs>>>>,
 }
 
-/// Internal datastructure of [InnerTcpConnection::run] to keep track of 
+/// Internal datastructure of [InnerTcpConnection::run] to keep track of
 /// outstanding DNS requests.
 struct Queries {
     /// The number of elements in [Queries::vec] that are not None.
@@ -159,7 +161,7 @@ pub struct Query {
     state: QueryState,
 }
 
-/// Internal datastructure of [InnerTcpConnection::run] to keep track of 
+/// Internal datastructure of [InnerTcpConnection::run] to keep track of
 /// the status of the TCP connection.
 // The types Status and ConnState are only used in InnerTcpConnection
 struct Status {
@@ -177,7 +179,7 @@ struct Status {
     /// Time we are allow to keep the TCP connection open when idle.
     ///
     /// Initially we assume that the idle timeout is zero. A received
-    /// edns-tcp-keepalive option may change that. 
+    /// edns-tcp-keepalive option may change that.
     idle_timeout: Option<Duration>,
 }
 /// Status of the TCP connection. Used in [Status].
@@ -185,7 +187,7 @@ enum ConnState {
     /// The connection is in this state from the start and when at least
     /// one active DNS request is present.
     ///
-    /// The instant contains the time of the first request or the 
+    /// The instant contains the time of the first request or the
     /// most recent response that was received.
     Active(Option<Instant>),
 
@@ -215,215 +217,224 @@ enum ConnState {
 type ReaderChanReply = Message<Bytes>;
 
 impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
-    InnerTcpConnection<Octs> {
-
+    InnerTcpConnection<Octs>
+{
     /// Constructor for [InnerTcpConnection].
     ///
     /// This is the implementation of [TcpConnection::connect].
-    pub async fn connect<A: ToSocketAddrs>(addr: A) ->
-	io::Result<InnerTcpConnection<Octs>> {
-	let tcp = TcpStream::connect(addr).await?;
-	let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
-	Ok(Self {
-	    stream: Futures_mutex::new(tcp),
-	    sender: tx,
-	    receiver: Futures_mutex::new(Some(rx)),
-	})
+    pub async fn connect<A: ToSocketAddrs>(
+        addr: A,
+    ) -> io::Result<InnerTcpConnection<Octs>> {
+        let tcp = TcpStream::connect(addr).await?;
+        let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
+        Ok(Self {
+            stream: Futures_mutex::new(tcp),
+            sender: tx,
+            receiver: Futures_mutex::new(Some(rx)),
+        })
     }
 
     /// Main execution function for [InnerTcpConnection].
     ///
     /// This function Gets called by [TcpConnection::run].
-    /// This function is not async cancellation safe 
+    /// This function is not async cancellation safe
     pub async fn run(&self) -> Option<()> {
-	let mut stream = self.stream.lock().await;
-	let (mut read_stream, mut write_stream) = stream.split();
+        let mut stream = self.stream.lock().await;
+        let (mut read_stream, mut write_stream) = stream.split();
 
-	let (reply_sender, mut reply_receiver) =
-	    mpsc::channel::<ReaderChanReply>(READ_REPLY_CHAN_CAP);
+        let (reply_sender, mut reply_receiver) =
+            mpsc::channel::<ReaderChanReply>(READ_REPLY_CHAN_CAP);
 
-	let reader_fut = Self::reader(&mut read_stream, reply_sender);
-	tokio::pin!(reader_fut);
+        let reader_fut = Self::reader(&mut read_stream, reply_sender);
+        tokio::pin!(reader_fut);
 
-	let mut receiver = {
-	    let mut locked_opt_receiver = self.receiver.lock().await;
-	    let opt_receiver = locked_opt_receiver.take();
-	    opt_receiver.expect("no receiver present?")
-	};
+        let mut receiver = {
+            let mut locked_opt_receiver = self.receiver.lock().await;
+            let opt_receiver = locked_opt_receiver.take();
+            opt_receiver.expect("no receiver present?")
+        };
 
-	let mut status = Status {
-	    state: ConnState::Active(None),
-	    idle_timeout: None,
-	    send_keepalive: true,
-	};
-	let mut query_vec = Queries {
-	    count: 0,
-	    curr: 0,
-	    vec: Vec::new()
-	};
+        let mut status = Status {
+            state: ConnState::Active(None),
+            idle_timeout: None,
+            send_keepalive: true,
+        };
+        let mut query_vec = Queries {
+            count: 0,
+            curr: 0,
+            vec: Vec::new(),
+        };
 
-	let mut reqmsg: Option<Vec<u8>> = None;
+        let mut reqmsg: Option<Vec<u8>> = None;
 
-	loop {
-	    let opt_timeout = match status.state {
-		ConnState::Active(opt_instant) => {
-		    if let Some(instant) = opt_instant {
-			let elapsed = instant.elapsed();
-			if elapsed > RESPONSE_TIMEOUT {
-			    let error = io::Error::new(
-				io::ErrorKind::Other, "read timeout");
-			    Self::tcp_error(error, &mut query_vec);
-			    status.state = ConnState::ReadTimeout;
-			    break;
-			}
-			Some(RESPONSE_TIMEOUT - elapsed)
-		    }
-		    else { None }
-		}
-		ConnState::Idle(instant) => {
-		    if let Some(timeout) = &status.idle_timeout {
-			let elapsed = instant.elapsed();
-			if elapsed >= *timeout {
-			    // Move to IdleTimeout and end
-			    // the loop
-			    status.state = ConnState::IdleTimeout;
-			    break;
-			}
-			Some(*timeout - elapsed)
-		    }
-		    else {
-			panic!("Idle state but no timeout");
-		    }
-		}
-		ConnState::IdleTimeout |
-		ConnState::ReadError |
-		ConnState::WriteError =>
-		    None, // No timers here
-		ConnState::ReadTimeout => panic!(
-		    "should not be in loop with ReadTimeout")
-	    };
+        loop {
+            let opt_timeout = match status.state {
+                ConnState::Active(opt_instant) => {
+                    if let Some(instant) = opt_instant {
+                        let elapsed = instant.elapsed();
+                        if elapsed > RESPONSE_TIMEOUT {
+                            let error = io::Error::new(
+                                io::ErrorKind::Other,
+                                "read timeout",
+                            );
+                            Self::tcp_error(error, &mut query_vec);
+                            status.state = ConnState::ReadTimeout;
+                            break;
+                        }
+                        Some(RESPONSE_TIMEOUT - elapsed)
+                    } else {
+                        None
+                    }
+                }
+                ConnState::Idle(instant) => {
+                    if let Some(timeout) = &status.idle_timeout {
+                        let elapsed = instant.elapsed();
+                        if elapsed >= *timeout {
+                            // Move to IdleTimeout and end
+                            // the loop
+                            status.state = ConnState::IdleTimeout;
+                            break;
+                        }
+                        Some(*timeout - elapsed)
+                    } else {
+                        panic!("Idle state but no timeout");
+                    }
+                }
+                ConnState::IdleTimeout
+                | ConnState::ReadError
+                | ConnState::WriteError => None, // No timers here
+                ConnState::ReadTimeout => {
+                    panic!("should not be in loop with ReadTimeout");
+                }
+            };
 
-	    // For simplicity, make sure we always have a timeout
-	    let timeout = match opt_timeout {
-		Some(timeout) => timeout,
-		None => RESPONSE_TIMEOUT,
-		    // Just use the response timeout
-	    };
+            // For simplicity, make sure we always have a timeout
+            let timeout = match opt_timeout {
+                Some(timeout) => timeout,
+                None =>
+                // Just use the response timeout
+                {
+                    RESPONSE_TIMEOUT
+                }
+            };
 
-	    let sleep_fut = sleep(timeout);
-	    let recv_fut = receiver.recv();
+            let sleep_fut = sleep(timeout);
+            let recv_fut = receiver.recv();
 
-	    let (do_write, msg) = match &reqmsg {
-		None => {
-		    let msg: &[u8] = &[];
-		    (false, msg)
-		}
-		Some(msg) => {
-		    let msg: &[u8] = msg;
-		    (true, msg)
-		}
-	    };
+            let (do_write, msg) = match &reqmsg {
+                None => {
+                    let msg: &[u8] = &[];
+                    (false, msg)
+                }
+                Some(msg) => {
+                    let msg: &[u8] = msg;
+                    (true, msg)
+                }
+            };
 
-	    tokio::select! {
-		biased;
-		res = &mut reader_fut => {
-		    match res {
-			Ok(_) =>
-			    // The reader should not
-			    // terminate without
-			    // error.
-			    panic!("reader terminated"),
-			Err(error) => {
-			    Self::tcp_error(error,
-				&mut query_vec);
-			    status.state =
-				ConnState::ReadError;
-			    // Reader failed. Break
-			    // out of loop and
-			    // shut down
-			    break
-			}
-		    }
-		}
-		opt_answer = reply_receiver.recv() => {
-		    let answer = opt_answer.expect("reader died?");
-		    // Check for a edns-tcp-keepalive option
-		    let opt_record = answer.opt();
-		    if let Some(ref opts) = opt_record {
-			Self::handle_opts(opts,
-			    &mut status);
-		    };
-		    drop(opt_record);
-		    Self::demux_reply(answer,
-			&mut status, &mut query_vec);
-		}
-		res = write_stream.write_all(msg),
-		    if do_write => {
-		    if let Err(error) = res {
-			Self::tcp_error(error,
-			    &mut query_vec);
-			status.state =
-			    ConnState::WriteError;
-			break;
-		    }
-		    else {
-			reqmsg = None;
-		    }
-		}
-		res = recv_fut, if !do_write => {
-		    match res {
-			Some(req) =>
-			    self.insert_req(req, &mut status,
-				&mut reqmsg, &mut query_vec),
-			None => panic!("recv failed"),
-		    }
-		}
-		_ = sleep_fut => {
-		    // Timeout expired, just
-		    // continue with the loop
-		}
+            tokio::select! {
+                biased;
+                res = &mut reader_fut => {
+                    match res {
+                        Ok(_) =>
+                            // The reader should not
+                            // terminate without
+                            // error.
+                            panic!("reader terminated"),
+                        Err(error) => {
+                            Self::tcp_error(error,
+                                &mut query_vec);
+                            status.state =
+                                ConnState::ReadError;
+                            // Reader failed. Break
+                            // out of loop and
+                            // shut down
+                            break
+                        }
+                    }
+                }
+                opt_answer = reply_receiver.recv() => {
+                    let answer = opt_answer.expect("reader died?");
+                    // Check for a edns-tcp-keepalive option
+                    let opt_record = answer.opt();
+                    if let Some(ref opts) = opt_record {
+                        Self::handle_opts(opts,
+                            &mut status);
+                    };
+                    drop(opt_record);
+                    Self::demux_reply(answer,
+                        &mut status, &mut query_vec);
+                }
+                res = write_stream.write_all(msg),
+                    if do_write => {
+                    if let Err(error) = res {
+                        Self::tcp_error(error,
+                            &mut query_vec);
+                        status.state =
+                            ConnState::WriteError;
+                        break;
+                    }
+                    else {
+                        reqmsg = None;
+                    }
+                }
+                res = recv_fut, if !do_write => {
+                    match res {
+                        Some(req) =>
+                            self.insert_req(req, &mut status,
+                                &mut reqmsg, &mut query_vec),
+                        None => panic!("recv failed"),
+                    }
+                }
+                _ = sleep_fut => {
+                    // Timeout expired, just
+                    // continue with the loop
+                }
 
-	    }
+            }
 
-	    // Check if the connection is idle
-	    match status.state {
-		ConnState::Active(_) | ConnState::Idle(_) => {
-		    // Keep going
-		}
-		ConnState::IdleTimeout => {
-		    break
-		}
-		ConnState::ReadError |
-		ConnState::ReadTimeout |
-		ConnState::WriteError => {
-		    panic!("Should not be here");
-		}
-	    }
-	}
+            // Check if the connection is idle
+            match status.state {
+                ConnState::Active(_) | ConnState::Idle(_) => {
+                    // Keep going
+                }
+                ConnState::IdleTimeout => break,
+                ConnState::ReadError
+                | ConnState::ReadTimeout
+                | ConnState::WriteError => {
+                    panic!("Should not be here");
+                }
+            }
+        }
 
-	// Send FIN
-	_ = write_stream.shutdown().await;
+        // Send FIN
+        _ = write_stream.shutdown().await;
 
-	None
+        None
     }
 
     /// This function sends a DNS request to [InnerTcpConnection::run].
-    pub async fn query
-	(&self, sender: oneshot::Sender<ChanResp>,
-	query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>
-	) -> Result<(), &'static str> {
+    pub async fn query(
+        &self,
+        sender: oneshot::Sender<ChanResp>,
+        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    ) -> Result<(), &'static str> {
+        // We should figure out how to get query_msg.
+        let msg_clone = query_msg.clone();
 
-	// We should figure out how to get query_msg.
-	let msg_clone = query_msg.clone();
-
-	let req = ChanReq { sender, msg: msg_clone };
-	match self.sender.send(req).await {
-	    Err(_) =>
-		// Send error. The receiver is gone, this means that the 
-		// connection is closed.
-		Err(ERR_CONN_CLOSED),
-	    Ok(_) => Ok(())
-	}
+        let req = ChanReq {
+            sender,
+            msg: msg_clone,
+        };
+        match self.sender.send(req).await {
+            Err(_) =>
+            // Send error. The receiver is gone, this means that the
+            // connection is closed.
+            {
+                Err(ERR_CONN_CLOSED)
+            }
+            Ok(_) => Ok(()),
+        }
     }
 
     /// This function reads a DNS message from the TCP connection and sends
@@ -431,146 +442,155 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     ///
     /// Reading has to be done in two steps: first read a two octet value
     /// the specifies the length of the message, and then read in a loop the
-    /// body of the message. 
+    /// body of the message.
     ///
     /// This function is not async cancellation safe.
-    async fn reader(sock: &mut ReadHalf<'_>,
-	sender: mpsc::Sender<ReaderChanReply>)
-	-> Result<(), std::io::Error> {
-	loop {
-	    let read_res = sock.read_u16().await;
-	    let len = match read_res {
-		Ok(len) => len,
-		Err(error) => {
-		    return Err(error);
-		}
-	    } as usize;
+    async fn reader(
+        sock: &mut ReadHalf<'_>,
+        sender: mpsc::Sender<ReaderChanReply>,
+    ) -> Result<(), std::io::Error> {
+        loop {
+            let read_res = sock.read_u16().await;
+            let len = match read_res {
+                Ok(len) => len,
+                Err(error) => {
+                    return Err(error);
+                }
+            } as usize;
 
-	    let mut buf = BytesMut::with_capacity(len);
-		
-	    loop {
-		let curlen = buf.len();
-		if curlen >= len {
-		    if curlen > len {
-			panic!(
-			"reader: got too much data {curlen}, expetect {len}");
-		    }
+            let mut buf = BytesMut::with_capacity(len);
 
-		    // We got what we need
-		    break;
-		}
+            loop {
+                let curlen = buf.len();
+                if curlen >= len {
+                    if curlen > len {
+                        panic!(
+                        "reader: got too much data {curlen}, expetect {len}");
+                    }
 
-		let read_res = sock.read_buf(&mut buf).await;
+                    // We got what we need
+                    break;
+                }
 
-		match read_res {
-		    Ok(readlen) => {
-			if readlen == 0 {
-			    let error = io::Error::new(
-				io::ErrorKind::Other,
-				"unexpected end of data");
-			    return Err(error);
-			}
-		    }
-		    Err(error) => {
-			return Err(error);
-		    }
-		};
+                let read_res = sock.read_buf(&mut buf).await;
 
-		// Check if we are done at the head of the loop
-	    }
-		
-	    let reply_message = Message::<Bytes>::from_octets(buf.into());
-	    match reply_message {
-		Ok(answer) => {
-		    sender.send(answer).await.expect("can't send reply to run");
-		}
-		Err(_) => {
-		    // The only possible error is short message
-		    let error = io::Error::new(io::ErrorKind::Other,
-			"short buf");
-		    return Err(error);
-		}
-	    }
-	}
+                match read_res {
+                    Ok(readlen) => {
+                        if readlen == 0 {
+                            let error = io::Error::new(
+                                io::ErrorKind::Other,
+                                "unexpected end of data",
+                            );
+                            return Err(error);
+                        }
+                    }
+                    Err(error) => {
+                        return Err(error);
+                    }
+                };
+
+                // Check if we are done at the head of the loop
+            }
+
+            let reply_message = Message::<Bytes>::from_octets(buf.into());
+            match reply_message {
+                Ok(answer) => {
+                    sender
+                        .send(answer)
+                        .await
+                        .expect("can't send reply to run");
+                }
+                Err(_) => {
+                    // The only possible error is short message
+                    let error =
+                        io::Error::new(io::ErrorKind::Other, "short buf");
+                    return Err(error);
+                }
+            }
+        }
     }
 
     /// An error occured, report the error to all outstanding [Query] objects.
     fn tcp_error(error: std::io::Error, query_vec: &mut Queries) {
-	// Update all requests that are in progress. Don't wait for
-	// any reply that may be on its way.
-	let arc_error = Arc::new(error);
-	for index in 0..query_vec.vec.len() {
-	    if query_vec.vec[index].is_some() {
-		let sender = Self::take_query(query_vec, index)
-		    .expect("we tested is_none before");
-		_ = sender.send(Err(arc_error.clone()));
-	    }
-	}
+        // Update all requests that are in progress. Don't wait for
+        // any reply that may be on its way.
+        let arc_error = Arc::new(error);
+        for index in 0..query_vec.vec.len() {
+            if query_vec.vec[index].is_some() {
+                let sender = Self::take_query(query_vec, index)
+                    .expect("we tested is_none before");
+                _ = sender.send(Err(arc_error.clone()));
+            }
+        }
     }
 
     /// Handle received EDNS options, in particular the edns-tcp-keepalive
     /// option.
-    fn handle_opts<Octs2: Octets + AsRef<[u8]>>
-	(opts: &OptRecord<Octs2>, status: &mut Status) {
-	for option in opts.iter().flatten() {
-	    if let AllOptData::TcpKeepalive(tcpkeepalive) = option {
-		Self::handle_keepalive(tcpkeepalive, status);
-	    }
-	}
+    fn handle_opts<Octs2: Octets + AsRef<[u8]>>(
+        opts: &OptRecord<Octs2>,
+        status: &mut Status,
+    ) {
+        for option in opts.iter().flatten() {
+            if let AllOptData::TcpKeepalive(tcpkeepalive) = option {
+                Self::handle_keepalive(tcpkeepalive, status);
+            }
+        }
     }
 
     /// Demultiplex a DNS reply and send it to the right [Query] object.
     ///
     /// In addition, the status is updated to IdleTimeout or Idle if there
     /// are no remaining pending requests.
-    fn demux_reply(answer: Message<Bytes>, status: &mut Status,
-	query_vec: &mut Queries) {
-	// We got an answer, reset the timer
-	status.state = ConnState::Active(Some(Instant::now()));
+    fn demux_reply(
+        answer: Message<Bytes>,
+        status: &mut Status,
+        query_vec: &mut Queries,
+    ) {
+        // We got an answer, reset the timer
+        status.state = ConnState::Active(Some(Instant::now()));
 
-	let ind16 = answer.header().id();
-	let index: usize = ind16.into();
+        let ind16 = answer.header().id();
+        let index: usize = ind16.into();
 
-	let vec_len = query_vec.vec.len();
-	if index >= vec_len {
-	    // Index is out of bouds. We should mark
-	    // the TCP connection as broken
-	    return;
-	}
+        let vec_len = query_vec.vec.len();
+        if index >= vec_len {
+            // Index is out of bouds. We should mark
+            // the TCP connection as broken
+            return;
+        }
 
-	// Do we have a query with this ID?
-	match &mut query_vec.vec[index] {
-	    None => {
-		// No query with this ID. We should
-		// mark the TCP connection as broken
-		return;
-	    }
-	    Some(_) => {
-		let sender = Self::take_query(query_vec, index).unwrap();
-		let ind16: u16 = index.try_into().unwrap();
-		let reply = Response {
-			reply: answer,
-			id: ind16,
-		};
-		_ = sender.send(Ok(reply));
-	    }
-	}
-	if query_vec.count == 0 {
-	    // Clear the activity timer. There is no need to do 
-	    // this because state will be set to either IdleTimeout
-	    // or Idle just below. However, it is nicer to keep 
-	    // this independent.
-	    status.state = ConnState::Active(None);
+        // Do we have a query with this ID?
+        match &mut query_vec.vec[index] {
+            None => {
+                // No query with this ID. We should
+                // mark the TCP connection as broken
+                return;
+            }
+            Some(_) => {
+                let sender = Self::take_query(query_vec, index).unwrap();
+                let ind16: u16 = index.try_into().unwrap();
+                let reply = Response {
+                    reply: answer,
+                    id: ind16,
+                };
+                _ = sender.send(Ok(reply));
+            }
+        }
+        if query_vec.count == 0 {
+            // Clear the activity timer. There is no need to do
+            // this because state will be set to either IdleTimeout
+            // or Idle just below. However, it is nicer to keep
+            // this independent.
+            status.state = ConnState::Active(None);
 
-	    status.state = if status.idle_timeout.is_none() {
-		// Assume that we can just move to IdleTimeout
-		// state
-		ConnState::IdleTimeout
-	    }
-	    else {
-		ConnState::Idle(Instant::now())
-	    }
-	}
+            status.state = if status.idle_timeout.is_none() {
+                // Assume that we can just move to IdleTimeout
+                // state
+                ConnState::IdleTimeout
+            } else {
+                ConnState::Idle(Instant::now())
+            }
+        }
     }
 
     /// Insert a request in query_vec and return the request to be sent
@@ -579,181 +599,205 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     /// First the status is checked, an error is returned if not Active or
     /// idle. Addend a edns-tcp-keepalive option if needed.
     // Note: maybe reqmsg should be a return value.
-    fn insert_req(&self, mut req: ChanReq<Octs>, status: &mut Status,
-	reqmsg: &mut Option<Vec<u8>>, query_vec: &mut Queries) {
-	match status.state {
-	    ConnState::Active(timer) => {
-		// Set timer if we don't have one already
-		if timer.is_none() {
-		    status.state = ConnState::Active(Some(Instant::now()));
-		}
-	    }
-	    ConnState::Idle(_) => {
-		// Go back to active
-		status.state = ConnState::Active(Some(Instant::now()));
-	    }
-	    ConnState::IdleTimeout => {
-		// The connection has been closed. Report error
-		_ = req.sender.send(Err(Arc::new(io::Error::new(
-		    io::ErrorKind::Other, "idle timeout"))));
-		return;
-	    }
-	    ConnState::ReadError => {
-		_ = req.sender.send(Err(Arc::new(io::Error::new(
-		    io::ErrorKind::Other, "read error"))));
-		return;
-	    }
-	    ConnState::ReadTimeout => {
-		_ = req.sender.send(Err(Arc::new(io::Error::new(
-		    io::ErrorKind::Other, "read timeout"))));
-		return;
-	    }
-	    ConnState::WriteError => {
-		_ = req.sender.send(Err(Arc::new(io::Error::new(
-		    io::ErrorKind::Other, "write error"))));
-		return;
-	    }
-	}
+    fn insert_req(
+        &self,
+        mut req: ChanReq<Octs>,
+        status: &mut Status,
+        reqmsg: &mut Option<Vec<u8>>,
+        query_vec: &mut Queries,
+    ) {
+        match status.state {
+            ConnState::Active(timer) => {
+                // Set timer if we don't have one already
+                if timer.is_none() {
+                    status.state = ConnState::Active(Some(Instant::now()));
+                }
+            }
+            ConnState::Idle(_) => {
+                // Go back to active
+                status.state = ConnState::Active(Some(Instant::now()));
+            }
+            ConnState::IdleTimeout => {
+                // The connection has been closed. Report error
+                _ = req.sender.send(Err(Arc::new(io::Error::new(
+                    io::ErrorKind::Other,
+                    "idle timeout",
+                ))));
+                return;
+            }
+            ConnState::ReadError => {
+                _ = req.sender.send(Err(Arc::new(io::Error::new(
+                    io::ErrorKind::Other,
+                    "read error",
+                ))));
+                return;
+            }
+            ConnState::ReadTimeout => {
+                _ = req.sender.send(Err(Arc::new(io::Error::new(
+                    io::ErrorKind::Other,
+                    "read timeout",
+                ))));
+                return;
+            }
+            ConnState::WriteError => {
+                _ = req.sender.send(Err(Arc::new(io::Error::new(
+                    io::ErrorKind::Other,
+                    "write error",
+                ))));
+                return;
+            }
+        }
 
-	// Note that insert may fail if there are too many
-	// outstanding queires. First call insert before checking
-	// send_keepalive.
-	// XXX
-	let index = Self::insert(req.sender, query_vec).unwrap();
+        // Note that insert may fail if there are too many
+        // outstanding queires. First call insert before checking
+        // send_keepalive.
+        // XXX
+        let index = Self::insert(req.sender, query_vec).unwrap();
 
-	let ind16: u16 = index.try_into().unwrap();
+        let ind16: u16 = index.try_into().unwrap();
 
-	// We set the ID to the array index. Defense in depth
-	// suggests that a random ID is better because it works
-	// even if TCP sequence numbers could be predicted. However,
-	// Section 9.3 of RFC 5452 recommends retrying over TCP
-	// if many spoofed answers arrive over UDP: "TCP, by the
-	// nature of its use of sequence numbers, is far more
-	// resilient against forgery by third parties."
-	let hdr = req.msg.header_mut();
-	hdr.set_id(ind16);
+        // We set the ID to the array index. Defense in depth
+        // suggests that a random ID is better because it works
+        // even if TCP sequence numbers could be predicted. However,
+        // Section 9.3 of RFC 5452 recommends retrying over TCP
+        // if many spoofed answers arrive over UDP: "TCP, by the
+        // nature of its use of sequence numbers, is far more
+        // resilient against forgery by third parties."
+        let hdr = req.msg.header_mut();
+        hdr.set_id(ind16);
 
-	if status.send_keepalive {
-	    let mut msgadd = req.msg.clone().additional();
+        if status.send_keepalive {
+            let mut msgadd = req.msg.clone().additional();
 
-	    // send an empty keepalive option
-	    let res = msgadd.opt(|opt| { opt.tcp_keepalive(None) });
-	    match res {
-		Ok(_) => {
-		    Self::convert_query(&msgadd, reqmsg);
-		    status.send_keepalive = false;
-		}
-		Err(_) => {
-		    // Adding keepalive option
-		    // failed. Send the original
-		    // request.
-		    Self::convert_query(&req.msg, reqmsg);
-		}
-	    }
-	} else {
-	    Self::convert_query(&req.msg, reqmsg);
-	}
+            // send an empty keepalive option
+            let res = msgadd.opt(|opt| opt.tcp_keepalive(None));
+            match res {
+                Ok(_) => {
+                    Self::convert_query(&msgadd, reqmsg);
+                    status.send_keepalive = false;
+                }
+                Err(_) => {
+                    // Adding keepalive option
+                    // failed. Send the original
+                    // request.
+                    Self::convert_query(&req.msg, reqmsg);
+                }
+            }
+        } else {
+            Self::convert_query(&req.msg, reqmsg);
+        }
     }
 
     /// Take an element out of query_vec.
-    fn take_query(query_vec: &mut Queries, index: usize)
-	-> Option<ReplySender> {
-	let query = query_vec.vec[index].take();
-	query_vec.count -= 1;
-	query
+    fn take_query(
+        query_vec: &mut Queries,
+        index: usize,
+    ) -> Option<ReplySender> {
+        let query = query_vec.vec[index].take();
+        query_vec.count -= 1;
+        query
     }
 
     /// Handle a received edns-tcp-keepalive option.
     fn handle_keepalive(opt_value: TcpKeepalive, status: &mut Status) {
-	if let Some(value) = opt_value.timeout() {
-	    status.idle_timeout =
-		Some(Duration::from_millis(u64::from(value) *
-			EDNS_TCP_KEEPALIE_TO_MS));
-	}
+        if let Some(value) = opt_value.timeout() {
+            status.idle_timeout = Some(Duration::from_millis(
+                u64::from(value) * EDNS_TCP_KEEPALIE_TO_MS,
+            ));
+        }
     }
 
     /// Convert the query message to a vector.
-    // This function should return the vector instead of storing it 
+    // This function should return the vector instead of storing it
     // through a reference.
-    fn convert_query<Target: AsMut<[u8]> + AsRef<[u8]>>
-	(msg: &MessageBuilder<StaticCompressor<StreamTarget<Target>>>,
-	reqmsg: &mut Option<Vec<u8>>) {
+    fn convert_query<Target: AsMut<[u8]> + AsRef<[u8]>>(
+        msg: &MessageBuilder<StaticCompressor<StreamTarget<Target>>>,
+        reqmsg: &mut Option<Vec<u8>>,
+    ) {
+        let vec = msg.as_target().as_target().as_stream_slice();
 
-	let vec = msg.as_target().as_target().as_stream_slice();
-
-	// Store a clone of the request. That makes life easier
-	// and requests tend to be small
-	*reqmsg = Some(vec.to_vec());
+        // Store a clone of the request. That makes life easier
+        // and requests tend to be small
+        *reqmsg = Some(vec.to_vec());
     }
 
     /// Insert a sender (for the reply) in the query_vec and return the index.
-    fn insert(sender: oneshot::Sender<ChanResp>,
-	query_vec: &mut Queries) -> Result<usize, &'static str> {
-	let q = Some(sender);
+    fn insert(
+        sender: oneshot::Sender<ChanResp>,
+        query_vec: &mut Queries,
+    ) -> Result<usize, &'static str> {
+        let q = Some(sender);
 
-	// Fail if there are to many entries already in this vector
-	// We cannot have more than u16::MAX entries because the
-	// index needs to fit in an u16. For efficiency we want to
-	// keep the vector half empty. So we return a failure if
-	// 2*count > u16::MAX
-	if 2*query_vec.count > u16::MAX.into() {
-		return Err(ERR_TOO_MANY_QUERIES);
-	}
+        // Fail if there are to many entries already in this vector
+        // We cannot have more than u16::MAX entries because the
+        // index needs to fit in an u16. For efficiency we want to
+        // keep the vector half empty. So we return a failure if
+        // 2*count > u16::MAX
+        if 2 * query_vec.count > u16::MAX.into() {
+            return Err(ERR_TOO_MANY_QUERIES);
+        }
 
-	let vec_len = query_vec.vec.len();
+        let vec_len = query_vec.vec.len();
 
-	// Append if the amount of empty space in the vector is less
-	// than half. But limit vec_len to u16::MAX
-	if vec_len < 2*(query_vec.count+1) && vec_len <
-	    u16::MAX.into() {
-	    // Just append
-	    query_vec.vec.push(q);
-	    query_vec.count += 1;
-	    let index = query_vec.vec.len()-1;
-	    return Ok(index);
-	}
-	let loc_curr = query_vec.curr;
+        // Append if the amount of empty space in the vector is less
+        // than half. But limit vec_len to u16::MAX
+        if vec_len < 2 * (query_vec.count + 1) && vec_len < u16::MAX.into() {
+            // Just append
+            query_vec.vec.push(q);
+            query_vec.count += 1;
+            let index = query_vec.vec.len() - 1;
+            return Ok(index);
+        }
+        let loc_curr = query_vec.curr;
 
-	for index in loc_curr..vec_len {
-	    if query_vec.vec[index].is_none() {
-		Self::insert_at(query_vec, index, q);
-		return Ok(index);
-	    }
-	}
+        for index in loc_curr..vec_len {
+            if query_vec.vec[index].is_none() {
+                Self::insert_at(query_vec, index, q);
+                return Ok(index);
+            }
+        }
 
-	// Nothing until the end of the vector. Try for the entire
-	// vector
-	for index in 0..vec_len {
-	    if query_vec.vec[index].is_none() {
-		Self::insert_at(query_vec, index, q);
-		return Ok(index);
-	    }
-	}
+        // Nothing until the end of the vector. Try for the entire
+        // vector
+        for index in 0..vec_len {
+            if query_vec.vec[index].is_none() {
+                Self::insert_at(query_vec, index, q);
+                return Ok(index);
+            }
+        }
 
-	// Still nothing, that is not good
-	panic!("insert failed");
+        // Still nothing, that is not good
+        panic!("insert failed");
     }
 
     /// Insert a sender at a specific position in query_vec and update
     /// the statistics.
-    fn insert_at(query_vec: &mut Queries, index: usize,
-	q: Option<ReplySender>) {
-	query_vec.vec[index] = q;
-	query_vec.count += 1;
-	query_vec.curr = index + 1;
+    fn insert_at(
+        query_vec: &mut Queries,
+        index: usize,
+        q: Option<ReplySender>,
+    ) {
+        query_vec.vec[index] = q;
+        query_vec.count += 1;
+        query_vec.curr = index + 1;
     }
 }
 
-impl<Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Composer + Debug +
-    OctetsBuilder> TcpConnection<Octs> {
+impl<
+        Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Composer + Debug + OctetsBuilder,
+    > TcpConnection<Octs>
+{
     /// Constructor for [TcpConnection].
     ///
     /// Takes an address ([ToSocketAddrs]) and
     /// returns a [TcpConnection] wrapped in a [Result](io::Result).
-    pub async fn connect<A: ToSocketAddrs>(addr: A) ->
-	io::Result<TcpConnection<Octs>> {
-	let tcpconnection = InnerTcpConnection::connect(addr).await?;
-	Ok(Self { inner: Arc::new(tcpconnection) })
+    pub async fn connect<A: ToSocketAddrs>(
+        addr: A,
+    ) -> io::Result<TcpConnection<Octs>> {
+        let tcpconnection = InnerTcpConnection::connect(addr).await?;
+        Ok(Self {
+            inner: Arc::new(tcpconnection),
+        })
     }
 
     /// Main execution function for [TcpConnection].
@@ -761,80 +805,84 @@ impl<Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Composer + Debug +
     /// This function has to run in the background or together with
     /// any calls to [query](Self::query) or [Query::get_result].
     pub async fn run(&self) -> Option<()> {
-	self.inner.run().await
+        self.inner.run().await
     }
 
     /// Start a DNS request.
     ///
     /// This function takes a precomposed message as a parameter and
     /// returns a [Query] object wrapped in a [Result].
-    pub async fn query
-	(&self,
-	query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>)
-	-> Result<Query, &'static str> {
-	let (tx, rx) = oneshot::channel();
-	self.inner.query(tx, query_msg).await?;
-	let msg = &query_msg.as_message();
-	Ok(Query::new(msg, rx))
+    pub async fn query(
+        &self,
+        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    ) -> Result<Query, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.query(tx, query_msg).await?;
+        let msg = &query_msg.as_message();
+        Ok(Query::new(msg, rx))
     }
 }
-
 
 impl Query {
     /// Constructor for [Query], takes a DNS query and a receiver for the
     /// reply.
-    fn new<Octs: Octets>
-	(query_msg: &Message<Octs>, receiver: oneshot::Receiver<ChanResp>)
-	-> Query {
-	let msg_ref: &[u8] = query_msg.as_ref();
-	let vec = msg_ref.to_vec();
-	let msg = Message::from_octets(vec).unwrap();
-	Self {
-		query_msg: msg,
-		state: QueryState::Busy(receiver),
-	}
+    fn new<Octs: Octets>(
+        query_msg: &Message<Octs>,
+        receiver: oneshot::Receiver<ChanResp>,
+    ) -> Query {
+        let msg_ref: &[u8] = query_msg.as_ref();
+        let vec = msg_ref.to_vec();
+        let msg = Message::from_octets(vec).unwrap();
+        Self {
+            query_msg: msg,
+            state: QueryState::Busy(receiver),
+        }
     }
 
     /// Get the result of a DNS query.
     ///
     /// This function returns the reply to a DNS query wrapped in a
     /// [Result].
-    pub async fn get_result(&mut self) ->
-	Result<Message<Bytes>, Arc<std::io::Error>> {
-	match self.state {
-	    QueryState::Busy(ref mut receiver) => {
-		let res = receiver.await;
-		self.state = QueryState::Done;
-		if res.is_err() {
-		    // Assume receive error
-		    return Err(Arc::new(io::Error::new(
-			io::ErrorKind::Other,
-			"receive error")));
-		}
-		let res = res.unwrap();
+    pub async fn get_result(
+        &mut self,
+    ) -> Result<Message<Bytes>, Arc<std::io::Error>> {
+        match self.state {
+            QueryState::Busy(ref mut receiver) => {
+                let res = receiver.await;
+                self.state = QueryState::Done;
+                if res.is_err() {
+                    // Assume receive error
+                    return Err(Arc::new(io::Error::new(
+                        io::ErrorKind::Other,
+                        "receive error",
+                    )));
+                }
+                let res = res.unwrap();
 
-		// clippy seems to be wrong here. Replacing
-		// the following with 'res?;' doesn't work
-		#[allow(clippy::question_mark)]
-		if let Err(err) = res {
-		    return Err(err);
-		}
+                // clippy seems to be wrong here. Replacing
+                // the following with 'res?;' doesn't work
+                #[allow(clippy::question_mark)]
+                if let Err(err) = res {
+                    return Err(err);
+                }
 
-		let resp = res.unwrap();
-		let msg = resp.reply;
+                let resp = res.unwrap();
+                let msg = resp.reply;
 
-		let hdr = self.query_msg.header_mut();
-		hdr.set_id(resp.id);
+                let hdr = self.query_msg.header_mut();
+                hdr.set_id(resp.id);
 
-		if !msg.is_answer(&self.query_msg) {
-		    return Err(Arc::new(io::Error::new(
-			io::ErrorKind::Other, "wrong answer")));
-		}
-		Ok(msg)
-	    }
-	    QueryState::Done => {
-		panic!("Already done");
-	    }
-	}
+                if !msg.is_answer(&self.query_msg) {
+                    return Err(Arc::new(io::Error::new(
+                        io::ErrorKind::Other,
+                        "wrong answer",
+                    )));
+                }
+                Ok(msg)
+            }
+            QueryState::Done => {
+                panic!("Already done");
+            }
+        }
     }
 }
