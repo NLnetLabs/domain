@@ -670,6 +670,24 @@ impl<'a, Octs: Octets + ?Sized> IntoIterator for &'a Message<Octs> {
     }
 }
 
+//--- Debug
+
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Message<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Message")
+            .field("id", &self.header().id())
+            .field("qr", &self.header().qr())
+            .field("opcode", &self.header().opcode())
+            .field("flags", &self.header().flags())
+            .field("rcode", &self.header().rcode())
+            .field("qdcount", &self.header_counts().qdcount())
+            .field("ancount", &self.header_counts().ancount())
+            .field("nscount", &self.header_counts().nscount())
+            .field("arcount", &self.header_counts().arcount())
+            .finish()
+    }
+}
+
 //------------ QuestionSection ----------------------------------------------
 
 /// An iterator over the question section of a DNS message.
