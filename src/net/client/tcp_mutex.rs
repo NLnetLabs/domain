@@ -101,7 +101,7 @@ struct Status {
 }
 
 struct InnerTcpConnection {
-	stream: Std_mutex<TcpStream>,
+	stream: Std_mutex<Option<TcpStream>>,
 
 	/* status */
 	status: Std_mutex<Status>,
@@ -136,7 +136,7 @@ impl InnerTcpConnection {
 		io::Result<InnerTcpConnection> {
 		let tcp = TcpStream::connect(addr).await?;
 		Ok(Self {
-			stream: Std_mutex::new(tcp),
+			stream: Std_mutex::new(Some(tcp)),
 			status: Std_mutex::new(Status {
 				state: ConnState::Active(None),
 				send_keepalive: true,
@@ -167,7 +167,7 @@ impl InnerTcpConnection {
 	fn vec_take_query(&self, query_vec: &mut Queries, index: usize) ->
 		Option<SingleQuery>{
 		let query = query_vec.vec[index].take();
-		query_vec.count = query_vec.count - 1;
+		query_vec.count -= 1;
 		if query_vec.count == 0 {
 			// The worker may be waiting for this
 			self.worker_notify.notify_one();
@@ -226,7 +226,7 @@ impl InnerTcpConnection {
 				}
 			}
 		}
-		query_vec.busy = query_vec.busy-1;
+		query_vec.busy -= 1;
 		if query_vec.busy == 0 {
 			let mut status = self.status.lock().unwrap();
 
@@ -236,7 +236,7 @@ impl InnerTcpConnection {
 			// this indenpendent.
 			status.state = ConnState::Active(None);
 
-			if status.idle_timeout == None {
+			if status.idle_timeout.is_none() {
 				// Assume that we can just move to IdleTimeout
 				// state
 				status.state = ConnState::IdleTimeout;
@@ -269,11 +269,8 @@ impl InnerTcpConnection {
 		(&self, opts: &OptRecord<Octs>) {
 		for option in opts.iter() {
 			let opt = option.unwrap();
-			match opt {
-				AllOptData::TcpKeepalive(tcpkeepalive) => {
-					self.handle_keepalive(tcpkeepalive);
-				}
-				_ => {}
+			if let AllOptData::TcpKeepalive(tcpkeepalive) = opt {
+				self.handle_keepalive(tcpkeepalive);
 			}
 		}
 	}
@@ -393,9 +390,14 @@ impl InnerTcpConnection {
 		loop {
 			loop {
 				// Check if we need to shutdown
-				let status = self.status.lock().unwrap();
-				let do_shutdown = status.do_shutdown;
-				drop(status);
+				let do_shutdown = {
+					// Extra block to satisfy clippy
+					// await_holding_lock
+					let status = self.status.lock()
+						.unwrap();
+					status.do_shutdown
+					// drop(status);
+				};
 
 				if do_shutdown {
 					// Ignore errors
@@ -405,10 +407,14 @@ impl InnerTcpConnection {
 					break;
 				}
 
-				let mut tx_queue = self.tx_queue.lock().
-					unwrap();
-				let head = tx_queue.pop_front();
-				drop(tx_queue);
+				let head = {
+					// Extra block to satisfy clippy
+					// await_holding_lock
+					let mut tx_queue = self.tx_queue
+						.lock().unwrap();
+					tx_queue.pop_front()
+					// drop(tx_queue);
+				};
 				match head {
 				Some(vec) => {
 					let res = sock.write_all(&vec).await;
@@ -421,7 +427,6 @@ impl InnerTcpConnection {
 							ConnState::WriteError;
 						return Err(ERR_WRITE_ERROR);
 					}
-					()
 				}
 				None =>
 					break,
@@ -435,7 +440,13 @@ impl InnerTcpConnection {
 	// This function is not async cancellation safe because it calls
 	// reader and writer which are not async cancellation safe
 	pub async fn worker(&self) -> Option<()> {
-		let mut stream = self.stream.lock().unwrap();
+		let mut stream = {
+			// Extra block to satisfy clippy
+			// await_holding_lock
+			let mut opt_stream = self.stream.lock().unwrap();
+			opt_stream.take().unwrap()
+			// drop(opt_stream);
+		};
 		let (mut read_stream, mut write_stream) = stream.split();
 
 		let reader_fut = self.reader(&mut read_stream);
@@ -444,50 +455,53 @@ impl InnerTcpConnection {
 		tokio::pin!(writer_fut);
 
 		loop {
-			let mut opt_timeout: Option<Duration> = None;
-			let mut status = self.status.lock().unwrap();
-			match status.state {
-			    ConnState::Active(opt_instant) => {
-				if let Some(instant) = opt_instant {
-				    let timeout = Duration::from_secs(
-					RESPONSE_TIMEOUT_S);
-				    let elapsed = instant.elapsed();
-				    if elapsed > timeout {
-					let error = io::Error::new(
-						io::ErrorKind::Other,
-						"read timeout");
-					self.tcp_error(error);
-					status.state = ConnState::ReadTimeout;
-					break;
-				    }
-				    opt_timeout = Some(timeout - elapsed);
-				}
-			    }
-			    ConnState::Idle(instant) => {
-				if let Some(timeout) = status.idle_timeout {
-					let elapsed = instant.elapsed();
-					if elapsed >= timeout {
-						// Move to IdleTimeout and end
-						// the loop
-						status.state =
-							ConnState::IdleTimeout;
+			let opt_timeout: Option<Duration> = {
+				// Extra block to satisfy clippy
+				// await_holding_lock
+				let mut status = self.status.lock().unwrap();
+				match status.state {
+				    ConnState::Active(opt_instant) => {
+					if let Some(instant) = opt_instant {
+					    let timeout = Duration::from_secs(
+						RESPONSE_TIMEOUT_S);
+					    let elapsed = instant.elapsed();
+					    if elapsed > timeout {
+						let error = io::Error::new(
+							io::ErrorKind::Other,
+							"read timeout");
+						self.tcp_error(error);
+						status.state = ConnState::ReadTimeout;
 						break;
+					    }
+					    Some(timeout - elapsed)
 					}
-					opt_timeout = Some(timeout - elapsed);
+					else { None }
+				    }
+				    ConnState::Idle(instant) => {
+					if let Some(timeout) = status.idle_timeout {
+						let elapsed = instant.elapsed();
+						if elapsed >= timeout {
+							// Move to IdleTimeout and end
+							// the loop
+							status.state =
+								ConnState::IdleTimeout;
+							break;
+						}
+						Some(timeout - elapsed)
+					}
+					else {
+						panic!("Idle state but no timeout");
+					}
+				    }
+				    ConnState::IdleTimeout |
+				    ConnState::ReadError |
+				    ConnState::WriteError =>
+					None, // No timers here
+				    ConnState::ReadTimeout => panic!(
+					"should not be in loop with ReadTimeout")
 				}
-				else {
-					panic!("Idle state but no timeout");
-				}
-			    }
-			    ConnState::IdleTimeout |
-			    ConnState::ReadError |
-			    ConnState::WriteError =>
-				(), // No timers here
-			    ConnState::ReadTimeout => panic!(
-				"should not be in loop with ReadTimeout")
-			}
-			drop(status);
-
+				// drop(status);
+			};
 
 			// For simplicity, make sure we always have a timeout
 			let timeout = match opt_timeout {
@@ -533,12 +547,10 @@ impl InnerTcpConnection {
 				_ = sleep_fut => {
 					// Timeout expired, just
 					// continue with the loop
-					()
 				}
 				_ = notify_fut => {
 					// Got notifies, go through the loop
 					// to see what changed.
-					()
 				}
 
 			}
@@ -563,9 +575,13 @@ impl InnerTcpConnection {
 
 		// We can't see a FIN directly because the writer_fut owns
 		// write_stream.
-		let mut status = self.status.lock().unwrap();
-		status.do_shutdown = true;
-		drop(status);
+		{
+			// Extra block to satisfy clippy
+			// await_holding_lock
+			let mut status = self.status.lock().unwrap();
+			status.do_shutdown = true;
+			// drop(status);
+		};
 
 		// Kick writer
 		self.writer_notify.notify_one();
@@ -576,12 +592,16 @@ impl InnerTcpConnection {
 
 		// Stay around until the last query result is collected
 		loop {
-			let query_vec = self.query_vec.lock().unwrap();
-			if query_vec.count == 0 {
-				// We are done
-				break;
+			{
+				// Extra block to satisfy clippy
+				// await_holding_lock
+				let query_vec = self.query_vec.lock().unwrap();
+				if query_vec.count == 0 {
+					// We are done
+					break;
+				}
+				// drop(query_vec);
 			}
-			drop(query_vec);
 
 			self.worker_notify.notified().await;
 		}
@@ -591,8 +611,8 @@ impl InnerTcpConnection {
 	fn insert_at(query_vec: &mut Queries, index: usize,
 		q: Option<SingleQuery>) {
 		query_vec.vec[index] = q;
-		query_vec.count = query_vec.count + 1;
-		query_vec.busy = query_vec.busy + 1;
+		query_vec.count += 1;
+		query_vec.busy += 1;
 		query_vec.curr = index + 1;
 	}
 
@@ -622,8 +642,8 @@ impl InnerTcpConnection {
 			u16::MAX.into() {
 			// Just append
 			query_vec.vec.push(q);
-			query_vec.count = query_vec.count + 1;
-			query_vec.busy = query_vec.busy + 1;
+			query_vec.count += 1;
+			query_vec.busy += 1;
 			let index = query_vec.vec.len()-1;
 			return Ok(index);
 		}
@@ -633,7 +653,6 @@ impl InnerTcpConnection {
 			match query_vec.vec[index] {
 				Some(_) => {
 					// Already in use, just continue
-					()
 				}
 				None => {
 					Self::insert_at(&mut query_vec,
@@ -649,7 +668,6 @@ impl InnerTcpConnection {
 			match query_vec.vec[index] {
 				Some(_) => {
 					// Already in use, just continue
-					()
 				}
 				None => {
 					Self::insert_at(&mut query_vec,
@@ -687,17 +705,15 @@ impl InnerTcpConnection {
 		match status.state {
 			ConnState::Active(timer) => {
 				// Set timer if we don't have one already
-				if timer == None {
+				if timer.is_none() {
 					status.state = ConnState::Active(Some(
 						Instant::now()));
 				}
-				()
 			}
 			ConnState::Idle(_) => {
 				// Go back to active
 				status.state = ConnState::Active(Some(
 					Instant::now()));
-				()
 			}
 			ConnState::IdleTimeout => {
 				// The connection has been closed. Report error
@@ -776,10 +792,15 @@ impl InnerTcpConnection {
 			query_msg: &Message<Octs>, index: usize) ->
 			Result<Message<Bytes>, Arc<std::io::Error>> {
 			// Wait for reply
-			let mut query_vec = self.query_vec.lock().unwrap();
-			let local_notify = query_vec.vec[index].as_mut().
-				unwrap().complete.clone();
-			drop(query_vec);
+			let local_notify = {
+				// Extra block to satisfy clippy
+				// await_holding_lock
+				let mut query_vec = self.query_vec.lock()
+					.unwrap();
+				query_vec.vec[index].as_mut().
+					unwrap().complete.clone()
+				// drop(query_vec);
+			};
 			local_notify.notified().await;
 
 			// take a look
@@ -819,7 +840,6 @@ impl InnerTcpConnection {
 						query.state =
 							SingleQueryState::
 								Canceled;
-						return;
 					}
 					SingleQueryState::Canceled => {
 						panic!("Already canceled");
