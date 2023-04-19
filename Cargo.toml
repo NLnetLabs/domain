@@ -88,3 +88,11 @@ required-features = ["resolv-sync"]
 name = "client"
 required-features = ["std", "rand"]
 
+[[example]]
+name = "tcp-client"
+required-features = ["net"]
+
+[[example]]
+name = "tls-client"
+required-features = ["net"]
+
