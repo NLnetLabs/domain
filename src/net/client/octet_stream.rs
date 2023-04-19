@@ -1,43 +1,11 @@
 //! A DNS over octet stream transport
-//! # Example
+//! # Example with TCP connection to port 53
 //! ```
-//! use domain::base::Dname;
-//! use domain::base::Rtype::Aaaa;
-//! use domain::base::{MessageBuilder, StaticCompressor, StreamTarget};
-//! use domain::net::client::octet_stream::Connection;
-//! use std::net::{IpAddr, SocketAddr};
-//! use std::str::FromStr;
-//! use tokio::net::TcpStream;
-//!
-//! #[tokio::main]
-//! async fn main() {
-//!     // Create DNS request message
-//!     // Create a message builder wrapping a compressor wrapping a stream
-//!     // target.
-//!     let mut msg =
-//!         MessageBuilder::from_target(StaticCompressor::new(StreamTarget::new_vec())).unwrap();
-//!     msg.header_mut().set_rd(true);
-//!     let mut msg = msg.question();
-//!     msg.push((Dname::<Vec<u8>>::vec_from_str("example.com").unwrap(), Aaaa))
-//!         .unwrap();
-//!     let mut msg = msg.as_builder_mut().clone();
-//!
-//!     let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
-//!
-//!     let tcp = TcpStream::connect(server_addr).await.unwrap();
-//!     let (reader, writer) = tcp.into_split();
-//!
-//!     let conn = Connection::new().unwrap();
-//!     let conn_run = conn.clone();
-//!
-//!     tokio::spawn(async move {
-//!         conn_run.run(reader, writer).await;
-//!     });
-//!
-//!     let mut query = conn.query(&mut msg).await.unwrap();
-//!     let reply = query.get_result().await;
-//!     println!("reply: {:?}", reply);
-//! }
+#![doc = include_str!("../../../examples/tcp-client.rs")]
+//! ```
+//! # Example with TLS connection to port 853
+//! ```
+#![doc = include_str!("../../../examples/tls-client.rs")]
 //! ```
 
 #![warn(missing_docs)]
@@ -268,16 +236,14 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     ///
     /// This function Gets called by [Connection::run].
     /// This function is not async cancellation safe
-    pub async fn run<
-        ReadStream: AsyncReadExt + Unpin,
-        WriteStream: AsyncWriteExt + Unpin,
-    >(
+    pub async fn run<IO: AsyncReadExt + AsyncWriteExt + Unpin>(
         &self,
-        mut read_stream: ReadStream,
-        mut write_stream: WriteStream,
+        io: IO,
     ) -> Option<()> {
         let (reply_sender, mut reply_receiver) =
             mpsc::channel::<ReaderChanReply>(READ_REPLY_CHAN_CAP);
+
+        let (mut read_stream, mut write_stream) = tokio::io::split(io);
 
         let reader_fut = Self::reader(&mut read_stream, reply_sender);
         tokio::pin!(reader_fut);
@@ -836,15 +802,11 @@ impl<
     ///
     /// This function has to run in the background or together with
     /// any calls to [query](Self::query) or [Query::get_result].
-    pub async fn run<
-        ReadStream: AsyncReadExt + Unpin,
-        WriteStream: AsyncWriteExt + Unpin,
-    >(
+    pub async fn run<IO: AsyncReadExt + AsyncWriteExt + Unpin>(
         &self,
-        read_stream: ReadStream,
-        write_stream: WriteStream,
+        io: IO,
     ) -> Option<()> {
-        self.inner.run(read_stream, write_stream).await
+        self.inner.run(io).await
     }
 
     /// Start a DNS request.

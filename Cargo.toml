@@ -57,9 +57,12 @@ zonefile    = ["bytes", "std"]
 ci-test     = ["resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]
 
 [dev-dependencies]
+rustls             = { version = "0" }
 serde_test         = "1.0.130"
 serde_yaml         = "0.9"
 tokio              = { version = "1", features = ["rt-multi-thread", "io-util", "net"] }
+tokio-rustls       = { version = "0" }
+webpki-roots       = { version = "0" }
 
 [package.metadata.docs.rs]
 all-features = true
