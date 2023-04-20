@@ -242,35 +242,32 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized, const N: usize> Parse<'a, Octs>
 #[cfg(feature = "std")]
 pub fn parse_slice<F, T>(data: &[u8], op: F) -> Result<T, ParseError>
 where
-    F: FnOnce(&mut Parser<[u8]>) -> Result<T, ParseError> 
+    F: FnOnce(&mut Parser<[u8]>) -> Result<T, ParseError>,
 {
     let mut parser = Parser::from_ref(data);
     let res = op(&mut parser)?;
     if parser.remaining() > 0 {
         Err(ParseError::form_error("trailing data"))
-    }
-    else {
+    } else {
         Ok(res)
     }
 }
 
-
 /// Composes something into a `Vec<u8>`.
 ///
-/// The actual composing happens in the provided closure. 
+/// The actual composing happens in the provided closure.
 /// This function is mostly useful in testing so you can construct this vec
 /// directly inside an asserting.
 #[cfg(feature = "std")]
 pub fn compose_vec(
     op: impl FnOnce(
-        &mut std::vec::Vec<u8>
+        &mut std::vec::Vec<u8>,
     ) -> Result<(), core::convert::Infallible>,
 ) -> std::vec::Vec<u8> {
     let mut res = std::vec::Vec::new();
     octseq::builder::infallible(op(&mut res));
     res
 }
-
 
 //============ Error Types ===================================================
 

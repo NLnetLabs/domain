@@ -1,47 +1,99 @@
-//! Extended DNS Error from RFC 8914
+//! EDNS option for extended DNS errors.
+//!
+//! The option in this module – [`ExtendedError<Octs>`] – allows a server to
+//! provide more detailed information why a query has failed.
+//!
+//! The option is defined in [RFC 8914](https://tools.ietf.org/html/rfc8914).
 
 use super::super::iana::exterr::{ExtendedErrorCode, EDE_PRIVATE_RANGE_BEGIN};
 use super::super::iana::OptionCode;
+use super::super::message_builder::OptBuilder;
 use super::super::wire::ParseError;
-use super::super::wire::Compose;
-use super::{OptData, ComposeOptData, ParseOptData};
+use super::super::wire::{Compose, Composer};
+use super::{
+    BuildDataError, LongOptData, Opt, OptData, ComposeOptData, ParseOptData
+};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
+use octseq::str::Str;
 use core::{fmt, hash, str};
-use core::convert::TryFrom;
 
 //------------ ExtendedError -------------------------------------------------
 
-/// Extended Error data structure
-#[derive(Debug, Clone)]
+/// Option data for an extended DNS error.
+///
+/// The Extended DNS Error option allows a server to include more detailed
+/// information in a response to a failed query why it did. It contains a
+/// standardized [`ExtendedErrorCode`] for machines and an optional UTF-8
+/// error text for humans.
+#[derive(Clone)]
 pub struct ExtendedError<Octs> {
-    /// Info code provides the additional context for the
-    /// RESPONSE-CODE of the DNS message.
+    /// The extended error code.
     code: ExtendedErrorCode,
 
-    /// Extra UTF-8 encoded text, which may hold additional textual
-    /// information(optional).
-    text: Option<Octs>,
+    /// Optional human-readable error information.
+    ///
+    /// See `text` for the interpretation of the result.
+    text: Option<Result<Str<Octs>, Octs>>,
 }
 
-impl<Octs: AsRef<[u8]>> ExtendedError<Octs> {
-    /// Get INFO-CODE field.
+impl<Octs> ExtendedError<Octs> {
+    /// Creates a new value from a code and optional text.
+    ///
+    /// Returns an error if `text` is present but is too long to fit into
+    /// an option.
+    pub fn new(
+        code: ExtendedErrorCode, text: Option<Str<Octs>>
+    ) -> Result<Self, LongOptData>
+    where Octs: AsRef<[u8]> {
+        if let Some(ref text) = text {
+            LongOptData::check_len(
+                text.len() + usize::from(ExtendedErrorCode::COMPOSE_LEN)
+            )?
+        }
+        Ok(unsafe { Self::new_unchecked(code, text.map(Ok)) })
+    }
+
+    /// Creates a new value without checking for the option length.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the length of the wire format of the
+    /// value does not exceed 65,535 octets.
+    pub unsafe fn new_unchecked(
+        code: ExtendedErrorCode, text: Option<Result<Str<Octs>, Octs>>
+    ) -> Self {
+        Self { code, text }
+    }
+
+    /// Returns the error code.
     pub fn code(&self) -> ExtendedErrorCode {
         self.code
     }
 
-    /// Get EXTRA-TEXT field.
-    pub fn text(&self) -> Option<&Octs> {
-        self.text.as_ref()
+    /// Returns the text.
+    ///
+    /// If there is no text, returns `None`. If there is text and it is
+    /// correctly encoded UTF-8, returns `Some(Ok(_))`. If there is text but
+    /// it is not UTF-8, returns `Some(Err(_))`.
+    pub fn text(&self) -> Option<Result<&Str<Octs>, &Octs>> {
+        self.text.as_ref().map(Result::as_ref)
     }
 
-    /// Set EXTRA-TEXT field. `text` must be UTF-8 encoded.
-    pub fn set_text(&mut self, text: Octs) -> Result<(), str::Utf8Error> {
-        // validate encoding
-        let _ = str::from_utf8(text.as_ref())?;
-        self.text = Some(text);
-        Ok(())
+    /// Returns the text as an octets slice.
+    pub fn text_slice(&self) -> Option<&[u8]>
+    where Octs: AsRef<[u8]> {
+        match self.text {
+            Some(Ok(ref text)) => Some(text.as_slice()),
+            Some(Err(ref text)) => Some(text.as_ref()),
+            None => None
+        }
+    }
+
+    /// Sets the text field.
+    pub fn set_text(&mut self, text: Str<Octs>) {
+        self.text = Some(Ok(text));
     }
 
     /// Returns true if the code is in the private range.
@@ -51,17 +103,18 @@ impl<Octs: AsRef<[u8]>> ExtendedError<Octs> {
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>
-    ) -> Result<Self, ParseError> {
-        let mut ede: Self = parser.parse_u16()?.into();
-        let n = parser.remaining();
-        if n > 0 {
-            ede.set_text(parser.parse_octets(n)?).map_err(|_| {
-                ParseError::form_error(
-                    "invalid extended error text encoding"
-                )
-            })?;
-        }
-        Ok(ede)
+    ) -> Result<Self, ParseError>
+    where Octs: AsRef<[u8]> {
+        let code = ExtendedErrorCode::parse(parser)?;
+        let text = match parser.remaining() {
+            0 => None,
+            n => {
+                Some(Str::from_utf8(parser.parse_octets(n)?).map_err(|err| {
+                    err.into_octets()
+                }))
+            }
+        };
+        Ok(unsafe { Self::new_unchecked(code, text) })
     }
 }
 
@@ -82,14 +135,14 @@ impl<Octs> From<u16> for ExtendedError<Octs> {
     }
 }
 
-impl<Octs> TryFrom<(ExtendedErrorCode, Octs)> for ExtendedError<Octs>
+impl<Octs> TryFrom<(ExtendedErrorCode, Str<Octs>)> for ExtendedError<Octs> 
 where Octs: AsRef<[u8]> {
-    type Error = str::Utf8Error;
+    type Error = LongOptData;
 
-    fn try_from(v: (ExtendedErrorCode, Octs)) -> Result<Self, Self::Error> {
-        let mut ede: Self = v.0.into();
-        ede.set_text(v.1)?;
-        Ok(ede)
+    fn try_from(
+        (code, text): (ExtendedErrorCode, Str<Octs>)
+    ) -> Result<Self, Self::Error> {
+        Self::new(code, Some(text))
     }
 }
 
@@ -107,7 +160,7 @@ where Octs: Octets + ?Sized {
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        if code == OptionCode::Nsid {
+        if code == OptionCode::ExtendedError {
             Self::parse(parser).map(Some)
         }
         else {
@@ -118,8 +171,8 @@ where Octs: Octets + ?Sized {
 
 impl<Octs: AsRef<[u8]>> ComposeOptData for ExtendedError<Octs> {
     fn compose_len(&self) -> u16 {
-        if let Some(text) = &self.text {
-            text.as_ref().len().checked_add(
+        if let Some(text) = self.text_slice() {
+            text.len().checked_add(
                 ExtendedErrorCode::COMPOSE_LEN.into()
             ).expect("long option data").try_into().expect("long option data")
         }
@@ -132,24 +185,65 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for ExtendedError<Octs> {
         &self, target: &mut Target
     ) -> Result<(), Target::AppendError> {
         self.code.to_int().compose(target)?;
-        if let Some(text) = &self.text {
-            target.append_slice(text.as_ref())?;
+        if let Some(text) = self.text_slice() {
+            target.append_slice(text)?;
         }
         Ok(())
     }
 }
 
-//--- Display
+//--- Display and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for ExtendedError<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.code.fmt(f)?;
+        match self.text {
+            Some(Ok(ref text)) => write!(f, " {}", text)?,
+            Some(Err(ref text)) => {
+                let mut text = text.as_ref();
+                f.write_str(" ")?;
+                while !text.is_empty() {
+                    let tail = match str::from_utf8(text) {
+                        Ok(text) => {
+                            f.write_str(text)?;
+                            break;
+                        }
+                        Err(err) => {
+                            let (head, tail) = text.split_at(
+                                err.valid_up_to()
+                            );
+                            f.write_str(
+                                unsafe {
+                                    str::from_utf8_unchecked(head)
+                                }
+                            )?;
+                            f.write_str("\u{FFFD}")?;
 
-        if let Some(text) = &self.text {
-            let text = str::from_utf8(text.as_ref()).map_err(|_| fmt::Error)?;
-            write!(f, " ({})", text)?;
+                            if let Some(err_len) = err.error_len() {
+                                &tail[err_len..]
+                            }
+                            else {
+                                break;
+                            }
+                        }
+                    };
+                    text = tail;
+                }
+            }
+            None => { }
         }
         Ok(())
+    }
+}
+
+impl<Octs: AsRef<[u8]>> fmt::Debug for ExtendedError<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ExtendedError")
+            .field("code", &self.code)
+            .field("text", &self.text.as_ref().map(|text| {
+                text.as_ref().map_err(|err| err.as_ref())
+            }))
+            .finish()
     }
 }
 
@@ -161,10 +255,7 @@ where
     Other: AsRef<[u8]>,
 { 
     fn eq(&self, other: &ExtendedError<Other>) -> bool {
-       self.code.eq(&other.code)
-       && self.text().as_ref().map(AsRef::as_ref).eq(
-           &other.text().as_ref().map(AsRef::as_ref)
-       )
+       self.code.eq(&other.code) && self.text_slice().eq(&other.text_slice())
     }
 }
 
@@ -175,7 +266,43 @@ impl<Octs: AsRef<[u8]>> Eq for ExtendedError<Octs> { }
 impl<Octs: AsRef<[u8]>> hash::Hash for ExtendedError<Octs> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.code.hash(state);
-        self.text().as_ref().map(AsRef::as_ref).hash(state);
+        self.text_slice().hash(state);
+    }
+}
+
+//--- Extended Opt and OptBuilder
+
+impl<Octs: Octets> Opt<Octs> {
+    /// Returns the first extended DNS error option if present.
+    ///
+    /// The extended DNS error option carries additional error information in
+    /// a failed answer.
+    pub fn extended_error(&self) -> Option<ExtendedError<Octs::Range<'_>>> {
+        self.first()
+    }
+}
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    /// Appends an extended DNS error option.
+    ///
+    /// The extended DNS error option carries additional error information in
+    /// a failed answer. The `code` argument is a standardized error code
+    /// while the optional `text` carries human-readable information.
+    ///
+    /// The method fails if `text` is too long to be part of an option or if
+    /// target runs out of space.
+    pub fn extended_error<Octs: AsRef<[u8]>>(
+        &mut self, code: ExtendedErrorCode, text: Option<&Str<Octs>>
+    ) -> Result<(), BuildDataError> {
+        self.push(
+            &ExtendedError::new(
+                code,
+                text.map(|text| {
+                    unsafe { Str::from_utf8_unchecked(text.as_slice()) }
+                })
+            )?
+        )?;
+        Ok(())
     }
 }
 
@@ -185,13 +312,13 @@ impl<Octs: AsRef<[u8]>> hash::Hash for ExtendedError<Octs> {
 mod tests {
     use super::*;
     use super::super::test::test_option_compose_parse;
-    use core::convert::TryInto;
 
     #[test]
     fn nsid_compose_parse() {
-        let ede: ExtendedError<&[u8]> = (
-            ExtendedErrorCode::StaleAnswer, "some text".as_ref()
-        ).try_into().unwrap();
+        let ede = ExtendedError::new(
+            ExtendedErrorCode::StaleAnswer,
+            Some(Str::from_string("some text".into()))
+        ).unwrap();
         test_option_compose_parse(
             &ede,
             |parser| ExtendedError::parse(parser)
@@ -205,19 +332,5 @@ mod tests {
 
         let ede: ExtendedError<&[u8]> = EDE_PRIVATE_RANGE_BEGIN.into();
         assert!(ede.is_private());
-    }
-
-    #[test]
-    fn encoding() {
-        assert!(
-            ExtendedError::try_from(
-                (ExtendedErrorCode::Other, b"\x30".as_ref())
-            ).is_ok()
-        );
-        assert!(
-            ExtendedError::try_from(
-                (ExtendedErrorCode::Other, b"\xff".as_ref())
-            ).is_err()
-        );
     }
 }

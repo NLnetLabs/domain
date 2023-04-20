@@ -1,10 +1,10 @@
 use std::net::UdpSocket;
 use std::str::FromStr;
 
+use domain::base::opt::AllOptData;
 use domain::base::{
     Dname, Message, MessageBuilder, Rtype, StaticCompressor, StreamTarget,
 };
-use domain::base::opt::AllOptData;
 use domain::rdata::AllRecordData;
 
 fn create_message() -> StreamTarget<Vec<u8>> {

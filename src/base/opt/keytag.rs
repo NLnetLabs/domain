@@ -1,9 +1,17 @@
-//! EDNS Options from RFC 8145.
+//! EDNS options to signal the trust anchor key used in DNSSEC validation.
+//!
+//! The option in this module – [`KeyTag`] – is used by validating resolvers
+//! when querying for DNSKEY records to indicate the key tags of the trust
+//! anchor keys they will be using when validating responses. This is intended
+//! as a means to monitor key uses during root key rollovers.
+//!
+//! The option is defined in [RFC 8145](https://tools.ietf.org/html/rfc8145)
+//! along with detailed rules for who includes this option when.
 
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
-use super::super::wire::{Compose, Composer, FormError, ParseError};
-use super::{OptData, ComposeOptData, ParseOptData};
+use super::super::wire::{Composer, ParseError};
+use super::{Opt, OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
@@ -14,44 +22,96 @@ use core::convert::TryInto;
 
 //------------ KeyTag -------------------------------------------------------
 
-#[derive(Clone, Debug)]
+/// Option data for the edns-key-tag option.
+///
+/// This option allows a client to indicate the key tags of the trust anchor
+/// keys they are using to validate responses. The option contains a sequence
+/// of key tags.
+#[derive(Clone)]
 pub struct KeyTag<Octs: ?Sized> {
     octets: Octs,
 }
 
 impl<Octs> KeyTag<Octs> {
-    pub fn from_octets(octets: Octs) -> Self {
-        KeyTag { octets }
+    /// Creates a new value from its content in wire format.
+    ///
+    /// The function returns an error if the octets do not encode a valid
+    /// edns-key-tag option: the length needs to be an even number of
+    /// octets and no longer than 65,536 octets.
+    pub fn from_octets(octets: Octs) -> Result<Self, ParseError>
+    where Octs: AsRef<[u8]> {
+        KeyTag::check_len(octets.as_ref().len())?;
+        Ok(unsafe { Self::from_octets_unchecked(octets ) })
+    }
+
+    /// Creates a new value from its wire-format content without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that `octets` is a valid key tag. The
+    /// length needs to be an even number of octets and no longer than
+    /// 65,536 octets.
+    pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
+        Self { octets }
     }
 
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
-        if len % 2 == 1 {
-            Err(FormError::new("invalid keytag length").into())
-        }
-        else {
-            Ok(Self::from_octets(parser.parse_octets(len)?))
-        }
+        KeyTag::check_len(len)?;
+        let octets = parser.parse_octets(len)?;
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 }
 
 impl KeyTag<[u8]> {
-    pub fn from_slice(slice: &[u8]) -> &Self {
-        unsafe { &*(slice as *const [u8] as *const Self) }
+    /// Creates a key tag value from a slice.
+    ///
+    /// Returns an error if `slice` does not contain a valid key tag.
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, ParseError> {
+        Self::check_len(slice.len())?;
+        Ok(unsafe { Self::from_slice_unchecked(slice) })
     }
 
-    pub fn from_slice_mut(slice: &mut [u8]) -> &mut Self {
-        unsafe { &mut *(slice as *mut [u8] as *mut Self) }
+    /// Creates a key tag value from a slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that `slice` contains a valid key tag. The
+    /// length needs to be an even number of octets and no longer than
+    /// 65,536 octets.
+    pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        &*(slice as *const [u8] as *const Self)
+    }
+
+    /// Checkes that the length of an octets sequence is valid.
+    fn check_len(len: usize) -> Result<(), ParseError> {
+        if len > usize::from(u16::MAX) {
+            Err(ParseError::form_error("long edns-key-tag option"))
+        }
+        else if len % 2 == 1 {
+            Err(ParseError::form_error("invalid edns-key-tag option length"))
+        }
+        else {
+            Ok(())
+        }
     }
 }
 
 impl<Octs: ?Sized> KeyTag<Octs> {
+    /// Returns a reference to the underlying octets.
+    ///
+    /// The octets contain the key tag value in its wire format: a sequence
+    /// of `u16` in network byte order.
     pub fn as_octets(&self) -> &Octs {
         &self.octets
     }
 
+    /// Converts the value to the underlying octets.
+    ///
+    /// The octets contain the key tag value in its wire format: a sequence
+    /// of `u16` in network byte order.
     pub fn into_octets(self) -> Octs
     where
         Octs: Sized,
@@ -59,6 +119,10 @@ impl<Octs: ?Sized> KeyTag<Octs> {
         self.octets
     }
 
+    /// Returns a slice of the underlying octets.
+    ///
+    /// The slice will contain the key tag value in its wire format: a
+    /// sequence of `u16` in network byte order.
     pub fn as_slice(&self) -> &[u8]
     where
         Octs: AsRef<[u8]>,
@@ -66,6 +130,10 @@ impl<Octs: ?Sized> KeyTag<Octs> {
         self.octets.as_ref()
     }
 
+    /// Returns a mutable slice of the underlying octets.
+    ///
+    /// The slice will contain the key tag value in its wire format: a
+    /// sequence of `u16` in network byte order.
     pub fn as_slice_mut(&mut self) -> &mut [u8]
     where
         Octs: AsMut<[u8]>,
@@ -73,6 +141,7 @@ impl<Octs: ?Sized> KeyTag<Octs> {
         self.octets.as_mut()
     }
 
+    /// Returns an iterator over the individual key tags.
     pub fn iter(&self) -> KeyTagIter
     where Octs: AsRef<[u8]> {
         KeyTagIter(self.octets.as_ref())
@@ -155,7 +224,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> IntoIterator for &'a KeyTag<Octs> {
 }
 
 
-//--- Display
+//--- Display and Debug
 
 impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display  for KeyTag<Octets> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -173,6 +242,13 @@ impl<Octets: AsRef<[u8]> + ?Sized> fmt::Display  for KeyTag<Octets> {
         Ok(())
     }
 }
+
+impl<Octets: AsRef<[u8]> + ?Sized> fmt::Debug  for KeyTag<Octets> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "KeyTag([{}])", self)
+    }
+}
+
 
 //--- PartialEq and Eq
 
@@ -214,9 +290,37 @@ impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for KeyTag<Octs> {
     }
 }
 
+//--- Extended Opt and OptBuilder
+
+impl<Octs: Octets> Opt<Octs> {
+    /// Returns the first edns-key-tags option if present.
+    ///
+    /// The option contains a list of the key tags of the trust anchor keys
+    /// a validating resolver is using for DNSSEC validation.
+    pub fn key_tag(&self) -> Option<KeyTag<Octs::Range<'_>>> {
+        self.first()
+    }
+}
+
+impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    /// Appends a edns-key-tag option.
+    ///
+    /// The option contains a list of the key tags of the trust anchor keys
+    /// a validating resolver is using for DNSSEC validation.
+    pub fn key_tag(
+        &mut self, key_tag: &KeyTag<impl AsRef<[u8]> + ?Sized>,
+    ) -> Result<(), Target::AppendError> {
+        self.push(key_tag)
+    }
+}
+
 
 //------------ KeyTagIter ----------------------------------------------------
 
+/// An iterator over the key tags in an edns-key-tags value.
+///
+/// You can get a value of this type via [`KeyTag::iter`] or its
+/// `IntoIterator` implementation.
 #[derive(Clone, Copy, Debug)]
 pub struct KeyTagIter<'a>(&'a [u8]);
 
@@ -235,26 +339,6 @@ impl<'a> Iterator for KeyTagIter<'a> {
     }
 }
 
-//------------ OptBuilder ----------------------------------------------------
-
-impl<'a, Target: Composer> OptBuilder<'a, Target> {
-    pub fn key_tag(
-        &mut self, tags: &(impl AsRef<[u16]> + ?Sized)
-    ) -> Result<(), Target::AppendError> {
-        self.push_raw_option(
-            OptionCode::KeyTag,
-            u16::try_from(
-                tags.as_ref().len().checked_mul(2).expect("long option data")
-            ).expect("long option data"),
-            |target| {
-                for tag in tags.as_ref() {
-                    tag.compose(target)?;
-                }
-                Ok(())
-            }
-        )
-    }
-}
 
 //============ Testing ======================================================
 
@@ -267,7 +351,7 @@ mod test {
     #[test]
     fn nsid_compose_parse() {
         test_option_compose_parse(
-            &KeyTag::from_octets("fooo"),
+            &KeyTag::from_octets("fooo").unwrap(),
             |parser| KeyTag::parse(parser)
         );
     }

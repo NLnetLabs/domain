@@ -25,16 +25,16 @@
 #[macro_use]
 mod macros;
 opt_types! {
-    nsid::{Nsid<Octs>};
     algsig::{Dau<Octs>, Dhu<Octs>, N3u<Octs>};
-    expire::{Expire};
-    keepalive::{TcpKeepalive};
-    padding::{Padding};
-    subnet::{ClientSubnet};
-    cookie::{Cookie};
     chain::{Chain<Name>};
-    keytag::{KeyTag<Octs>};
+    cookie::{Cookie};
+    expire::{Expire};
     exterr::{ExtendedError<Octs>};
+    keepalive::{TcpKeepalive};
+    keytag::{KeyTag<Octs>};
+    nsid::{Nsid<Octs>};
+    padding::{Padding<Octs>};
+    subnet::{ClientSubnet};
 }
 
 //============ Module Content ================================================
@@ -694,9 +694,11 @@ impl<Octs> UnknownOptData<Octs> {
     ///
     /// The function returns an error if `data` is longer than 65,535 octets.
     pub fn new(code: OptionCode, data: Octs) -> Result<Self, LongOptData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongOptData::check_len(data.as_ref().len())?;
-        Ok( unsafe { Self::new_unchecked(code, data) })
+        Ok(unsafe { Self::new_unchecked(code, data) })
     }
 
     /// Creates a new option data value without checking.
@@ -772,15 +774,19 @@ where
         code: OptionCode,
         parser: &mut Parser<'a, Octs>,
     ) -> Result<Option<Self>, ParseError> {
-        Self::new(
-            code, parser.parse_octets(parser.remaining())?
-        ).map(Some).map_err(Into::into)
+        Self::new(code, parser.parse_octets(parser.remaining())?)
+            .map(Some)
+            .map_err(Into::into)
     }
 }
 
 impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
     fn compose_len(&self) -> u16 {
-        self.data.as_ref().len().try_into().expect("long option data")
+        self.data
+            .as_ref()
+            .len()
+            .try_into()
+            .expect("long option data")
     }
 
     fn compose_option<Target: OctetsBuilder + ?Sized>(
@@ -798,7 +804,6 @@ impl<Octs: AsRef<[u8]>> fmt::Display for UnknownOptData<Octs> {
         base16::display(self.data.as_ref(), f)
     }
 }
-
 
 //============ Error Types ===================================================
 
@@ -867,7 +872,7 @@ impl fmt::Display for BuildDataError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::LongOptData => f.write_str("long option data"),
-            Self::ShortBuf => ShortBuf.fmt(f)
+            Self::ShortBuf => ShortBuf.fmt(f),
         }
     }
 }
@@ -922,12 +927,13 @@ pub(super) mod test {
 
     #[test]
     fn opt_iter() {
-        use self::opt::cookie::{Cookie, ClientCookie};
+        use self::opt::cookie::{ClientCookie, Cookie};
 
         // Push two options and check that both are parseable
-        let nsid = opt::Nsid::from_octets(&b"example"[..]);
+        let nsid = opt::Nsid::from_octets(&b"example"[..]).unwrap();
         let cookie = Cookie::new(
-            ClientCookie::from_octets(1234u64.to_be_bytes()), None
+            ClientCookie::from_octets(1234u64.to_be_bytes()),
+            None,
         );
         let msg = {
             let mut mb = MessageBuilder::new_vec().additional();

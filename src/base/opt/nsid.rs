@@ -1,9 +1,18 @@
-/// EDNS0 Options from RFC 5001.
+//! ENDS option to provide a Name Server Identifer.
+//!
+//! The option in this module – [`Nsid<Octs>`] – allows a resolver to query
+//! for and a server to provide an identifier for the particular server that
+//! answered the query. This can be helpful when debugging a scenario where
+//! multiple servers serve a common address.
+//!
+//! The option is defined in [RFC 5001](https://tools.ietf.org/html/rfc5001).
 
 use super::super::iana::OptionCode;
 use super::super::message_builder::OptBuilder;
 use super::super::wire::{Composer, ParseError};
-use super::{OptData, ComposeOptData, ParseOptData};
+use super::{
+    BuildDataError, LongOptData, Opt, OptData, ComposeOptData, ParseOptData
+};
 use octseq::builder::OctetsBuilder;
 use octseq::octets::Octets;
 use octseq::parse::Parser;
@@ -13,42 +22,87 @@ use core::cmp::Ordering;
 
 //------------ Nsid ---------------------------------------------------------/
 
-/// The Name Server Identifier (NSID) Option.
+/// Option data for the Name Server Identifier (NSID) Option.
 ///
-/// Specified in RFC 5001.
-#[derive(Clone, Copy, Debug)]
+/// This option allows identifying a particular name server that has answered
+/// a query. If a client is interested in this information, it includes an
+/// empty NSID option in its query. If the server supports the option, it
+/// includes it in its response with byte string identifying the server.
+///
+/// The option and details about its use are defined in
+/// [RFC 5001](https://tools.ietf.org/html/rfc5001).
+#[derive(Clone, Copy)]
 pub struct Nsid<Octs: ?Sized> {
+    /// The octets of the identifier.
     octets: Octs,
 }
 
 impl<Octs> Nsid<Octs> {
-    pub fn from_octets(octets: Octs) -> Self {
+    /// Creates a value from the ocets of the name server identifier.
+    ///
+    /// The function returns an error if `octets` is longer than 65,535
+    /// octets.
+    pub fn from_octets(octets: Octs) -> Result<Self, LongOptData>
+    where Octs: AsRef<[u8]> {
+        LongOptData::check_len(octets.as_ref().len())?;
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
+    }
+
+    /// Creates a value from the name server identifier without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to make sure that `octets` is no longer than 65,535
+    /// octets.
+    pub unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         Nsid { octets }
     }
 
+    /// Parses a value from its wire format.
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
-        parser.parse_octets(len).map(Nsid::from_octets).map_err(Into::into)
+        LongOptData::check_len(len)?;
+        Ok(unsafe { Self::from_octets_unchecked(
+            parser.parse_octets(len)?
+        )})
     }
 }
 
 impl Nsid<[u8]> {
-    pub fn from_slice(slice: &[u8]) -> &Self {
-        unsafe { &*(slice as *const [u8] as *const Self) }
+    /// Creates a value for a slice of the name server identifer.
+    ///
+    /// The function returns an error if `slice` is longer than 65,535
+    /// octets.
+    pub fn from_slice(slice: &[u8]) -> Result<&Self, LongOptData> {
+        LongOptData::check_len(slice.len())?;
+        Ok(unsafe { Self::from_slice_unchecked(slice) })
     }
 
-    pub fn from_slice_mut(slice: &mut [u8]) -> &mut Self {
-        unsafe { &mut *(slice as *mut [u8] as *mut Self) }
+    /// Creates a value for a slice without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to make sure that `octets` is no longer than 65,535
+    /// octets.
+    pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+        &*(slice as *const [u8] as *const Self)
+    }
+
+    /// Creates an empty NSID option value.
+    pub fn empty() -> &'static Self {
+        unsafe { Self::from_slice_unchecked(b"") }
     }
 }
 
 impl<Octs: ?Sized> Nsid<Octs> {
+    /// Returns a reference to the octets with the server identifier.
     pub fn as_octets(&self) -> &Octs {
         &self.octets
     }
 
+    /// Converts the value into the octets with the server identifier.
     pub fn into_octets(self) -> Octs
     where
         Octs: Sized,
@@ -56,6 +110,7 @@ impl<Octs: ?Sized> Nsid<Octs> {
         self.octets
     }
 
+    /// Returns a slice of the server identifier.
     pub fn as_slice(&self) -> &[u8]
     where
         Octs: AsRef<[u8]>,
@@ -63,29 +118,16 @@ impl<Octs: ?Sized> Nsid<Octs> {
         self.octets.as_ref()
     }
 
-    pub fn as_slice_mut(&mut self) -> &mut [u8]
-    where
-        Octs: AsMut<[u8]>,
-    {
-        self.octets.as_mut()
-    }
-
+    /// Returns a value over an octets slice.
     pub fn for_slice(&self) -> &Nsid<[u8]>
     where
         Octs: AsRef<[u8]>
     {
-        Nsid::from_slice(self.octets.as_ref())
-    }
-
-    pub fn for_slice_mut(&mut self) -> &mut Nsid<[u8]>
-    where
-        Octs: AsMut<[u8]>
-    {
-        Nsid::from_slice_mut(self.octets.as_mut())
+        unsafe { Nsid::from_slice_unchecked(self.octets.as_ref()) }
     }
 }
 
-//--- AsRef, AsMut, Borrow, BorrowMut
+//--- AsRef and Borrow
 
 impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for Nsid<Octs> {
     fn as_ref(&self) -> &[u8] {
@@ -93,24 +135,9 @@ impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for Nsid<Octs> {
     }
 }
 
-impl<Octs: AsMut<[u8]> + ?Sized> AsMut<[u8]> for Nsid<Octs> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.as_slice_mut()
-    }
-}
-
 impl<Octs: AsRef<[u8]> + ?Sized> borrow::Borrow<[u8]> for Nsid<Octs> {
     fn borrow(&self) -> &[u8] {
         self.as_slice()
-    }
-}
-
-impl<Octs> borrow::BorrowMut<[u8]> for Nsid<Octs>
-where
-    Octs: AsMut<[u8]> + AsRef<[u8]> + ?Sized
-{
-    fn borrow_mut(&mut self) -> &mut [u8] {
-        self.as_slice_mut()
     }
 }
 
@@ -148,7 +175,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> ComposeOptData for Nsid<Octs> {
     }
 }
 
-//--- Display
+//--- Display and Debug
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsid<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -163,6 +190,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Nsid<Octs> {
             write!(f, "({})", s)?;
         }
         Ok(())
+    }
+}
+
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Nsid<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Nsid({})", self)
     }
 }
 
@@ -206,14 +239,43 @@ impl<Octs: AsRef<[u8]> + ?Sized> hash::Hash for Nsid<Octs> {
     }
 }
 
+//--- Extended Opt and OptBuilder
 
-//------------ OptBuilder ----------------------------------------------------
+impl<Octs: Octets> Opt<Octs> {
+    /// Returns the first NSID option present.
+    ///
+    /// In a response, the NSID option contains an identifier of the name
+    /// server that answered the query. In a query, the option is empty and
+    /// signals a request for inclusion in a response.
+    pub fn nsid(&self) -> Option<Nsid<Octs::Range<'_>>> {
+        self.first()
+    }
+}
 
 impl<'a, Target: Composer> OptBuilder<'a, Target> {
+    /// Appends an NSID option with the given server identifier.
+    ///
+    /// The NSID option contains an identifier for the name server that
+    /// processed a query.
+    ///
+    /// In a request, the option can be included to request the server to
+    /// include its server identifier. In this case, the data should be
+    /// empty. You can use [`client_nsid`][Self::client_nsid] to easily
+    /// append this version of the option.
     pub fn nsid(
         &mut self, data: &(impl AsRef<[u8]> + ?Sized)
-    ) -> Result<(), Target::AppendError> {
-        self.push(Nsid::from_slice(data.as_ref()))
+    ) -> Result<(), BuildDataError> {
+        Ok(self.push(Nsid::from_slice(data.as_ref())?)?)
+    }
+
+    /// Appends the client version of an NSID option.
+    ///
+    /// If included by a client, the NSID option requests that the server
+    /// returns its name server identifier via the NSID option in a response.
+    /// In this case, the option must be empty. This method creates such an
+    /// empty NSID option.
+    pub fn client_nsid(&mut self) -> Result<(), Target::AppendError> {
+        self.push(Nsid::empty())
     }
 }
 
@@ -228,7 +290,7 @@ mod test {
     #[test]
     fn nsid_compose_parse() {
         test_option_compose_parse(
-            &Nsid::from_octets("foo"),
+            &Nsid::from_octets("foo").unwrap(),
             |parser| Nsid::parse(parser)
         );
     }

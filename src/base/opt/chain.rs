@@ -2,9 +2,9 @@
 //!
 //! The option in this module – [`Chain<Name>`] – allows a validating resolver
 //! to request to include all records necessary to validate the answer in the
-//! response. The option is defined in [RFC 7901].
+//! response.
 //!
-//! [RFC 7901]: https://tools.ietf.org/html/rfc7901
+//! The option is defined in [RFC 7901](https://tools.ietf.org/html/rfc7901).
 
 use core::fmt;
 use super::super::iana::OptionCode;
