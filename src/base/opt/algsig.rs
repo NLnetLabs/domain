@@ -500,7 +500,7 @@ mod test {
     #[test]
     fn dau_compose_parse() {
         test_option_compose_parse(
-            &Dau::from_octets("foo").unwrap(),
+            &Dau::from_octets("foof").unwrap(),
             |parser| Dau::parse(parser)
         );
     }
