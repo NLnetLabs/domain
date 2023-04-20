@@ -110,7 +110,7 @@ impl<'r, N: ToLabelIter + ?Sized> ToLabelIter for &'r N {
 pub trait ToDname: ToLabelIter {
     /// Converts the name into a single, uncompressed name.
     ///
-    /// The canonical implementation provided by the trait iterates over the
+    /// The default implementation provided by the trait iterates over the
     /// labels of the name and adds them one by one to [`Dname`]. This will
     /// work for any name but an optimized implementation can be provided for
     /// some types of names.
@@ -126,6 +126,22 @@ pub trait ToDname: ToLabelIter {
         for label in self.iter_labels() {
             label
                 .compose(&mut builder)
+                .map_err(|_| PushError::ShortBuf)?;
+        }
+        Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
+    }
+
+    /// Converts the name into a single name in canonical form.
+    fn to_canonical_dname<Octets>(&self) -> Result<Dname<Octets>, PushError>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let mut builder =
+            Octets::Builder::with_capacity(self.compose_len().into());
+        for label in self.iter_labels() {
+            label
+                .compose_canonical(&mut builder)
                 .map_err(|_| PushError::ShortBuf)?;
         }
         Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
@@ -350,6 +366,24 @@ pub trait ToRelativeDname: ToLabelIter {
         for label in self.iter_labels() {
             label
                 .compose(&mut builder)
+                .map_err(|_| PushError::ShortBuf)?;
+        }
+        Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
+    }
+
+    /// Converts the name into a single name in canonical form.
+    fn to_canonical_relative_dname<Octets>(
+        &self,
+    ) -> Result<RelativeDname<Octets>, PushError>
+    where
+        Octets: FromBuilder,
+        <Octets as FromBuilder>::Builder: EmptyBuilder,
+    {
+        let mut builder =
+            Octets::Builder::with_capacity(self.compose_len().into());
+        for label in self.iter_labels() {
+            label
+                .compose_canonical(&mut builder)
                 .map_err(|_| PushError::ShortBuf)?;
         }
         Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
