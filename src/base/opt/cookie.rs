@@ -55,7 +55,8 @@ use super::{Opt, OptData, ComposeOptData, ParseOptData};
 /// is enabled. The same feature also enables the
 /// [`create_response`][Self::create_response] method which creates the server
 /// cookie to be included in a response.
-#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "rand", derive(Default))]
 pub struct Cookie {
     /// The client cookie.
     client: ClientCookie, 
@@ -608,6 +609,7 @@ impl fmt::Display for StandardServerCookie {
 
 #[cfg(test)]
 mod test {
+    #[allow(unused_imports)]
     use super::*;
 
     /// Tests from Appendix A of RFC 9018.
