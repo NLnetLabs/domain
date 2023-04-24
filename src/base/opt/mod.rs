@@ -422,9 +422,9 @@ impl<Octs> OptRecord<Octs> {
     pub fn from_record<N: ToDname>(record: Record<N, Opt<Octs>>) -> Self {
         OptRecord {
             udp_payload_size: record.class().to_int(),
-            ext_rcode: (record.ttl() >> 24) as u8,
-            version: (record.ttl() >> 16) as u8,
-            flags: record.ttl() as u16,
+            ext_rcode: (record.ttl().as_secs() >> 24) as u8,
+            version: (record.ttl().as_secs() >> 16) as u8,
+            flags: record.ttl().as_secs() as u16,
             data: record.into_data(),
         }
     }

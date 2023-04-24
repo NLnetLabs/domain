@@ -3,6 +3,7 @@
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
 use core::fmt;
+use core::time::Duration;
 use octseq::builder::{OctetsBuilder, Truncate};
 use octseq::parse::{Parser, ShortInput};
 
@@ -148,6 +149,17 @@ impl Compose for Ipv6Addr {
     }
 }
 
+impl Compose for Duration {
+    const COMPOSE_LEN: u16 = 4;
+
+    fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&(self.as_secs() as u32).to_be_bytes())
+    }
+}
+
 // No impl for [u8; const N: usize] because we can’t guarantee a correct
 // COMPOSE_LEN -- it may be longer than a u16 can hold.
 
@@ -203,6 +215,18 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u32 {
     }
 }
 
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u64 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        parser.parse_u64().map_err(Into::into)
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i64 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        parser.parse_i64().map_err(Into::into)
+    }
+}
+
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv4Addr {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Self::new(
@@ -219,6 +243,15 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
         let mut buf = [0u8; 16];
         parser.parse_buf(&mut buf)?;
         Ok(buf.into())
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Duration {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        parser
+            .parse_u32()
+            .map(|v| Duration::from_secs(v as u64))
+            .map_err(Into::into)
     }
 }
 

@@ -20,6 +20,7 @@ use bytes::BytesMut;
 use core::cmp::Ordering;
 use core::convert::{Infallible, TryFrom};
 use core::str::FromStr;
+use core::time::Duration;
 use core::{fmt, hash, ops, str};
 use octseq::builder::{
     infallible, EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
@@ -1214,10 +1215,10 @@ pub struct Soa<N> {
     mname: N,
     rname: N,
     serial: Serial,
-    refresh: u32,
-    retry: u32,
-    expire: u32,
-    minimum: u32,
+    refresh: Duration,
+    retry: Duration,
+    expire: Duration,
+    minimum: Duration,
 }
 
 impl<N> Soa<N> {
@@ -1226,10 +1227,10 @@ impl<N> Soa<N> {
         mname: N,
         rname: N,
         serial: Serial,
-        refresh: u32,
-        retry: u32,
-        expire: u32,
-        minimum: u32,
+        refresh: Duration,
+        retry: Duration,
+        expire: Duration,
+        minimum: Duration,
     ) -> Self {
         Soa {
             mname,
@@ -1257,24 +1258,24 @@ impl<N> Soa<N> {
         self.serial
     }
 
-    /// The time interval in seconds before the zone should be refreshed.
-    pub fn refresh(&self) -> u32 {
-        self.refresh
+    /// The time interval before the zone should be refreshed.
+    pub fn refresh(&self) -> &Duration {
+        &self.refresh
     }
 
-    /// The time in seconds before a failed refresh is retried.
-    pub fn retry(&self) -> u32 {
-        self.retry
+    /// The time before a failed refresh is retried.
+    pub fn retry(&self) -> &Duration {
+        &self.retry
     }
 
-    /// The upper limit of time in seconds the zone is authoritative.
-    pub fn expire(&self) -> u32 {
-        self.expire
+    /// The upper limit of time the zone is authoritative.
+    pub fn expire(&self) -> &Duration {
+        &self.expire
     }
 
     /// The minimum TTL to be exported with any RR from this zone.
-    pub fn minimum(&self) -> u32 {
-        self.minimum
+    pub fn minimum(&self) -> &Duration {
+        &self.minimum
     }
 
     pub(super) fn convert_octets<Target: OctetsFrom<N>>(

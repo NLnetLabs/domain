@@ -8,7 +8,7 @@ use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::rdata::{
-    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
@@ -16,6 +16,7 @@ use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
 use core::convert::TryInto;
+use core::time::Duration;
 use core::{fmt, hash, ptr};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
@@ -67,10 +68,10 @@ impl<Octs> Dnskey<Octs> {
     {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN
-            ).checked_add(
-                public_key.as_ref().len()
-            ).expect("long key")
+                u16::COMPOSE_LEN + u8::COMPOSE_LEN + SecAlg::COMPOSE_LEN,
+            )
+            .checked_add(public_key.as_ref().len())
+            .expect("long key"),
         )?;
         Ok(Dnskey {
             flags,
@@ -238,13 +239,16 @@ impl<Octs> Dnskey<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         Self::new(
             u16::scan(scanner)?,
             u8::scan(scanner)?,
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ).map_err(|err| S::Error::custom(err.as_str()))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -443,7 +447,7 @@ pub struct ProtoRrsig<Name> {
     type_covered: Rtype,
     algorithm: SecAlg,
     labels: u8,
-    original_ttl: u32,
+    original_ttl: Duration,
     expiration: Serial,
     inception: Serial,
     key_tag: u16,
@@ -456,7 +460,7 @@ impl<Name> ProtoRrsig<Name> {
         type_covered: Rtype,
         algorithm: SecAlg,
         labels: u8,
-        original_ttl: u32,
+        original_ttl: Duration,
         expiration: Serial,
         inception: Serial,
         key_tag: u16,
@@ -475,9 +479,12 @@ impl<Name> ProtoRrsig<Name> {
     }
 
     pub fn into_rrsig<Octs: AsRef<[u8]>>(
-        self, signature: Octs
+        self,
+        signature: Octs,
     ) -> Result<Rrsig<Octs, Name>, LongRecordData>
-    where Name: ToDname {
+    where
+        Name: ToDname,
+    {
         Rrsig::new(
             self.type_covered,
             self.algorithm,
@@ -615,7 +622,7 @@ pub struct Rrsig<Octs, Name> {
     type_covered: Rtype,
     algorithm: SecAlg,
     labels: u8,
-    original_ttl: u32,
+    original_ttl: Duration,
     expiration: Serial,
     inception: Serial,
     key_tag: u16,
@@ -633,28 +640,30 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         type_covered: Rtype,
         algorithm: SecAlg,
         labels: u8,
-        original_ttl: u32,
+        original_ttl: Duration,
         expiration: Serial,
         inception: Serial,
         key_tag: u16,
         signer_name: Name,
         signature: Octs,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]>, Name: ToDname {
+    where
+        Octs: AsRef<[u8]>,
+        Name: ToDname,
+    {
         LongRecordData::check_len(
             usize::from(
-                  Rtype::COMPOSE_LEN
-                + SecAlg::COMPOSE_LEN
-                + u8::COMPOSE_LEN
-                + u32::COMPOSE_LEN
-                + Serial::COMPOSE_LEN
-                + Serial::COMPOSE_LEN
-                + u16::COMPOSE_LEN
-                + signer_name.compose_len()
-            ).checked_add(
-               signature.as_ref().len()
+                Rtype::COMPOSE_LEN
+                    + SecAlg::COMPOSE_LEN
+                    + u8::COMPOSE_LEN
+                    + u32::COMPOSE_LEN
+                    + Serial::COMPOSE_LEN
+                    + Serial::COMPOSE_LEN
+                    + u16::COMPOSE_LEN
+                    + signer_name.compose_len(),
             )
-            .expect("long signature")
+            .checked_add(signature.as_ref().len())
+            .expect("long signature"),
         )?;
         Ok(unsafe {
             Rrsig::new_unchecked(
@@ -682,7 +691,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         type_covered: Rtype,
         algorithm: SecAlg,
         labels: u8,
-        original_ttl: u32,
+        original_ttl: Duration,
         expiration: Serial,
         inception: Serial,
         key_tag: u16,
@@ -714,8 +723,8 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         self.labels
     }
 
-    pub fn original_ttl(&self) -> u32 {
-        self.original_ttl
+    pub fn original_ttl(&self) -> &Duration {
+        &self.original_ttl
     }
 
     pub fn expiration(&self) -> Serial {
@@ -775,13 +784,14 @@ impl<Octs, Name> Rrsig<Octs, Name> {
             Rtype::scan(scanner)?,
             SecAlg::scan(scanner)?,
             u8::scan(scanner)?,
-            u32::scan(scanner)?,
+            Duration::from_secs(u32::scan(scanner)? as u64),
             Serial::scan_rrsig(scanner)?,
             Serial::scan_rrsig(scanner)?,
             u16::scan(scanner)?,
             scanner.scan_dname()?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
-        ).map_err(|err| S::Error::custom(err.as_str()))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -831,7 +841,7 @@ impl<Octs> Rrsig<Octs, ParsedDname<Octs>> {
         let type_covered = Rtype::parse(parser)?;
         let algorithm = SecAlg::parse(parser)?;
         let labels = u8::parse(parser)?;
-        let original_ttl = u32::parse(parser)?;
+        let original_ttl = Duration::parse(parser)?;
         let expiration = Serial::parse(parser)?;
         let inception = Serial::parse(parser)?;
         let key_tag = u16::parse(parser)?;
@@ -1121,7 +1131,7 @@ where
             self.type_covered,
             self.algorithm,
             self.labels,
-            self.original_ttl,
+            self.original_ttl.as_secs(),
             self.expiration,
             self.inception,
             self.key_tag,
@@ -1459,17 +1469,22 @@ impl<Octs> Ds<Octs> {
         digest_type: DigestAlg,
         digest: Octs,
     ) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         LongRecordData::check_len(
             usize::from(
-                u16::COMPOSE_LEN + SecAlg::COMPOSE_LEN + DigestAlg::COMPOSE_LEN
-            ).checked_add(digest.as_ref().len()).expect("long digest")
+                u16::COMPOSE_LEN
+                    + SecAlg::COMPOSE_LEN
+                    + DigestAlg::COMPOSE_LEN,
+            )
+            .checked_add(digest.as_ref().len())
+            .expect("long digest"),
         )?;
         Ok(unsafe {
             Ds::new_unchecked(key_tag, algorithm, digest_type, digest)
         })
     }
-
 
     /// Creates new DS record data without checking.
     ///
@@ -1544,13 +1559,16 @@ impl<Octs> Ds<Octs> {
     pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         Self::new(
             u16::scan(scanner)?,
             SecAlg::scan(scanner)?,
             DigestAlg::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
-        ).map_err(|err| S::Error::custom(err.as_str()))
+        )
+        .map_err(|err| S::Error::custom(err.as_str()))
     }
 }
 
@@ -2439,7 +2457,8 @@ mod test {
             15,
             Dname::<Vec<u8>>::from_str("example.com.").unwrap(),
             b"key",
-        ).unwrap();
+        )
+        .unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Rrsig::parse(parser));
         test_scan(
@@ -2479,9 +2498,8 @@ mod test {
 
     #[test]
     fn ds_compose_parse_scan() {
-        let rdata = Ds::new(
-            10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key"
-        ).unwrap();
+        let rdata =
+            Ds::new(10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Ds::parse(parser));
         test_scan(&["10", "RSASHA1", "2", "6b6579"], Ds::scan, &rdata);
@@ -2600,7 +2618,8 @@ mod test {
                     9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU="
                 )
                 .unwrap()
-            ).unwrap()
+            )
+            .unwrap()
             .key_tag(),
             20326
         );
@@ -2616,7 +2635,8 @@ mod test {
                     C+7Eoi12SqybMTicD3Ezwa9XbG1iPjmjhbMrLh7MSQpX"
                 )
                 .unwrap()
-            ).unwrap()
+            )
+            .unwrap()
             .key_tag(),
             18698
         );
@@ -2624,9 +2644,9 @@ mod test {
 
     #[test]
     fn dnskey_flags() {
-        let dnskey = Dnskey::new(
-            257, 3, SecAlg::RsaSha256, bytes::Bytes::new()
-        ).unwrap();
+        let dnskey =
+            Dnskey::new(257, 3, SecAlg::RsaSha256, bytes::Bytes::new())
+                .unwrap();
         assert!(dnskey.is_zsk());
         assert!(dnskey.is_secure_entry_point());
         assert!(!dnskey.is_revoked());

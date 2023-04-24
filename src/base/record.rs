@@ -21,6 +21,7 @@ use super::name::{ParsedDname, ToDname};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
 use core::cmp::Ordering;
+use core::time::Duration;
 use core::{fmt, hash};
 use octseq::builder::ShortBuf;
 use octseq::octets::{Octets, OctetsFrom};
@@ -53,7 +54,7 @@ use octseq::parse::Parser;
 ///
 /// There is one more piece of data: the TTL or time to live. This value
 /// says how long a record remains valid before it should be refreshed from
-/// its original source, given in seconds. The TTL is used to add caching
+/// its original source. The TTL is used to add caching
 /// facilities to the DNS.
 ///
 /// Values of the `Record` type represent one single resource record. Since
@@ -89,7 +90,7 @@ pub struct Record<Name, Data> {
     class: Class,
 
     /// The time-to-live value of the record.
-    ttl: u32,
+    ttl: Duration,
 
     /// The record data. The value also specifies the record’s type.
     data: Data,
@@ -99,7 +100,7 @@ pub struct Record<Name, Data> {
 ///
 impl<Name, Data> Record<Name, Data> {
     /// Creates a new record from its parts.
-    pub fn new(owner: Name, class: Class, ttl: u32, data: Data) -> Self {
+    pub fn new(owner: Name, class: Class, ttl: Duration, data: Data) -> Self {
         Record {
             owner,
             class,
@@ -152,12 +153,12 @@ impl<Name, Data> Record<Name, Data> {
     }
 
     /// Returns the record’s time-to-live.
-    pub fn ttl(&self) -> u32 {
-        self.ttl
+    pub fn ttl(&self) -> &Duration {
+        &self.ttl
     }
 
     /// Sets the record’s time-to-live.
-    pub fn set_ttl(&mut self, ttl: u32) {
+    pub fn set_ttl(&mut self, ttl: Duration) {
         self.ttl = ttl
     }
 
@@ -224,13 +225,19 @@ impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
 
 impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
     fn from((owner, class, ttl, data): (N, Class, u32, D)) -> Self {
+        Self::new(owner, class, Duration::from_secs(ttl as u64), data)
+    }
+}
+
+impl<N, D> From<(N, Class, Duration, D)> for Record<N, D> {
+    fn from((owner, class, ttl, data): (N, Class, Duration, D)) -> Self {
         Self::new(owner, class, ttl, data)
     }
 }
 
 impl<N, D> From<(N, u32, D)> for Record<N, D> {
     fn from((owner, ttl, data): (N, u32, D)) -> Self {
-        Self::new(owner, Class::In, ttl, data)
+        Self::new(owner, Class::In, Duration::from_secs(ttl as u64), data)
     }
 }
 
@@ -370,7 +377,7 @@ where
             f,
             "{}. {} {} {} {}",
             self.owner,
-            self.ttl,
+            self.ttl.as_secs(),
             self.class,
             self.data.rtype(),
             self.data
@@ -447,11 +454,49 @@ where
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
+        Record::new(
+            &self.0,
+            self.1,
+            Duration::from_secs(self.2 as u64),
+            &self.3,
+        )
+        .compose(target)
+    }
+}
+
+impl<Name, Data> ComposeRecord for (Name, Class, Duration, Data)
+where
+    Name: ToDname,
+    Data: ComposeRecordData,
+{
+    fn compose_record<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
         Record::new(&self.0, self.1, self.2, &self.3).compose(target)
     }
 }
 
 impl<Name, Data> ComposeRecord for (Name, u32, Data)
+where
+    Name: ToDname,
+    Data: ComposeRecordData,
+{
+    fn compose_record<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        Record::new(
+            &self.0,
+            Class::In,
+            Duration::from_secs(self.1 as u64),
+            &self.2,
+        )
+        .compose(target)
+    }
+}
+
+impl<Name, Data> ComposeRecord for (Name, Duration, Data)
 where
     Name: ToDname,
     Data: ComposeRecordData,
@@ -480,7 +525,7 @@ pub struct RecordHeader<Name> {
     owner: Name,
     rtype: Rtype,
     class: Class,
-    ttl: u32,
+    ttl: Duration,
     rdlen: u16,
 }
 
@@ -490,7 +535,7 @@ impl<Name> RecordHeader<Name> {
         owner: Name,
         rtype: Rtype,
         class: Class,
-        ttl: u32,
+        ttl: Duration,
         rdlen: u16,
     ) -> Self {
         RecordHeader {
@@ -532,8 +577,8 @@ impl<Name> RecordHeader<Name> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> u32 {
-        self.ttl
+    pub fn ttl(&self) -> &Duration {
+        &self.ttl
     }
 
     /// Returns the data length of the record.
@@ -565,7 +610,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> RecordHeader<ParsedDname<&'a Octs>> {
             ParsedDname::parse_ref(parser)?,
             Rtype::parse(parser)?,
             Class::parse(parser)?,
-            u32::parse(parser)?,
+            Duration::parse(parser)?,
             parser.parse_u16()?,
         ))
     }
@@ -807,7 +852,7 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> u32 {
+    pub fn ttl(&self) -> &Duration {
         self.header.ttl()
     }
 
