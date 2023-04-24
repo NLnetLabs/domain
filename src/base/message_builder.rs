@@ -2232,6 +2232,7 @@ mod test {
     use crate::base::{iana::Rtype, opt, Dname};
     use crate::rdata::{Ns, Soa, A};
     use core::str::FromStr;
+    use core::time::Duration;
     use std::vec::Vec;
 
     #[test]
@@ -2349,10 +2350,10 @@ mod test {
                 mname,
                 rname,
                 Serial(2020081701),
-                1800,
-                900,
-                604800,
-                86400,
+                Duration::from_secs(1800),
+                Duration::from_secs(900),
+                Duration::from_secs(604800),
+                Duration::from_secs(86400),
             ),
         ))
         .unwrap();

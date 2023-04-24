@@ -1299,10 +1299,10 @@ impl<N> Soa<N> {
             scanner.scan_dname()?,
             scanner.scan_dname()?,
             Serial::scan(scanner)?,
-            u32::scan(scanner)?,
-            u32::scan(scanner)?,
-            u32::scan(scanner)?,
-            u32::scan(scanner)?,
+            Duration::from_secs(u32::scan(scanner)? as u64),
+            Duration::from_secs(u32::scan(scanner)? as u64),
+            Duration::from_secs(u32::scan(scanner)? as u64),
+            Duration::from_secs(u32::scan(scanner)? as u64),
         ))
     }
 }
@@ -1344,10 +1344,10 @@ impl<Octs> Soa<ParsedDname<Octs>> {
             ParsedDname::parse(parser)?,
             ParsedDname::parse(parser)?,
             Serial::parse(parser)?,
-            u32::parse(parser)?,
-            u32::parse(parser)?,
-            u32::parse(parser)?,
-            u32::parse(parser)?,
+            Duration::parse(parser)?,
+            Duration::parse(parser)?,
+            Duration::parse(parser)?,
+            Duration::parse(parser)?,
         ))
     }
 }
@@ -1573,10 +1573,10 @@ impl<N: fmt::Display> fmt::Display for Soa<N> {
             self.mname,
             self.rname,
             self.serial,
-            self.refresh,
-            self.retry,
-            self.expire,
-            self.minimum
+            self.refresh.as_secs(),
+            self.retry.as_secs(),
+            self.expire.as_secs(),
+            self.minimum.as_secs()
         )
     }
 }
