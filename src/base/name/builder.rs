@@ -4,6 +4,7 @@
 //! are re-exported by the parent module.
 
 use super::super::scan::Symbol;
+use super::Label;
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
@@ -161,7 +162,7 @@ where
             return Err(PushError::LongName);
         }
         if let Some(head) = self.head {
-            if len - head > 63 {
+            if len - head > Label::MAX_LENGTH {
                 return Err(PushError::LongLabel);
             }
             self._append_slice(&[ch])?;
@@ -183,11 +184,11 @@ where
             return Ok(());
         }
         if let Some(head) = self.head {
-            if slice.len() > 63 - (self.len() - head) {
+            if slice.len() > Label::MAX_LENGTH - (self.len() - head) {
                 return Err(PushError::LongLabel);
             }
         } else {
-            if slice.len() > 63 {
+            if slice.len() > Label::MAX_LENGTH {
                 return Err(PushError::LongLabel);
             }
             if self.len() + slice.len() > 254 {
@@ -372,7 +373,7 @@ where
         Builder: FreezeBuilder,
     {
         self.end_label();
-        if self.len() + usize::from(origin.compose_len()) > 255 {
+        if self.len() + origin.compose_len() as usize > Dname::<Builder::Octets>::MAX_LENGTH  {
             return Err(PushNameError::LongName);
         }
         for label in origin.iter_labels() {

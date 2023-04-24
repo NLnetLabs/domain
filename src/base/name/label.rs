@@ -40,6 +40,9 @@ pub struct Label([u8]);
 /// # Creation
 ///
 impl Label {
+    /// Domain name labels have a maximum length of 63 octets.
+    pub const MAX_LENGTH: usize = 63;
+
     /// Creates a label from the underlying slice without any checking.
     ///
     /// # Safety
@@ -76,7 +79,7 @@ impl Label {
     ///
     /// This will fail if the slice is longer than 63 octets.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, LongLabelError> {
-        if slice.len() > 63 {
+        if slice.len() > Label::MAX_LENGTH {
             Err(LongLabelError)
         } else {
             Ok(unsafe { Self::from_slice_unchecked(slice) })
@@ -89,7 +92,7 @@ impl Label {
     pub fn from_slice_mut(
         slice: &mut [u8],
     ) -> Result<&mut Self, LongLabelError> {
-        if slice.len() > 63 {
+        if slice.len() > Label::MAX_LENGTH {
             Err(LongLabelError)
         } else {
             Ok(unsafe { Self::from_slice_mut_unchecked(slice) })
@@ -389,9 +392,9 @@ impl OwnedLabel {
     pub fn from_chars(
         mut chars: impl Iterator<Item = char>,
     ) -> Result<Self, LabelFromStrError> {
-        let mut res = [0; 64];
+        let mut res = [0u8; 64];
         while let Some(ch) = chars.next() {
-            if res[0] >= 63 {
+            if res[0]as usize >= Label::MAX_LENGTH {
                 return Err(LabelFromStrError::LongLabel);
             }
             let ch = match ch {
