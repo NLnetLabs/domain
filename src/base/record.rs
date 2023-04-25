@@ -980,6 +980,18 @@ impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
 const SECS_PER_MINUTE: u32 = 60;
 const SECS_PER_HOUR: u32 = 3600;
 
+/// A span of time, typically used to describe the time a given DNS record is valid.
+///
+/// `Ttl` implements many common traits, including [`core::ops::Add`], [`core::ops::Sub`], and other [`core::ops`] traits. It implements Default by returning a zero-length `Ttl`.
+///
+/// # Why not [`core::time::Duration`]?
+///
+/// Two reasons make [`core::time::Duration`] not suited for representing DNS TTL values:
+/// 1. According to [RFC 2181](https://datatracker.ietf.org/doc/html/rfc2181#section-8) TTL values have second-level precision while [`core::time::Duration`] can represent time down to the nanosecond level.
+///     This amount of precision is simply not needed and might cause confusion when sending `Duration`s over the network.
+/// 2. When working with DNS TTL values it's common to want to know a time to live in minutes or hours. [`core::time::Duration`] does not expose easy to use methods for this purpose, while `Ttl` does.
+///
+/// `Ttl` provides two methods [`Ttl::from_duration_lossy`] and [`Ttl::into_duration`] to convert between `Duration` and `Ttl`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
 )]
@@ -1018,6 +1030,12 @@ impl Ttl {
 
     #[must_use]
     #[inline]
+    pub const fn into_duration(&self) -> Duration {
+        Duration::from_secs(self.0 as u64)
+    }
+
+    #[must_use]
+    #[inline]
     pub const fn from_secs(secs: u32) -> Self {
         Self(secs)
     }
@@ -1034,6 +1052,12 @@ impl Ttl {
     pub const fn from_hours(hours: u32) -> Self {
         assert!(hours <= 1193046);
         Self(hours * SECS_PER_HOUR)
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn from_duration_lossy(duration: Duration) -> Self {
+        Self(duration.as_secs() as u32)
     }
 
     #[must_use]
@@ -1212,18 +1236,6 @@ impl core::iter::Sum for Ttl {
 impl<'a> core::iter::Sum<&'a Ttl> for Ttl {
     fn sum<I: Iterator<Item = &'a Ttl>>(iter: I) -> Ttl {
         sum_durations!(iter)
-    }
-}
-
-impl From<Duration> for Ttl {
-    fn from(value: Duration) -> Self {
-        Ttl(value.as_secs() as u32)
-    }
-}
-
-impl From<Ttl> for Duration {
-    fn from(value: Ttl) -> Self {
-        Duration::from_secs(value.0 as u64)
     }
 }
 
