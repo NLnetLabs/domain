@@ -1474,6 +1474,14 @@ impl<'a> core::iter::Sum<&'a Ttl> for Ttl {
     }
 }
 
+// No From impl because conversion is lossy
+#[allow(clippy::from_over_into)]
+impl Into<Duration> for Ttl {
+    fn into(self) -> Duration {
+        Duration::from_secs(u64::from(self.0))
+    }
+}
+
 //============ Testing ======================================================
 
 #[cfg(test)]
