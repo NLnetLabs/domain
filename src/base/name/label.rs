@@ -394,7 +394,7 @@ impl OwnedLabel {
     ) -> Result<Self, LabelFromStrError> {
         let mut res = [0u8; 64];
         while let Some(ch) = chars.next() {
-            if res[0]as usize >= Label::MAX_LENGTH {
+            if res[0] as usize >= Label::MAX_LENGTH {
                 return Err(LabelFromStrError::LongLabel);
             }
             let ch = match ch {

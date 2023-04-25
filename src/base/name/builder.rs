@@ -4,10 +4,10 @@
 //! are re-exported by the parent module.
 
 use super::super::scan::Symbol;
-use super::Label;
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
+use super::Label;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::{fmt, ops};
@@ -373,7 +373,8 @@ where
         Builder: FreezeBuilder,
     {
         self.end_label();
-        if self.len() + origin.compose_len() as usize > Dname::MAX_LENGTH  {
+        if self.len() + usize::from(origin.compose_len()) > Dname::MAX_LENGTH
+        {
             return Err(PushNameError::LongName);
         }
         for label in origin.iter_labels() {

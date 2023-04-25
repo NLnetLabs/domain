@@ -61,7 +61,6 @@ impl CharStr<()> {
 }
 
 impl<Octs: ?Sized> CharStr<Octs> {
-
     /// Creates a new empty character string.
     pub fn empty() -> Self
     where
