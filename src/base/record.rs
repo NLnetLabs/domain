@@ -996,6 +996,8 @@ impl Ttl {
 
     pub const MAX: Ttl = Ttl::from_secs(u32::MAX);
 
+    pub const COMPOSE_LEN: u16 = 4;
+
     #[must_use]
     #[inline]
     pub const fn as_secs(&self) -> u32 {
@@ -1112,6 +1114,18 @@ impl Ttl {
         } else {
             None
         }
+    }
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&(self.as_secs()).to_be_bytes())
+    }
+
+    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<'a, Octs>,
+    ) -> Result<Self, ParseError> {
+        parser.parse_u32().map(Ttl::from_secs).map_err(Into::into)
     }
 }
 

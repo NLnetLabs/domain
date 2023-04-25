@@ -149,17 +149,6 @@ impl Compose for Ipv6Addr {
     }
 }
 
-impl Compose for Ttl {
-    const COMPOSE_LEN: u16 = 4;
-
-    fn compose<Target: OctetsBuilder + ?Sized>(
-        &self,
-        target: &mut Target,
-    ) -> Result<(), Target::AppendError> {
-        target.append_slice(&(self.as_secs()).to_be_bytes())
-    }
-}
-
 // No impl for [u8; const N: usize] because we can’t guarantee a correct
 // COMPOSE_LEN -- it may be longer than a u16 can hold.
 
@@ -243,12 +232,6 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
         let mut buf = [0u8; 16];
         parser.parse_buf(&mut buf)?;
         Ok(buf.into())
-    }
-}
-
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ttl {
-    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_u32().map(Ttl::from_secs).map_err(Into::into)
     }
 }
 
