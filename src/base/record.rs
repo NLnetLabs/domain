@@ -1115,7 +1115,7 @@ impl Ttl {
     }
 }
 
-impl std::ops::Add for Ttl {
+impl core::ops::Add for Ttl {
     type Output = Ttl;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -1124,13 +1124,13 @@ impl std::ops::Add for Ttl {
     }
 }
 
-impl std::ops::AddAssign for Ttl {
+impl core::ops::AddAssign for Ttl {
     fn add_assign(&mut self, rhs: Ttl) {
         *self = *self + rhs;
     }
 }
 
-impl std::ops::Sub for Ttl {
+impl core::ops::Sub for Ttl {
     type Output = Ttl;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -1139,13 +1139,13 @@ impl std::ops::Sub for Ttl {
     }
 }
 
-impl std::ops::SubAssign for Ttl {
+impl core::ops::SubAssign for Ttl {
     fn sub_assign(&mut self, rhs: Ttl) {
         *self = *self - rhs;
     }
 }
 
-impl std::ops::Mul<u32> for Ttl {
+impl core::ops::Mul<u32> for Ttl {
     type Output = Ttl;
 
     fn mul(self, rhs: u32) -> Self::Output {
@@ -1154,13 +1154,13 @@ impl std::ops::Mul<u32> for Ttl {
     }
 }
 
-impl std::ops::MulAssign<u32> for Ttl {
+impl core::ops::MulAssign<u32> for Ttl {
     fn mul_assign(&mut self, rhs: u32) {
         *self = *self * rhs;
     }
 }
 
-impl std::ops::Div<u32> for Ttl {
+impl core::ops::Div<u32> for Ttl {
     type Output = Ttl;
 
     fn div(self, rhs: u32) -> Ttl {
@@ -1169,7 +1169,7 @@ impl std::ops::Div<u32> for Ttl {
     }
 }
 
-impl std::ops::DivAssign<u32> for Ttl {
+impl core::ops::DivAssign<u32> for Ttl {
     fn div_assign(&mut self, rhs: u32) {
         *self = *self / rhs;
     }
@@ -1189,13 +1189,13 @@ macro_rules! sum_durations {
     }};
 }
 
-impl std::iter::Sum for Ttl {
+impl core::iter::Sum for Ttl {
     fn sum<I: Iterator<Item = Ttl>>(iter: I) -> Ttl {
         sum_durations!(iter)
     }
 }
 
-impl<'a> std::iter::Sum<&'a Ttl> for Ttl {
+impl<'a> core::iter::Sum<&'a Ttl> for Ttl {
     fn sum<I: Iterator<Item = &'a Ttl>>(iter: I) -> Ttl {
         sum_durations!(iter)
     }
