@@ -36,9 +36,11 @@ use std::vec::Vec;
 
 use crate::base::wire::Composer;
 use crate::base::{
-    opt::{AllOptData, OptRecord, TcpKeepalive},
-    Message, MessageBuilder, StaticCompressor, StreamTarget,
+    opt::{AllOptData, Opt, OptRecord, TcpKeepalive},
+    Message, MessageBuilder, ParsedDname, Rtype, StaticCompressor,
+    StreamTarget,
 };
+use crate::rdata::AllRecordData;
 use octseq::{Octets, OctetsBuilder};
 
 use tokio::io;
@@ -223,7 +225,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
 {
     /// Constructor for [InnerConnection].
     ///
-    /// This is the implementation of [Connection::connect].
+    /// This is the implementation of [Connection::new].
     pub fn new() -> io::Result<InnerConnection<Octs>> {
         let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
         Ok(Self {
@@ -668,13 +670,11 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
         hdr.set_id(ind16);
 
         if status.send_keepalive {
-            let mut msgadd = req.msg.clone().additional();
+            let res_msg = add_tcp_keepalive(&req.msg);
 
-            // send an empty keepalive option
-            let res = msgadd.opt(|opt| opt.tcp_keepalive(None));
-            match res {
-                Ok(_) => {
-                    Self::convert_query(&msgadd, reqmsg);
+            match res_msg {
+                Ok(msg) => {
+                    Self::convert_query(&msg, reqmsg);
                     status.send_keepalive = false;
                 }
                 Err(_) => {
@@ -886,4 +886,103 @@ impl Query {
             }
         }
     }
+}
+
+/// Add an edns-tcp-keepalive option to a MessageBuilder.
+///
+/// This is surprisingly difficult. We need to copy the original message to
+/// a new MessageBuilder because MessageBuilder has no support for changing the
+/// opt record.
+fn add_tcp_keepalive<Octs: Clone + Composer + OctetsBuilder>(
+    msg: &MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+) -> Result<
+    MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    crate::base::message_builder::PushError,
+> {
+    // We can't just insert a new option in an existing
+    // opt record. So we have to create new message and copy records
+    // from the old one. And insert our option while copying the opt
+    // record.
+    let src_clone = msg.clone();
+    let source = Message::from_octets(
+        src_clone.as_target().as_target().as_dgram_slice(),
+    )
+    .unwrap();
+    let target = msg.clone();
+
+    let source = source.question();
+    // Go to additional and back to builder to delete all sections
+    // except for the header
+    let mut target = target.additional().builder().question();
+    for rr in source {
+        let rr = rr.unwrap();
+        target.push(rr)?;
+    }
+    let mut source = source.answer().unwrap();
+    let mut target = target.answer();
+    for rr in &mut source {
+        let rr = rr.unwrap();
+        let rr = rr
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+            .unwrap()
+            .unwrap();
+        target.push(rr)?;
+    }
+
+    let mut source = source.next_section().unwrap().unwrap();
+    let mut target = target.authority();
+    for rr in &mut source {
+        let rr = rr.unwrap();
+        let rr = rr
+            .into_record::<AllRecordData<_, ParsedDname<_>>>()
+            .unwrap()
+            .unwrap();
+        target.push(rr)?;
+    }
+
+    let source = source.next_section().unwrap().unwrap();
+    let mut target = target.additional();
+    let mut found_opt_rr = false;
+    for rr in source {
+        let rr = rr.unwrap();
+        if rr.rtype() == Rtype::Opt {
+            found_opt_rr = true;
+            let rr = rr.into_record::<Opt<_>>().unwrap().unwrap();
+            let opt_record = OptRecord::from_record(rr);
+            target
+                .opt(|newopt| {
+                    newopt
+                        .set_udp_payload_size(opt_record.udp_payload_size());
+                    newopt.set_version(opt_record.version());
+                    newopt.set_dnssec_ok(opt_record.dnssec_ok());
+                    for option in opt_record.iter::<AllOptData<_, _>>() {
+                        let option = option.unwrap();
+                        if let AllOptData::TcpKeepalive(_) = option {
+                            panic!("handle keepalive");
+                        } else {
+                            newopt.push(&option).unwrap();
+                        }
+                    }
+                    // send an empty keepalive option
+                    newopt.tcp_keepalive(None).unwrap();
+                    Ok(())
+                })
+                .unwrap();
+        } else {
+            let rr = rr
+                .into_record::<AllRecordData<_, ParsedDname<_>>>()
+                .unwrap()
+                .unwrap();
+            target.push(rr)?;
+        }
+    }
+    if !found_opt_rr {
+        // send an empty keepalive option
+        target.opt(|opt| opt.tcp_keepalive(None))?;
+    }
+
+    // It would be nice to use .builder() here. But that one deletes all
+    // section. We have to resort to .as_builder() which gives a
+    // reference and then .clone()
+    Ok(target.as_builder().clone())
 }
