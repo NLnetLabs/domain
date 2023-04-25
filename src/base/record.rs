@@ -1191,7 +1191,7 @@ impl Ttl {
     ///
     /// assert!(Ttl::ZERO.is_zero());
     /// assert!(Ttl::from_secs(0).is_zero());
-    /// assert!(Ttl::from_minutes(0).is_zero());
+    /// assert!(Ttl::from_mins(0).is_zero());
     /// assert!(Ttl::from_hours(0).is_zero());
     /// assert!(Ttl::from_days(0).is_zero());
     /// ```
@@ -1210,7 +1210,7 @@ impl Ttl {
     /// use domain::base::Ttl;
     ///
     /// assert_eq!(Ttl::from_secs(0).checked_add(Ttl::from_secs(1)), Some(Ttl::from_secs(1)));
-    /// assert_eq!(Ttl::from_secs(1).checked_add(Ttl::MAX, None);
+    /// assert_eq!(Ttl::from_secs(1).checked_add(Ttl::MAX), None);
     /// ```
     #[must_use = "this returns the result of the operation, \
                   without modifying the original"]
@@ -1232,7 +1232,7 @@ impl Ttl {
     /// use domain::base::Ttl;
     ///
     /// assert_eq!(Ttl::from_secs(0).saturating_add(Ttl::from_secs(1)), Ttl::from_secs(1));
-    /// assert_eq!(Ttl::from_secs(1).saturating_add(Ttl::MAX), Duration::MAX);
+    /// assert_eq!(Ttl::from_secs(1).saturating_add(Ttl::MAX), Ttl::MAX);
     /// ```
     #[must_use = "this returns the result of the operation, \
     without modifying the original"]
@@ -1274,7 +1274,7 @@ impl Ttl {
     /// ```
     /// use domain::base::Ttl;
     ///
-    /// assert_eq!(Ttl::from_secs(1).saturating_sub(Ttl::from_secs(0)), Some(Ttl::from_secs(1)));
+    /// assert_eq!(Ttl::from_secs(1).saturating_sub(Ttl::from_secs(0)), Ttl::from_secs(1));
     /// assert_eq!(Ttl::from_secs(0).saturating_sub(Ttl::from_secs(1)), Ttl::ZERO);
     /// ```
     #[must_use = "this returns the result of the operation, \
@@ -1317,7 +1317,7 @@ impl Ttl {
     /// ```
     /// use domain::base::Ttl;
     ///
-    /// assert_eq!(Ttl::from_secs(5).saturating_mul(2), Some(Ttl::from_secs(10)));
+    /// assert_eq!(Ttl::from_secs(5).saturating_mul(2), Ttl::from_secs(10));
     /// assert_eq!(Ttl::from_secs(u32::MAX - 1).saturating_mul(2), Ttl::MAX);
     /// ```
     #[must_use = "this returns the result of the operation, \
@@ -1360,7 +1360,7 @@ impl Ttl {
     /// ```
     /// use domain::base::Ttl;
     ///
-    /// assert_eq!(Ttl::from_minutes(5).cap(), Ttl::from_minutes(5));
+    /// assert_eq!(Ttl::from_mins(5).cap(), Ttl::from_mins(5));
     /// assert_eq!(Ttl::from_days(50).cap(), Ttl::from_days(7));
     /// ```
     #[must_use = "this returns the result of the operation, \
@@ -1381,8 +1381,8 @@ impl Ttl {
         target.append_slice(&(self.as_secs()).to_be_bytes())
     }
 
-    pub fn parse<'a, Octs: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<'a, Octs>,
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
         parser.parse_u32().map(Ttl::from_secs).map_err(Into::into)
     }
