@@ -373,7 +373,7 @@ where
         Builder: FreezeBuilder,
     {
         self.end_label();
-        if self.len() + origin.compose_len() as usize > Dname::<Builder::Octets>::MAX_LENGTH  {
+        if self.len() + origin.compose_len() as usize > Dname::MAX_LENGTH  {
             return Err(PushNameError::LongName);
         }
         for label in origin.iter_labels() {

@@ -83,7 +83,7 @@ impl<Octets> UncertainDname<Octets> {
     fn is_slice_absolute(
         mut slice: &[u8],
     ) -> Result<bool, UncertainDnameError> {
-        if slice.len() > Dname::<Octets>::MAX_LENGTH as usize {
+        if slice.len() > Dname::MAX_LENGTH {
             return Err(UncertainDnameError::LongName);
         }
         loop {

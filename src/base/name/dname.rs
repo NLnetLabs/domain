@@ -50,7 +50,7 @@ use std::vec::Vec;
 #[derive(Clone)]
 pub struct Dname<Octs: ?Sized>(Octs);
 
-impl<Octs: ?Sized> Dname<Octs> {
+impl Dname<()> {
     /// Domain names have a maximum length of 255 octets.
     pub const MAX_LENGTH: usize = 255;
 }
@@ -178,7 +178,7 @@ impl Dname<[u8]> {
 
     /// Checks whether an octet slice contains a correctly encoded name.
     fn check_slice(mut slice: &[u8]) -> Result<(), DnameError> {
-        if slice.len() > Self::MAX_LENGTH {
+        if slice.len() > Dname::MAX_LENGTH {
             return Err(DnameError::LongName);
         }
         loop {
@@ -630,7 +630,7 @@ impl<Octs> Dname<Octs> {
             }
             parser.remaining() - tmp.len()
         };
-        if len > Self::MAX_LENGTH {
+        if len > Dname::MAX_LENGTH {
             Err(DnameError::LongName.into())
         } else {
             Ok(len)
