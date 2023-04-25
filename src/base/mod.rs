@@ -108,9 +108,7 @@ pub use self::name::{
 };
 pub use self::question::Question;
 pub use self::rdata::{ParseRecordData, RecordData, UnknownRecordData};
-pub use self::record::{
-    Ttl, ParsedRecord, Record, RecordHeader,
-};
+pub use self::record::{ParsedRecord, Record, RecordHeader, Ttl};
 pub use self::serial::Serial;
 
 //--- Modules

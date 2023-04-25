@@ -246,14 +246,9 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
     }
 }
 
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs>
-    for Ttl
-{
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ttl {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser
-            .parse_u32()
-            .map(Ttl::from_secs)
-            .map_err(Into::into)
+        parser.parse_u32().map(Ttl::from_secs).map_err(Into::into)
     }
 }
 

@@ -100,12 +100,7 @@ pub struct Record<Name, Data> {
 ///
 impl<Name, Data> Record<Name, Data> {
     /// Creates a new record from its parts.
-    pub fn new(
-        owner: Name,
-        class: Class,
-        ttl: Ttl,
-        data: Data,
-    ) -> Self {
+    pub fn new(owner: Name, class: Class, ttl: Ttl, data: Data) -> Self {
         Record {
             owner,
             class,
@@ -235,21 +230,14 @@ impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
 }
 
 impl<N, D> From<(N, Class, Ttl, D)> for Record<N, D> {
-    fn from(
-        (owner, class, ttl, data): (N, Class, Ttl, D),
-    ) -> Self {
+    fn from((owner, class, ttl, data): (N, Class, Ttl, D)) -> Self {
         Self::new(owner, class, ttl, data)
     }
 }
 
 impl<N, D> From<(N, u32, D)> for Record<N, D> {
     fn from((owner, ttl, data): (N, u32, D)) -> Self {
-        Self::new(
-            owner,
-            Class::In,
-            Ttl::from_secs(ttl),
-            data,
-        )
+        Self::new(owner, Class::In, Ttl::from_secs(ttl), data)
     }
 }
 
@@ -466,13 +454,8 @@ where
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        Record::new(
-            &self.0,
-            self.1,
-            Ttl::from_secs(self.2),
-            &self.3,
-        )
-        .compose(target)
+        Record::new(&self.0, self.1, Ttl::from_secs(self.2), &self.3)
+            .compose(target)
     }
 }
 
@@ -498,13 +481,8 @@ where
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        Record::new(
-            &self.0,
-            Class::In,
-            Ttl::from_secs(self.1),
-            &self.2,
-        )
-        .compose(target)
+        Record::new(&self.0, Class::In, Ttl::from_secs(self.1), &self.2)
+            .compose(target)
     }
 }
 
@@ -1008,19 +986,15 @@ const SECS_PER_HOUR: u32 = 3600;
 pub struct Ttl(u32);
 
 impl Ttl {
-    pub const SECOND: Ttl =
-        Ttl::from_secs(1);
+    pub const SECOND: Ttl = Ttl::from_secs(1);
 
-    pub const MINUTE: Ttl =
-        Ttl::from_minutes(1);
+    pub const MINUTE: Ttl = Ttl::from_minutes(1);
 
-    pub const HOUR: Ttl =
-        Ttl::from_hours(1);
+    pub const HOUR: Ttl = Ttl::from_hours(1);
 
     pub const ZERO: Ttl = Ttl::from_secs(0);
 
-    pub const MAX: Ttl =
-        Ttl::from_secs(u32::MAX);
+    pub const MAX: Ttl = Ttl::from_secs(u32::MAX);
 
     #[must_use]
     #[inline]
@@ -1069,10 +1043,7 @@ impl Ttl {
     #[must_use = "this returns the result of the operation, \
                   without modifying the original"]
     #[inline]
-    pub const fn checked_add(
-        self,
-        rhs: Ttl,
-    ) -> Option<Ttl> {
+    pub const fn checked_add(self, rhs: Ttl) -> Option<Ttl> {
         if let Some(secs) = self.0.checked_add(rhs.0) {
             Some(Ttl(secs))
         } else {
@@ -1083,10 +1054,7 @@ impl Ttl {
     #[must_use = "this returns the result of the operation, \
     without modifying the original"]
     #[inline]
-    pub const fn saturating_add(
-        self,
-        rhs: Ttl,
-    ) -> Ttl {
+    pub const fn saturating_add(self, rhs: Ttl) -> Ttl {
         match self.0.checked_add(rhs.0) {
             Some(secs) => Ttl(secs),
             None => Ttl::MAX,
@@ -1096,10 +1064,7 @@ impl Ttl {
     #[must_use = "this returns the result of the operation, \
                   without modifying the original"]
     #[inline]
-    pub const fn checked_sub(
-        self,
-        rhs: Ttl,
-    ) -> Option<Ttl> {
+    pub const fn checked_sub(self, rhs: Ttl) -> Option<Ttl> {
         if let Some(secs) = self.0.checked_sub(rhs.0) {
             Some(Ttl(secs))
         } else {
@@ -1110,10 +1075,7 @@ impl Ttl {
     #[must_use = "this returns the result of the operation, \
     without modifying the original"]
     #[inline]
-    pub const fn saturating_sub(
-        self,
-        rhs: Ttl,
-    ) -> Ttl {
+    pub const fn saturating_sub(self, rhs: Ttl) -> Ttl {
         match self.0.checked_sub(rhs.0) {
             Some(secs) => Ttl(secs),
             None => Ttl::ZERO,
@@ -1228,17 +1190,13 @@ macro_rules! sum_durations {
 }
 
 impl std::iter::Sum for Ttl {
-    fn sum<I: Iterator<Item = Ttl>>(
-        iter: I,
-    ) -> Ttl {
+    fn sum<I: Iterator<Item = Ttl>>(iter: I) -> Ttl {
         sum_durations!(iter)
     }
 }
 
 impl<'a> std::iter::Sum<&'a Ttl> for Ttl {
-    fn sum<I: Iterator<Item = &'a Ttl>>(
-        iter: I,
-    ) -> Ttl {
+    fn sum<I: Iterator<Item = &'a Ttl>>(iter: I) -> Ttl {
         sum_durations!(iter)
     }
 }

@@ -97,12 +97,12 @@ impl<S: Scanner> Scan<S> for Ttl {
     fn scan(scanner: &mut S) -> Result<Self, <S as Scanner>::Error> {
         let mut res: u32 = 0;
         scanner.scan_symbols(|ch| {
-            res = res.checked_mul(10).ok_or_else(|| {
-                S::Error::custom("decimal number overflow")
-            })?;
-            res += ch.into_digit(10).map_err(|_| {
-                S::Error::custom("expected decimal number")
-            })?;
+            res = res
+                .checked_mul(10)
+                .ok_or_else(|| S::Error::custom("decimal number overflow"))?;
+            res += ch
+                .into_digit(10)
+                .map_err(|_| S::Error::custom("expected decimal number"))?;
             Ok(())
         })?;
         Ok(Ttl::from_secs(res))
