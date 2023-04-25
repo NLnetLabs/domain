@@ -723,7 +723,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         self.labels
     }
 
-    pub fn original_ttl(&self) -> &Ttl {
+    pub fn original_ttl(&self) -> Ttl {
         &self.original_ttl
     }
 

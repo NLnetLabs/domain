@@ -153,7 +153,7 @@ impl<Name, Data> Record<Name, Data> {
     }
 
     /// Returns the record’s time-to-live.
-    pub fn ttl(&self) -> &Ttl {
+    pub fn ttl(&self) -> Ttl {
         &self.ttl
     }
 
@@ -567,7 +567,7 @@ impl<Name> RecordHeader<Name> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> &Ttl {
+    pub fn ttl(&self) -> Ttl {
         &self.ttl
     }
 
@@ -842,7 +842,7 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> &Ttl {
+    pub fn ttl(&self) -> Ttl {
         self.header.ttl()
     }
 
