@@ -154,7 +154,7 @@ impl<Name, Data> Record<Name, Data> {
 
     /// Returns the record’s time-to-live.
     pub fn ttl(&self) -> Ttl {
-        &self.ttl
+        self.ttl
     }
 
     /// Sets the record’s time-to-live.
@@ -568,7 +568,7 @@ impl<Name> RecordHeader<Name> {
 
     /// Returns the TTL of the record.
     pub fn ttl(&self) -> Ttl {
-        &self.ttl
+        self.ttl
     }
 
     /// Returns the data length of the record.

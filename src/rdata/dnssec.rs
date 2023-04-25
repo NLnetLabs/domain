@@ -724,7 +724,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
     }
 
     pub fn original_ttl(&self) -> Ttl {
-        &self.original_ttl
+        self.original_ttl
     }
 
     pub fn expiration(&self) -> Serial {

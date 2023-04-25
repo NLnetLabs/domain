@@ -1260,22 +1260,22 @@ impl<N> Soa<N> {
 
     /// The time interval before the zone should be refreshed.
     pub fn refresh(&self) -> Ttl {
-        &self.refresh
+        self.refresh
     }
 
     /// The time before a failed refresh is retried.
     pub fn retry(&self) -> Ttl {
-        &self.retry
+        self.retry
     }
 
     /// The upper limit of time the zone is authoritative.
     pub fn expire(&self) -> Ttl {
-        &self.expire
+        self.expire
     }
 
     /// The minimum TTL to be exported with any RR from this zone.
     pub fn minimum(&self) -> Ttl {
-        &self.minimum
+        self.minimum
     }
 
     pub(super) fn convert_octets<Target: OctetsFrom<N>>(

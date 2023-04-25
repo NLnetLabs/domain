@@ -2,7 +2,6 @@
 
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
-use super::Ttl;
 use core::fmt;
 use octseq::builder::{OctetsBuilder, Truncate};
 use octseq::parse::{Parser, ShortInput};
