@@ -2228,11 +2228,11 @@ impl std::error::Error for PushError {}
 #[cfg(feature = "std")]
 mod test {
     use super::*;
+    use crate::base::Ttl;
     use crate::base::Serial;
     use crate::base::{iana::Rtype, opt, Dname};
     use crate::rdata::{Ns, Soa, A};
     use core::str::FromStr;
-    use core::time::Duration;
     use std::vec::Vec;
 
     #[test]
@@ -2350,10 +2350,10 @@ mod test {
                 mname,
                 rname,
                 Serial(2020081701),
-                Duration::from_secs(1800),
-                Duration::from_secs(900),
-                Duration::from_secs(604800),
-                Duration::from_secs(86400),
+                Ttl::from_secs(1800),
+                Ttl::from_secs(900),
+                Ttl::from_secs(604800),
+                Ttl::from_secs(86400),
             ),
         ))
         .unwrap();

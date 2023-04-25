@@ -166,7 +166,7 @@ impl<N, D> SortedRecords<N, D> {
     pub fn nsecs<Octets, ApexName>(
         &self,
         apex: &FamilyName<ApexName>,
-        ttl: Duration,
+        ttl: LowPrecisionDuration,
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
         N: ToDname + Clone,
@@ -372,7 +372,11 @@ impl<N> FamilyName<N> {
         self.class
     }
 
-    pub fn into_record<D>(self, ttl: Duration, data: D) -> Record<N, D>
+    pub fn into_record<D>(
+        self,
+        ttl: LowPrecisionDuration,
+        data: D,
+    ) -> Record<N, D>
     where
         N: Clone,
     {
@@ -381,7 +385,7 @@ impl<N> FamilyName<N> {
 
     pub fn dnskey<K: SigningKey, Octets: From<K::Octets>>(
         &self,
-        ttl: Duration,
+        ttl: LowPrecisionDuration,
         key: K,
     ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
     where
@@ -393,7 +397,7 @@ impl<N> FamilyName<N> {
 
     pub fn ds<K: SigningKey>(
         &self,
-        ttl: Duration,
+        ttl: LowPrecisionDuration,
         key: K,
     ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
     where

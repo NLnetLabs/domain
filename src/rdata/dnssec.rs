@@ -10,13 +10,13 @@ use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
+use crate::base::Ttl;
 use crate::base::scan::{Scan, Scanner, ScannerError};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::utils::{base16, base64};
 use core::cmp::Ordering;
 use core::convert::TryInto;
-use core::time::Duration;
 use core::{fmt, hash, ptr};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
@@ -447,7 +447,7 @@ pub struct ProtoRrsig<Name> {
     type_covered: Rtype,
     algorithm: SecAlg,
     labels: u8,
-    original_ttl: Duration,
+    original_ttl: Ttl,
     expiration: Serial,
     inception: Serial,
     key_tag: u16,
@@ -460,7 +460,7 @@ impl<Name> ProtoRrsig<Name> {
         type_covered: Rtype,
         algorithm: SecAlg,
         labels: u8,
-        original_ttl: Duration,
+        original_ttl: Ttl,
         expiration: Serial,
         inception: Serial,
         key_tag: u16,
@@ -622,7 +622,7 @@ pub struct Rrsig<Octs, Name> {
     type_covered: Rtype,
     algorithm: SecAlg,
     labels: u8,
-    original_ttl: Duration,
+    original_ttl: Ttl,
     expiration: Serial,
     inception: Serial,
     key_tag: u16,
@@ -640,7 +640,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         type_covered: Rtype,
         algorithm: SecAlg,
         labels: u8,
-        original_ttl: Duration,
+        original_ttl: Ttl,
         expiration: Serial,
         inception: Serial,
         key_tag: u16,
@@ -691,7 +691,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         type_covered: Rtype,
         algorithm: SecAlg,
         labels: u8,
-        original_ttl: Duration,
+        original_ttl: Ttl,
         expiration: Serial,
         inception: Serial,
         key_tag: u16,
@@ -723,7 +723,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         self.labels
     }
 
-    pub fn original_ttl(&self) -> &Duration {
+    pub fn original_ttl(&self) -> &Ttl {
         &self.original_ttl
     }
 
@@ -784,7 +784,7 @@ impl<Octs, Name> Rrsig<Octs, Name> {
             Rtype::scan(scanner)?,
             SecAlg::scan(scanner)?,
             u8::scan(scanner)?,
-            Duration::from_secs(u32::scan(scanner)? as u64),
+            Ttl::scan(scanner)?,
             Serial::scan_rrsig(scanner)?,
             Serial::scan_rrsig(scanner)?,
             u16::scan(scanner)?,
@@ -841,7 +841,7 @@ impl<Octs> Rrsig<Octs, ParsedDname<Octs>> {
         let type_covered = Rtype::parse(parser)?;
         let algorithm = SecAlg::parse(parser)?;
         let labels = u8::parse(parser)?;
-        let original_ttl = Duration::parse(parser)?;
+        let original_ttl = Ttl::parse(parser)?;
         let expiration = Serial::parse(parser)?;
         let inception = Serial::parse(parser)?;
         let key_tag = u16::parse(parser)?;

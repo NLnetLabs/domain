@@ -36,6 +36,8 @@ use octseq::{
 #[cfg(feature = "std")]
 use std::error;
 
+use super::Ttl;
+
 //============ Scanning Traits ===============================================
 
 //------------ Scan ---------------------------------------------------------
@@ -90,6 +92,22 @@ impl_scan_unsigned!(u16);
 impl_scan_unsigned!(u32);
 impl_scan_unsigned!(u64);
 impl_scan_unsigned!(u128);
+
+impl<S: Scanner> Scan<S> for Ttl {
+    fn scan(scanner: &mut S) -> Result<Self, <S as Scanner>::Error> {
+        let mut res: u32 = 0;
+        scanner.scan_symbols(|ch| {
+            res = res.checked_mul(10).ok_or_else(|| {
+                S::Error::custom("decimal number overflow")
+            })?;
+            res += ch.into_digit(10).map_err(|_| {
+                S::Error::custom("expected decimal number")
+            })?;
+            Ok(())
+        })?;
+        Ok(Ttl::from_secs(res))
+    }
+}
 
 //------------ Scanner -------------------------------------------------------
 

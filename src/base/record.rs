@@ -90,7 +90,7 @@ pub struct Record<Name, Data> {
     class: Class,
 
     /// The time-to-live value of the record.
-    ttl: Duration,
+    ttl: Ttl,
 
     /// The record data. The value also specifies the record’s type.
     data: Data,
@@ -100,7 +100,12 @@ pub struct Record<Name, Data> {
 ///
 impl<Name, Data> Record<Name, Data> {
     /// Creates a new record from its parts.
-    pub fn new(owner: Name, class: Class, ttl: Duration, data: Data) -> Self {
+    pub fn new(
+        owner: Name,
+        class: Class,
+        ttl: Ttl,
+        data: Data,
+    ) -> Self {
         Record {
             owner,
             class,
@@ -153,12 +158,12 @@ impl<Name, Data> Record<Name, Data> {
     }
 
     /// Returns the record’s time-to-live.
-    pub fn ttl(&self) -> &Duration {
+    pub fn ttl(&self) -> &Ttl {
         &self.ttl
     }
 
     /// Sets the record’s time-to-live.
-    pub fn set_ttl(&mut self, ttl: Duration) {
+    pub fn set_ttl(&mut self, ttl: Ttl) {
         self.ttl = ttl
     }
 
@@ -225,19 +230,26 @@ impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
 
 impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
     fn from((owner, class, ttl, data): (N, Class, u32, D)) -> Self {
-        Self::new(owner, class, Duration::from_secs(ttl as u64), data)
+        Self::new(owner, class, Ttl::from_secs(ttl), data)
     }
 }
 
-impl<N, D> From<(N, Class, Duration, D)> for Record<N, D> {
-    fn from((owner, class, ttl, data): (N, Class, Duration, D)) -> Self {
+impl<N, D> From<(N, Class, Ttl, D)> for Record<N, D> {
+    fn from(
+        (owner, class, ttl, data): (N, Class, Ttl, D),
+    ) -> Self {
         Self::new(owner, class, ttl, data)
     }
 }
 
 impl<N, D> From<(N, u32, D)> for Record<N, D> {
     fn from((owner, ttl, data): (N, u32, D)) -> Self {
-        Self::new(owner, Class::In, Duration::from_secs(ttl as u64), data)
+        Self::new(
+            owner,
+            Class::In,
+            Ttl::from_secs(ttl),
+            data,
+        )
     }
 }
 
@@ -457,14 +469,14 @@ where
         Record::new(
             &self.0,
             self.1,
-            Duration::from_secs(self.2 as u64),
+            Ttl::from_secs(self.2),
             &self.3,
         )
         .compose(target)
     }
 }
 
-impl<Name, Data> ComposeRecord for (Name, Class, Duration, Data)
+impl<Name, Data> ComposeRecord for (Name, Class, Ttl, Data)
 where
     Name: ToDname,
     Data: ComposeRecordData,
@@ -489,14 +501,14 @@ where
         Record::new(
             &self.0,
             Class::In,
-            Duration::from_secs(self.1 as u64),
+            Ttl::from_secs(self.1),
             &self.2,
         )
         .compose(target)
     }
 }
 
-impl<Name, Data> ComposeRecord for (Name, Duration, Data)
+impl<Name, Data> ComposeRecord for (Name, Ttl, Data)
 where
     Name: ToDname,
     Data: ComposeRecordData,
@@ -525,7 +537,7 @@ pub struct RecordHeader<Name> {
     owner: Name,
     rtype: Rtype,
     class: Class,
-    ttl: Duration,
+    ttl: Ttl,
     rdlen: u16,
 }
 
@@ -535,7 +547,7 @@ impl<Name> RecordHeader<Name> {
         owner: Name,
         rtype: Rtype,
         class: Class,
-        ttl: Duration,
+        ttl: Ttl,
         rdlen: u16,
     ) -> Self {
         RecordHeader {
@@ -577,7 +589,7 @@ impl<Name> RecordHeader<Name> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> &Duration {
+    pub fn ttl(&self) -> &Ttl {
         &self.ttl
     }
 
@@ -610,7 +622,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> RecordHeader<ParsedDname<&'a Octs>> {
             ParsedDname::parse_ref(parser)?,
             Rtype::parse(parser)?,
             Class::parse(parser)?,
-            Duration::parse(parser)?,
+            Ttl::parse(parser)?,
             parser.parse_u16()?,
         ))
     }
@@ -852,7 +864,7 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> &Duration {
+    pub fn ttl(&self) -> &Ttl {
         self.header.ttl()
     }
 
@@ -985,11 +997,268 @@ impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
     }
 }
 
+//------------ Ttl ----------------------------------------------
+
+const SECS_PER_MINUTE: u32 = 60;
+const SECS_PER_HOUR: u32 = 3600;
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
+)]
+pub struct Ttl(u32);
+
+impl Ttl {
+    pub const SECOND: Ttl =
+        Ttl::from_secs(1);
+
+    pub const MINUTE: Ttl =
+        Ttl::from_minutes(1);
+
+    pub const HOUR: Ttl =
+        Ttl::from_hours(1);
+
+    pub const ZERO: Ttl = Ttl::from_secs(0);
+
+    pub const MAX: Ttl =
+        Ttl::from_secs(u32::MAX);
+
+    #[must_use]
+    #[inline]
+    pub const fn as_secs(&self) -> u32 {
+        self.0
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn as_minutes(&self) -> u32 {
+        self.0 / SECS_PER_MINUTE
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn as_hours(&self) -> u32 {
+        self.0 / SECS_PER_HOUR
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn from_secs(secs: u32) -> Self {
+        Self(secs)
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn from_minutes(minutes: u32) -> Self {
+        assert!(minutes <= 71582788);
+        Self(minutes * SECS_PER_MINUTE)
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn from_hours(hours: u32) -> Self {
+        assert!(hours <= 1193046);
+        Self(hours * SECS_PER_HOUR)
+    }
+
+    #[must_use]
+    #[inline]
+    pub const fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+
+    #[must_use = "this returns the result of the operation, \
+                  without modifying the original"]
+    #[inline]
+    pub const fn checked_add(
+        self,
+        rhs: Ttl,
+    ) -> Option<Ttl> {
+        if let Some(secs) = self.0.checked_add(rhs.0) {
+            Some(Ttl(secs))
+        } else {
+            None
+        }
+    }
+
+    #[must_use = "this returns the result of the operation, \
+    without modifying the original"]
+    #[inline]
+    pub const fn saturating_add(
+        self,
+        rhs: Ttl,
+    ) -> Ttl {
+        match self.0.checked_add(rhs.0) {
+            Some(secs) => Ttl(secs),
+            None => Ttl::MAX,
+        }
+    }
+
+    #[must_use = "this returns the result of the operation, \
+                  without modifying the original"]
+    #[inline]
+    pub const fn checked_sub(
+        self,
+        rhs: Ttl,
+    ) -> Option<Ttl> {
+        if let Some(secs) = self.0.checked_sub(rhs.0) {
+            Some(Ttl(secs))
+        } else {
+            None
+        }
+    }
+
+    #[must_use = "this returns the result of the operation, \
+    without modifying the original"]
+    #[inline]
+    pub const fn saturating_sub(
+        self,
+        rhs: Ttl,
+    ) -> Ttl {
+        match self.0.checked_sub(rhs.0) {
+            Some(secs) => Ttl(secs),
+            None => Ttl::ZERO,
+        }
+    }
+
+    #[must_use = "this returns the result of the operation, \
+                  without modifying the original"]
+    #[inline]
+    pub const fn checked_mul(self, rhs: u32) -> Option<Ttl> {
+        if let Some(secs) = self.0.checked_mul(rhs) {
+            Some(Ttl(secs))
+        } else {
+            None
+        }
+    }
+
+    #[must_use = "this returns the result of the operation, \
+    without modifying the original"]
+    #[inline]
+    pub const fn saturating_mul(self, rhs: u32) -> Ttl {
+        match self.0.checked_mul(rhs) {
+            Some(secs) => Ttl(secs),
+            None => Ttl::MAX,
+        }
+    }
+
+    #[must_use = "this returns the result of the operation, \
+    without modifying the original"]
+    #[inline]
+    pub const fn checked_div(self, rhs: u32) -> Option<Ttl> {
+        if rhs != 0 {
+            Some(Ttl(self.0 / rhs))
+        } else {
+            None
+        }
+    }
+}
+
+impl std::ops::Add for Ttl {
+    type Output = Ttl;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self.checked_add(rhs)
+            .expect("overflow when adding durations")
+    }
+}
+
+impl std::ops::AddAssign for Ttl {
+    fn add_assign(&mut self, rhs: Ttl) {
+        *self = *self + rhs;
+    }
+}
+
+impl std::ops::Sub for Ttl {
+    type Output = Ttl;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.checked_sub(rhs)
+            .expect("overflow when subtracting durations")
+    }
+}
+
+impl std::ops::SubAssign for Ttl {
+    fn sub_assign(&mut self, rhs: Ttl) {
+        *self = *self - rhs;
+    }
+}
+
+impl std::ops::Mul<u32> for Ttl {
+    type Output = Ttl;
+
+    fn mul(self, rhs: u32) -> Self::Output {
+        self.checked_mul(rhs)
+            .expect("overflow when multiplying duration by scalar")
+    }
+}
+
+impl std::ops::MulAssign<u32> for Ttl {
+    fn mul_assign(&mut self, rhs: u32) {
+        *self = *self * rhs;
+    }
+}
+
+impl std::ops::Div<u32> for Ttl {
+    type Output = Ttl;
+
+    fn div(self, rhs: u32) -> Ttl {
+        self.checked_div(rhs)
+            .expect("divide by zero error when dividing duration by scalar")
+    }
+}
+
+impl std::ops::DivAssign<u32> for Ttl {
+    fn div_assign(&mut self, rhs: u32) {
+        *self = *self / rhs;
+    }
+}
+
+macro_rules! sum_durations {
+    ($iter:expr) => {{
+        let mut total_secs: u32 = 0;
+
+        for entry in $iter {
+            total_secs = total_secs
+                .checked_add(entry.0)
+                .expect("overflow in iter::sum over durations");
+        }
+
+        Ttl(total_secs)
+    }};
+}
+
+impl std::iter::Sum for Ttl {
+    fn sum<I: Iterator<Item = Ttl>>(
+        iter: I,
+    ) -> Ttl {
+        sum_durations!(iter)
+    }
+}
+
+impl<'a> std::iter::Sum<&'a Ttl> for Ttl {
+    fn sum<I: Iterator<Item = &'a Ttl>>(
+        iter: I,
+    ) -> Ttl {
+        sum_durations!(iter)
+    }
+}
+
+impl From<Duration> for Ttl {
+    fn from(value: Duration) -> Self {
+        Ttl(value.as_secs() as u32)
+    }
+}
+
+impl From<Ttl> for Duration {
+    fn from(value: Ttl) -> Self {
+        Duration::from_secs(value.0 as u64)
+    }
+}
+
 //============ Testing ======================================================
 
 #[cfg(test)]
 mod test {
-
     #[test]
     #[cfg(features = "bytes")]
     fn ds_octets_into() {

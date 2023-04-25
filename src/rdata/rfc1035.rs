@@ -12,6 +12,7 @@ use crate::base::net::Ipv4Addr;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData
 };
+use crate::base::Ttl;
 use crate::base::scan::{Scan, Scanner, ScannerError, Symbol};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
@@ -20,7 +21,6 @@ use bytes::BytesMut;
 use core::cmp::Ordering;
 use core::convert::{Infallible, TryFrom};
 use core::str::FromStr;
-use core::time::Duration;
 use core::{fmt, hash, ops, str};
 use octseq::builder::{
     infallible, EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
@@ -1215,10 +1215,10 @@ pub struct Soa<N> {
     mname: N,
     rname: N,
     serial: Serial,
-    refresh: Duration,
-    retry: Duration,
-    expire: Duration,
-    minimum: Duration,
+    refresh: Ttl,
+    retry: Ttl,
+    expire: Ttl,
+    minimum: Ttl,
 }
 
 impl<N> Soa<N> {
@@ -1227,10 +1227,10 @@ impl<N> Soa<N> {
         mname: N,
         rname: N,
         serial: Serial,
-        refresh: Duration,
-        retry: Duration,
-        expire: Duration,
-        minimum: Duration,
+        refresh: Ttl,
+        retry: Ttl,
+        expire: Ttl,
+        minimum: Ttl,
     ) -> Self {
         Soa {
             mname,
@@ -1259,22 +1259,22 @@ impl<N> Soa<N> {
     }
 
     /// The time interval before the zone should be refreshed.
-    pub fn refresh(&self) -> &Duration {
+    pub fn refresh(&self) -> &Ttl {
         &self.refresh
     }
 
     /// The time before a failed refresh is retried.
-    pub fn retry(&self) -> &Duration {
+    pub fn retry(&self) -> &Ttl {
         &self.retry
     }
 
     /// The upper limit of time the zone is authoritative.
-    pub fn expire(&self) -> &Duration {
+    pub fn expire(&self) -> &Ttl {
         &self.expire
     }
 
     /// The minimum TTL to be exported with any RR from this zone.
-    pub fn minimum(&self) -> &Duration {
+    pub fn minimum(&self) -> &Ttl {
         &self.minimum
     }
 
@@ -1299,10 +1299,10 @@ impl<N> Soa<N> {
             scanner.scan_dname()?,
             scanner.scan_dname()?,
             Serial::scan(scanner)?,
-            Duration::from_secs(u32::scan(scanner)? as u64),
-            Duration::from_secs(u32::scan(scanner)? as u64),
-            Duration::from_secs(u32::scan(scanner)? as u64),
-            Duration::from_secs(u32::scan(scanner)? as u64),
+            Ttl::scan(scanner)?,
+            Ttl::scan(scanner)?,
+            Ttl::scan(scanner)?,
+            Ttl::scan(scanner)?,
         ))
     }
 }
@@ -1344,10 +1344,10 @@ impl<Octs> Soa<ParsedDname<Octs>> {
             ParsedDname::parse(parser)?,
             ParsedDname::parse(parser)?,
             Serial::parse(parser)?,
-            Duration::parse(parser)?,
-            Duration::parse(parser)?,
-            Duration::parse(parser)?,
-            Duration::parse(parser)?,
+            Ttl::parse(parser)?,
+            Ttl::parse(parser)?,
+            Ttl::parse(parser)?,
+            Ttl::parse(parser)?,
         ))
     }
 }

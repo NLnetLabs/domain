@@ -2,8 +2,8 @@
 
 use super::name::ToDname;
 use super::net::{Ipv4Addr, Ipv6Addr};
+use super::Ttl;
 use core::fmt;
-use core::time::Duration;
 use octseq::builder::{OctetsBuilder, Truncate};
 use octseq::parse::{Parser, ShortInput};
 
@@ -149,14 +149,14 @@ impl Compose for Ipv6Addr {
     }
 }
 
-impl Compose for Duration {
+impl Compose for Ttl {
     const COMPOSE_LEN: u16 = 4;
 
     fn compose<Target: OctetsBuilder + ?Sized>(
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        target.append_slice(&(self.as_secs() as u32).to_be_bytes())
+        target.append_slice(&(self.as_secs()).to_be_bytes())
     }
 }
 
@@ -246,11 +246,13 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv6Addr {
     }
 }
 
-impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Duration {
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs>
+    for Ttl
+{
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         parser
             .parse_u32()
-            .map(|v| Duration::from_secs(v as u64))
+            .map(Ttl::from_secs)
             .map_err(Into::into)
     }
 }
