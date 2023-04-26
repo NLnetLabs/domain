@@ -1,6 +1,7 @@
 //! Actual signing.
 
 use super::key::SigningKey;
+use crate::base::Ttl;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::ToDname;
@@ -166,7 +167,7 @@ impl<N, D> SortedRecords<N, D> {
     pub fn nsecs<Octets, ApexName>(
         &self,
         apex: &FamilyName<ApexName>,
-        ttl: LowPrecisionDuration,
+        ttl: Ttl,
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
         N: ToDname + Clone,
@@ -374,7 +375,7 @@ impl<N> FamilyName<N> {
 
     pub fn into_record<D>(
         self,
-        ttl: LowPrecisionDuration,
+        ttl: Ttl,
         data: D,
     ) -> Record<N, D>
     where
@@ -385,7 +386,7 @@ impl<N> FamilyName<N> {
 
     pub fn dnskey<K: SigningKey, Octets: From<K::Octets>>(
         &self,
-        ttl: LowPrecisionDuration,
+        ttl: Ttl,
         key: K,
     ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
     where
@@ -397,7 +398,7 @@ impl<N> FamilyName<N> {
 
     pub fn ds<K: SigningKey>(
         &self,
-        ttl: LowPrecisionDuration,
+        ttl: Ttl,
         key: K,
     ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
     where
@@ -460,7 +461,7 @@ impl<'a, N, D> Rrset<'a, N, D> {
         self.slice[0].rtype()
     }
 
-    pub fn ttl(&self) -> u32 {
+    pub fn ttl(&self) -> Ttl {
         self.slice[0].ttl()
     }
 

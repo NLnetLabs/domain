@@ -10,12 +10,12 @@ use crate::base::iana::Rtype;
 use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::rdata::{
-    ComposeRecordData, LongRecordData, ParseRecordData, RecordData
+    ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::Ttl;
 use crate::base::scan::{Scan, Scanner, ScannerError, Symbol};
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
+use crate::base::Ttl;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
 use core::cmp::Ordering;
@@ -960,7 +960,9 @@ impl<Octs> Null<Octs> {
     ///
     /// The function will fail if `data` is longer than 65,535 octets.
     pub fn from_octets(data: Octs) -> Result<Self, LongRecordData>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         Null::check_slice(data.as_ref())?;
         Ok(unsafe { Self::from_octets_unchecked(data) })
     }
@@ -1031,9 +1033,10 @@ impl<Octs> Null<Octs> {
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
         let len = parser.remaining();
-        parser.parse_octets(len).map(|res| {
-            unsafe { Self::from_octets_unchecked(res) }
-        }).map_err(Into::into)
+        parser
+            .parse_octets(len)
+            .map(|res| unsafe { Self::from_octets_unchecked(res) })
+            .map_err(Into::into)
     }
 }
 
@@ -1044,7 +1047,7 @@ impl<SrcOcts> Null<SrcOcts> {
     {
         Ok(unsafe {
             Null::from_octets_unchecked(
-                self.data.try_octets_into().map_err(Into::into)?
+                self.data.try_octets_into().map_err(Into::into)?,
             )
         })
     }
@@ -1059,9 +1062,8 @@ where
     type Error = Octs::Error;
 
     fn try_octets_from(source: Null<SrcOcts>) -> Result<Self, Self::Error> {
-        Octs::try_octets_from(source.data).map(|res| {
-            unsafe { Self::from_octets_unchecked(res) }
-        })
+        Octs::try_octets_from(source.data)
+            .map(|res| unsafe { Self::from_octets_unchecked(res) })
     }
 }
 
@@ -1608,7 +1610,7 @@ impl<Octs> Txt<Octs> {
     /// Creates new TXT record data from its encoded content.
     pub fn from_octets(octets: Octs) -> Result<Self, TxtError>
     where
-        Octs: AsRef<[u8]>
+        Octs: AsRef<[u8]>,
     {
         Txt::check_slice(octets.as_ref())?;
         Ok(unsafe { Txt::from_octets_unchecked(octets) })
@@ -1619,7 +1621,7 @@ impl<Octs> Txt<Octs> {
     /// # Safety
     ///
     /// The passed octets must contain correctly encoded TXT record data,
-    /// that is a sequence of encoded character strings. 
+    /// that is a sequence of encoded character strings.
     unsafe fn from_octets_unchecked(octets: Octs) -> Self {
         Txt(octets)
     }
@@ -1660,7 +1662,9 @@ impl<Octs> Txt<Octs> {
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError>
-    where Octs: AsRef<[u8]> {
+    where
+        Octs: AsRef<[u8]>,
+    {
         let len = parser.remaining();
         let text = parser.parse_octets(len)?;
         let mut tmp = Parser::from_ref(text.as_ref());
@@ -2371,10 +2375,10 @@ mod test {
             Dname::from_str("m.example.com").unwrap(),
             Dname::from_str("r.example.com").unwrap(),
             Serial(11),
-            12,
-            13,
-            14,
-            15,
+            Ttl::from_secs(12),
+            Ttl::from_secs(13),
+            Ttl::from_secs(14),
+            Ttl::from_secs(15),
         );
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Soa::parse(parser));

@@ -12,6 +12,7 @@
 #![cfg(feature = "bytes")]
 #![cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
 
+use crate::base::Ttl;
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Chain, Dname, RelativeDname, ToDname};
@@ -67,7 +68,7 @@ pub struct Zonefile {
     last_owner: Option<ScannedDname>,
 
     /// The last TTL.
-    last_ttl: Option<u32>,
+    last_ttl: Option<Ttl>,
 
     /// The last class.
     last_class: Option<Class>,
@@ -240,7 +241,7 @@ enum ScannedEntry {
     Origin(Dname<Bytes>),
 
     /// A `$TTL` directive changing the default TTL if it isn’t given.
-    Ttl(u32),
+    Ttl(Ttl),
 
     /// An empty entry.
     Empty,
@@ -371,7 +372,7 @@ impl<'a> EntryScanner<'a> {
     /// Scans the TTL, class, and type portions of a regular record.
     fn scan_ctr(
         &mut self,
-    ) -> Result<(Option<Class>, Option<u32>, Rtype), EntryError> {
+    ) -> Result<(Option<Class>, Option<Ttl>, Rtype), EntryError> {
         // Possible options are:
         //
         //   [<TTL>] [<class>] <type>
@@ -379,13 +380,13 @@ impl<'a> EntryScanner<'a> {
 
         enum Ctr {
             Class(Class),
-            Ttl(u32),
+            Ttl(Ttl),
             Rtype(Rtype),
         }
 
         let first = self.scan_ascii_str(|s| {
             if let Ok(ttl) = u32::from_str(s) {
-                Ok(Ctr::Ttl(ttl))
+                Ok(Ctr::Ttl(Ttl::from_secs(ttl)))
             } else if let Ok(rtype) = Rtype::from_str(s) {
                 Ok(Ctr::Rtype(rtype))
             } else if let Ok(class) = Class::from_str(s) {
@@ -427,7 +428,7 @@ impl<'a> EntryScanner<'a> {
                 // abuse Result<Rtype, TTL> for that.
                 let second = self.scan_ascii_str(|s| {
                     if let Ok(ttl) = u32::from_str(s) {
-                        Ok(Err(ttl))
+                        Ok(Err(Ttl::from_secs(ttl)))
                     } else if let Ok(rtype) = Rtype::from_str(s) {
                         Ok(Ok(rtype))
                     } else {
@@ -471,7 +472,7 @@ impl<'a> EntryScanner<'a> {
         } else if ctrl.eq_ignore_ascii_case("$TTL") {
             let ttl = u32::scan(self)?;
             self.zonefile.buf.require_line_feed()?;
-            Ok(ScannedEntry::Ttl(ttl))
+            Ok(ScannedEntry::Ttl(Ttl::from_secs(ttl)))
         } else {
             Err(EntryError::unknown_control())
         }

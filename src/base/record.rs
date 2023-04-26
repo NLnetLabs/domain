@@ -997,6 +997,8 @@ const SECS_PER_DAY: u32 = 86400;
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
 )]
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Ttl(u32);
 
 impl Ttl {

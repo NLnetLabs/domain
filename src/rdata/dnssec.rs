@@ -2451,7 +2451,7 @@ mod test {
             Rtype::A,
             SecAlg::RsaSha1,
             3,
-            12,
+            Ttl::from_secs(12),
             Serial::from(13),
             Serial::from(14),
             15,
