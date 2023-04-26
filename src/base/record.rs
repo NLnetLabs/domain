@@ -986,18 +986,17 @@ const SECS_PER_DAY: u32 = 86400;
 ///
 /// `Ttl` implements many common traits, including [`core::ops::Add`], [`core::ops::Sub`], and other [`core::ops`] traits. It implements Default by returning a zero-length `Ttl`.
 ///
-/// # Why not [`core::time::Duration`]?
+/// # Why not [`std::time::Duration`]?
 ///
-/// Two reasons make [`core::time::Duration`] not suited for representing DNS TTL values:
-/// 1. According to [RFC 2181](https://datatracker.ietf.org/doc/html/rfc2181#section-8) TTL values have second-level precision while [`core::time::Duration`] can represent time down to the nanosecond level.
+/// Two reasons make [`std::time::Duration`] not suited for representing DNS TTL values:
+/// 1. According to [RFC 2181](https://datatracker.ietf.org/doc/html/rfc2181#section-8) TTL values have second-level precision while [`std::time::Duration`] can represent time down to the nanosecond level.
 ///     This amount of precision is simply not needed and might cause confusion when sending `Duration`s over the network.
-/// 2. When working with DNS TTL values it's common to want to know a time to live in minutes or hours. [`core::time::Duration`] does not expose easy to use methods for this purpose, while `Ttl` does.
+/// 2. When working with DNS TTL values it's common to want to know a time to live in minutes or hours. [`std::time::Duration`] does not expose easy to use methods for this purpose, while `Ttl` does.
 ///
 /// `Ttl` provides two methods [`Ttl::from_duration_lossy`] and [`Ttl::into_duration`] to convert between `Duration` and `Ttl`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
 )]
-
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Ttl(u32);
 
@@ -1098,13 +1097,13 @@ impl Ttl {
         (self.0 / SECS_PER_DAY) as u16
     }
 
-    /// Converts a `Ttl` into a [`core::time::Duration`].
+    /// Converts a `Ttl` into a [`std::time::Duration`].
     ///
     /// # Examples
     ///
     /// ```
     /// use domain::base::Ttl;
-    /// use core::time::Duration;
+    /// use std::time::Duration;
     ///
     /// let ttl = Ttl::from_mins(2);
     /// let duration = ttl.into_duration();
@@ -1162,7 +1161,7 @@ impl Ttl {
         Self(days as u32 * SECS_PER_DAY)
     }
 
-    /// Creates a new `Ttl` from a [`core::time::Duration`].
+    /// Creates a new `Ttl` from a [`std::time::Duration`].
     ///
     /// This operation is lossy as [`Duration`] stores seconds as `u64`, while `Ttl` stores seconds as `u32` to comply with the DNS specifications.
     /// [`Duration`] also represents time using sub-second precision, which is not kept when converting into a `Ttl`.
@@ -1171,7 +1170,7 @@ impl Ttl {
     ///
     /// ```
     /// use domain::base::Ttl;
-    /// use core::time::Duration;
+    /// use std::time::Duration;
     ///
     /// assert_eq!(Ttl::from_duration_lossy(Duration::new(1, 0)), Ttl::from_secs(1));
     /// assert_eq!(Ttl::from_duration_lossy(Duration::new(1, 6000)), Ttl::from_secs(1));

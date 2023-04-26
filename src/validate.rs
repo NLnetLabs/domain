@@ -346,9 +346,9 @@ impl error::Error for AlgorithmError {}
 #[cfg(feature = "std")]
 mod test {
     use super::*;
-    use crate::base::Ttl;
     use crate::base::iana::{Class, Rtype, SecAlg};
     use crate::base::serial::Serial;
+    use crate::base::Ttl;
     use crate::rdata::{Mx, ZoneRecordData};
     use crate::utils::base64;
     use bytes::Bytes;

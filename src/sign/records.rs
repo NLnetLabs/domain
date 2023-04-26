@@ -1,13 +1,13 @@
 //! Actual signing.
 
 use super::key::SigningKey;
-use crate::base::Ttl;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::ToDname;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::serial::Serial;
+use crate::base::Ttl;
 use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap};
 use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
@@ -373,11 +373,7 @@ impl<N> FamilyName<N> {
         self.class
     }
 
-    pub fn into_record<D>(
-        self,
-        ttl: Ttl,
-        data: D,
-    ) -> Record<N, D>
+    pub fn into_record<D>(self, ttl: Ttl, data: D) -> Record<N, D>
     where
         N: Clone,
     {

@@ -12,7 +12,6 @@
 #![cfg(feature = "bytes")]
 #![cfg_attr(docsrs, doc(cfg(feature = "bytes")))]
 
-use crate::base::Ttl;
 use crate::base::charstr::CharStr;
 use crate::base::iana::{Class, Rtype};
 use crate::base::name::{Chain, Dname, RelativeDname, ToDname};
@@ -21,6 +20,7 @@ use crate::base::scan::{
     BadSymbol, ConvertSymbols, EntrySymbol, Scan, Scanner, ScannerError,
     Symbol, SymbolOctetsError,
 };
+use crate::base::Ttl;
 use crate::rdata::ZoneRecordData;
 use bytes::buf::UninitSlice;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
