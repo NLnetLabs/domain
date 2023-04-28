@@ -2305,7 +2305,7 @@ mod test {
         let mut msg = MessageBuilder::new_vec().additional();
 
         // Add an OPT record.
-        let nsid = opt::nsid::Nsid::from_octets(&b"example"[..]);
+        let nsid = opt::nsid::Nsid::from_octets(&b"example"[..]).unwrap();
         msg.opt(|o| {
             o.set_udp_payload_size(4096);
             o.push(&nsid)?;
@@ -2320,7 +2320,7 @@ mod test {
 
         // Check options
         assert_eq!(opt.udp_payload_size(), 4096);
-        let mut opts = opt.as_opt().iter::<opt::nsid::Nsid<_>>();
+        let mut opts = opt.opt().iter::<opt::nsid::Nsid<_>>();
         assert_eq!(opts.next(), Some(Ok(nsid)));
     }
 

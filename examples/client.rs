@@ -1,9 +1,9 @@
 use std::net::UdpSocket;
 use std::str::FromStr;
 
+use domain::base::opt::AllOptData;
 use domain::base::{
-    message::Message, opt::AllOptData, Dname, MessageBuilder, Rtype,
-    StaticCompressor, StreamTarget,
+    Dname, Message, MessageBuilder, Rtype, StaticCompressor, StreamTarget,
 };
 use domain::rdata::AllRecordData;
 
@@ -89,7 +89,7 @@ fn main() {
     }
 
     // Display is only implemented for some OPTs at the time of writing
-    for option in response.opt().unwrap().iter::<AllOptData<_, _>>() {
+    for option in response.opt().unwrap().opt().iter::<AllOptData<_, _>>() {
         let opt = option.unwrap();
         match opt {
             AllOptData::Nsid(nsid) => println!("{}", nsid),
