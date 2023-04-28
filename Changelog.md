@@ -57,6 +57,8 @@ Breaking Changes
   exception of `rdata::rfc1035`. ([#189])
 * Renamed the sub-modules of `base::opt` that contain option data types to
   use short-hand names rather than their RFC number. ([#190])
+* TTL values are now using a newtype `base::record::Ttl` that wraps the
+  raw `u32` and improves conversions. ([#202] by [@CrabNejonas])
 
 New
 
@@ -83,7 +85,9 @@ Other Changes
 [#189]: https://github.com/NLnetLabs/domain/pull/189
 [#190]: https://github.com/NLnetLabs/domain/pull/190
 [#199]: https://github.com/NLnetLabs/domain/pull/199
+[#202]: https://github.com/NLnetLabs/domain/pull/199
 [Martin Fischer]: https://push-f.com/
+[@CrabNejonas]: https://github.com/CrabNejonas
 [octseq]: https://crates.io/crates/octseq
 
 
