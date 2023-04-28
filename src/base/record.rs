@@ -21,10 +21,12 @@ use super::name::{ParsedDname, ToDname};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
 use core::cmp::Ordering;
+use core::time::Duration;
 use core::{fmt, hash};
 use octseq::builder::ShortBuf;
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
+use octseq::OctetsBuilder;
 
 //------------ Record --------------------------------------------------------
 
@@ -53,7 +55,7 @@ use octseq::parse::Parser;
 ///
 /// There is one more piece of data: the TTL or time to live. This value
 /// says how long a record remains valid before it should be refreshed from
-/// its original source, given in seconds. The TTL is used to add caching
+/// its original source. The TTL is used to add caching
 /// facilities to the DNS.
 ///
 /// Values of the `Record` type represent one single resource record. Since
@@ -89,7 +91,7 @@ pub struct Record<Name, Data> {
     class: Class,
 
     /// The time-to-live value of the record.
-    ttl: u32,
+    ttl: Ttl,
 
     /// The record data. The value also specifies the record’s type.
     data: Data,
@@ -99,7 +101,7 @@ pub struct Record<Name, Data> {
 ///
 impl<Name, Data> Record<Name, Data> {
     /// Creates a new record from its parts.
-    pub fn new(owner: Name, class: Class, ttl: u32, data: Data) -> Self {
+    pub fn new(owner: Name, class: Class, ttl: Ttl, data: Data) -> Self {
         Record {
             owner,
             class,
@@ -152,12 +154,12 @@ impl<Name, Data> Record<Name, Data> {
     }
 
     /// Returns the record’s time-to-live.
-    pub fn ttl(&self) -> u32 {
+    pub fn ttl(&self) -> Ttl {
         self.ttl
     }
 
     /// Sets the record’s time-to-live.
-    pub fn set_ttl(&mut self, ttl: u32) {
+    pub fn set_ttl(&mut self, ttl: Ttl) {
         self.ttl = ttl
     }
 
@@ -224,13 +226,19 @@ impl<N: ToDname, D: RecordData + ComposeRecordData> Record<N, D> {
 
 impl<N, D> From<(N, Class, u32, D)> for Record<N, D> {
     fn from((owner, class, ttl, data): (N, Class, u32, D)) -> Self {
+        Self::new(owner, class, Ttl::from_secs(ttl), data)
+    }
+}
+
+impl<N, D> From<(N, Class, Ttl, D)> for Record<N, D> {
+    fn from((owner, class, ttl, data): (N, Class, Ttl, D)) -> Self {
         Self::new(owner, class, ttl, data)
     }
 }
 
 impl<N, D> From<(N, u32, D)> for Record<N, D> {
     fn from((owner, ttl, data): (N, u32, D)) -> Self {
-        Self::new(owner, Class::In, ttl, data)
+        Self::new(owner, Class::In, Ttl::from_secs(ttl), data)
     }
 }
 
@@ -370,7 +378,7 @@ where
             f,
             "{}. {} {} {} {}",
             self.owner,
-            self.ttl,
+            self.ttl.as_secs(),
             self.class,
             self.data.rtype(),
             self.data
@@ -447,11 +455,39 @@ where
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
+        Record::new(&self.0, self.1, Ttl::from_secs(self.2), &self.3)
+            .compose(target)
+    }
+}
+
+impl<Name, Data> ComposeRecord for (Name, Class, Ttl, Data)
+where
+    Name: ToDname,
+    Data: ComposeRecordData,
+{
+    fn compose_record<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
         Record::new(&self.0, self.1, self.2, &self.3).compose(target)
     }
 }
 
 impl<Name, Data> ComposeRecord for (Name, u32, Data)
+where
+    Name: ToDname,
+    Data: ComposeRecordData,
+{
+    fn compose_record<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        Record::new(&self.0, Class::In, Ttl::from_secs(self.1), &self.2)
+            .compose(target)
+    }
+}
+
+impl<Name, Data> ComposeRecord for (Name, Ttl, Data)
 where
     Name: ToDname,
     Data: ComposeRecordData,
@@ -480,7 +516,7 @@ pub struct RecordHeader<Name> {
     owner: Name,
     rtype: Rtype,
     class: Class,
-    ttl: u32,
+    ttl: Ttl,
     rdlen: u16,
 }
 
@@ -490,7 +526,7 @@ impl<Name> RecordHeader<Name> {
         owner: Name,
         rtype: Rtype,
         class: Class,
-        ttl: u32,
+        ttl: Ttl,
         rdlen: u16,
     ) -> Self {
         RecordHeader {
@@ -532,7 +568,7 @@ impl<Name> RecordHeader<Name> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> u32 {
+    pub fn ttl(&self) -> Ttl {
         self.ttl
     }
 
@@ -565,7 +601,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> RecordHeader<ParsedDname<&'a Octs>> {
             ParsedDname::parse_ref(parser)?,
             Rtype::parse(parser)?,
             Class::parse(parser)?,
-            u32::parse(parser)?,
+            Ttl::parse(parser)?,
             parser.parse_u16()?,
         ))
     }
@@ -807,7 +843,7 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     }
 
     /// Returns the TTL of the record.
-    pub fn ttl(&self) -> u32 {
+    pub fn ttl(&self) -> Ttl {
         self.header.ttl()
     }
 
@@ -940,11 +976,517 @@ impl<N, D> From<ShortBuf> for RecordParseError<N, D> {
     }
 }
 
+//------------ Ttl ----------------------------------------------
+
+const SECS_PER_MINUTE: u32 = 60;
+const SECS_PER_HOUR: u32 = 3600;
+const SECS_PER_DAY: u32 = 86400;
+
+/// A span of time, typically used to describe the time a given DNS record is valid.
+///
+/// `Ttl` implements many common traits, including [`core::ops::Add`], [`core::ops::Sub`], and other [`core::ops`] traits. It implements Default by returning a zero-length `Ttl`.
+///
+/// # Why not [`std::time::Duration`]?
+///
+/// Two reasons make [`std::time::Duration`] not suited for representing DNS TTL values:
+/// 1. According to [RFC 2181](https://datatracker.ietf.org/doc/html/rfc2181#section-8) TTL values have second-level precision while [`std::time::Duration`] can represent time down to the nanosecond level.
+///     This amount of precision is simply not needed and might cause confusion when sending `Duration`s over the network.
+/// 2. When working with DNS TTL values it's common to want to know a time to live in minutes or hours. [`std::time::Duration`] does not expose easy to use methods for this purpose, while `Ttl` does.
+///
+/// `Ttl` provides two methods [`Ttl::from_duration_lossy`] and [`Ttl::into_duration`] to convert between `Duration` and `Ttl`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
+)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Ttl(u32);
+
+impl Ttl {
+    /// A time-to-live of one second.
+    pub const SECOND: Ttl = Ttl::from_secs(1);
+
+    /// A time-to-live of one minute.
+    pub const MINUTE: Ttl = Ttl::from_mins(1);
+
+    /// A time-to-live of one hour.
+    pub const HOUR: Ttl = Ttl::from_hours(1);
+
+    /// A time-to-live of one day.
+    pub const DAY: Ttl = Ttl::from_days(1);
+
+    /// A duration of zero time.
+    pub const ZERO: Ttl = Ttl::from_secs(0);
+
+    /// The maximum theoretical time to live.
+    pub const MAX: Ttl = Ttl::from_secs(u32::MAX);
+
+    /// The practical maximum time to live as recommended by [RFC 8767](https://datatracker.ietf.org/doc/html/rfc8767#section-4).
+    pub const CAP: Ttl = Ttl::from_secs(604_800);
+
+    /// The maximum number of minutes that a `Ttl` can represent.
+    pub const MAX_MINUTES: u32 = 71582788;
+
+    /// The maximum number of hours that a `Ttl` can represent.
+    pub const MAX_HOURS: u32 = 1193046;
+
+    /// The maximum number of days that a `Ttl` can represent.
+    pub const MAX_DAYS: u16 = 49710;
+
+    pub const COMPOSE_LEN: u16 = 4;
+
+    /// Returns the total time to live in seconds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// let ttl = Ttl::from_secs(120);
+    /// assert_eq!(ttl.as_secs(), 120);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn as_secs(&self) -> u32 {
+        self.0
+    }
+
+    /// Returns the total time to live in minutes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// let ttl = Ttl::from_secs(120);
+    /// assert_eq!(ttl.as_minutes(), 2);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn as_minutes(&self) -> u32 {
+        self.0 / SECS_PER_MINUTE
+    }
+
+    /// Returns the total time to live in hours.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// let ttl = Ttl::from_secs(7200);
+    /// assert_eq!(ttl.as_hours(), 2);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn as_hours(&self) -> u32 {
+        self.0 / SECS_PER_HOUR
+    }
+
+    /// Returns the total time to live in days.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// let ttl = Ttl::from_secs(172800);
+    /// assert_eq!(ttl.as_days(), 2);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn as_days(&self) -> u16 {
+        (self.0 / SECS_PER_DAY) as u16
+    }
+
+    /// Converts a `Ttl` into a [`std::time::Duration`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    /// use std::time::Duration;
+    ///
+    /// let ttl = Ttl::from_mins(2);
+    /// let duration = ttl.into_duration();
+    /// assert_eq!(duration.as_secs(), 120);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn into_duration(&self) -> Duration {
+        Duration::from_secs(self.0 as u64)
+    }
+
+    /// Creates a new `Ttl` from the specified number of seconds.
+    #[must_use]
+    #[inline]
+    pub const fn from_secs(secs: u32) -> Self {
+        Self(secs)
+    }
+
+    /// Creates a new `Ttl` from the specified number of minutes.
+    ///
+    /// # Panics
+    ///
+    /// The maximum number of days that a `Ttl` can represent is `71582788`.
+    /// This method will panic if it is being called with a value greater than that.
+    #[must_use]
+    #[inline]
+    pub const fn from_mins(minutes: u32) -> Self {
+        assert!(minutes <= 71582788);
+        Self(minutes * SECS_PER_MINUTE)
+    }
+
+    /// Creates a new `Ttl` from the specified number of hours.
+    ///
+    /// # Panics
+    ///
+    /// The maximum number of hours that a `Ttl` can represent is `1193046`.
+    /// This method will panic if it is being called with a value greater than that.
+    #[must_use]
+    #[inline]
+    pub const fn from_hours(hours: u32) -> Self {
+        assert!(hours <= 1193046);
+        Self(hours * SECS_PER_HOUR)
+    }
+
+    /// Creates a new `Ttl` from the specified number of days.
+    ///
+    /// # Panics
+    ///
+    /// The maximum number of days that a `Ttl` can represent is `49710`.
+    /// This method will panic if it is being called with a value greater than that.
+    #[must_use]
+    #[inline]
+    pub const fn from_days(days: u16) -> Self {
+        assert!(days <= 49710);
+        Self(days as u32 * SECS_PER_DAY)
+    }
+
+    /// Creates a new `Ttl` from a [`std::time::Duration`].
+    ///
+    /// This operation is lossy as [`Duration`] stores seconds as `u64`, while `Ttl` stores seconds as `u32` to comply with the DNS specifications.
+    /// [`Duration`] also represents time using sub-second precision, which is not kept when converting into a `Ttl`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    /// use std::time::Duration;
+    ///
+    /// assert_eq!(Ttl::from_duration_lossy(Duration::new(1, 0)), Ttl::from_secs(1));
+    /// assert_eq!(Ttl::from_duration_lossy(Duration::new(1, 6000)), Ttl::from_secs(1));
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn from_duration_lossy(duration: Duration) -> Self {
+        Self(duration.as_secs() as u32)
+    }
+
+    /// Returns true if this `Tll` spans no time.
+    ///
+    /// This usually indicates a given record should not be cached.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// assert!(Ttl::ZERO.is_zero());
+    /// assert!(Ttl::from_secs(0).is_zero());
+    /// assert!(Ttl::from_mins(0).is_zero());
+    /// assert!(Ttl::from_hours(0).is_zero());
+    /// assert!(Ttl::from_days(0).is_zero());
+    /// ```
+    #[must_use]
+    #[inline]
+    pub const fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+
+    /// Checked `Ttl` addition. Computes `self + other`, returning [`None`]
+    /// if overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// assert_eq!(Ttl::from_secs(0).checked_add(Ttl::from_secs(1)), Some(Ttl::from_secs(1)));
+    /// assert_eq!(Ttl::from_secs(1).checked_add(Ttl::MAX), None);
+    /// ```
+    #[must_use = "this returns the result of the operation, \
+                  without modifying the original"]
+    #[inline]
+    pub const fn checked_add(self, rhs: Ttl) -> Option<Ttl> {
+        if let Some(secs) = self.0.checked_add(rhs.0) {
+            Some(Ttl(secs))
+        } else {
+            None
+        }
+    }
+
+    /// Saturating `Ttl` addition. Computes `self + other`, returning [`Ttl::MAX`]
+    /// if overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// assert_eq!(Ttl::from_secs(0).saturating_add(Ttl::from_secs(1)), Ttl::from_secs(1));
+    /// assert_eq!(Ttl::from_secs(1).saturating_add(Ttl::MAX), Ttl::MAX);
+    /// ```
+    #[must_use = "this returns the result of the operation, \
+    without modifying the original"]
+    #[inline]
+    pub const fn saturating_add(self, rhs: Ttl) -> Ttl {
+        match self.0.checked_add(rhs.0) {
+            Some(secs) => Ttl(secs),
+            None => Ttl::MAX,
+        }
+    }
+
+    /// Checked `Ttl` subtraction. Computes `self - other`, returning [`None`]
+    /// if the result would be negative or if overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// assert_eq!(Ttl::from_secs(1).checked_sub(Ttl::from_secs(0)), Some(Ttl::from_secs(1)));
+    /// assert_eq!(Ttl::from_secs(0).checked_sub(Ttl::from_secs(1)), None);
+    /// ```
+    #[must_use = "this returns the result of the operation, \
+                  without modifying the original"]
+    #[inline]
+    pub const fn checked_sub(self, rhs: Ttl) -> Option<Ttl> {
+        if let Some(secs) = self.0.checked_sub(rhs.0) {
+            Some(Ttl(secs))
+        } else {
+            None
+        }
+    }
+
+    /// Saturating `Ttl` subtraction. Computes `self - other`, returning [`Ttl::ZERO`]
+    /// if the result would be negative or if overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// assert_eq!(Ttl::from_secs(1).saturating_sub(Ttl::from_secs(0)), Ttl::from_secs(1));
+    /// assert_eq!(Ttl::from_secs(0).saturating_sub(Ttl::from_secs(1)), Ttl::ZERO);
+    /// ```
+    #[must_use = "this returns the result of the operation, \
+    without modifying the original"]
+    #[inline]
+    pub const fn saturating_sub(self, rhs: Ttl) -> Ttl {
+        match self.0.checked_sub(rhs.0) {
+            Some(secs) => Ttl(secs),
+            None => Ttl::ZERO,
+        }
+    }
+
+    /// Checked `Ttl` multiplication. Computes `self * other`, returning
+    /// [`None`] if overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// assert_eq!(Ttl::from_secs(5).checked_mul(2), Some(Ttl::from_secs(10)));
+    /// assert_eq!(Ttl::from_secs(u32::MAX - 1).checked_mul(2), None);
+    /// ```
+    #[must_use = "this returns the result of the operation, \
+                  without modifying the original"]
+    #[inline]
+    pub const fn checked_mul(self, rhs: u32) -> Option<Ttl> {
+        if let Some(secs) = self.0.checked_mul(rhs) {
+            Some(Ttl(secs))
+        } else {
+            None
+        }
+    }
+
+    /// Saturating `Duration` multiplication. Computes `self * other`, returning
+    /// [`Duration::MAX`] if overflow occurred.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// assert_eq!(Ttl::from_secs(5).saturating_mul(2), Ttl::from_secs(10));
+    /// assert_eq!(Ttl::from_secs(u32::MAX - 1).saturating_mul(2), Ttl::MAX);
+    /// ```
+    #[must_use = "this returns the result of the operation, \
+    without modifying the original"]
+    #[inline]
+    pub const fn saturating_mul(self, rhs: u32) -> Ttl {
+        match self.0.checked_mul(rhs) {
+            Some(secs) => Ttl(secs),
+            None => Ttl::MAX,
+        }
+    }
+
+    /// Checked `Duration` division. Computes `self / other`, returning [`None`]
+    /// if `other == 0`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// assert_eq!(Ttl::from_secs(10).checked_div(2), Some(Ttl::from_secs(5)));
+    /// assert_eq!(Ttl::from_mins(1).checked_div(2), Some(Ttl::from_secs(30)));
+    /// assert_eq!(Ttl::from_secs(2).checked_div(0), None);
+    /// ```
+    #[must_use = "this returns the result of the operation, \
+    without modifying the original"]
+    #[inline]
+    pub const fn checked_div(self, rhs: u32) -> Option<Ttl> {
+        if rhs != 0 {
+            Some(Ttl(self.0 / rhs))
+        } else {
+            None
+        }
+    }
+
+    /// Caps the value of `Ttl` at 7 days (604800 seconds) as recommended by [RFC 8767](https://datatracker.ietf.org/doc/html/rfc8767#name-standards-action).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::Ttl;
+    ///
+    /// assert_eq!(Ttl::from_mins(5).cap(), Ttl::from_mins(5));
+    /// assert_eq!(Ttl::from_days(50).cap(), Ttl::from_days(7));
+    /// ```
+    #[must_use = "this returns the result of the operation, \
+    without modifying the original"]
+    #[inline]
+    pub const fn cap(self) -> Ttl {
+        if self.0 > Self::CAP.0 {
+            Self::CAP
+        } else {
+            self
+        }
+    }
+
+    pub fn compose<Target: OctetsBuilder + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(&(self.as_secs()).to_be_bytes())
+    }
+
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
+        parser: &mut Parser<'_, Octs>,
+    ) -> Result<Self, ParseError> {
+        parser.parse_u32().map(Ttl::from_secs).map_err(Into::into)
+    }
+}
+
+impl core::ops::Add for Ttl {
+    type Output = Ttl;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self.checked_add(rhs)
+            .expect("overflow when adding durations")
+    }
+}
+
+impl core::ops::AddAssign for Ttl {
+    fn add_assign(&mut self, rhs: Ttl) {
+        *self = *self + rhs;
+    }
+}
+
+impl core::ops::Sub for Ttl {
+    type Output = Ttl;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.checked_sub(rhs)
+            .expect("overflow when subtracting durations")
+    }
+}
+
+impl core::ops::SubAssign for Ttl {
+    fn sub_assign(&mut self, rhs: Ttl) {
+        *self = *self - rhs;
+    }
+}
+
+impl core::ops::Mul<u32> for Ttl {
+    type Output = Ttl;
+
+    fn mul(self, rhs: u32) -> Self::Output {
+        self.checked_mul(rhs)
+            .expect("overflow when multiplying duration by scalar")
+    }
+}
+
+impl core::ops::MulAssign<u32> for Ttl {
+    fn mul_assign(&mut self, rhs: u32) {
+        *self = *self * rhs;
+    }
+}
+
+impl core::ops::Div<u32> for Ttl {
+    type Output = Ttl;
+
+    fn div(self, rhs: u32) -> Ttl {
+        self.checked_div(rhs)
+            .expect("divide by zero error when dividing duration by scalar")
+    }
+}
+
+impl core::ops::DivAssign<u32> for Ttl {
+    fn div_assign(&mut self, rhs: u32) {
+        *self = *self / rhs;
+    }
+}
+
+macro_rules! sum_durations {
+    ($iter:expr) => {{
+        let mut total_secs: u32 = 0;
+
+        for entry in $iter {
+            total_secs = total_secs
+                .checked_add(entry.0)
+                .expect("overflow in iter::sum over durations");
+        }
+
+        Ttl(total_secs)
+    }};
+}
+
+impl core::iter::Sum for Ttl {
+    fn sum<I: Iterator<Item = Ttl>>(iter: I) -> Ttl {
+        sum_durations!(iter)
+    }
+}
+
+impl<'a> core::iter::Sum<&'a Ttl> for Ttl {
+    fn sum<I: Iterator<Item = &'a Ttl>>(iter: I) -> Ttl {
+        sum_durations!(iter)
+    }
+}
+
+// No From impl because conversion is lossy
+#[allow(clippy::from_over_into)]
+impl Into<Duration> for Ttl {
+    fn into(self) -> Duration {
+        Duration::from_secs(u64::from(self.0))
+    }
+}
+
 //============ Testing ======================================================
 
 #[cfg(test)]
 mod test {
-
     #[test]
     #[cfg(features = "bytes")]
     fn ds_octets_into() {

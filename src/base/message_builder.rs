@@ -744,13 +744,13 @@ impl<Target: Composer> AnswerBuilder<Target> {
     ///
     #[cfg_attr(feature = "std", doc = "```")]
     #[cfg_attr(not(feature = "std"), doc = "```ignore")]
-    /// use domain::base::{Dname, MessageBuilder, Record, Rtype};
+    /// use domain::base::{Dname, MessageBuilder, Record, Rtype, Ttl};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
     ///
     /// let mut msg = MessageBuilder::new_vec().answer();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::In, 86400, A::from_octets(192, 0, 2, 1)
+    ///     Dname::root_ref(), Class::In, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
@@ -988,13 +988,13 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     ///
     #[cfg_attr(feature = "std", doc = "```")]
     #[cfg_attr(not(feature = "std"), doc = "```ignore")]
-    /// use domain::base::{Dname, MessageBuilder, Record, Rtype};
+    /// use domain::base::{Dname, MessageBuilder, Record, Rtype, Ttl};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
     ///
     /// let mut msg = MessageBuilder::new_vec().authority();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::In, 86400, A::from_octets(192, 0, 2, 1)
+    ///     Dname::root_ref(), Class::In, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
@@ -1239,13 +1239,13 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     ///
     #[cfg_attr(feature = "std", doc = "```")]
     #[cfg_attr(not(feature = "std"), doc = "```ignore")]
-    /// use domain::base::{Dname, MessageBuilder, Record, Rtype};
+    /// use domain::base::{Dname, MessageBuilder, Record, Rtype, Ttl};
     /// use domain::base::iana::Class;
     /// use domain::rdata::A;
     ///
     /// let mut msg = MessageBuilder::new_vec().additional();
     /// let record = Record::new(
-    ///     Dname::root_ref(), Class::In, 86400, A::from_octets(192, 0, 2, 1)
+    ///     Dname::root_ref(), Class::In, Ttl::from_secs(86400), A::from_octets(192, 0, 2, 1)
     /// );
     /// msg.push(&record).unwrap();
     /// msg.push(record).unwrap();
@@ -2226,6 +2226,7 @@ impl std::error::Error for PushError {}
 mod test {
     use super::*;
     use crate::base::Serial;
+    use crate::base::Ttl;
     use crate::base::{iana::Rtype, opt, Dname};
     use crate::rdata::{Ns, Soa, A};
     use core::str::FromStr;
@@ -2346,10 +2347,10 @@ mod test {
                 mname,
                 rname,
                 Serial(2020081701),
-                1800,
-                900,
-                604800,
-                86400,
+                Ttl::from_secs(1800),
+                Ttl::from_secs(900),
+                Ttl::from_secs(604800),
+                Ttl::from_secs(86400),
             ),
         ))
         .unwrap();

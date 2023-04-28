@@ -203,6 +203,18 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u32 {
     }
 }
 
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u64 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        parser.parse_u64().map_err(Into::into)
+    }
+}
+
+impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i64 {
+    fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
+        parser.parse_i64().map_err(Into::into)
+    }
+}
+
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for Ipv4Addr {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
         Ok(Self::new(

@@ -7,6 +7,7 @@ use crate::base::name::ToDname;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::serial::Serial;
+use crate::base::Ttl;
 use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap};
 use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
@@ -166,7 +167,7 @@ impl<N, D> SortedRecords<N, D> {
     pub fn nsecs<Octets, ApexName>(
         &self,
         apex: &FamilyName<ApexName>,
-        ttl: u32,
+        ttl: Ttl,
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
         N: ToDname + Clone,
@@ -372,7 +373,7 @@ impl<N> FamilyName<N> {
         self.class
     }
 
-    pub fn into_record<D>(self, ttl: u32, data: D) -> Record<N, D>
+    pub fn into_record<D>(self, ttl: Ttl, data: D) -> Record<N, D>
     where
         N: Clone,
     {
@@ -381,7 +382,7 @@ impl<N> FamilyName<N> {
 
     pub fn dnskey<K: SigningKey, Octets: From<K::Octets>>(
         &self,
-        ttl: u32,
+        ttl: Ttl,
         key: K,
     ) -> Result<Record<N, Dnskey<Octets>>, K::Error>
     where
@@ -393,7 +394,7 @@ impl<N> FamilyName<N> {
 
     pub fn ds<K: SigningKey>(
         &self,
-        ttl: u32,
+        ttl: Ttl,
         key: K,
     ) -> Result<Record<N, Ds<K::Octets>>, K::Error>
     where
@@ -456,7 +457,7 @@ impl<'a, N, D> Rrset<'a, N, D> {
         self.slice[0].rtype()
     }
 
-    pub fn ttl(&self) -> u32 {
+    pub fn ttl(&self) -> Ttl {
         self.slice[0].ttl()
     }
 

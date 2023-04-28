@@ -348,6 +348,7 @@ mod test {
     use super::*;
     use crate::base::iana::{Class, Rtype, SecAlg};
     use crate::base::serial::Serial;
+    use crate::base::Ttl;
     use crate::rdata::{Mx, ZoneRecordData};
     use crate::utils::base64;
     use bytes::Bytes;
@@ -438,7 +439,7 @@ mod test {
                 Record::new(
                     rrsig.signer_name().clone(),
                     Class::In,
-                    0,
+                    Ttl::from_secs(0),
                     x.clone(),
                 )
             })
@@ -466,7 +467,7 @@ mod test {
             Rtype::Dnskey,
             SecAlg::RsaSha256,
             0,
-            172800,
+            Ttl::from_secs(172800),
             1560211200.into(),
             1558396800.into(),
             20326,
@@ -484,7 +485,7 @@ mod test {
             Rtype::Dnskey,
             SecAlg::RsaSha256,
             1,
-            86400,
+            Ttl::from_secs(86400),
             Serial::rrsig_from_str("20210921162830").unwrap(),
             Serial::rrsig_from_str("20210906162330").unwrap(),
             35886,
@@ -541,7 +542,7 @@ mod test {
             Rtype::Dnskey,
             SecAlg::EcdsaP256Sha256,
             2,
-            3600,
+            Ttl::from_secs(3600),
             1560314494.into(),
             1555130494.into(),
             2371,
@@ -588,7 +589,7 @@ mod test {
             Rtype::Dnskey,
             SecAlg::Ed25519,
             2,
-            3600,
+            Ttl::from_secs(3600),
             1559174400.into(),
             1557360000.into(),
             45515,
@@ -610,7 +611,7 @@ mod test {
             Rtype::Dnskey,
             SecAlg::RsaSha256,
             0,
-            172800,
+            Ttl::from_secs(172800),
             1560211200.into(),
             1558396800.into(),
             20326,
@@ -636,7 +637,7 @@ mod test {
                     Record::new(
                         rrsig.signer_name().clone(),
                         Class::In,
-                        0,
+                        Ttl::from_secs(0),
                         data,
                     )
                 })
@@ -670,7 +671,7 @@ mod test {
             Rtype::Mx,
             SecAlg::RsaSha1,
             2,
-            3600,
+            Ttl::from_secs(3600),
             Serial::rrsig_from_str("20040509183619").unwrap(),
             Serial::rrsig_from_str("20040409183619").unwrap(),
             38519,
@@ -687,7 +688,7 @@ mod test {
         let record = Record::new(
             Dname::from_str("a.z.w.example.").unwrap(),
             Class::In,
-            3600,
+            Ttl::from_secs(3600),
             Mx::new(1, Dname::from_str("ai.example.").unwrap()),
         );
         let signed_data = {
