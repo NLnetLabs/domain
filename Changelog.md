@@ -59,6 +59,19 @@ Breaking Changes
   use short-hand names rather than their RFC number. ([#190])
 * TTL values are now using a newtype `base::record::Ttl` that wraps the
   raw `u32` and improves conversions. ([#202] by [@CrabNejonas])
+* Changes all option data types to ensure their wire format is at most
+  65,535 octets long. This requires changing the signatures of some
+  creator functions. Their naming scheme and signatures are also changed
+  to follow the pattern established with record data. ([#193])
+* Renamed `UnknownOptData::from_octets` to `new` and return a result. ([#193])
+* Completely redesigns DNS cookie options, adding support for standard server
+  cookies introduced in RFC 9018. ([#193])
+* Change the type of `ExtendedError`’s text to `Str<Octs>` and change the
+  return type of `set_text` to `()`. ([#193])
+* Changed the type `TcpKeepalive`’s content to a newtype `IdleTimeout` to
+  make it easier to convert to and from durations. ([#193])
+* Changes Padding to just contain the padding octets and drop `PaddingMode`.
+  Instead, the methods on OptBuilder` should be used to add padding. ([#193])
 
 New
 
@@ -84,6 +97,7 @@ Other Changes
 [#185]: https://github.com/NLnetLabs/domain/pull/185
 [#189]: https://github.com/NLnetLabs/domain/pull/189
 [#190]: https://github.com/NLnetLabs/domain/pull/190
+[#193]: https://github.com/NLnetLabs/domain/pull/193
 [#199]: https://github.com/NLnetLabs/domain/pull/199
 [#202]: https://github.com/NLnetLabs/domain/pull/199
 [Martin Fischer]: https://push-f.com/
