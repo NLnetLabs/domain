@@ -44,7 +44,7 @@ impl<L: ToLabelIter, R: ToLabelIter> Chain<L, R> {
     /// Creates a new chain from a first and second name.
     pub(super) fn new(left: L, right: R) -> Result<Self, LongChainError> {
         if usize::from(left.compose_len() + right.compose_len())
-            > Dname::MAX_LENGTH
+            > Dname::MAX_LEN
         {
             // TODO can't infer a specific type for Dname here
             Err(LongChainError)
@@ -65,7 +65,7 @@ impl<Octets: AsRef<[u8]>, R: ToLabelIter> Chain<UncertainDname<Octets>, R> {
     ) -> Result<Self, LongChainError> {
         if let UncertainDname::Relative(ref name) = left {
             if usize::from(name.compose_len() + right.compose_len())
-                > Dname::MAX_LENGTH
+                > Dname::MAX_LEN
             {
                 return Err(LongChainError);
             }

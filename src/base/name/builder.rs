@@ -162,7 +162,7 @@ where
             return Err(PushError::LongName);
         }
         if let Some(head) = self.head {
-            if len - head > Label::MAX_LENGTH {
+            if len - head > Label::MAX_LEN {
                 return Err(PushError::LongLabel);
             }
             self._append_slice(&[ch])?;
@@ -184,11 +184,11 @@ where
             return Ok(());
         }
         if let Some(head) = self.head {
-            if slice.len() > Label::MAX_LENGTH - (self.len() - head) {
+            if slice.len() > Label::MAX_LEN - (self.len() - head) {
                 return Err(PushError::LongLabel);
             }
         } else {
-            if slice.len() > Label::MAX_LENGTH {
+            if slice.len() > Label::MAX_LEN {
                 return Err(PushError::LongLabel);
             }
             if self.len() + slice.len() > 254 {
@@ -373,8 +373,7 @@ where
         Builder: FreezeBuilder,
     {
         self.end_label();
-        if self.len() + usize::from(origin.compose_len()) > Dname::MAX_LENGTH
-        {
+        if self.len() + usize::from(origin.compose_len()) > Dname::MAX_LEN {
             return Err(PushNameError::LongName);
         }
         for label in origin.iter_labels() {

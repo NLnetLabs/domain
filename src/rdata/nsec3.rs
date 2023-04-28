@@ -699,7 +699,7 @@ pub struct Nsec3Salt<Octs: ?Sized>(Octs);
 impl Nsec3Salt<()> {
     /// The salt has a maximum length 255 octets since its length is encoded
     /// as a single octet.
-    pub const MAX_LENGTH: usize = 255;
+    pub const MAX_LEN: usize = 255;
 }
 
 impl<Octs: ?Sized> Nsec3Salt<Octs> {
@@ -719,7 +719,7 @@ impl<Octs: ?Sized> Nsec3Salt<Octs> {
     where
         Octs: AsRef<[u8]> + Sized,
     {
-        if octets.as_ref().len() > Nsec3Salt::MAX_LENGTH {
+        if octets.as_ref().len() > Nsec3Salt::MAX_LEN {
             Err(Nsec3SaltError)
         } else {
             Ok(unsafe { Self::from_octets_unchecked(octets) })
@@ -790,7 +790,7 @@ impl Nsec3Salt<Bytes> {
 impl Nsec3Salt<[u8]> {
     /// Creates a new salt value from an octet slice.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, Nsec3SaltError> {
-        if slice.len() > Nsec3Salt::MAX_LENGTH {
+        if slice.len() > Nsec3Salt::MAX_LEN {
             Err(Nsec3SaltError)
         } else {
             Ok(unsafe { &*(slice as *const [u8] as *const Nsec3Salt<[u8]>) })
@@ -1116,7 +1116,7 @@ pub struct OwnerHash<Octs: ?Sized>(Octs);
 impl OwnerHash<()> {
     /// The hash has a maximum length 255 octets since its length is encoded
     /// as a single octet.
-    pub const MAX_LENGTH: usize = 255;
+    pub const MAX_LEN: usize = 255;
 }
 
 impl<Octs> OwnerHash<Octs> {
@@ -1128,7 +1128,7 @@ impl<Octs> OwnerHash<Octs> {
     where
         Octs: AsRef<[u8]>,
     {
-        if octets.as_ref().len() > OwnerHash::MAX_LENGTH {
+        if octets.as_ref().len() > OwnerHash::MAX_LEN {
             Err(OwnerHashError)
         } else {
             Ok(unsafe { Self::from_octets_unchecked(octets) })
@@ -1206,7 +1206,7 @@ impl OwnerHash<Bytes> {
 impl OwnerHash<[u8]> {
     /// Creates a new owner hash from an octet slice.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, OwnerHashError> {
-        if slice.len() > OwnerHash::MAX_LENGTH {
+        if slice.len() > OwnerHash::MAX_LEN {
             Err(OwnerHashError)
         } else {
             Ok(unsafe { &*(slice as *const [u8] as *const OwnerHash<[u8]>) })

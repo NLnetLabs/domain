@@ -52,7 +52,7 @@ pub struct Dname<Octs: ?Sized>(Octs);
 
 impl Dname<()> {
     /// Domain names have a maximum length of 255 octets.
-    pub const MAX_LENGTH: usize = 255;
+    pub const MAX_LEN: usize = 255;
 }
 
 /// # Creating Values
@@ -178,7 +178,7 @@ impl Dname<[u8]> {
 
     /// Checks whether an octet slice contains a correctly encoded name.
     fn check_slice(mut slice: &[u8]) -> Result<(), DnameError> {
-        if slice.len() > Dname::MAX_LENGTH {
+        if slice.len() > Dname::MAX_LEN {
             return Err(DnameError::LongName);
         }
         loop {
@@ -630,7 +630,7 @@ impl<Octs> Dname<Octs> {
             }
             parser.remaining() - tmp.len()
         };
-        if len > Dname::MAX_LENGTH {
+        if len > Dname::MAX_LEN {
             Err(DnameError::LongName.into())
         } else {
             Ok(len)
