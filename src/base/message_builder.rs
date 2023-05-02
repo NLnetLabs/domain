@@ -130,7 +130,7 @@
 //! [octets builder]: ../octets/trait.OctetsBuilder.html
 
 use super::header::{CountOverflow, Header, HeaderCounts, HeaderSection};
-#[cfg(feature = "random")]
+#[cfg(feature = "rand")]
 use super::iana::Rtype;
 use super::iana::{OptRcode, OptionCode, Rcode};
 use super::message::Message;
@@ -258,7 +258,7 @@ impl<Target: Composer> MessageBuilder<Target> {
     ///
     /// Sets a random ID, pushes the domain and the AXFR record type into
     /// the question section, and converts the builder into an answer builder.
-    #[cfg(feature = "random")]
+    #[cfg(feature = "rand")]
     pub fn request_axfr<N: ToDname>(
         mut self,
         apex: N,

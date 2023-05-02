@@ -132,7 +132,7 @@ impl Header {
     }
 
     /// Sets the value of the ID field to a randomly chosen number.
-    #[cfg(feature = "random")]
+    #[cfg(feature = "rand")]
     pub fn set_random_id(&mut self) {
         self.set_id(::rand::random())
     }

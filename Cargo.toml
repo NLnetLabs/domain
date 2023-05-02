@@ -37,12 +37,11 @@ tokio          = { version = "1.0", optional = true, features = ["io-util", "mac
 libc = { version = "0.2.71", default-features = false, optional = true }
 
 [features]
-default     = ["std", "random"]
+default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 interop     = ["bytes", "ring"]
-random      = ["rand"]
-resolv      = ["bytes", "futures", "smallvec", "std", "tokio", "libc", "random"]
+resolv      = ["bytes", "futures", "smallvec", "std", "tokio", "libc", "rand"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
 sign        = ["std"]
