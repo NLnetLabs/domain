@@ -211,6 +211,25 @@ impl Label {
         self.0.make_ascii_lowercase()
     }
 
+    /// Converts a sequence of labels into the canonical form.
+    ///
+    /// The function takes a mutable octets slice that contains a sequence
+    /// of labels in wire format (vulgo: a domain name) and converts each
+    /// label into its canonical form.
+    ///
+    /// # Panics
+    ///
+    /// The function panics if the slice does not contain a valid sequence
+    /// of labels.
+    pub(super) fn make_slice_canonical(mut slice: &mut [u8]) {
+        while !slice.is_empty() {
+            let (head, tail) =
+                Label::split_from_mut(slice).expect("invalid name");
+            head.make_canonical();
+            slice = tail;
+        }
+    }
+
     /// Returns the label in canonical form.
     ///
     /// In this form, all ASCII letters are lowercase.

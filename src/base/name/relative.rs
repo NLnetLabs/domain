@@ -258,14 +258,7 @@ impl<Octs: ?Sized> RelativeDname<Octs> {
     where
         Octs: AsMut<[u8]>,
     {
-        let mut slice = self.0.as_mut();
-
-        while !slice.is_empty() {
-            let (head, tail) =
-                Label::split_from_mut(slice).expect("invalid relative name");
-            head.make_canonical();
-            slice = tail;
-        }
+        Label::make_slice_canonical(self.0.as_mut());
     }
 }
 

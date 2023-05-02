@@ -279,14 +279,7 @@ impl<Octs: ?Sized> Dname<Octs> {
     where
         Octs: AsMut<[u8]>,
     {
-        let mut slice = self.0.as_mut();
-
-        while !slice.is_empty() {
-            let (head, tail) =
-                Label::split_from_mut(slice).expect("invalid dname");
-            head.make_canonical();
-            slice = tail;
-        }
+        Label::make_slice_canonical(self.0.as_mut());
     }
 }
 
