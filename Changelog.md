@@ -5,6 +5,8 @@
 Breaking Changes
 
 * The minimal required Rust version is now 1.65. ([#160])
+* The `random` feature has been dropped in favour of using `rand`.
+  ([#204])
 * The generic octets foundation has been moved to a new crate *[octseq]*
   and completely revamped with Generic Associated Types stabilized in Rust
   1.65. This required changes all over the code but, hopefully, should
@@ -85,6 +87,8 @@ New
   methods `ToDname::to_canonical_dname` and
   `ToRelativeDname::to_canonical_relative_dname` that produce new
   canonical names. ([#200])
+* Added a `MAX_LEN` constant to various types that wrap length-limited
+  octets sequences. ([#201] by [@CrabNejonas])
 
 Bug Fixes
 
@@ -105,7 +109,9 @@ Other Changes
 [#193]: https://github.com/NLnetLabs/domain/pull/193
 [#199]: https://github.com/NLnetLabs/domain/pull/199
 [#200]: https://github.com/NLnetLabs/domain/pull/200
+[#201]: https://github.com/NLnetLabs/domain/pull/201
 [#202]: https://github.com/NLnetLabs/domain/pull/202
+[#204]: https://github.com/NLnetLabs/domain/pull/204
 [Martin Fischer]: https://push-f.com/
 [@CrabNejonas]: https://github.com/CrabNejonas
 [octseq]: https://crates.io/crates/octseq
