@@ -61,7 +61,7 @@
 //! * `interop`: Activate interoperability tests that rely on other software
 //!   to be installed in the system (currently NSD and dig) and will fail if
 //!   it isn’t. This feature is not meaningful for users of the crate.
-//! * `random`: Enables a number of methods that rely on a random number
+//! * `rand`: Enables a number of methods that rely on a random number
 //!   generator being available in the system.
 //! * `resolv`: Enables the asynchronous stub resolver via the
 #![cfg_attr(feature = "resolv", doc = "  [resolv]")]
