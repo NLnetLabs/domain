@@ -252,6 +252,14 @@ impl<Octs: ?Sized> RelativeDname<Octs> {
     {
         unsafe { RelativeDname::from_slice_unchecked(self.0.as_ref()) }
     }
+
+    /// Converts the name into its canonical form.
+    pub fn make_canonical(&mut self)
+    where
+        Octs: AsMut<[u8]>,
+    {
+        Label::make_slice_canonical(self.0.as_mut());
+    }
 }
 
 impl<Octs> RelativeDname<Octs> {
@@ -1185,6 +1193,17 @@ mod test {
             .unwrap()
             .into_absolute()
             .unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn make_canonical() {
+        let mut name = Dname::vec_from_str("wWw.exAmpLE.coM.").unwrap();
+        name.make_canonical();
+        assert_eq!(
+            name,
+            Dname::from_octets(b"\x03www\x07example\x03com\0").unwrap()
+        );
     }
 
     // chain is tested with the Chain type.

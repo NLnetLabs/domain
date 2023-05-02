@@ -273,6 +273,14 @@ impl<Octs: ?Sized> Dname<Octs> {
     {
         unsafe { Dname::from_slice_unchecked(self.0.as_ref()) }
     }
+
+    /// Converts the domain name into its canonical form.
+    pub fn make_canonical(&mut self)
+    where
+        Octs: AsMut<[u8]>,
+    {
+        Label::make_slice_canonical(self.0.as_mut());
+    }
 }
 
 /// # Properties
@@ -1191,6 +1199,18 @@ pub(crate) mod test {
                 .into_relative()
                 .as_slice(),
             b"\x03www"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn make_canonical() {
+        let mut name =
+            RelativeDname::vec_from_str("wWw.exAmpLE.coM").unwrap();
+        name.make_canonical();
+        assert_eq!(
+            name,
+            RelativeDname::from_octets(b"\x03www\x07example\x03com").unwrap()
         );
     }
 

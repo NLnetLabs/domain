@@ -137,6 +137,48 @@ impl Label {
         ))
     }
 
+    /// Splits a mutable label from the beginning of an octets slice.
+    ///
+    /// On success, the function returns a label and the remainder of
+    /// the slice.
+    pub fn split_from_mut(
+        slice: &mut [u8],
+    ) -> Result<(&mut Self, &mut [u8]), SplitLabelError> {
+        let head = match slice.first_mut() {
+            Some(ch) => *ch,
+            None => return Err(SplitLabelError::ShortInput),
+        };
+        let end = match head {
+            0..=0x3F => (head as usize) + 1,
+            0x40..=0x7F => {
+                return Err(SplitLabelError::BadType(
+                    LabelTypeError::Extended(head),
+                ))
+            }
+            0xC0..=0xFF => {
+                let res = match slice.get(1) {
+                    Some(ch) => u16::from(*ch),
+                    None => return Err(SplitLabelError::ShortInput),
+                };
+                let res = res | ((u16::from(head) & 0x3F) << 8);
+                return Err(SplitLabelError::Pointer(res));
+            }
+            _ => {
+                return Err(SplitLabelError::BadType(
+                    LabelTypeError::Undefined,
+                ))
+            }
+        };
+        if slice.len() < end {
+            return Err(SplitLabelError::ShortInput);
+        }
+        let (left, right) = slice.split_at_mut(end);
+        Ok((
+            unsafe { Self::from_slice_mut_unchecked(&mut left[1..]) },
+            right,
+        ))
+    }
+
     /// Iterates over the labels in some part of an octets slice.
     ///
     /// The first label is assumed to start at index `start`.
@@ -159,6 +201,33 @@ impl Label {
     /// Returns a mutable reference to the underlying octets slice.
     pub fn as_slice_mut(&mut self) -> &mut [u8] {
         unsafe { &mut *(self as *mut Label as *mut [u8]) }
+    }
+
+    /// Converts the label into the canonical form.
+    ///
+    /// This form has all octets representing ASCII letters converted to their
+    /// lower case form.
+    pub fn make_canonical(&mut self) {
+        self.0.make_ascii_lowercase()
+    }
+
+    /// Converts a sequence of labels into the canonical form.
+    ///
+    /// The function takes a mutable octets slice that contains a sequence
+    /// of labels in wire format (vulgo: a domain name) and converts each
+    /// label into its canonical form.
+    ///
+    /// # Panics
+    ///
+    /// The function panics if the slice does not contain a valid sequence
+    /// of labels.
+    pub(super) fn make_slice_canonical(mut slice: &mut [u8]) {
+        while !slice.is_empty() {
+            let (head, tail) =
+                Label::split_from_mut(slice).expect("invalid name");
+            head.make_canonical();
+            slice = tail;
+        }
     }
 
     /// Returns the label in canonical form.
