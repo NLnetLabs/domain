@@ -71,7 +71,7 @@ Breaking Changes
 * Changed the type `TcpKeepalive`’s content to a newtype `IdleTimeout` to
   make it easier to convert to and from durations. ([#193])
 * Changes Padding to just contain the padding octets and drop `PaddingMode`.
-  Instead, the methods on OptBuilder` should be used to add padding. ([#193])
+  Instead, the methods on `OptBuilder` should be used to add padding. ([#193])
 
 New
 
@@ -80,6 +80,11 @@ New
   `RelativeDname`. ([#177])
 * Add a `Debug` impl to `base::message::Message` so it can be unwrapped
   etc. ([#199])
+* New methods `make_canonical` on `Dname` and `RelativeDname` that convert
+  the name into its canonical, i.e., lowercase form. Similarly, new
+  methods `ToDname::to_canonical_dname` and
+  `ToRelativeDname::to_canonical_relative_dname` that produce new
+  canonical names. ([#200])
 
 Bug Fixes
 
@@ -99,7 +104,8 @@ Other Changes
 [#190]: https://github.com/NLnetLabs/domain/pull/190
 [#193]: https://github.com/NLnetLabs/domain/pull/193
 [#199]: https://github.com/NLnetLabs/domain/pull/199
-[#202]: https://github.com/NLnetLabs/domain/pull/199
+[#200]: https://github.com/NLnetLabs/domain/pull/200
+[#202]: https://github.com/NLnetLabs/domain/pull/202
 [Martin Fischer]: https://push-f.com/
 [@CrabNejonas]: https://github.com/CrabNejonas
 [octseq]: https://crates.io/crates/octseq
