@@ -83,7 +83,7 @@ impl<Octets> UncertainDname<Octets> {
     fn is_slice_absolute(
         mut slice: &[u8],
     ) -> Result<bool, UncertainDnameError> {
-        if slice.len() > 255 {
+        if slice.len() > Dname::MAX_LEN {
             return Err(UncertainDnameError::LongName);
         }
         loop {
@@ -698,7 +698,7 @@ mod test {
 
         // LongLabel
         let mut s = String::from("www.");
-        for _ in 0..63 {
+        for _ in 0..Label::MAX_LEN {
             s.push('x');
         }
         s.push_str(".com");

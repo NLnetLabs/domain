@@ -55,6 +55,11 @@ use std::vec::Vec;
 #[derive(Clone)]
 pub struct CharStr<Octs: ?Sized>(Octs);
 
+impl CharStr<()> {
+    /// Character strings have a maximum length of 255 octets.
+    pub const MAX_LEN: usize = 255;
+}
+
 impl<Octs: ?Sized> CharStr<Octs> {
     /// Creates a new empty character string.
     pub fn empty() -> Self
@@ -124,7 +129,7 @@ impl CharStr<[u8]> {
 
     /// Checks whether an octets slice contains a correct character string.
     fn check_slice(slice: &[u8]) -> Result<(), CharStrError> {
-        if slice.len() > 255 {
+        if slice.len() > CharStr::MAX_LEN {
             Err(CharStrError)
         } else {
             Ok(())
@@ -283,7 +288,7 @@ where
             );
         let mut chars = s.chars();
         while let Some(symbol) = Symbol::from_chars(&mut chars)? {
-            if builder.len() == 255 {
+            if builder.len() == CharStr::MAX_LEN {
                 return Err(FromStrError::LongString);
             }
             builder.append_slice(&[symbol.into_octet()?])?
@@ -603,7 +608,7 @@ impl<Builder: OctetsBuilder + AsRef<[u8]>> CharStrBuilder<Builder> {
     /// If the octet sequence is longer than 255 octets, an error is
     /// returned.
     pub fn from_builder(builder: Builder) -> Result<Self, CharStrError> {
-        if builder.as_ref().len() > 255 {
+        if builder.as_ref().len() > CharStr::MAX_LEN {
             Err(CharStrError)
         } else {
             Ok(unsafe { Self::from_builder_unchecked(builder) })
@@ -675,7 +680,7 @@ where
         &mut self,
         slice: &[u8],
     ) -> Result<(), Self::AppendError> {
-        if self.0.as_ref().len() + slice.len() > 255 {
+        if self.0.as_ref().len() + slice.len() > CharStr::MAX_LEN {
             return Err(ShortBuf);
         }
         self.0.append_slice(slice).map_err(Into::into)
