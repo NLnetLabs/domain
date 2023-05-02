@@ -7,6 +7,7 @@ use crate::base::message_builder::{
     AdditionalBuilder, AnswerBuilder, MessageBuilder, StreamTarget,
 };
 use crate::base::name::Dname;
+use crate::base::record::Ttl;
 use crate::rdata::tsig::Time48;
 use crate::rdata::{Soa, A};
 use crate::test::nsd;
@@ -377,10 +378,10 @@ fn push_soa(builder: &mut TestAnswer) {
                 Dname::<Vec<u8>>::from_str("mname.example.com.").unwrap(),
                 Dname::<Vec<u8>>::from_str("rname.example.com.").unwrap(),
                 12.into(),
-                3600,
-                3600,
-                3600,
-                3600,
+                Ttl::from_secs(3600),
+                Ttl::from_secs(3600),
+                Ttl::from_secs(3600),
+                Ttl::from_secs(3600),
             ),
         ))
         .unwrap()
