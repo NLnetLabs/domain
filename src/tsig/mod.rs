@@ -67,7 +67,7 @@ use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
 use crate::rdata::tsig::{Time48, Tsig};
 use bytes::{Bytes, BytesMut};
-use core::{cmp, fmt, mem, ops, str};
+use core::{cmp, fmt, mem, str};
 use octseq::octets::Octets;
 use ring::{constant_time, hkdf::KeyType, hmac, rand};
 #[cfg(feature = "std")]
@@ -266,8 +266,8 @@ impl Key {
         &self,
         tsig: &MessageTsig<Octs>,
     ) -> Result<(), ValidationError> {
-        if *tsig.owner() != self.name
-            || *tsig.data().algorithm() != self.algorithm().to_dname()
+        if *tsig.record.owner() != self.name
+            || *tsig.record.data().algorithm() != self.algorithm().to_dname()
         {
             Err(ValidationError::BadKey)
         } else {
@@ -504,7 +504,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
             None => return Err(ValidationError::ServerUnsigned),
         };
         let mut header = message.header_section();
-        header.header_mut().set_id(tsig.data().original_id());
+        header.header_mut().set_id(tsig.record.data().original_id());
         header.counts_mut().dec_arcount();
         let signature = self.context.answer(
             header.as_slice(),
@@ -514,9 +514,9 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
             ),
             &tsig.variables(),
         );
-        self.context
-            .key()
-            .compare_signatures(&signature, tsig.data().mac().as_ref())?;
+        self.context.key().compare_signatures(
+            &signature, tsig.record.data().mac().as_ref()
+        )?;
         self.context.check_answer_time(message, &tsig, now)?;
         remove_tsig(tsig.into_original_id(), message);
         Ok(())
@@ -766,7 +766,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
             None => return Err(ValidationError::ServerUnsigned),
         };
         let mut header = message.header_section();
-        header.header_mut().set_id(tsig.data().original_id());
+        header.header_mut().set_id(tsig.record.data().original_id());
         header.counts_mut().dec_arcount();
         let signature = self.context.first_answer(
             header.as_slice(),
@@ -776,10 +776,10 @@ impl<K: AsRef<Key>> ClientSequence<K> {
             ),
             &tsig.variables(),
         );
-        self.context
-            .key()
-            .compare_signatures(&signature, tsig.data().mac().as_ref())?;
-        self.context.apply_signature(tsig.data().mac().as_ref());
+        self.context.key().compare_signatures(
+            &signature, tsig.record.data().mac().as_ref()
+        )?;
+        self.context.apply_signature(tsig.record.data().mac().as_ref());
         self.context.check_answer_time(message, &tsig, now)?;
         self.first = false;
         remove_tsig(tsig.into_original_id(), message);
@@ -810,7 +810,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
 
         // Check the MAC.
         let mut header = message.header_section();
-        header.header_mut().set_id(tsig.data().original_id());
+        header.header_mut().set_id(tsig.record.data().original_id());
         header.counts_mut().dec_arcount();
         let signature = self.context.signed_subsequent(
             header.as_slice(),
@@ -820,10 +820,10 @@ impl<K: AsRef<Key>> ClientSequence<K> {
             ),
             &tsig.variables(),
         );
-        self.context
-            .key()
-            .compare_signatures(&signature, tsig.data().mac().as_ref())?;
-        self.context.apply_signature(tsig.data().mac().as_ref());
+        self.context.key().compare_signatures(
+            &signature, tsig.record.data().mac().as_ref()
+        )?;
+        self.context.apply_signature(tsig.record.data().mac().as_ref());
         self.context.check_answer_time(message, &tsig, now)?;
         self.unsigned = 0;
         remove_tsig(tsig.into_original_id(), message);
@@ -1005,11 +1005,13 @@ impl<K: AsRef<Key>> SigningContext<K> {
         };
 
         // 4.5.1. KEY check and error handling
-        let algorithm = match Algorithm::from_dname(tsig.data().algorithm()) {
+        let algorithm = match Algorithm::from_dname(
+            tsig.record.data().algorithm()
+        ) {
             Some(algorithm) => algorithm,
             None => return Err(ServerError::unsigned(TsigRcode::BadKey)),
         };
-        let key = match store.get_key(tsig.owner(), algorithm) {
+        let key = match store.get_key(tsig.record.owner(), algorithm) {
             Some(key) => key,
             None => return Err(ServerError::unsigned(TsigRcode::BadKey)),
         };
@@ -1019,7 +1021,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         //
         // Contrary to RFC 2845, this must be done before the time check.
         let mut header = message.header_section();
-        header.header_mut().set_id(tsig.data().original_id());
+        header.header_mut().set_id(tsig.record.data().original_id());
         header.counts_mut().dec_arcount();
         let (mut context, signature) = Self::request(
             key,
@@ -1030,10 +1032,9 @@ impl<K: AsRef<Key>> SigningContext<K> {
             ),
             &variables,
         );
-        let res = context
-            .key
-            .as_ref()
-            .compare_signatures(&signature, tsig.data().mac().as_ref());
+        let res = context.key.as_ref().compare_signatures(
+            &signature, tsig.record.data().mac().as_ref()
+        );
         if let Err(err) = res {
             return Err(ServerError::unsigned(match err {
                 ValidationError::BadTrunc => TsigRcode::BadTrunc,
@@ -1043,13 +1044,13 @@ impl<K: AsRef<Key>> SigningContext<K> {
         }
 
         // The signature is fine. Add it to the context for later.
-        context.apply_signature(tsig.data().mac().as_ref());
+        context.apply_signature(tsig.record.data().mac().as_ref());
 
         // 4.5.2 Time check
         //
         // Note that we are not doing the caching of the most recent
         // time_signed because, well, that’ll require mutexes and stuff.
-        if !tsig.data().is_valid_at(now) {
+        if !tsig.record.data().is_valid_at(now) {
             return Err(ServerError::signed(
                 context,
                 Variables::new(
@@ -1094,10 +1095,10 @@ impl<K: AsRef<Key>> SigningContext<K> {
 
         // Check for unsigned errors.
         if message.header().rcode() == Rcode::NotAuth {
-            if tsig.data().error() == TsigRcode::BadKey {
+            if tsig.record.data().error() == TsigRcode::BadKey {
                 return Err(ValidationError::ServerBadKey);
             }
-            if tsig.data().error() == TsigRcode::BadSig {
+            if tsig.record.data().error() == TsigRcode::BadSig {
                 return Err(ValidationError::ServerBadSig);
             }
         }
@@ -1124,20 +1125,20 @@ impl<K: AsRef<Key>> SigningContext<K> {
         Octs: Octets,
     {
         if message.header().rcode() == Rcode::NotAuth
-            && tsig.data().error() == TsigRcode::BadTime
+            && tsig.record.data().error() == TsigRcode::BadTime
         {
-            let server = match tsig.data().other_time() {
+            let server = match tsig.record.data().other_time() {
                 Some(time) => time,
                 None => return Err(ValidationError::FormErr),
             };
             return Err(ValidationError::ServerBadTime {
-                client: tsig.data().time_signed(),
+                client: tsig.record.data().time_signed(),
                 server,
             });
         }
 
         // Check the time.
-        if !tsig.data().is_valid_at(now) {
+        if !tsig.record.data().is_valid_at(now) {
             return Err(ValidationError::BadTime);
         }
 
@@ -1334,17 +1335,6 @@ impl<'a, Octs: Octets> MessageTsig<'a, Octs> {
 
     fn into_original_id(self) -> u16 {
         self.record.data().original_id()
-    }
-}
-
-impl<'a, Octs: Octets + 'a> ops::Deref for MessageTsig<'a, Octs> {
-    type Target = Record<
-        ParsedDname<Octs::Range<'a>>,
-        Tsig<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>>,
-    >;
-
-    fn deref(&self) -> &Self::Target {
-        &self.record
     }
 }
 
@@ -1657,14 +1647,14 @@ impl<K: AsRef<Key>> ServerError<K> {
                         .expect("missing or malformed TSIG record")
                 };
                 builder.push((
-                    tsig.owner(),
-                    tsig.class(),
-                    tsig.ttl(),
+                    tsig.record.owner(),
+                    tsig.record.class(),
+                    tsig.record.ttl(),
                     // The TSIG record data can never ever be to long.
                     Tsig::new(
-                        tsig.data().algorithm(),
-                        tsig.data().time_signed(),
-                        tsig.data().fudge(),
+                        tsig.record.data().algorithm(),
+                        tsig.record.data().time_signed(),
+                        tsig.record.data().fudge(),
                         b"",
                         msg.header().id(),
                         error,

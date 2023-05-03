@@ -13,7 +13,7 @@ use crate::base::wire::{Composer, Parse, ParseError};
 use core::cmp::Ordering;
 use core::convert::Infallible;
 use core::str::FromStr;
-use core::{fmt, ops, str};
+use core::{fmt, str};
 use octseq::octets::OctetsFrom;
 use octseq::parse::Parser;
 
@@ -130,7 +130,7 @@ impl ComposeRecordData for Aaaa {
         &self,
         target: &mut Target,
     ) -> Result<(), Target::AppendError> {
-        target.append_slice(&self.octets())
+        target.append_slice(&self.addr().octets())
     }
 
     fn compose_canonical_rdata<Target: Composer + ?Sized>(
@@ -146,22 +146,6 @@ impl ComposeRecordData for Aaaa {
 impl fmt::Display for Aaaa {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.addr.fmt(f)
-    }
-}
-
-//--- Deref and DerefMut
-
-impl ops::Deref for Aaaa {
-    type Target = Ipv6Addr;
-
-    fn deref(&self) -> &Self::Target {
-        &self.addr
-    }
-}
-
-impl ops::DerefMut for Aaaa {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.addr
     }
 }
 

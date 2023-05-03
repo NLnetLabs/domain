@@ -15,6 +15,7 @@ use std::default::Default;
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
+use std::slice::SliceIndex;
 use std::str::{self, FromStr, SplitWhitespace};
 use std::time::Duration;
 use std::vec::Vec;
@@ -640,6 +641,14 @@ impl SearchList {
         self.search.push(Dname::root())
     }
 
+    pub fn len(&self) -> usize {
+        self.search.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.search.is_empty()
+    }
+
     pub fn get(&self, pos: usize) -> Option<&SearchSuffix> {
         self.search.get(pos)
     }
@@ -657,19 +666,20 @@ impl From<SearchSuffix> for SearchList {
     }
 }
 
-//--- AsRef and Deref
+impl<I: SliceIndex<[SearchSuffix]>> ops::Index<I> for SearchList {
+    type Output = <I as SliceIndex<[SearchSuffix]>>::Output;
+
+    fn index(&self, index: I) -> &<I as SliceIndex<[SearchSuffix]>>::Output {
+        self.search.index(index)
+    }
+}
+
+
+//--- AsRef
 
 impl AsRef<[SearchSuffix]> for SearchList {
     fn as_ref(&self) -> &[SearchSuffix] {
         self.search.as_ref()
-    }
-}
-
-impl ops::Deref for SearchList {
-    type Target = [SearchSuffix];
-
-    fn deref(&self) -> &Self::Target {
-        self.as_ref()
     }
 }
 

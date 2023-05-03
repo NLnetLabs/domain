@@ -28,7 +28,7 @@ use super::scan::{BadSymbol, Scanner, Symbol, SymbolCharsError};
 use super::wire::{Compose, ParseError};
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-use core::{cmp, fmt, hash, ops, str};
+use core::{cmp, fmt, hash, str};
 use octseq::builder::FreezeBuilder;
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
@@ -215,6 +215,26 @@ impl<Octs: ?Sized> CharStr<Octs> {
     }
 }
 
+impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
+    /// Returns the length of the character string.
+    ///
+    /// This is the length of the content only, i.e., without the extra
+    /// length octet added for the wire format.
+    pub fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+
+    /// Returns whether the character string is empty.
+    pub fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
+    }
+
+    /// Returns an iterator over the octets of the character string.
+    pub fn iter(&self) -> Iter {
+        Iter { octets: self.as_slice() }
+    }
+}
+
 impl CharStr<[u8]> {
     /// Skips over a character string at the beginning of a parser.
     pub fn skip<Src: Octets + ?Sized>(
@@ -297,23 +317,9 @@ where
     }
 }
 
-//--- Deref and AsRef
+//--- AsRef and AsMut
 //
 // No Borrow as character strings compare ignoring case.
-
-impl<Octets: ?Sized> ops::Deref for CharStr<Octets> {
-    type Target = Octets;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<Octets: ?Sized> ops::DerefMut for CharStr<Octets> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
 impl<Octets: AsRef<U> + ?Sized, U: ?Sized> AsRef<U> for CharStr<Octets> {
     fn as_ref(&self) -> &U {
@@ -642,7 +648,7 @@ impl CharStrBuilder<BytesMut> {
     }
 }
 
-impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
+impl<Builder> CharStrBuilder<Builder> {
     /// Returns an octet slice of the string assembled so far.
     pub fn as_slice(&self) -> &[u8]
     where
@@ -657,6 +663,21 @@ impl<Builder: OctetsBuilder> CharStrBuilder<Builder> {
         Builder: FreezeBuilder,
     {
         unsafe { CharStr::from_octets_unchecked(self.0.freeze()) }
+    }
+}
+
+impl<Builder: AsRef<[u8]>> CharStrBuilder<Builder> {
+    /// Returns the length of the assembled character string.
+    ///
+    /// This is the length of the content only, i.e., without the extra
+    /// length octet added for the wire format.
+    pub fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+
+    /// Returns whether the character string is empty.
+    pub fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
     }
 }
 
@@ -690,25 +711,6 @@ where
 impl<Builder: Truncate> Truncate for CharStrBuilder<Builder> {
     fn truncate(&mut self, len: usize) {
         self.0.truncate(len)
-    }
-}
-
-//--- Deref and DerefMut
-
-impl<Builder: AsRef<[u8]>> ops::Deref for CharStrBuilder<Builder> {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-impl<Builder> ops::DerefMut for CharStrBuilder<Builder>
-where
-    Builder: AsRef<[u8]> + AsMut<[u8]>,
-{
-    fn deref_mut(&mut self) -> &mut [u8] {
-        self.0.as_mut()
     }
 }
 
