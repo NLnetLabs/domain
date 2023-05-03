@@ -231,7 +231,9 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
 
     /// Returns an iterator over the octets of the character string.
     pub fn iter(&self) -> Iter {
-        Iter { octets: self.as_slice() }
+        Iter {
+            octets: self.as_slice(),
+        }
     }
 }
 

@@ -515,7 +515,8 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
             &tsig.variables(),
         );
         self.context.key().compare_signatures(
-            &signature, tsig.record.data().mac().as_ref()
+            &signature,
+            tsig.record.data().mac().as_ref(),
         )?;
         self.context.check_answer_time(message, &tsig, now)?;
         remove_tsig(tsig.into_original_id(), message);
@@ -777,9 +778,11 @@ impl<K: AsRef<Key>> ClientSequence<K> {
             &tsig.variables(),
         );
         self.context.key().compare_signatures(
-            &signature, tsig.record.data().mac().as_ref()
+            &signature,
+            tsig.record.data().mac().as_ref(),
         )?;
-        self.context.apply_signature(tsig.record.data().mac().as_ref());
+        self.context
+            .apply_signature(tsig.record.data().mac().as_ref());
         self.context.check_answer_time(message, &tsig, now)?;
         self.first = false;
         remove_tsig(tsig.into_original_id(), message);
@@ -821,9 +824,11 @@ impl<K: AsRef<Key>> ClientSequence<K> {
             &tsig.variables(),
         );
         self.context.key().compare_signatures(
-            &signature, tsig.record.data().mac().as_ref()
+            &signature,
+            tsig.record.data().mac().as_ref(),
         )?;
-        self.context.apply_signature(tsig.record.data().mac().as_ref());
+        self.context
+            .apply_signature(tsig.record.data().mac().as_ref());
         self.context.check_answer_time(message, &tsig, now)?;
         self.unsigned = 0;
         remove_tsig(tsig.into_original_id(), message);
@@ -1005,12 +1010,11 @@ impl<K: AsRef<Key>> SigningContext<K> {
         };
 
         // 4.5.1. KEY check and error handling
-        let algorithm = match Algorithm::from_dname(
-            tsig.record.data().algorithm()
-        ) {
-            Some(algorithm) => algorithm,
-            None => return Err(ServerError::unsigned(TsigRcode::BadKey)),
-        };
+        let algorithm =
+            match Algorithm::from_dname(tsig.record.data().algorithm()) {
+                Some(algorithm) => algorithm,
+                None => return Err(ServerError::unsigned(TsigRcode::BadKey)),
+            };
         let key = match store.get_key(tsig.record.owner(), algorithm) {
             Some(key) => key,
             None => return Err(ServerError::unsigned(TsigRcode::BadKey)),
@@ -1033,7 +1037,8 @@ impl<K: AsRef<Key>> SigningContext<K> {
             &variables,
         );
         let res = context.key.as_ref().compare_signatures(
-            &signature, tsig.record.data().mac().as_ref()
+            &signature,
+            tsig.record.data().mac().as_ref(),
         );
         if let Err(err) = res {
             return Err(ServerError::unsigned(match err {

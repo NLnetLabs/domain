@@ -376,7 +376,8 @@ impl PartialOrd for Label {
     ///
     /// [RFC 4034]: https://tools.ietf.org/html/rfc4034
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.as_slice().iter()
+        self.as_slice()
+            .iter()
             .map(u8::to_ascii_lowercase)
             .partial_cmp(other.as_slice().iter().map(u8::to_ascii_lowercase))
     }
@@ -384,7 +385,8 @@ impl PartialOrd for Label {
 
 impl Ord for Label {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.as_slice().iter()
+        self.as_slice()
+            .iter()
             .map(u8::to_ascii_lowercase)
             .cmp(other.as_slice().iter().map(u8::to_ascii_lowercase))
     }

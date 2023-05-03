@@ -674,7 +674,6 @@ impl<I: SliceIndex<[SearchSuffix]>> ops::Index<I> for SearchList {
     }
 }
 
-
 //--- AsRef
 
 impl AsRef<[SearchSuffix]> for SearchList {
