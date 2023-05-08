@@ -43,9 +43,6 @@ const ERR_READ_TIMEOUT: &str = "read timeout";
 const ERR_WRITE_ERROR: &str = "write error";
 const ERR_TOO_MANY_QUERIES: &str = "too many outstanding queries";
 
-// From RFC 7828. This should go somewhere with the option parsing
-const EDNS_TCP_KEEPALIE_TO_MS: u64 = 100;
-
 // Implement a simple response timer to see if the connection and the server
 // are alive. Set the timer when the connection goes from idle to busy.
 // Reset the timer each time a reply arrives. Cancel the timer when the
@@ -257,9 +254,8 @@ impl InnerTcpConnection {
     fn handle_keepalive(&self, opt_value: TcpKeepalive) {
         if let Some(value) = opt_value.timeout() {
             let mut status = self.status.lock().unwrap();
-            status.idle_timeout = Some(Duration::from_millis(
-                u64::from(value) * EDNS_TCP_KEEPALIE_TO_MS,
-            ));
+            let value_dur = Duration::from(value);
+            status.idle_timeout = Some(value_dur);
         }
     }
 
@@ -267,7 +263,7 @@ impl InnerTcpConnection {
         &self,
         opts: &OptRecord<Octs>,
     ) {
-        for option in opts.iter() {
+        for option in opts.opt().iter() {
             let opt = option.unwrap();
             if let AllOptData::TcpKeepalive(tcpkeepalive) = opt {
                 self.handle_keepalive(tcpkeepalive);

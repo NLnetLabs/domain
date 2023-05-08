@@ -51,11 +51,6 @@ use tokio::time::sleep;
 /// Error returned when too many queries are currently active.
 const ERR_TOO_MANY_QUERIES: &str = "too many outstanding queries";
 
-/// Constant from RFC 7828. How to convert the value on the
-/// edns-tcp-keepalive option to milliseconds.
-// This should go somewhere with the option parsing
-const EDNS_TCP_KEEPALIVE_TO_MS: u64 = 100;
-
 /// Time to wait on a non-idle connection for the other side to send
 /// a response on any outstanding query.
 // Implement a simple response timer to see if the connection and the server
@@ -533,7 +528,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
         opts: &OptRecord<Octs2>,
         status: &mut Status,
     ) {
-        for option in opts.iter().flatten() {
+        for option in opts.opt().iter().flatten() {
             if let AllOptData::TcpKeepalive(tcpkeepalive) = option {
                 Self::handle_keepalive(tcpkeepalive, status);
             }
@@ -702,9 +697,8 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     /// Handle a received edns-tcp-keepalive option.
     fn handle_keepalive(opt_value: TcpKeepalive, status: &mut Status) {
         if let Some(value) = opt_value.timeout() {
-            status.idle_timeout = Some(Duration::from_millis(
-                u64::from(value) * EDNS_TCP_KEEPALIVE_TO_MS,
-            ));
+            let value_dur = Duration::from(value);
+            status.idle_timeout = Some(value_dur);
         }
     }
 
@@ -955,7 +949,8 @@ fn add_tcp_keepalive<Octs: Clone + Composer + OctetsBuilder>(
                         .set_udp_payload_size(opt_record.udp_payload_size());
                     newopt.set_version(opt_record.version());
                     newopt.set_dnssec_ok(opt_record.dnssec_ok());
-                    for option in opt_record.iter::<AllOptData<_, _>>() {
+                    for option in opt_record.opt().iter::<AllOptData<_, _>>()
+                    {
                         let option = option.unwrap();
                         if let AllOptData::TcpKeepalive(_) = option {
                             panic!("handle keepalive");
