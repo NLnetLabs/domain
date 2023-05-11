@@ -22,6 +22,10 @@ Breaking Changes
   traits have been added. E.g., there now are `ParseRecordData` and
   `ComposeRecordData` traits that are implemented by all record data types.
   ([#160])
+* The `Deref` and `DerefMut` impls have been removed for most types that
+  had them to follow guidance that they are exclusively for use by pointer
+  types – which none of them are. `len` and `is_empty` methods have been
+  added where appropriate, additional methods may be added. ([#205])
 * Various functions and methods of the `tsig` module now expect the
   current time as an argument to allow use of the module in a no-std
   environment. ([#152])
@@ -112,6 +116,7 @@ Other Changes
 [#201]: https://github.com/NLnetLabs/domain/pull/201
 [#202]: https://github.com/NLnetLabs/domain/pull/202
 [#204]: https://github.com/NLnetLabs/domain/pull/204
+[#205]: https://github.com/NLnetLabs/domain/pull/205
 [Martin Fischer]: https://push-f.com/
 [@CrabNejonas]: https://github.com/CrabNejonas
 [octseq]: https://crates.io/crates/octseq
