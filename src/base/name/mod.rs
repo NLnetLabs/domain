@@ -6,56 +6,87 @@
 //! [`UncertainDname`], [`DnameBuilder`].<br/>
 //! Main traits: [`ToDname`], [`ToRelativeDname`].
 //!
-//! Domain names are a sequence of *labels* which are in turn a sequence of
-//! up to 63 octets. While they are limited to a subset of ASCII by
-//! convention, all octet values are allowed. In their wire-format
-//! representation labels are prefixed with an octet containing the the number
-//! of octets in the label. The labels in a domain name are nominally arranged
-//! backwards. That is, the ‘most significant’ label is the last one. In an
-//! *absolute* domain name, this last label is an empty label, called the
-//! *root label* and indicating the root of the domain name tree. Only
-//! absolute names can appear inside DNS messages.
+//! Domain names are a hierarchical description of the location of
+//! records in a tree. They are formed from a sequence of *labels* that
+//! describe the path through the tree upward from the leaf node to the root.
+//!
+//! ## Domain name representations
+//!
+//! Domain names have multiple representations.
+//!
+//! The *wire format* representation is a binary encoding that is used when
+//! including domain names in messages. In it, labels are just sequences of
+//! octets prefixed by a length octet. The root of the tree is an empty label
+//! and – because it always comes last when walking up the tree – implicitly
+//! marks the end of the domain name. This label is often called the *root
+//! label*. The entire name, including the root label, can be at most 255
+//! octets long.
+//!
+//! This crate stores all domain names internally in this wire format. Thus,
+//! all conversions from and to octets will always expect or provide octets
+//! sequences containing domain names in wire format.
+//!
+//! The *presentation format* is a human readable representation of the domain
+//! name. In it, the octets of each label are interpreted as ASCII characters
+//! or, if there isn’t a printable one, as an escape sequence formed by a
+//! backslash followed by the three-digit decimal value of the octet. Labels
+//! are separated by dots. If a dot (or a backslash) appears as an octet in
+//! a label, they can be escaped by preceding them with a backslash.
+//!
+//! This crate uses the presentation format when converting domain names from
+//! and to strings.
+//!
+//! Finally, *internationalized domain names* (or IDN) is a way to encode
+//! Unicode strings in labels using only ASCII characters. This encoding is
+//! called _punicode._
+//!
+//! This crate currently does not support conversion from and to IDN
+//! representations of domain names. This will be added in future versions.
+//!
+//!
+//! ## Absolute, relative, and ‘uncertain’ domain names
+//!
+//! In some cases, it is useful to have a domain name that doesn’t end with
+//! the root label. Such a name is called a *relative domain name* and,
+//! conversely, a name that does end with the root label is called an
+//! *abolute name*. Because these behave slightly differently, for instance,
+//! you can’t include a relative name in a message, there are different
+//! types for those two cases, [`Dname`] for absolute names and
+//! [`RelativeDname`] for relative names.
+//!
+//! Sometimes, it isn’t quite clear if a domain name is absolute or relative.
+//! This happens in presentation format where the final dot at the end
+//! separating the empty and thus invisible root label is often omitted. For
+//! instance, instead of the strictly correct `www.example.com.` the slightly
+//! shorter `www.example.com` is accepted as an absolute name if it is clear
+//! from context that the name is absolute. The [`UncertainDname`] type
+//! provides a means to keep such a name that may be absolute or relative.
+//!
+//! ## Name compression and parsed names.
 //!
 //! In order to save space in DNS messages (which were originally limited to
 //! 512 bytes for most cases), a name can end in a pointer to another name
 //! stored elsewhere in the message. This makes lazy message parsing somewhat
 //! difficult since you need to carry around a reference to the original
-//! message until actual parsing happens.
+//! message until actual parsing happens. The type [`ParsedDname`] takes care
+//! of all that and will be returned when parsing a name from a message.
 //!
-//! As a consequence, this module provides three different basic types for
-//! domain names: A self-contained, absolute domain name is represented by
-//! [`Dname`], a self-contained, relative domain is [`RelativeDname`]. These
-//! are generic over an underlying octets sequence. Additionally, a possibly
-//! compressed absolute domain name taken from a message becomes a
-//! [`ParsedDname`]. This type is generic over an octets reference which makes
-//! it a little more unwieldy.
+//! ## Chained domain names and the name traits.
 //!
-//! Sometimes, it isn’t quite clear if a domain name is absolute or relative.
-//! This often happens because in a name’s string representation, which
-//! contains each label’s content separated by dots, the final dot before the
-//! empty root label is omitted. For instance, instead of the strictly
-//! correct `www.example.com.` the slightly shorter `www.example.com` is
-//! accepted as an absolute name if it is clear from context that the name
-//! is absolute. The [`UncertainDname`] type provides a means to keep such
-//! a name that may be absolute or relative.
-//!
-//! In order to make it cheap to combine names, a mechanism exists to chain
-//! names together and treat them as a single name. The two traits [`ToDname`]
+//! When making a relative name absolute to be included in a message, you
+//! often append a suffix to it. In order to avoid having to copy octets
+//! around and make this cheap, the [`Chain`] type allows combining two
+//! other name values. To make this work, the two traits [`ToDname`]
 //! and [`ToRelativeDname`] allow writing code that is generic over any kind
 //! of either absolute or relative domain name.
 //!
-//! Alternatively, you can use [`DnameBuilder`] to construct a name manually
-//! from individual labels.
 //!
-//! [`Bytes`]: ../../../bytes/struct.Bytes.html
-//! [`Dname`]: struct.Dname.html
-//! [`DnameBuilder`]: struct.DnameBuilder.html
-//! [`FromStr`]: ../../../std/str/trait.FromStr.html
-//! [`ParsedDname`]: struct.ParsedDname.html
-//! [`RelativeDname`]: struct.RelativeDname.html
-//! [`ToDname`]: trait.ToDname.html
-//! [`ToRelativeDname`]: trait.ToRelativeDname.html
-//! [`UncertainDname`]: enum.UncertainDname.html
+//! ## Building domain names
+//!
+//! You can create a domain name value from its presentation format using
+//! the `FromStr` trait. Alternatively, the [`DnameBuilder`] type allows you
+//! to construct a name from scratch by appending octets, slices, or complete
+//! labels.
 
 pub use self::builder::{
     DnameBuilder, FromStrError, PushError, PushNameError,

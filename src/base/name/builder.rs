@@ -20,8 +20,19 @@ use std::vec::Vec;
 /// Builds a domain name step by step by appending data.
 ///
 /// The domain name builder is the most fundamental way to construct a new
-/// domain name. It wraps an octets builder and allows adding single octets,
-/// octet slices, or entire labels.
+/// domain name. It wraps an octets builder that assembles the name step by
+/// step.
+///
+/// The methods [`push`][Self::push] and [`append_slice`][Self::append_slice]
+/// to add the octets of a label to end of the builder. Once a label is
+/// complete, [`end_label`][Self::end_label] finishes the current label and
+/// starts a new one.
+///
+/// The method [`append_label`][Self::append_label] combines this process
+/// and appends the given octets as a label.
+///
+/// The name builder currently is not aware of internationalized domain
+/// names. The octets passed to it are used as is and are not converted.
 #[derive(Clone)]
 pub struct DnameBuilder<Builder> {
     /// The buffer to build the name in.
