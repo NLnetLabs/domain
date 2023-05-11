@@ -10,7 +10,7 @@ use super::traits::{ToDname, ToRelativeDname};
 use super::Label;
 #[cfg(feature = "bytes")]
 use bytes::BytesMut;
-use core::{fmt, ops};
+use core::fmt;
 use octseq::builder::{EmptyBuilder, FreezeBuilder, OctetsBuilder, ShortBuf};
 #[cfg(feature = "std")]
 use std::vec::Vec;
@@ -393,15 +393,7 @@ impl<Builder: EmptyBuilder> Default for DnameBuilder<Builder> {
     }
 }
 
-//--- Deref and AsRef
-
-impl<Builder: AsRef<[u8]>> ops::Deref for DnameBuilder<Builder> {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        self.builder.as_ref()
-    }
-}
+//--- AsRef
 
 impl<Builder: AsRef<[u8]>> AsRef<[u8]> for DnameBuilder<Builder> {
     fn as_ref(&self) -> &[u8] {

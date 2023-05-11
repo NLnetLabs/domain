@@ -3,7 +3,7 @@ use crate::base::name::{ParsedDname, PushError, ToDname};
 use crate::base::wire::ParseError;
 use core::cmp::Ordering;
 use core::str::FromStr;
-use core::{fmt, hash, ops};
+use core::{fmt, hash};
 use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;

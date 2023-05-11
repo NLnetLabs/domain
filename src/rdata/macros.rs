@@ -1086,16 +1086,6 @@ macro_rules! dname_type_base {
                 write!(f, "{}.", self.$field)
             }
         }
-
-        //--- Deref
-
-        impl<N> ops::Deref for $target<N> {
-            type Target = N;
-
-            fn deref(&self) -> &Self::Target {
-                &self.$field
-            }
-        }
     }
 }
 
@@ -1115,7 +1105,7 @@ macro_rules! dname_type_well_known {
                     None
                 }
                 else {
-                    Some(self.compose_len())
+                    Some(self.$field.compose_len())
                 }
             }
 
@@ -1158,7 +1148,7 @@ macro_rules! dname_type_canonical {
         impl<N: ToDname> $crate::base::rdata::ComposeRecordData
         for $target<N> {
             fn rdlen(&self, _compress: bool) -> Option<u16> {
-                Some(self.compose_len())
+                Some(self.$field.compose_len())
             }
 
             fn compose_rdata<Target: $crate::base::wire::Composer + ?Sized>(

@@ -17,7 +17,7 @@ use crate::utils::{base16, base32};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp::Ordering;
-use core::{fmt, hash, ops, str};
+use core::{fmt, hash, str};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
 };
@@ -903,15 +903,7 @@ where
     }
 }
 
-//--- Deref and AsRef
-
-impl<Octs: ?Sized> ops::Deref for Nsec3Salt<Octs> {
-    type Target = Octs;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+//--- AsRef
 
 impl<Octs: AsRef<U> + ?Sized, U: ?Sized> AsRef<U> for Nsec3Salt<Octs> {
     fn as_ref(&self) -> &U {
@@ -1255,15 +1247,7 @@ where
     }
 }
 
-//--- Deref and AsRef
-
-impl<Octs: ?Sized> ops::Deref for OwnerHash<Octs> {
-    type Target = Octs;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+//--- AsRef
 
 impl<Octs: AsRef<U> + ?Sized, U: ?Sized> AsRef<U> for OwnerHash<Octs> {
     fn as_ref(&self) -> &U {
