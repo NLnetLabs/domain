@@ -6,7 +6,7 @@
 use super::super::wire::{FormError, ParseError};
 use super::builder::{parse_escape, LabelFromStrError};
 use core::str::FromStr;
-use core::{borrow, cmp, fmt, hash, ops};
+use core::{borrow, cmp, fmt, hash, iter, ops, slice};
 use octseq::builder::OctetsBuilder;
 
 //------------ Label ---------------------------------------------------------
@@ -28,8 +28,7 @@ use octseq::builder::OctetsBuilder;
 ///
 /// Consequently, `Label` will only ever contain an octets slice of up to 63
 /// octets. It only contains the label’s content, not the length octet it is
-/// preceded by in wire format. The type `Deref`s to `[u8]`, providing access
-/// to all of an octets slice’s methods. As an unsized type, it needs to be
+/// preceded by in wire format. As an unsized type, it needs to be
 /// used behind some kind of pointer, most likely a reference.
 ///
 /// `Label` differs from an octets slice in how it compares: as labels are to
@@ -182,6 +181,11 @@ impl Label {
         ))
     }
 
+    /// Iterator over the octets of the label.
+    pub fn iter(&self) -> iter::Copied<slice::Iter<u8>> {
+        self.as_slice().iter().copied()
+    }
+
     /// Iterates over the labels in some part of an octets slice.
     ///
     /// The first label is assumed to start at index `start`.
@@ -282,7 +286,7 @@ impl Label {
         target: &mut Builder,
     ) -> Result<(), Builder::AppendError> {
         target.append_slice(&[self.len() as u8])?;
-        for &ch in self.into_iter() {
+        for ch in self.into_iter() {
             target.append_slice(&[ch.to_ascii_lowercase()])?;
         }
         Ok(())
@@ -292,6 +296,19 @@ impl Label {
 /// # Properties
 ///
 impl Label {
+    /// Returns the length of the label.
+    ///
+    /// This length is that of the label’s content only. It will _not_ contain
+    /// the initial label length octet present in the wire format.
+    pub fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+
+    /// Returns whether this is the empty label.
+    pub fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
+    }
+
     /// Returns whether the label is the root label.
     pub fn is_root(&self) -> bool {
         self.is_empty()
@@ -311,21 +328,7 @@ impl Label {
     }
 }
 
-//--- Deref, DerefMut, AsRef, and AsMut
-
-impl ops::Deref for Label {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        self.as_slice()
-    }
-}
-
-impl ops::DerefMut for Label {
-    fn deref_mut(&mut self) -> &mut [u8] {
-        self.as_slice_mut()
-    }
-}
+//--- AsRef, and AsMut
 
 impl AsRef<[u8]> for Label {
     fn as_ref(&self) -> &[u8] {
@@ -354,7 +357,7 @@ impl std::borrow::ToOwned for Label {
 
 impl<T: AsRef<[u8]> + ?Sized> PartialEq<T> for Label {
     fn eq(&self, other: &T) -> bool {
-        self.eq_ignore_ascii_case(other.as_ref())
+        self.as_slice().eq_ignore_ascii_case(other.as_ref())
     }
 }
 
@@ -373,17 +376,19 @@ impl PartialOrd for Label {
     ///
     /// [RFC 4034]: https://tools.ietf.org/html/rfc4034
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.iter()
+        self.as_slice()
+            .iter()
             .map(u8::to_ascii_lowercase)
-            .partial_cmp(other.iter().map(u8::to_ascii_lowercase))
+            .partial_cmp(other.as_slice().iter().map(u8::to_ascii_lowercase))
     }
 }
 
 impl Ord for Label {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.iter()
+        self.as_slice()
+            .iter()
             .map(u8::to_ascii_lowercase)
-            .cmp(other.iter().map(u8::to_ascii_lowercase))
+            .cmp(other.as_slice().iter().map(u8::to_ascii_lowercase))
     }
 }
 
@@ -403,8 +408,8 @@ impl hash::Hash for Label {
 //--- IntoIterator
 
 impl<'a> IntoIterator for &'a Label {
-    type Item = &'a u8;
-    type IntoIter = core::slice::Iter<'a, u8>;
+    type Item = u8;
+    type IntoIter = iter::Copied<slice::Iter<'a, u8>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -415,7 +420,7 @@ impl<'a> IntoIterator for &'a Label {
 
 impl fmt::Display for Label {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for &ch in self.iter() {
+        for ch in self.iter() {
             if ch == b' ' || ch == b'.' || ch == b'\\' {
                 write!(f, "\\{}", ch as char)?;
             } else if !(0x20..0x7F).contains(&ch) {

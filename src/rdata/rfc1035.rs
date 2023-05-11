@@ -21,7 +21,7 @@ use bytes::BytesMut;
 use core::cmp::Ordering;
 use core::convert::{Infallible, TryFrom};
 use core::str::FromStr;
-use core::{fmt, hash, ops, str};
+use core::{fmt, hash, str};
 use octseq::builder::{
     infallible, EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
     ShortBuf,
@@ -173,22 +173,6 @@ impl ComposeRecordData for A {
 impl fmt::Display for A {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.addr.fmt(f)
-    }
-}
-
-//--- Deref and DerefMut
-
-impl ops::Deref for A {
-    type Target = Ipv4Addr;
-
-    fn deref(&self) -> &Self::Target {
-        &self.addr
-    }
-}
-
-impl ops::DerefMut for A {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.addr
     }
 }
 

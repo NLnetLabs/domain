@@ -29,6 +29,7 @@ use std::boxed::Box;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
+use std::slice::SliceIndex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::vec::Vec;
@@ -436,6 +437,20 @@ impl From<Message<Bytes>> for Answer {
     }
 }
 
+impl ops::Deref for Answer {
+    type Target = Message<Bytes>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.message
+    }
+}
+
+impl AsRef<Message<Bytes>> for Answer {
+    fn as_ref(&self) -> &Message<Bytes> {
+        &self.message
+    }
+}
+
 //------------ ServerInfo ----------------------------------------------------
 
 #[derive(Clone, Debug)]
@@ -666,11 +681,11 @@ impl<'a> IntoIterator for &'a ServerList {
     }
 }
 
-impl ops::Deref for ServerList {
-    type Target = [ServerInfo];
+impl<I: SliceIndex<[ServerInfo]>> ops::Index<I> for ServerList {
+    type Output = <I as SliceIndex<[ServerInfo]>>::Output;
 
-    fn deref(&self) -> &Self::Target {
-        self.servers.as_ref()
+    fn index(&self, index: I) -> &<I as SliceIndex<[ServerInfo]>>::Output {
+        self.servers.index(index)
     }
 }
 
@@ -739,20 +754,6 @@ impl<'a> Iterator for ServerListIter<'a> {
         } else {
             None
         }
-    }
-}
-
-impl ops::Deref for Answer {
-    type Target = Message<Bytes>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.message
-    }
-}
-
-impl AsRef<Message<Bytes>> for Answer {
-    fn as_ref(&self) -> &Message<Bytes> {
-        &self.message
     }
 }
 
