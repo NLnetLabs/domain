@@ -26,10 +26,10 @@ use std::vec::Vec;
 
 /// An uncompressed, absolute domain name.
 ///
-/// The type wraps an octets sequence and guarantees that it always contains
-/// a correctly encoded, absolute domain name. It provides an interface
-/// similar to a slice of the labels of the name, i.e., you can iterate over
-/// the labels, split them off, etc.
+/// The type wraps an octets sequence that contains an absolute domain name in
+/// wire-format encoding. It provides an interface similar to a slice of the
+/// labels of the name, i.e., you can iterate over the labels, split them off,
+/// etc.
 ///
 /// You can construct a domain name from a string via the `FromStr` trait or
 /// manually via a [`DnameBuilder`]. In addition, you can also parse it from
@@ -75,8 +75,8 @@ impl<Octs> Dname<Octs> {
     /// Creates a domain name from an octet sequence.
     ///
     /// This will only succeed if `octets` contains a properly encoded
-    /// absolute domain name. Because the function checks, this will take
-    /// a wee bit of time.
+    /// absolute domain name in wire format. Because the function checks for
+    /// correctness, this will take a wee bit of time.
     pub fn from_octets(octets: Octs) -> Result<Self, DnameError>
     where
         Octs: AsRef<[u8]>,
@@ -236,6 +236,8 @@ impl Dname<Bytes> {
 ///
 impl<Octs: ?Sized> Dname<Octs> {
     /// Returns a reference to the underlying octets sequence.
+    ///
+    /// These octets contain the domain name in wire format.
     pub fn as_octets(&self) -> &Octs {
         &self.0
     }
@@ -264,6 +266,8 @@ impl<Octs: ?Sized> Dname<Octs> {
     }
 
     /// Returns a reference to the underlying octets slice.
+    ///
+    /// The slice will contain the domain name in wire format.
     pub fn as_slice(&self) -> &[u8]
     where
         Octs: AsRef<[u8]>,
@@ -280,6 +284,9 @@ impl<Octs: ?Sized> Dname<Octs> {
     }
 
     /// Converts the domain name into its canonical form.
+    ///
+    /// This will convert all octets that are upper case ASCII characters
+    /// into their lower case equivalent.
     pub fn make_canonical(&mut self)
     where
         Octs: AsMut<[u8]>,
@@ -305,9 +312,6 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
 
 /// # Working with Labels
 ///
-/// All methods that split the name or cut off parts on the left side are
-/// only available on octets sequences that are their only range, e.g.,
-/// `&[u8]` or `Bytes`, as these are the only types that can be split.
 impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     /// Returns an iterator over the labels of the domain name.
     pub fn iter(&self) -> DnameIter {
@@ -620,7 +624,7 @@ impl<Octs> Dname<Octs> {
         Ok(unsafe { Self::from_octets_unchecked(parser.parse_octets(len)?) })
     }
 
-    /// Peeks at a parser and return the length of a name at its beginning.
+    /// Peeks at a parser and returns the length of a name at its beginning.
     fn parse_name_len<Source: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Source>,
     ) -> Result<usize, ParseError> {
