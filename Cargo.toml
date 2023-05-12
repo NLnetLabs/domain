@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.8.0"
+version = "0.8.1-dev"
 rust-version = "1.65.0"
 edition = "2021"
 authors = ["Martin Hoffmann <martin@nlnetlabs.nl>"]
