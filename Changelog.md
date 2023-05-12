@@ -1,6 +1,6 @@
 # Change Log
 
-## Unreleased future version
+## 0.8.0
 
 Breaking Changes
 
@@ -93,10 +93,6 @@ New
   canonical names. ([#200])
 * Added a `MAX_LEN` constant to various types that wrap length-limited
   octets sequences. ([#201] by [@CrabNejonas])
-
-Bug Fixes
-
-Other Changes
 
 [#109]: https://github.com/NLnetLabs/domain/pull/109
 [#142]: https://github.com/NLnetLabs/domain/pull/142
