@@ -181,37 +181,37 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u8 {
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i16 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_i16().map_err(Into::into)
+        parser.parse_i16_be().map_err(Into::into)
     }
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u16 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_u16().map_err(Into::into)
+        parser.parse_u16_be().map_err(Into::into)
     }
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i32 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_i32().map_err(Into::into)
+        parser.parse_i32_be().map_err(Into::into)
     }
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u32 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_u32().map_err(Into::into)
+        parser.parse_u32_be().map_err(Into::into)
     }
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for u64 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_u64().map_err(Into::into)
+        parser.parse_u64_be().map_err(Into::into)
     }
 }
 
 impl<'a, Octs: AsRef<[u8]> + ?Sized> Parse<'a, Octs> for i64 {
     fn parse(parser: &mut Parser<'a, Octs>) -> Result<Self, ParseError> {
-        parser.parse_i64().map_err(Into::into)
+        parser.parse_i64_be().map_err(Into::into)
     }
 }
 

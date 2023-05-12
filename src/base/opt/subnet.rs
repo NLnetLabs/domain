@@ -100,7 +100,7 @@ impl ClientSubnet {
         const ERR_ADDR_LEN: &str = "invalid address length in client \
                                     subnet option";
 
-        let family = parser.parse_u16()?;
+        let family = parser.parse_u16_be()?;
         let source_prefix_len = parser.parse_u8()?;
         let scope_prefix_len = parser.parse_u8()?;
 

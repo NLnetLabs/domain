@@ -121,7 +121,7 @@ impl Opt<[u8]> {
         let mut parser = Parser::from_ref(slice);
         while parser.remaining() > 0 {
             parser.advance(2)?;
-            let len = parser.parse_u16()?;
+            let len = parser.parse_u16_be()?;
             parser.advance(len as usize)?;
         }
         Ok(())
@@ -552,7 +552,10 @@ impl OptionHeader {
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Octs>,
     ) -> Result<Self, ParseError> {
-        Ok(OptionHeader::new(parser.parse_u16()?, parser.parse_u16()?))
+        Ok(OptionHeader::new(
+            parser.parse_u16_be()?,
+            parser.parse_u16_be()?,
+        ))
     }
 }
 
@@ -593,8 +596,8 @@ where
     /// parse error otherwise. Return `Ok(None)` if the option type didn’t
     /// want to parse this option.
     fn next_step(&mut self) -> Result<Option<D>, ParseError> {
-        let code = self.parser.parse_u16()?.into();
-        let len = self.parser.parse_u16()? as usize;
+        let code = self.parser.parse_u16_be()?.into();
+        let len = self.parser.parse_u16_be()? as usize;
         let mut parser = self.parser.parse_parser(len)?;
         let res = D::parse_option(code, &mut parser)?;
         if res.is_some() && parser.remaining() > 0 {
