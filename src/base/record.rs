@@ -602,7 +602,7 @@ impl<'a, Octs: AsRef<[u8]> + ?Sized> RecordHeader<ParsedDname<&'a Octs>> {
             Rtype::parse(parser)?,
             Class::parse(parser)?,
             Ttl::parse(parser)?,
-            parser.parse_u16()?,
+            parser.parse_u16_be()?,
         ))
     }
 }
@@ -1385,7 +1385,7 @@ impl Ttl {
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<'_, Octs>,
     ) -> Result<Self, ParseError> {
-        parser.parse_u32().map(Ttl::from_secs).map_err(Into::into)
+        parser.parse_u32_be().map(Ttl::from_secs).map_err(Into::into)
     }
 }
 
