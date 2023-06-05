@@ -660,15 +660,12 @@ impl<'a> Scanner for EntryScanner<'a> {
                     // continue to the next label.
                     if write == 1 {
                         if self.zonefile.buf.next_symbol()?.is_some() {
-                            return Err(EntryError::bad_dname())
-                        }
-                        else {
+                            return Err(EntryError::bad_dname());
+                        } else {
                             self.zonefile.buf.next_item()?;
-                            return Ok(
-                                RelativeDname::empty().chain(
-                                    Dname::root()
-                                ).expect("failed to make root name")
-                            )
+                            return Ok(RelativeDname::empty()
+                                .chain(Dname::root())
+                                .expect("failed to make root name"));
                         }
                     }
                     if write > 254 {

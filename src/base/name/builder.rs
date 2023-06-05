@@ -195,8 +195,7 @@ where
             }
             self.end_label();
             Ok(())
-        } else if
-            matches!(sym, Symbol::SimpleEscape(b'['))
+        } else if matches!(sym, Symbol::SimpleEscape(b'['))
             && !self.in_label()
         {
             Err(LabelFromStrError::BinaryLabel.into())
@@ -312,7 +311,9 @@ where
         &mut self,
         symbols: Sym,
     ) -> Result<(), FromStrError> {
-        symbols.into_iter().try_for_each(|symbol| self.push_symbol(symbol))
+        symbols
+            .into_iter()
+            .try_for_each(|symbol| self.push_symbol(symbol))
     }
 
     /// Appends a name from a sequence of characters.

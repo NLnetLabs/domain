@@ -15,7 +15,7 @@ use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
 use core::{cmp, fmt, hash, str};
 use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
 };
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
@@ -105,18 +105,17 @@ impl<Octs> Dname<Octs> {
         };
         if first == Symbol::Char('.') {
             if symbols.next().is_some() {
-                return Err(FromStrError::EmptyLabel)
-            }
-            else {
+                return Err(FromStrError::EmptyLabel);
+            } else {
                 // Make a root name.
                 let mut builder =
                     <Octs as FromBuilder>::Builder::with_capacity(1);
-                builder.append_slice(b"\0").map_err(|_| {
-                    FromStrError::ShortBuf
-                })?;
+                builder
+                    .append_slice(b"\0")
+                    .map_err(|_| FromStrError::ShortBuf)?;
                 return Ok(unsafe {
                     Self::from_octets_unchecked(builder.freeze())
-                })
+                });
             }
         }
 
@@ -1021,7 +1020,6 @@ impl<'a, Octs: Octets + ?Sized> Iterator for SuffixIter<'a, Octs> {
     }
 }
 
-
 //------------ DisplayWithDot ------------------------------------------------
 
 struct DisplayWithDot<'a>(&'a Dname<[u8]>);
@@ -1030,8 +1028,7 @@ impl<'a> fmt::Display for DisplayWithDot<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.0.is_root() {
             f.write_str(".")
-        }
-        else {
+        } else {
             let mut iter = self.0.iter();
             write!(f, "{}", iter.next().unwrap())?;
             for label in iter {
@@ -1041,7 +1038,6 @@ impl<'a> fmt::Display for DisplayWithDot<'a> {
         }
     }
 }
-
 
 //============ Error Types ===================================================
 
@@ -1920,10 +1916,7 @@ pub(crate) mod test {
         );
         assert_tokens(
             &Dname::root_vec().readable(),
-            &[
-                Token::NewtypeStruct { name: "Dname" },
-                Token::Str("."),
-            ],
+            &[Token::NewtypeStruct { name: "Dname" }, Token::Str(".")],
         );
     }
 }
