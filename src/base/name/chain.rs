@@ -427,6 +427,10 @@ mod test {
                 .unwrap(),
             &[b"www", b"example", b"com", b""],
         );
+        check_impl(
+            RelativeDname::empty_slice().chain(Dname::root_slice()).unwrap(),
+            &[b""]
+        );
 
         check_impl(
             UncertainDname::from(w.clone()).chain(ecr.clone()).unwrap(),

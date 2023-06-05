@@ -3,7 +3,7 @@
 //! This is a private module for tidiness. `DnameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
-use super::super::scan::Symbol;
+use super::super::scan::{Symbol, Symbols};
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
@@ -184,6 +184,32 @@ where
         Ok(())
     }
 
+    /// Pushes a symbold to the end of the domain name.
+    ///
+    /// The symbol is iterpreted as part of the presentation format of a
+    /// domain name, i.e., an unescaped dot is considered a label separator.
+    pub fn push_symbol(&mut self, sym: Symbol) -> Result<(), FromStrError> {
+        if matches!(sym, Symbol::Char('.')) {
+            if !self.in_label() {
+                return Err(FromStrError::EmptyLabel);
+            }
+            self.end_label();
+            Ok(())
+        } else if
+            matches!(sym, Symbol::SimpleEscape(b'['))
+            && !self.in_label()
+        {
+            Err(LabelFromStrError::BinaryLabel.into())
+        } else if let Ok(ch) = sym.into_octet() {
+            self.push(ch).map_err(Into::into)
+        } else {
+            return Err(match sym {
+                Symbol::Char(ch) => FromStrError::IllegalCharacter(ch),
+                _ => FromStrError::IllegalEscape,
+            });
+        }
+    }
+
     /// Appends the content of an octets slice to the end of the domain name.
     ///
     /// Starts a new label if necessary. Returns an error if pushing
@@ -269,30 +295,24 @@ where
         Ok(())
     }
 
+    /// Appends a name from a sequence of symbols.
+    ///
+    /// If there currently is a label under construction, it will be ended
+    /// before appending `chars`.
+    ///
+    /// The character sequence must result in a domain name in representation
+    /// format. That is, its labels should be separated by dots,
+    /// actual dots, white space, backslashes  and byte values that are not
+    /// printable ASCII characters should be escaped.
+    ///
+    /// The last label will only be ended if the last character was a dot.
+    /// Thus, you can determine if that was the case via
+    /// [`in_label`][Self::in_label].
     pub fn append_symbols<Sym: IntoIterator<Item = Symbol>>(
         &mut self,
         symbols: Sym,
     ) -> Result<(), FromStrError> {
-        for sym in symbols {
-            if matches!(sym, Symbol::Char('.')) {
-                if !self.in_label() {
-                    return Err(FromStrError::EmptyLabel);
-                }
-                self.end_label();
-            } else if matches!(sym, Symbol::SimpleEscape(b'['))
-                && !self.in_label()
-            {
-                return Err(LabelFromStrError::BinaryLabel.into());
-            } else if let Ok(ch) = sym.into_octet() {
-                self.push(ch)?;
-            } else {
-                return Err(match sym {
-                    Symbol::Char(ch) => FromStrError::IllegalCharacter(ch),
-                    _ => FromStrError::IllegalEscape,
-                });
-            }
-        }
-        Ok(())
+        symbols.into_iter().try_for_each(|symbol| self.push_symbol(symbol))
     }
 
     /// Appends a name from a sequence of characters.
@@ -314,26 +334,7 @@ where
         &mut self,
         chars: C,
     ) -> Result<(), FromStrError> {
-        // XXX Convert to use append_symbols.
-
-        let mut chars = chars.into_iter();
-        while let Some(ch) = chars.next() {
-            match ch {
-                '.' => {
-                    if !self.in_label() {
-                        return Err(FromStrError::EmptyLabel);
-                    }
-                    self.end_label();
-                }
-                '\\' => {
-                    let in_label = self.in_label();
-                    self.push(parse_escape(&mut chars, in_label)?)?;
-                }
-                ' '..='-' | '/'..='[' | ']'..='~' => self.push(ch as u8)?,
-                _ => return Err(FromStrError::IllegalCharacter(ch)),
-            }
-        }
-        Ok(())
+        self.append_symbols(Symbols::new(chars.into_iter()))
     }
 
     /// Finishes building the name and returns the resulting relative name.
