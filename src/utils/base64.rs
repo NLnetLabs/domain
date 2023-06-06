@@ -368,19 +368,29 @@ impl SymbolConverter {
 
         if self.next == 4 {
             self.output[0] = self.input[0] << 2 | self.input[1] >> 4;
-            if self.input[2] != 0x80 {
-                self.output[1] = self.input[1] << 4 | self.input[2] >> 2;
-            }
-            if self.input[3] != 0x80 {
-                if self.input[2] == 0x80 {
-                    return Err(Error::custom("trailing Base 64 data"));
+
+            if self.input[2] == 0x80 {
+                // The second to last character is padding. The last one
+                // needs to be, too.
+                if self.input[3] == 0x80 {
+                    self.next = 0xF0;
+                    Ok(Some(&self.output[..1]))
+                } else {
+                    Err(Error::custom("illegal Base 64 data"))
                 }
-                self.output[2] = (self.input[2] << 6) | self.input[3];
-                self.next = 0
             } else {
-                self.next = 0xF0
+                self.output[1] = self.input[1] << 4 | self.input[2] >> 2;
+
+                if self.input[3] == 0x80 {
+                    // The last characters is padding.
+                    self.next = 0xF0;
+                    Ok(Some(&self.output[..2]))
+                } else {
+                    self.output[2] = (self.input[2] << 6) | self.input[3];
+                    self.next = 0;
+                    Ok(Some(&self.output))
+                }
             }
-            Ok(Some(&self.output))
         } else {
             Ok(None)
         }
@@ -504,22 +514,29 @@ const PAD: char = '=';
 
 #[cfg(test)]
 mod test {
+    use super::*;
+
+    #[allow(dead_code)]
+    const HAPPY_CASES: &[(&[u8], &str)] = &[
+        (b"", ""),
+        (b"f", "Zg=="),
+        (b"fo", "Zm8="),
+        (b"foo", "Zm9v"),
+        (b"foob", "Zm9vYg=="),
+        (b"fooba", "Zm9vYmE="),
+        (b"foobar", "Zm9vYmFy"),
+    ];
+
     #[cfg(feature = "std")]
     #[test]
     fn decode_str() {
-        use super::DecodeError;
-
         fn decode(s: &str) -> Result<std::vec::Vec<u8>, DecodeError> {
             super::decode(s)
         }
 
-        assert_eq!(&decode("").unwrap(), b"");
-        assert_eq!(&decode("Zg==").unwrap(), b"f");
-        assert_eq!(&decode("Zm8=").unwrap(), b"fo");
-        assert_eq!(&decode("Zm9v").unwrap(), b"foo");
-        assert_eq!(&decode("Zm9vYg==").unwrap(), b"foob");
-        assert_eq!(&decode("Zm9vYmE=").unwrap(), b"fooba");
-        assert_eq!(&decode("Zm9vYmFy").unwrap(), b"foobar");
+        for (bin, text) in HAPPY_CASES {
+            assert_eq!(&decode(text).unwrap(), bin, "decode {}", text)
+        }
 
         assert_eq!(decode("FPucA").unwrap_err(), DecodeError::ShortInput);
         assert_eq!(
@@ -537,6 +554,33 @@ mod test {
         );
     }
 
+    #[cfg(feature = "std")]
+    #[test]
+    fn symbol_converter() {
+        use crate::base::scan::Symbols;
+        use std::vec::Vec;
+
+        fn decode(s: &str) -> Result<Vec<u8>, std::io::Error> {
+            let mut convert = SymbolConverter::new();
+            let convert: &mut dyn ConvertSymbols<_, std::io::Error> =
+                &mut convert;
+            let mut res = Vec::new();
+            for sym in Symbols::new(s.chars()) {
+                if let Some(octs) = convert.process_symbol(sym)? {
+                    res.extend_from_slice(octs);
+                }
+            }
+            if let Some(octs) = convert.process_tail()? {
+                res.extend_from_slice(octs);
+            }
+            Ok(res)
+        }
+
+        for (bin, text) in HAPPY_CASES {
+            assert_eq!(&decode(text).unwrap(), bin, "convert {}", text)
+        }
+    }
+
     #[test]
     #[cfg(feature = "std")]
     fn display_bytes() {
@@ -548,12 +592,8 @@ mod test {
             out
         }
 
-        assert_eq!(fmt(b""), "");
-        assert_eq!(fmt(b"f"), "Zg==");
-        assert_eq!(fmt(b"fo"), "Zm8=");
-        assert_eq!(fmt(b"foo"), "Zm9v");
-        assert_eq!(fmt(b"foob"), "Zm9vYg==");
-        assert_eq!(fmt(b"fooba"), "Zm9vYmE=");
-        assert_eq!(fmt(b"foobar"), "Zm9vYmFy");
+        for (bin, text) in HAPPY_CASES {
+            assert_eq!(&fmt(bin), text, "fmt {}", text);
+        }
     }
 }
