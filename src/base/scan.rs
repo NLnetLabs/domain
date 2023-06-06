@@ -727,18 +727,37 @@ impl From<Symbol> for EntrySymbol {
 //------------ Symbols -------------------------------------------------------
 
 /// An iterator over the symbols in a char sequence.
+///
+/// The iterator stops if a character cannot be converted into symbols. You
+/// can check if that happened via the [`ok`][Self::ok] method.
 #[derive(Clone, Debug)]
 pub struct Symbols<Chars> {
     /// The chars of the sequence.
     ///
     /// This is an option so we can fuse the iterator on error.
-    chars: Option<Chars>,
+    chars: Result<Chars, SymbolCharsError>,
 }
 
 impl<Chars> Symbols<Chars> {
     /// Creates a new symbols iterator atop a char iterator.
     pub fn new(chars: Chars) -> Self {
-        Symbols { chars: Some(chars) }
+        Symbols { chars: Ok(chars) }
+    }
+
+    /// Checks whether there was an error converting symbols.
+    pub fn ok(self) -> Result<(), SymbolCharsError> {
+        self.chars.map(|_| ())
+    }
+
+    pub fn with<F, T, E>(chars: Chars, op: F) -> Result<T, E>
+    where
+        F: FnOnce(&mut Self) -> Result<T, E>,
+        E: From<SymbolCharsError>,
+    {
+        let mut symbols = Self::new(chars);
+        let res = op(&mut symbols)?;
+        symbols.ok()?;
+        Ok(res)
     }
 }
 
@@ -746,10 +765,16 @@ impl<Chars: Iterator<Item = char>> Iterator for Symbols<Chars> {
     type Item = Symbol;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Ok(res) = Symbol::from_chars(self.chars.as_mut()?) {
-            return res;
-        }
-        self.chars = None;
+        self.chars = {
+            let chars = match self.chars.as_mut() {
+                Ok(chars) => chars,
+                Err(_) => return None,
+            };
+            match Symbol::from_chars(chars) {
+                Ok(res) => return res,
+                Err(err) => Err(err),
+            }
+        };
         None
     }
 }
@@ -970,10 +995,10 @@ where
 
 /// An error happened when reading a symbol.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SymbolCharsError(SymbolCharsEnum);
+pub struct SymbolCharsError(pub(super) SymbolCharsEnum);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SymbolCharsEnum {
+pub(super) enum SymbolCharsEnum {
     /// An illegal escape sequence was encountered.
     BadEscape,
 
