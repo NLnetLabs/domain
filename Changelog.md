@@ -129,6 +129,24 @@ New
 [octseq]: https://crates.io/crates/octseq
 
 
+## 0.7.2
+
+Released 2023-03-02
+
+New
+
+* Added a new method `FoundSrvs::into_srvs` that converts the value into an
+  iterator over the found SRV records without resolving them further.
+  ([#174])
+
+Bug Fixes
+
+* Fix trait bounds on `FoundSrvs::into_stream` to make it usable again.
+  ([#174])
+
+[#174]: https://github.com/NLnetLabs/domain/pull/174
+
+
 ## 0.7.1
 
 Released 2022-10-06.

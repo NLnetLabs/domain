@@ -89,6 +89,17 @@ pub struct FoundSrvs {
 }
 
 impl FoundSrvs {
+    /// Converts the found SRV records into socket addresses.
+    ///
+    /// The method takes a reference to a resolver and returns a stream of
+    /// socket addresses in the order prescribed by the SRV records. Each
+    /// returned item provides the set of addresses for one host.
+    ///
+    /// Note that if you are using the
+    /// [`StubResolver`][crate::resolv::stub::StubResolver], you will have to
+    /// pass in a double reference since [`Resolver`] is implemented for a
+    /// reference to it and this method requires a reference to that impl
+    /// being passed. This quirk will be fixed in future versions.
     pub fn into_stream<R: Resolver>(
         self,
         resolver: &R,
@@ -106,6 +117,18 @@ impl FoundSrvs {
             Err(one) => None.into_iter().flatten().chain(Some(one)),
         };
         stream::iter(iter).then(move |item| item.resolve(resolver))
+    }
+
+    /// Converts the value into an iterator over the found SRV records.
+    pub fn into_srvs(self) -> impl Iterator<Item = Srv<Dname<OctetsVec>>> {
+        let (left, right) = match self.items {
+            Ok(ok) => (Some(ok.into_iter()), None),
+            Err(err) => (None, Some(std::iter::once(err))),
+        };
+        left.into_iter()
+            .flatten()
+            .chain(right.into_iter().flatten())
+            .map(|item| item.srv)
     }
 
     /// Moves all results from `other` into `Self`, leaving `other` empty.
