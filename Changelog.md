@@ -6,9 +6,19 @@ Breaking changes
 
 New
 
-Bug fixes
+* Added a new method `FoundSrvs::into_srvs` that converts the value into an
+  iterator over the found SRV records without resolving them further.
+  ([#174], [#214]; this was added in 0.7.2 but missing in 0.8.0)
+
+Bug Fixes
+
+* Fix trait bounds on `FoundSrvs::into_stream` to make it usable again.
+  ([#174], [#214]; this was fixed in 0.7.2 but missing in 0.8.0)
 
 Other changes
+
+[#174]: https://github.com/NLnetLabs/domain/pull/174
+[#214]: https://github.com/NLnetLabs/domain/pull/214
 
 
 ## 0.8.0
