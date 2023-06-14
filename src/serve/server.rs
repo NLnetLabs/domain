@@ -40,7 +40,6 @@
 //! such as zone transfer which involves sending multiple messages in response
 //! to a single request.
 
-// TODO: Add TLS support.
 // TODO: Add tracing/logging support? (or metrics only?)
 // TODO: Allow the default timeout(s?) to be configured.
 // TODO: Use a strategy pattern to extract chosen behaviours? E.g. retry
