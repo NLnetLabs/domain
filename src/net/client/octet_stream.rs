@@ -89,11 +89,6 @@ struct ChanReq<Octs: OctetsBuilder> {
 #[derive(Debug)]
 /// a response to a [ChanReq].
 struct Response {
-    /// The 2 octet id that went into the outgoing DNS request.
-    ///
-    /// This id is needed to match the response with the query.
-    id: u16,
-
     /// The DNS reply message.
     reply: Message<Bytes>,
 }
@@ -101,6 +96,7 @@ struct Response {
 type ChanResp = Result<Response, Arc<std::io::Error>>;
 
 /// The actual implementation of [Connection].
+#[derive(Debug)]
 struct InnerConnection<Octs: OctetsBuilder> {
     /// [InnerConnection::sender] and [InnerConnection::receiver] are
     /// part of a single channel.
@@ -130,7 +126,7 @@ struct Queries {
     vec: Vec<Option<ReplySender>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// A single DNS over octect stream connection.
 pub struct Connection<Octs: OctetsBuilder> {
     /// Reference counted [InnerConnection].
@@ -156,6 +152,14 @@ pub struct Query {
     /// it matches the query.
     query_msg: Message<Vec<u8>>,
 
+    /// Current state of the query.
+    state: QueryState,
+}
+
+/// This represents that state of an active DNS query if there is no need
+/// to check that the reply matches the request. The assumption is that the
+/// caller will do this check.
+pub struct QueryNoCheck {
     /// Current state of the query.
     state: QueryState,
 }
@@ -566,11 +570,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
             }
             Some(_) => {
                 let sender = Self::take_query(query_vec, index).unwrap();
-                let ind16: u16 = index.try_into().unwrap();
-                let reply = Response {
-                    reply: answer,
-                    id: ind16,
-                };
+                let reply = Response { reply: answer };
                 _ = sender.send(Ok(reply));
             }
         }
@@ -649,8 +649,17 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
         // Note that insert may fail if there are too many
         // outstanding queires. First call insert before checking
         // send_keepalive.
-        // XXX
-        let index = Self::insert(req.sender, query_vec).unwrap();
+        let index = {
+            let res = Self::insert(req.sender, query_vec);
+            match res {
+                Err(_) => {
+                    // insert sends an error reply, so we can just
+                    // return here
+                    return;
+                }
+                Ok(index) => index,
+            }
+        };
 
         let ind16: u16 = index.try_into().unwrap();
 
@@ -721,16 +730,21 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
         sender: oneshot::Sender<ChanResp>,
         query_vec: &mut Queries,
     ) -> Result<usize, &'static str> {
-        let q = Some(sender);
-
         // Fail if there are to many entries already in this vector
         // We cannot have more than u16::MAX entries because the
         // index needs to fit in an u16. For efficiency we want to
         // keep the vector half empty. So we return a failure if
         // 2*count > u16::MAX
         if 2 * query_vec.count > u16::MAX.into() {
+            // We own sender. So we need to send the error reply here
+            _ = sender.send(Err(Arc::new(io::Error::new(
+                io::ErrorKind::Other,
+                ERR_TOO_MANY_QUERIES,
+            ))));
             return Err(ERR_TOO_MANY_QUERIES);
         }
+
+        let q = Some(sender);
 
         let vec_len = query_vec.vec.len();
 
@@ -816,6 +830,19 @@ impl<
         let msg = &query_msg.as_message();
         Ok(Query::new(msg, rx))
     }
+
+    /// Start a DNS request but do not check if the reply matches the request.
+    ///
+    /// This function is similar to [Self::query]. Not checking if the reply
+    /// match the request avoids having to keep the request around.
+    pub async fn query_no_check(
+        &self,
+        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    ) -> Result<QueryNoCheck, &'static str> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.query(tx, query_msg).await?;
+        Ok(QueryNoCheck::new(rx))
+    }
 }
 
 impl Query {
@@ -864,15 +891,60 @@ impl Query {
                 let resp = res.unwrap();
                 let msg = resp.reply;
 
-                let hdr = self.query_msg.header_mut();
-                hdr.set_id(resp.id);
-
-                if !msg.is_answer(&self.query_msg) {
+                if !is_answer_ignore_id(&msg, &self.query_msg) {
                     return Err(Arc::new(io::Error::new(
                         io::ErrorKind::Other,
                         "wrong answer",
                     )));
                 }
+                Ok(msg)
+            }
+            QueryState::Done => {
+                panic!("Already done");
+            }
+        }
+    }
+}
+
+impl QueryNoCheck {
+    /// Constructor for [Query], takes a DNS query and a receiver for the
+    /// reply.
+    fn new(receiver: oneshot::Receiver<ChanResp>) -> QueryNoCheck {
+        Self {
+            state: QueryState::Busy(receiver),
+        }
+    }
+
+    /// Get the result of a DNS query.
+    ///
+    /// This function returns the reply to a DNS query wrapped in a
+    /// [Result].
+    pub async fn get_result(
+        &mut self,
+    ) -> Result<Message<Bytes>, Arc<std::io::Error>> {
+        match self.state {
+            QueryState::Busy(ref mut receiver) => {
+                let res = receiver.await;
+                self.state = QueryState::Done;
+                if res.is_err() {
+                    // Assume receive error
+                    return Err(Arc::new(io::Error::new(
+                        io::ErrorKind::Other,
+                        "receive error",
+                    )));
+                }
+                let res = res.unwrap();
+
+                // clippy seems to be wrong here. Replacing
+                // the following with 'res?;' doesn't work
+                #[allow(clippy::question_mark)]
+                if let Err(err) = res {
+                    return Err(err);
+                }
+
+                let resp = res.unwrap();
+                let msg = resp.reply;
+
                 Ok(msg)
             }
             QueryState::Done => {
@@ -980,4 +1052,21 @@ fn add_tcp_keepalive<Octs: Clone + Composer + OctetsBuilder>(
     // section. We have to resort to .as_builder() which gives a
     // reference and then .clone()
     Ok(target.as_builder().clone())
+}
+
+/// Check if a DNS reply match the query. Ignore whether id fields match.
+fn is_answer_ignore_id<
+    Octs1: Octets + AsRef<[u8]>,
+    Octs2: Octets + AsRef<[u8]>,
+>(
+    reply: &Message<Octs1>,
+    query: &Message<Octs2>,
+) -> bool {
+    if !reply.header().qr()
+        || reply.header_counts().qdcount() != query.header_counts().qdcount()
+    {
+        false
+    } else {
+        reply.question() == query.question()
+    }
 }
