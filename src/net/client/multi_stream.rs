@@ -193,9 +193,8 @@ pub struct Query<Octs: OctetsBuilder + Debug> {
     /// id of most recent connection.
     conn_id: u64,
 
-    /// Number of retries without delay.
-    imm_retry_count: u16,
-
+    // /// Number of retries without delay.
+    // imm_retry_count: u16,
     /// Number of retries with delay.
     delayed_retry_count: u64,
 }
@@ -531,7 +530,7 @@ impl<
             query_msg: query_msg.clone(),
             state: QueryState::GetConn(receiver),
             conn_id: 0,
-            imm_retry_count: 0,
+            //imm_retry_count: 0,
             delayed_retry_count: 0,
         }
     }
