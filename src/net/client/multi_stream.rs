@@ -224,6 +224,8 @@ impl<
     ///
     /// This function Gets called by [Connection::run].
     /// This function is not async cancellation safe
+    #[rustfmt::skip]
+
     pub async fn run<
         'a,
         F: ConnFactory<IO> + Send,
@@ -316,66 +318,75 @@ impl<
 
                 loop {
                     tokio::select! {
-                    res_conn = stream_fut.as_mut() => {
-                        do_stream = false;
-                        stream_fut = Box::pin(factory_nop());
+                        res_conn = stream_fut.as_mut() => {
+                            do_stream = false;
+                            stream_fut = Box::pin(factory_nop());
 
-                        if let Err(error) = res_conn {
-                        let error = Arc::new(error);
-                        match state.conn_state {
-                                SingleConnState::None =>
-                                    state.conn_state =
-                            SingleConnState::Err(ErrorState {
-                            error: error.clone(),
-                            retries: 0,
-                            timer: Instant::now(),
-                            timeout: retry_time(0),
-                            }),
-                                SingleConnState::Some(_) =>
-                                    panic!("Illegal Some state"),
-                                SingleConnState::Err(error_state) => {
-                                    state.conn_state =
-                                    SingleConnState::Err(ErrorState {
-                            error: error_state.error.clone(),
-                            retries: error_state.retries+1,
-                            timer: Instant::now(),
-                            timeout: retry_time(
-                            error_state.retries+1),
-
-                        });
+                            if let Err(error) = res_conn {
+                                let error = Arc::new(error);
+                                match state.conn_state {
+                                    SingleConnState::None =>
+                                        state.conn_state =
+                                        SingleConnState::Err(ErrorState {
+                                            error: error.clone(),
+                                            retries: 0,
+                                            timer: Instant::now(),
+                                            timeout: retry_time(0),
+                                        }),
+                                    SingleConnState::Some(_) =>
+                                        panic!("Illegal Some state"),
+                                    SingleConnState::Err(error_state) => {
+                                        state.conn_state =
+                                        SingleConnState::Err(ErrorState {
+                                            error: error_state.error.clone(),
+                                            retries: error_state.retries+1,
+                                            timer: Instant::now(),
+                                            timeout: retry_time(
+                                            error_state.retries+1),
+                                        });
+                                    }
                                 }
+
+                                let resp = ChanResp::Err(error);
+                                let loc_opt_chan = opt_chan.take();
+
+                                // Ignore errors. We don't care if the receiver
+                                // is gone
+                                _ = loc_opt_chan.expect("weird, no channel?")
+                                    .send(resp);
+                                break;
+                            }
+
+                            let stream = res_conn
+                                .expect("error case is checked before");
+                            let conn = SingleConnection::new()
+                                .expect(
+                                "the connect implementation cannot fail");
+                            let conn_run = conn.clone();
+
+                            let clo = || async move {
+                                conn_run.run(stream).await
+                            };
+                            let fut = clo();
+                            state.runners.push(Box::pin(fut));
+
+                            let resp = ChanResp::Ok(ChanRespOk {
+                                id: state.conn_id,
+                                conn: conn.clone(),
+                            });
+                            state.conn_state = SingleConnState::Some(conn);
+
+                            let loc_opt_chan = opt_chan.take();
+
+                            // Ignore errors. We don't care if the receiver
+                            // is gone
+                            _ = loc_opt_chan.expect("weird, no channel?")
+                                .send(resp);
+                            break;
                         }
-
-                        let resp = ChanResp::Err(error);
-                        let loc_opt_chan = opt_chan.take();
-
-                        // Ignore errors. We don't care if the receiver
-                        // is gone
-                        _ = loc_opt_chan.unwrap().send(resp);
-                        break;
-                        }
-
-                        let stream = res_conn.unwrap();
-                        let conn = SingleConnection::new().unwrap();
-                        let conn_run = conn.clone();
-
-                        let clo = || async move { conn_run.run(stream).await };
-                        let fut = clo();
-                        state.runners.push(Box::pin(fut));
-
-                        let resp = ChanResp::Ok(ChanRespOk { id: state.conn_id, conn: conn.clone(), });
-                        state.conn_state = SingleConnState::Some(conn);
-
-                        let loc_opt_chan = opt_chan.take();
-
-                        // Ignore errors. We don't care if the receiver
-                        // is gone
-                        _ = loc_opt_chan.unwrap().send(resp);
-                        break;
+                        _ = state.runners.next(), if !runners_empty => {
+                            }
                     }
-                    _ = state.runners.next(), if !runners_empty => {
-                        }
-                        }
                 }
                 continue;
             }
@@ -384,15 +395,15 @@ impl<
             let recv_fut = receiver.recv();
             let runners_empty = state.runners.is_empty();
             tokio::select! {
-            msg = recv_fut => {
-                if msg.is_none() {
-                panic!("recv failed");
+                msg = recv_fut => {
+                    if msg.is_none() {
+                        panic!("recv failed");
+                    }
+                    curr_cmd = Some(msg.expect("None is checked before").cmd);
                 }
-                curr_cmd = Some(msg.unwrap().cmd);
+                _ = state.runners.next(), if !runners_empty => {
+                    }
             }
-            _ = state.runners.next(), if !runners_empty => {
-                }
-                }
         }
 
         // Avoid new queries
@@ -554,7 +565,7 @@ impl<
                             "receive error",
                         )));
                     }
-                    let res = res.unwrap();
+                    let res = res.expect("error is checked before");
 
                     // Another Result. This time from executing the request
                     match res {
@@ -619,13 +630,11 @@ impl<
                         continue;
                     }
 
-                    let msg = reply.unwrap();
+                    let msg = reply.expect("error is checked before");
                     let query_msg_ref: &[u8] = self.query_msg.as_ref();
                     let query_msg_vec = query_msg_ref.to_vec();
-                    let mut query_msg =
-                        Message::from_octets(query_msg_vec).unwrap();
-                    let hdr = query_msg.header_mut();
-                    hdr.set_id(msg.header().id());
+                    let query_msg = Message::from_octets(query_msg_vec)
+                        .expect("how to go from MessageBuild to Message?");
 
                     if !is_answer_ignore_id(&msg, &query_msg) {
                         return Err(Arc::new(io::Error::new(
