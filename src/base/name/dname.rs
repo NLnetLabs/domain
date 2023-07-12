@@ -152,7 +152,9 @@ impl<Octs> Dname<Octs> {
             + AsMut<[u8]>,
         C: IntoIterator<Item = char>,
     {
-        Self::from_symbols(Symbols::new(chars.into_iter()))
+        Symbols::with(chars.into_iter(), |symbols| {
+            Self::from_symbols(symbols)
+        })
     }
 
     /// Reads a name in presentation format from the beginning of a scanner.

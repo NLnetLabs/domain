@@ -3,7 +3,7 @@
 //! This is a private module for tidiness. `DnameBuilder` and `PushError`
 //! are re-exported by the parent module.
 
-use super::super::scan::{Symbol, Symbols};
+use super::super::scan::{Symbol, SymbolCharsError, Symbols};
 use super::dname::Dname;
 use super::relative::{RelativeDname, RelativeDnameError};
 use super::traits::{ToDname, ToRelativeDname};
@@ -335,7 +335,9 @@ where
         &mut self,
         chars: C,
     ) -> Result<(), FromStrError> {
-        self.append_symbols(Symbols::new(chars.into_iter()))
+        Symbols::with(chars.into_iter(), |symbols| {
+            self.append_symbols(symbols)
+        })
     }
 
     /// Finishes building the name and returns the resulting relative name.
@@ -658,6 +660,17 @@ impl From<LabelFromStrError> for FromStrError {
             LabelFromStrError::IllegalCharacter(ch) => {
                 FromStrError::IllegalCharacter(ch)
             }
+        }
+    }
+}
+
+impl From<SymbolCharsError> for FromStrError {
+    fn from(err: SymbolCharsError) -> FromStrError {
+        use crate::base::scan::SymbolCharsEnum;
+
+        match err.0 {
+            SymbolCharsEnum::BadEscape => Self::IllegalEscape,
+            SymbolCharsEnum::ShortInput => Self::UnexpectedEnd,
         }
     }
 }
