@@ -184,7 +184,7 @@ where
         Ok(())
     }
 
-    /// Pushes a symbold to the end of the domain name.
+    /// Pushes a symbol to the end of the domain name.
     ///
     /// The symbol is iterpreted as part of the presentation format of a
     /// domain name, i.e., an unescaped dot is considered a label separator.
