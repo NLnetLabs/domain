@@ -6,7 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-use crate::base::name::{Dname, FlattenInto, ParsedDname, ToDname};
+use crate::base::name::{FlattenInto, ParsedDname, ToDname};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
@@ -2386,6 +2386,7 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 mod test {
     use super::*;
     use crate::base::iana::Rtype;
+    use crate::base::name::Dname;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };
