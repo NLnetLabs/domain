@@ -6,7 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Rtype, TsigRcode};
-use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
+use crate::base::name::{FlattenInto, ParsedDname, ToDname};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData
 };
@@ -14,7 +14,7 @@ use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use crate::utils::base64;
 use core::cmp::Ordering;
 use core::{fmt, hash};
-use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder};
+use octseq::builder::OctetsBuilder;
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 #[cfg(feature = "std")]
@@ -261,37 +261,23 @@ impl<O, N> Tsig<O, N> {
             )
         })
     }
-}
 
-impl<Octs, NOcts> Tsig<Octs, ParsedDname<NOcts>> {
-    pub fn flatten_into<Target>(
+    pub(super) fn flatten<TOcts, TName>(
         self,
-    ) -> Result<Tsig<Target, Dname<Target>>, PushError>
+    ) -> Result<Tsig<TOcts, TName>, TOcts::Error>
     where
-        NOcts: Octets,
-        Target: OctetsFrom<Octs>,
-        Target: for<'a> OctetsFrom<NOcts::Range<'a>> + FromBuilder,
-        <Target as FromBuilder>::Builder: EmptyBuilder,
+        TOcts: OctetsFrom<O>,
+        N: FlattenInto<TName, AppendError = TOcts::Error>,
     {
-        let Self {
-            algorithm,
-            time_signed,
-            fudge,
-            mac,
-            original_id,
-            error,
-            other,
-        } = self;
-
         Ok(unsafe {
             Tsig::new_unchecked(
-                algorithm.flatten_into()?,
-                time_signed,
-                fudge,
-                mac.try_octets_into().map_err(Into::into)?,
-                original_id,
-                error,
-                other.try_octets_into().map_err(Into::into)?,
+                self.algorithm.try_flatten_into()?,
+                self.time_signed,
+                self.fudge,
+                self.mac.try_octets_into()?,
+                self.original_id,
+                self.error,
+                self.other.try_octets_into()?,
             )
         })
     }
@@ -318,7 +304,7 @@ impl<Octs> Tsig<Octs, ParsedDname<Octs>> {
     }
 }
 
-//--- OctetsFrom
+//--- OctetsFrom and FlattenInto
 
 impl<Octs, SrcOctets, Name, SrcName> OctetsFrom<Tsig<SrcOctets, SrcName>>
     for Tsig<Octs, Name>
@@ -345,6 +331,22 @@ where
         })
     }
 }
+
+impl<Octs, TOcts, Name, TName> FlattenInto<Tsig<TOcts, TName>>
+    for Tsig<Octs, Name>
+where
+    TOcts: OctetsFrom<Octs>,
+    Name: FlattenInto<TName, AppendError = TOcts::Error>
+{
+    type AppendError = TOcts::Error;
+
+    fn try_flatten_into(
+        self
+    ) -> Result<Tsig<TOcts, TName>, Self::AppendError > {
+        self.flatten()
+    }
+}
+
 
 //--- PartialEq and Eq
 
@@ -665,10 +667,6 @@ impl Time48 {
     pub fn eq_fudged(self, other: Self, fudge: u64) -> bool {
         self.0.saturating_sub(fudge) <= other.0
             && self.0.saturating_add(fudge) >= other.0
-    }
-
-    pub fn flatten_into(self) -> Result<Self, PushError> {
-        Ok(self)
     }
 
     pub fn parse<Octs: AsRef<[u8]> + ?Sized>(

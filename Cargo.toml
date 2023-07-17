@@ -17,7 +17,7 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-octseq         = "0.2"
+octseq         = { git = "https://github.com/NLnetLabs/octseq.git", branch = "append-error-alias" }
 time           = "0.3.1"
 
 rand           = { version = "0.8", optional = true }

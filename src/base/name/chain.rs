@@ -6,10 +6,13 @@
 use super::super::scan::Scanner;
 use super::label::Label;
 use super::relative::DnameIter;
-use super::traits::{ToDname, ToLabelIter, ToRelativeDname};
+use super::traits::{FlattenInto, ToDname, ToLabelIter, ToRelativeDname};
 use super::uncertain::UncertainDname;
 use super::Dname;
 use core::{fmt, iter};
+use octseq::builder::{
+    BuilderAppendError, EmptyBuilder, FreezeBuilder, FromBuilder,
+};
 
 //------------ Chain ---------------------------------------------------------
 
@@ -169,6 +172,30 @@ where
     Octets: AsRef<[u8]>,
     R: ToDname,
 {
+}
+
+//--- FlattenInto
+
+impl<L, R, Target> FlattenInto<Dname<Target>> for Chain<L, R>
+where
+    L: ToRelativeDname,
+    R: ToDname,
+    R: FlattenInto<Dname<Target>, AppendError = BuilderAppendError<Target>>,
+    Target: FromBuilder,
+    <Target as FromBuilder>::Builder: EmptyBuilder,
+{
+    type AppendError = BuilderAppendError<Target>;
+
+    fn try_flatten_into(self) -> Result<Dname<Target>, Self::AppendError> {
+        if self.left.is_empty() {
+            self.right.try_flatten_into()
+        } else {
+            let mut builder =
+                Target::Builder::with_capacity(self.compose_len().into());
+            self.compose(&mut builder)?;
+            Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
+        }
+    }
 }
 
 //--- Display
