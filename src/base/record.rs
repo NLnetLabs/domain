@@ -17,7 +17,7 @@
 
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
-use super::name::{ParsedDname, ToDname};
+use super::name::{FlattenInto, ParsedDname, ToDname};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
 use core::cmp::Ordering;
@@ -242,7 +242,7 @@ impl<N, D> From<(N, u32, D)> for Record<N, D> {
     }
 }
 
-//--- OctetsFrom
+//--- OctetsFrom and FlattenInto
 //
 // XXX We don’t have blanket FromOctets for a type T into itself, so this may
 //     not always work as expected. Not sure what we can do about it?
@@ -265,6 +265,26 @@ where
             ttl: source.ttl,
             data: Data::try_octets_from(source.data)?,
         })
+    }
+}
+
+impl<Name, TName, Data, TData> FlattenInto<Record<TName, TData>>
+    for Record<Name, Data>
+where
+    Name: FlattenInto<TName>,
+    Data: FlattenInto<TData, AppendError = Name::AppendError>,
+{
+    type AppendError = Name::AppendError;
+
+    fn try_flatten_into(
+        self,
+    ) -> Result<Record<TName, TData>, Name::AppendError> {
+        Ok(Record::new(
+            self.owner.try_flatten_into()?,
+            self.class,
+            self.ttl,
+            self.data.try_flatten_into()?,
+        ))
     }
 }
 
