@@ -436,7 +436,7 @@ impl<'a, T: ComposeRecord> ComposeRecord for &'a T {
 impl<Name, Data> ComposeRecord for Record<Name, Data>
 where
     Name: ToDname,
-    Data: ComposeRecordData,
+    Data: RecordData + ComposeRecordData,
 {
     fn compose_record<Target: Composer + ?Sized>(
         &self,
@@ -449,7 +449,7 @@ where
 impl<Name, Data> ComposeRecord for (Name, Class, u32, Data)
 where
     Name: ToDname,
-    Data: ComposeRecordData,
+    Data: RecordData + ComposeRecordData,
 {
     fn compose_record<Target: Composer + ?Sized>(
         &self,
@@ -463,7 +463,7 @@ where
 impl<Name, Data> ComposeRecord for (Name, Class, Ttl, Data)
 where
     Name: ToDname,
-    Data: ComposeRecordData,
+    Data: RecordData + ComposeRecordData,
 {
     fn compose_record<Target: Composer + ?Sized>(
         &self,
@@ -476,7 +476,7 @@ where
 impl<Name, Data> ComposeRecord for (Name, u32, Data)
 where
     Name: ToDname,
-    Data: ComposeRecordData,
+    Data: RecordData + ComposeRecordData,
 {
     fn compose_record<Target: Composer + ?Sized>(
         &self,
@@ -490,7 +490,7 @@ where
 impl<Name, Data> ComposeRecord for (Name, Ttl, Data)
 where
     Name: ToDname,
-    Data: ComposeRecordData,
+    Data: RecordData + ComposeRecordData,
 {
     fn compose_record<Target: Composer + ?Sized>(
         &self,

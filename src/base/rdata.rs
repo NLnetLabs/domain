@@ -55,7 +55,7 @@ impl<'a, T: RecordData> RecordData for &'a T {
 //----------- ComposeRecordData ----------------------------------------------
 
 /// A type of record data that can be composed.
-pub trait ComposeRecordData: RecordData {
+pub trait ComposeRecordData {
     /// Returns the length of the record data if available.
     ///
     /// The method should return `None`, if the length is not known or is not
