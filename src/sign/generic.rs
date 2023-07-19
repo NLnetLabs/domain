@@ -85,6 +85,7 @@ pub trait Rrfamily {
         })
     }
 
+    #[allow(clippy::type_complexity)]
     fn ds<K: SigningKey>(
         &self,
         ttl: Ttl,
