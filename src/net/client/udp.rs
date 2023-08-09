@@ -8,14 +8,19 @@
 // - random port
 
 use bytes::Bytes;
+use std::boxed::Box;
+use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout, Duration, Instant};
 
 use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
+use crate::net::client::error::Error;
+use crate::net::client::query::{GetResult, QueryMessage};
 
 /// How many times do we try a new random port if we get ‘address in use.’
 const RETRY_RANDOM_PORT: usize = 10;
@@ -47,16 +52,29 @@ impl Connection {
     }
 
     /// Start a new DNS query.
-    pub async fn query<Octs: AsRef<[u8]> + Clone>(
+    async fn query_impl<Octs: AsRef<[u8]> + Clone>(
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<Query<Octs>, &'static str> {
+    ) -> Result<Query<Octs>, Error> {
         self.inner.query(query_msg, self.clone()).await
     }
 
     /// Get a permit from the semaphore to start using a socket.
     async fn get_permit(&self) -> OwnedSemaphorePermit {
         self.inner.get_permit().await
+    }
+}
+
+impl<Octs: AsRef<[u8]> + Clone> QueryMessage<Query<Octs>, Octs>
+    for Connection
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a mut MessageBuilder<
+            StaticCompressor<StreamTarget<Octs>>,
+        >,
+    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + '_>> {
+        return Box::pin(self.query_impl(query_msg));
     }
 }
 
@@ -119,9 +137,7 @@ impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
     /// Get the result of a DNS Query.
     ///
     /// This function is cancel safe.
-    pub async fn get_result(
-        &mut self,
-    ) -> Result<Message<Bytes>, Arc<std::io::Error>> {
+    async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
         let recv_size = 2000; // Should be configurable.
 
         loop {
@@ -146,7 +162,8 @@ impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
                         .as_ref()
                         .expect("socket should be present")
                         .connect(self.remote_addr)
-                        .await?;
+                        .await
+                        .map_err(|e| Error::UdpConnect(Arc::new(e)))?;
                     self.state = QueryState::Send;
                     continue;
                 }
@@ -161,7 +178,8 @@ impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
                                 .as_target()
                                 .as_dgram_slice(),
                         )
-                        .await?;
+                        .await
+                        .map_err(|e| Error::UdpSend(Arc::new(e)))?;
                     if sent
                         != self
                             .query_msg
@@ -170,10 +188,7 @@ impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
                             .as_dgram_slice()
                             .len()
                     {
-                        return Err(Arc::new(io::Error::new(
-                            io::ErrorKind::Other,
-                            "short UDP send",
-                        )));
+                        return Err(Error::UdpShortSend);
                     }
                     self.state = QueryState::Receive(Instant::now());
                     continue;
@@ -201,13 +216,11 @@ impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
                             self.state = QueryState::GetSocket;
                             continue;
                         }
-                        return Err(Arc::new(io::Error::new(
-                            io::ErrorKind::Other,
-                            "no response",
-                        )));
+                        return Err(Error::UdpTimeoutNoResponse);
                     }
-                    let len =
-                        timeout_res.expect("errror case is checked above")?;
+                    let len = timeout_res
+                        .expect("errror case is checked above")
+                        .map_err(|e| Error::UdpReceive(Arc::new(e)))?;
                     buf.truncate(len);
 
                     // We ignore garbage since there is a timer on this whole thing.
@@ -230,7 +243,7 @@ impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
     ///
     /// This should explicitly pick a random number in a suitable range of
     /// ports.
-    async fn udp_bind(v4: bool) -> Result<UdpSocket, io::Error> {
+    async fn udp_bind(v4: bool) -> Result<UdpSocket, Error> {
         let mut i = 0;
         loop {
             let local: SocketAddr = if v4 {
@@ -242,13 +255,22 @@ impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
                 Ok(sock) => return Ok(sock),
                 Err(err) => {
                     if i == RETRY_RANDOM_PORT {
-                        return Err(err);
+                        return Err(Error::UdpBind(Arc::new(err)));
                     } else {
                         i += 1
                     }
                 }
             }
         }
+    }
+}
+
+impl<Octs: AsRef<[u8]> + Clone> GetResult for Query<Octs> {
+    fn get_result(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + '_>>
+    {
+        Box::pin(self.get_result_impl())
     }
 }
 
@@ -275,7 +297,7 @@ impl InnerConnection {
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
         conn: Connection,
-    ) -> Result<Query<Octs>, &'static str> {
+    ) -> Result<Query<Octs>, Error> {
         Ok(Query::new(query_msg, self.remote_addr, conn))
     }
 

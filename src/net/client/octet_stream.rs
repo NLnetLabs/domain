@@ -29,7 +29,10 @@ use bytes;
 use bytes::{Bytes, BytesMut};
 use core::convert::From;
 use futures::lock::Mutex as Futures_mutex;
+use std::boxed::Box;
 use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
@@ -40,6 +43,8 @@ use crate::base::{
     Message, MessageBuilder, ParsedDname, Rtype, StaticCompressor,
     StreamTarget,
 };
+use crate::net::client::error::Error;
+use crate::net::client::query::{GetResult, QueryMessage};
 use crate::rdata::AllRecordData;
 use octseq::{Octets, OctetsBuilder};
 
@@ -47,9 +52,6 @@ use tokio::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
-
-/// Error returned when too many queries are currently active.
-const ERR_TOO_MANY_QUERIES: &str = "too many outstanding queries";
 
 /// Time to wait on a non-idle connection for the other side to send
 /// a response on any outstanding query.
@@ -68,10 +70,6 @@ const DEF_CHAN_CAP: usize = 8;
 /// Capacity of a private channel between [InnerConnection::reader] and
 /// [InnerConnection::run].
 const READ_REPLY_CHAN_CAP: usize = 8;
-
-/// Error reported when the connection is closed and
-/// [InnerConnection::run] terminated.
-const ERR_CONN_CLOSED: &str = "connection closed";
 
 /// This is the type of sender in [ChanReq].
 type ReplySender = oneshot::Sender<ChanResp>;
@@ -93,7 +91,7 @@ struct Response {
     reply: Message<Bytes>,
 }
 /// Response to the DNS request sent by [InnerConnection::run] to [Query].
-type ChanResp = Result<Response, Arc<std::io::Error>>;
+type ChanResp = Result<Response, Error>;
 
 /// The actual implementation of [Connection].
 #[derive(Debug)]
@@ -205,13 +203,13 @@ enum ConnState {
     IdleTimeout,
 
     /// A read error occurred.
-    ReadError,
+    ReadError(Error),
 
     /// It took too long to receive a (or another) response.
     ReadTimeout,
 
     /// A write error occurred.
-    WriteError,
+    WriteError(Error),
 }
 
 /// A DNS message received to [InnerConnection::reader] and sent to
@@ -274,11 +272,10 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
                     if let Some(instant) = opt_instant {
                         let elapsed = instant.elapsed();
                         if elapsed > RESPONSE_TIMEOUT {
-                            let error = io::Error::new(
-                                io::ErrorKind::Other,
-                                "read timeout",
+                            Self::error(
+                                Error::StreamReadTimeout,
+                                &mut query_vec,
                             );
-                            Self::error(error, &mut query_vec);
                             status.state = ConnState::ReadTimeout;
                             break;
                         }
@@ -302,8 +299,8 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
                     }
                 }
                 ConnState::IdleTimeout
-                | ConnState::ReadError
-                | ConnState::WriteError => None, // No timers here
+                | ConnState::ReadError(_)
+                | ConnState::WriteError(_) => None, // No timers here
                 ConnState::ReadTimeout => {
                     panic!("should not be in loop with ReadTimeout");
                 }
@@ -343,10 +340,10 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
                             // error.
                             panic!("reader terminated"),
                         Err(error) => {
-                            Self::error(error,
+                            Self::error(error.clone(),
                                 &mut query_vec);
                             status.state =
-                                ConnState::ReadError;
+                                ConnState::ReadError(error);
                             // Reader failed. Break
                             // out of loop and
                             // shut down
@@ -369,10 +366,10 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
                 res = write_stream.write_all(msg),
                     if do_write => {
                     if let Err(error) = res {
-                        Self::error(error,
-                            &mut query_vec);
+            let error = Error::StreamWriteError(Arc::new(error));
+                        Self::error(error.clone(), &mut query_vec);
                         status.state =
-                            ConnState::WriteError;
+                            ConnState::WriteError(error);
                         break;
                     }
                     else {
@@ -400,9 +397,9 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
                     // Keep going
                 }
                 ConnState::IdleTimeout => break,
-                ConnState::ReadError
+                ConnState::ReadError(_)
                 | ConnState::ReadTimeout
-                | ConnState::WriteError => {
+                | ConnState::WriteError(_) => {
                     panic!("Should not be here");
                 }
             }
@@ -419,7 +416,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
         &self,
         sender: oneshot::Sender<ChanResp>,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), Error> {
         // We should figure out how to get query_msg.
         let msg_clone = query_msg.clone();
 
@@ -432,7 +429,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
             // Send error. The receiver is gone, this means that the
             // connection is closed.
             {
-                Err(ERR_CONN_CLOSED)
+                Err(Error::ConnectionClosed)
             }
             Ok(_) => Ok(()),
         }
@@ -450,13 +447,13 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
         //sock: &mut ReadStream,
         mut sock: ReadStream,
         sender: mpsc::Sender<ReaderChanReply>,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), Error> {
         loop {
             let read_res = sock.read_u16().await;
             let len = match read_res {
                 Ok(len) => len,
                 Err(error) => {
-                    return Err(error);
+                    return Err(Error::StreamReadError(Arc::new(error)));
                 }
             } as usize;
 
@@ -479,15 +476,11 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
                 match read_res {
                     Ok(readlen) => {
                         if readlen == 0 {
-                            let error = io::Error::new(
-                                io::ErrorKind::Other,
-                                "unexpected end of data",
-                            );
-                            return Err(error);
+                            return Err(Error::StreamUnexpectedEndOfData);
                         }
                     }
                     Err(error) => {
-                        return Err(error);
+                        return Err(Error::StreamReadError(Arc::new(error)));
                     }
                 };
 
@@ -504,24 +497,21 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
                 }
                 Err(_) => {
                     // The only possible error is short message
-                    let error =
-                        io::Error::new(io::ErrorKind::Other, "short buf");
-                    return Err(error);
+                    return Err(Error::ShortMessage);
                 }
             }
         }
     }
 
     /// An error occured, report the error to all outstanding [Query] objects.
-    fn error(error: std::io::Error, query_vec: &mut Queries) {
+    fn error(error: Error, query_vec: &mut Queries) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
-        let arc_error = Arc::new(error);
         for index in 0..query_vec.vec.len() {
             if query_vec.vec[index].is_some() {
                 let sender = Self::take_query(query_vec, index)
                     .expect("we tested is_none before");
-                _ = sender.send(Err(arc_error.clone()));
+                _ = sender.send(Err(error.clone()));
             }
         }
     }
@@ -604,7 +594,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
         reqmsg: &mut Option<Vec<u8>>,
         query_vec: &mut Queries,
     ) {
-        match status.state {
+        match &status.state {
             ConnState::Active(timer) => {
                 // Set timer if we don't have one already
                 if timer.is_none() {
@@ -617,31 +607,19 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
             }
             ConnState::IdleTimeout => {
                 // The connection has been closed. Report error
-                _ = req.sender.send(Err(Arc::new(io::Error::new(
-                    io::ErrorKind::Other,
-                    "idle timeout",
-                ))));
+                _ = req.sender.send(Err(Error::StreamIdleTimeout));
                 return;
             }
-            ConnState::ReadError => {
-                _ = req.sender.send(Err(Arc::new(io::Error::new(
-                    io::ErrorKind::Other,
-                    "read error",
-                ))));
+            ConnState::ReadError(error) => {
+                _ = req.sender.send(Err(error.clone()));
                 return;
             }
             ConnState::ReadTimeout => {
-                _ = req.sender.send(Err(Arc::new(io::Error::new(
-                    io::ErrorKind::Other,
-                    "read timeout",
-                ))));
+                _ = req.sender.send(Err(Error::StreamReadTimeout));
                 return;
             }
-            ConnState::WriteError => {
-                _ = req.sender.send(Err(Arc::new(io::Error::new(
-                    io::ErrorKind::Other,
-                    "write error",
-                ))));
+            ConnState::WriteError(error) => {
+                _ = req.sender.send(Err(error.clone()));
                 return;
             }
         }
@@ -729,7 +707,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     fn insert(
         sender: oneshot::Sender<ChanResp>,
         query_vec: &mut Queries,
-    ) -> Result<usize, &'static str> {
+    ) -> Result<usize, Error> {
         // Fail if there are to many entries already in this vector
         // We cannot have more than u16::MAX entries because the
         // index needs to fit in an u16. For efficiency we want to
@@ -737,11 +715,9 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
         // 2*count > u16::MAX
         if 2 * query_vec.count > u16::MAX.into() {
             // We own sender. So we need to send the error reply here
-            _ = sender.send(Err(Arc::new(io::Error::new(
-                io::ErrorKind::Other,
-                ERR_TOO_MANY_QUERIES,
-            ))));
-            return Err(ERR_TOO_MANY_QUERIES);
+            let error = Error::StreamTooManyOutstandingQueries;
+            _ = sender.send(Err(error.clone()));
+            return Err(error);
         }
 
         let q = Some(sender);
@@ -821,10 +797,10 @@ impl<
     ///
     /// This function takes a precomposed message as a parameter and
     /// returns a [Query] object wrapped in a [Result].
-    pub async fn query(
+    async fn query_impl(
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<Query, &'static str> {
+    ) -> Result<Query, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.query(tx, query_msg).await?;
         let msg = &query_msg.as_message();
@@ -838,10 +814,24 @@ impl<
     pub async fn query_no_check(
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<QueryNoCheck, &'static str> {
+    ) -> Result<QueryNoCheck, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.query(tx, query_msg).await?;
         Ok(QueryNoCheck::new(rx))
+    }
+}
+
+impl<
+        Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Composer + Debug + OctetsBuilder,
+    > QueryMessage<Query, Octs> for Connection<Octs>
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a mut MessageBuilder<
+            StaticCompressor<StreamTarget<Octs>>,
+        >,
+    ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + '_>> {
+        return Box::pin(self.query_impl(query_msg));
     }
 }
 
@@ -865,19 +855,14 @@ impl Query {
     ///
     /// This function returns the reply to a DNS query wrapped in a
     /// [Result].
-    pub async fn get_result(
-        &mut self,
-    ) -> Result<Message<Bytes>, Arc<std::io::Error>> {
+    pub async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
         match self.state {
             QueryState::Busy(ref mut receiver) => {
                 let res = receiver.await;
                 self.state = QueryState::Done;
                 if res.is_err() {
                     // Assume receive error
-                    return Err(Arc::new(io::Error::new(
-                        io::ErrorKind::Other,
-                        "receive error",
-                    )));
+                    return Err(Error::StreamReceiveError);
                 }
                 let res = res.unwrap();
 
@@ -892,10 +877,7 @@ impl Query {
                 let msg = resp.reply;
 
                 if !is_answer_ignore_id(&msg, &self.query_msg) {
-                    return Err(Arc::new(io::Error::new(
-                        io::ErrorKind::Other,
-                        "wrong answer",
-                    )));
+                    return Err(Error::WrongReplyForQuery);
                 }
                 Ok(msg)
             }
@@ -903,6 +885,15 @@ impl Query {
                 panic!("Already done");
             }
         }
+    }
+}
+
+impl GetResult for Query {
+    fn get_result(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + '_>>
+    {
+        Box::pin(self.get_result_impl())
     }
 }
 
@@ -919,19 +910,14 @@ impl QueryNoCheck {
     ///
     /// This function returns the reply to a DNS query wrapped in a
     /// [Result].
-    pub async fn get_result(
-        &mut self,
-    ) -> Result<Message<Bytes>, Arc<std::io::Error>> {
+    pub async fn get_result(&mut self) -> Result<Message<Bytes>, Error> {
         match self.state {
             QueryState::Busy(ref mut receiver) => {
                 let res = receiver.await;
                 self.state = QueryState::Done;
                 if res.is_err() {
                     // Assume receive error
-                    return Err(Arc::new(io::Error::new(
-                        io::ErrorKind::Other,
-                        "receive error",
-                    )));
+                    return Err(Error::StreamReceiveError);
                 }
                 let res = res.unwrap();
 

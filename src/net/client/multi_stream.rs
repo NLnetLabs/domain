@@ -3,6 +3,9 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
+// To do:
+// - too many connection errors
+
 use bytes::Bytes;
 
 use futures::lock::Mutex as Futures_mutex;
@@ -28,9 +31,11 @@ use tokio::time::{sleep_until, Instant};
 
 use crate::base::wire::Composer;
 use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
+use crate::net::client::error::Error;
 use crate::net::client::factory::ConnFactory;
 use crate::net::client::octet_stream::Connection as SingleConnection;
 use crate::net::client::octet_stream::QueryNoCheck as SingleQuery;
+use crate::net::client::query::{GetResult, QueryMessage};
 
 /// Capacity of the channel that transports [ChanReq].
 const DEF_CHAN_CAP: usize = 8;
@@ -423,7 +428,7 @@ impl<
         &self,
         opt_id: Option<u64>,
         sender: oneshot::Sender<ChanResp<Octs>>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), Error> {
         let req = ChanReq {
             cmd: ReqCmd::NewConn(opt_id, sender),
         };
@@ -432,7 +437,7 @@ impl<
             // Send error. The receiver is gone, this means that the
             // connection is closed.
             {
-                Err(ERR_CONN_CLOSED)
+                Err(Error::ConnectionClosed)
             }
             Ok(_) => Ok(()),
         }
@@ -494,10 +499,10 @@ impl<
     ///
     /// This function takes a precomposed message as a parameter and
     /// returns a [Query] object wrapped in a [Result].
-    pub async fn query(
+    pub async fn query_impl(
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<Query<Octs>, &'static str> {
+    ) -> Result<Query<Octs>, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.new_conn(None, tx).await?;
         Ok(Query::new(self.clone(), query_msg, rx))
@@ -513,8 +518,21 @@ impl<
         &self,
         id: u64,
         tx: oneshot::Sender<ChanResp<Octs>>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), Error> {
         self.inner.new_conn(Some(id), tx).await
+    }
+}
+
+impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
+    QueryMessage<Query<Octs>, Octs> for Connection<Octs>
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a mut MessageBuilder<
+            StaticCompressor<StreamTarget<Octs>>,
+        >,
+    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + '_>> {
+        return Box::pin(self.query_impl(query_msg));
     }
 }
 
@@ -550,9 +568,7 @@ impl<
     ///
     /// This function returns the reply to a DNS query wrapped in a
     /// [Result].
-    pub async fn get_result(
-        &mut self,
-    ) -> Result<Message<Bytes>, Arc<std::io::Error>> {
+    pub async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
         loop {
             match self.state {
                 QueryState::GetConn(ref mut receiver) => {
@@ -560,10 +576,7 @@ impl<
                     if res.is_err() {
                         // Assume receive error
                         self.state = QueryState::Done;
-                        return Err(Arc::new(io::Error::new(
-                            io::ErrorKind::Other,
-                            "receive error",
-                        )));
+                        return Err(Error::StreamReceiveError);
                     }
                     let res = res.expect("error is checked before");
 
@@ -592,7 +605,7 @@ impl<
                     let query_res = conn.query_no_check(&mut msg).await;
                     match query_res {
                         Err(err) => {
-                            if err == ERR_CONN_CLOSED {
+                            if let Error::ConnectionClosed = err {
                                 let (tx, rx) = oneshot::channel();
                                 let res = self
                                     .conn
@@ -600,18 +613,12 @@ impl<
                                     .await;
                                 if let Err(err) = res {
                                     self.state = QueryState::Done;
-                                    return Err(Arc::new(io::Error::new(
-                                        io::ErrorKind::Other,
-                                        err,
-                                    )));
+                                    return Err(err);
                                 }
                                 self.state = QueryState::GetConn(rx);
                                 continue;
                             }
-                            return Err(Arc::new(io::Error::new(
-                                io::ErrorKind::Other,
-                                err,
-                            )));
+                            return Err(err);
                         }
                         Ok(query) => {
                             self.state = QueryState::GetResult(query);
@@ -637,10 +644,7 @@ impl<
                         .expect("how to go from MessageBuild to Message?");
 
                     if !is_answer_ignore_id(&msg, &query_msg) {
-                        return Err(Arc::new(io::Error::new(
-                            io::ErrorKind::Other,
-                            "wrong answer",
-                        )));
+                        return Err(Error::WrongReplyForQuery);
                     }
                     return Ok(msg);
                 }
@@ -650,10 +654,7 @@ impl<
                     let res = self.conn.new_conn(self.conn_id, tx).await;
                     if let Err(err) = res {
                         self.state = QueryState::Done;
-                        return Err(Arc::new(io::Error::new(
-                            io::ErrorKind::Other,
-                            err,
-                        )));
+                        return Err(err);
                     }
                     self.state = QueryState::GetConn(rx);
                     continue;
@@ -663,6 +664,25 @@ impl<
                 }
             }
         }
+    }
+}
+
+impl<
+        Octs: AsMut<[u8]>
+            + AsRef<[u8]>
+            + Clone
+            + Composer
+            + Debug
+            + OctetsBuilder
+            + Send
+            + 'static,
+    > GetResult for Query<Octs>
+{
+    fn get_result(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + '_>>
+    {
+        Box::pin(self.get_result_impl())
     }
 }
 

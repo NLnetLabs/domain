@@ -8,14 +8,19 @@
 
 use bytes::Bytes;
 use octseq::OctetsBuilder;
+use std::boxed::Box;
 use std::fmt::Debug;
+use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::base::wire::Composer;
 use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
+use crate::net::client::error::Error;
 use crate::net::client::multi_stream;
+use crate::net::client::query::{GetResult, QueryMessage};
 use crate::net::client::tcp_factory::TcpConnFactory;
 use crate::net::client::udp;
 
@@ -44,11 +49,24 @@ impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
     }
 
     /// Start a query.
-    pub async fn query(
+    pub async fn query_impl(
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<Query<Octs>, &'static str> {
+    ) -> Result<Query<Octs>, Error> {
         self.inner.query(query_msg).await
+    }
+}
+
+impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
+    QueryMessage<Query<Octs>, Octs> for Connection<Octs>
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a mut MessageBuilder<
+            StaticCompressor<StreamTarget<Octs>>,
+        >,
+    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + '_>> {
+        return Box::pin(self.query_impl(query_msg));
     }
 }
 
@@ -112,19 +130,14 @@ impl<
     /// Get the result of a DNS query.
     ///
     /// This function is cancel safe.
-    pub async fn get_result(
-        &mut self,
-    ) -> Result<Message<Bytes>, Arc<std::io::Error>> {
+    async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
         loop {
             match &mut self.state {
                 QueryState::StartUdpQuery => {
                     let query = self
                         .udp_conn
                         .query(&mut self.query_msg.clone())
-                        .await
-                        .map_err(|e| {
-                            io::Error::new(io::ErrorKind::Other, e)
-                        })?;
+                        .await?;
                     self.state = QueryState::GetUdpResult(query);
                     continue;
                 }
@@ -140,10 +153,7 @@ impl<
                     let query = self
                         .tcp_conn
                         .query(&mut self.query_msg.clone())
-                        .await
-                        .map_err(|e| {
-                            io::Error::new(io::ErrorKind::Other, e)
-                        })?;
+                        .await?;
                     self.state = QueryState::GetTcpResult(query);
                     continue;
                 }
@@ -153,6 +163,25 @@ impl<
                 }
             }
         }
+    }
+}
+
+impl<
+        Octs: AsMut<[u8]>
+            + AsRef<[u8]>
+            + Clone
+            + Composer
+            + Debug
+            + OctetsBuilder
+            + Send
+            + 'static,
+    > GetResult for Query<Octs>
+{
+    fn get_result(
+        &mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + '_>>
+    {
+        Box::pin(self.get_result_impl())
     }
 }
 
@@ -201,7 +230,7 @@ impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
     async fn query(
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<Query<Octs>, &'static str> {
+    ) -> Result<Query<Octs>, Error> {
         Ok(Query::new(
             query_msg,
             self.udp_conn.clone(),
