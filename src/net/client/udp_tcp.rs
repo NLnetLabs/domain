@@ -65,7 +65,7 @@ impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
         query_msg: &'a mut MessageBuilder<
             StaticCompressor<StreamTarget<Octs>>,
         >,
-    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>> {
         return Box::pin(self.query_impl(query_msg));
     }
 }
@@ -134,9 +134,10 @@ impl<
         loop {
             match &mut self.state {
                 QueryState::StartUdpQuery => {
+		    let mut msg = self.query_msg.clone();
                     let query = self
                         .udp_conn
-                        .query(&mut self.query_msg.clone())
+                        .query(&mut msg)
                         .await?;
                     self.state = QueryState::GetUdpResult(query);
                     continue;
@@ -150,9 +151,10 @@ impl<
                     return Ok(reply);
                 }
                 QueryState::StartTcpQuery => {
+		    let mut msg = self.query_msg.clone();
                     let query = self
                         .tcp_conn
-                        .query(&mut self.query_msg.clone())
+                        .query(&mut msg)
                         .await?;
                     self.state = QueryState::GetTcpResult(query);
                     continue;
@@ -179,7 +181,7 @@ impl<
 {
     fn get_result(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + '_>>
+    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>>
     {
         Box::pin(self.get_result_impl())
     }

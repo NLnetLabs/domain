@@ -531,7 +531,7 @@ impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
         query_msg: &'a mut MessageBuilder<
             StaticCompressor<StreamTarget<Octs>>,
         >,
-    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>> {
         return Box::pin(self.query_impl(query_msg));
     }
 }
@@ -680,7 +680,7 @@ impl<
 {
     fn get_result(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + '_>>
+    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>>
     {
         Box::pin(self.get_result_impl())
     }

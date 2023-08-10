@@ -22,7 +22,7 @@ pub trait QueryMessage<GR: GetResult, Octs> {
         query_msg: &'a mut MessageBuilder<
             StaticCompressor<StreamTarget<Octs>>,
         >,
-    ) -> Pin<Box<dyn Future<Output = Result<GR, Error>> + '_>>;
+    ) -> Pin<Box<dyn Future<Output = Result<GR, Error>> + Send + '_>>;
 }
 
 /// Trait for getting the result of a DNS query.
@@ -32,5 +32,5 @@ pub trait GetResult {
     /// This function is intended to be cancel safe.
     fn get_result(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + '_>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>>;
 }

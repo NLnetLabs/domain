@@ -52,7 +52,7 @@ impl Connection {
     }
 
     /// Start a new DNS query.
-    async fn query_impl<Octs: AsRef<[u8]> + Clone>(
+    async fn query_impl<Octs: AsRef<[u8]> + Clone + Send>(
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
     ) -> Result<Query<Octs>, Error> {
@@ -65,7 +65,7 @@ impl Connection {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone> QueryMessage<Query<Octs>, Octs>
+impl<Octs: AsRef<[u8]> + Clone + Send> QueryMessage<Query<Octs>, Octs>
     for Connection
 {
     fn query<'a>(
@@ -73,7 +73,7 @@ impl<Octs: AsRef<[u8]> + Clone> QueryMessage<Query<Octs>, Octs>
         query_msg: &'a mut MessageBuilder<
             StaticCompressor<StreamTarget<Octs>>,
         >,
-    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>> {
         return Box::pin(self.query_impl(query_msg));
     }
 }
@@ -117,7 +117,7 @@ pub struct Query<Octs> {
     state: QueryState,
 }
 
-impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
+impl<Octs: AsRef<[u8]> + Clone + Send> Query<Octs> {
     /// Create new Query object.
     fn new(
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
@@ -168,16 +168,12 @@ impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
                     continue;
                 }
                 QueryState::Send => {
+		    let dgram = self.query_msg .as_target() .as_target() .as_dgram_slice();
                     let sent = self
                         .sock
                         .as_ref()
                         .expect("socket should be present")
-                        .send(
-                            self.query_msg
-                                .as_target()
-                                .as_target()
-                                .as_dgram_slice(),
-                        )
+                        .send( dgram)
                         .await
                         .map_err(|e| Error::UdpSend(Arc::new(e)))?;
                     if sent
@@ -265,10 +261,10 @@ impl<Octs: AsRef<[u8]> + Clone> Query<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone> GetResult for Query<Octs> {
+impl<Octs: AsRef<[u8]> + Clone + Send> GetResult for Query<Octs> {
     fn get_result(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + '_>>
+    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>>
     {
         Box::pin(self.get_result_impl())
     }
@@ -293,7 +289,7 @@ impl InnerConnection {
     }
 
     /// Return a Query object that contains the query state.
-    async fn query<Octs: AsRef<[u8]> + Clone>(
+    async fn query<Octs: AsRef<[u8]> + Clone + Send>(
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
         conn: Connection,
