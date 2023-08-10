@@ -73,7 +73,8 @@ impl<Octs: AsRef<[u8]> + Clone + Send> QueryMessage<Query<Octs>, Octs>
         query_msg: &'a mut MessageBuilder<
             StaticCompressor<StreamTarget<Octs>>,
         >,
-    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>>
+    {
         return Box::pin(self.query_impl(query_msg));
     }
 }
@@ -168,12 +169,16 @@ impl<Octs: AsRef<[u8]> + Clone + Send> Query<Octs> {
                     continue;
                 }
                 QueryState::Send => {
-		    let dgram = self.query_msg .as_target() .as_target() .as_dgram_slice();
+                    let dgram = self
+                        .query_msg
+                        .as_target()
+                        .as_target()
+                        .as_dgram_slice();
                     let sent = self
                         .sock
                         .as_ref()
                         .expect("socket should be present")
-                        .send( dgram)
+                        .send(dgram)
                         .await
                         .map_err(|e| Error::UdpSend(Arc::new(e)))?;
                     if sent
@@ -264,8 +269,9 @@ impl<Octs: AsRef<[u8]> + Clone + Send> Query<Octs> {
 impl<Octs: AsRef<[u8]> + Clone + Send> GetResult for Query<Octs> {
     fn get_result(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>>
-    {
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+    > {
         Box::pin(self.get_result_impl())
     }
 }

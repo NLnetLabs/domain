@@ -32,5 +32,7 @@ pub trait GetResult {
     /// This function is intended to be cancel safe.
     fn get_result(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>>;
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+    >;
 }

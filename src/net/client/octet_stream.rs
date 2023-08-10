@@ -769,7 +769,13 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
 }
 
 impl<
-        Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Composer + Debug + OctetsBuilder + Send,
+        Octs: AsMut<[u8]>
+            + AsRef<[u8]>
+            + Clone
+            + Composer
+            + Debug
+            + OctetsBuilder
+            + Send,
     > Connection<Octs>
 {
     /// Constructor for [Connection].
@@ -822,7 +828,13 @@ impl<
 }
 
 impl<
-        Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Composer + Debug + OctetsBuilder + Send,
+        Octs: AsMut<[u8]>
+            + AsRef<[u8]>
+            + Clone
+            + Composer
+            + Debug
+            + OctetsBuilder
+            + Send,
     > QueryMessage<Query, Octs> for Connection<Octs>
 {
     fn query<'a>(
@@ -891,8 +903,9 @@ impl Query {
 impl GetResult for Query {
     fn get_result(
         &mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>>
-    {
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+    > {
         Box::pin(self.get_result_impl())
     }
 }
