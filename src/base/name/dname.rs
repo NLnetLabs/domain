@@ -13,7 +13,7 @@ use super::traits::{ToDname, ToLabelIter};
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
-use core::{cmp, fmt, hash, str};
+use core::{borrow, cmp, fmt, hash, str};
 use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, Truncate};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
@@ -832,6 +832,27 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Dname<Octs> {
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Dname<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Dname({}.)", self)
+    }
+}
+
+//--- Borrow
+
+/// Containers holding `Dname<Vec<u8>>` may be queried either by `Dname<Vec<u8>>` or borrowed
+/// forms. This `Borrow` impl supports user code querying containers with compatible-but-different
+/// types like the following example:
+/// ```
+/// use std::collections::HashMap;
+///
+/// use domain::base::Dname;
+///
+/// fn get_description(hash: &HashMap<Dname<Vec<u8>>, String>) -> Option<&str> {
+///     let lookup_name: &Dname<[u8]> = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+///     hash.get(lookup_name).map(|x| x.as_ref())
+/// }
+/// ```
+impl<Octs: AsRef<[u8]>> borrow::Borrow<Dname<[u8]>> for Dname<Octs> {
+    fn borrow(&self) -> &Dname<[u8]> {
+        self.for_slice()
     }
 }
 
