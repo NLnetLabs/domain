@@ -164,6 +164,17 @@ impl Dname<[u8]> {
 
     /// Creates a domain name from an octets slice.
     ///
+    /// Note that the input must be in wire format, as shown below.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::name::Dname;
+    /// Dname::from_slice(b"\x07example\x03com");
+    /// ```
+    ///
+    /// # Errors
+    ///
     /// This will only succeed if `slice` contains a properly encoded
     /// absolute domain name.
     pub fn from_slice(slice: &[u8]) -> Result<&Self, DnameError> {

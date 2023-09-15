@@ -109,7 +109,7 @@
 #![allow(clippy::uninlined_format_args)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-#[cfg(any(feature = "std"))]
+#[cfg(feature = "std")]
 #[allow(unused_imports)] // Import macros even if unused.
 #[macro_use]
 extern crate std;

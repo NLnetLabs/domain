@@ -758,10 +758,7 @@ impl<'a, Octs: Octets + ?Sized> QuestionSection<'a, Octs> {
 
 impl<'a, Octs: ?Sized> Clone for QuestionSection<'a, Octs> {
     fn clone(&self) -> Self {
-        QuestionSection {
-            parser: self.parser,
-            count: self.count,
-        }
+        *self
     }
 }
 
@@ -986,11 +983,7 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
 
 impl<'a, Octs: ?Sized> Clone for RecordSection<'a, Octs> {
     fn clone(&self) -> Self {
-        RecordSection {
-            parser: self.parser,
-            section: self.section,
-            count: self.count,
-        }
+        *self
     }
 }
 
