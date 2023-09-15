@@ -1494,20 +1494,23 @@ mod test {
     #[cfg(feature = "bytes")]
     fn ds_octets_into() {
         use super::*;
-        use bytes::Bytes;
-        use octseq::octets::OctetsInto;
         use crate::base::iana::{DigestAlg, SecAlg};
         use crate::base::name::Dname;
         use crate::rdata::Ds;
+        use bytes::Bytes;
+        use octseq::octets::OctetsInto;
 
         let ds: Record<Dname<&[u8]>, Ds<&[u8]>> = Record::new(
             Dname::from_octets(b"\x01a\x07example\0".as_ref()).unwrap(),
             Class::In,
             Ttl::from_secs(86400),
             Ds::new(
-                12, SecAlg::RsaSha256, DigestAlg::Sha256,
+                12,
+                SecAlg::RsaSha256,
+                DigestAlg::Sha256,
                 b"something".as_ref(),
-            ).unwrap(),
+            )
+            .unwrap(),
         );
         let ds_bytes: Record<Dname<Bytes>, Ds<Bytes>> =
             ds.clone().octets_into();
