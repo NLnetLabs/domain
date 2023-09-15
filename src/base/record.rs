@@ -1491,22 +1491,27 @@ impl Into<Duration> for Ttl {
 #[cfg(test)]
 mod test {
     #[test]
-    #[cfg(features = "bytes")]
+    #[cfg(feature = "bytes")]
     fn ds_octets_into() {
-        use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-        use crate::name::Dname;
-        use crate::octets::OctetsInto;
+        use super::*;
+        use bytes::Bytes;
+        use octseq::octets::OctetsInto;
+        use crate::base::iana::{DigestAlg, SecAlg};
+        use crate::base::name::Dname;
         use crate::rdata::Ds;
 
         let ds: Record<Dname<&[u8]>, Ds<&[u8]>> = Record::new(
-            "a.example".parse().unwrap(),
+            Dname::from_octets(b"\x01a\x07example\0".as_ref()).unwrap(),
             Class::In,
-            86400,
-            Ds::new(12, SecAlg::RsaSha256, b"something"),
+            Ttl::from_secs(86400),
+            Ds::new(
+                12, SecAlg::RsaSha256, DigestAlg::Sha256,
+                b"something".as_ref(),
+            ).unwrap(),
         );
         let ds_bytes: Record<Dname<Bytes>, Ds<Bytes>> =
-            ds.octets_into().unwrap();
+            ds.clone().octets_into();
         assert_eq!(ds.owner(), ds_bytes.owner());
-        asswer_eq!(ds.data().digest(), ds_bytes.data().digest());
+        assert_eq!(ds.data().digest(), ds_bytes.data().digest());
     }
 }
