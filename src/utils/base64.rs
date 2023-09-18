@@ -343,7 +343,7 @@ impl SymbolConverter {
         &mut self,
         ch: char,
     ) -> Result<Option<&[u8]>, Error> {
-        if self.next == 0xF0 {
+        if self.next == EOF_MARKER {
             return Err(Error::custom("trailing Base 64 data"));
         }
 
@@ -352,7 +352,7 @@ impl SymbolConverter {
             if self.next < 2 {
                 return Err(Error::custom("illegal Base 64 data"));
             }
-            0x80 // Acts as a marker later on.
+            PAD_MARKER // Acts as a marker later on.
         } else {
             if ch > (127 as char) {
                 return Err(Error::custom("illegal Base 64 data"));
@@ -369,11 +369,11 @@ impl SymbolConverter {
         if self.next == 4 {
             self.output[0] = self.input[0] << 2 | self.input[1] >> 4;
 
-            if self.input[2] == 0x80 {
+            if self.input[2] == PAD_MARKER {
                 // The second to last character is padding. The last one
                 // needs to be, too.
-                if self.input[3] == 0x80 {
-                    self.next = 0xF0;
+                if self.input[3] == PAD_MARKER {
+                    self.next = EOF_MARKER;
                     Ok(Some(&self.output[..1]))
                 } else {
                     Err(Error::custom("illegal Base 64 data"))
@@ -381,9 +381,9 @@ impl SymbolConverter {
             } else {
                 self.output[1] = self.input[1] << 4 | self.input[2] >> 2;
 
-                if self.input[3] == 0x80 {
+                if self.input[3] == PAD_MARKER {
                     // The last characters is padding.
-                    self.next = 0xF0;
+                    self.next = EOF_MARKER;
                     Ok(Some(&self.output[..2]))
                 } else {
                     self.output[2] = (self.input[2] << 6) | self.input[3];
@@ -509,6 +509,12 @@ const ENCODE_ALPHABET: [char; 64] = [
 
 /// The padding character
 const PAD: char = '=';
+
+/// The marker for padding.
+const PAD_MARKER: u8 = 0x80;
+
+/// The marker for complete data.
+const EOF_MARKER: usize = 0xF0;
 
 //============ Test ==========================================================
 
