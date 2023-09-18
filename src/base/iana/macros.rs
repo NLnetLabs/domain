@@ -133,7 +133,7 @@ macro_rules! int_enum {
             fn partial_cmp(
                 &self, other: &Self
             ) -> Option<core::cmp::Ordering> {
-                self.to_int().partial_cmp(&other.to_int())
+                Some(self.cmp(other))
             }
         }
 

@@ -6,9 +6,22 @@ Breaking changes
 
 New
 
-Bug fixes
+* Added a new method `FoundSrvs::into_srvs` that converts the value into an
+  iterator over the found SRV records without resolving them further.
+  ([#174], [#214]; this was added in 0.7.2 but missing in 0.8.0)
+* Added an impl of `Borrow<_>` for `Dname<_>`. ([#219] by [@iximeow}])
+
+Bug Fixes
+
+* Fix trait bounds on `FoundSrvs::into_stream` to make it usable again.
+  ([#174], [#214]; this was fixed in 0.7.2 but missing in 0.8.0)
 
 Other changes
+
+[#174]: https://github.com/NLnetLabs/domain/pull/174
+[#214]: https://github.com/NLnetLabs/domain/pull/214
+[#219]: https://github.com/NLnetLabs/domain/pull/219
+[@iximeow]: https://github.com/iximeow
 
 
 ## 0.8.0
@@ -127,6 +140,24 @@ New
 [Martin Fischer]: https://push-f.com/
 [@CrabNejonas]: https://github.com/CrabNejonas
 [octseq]: https://crates.io/crates/octseq
+
+
+## 0.7.2
+
+Released 2023-03-02
+
+New
+
+* Added a new method `FoundSrvs::into_srvs` that converts the value into an
+  iterator over the found SRV records without resolving them further.
+  ([#174])
+
+Bug Fixes
+
+* Fix trait bounds on `FoundSrvs::into_stream` to make it usable again.
+  ([#174])
+
+[#174]: https://github.com/NLnetLabs/domain/pull/174
 
 
 ## 0.7.1
