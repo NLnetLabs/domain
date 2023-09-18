@@ -276,7 +276,7 @@ impl cmp::Eq for Rcode {}
 
 impl cmp::PartialOrd for Rcode {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.to_int().partial_cmp(&other.to_int())
+        Some(self.cmp(other))
     }
 }
 
