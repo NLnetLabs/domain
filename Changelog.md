@@ -1,5 +1,16 @@
 # Change Log
 
+## Unreleased next version
+
+Breaking changes
+
+New
+
+Bug fixes
+
+Other changes
+
+
 ## 0.8.1
 
 Released 2023-09-18
