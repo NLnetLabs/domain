@@ -78,6 +78,7 @@ pub async fn lookup_srv(
 
 //------------ FoundSrvs -----------------------------------------------------
 
+/// This is the return type for [`lookup_srv`].
 #[derive(Clone, Debug)]
 pub struct FoundSrvs {
     /// The SRV items we found.
@@ -120,6 +121,11 @@ impl FoundSrvs {
     }
 
     /// Converts the value into an iterator over the found SRV records.
+    ///
+    /// If results were found, this returns them in the order prescribed by the SRV records.
+    ///
+    /// If not results were found, the iterator will yield a single entry with the bare host and
+    /// the default fallback port.
     pub fn into_srvs(self) -> impl Iterator<Item = Srv<Dname<OctetsVec>>> {
         let (left, right) = match self.items {
             Ok(ok) => (Some(ok.into_iter()), None),
@@ -355,6 +361,7 @@ impl ops::Deref for SrvItem {
 
 //------------ ResolvedSrvItems ----------------------------------------------
 
+/// An SRV record which has itself been resolved into a [`SocketAddr`].
 #[derive(Clone, Debug)]
 pub struct ResolvedSrvItem {
     srv: Srv<Dname<OctetsVec>>,
@@ -362,6 +369,7 @@ pub struct ResolvedSrvItem {
 }
 
 impl ResolvedSrvItem {
+    /// Returns the resolved address for this record.
     pub fn resolved(&self) -> &[SocketAddr] {
         &self.resolved
     }
