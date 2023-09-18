@@ -9,7 +9,8 @@ New
 * Added a new method `FoundSrvs::into_srvs` that converts the value into an
   iterator over the found SRV records without resolving them further.
   ([#174], [#214]; this was added in 0.7.2 but missing in 0.8.0)
-* Added an impl of `Borrow<_>` for `Dname<_>`. ([#219] by [@iximeow}])
+* Added impl of `Borrow<Dname<[u8]>>` and `AsRef<Dname<[u8]>>` for
+  `Dname<_>`. ([#219] by [@iximeow}], [#225])
 * Added `Dname::fmt_with_dot` that can be used when wanting to display a
   domain name with a dot at the end. ([#210])
 
@@ -28,6 +29,7 @@ Other changes
 [#212]: https://github.com/NLnetLabs/domain/pull/212
 [#214]: https://github.com/NLnetLabs/domain/pull/214
 [#219]: https://github.com/NLnetLabs/domain/pull/219
+[#225]: https://github.com/NLnetLabs/domain/pull/225
 [@iximeow]: https://github.com/iximeow
 
 
