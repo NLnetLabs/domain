@@ -654,7 +654,20 @@ impl<'a> Scanner for EntryScanner<'a> {
                     }
                 }
                 Some(true) => {
-                    // Last symbol was a dot: check length and continue.
+                    // Last symbol was a dot. If it is was the very first
+                    // symbol, this can only be the root name. Check for that
+                    // and, if so, return. Otherwise, check length and
+                    // continue to the next label.
+                    if write == 1 {
+                        if self.zonefile.buf.next_symbol()?.is_some() {
+                            return Err(EntryError::bad_dname());
+                        } else {
+                            self.zonefile.buf.next_item()?;
+                            return Ok(RelativeDname::empty()
+                                .chain(Dname::root())
+                                .expect("failed to make root name"));
+                        }
+                    }
                     if write > 254 {
                         return Err(EntryError::bad_dname());
                     }
@@ -1582,9 +1595,17 @@ mod test {
     }
 
     #[test]
-    fn test_data() {
+    fn test_basic_yaml() {
         TestCase::test(include_str!("../../test-data/zonefiles/basic.yaml"));
+    }
+
+    #[test]
+    fn test_escape_yaml() {
         TestCase::test(include_str!("../../test-data/zonefiles/escape.yaml"));
+    }
+
+    #[test]
+    fn test_unknown_yaml() {
         TestCase::test(include_str!(
             "../../test-data/zonefiles/unknown.yaml"
         ));

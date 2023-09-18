@@ -8,7 +8,10 @@ zonefile: |
     3600	IN	A	192.0.2.11
   www.example.com. A 192.0.2.12
   $ORIGIN example.com.
-  @ A 192.0.2.13
+  www A 192.0.2.13
+  @ A 192.0.2.14
+  . TXT foo
+  @ MX 0 .
 result:
   - owner: example.com.
     class: IN
@@ -36,9 +39,25 @@ result:
     ttl: 3600
     data: !A
       addr: 192.0.2.12
-  - owner: example.com.
+  - owner: www.example.com.
     class: IN
     ttl: 3600
     data: !A
       addr: 192.0.2.13
+  - owner: example.com.
+    class: IN
+    ttl: 3600
+    data: !A
+      addr: 192.0.2.14
+  - owner: .
+    class: IN
+    ttl: 3600
+    data: !Txt
+      - foo
+  - owner: example.com.
+    class: IN
+    ttl: 3600
+    data: !Mx
+      preference: 0
+      exchange: .
 

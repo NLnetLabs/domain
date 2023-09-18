@@ -9,6 +9,7 @@ New
 * Added a new method `FoundSrvs::into_srvs` that converts the value into an
   iterator over the found SRV records without resolving them further.
   ([#174], [#214]; this was added in 0.7.2 but missing in 0.8.0)
+* Added an impl of `Borrow<_>` for `Dname<_>`. ([#219] by [@iximeow}])
 
 Bug Fixes
 
@@ -19,6 +20,8 @@ Other changes
 
 [#174]: https://github.com/NLnetLabs/domain/pull/174
 [#214]: https://github.com/NLnetLabs/domain/pull/214
+[#219]: https://github.com/NLnetLabs/domain/pull/219
+[@iximeow]: https://github.com/iximeow
 
 
 ## 0.8.0
