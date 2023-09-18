@@ -881,18 +881,30 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Dname<Octs> {
     }
 }
 
-//--- Borrow
+//--- AsRef and Borrow
 
-/// Containers holding `Dname<Vec<u8>>` may be queried either by `Dname<Vec<u8>>` or borrowed
-/// forms. This `Borrow` impl supports user code querying containers with compatible-but-different
-/// types like the following example:
+impl<Octs: AsRef<[u8]>> AsRef<Dname<[u8]>> for Dname<Octs> {
+    fn as_ref(&self) -> &Dname<[u8]> {
+        self.for_slice()
+    }
+}
+
+/// Borrow a domain name.
+///
+/// Containers holding an owned `Dname<_>` may be queried with name over a
+/// slice. This `Borrow<_>` impl supports user code querying containers with
+/// compatible-but-different types like the following example:
+///
 /// ```
 /// use std::collections::HashMap;
 ///
 /// use domain::base::Dname;
 ///
-/// fn get_description(hash: &HashMap<Dname<Vec<u8>>, String>) -> Option<&str> {
-///     let lookup_name: &Dname<[u8]> = Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+/// fn get_description(
+///     hash: &HashMap<Dname<Vec<u8>>, String>
+/// ) -> Option<&str> {
+///     let lookup_name: &Dname<[u8]> =
+///         Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
 ///     hash.get(lookup_name).map(|x| x.as_ref())
 /// }
 /// ```
