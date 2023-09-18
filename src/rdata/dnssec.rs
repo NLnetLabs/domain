@@ -2437,10 +2437,10 @@ mod test {
 
     #[test]
     fn dnskey_compose_parse_scan() {
-        let rdata = Dnskey::new(10, 11, SecAlg::RsaSha1, b"key").unwrap();
+        let rdata = Dnskey::new(10, 11, SecAlg::RsaSha1, b"key0").unwrap();
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Dnskey::parse(parser));
-        test_scan(&["10", "11", "RSASHA1", "a2V5"], Dnskey::scan, &rdata);
+        test_scan(&["10", "11", "RSASHA1", "a2V5MA=="], Dnskey::scan, &rdata);
     }
 
     //--- Rrsig
