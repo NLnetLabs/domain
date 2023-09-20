@@ -48,15 +48,18 @@ pub struct A {
 
 impl A {
     /// Creates a new A record data from an IPv4 address.
+    #[must_use]
     pub fn new(addr: Ipv4Addr) -> A {
         A { addr }
     }
 
     /// Creates a new A record from the IPv4 address components.
+    #[must_use]
     pub fn from_octets(a: u8, b: u8, c: u8, d: u8) -> A {
         A::new(Ipv4Addr::new(a, b, c, d))
     }
 
+    #[must_use]
     pub fn addr(&self) -> Ipv4Addr {
         self.addr
     }
@@ -975,6 +978,7 @@ impl Null<[u8]> {
     /// # Safety
     ///
     /// The caller has to ensure that `data` is at most 65,535 octets long.
+    #[must_use]
     pub unsafe fn from_slice_unchecked(data: &[u8]) -> &Self {
         &*(data as *const [u8] as *const Self)
     }
@@ -2105,6 +2109,7 @@ pub struct TxtBuilder<Builder> {
 }
 
 impl<Builder: OctetsBuilder + EmptyBuilder> TxtBuilder<Builder> {
+    #[must_use]
     pub fn new() -> Self {
         TxtBuilder {
             builder: Builder::empty(),
@@ -2220,6 +2225,7 @@ enum TxtErrorInner {
 }
 
 impl TxtError {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self.0 {
             TxtErrorInner::Long(err) => err.as_str(),

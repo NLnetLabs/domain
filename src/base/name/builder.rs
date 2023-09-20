@@ -58,6 +58,7 @@ impl<Builder> DnameBuilder<Builder> {
     }
 
     /// Creates a new, empty name builder.
+    #[must_use]
     pub fn new() -> Self
     where
         Builder: EmptyBuilder,
@@ -66,6 +67,7 @@ impl<Builder> DnameBuilder<Builder> {
     }
 
     /// Creates a new, empty builder with a given capacity.
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self
     where
         Builder: EmptyBuilder,
@@ -93,6 +95,7 @@ impl<Builder> DnameBuilder<Builder> {
 #[cfg(feature = "std")]
 impl DnameBuilder<Vec<u8>> {
     /// Creates an empty domain name builder atop a `Vec<u8>`.
+    #[must_use]
     pub fn new_vec() -> Self {
         Self::new()
     }
@@ -101,6 +104,7 @@ impl DnameBuilder<Vec<u8>> {
     ///
     /// Names are limited to a length of 255 octets, but you can provide any
     /// capacity you like here.
+    #[must_use]
     pub fn vec_with_capacity(capacity: usize) -> Self {
         Self::with_capacity(capacity)
     }

@@ -820,6 +820,7 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     ///
     /// The record data is provided via a parser that is positioned at the
     /// first byte of the record data.
+    #[must_use]
     pub fn new(
         header: RecordHeader<ParsedDname<&'a Octs>>,
         data: Parser<'a, Octs>,
@@ -828,26 +829,31 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     }
 
     /// Returns a reference to the owner of the record.
+    #[must_use]
     pub fn owner(&self) -> ParsedDname<&'a Octs> {
         *self.header.owner()
     }
 
     /// Returns the record type of the record.
+    #[must_use]
     pub fn rtype(&self) -> Rtype {
         self.header.rtype()
     }
 
     /// Returns the class of the record.
+    #[must_use]
     pub fn class(&self) -> Class {
         self.header.class()
     }
 
     /// Returns the TTL of the record.
+    #[must_use]
     pub fn ttl(&self) -> Ttl {
         self.header.ttl()
     }
 
     /// Returns the data length of the record.
+    #[must_use]
     pub fn rdlen(&self) -> u16 {
         self.header.rdlen()
     }

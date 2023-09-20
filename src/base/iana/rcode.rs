@@ -170,6 +170,7 @@ impl Rcode {
     /// Creates an rcode from an integer.
     ///
     /// Only the lower four bits of `value` are considered.
+    #[must_use]
     pub fn from_int(value: u8) -> Rcode {
         use self::Rcode::*;
 
@@ -190,6 +191,7 @@ impl Rcode {
     }
 
     /// Returns the integer value for this rcode.
+    #[must_use]
     pub fn to_int(self) -> u8 {
         use self::Rcode::*;
 
@@ -503,6 +505,7 @@ impl OptRcode {
     /// Creates an rcode from an integer.
     ///
     /// Only the lower twelve bits of `value` are considered.
+    #[must_use]
     pub fn from_int(value: u16) -> OptRcode {
         use self::OptRcode::*;
 
@@ -525,6 +528,7 @@ impl OptRcode {
     }
 
     /// Returns the integer value for this rcode.
+    #[must_use]
     pub fn to_int(self) -> u16 {
         use self::OptRcode::*;
 
@@ -547,22 +551,26 @@ impl OptRcode {
     }
 
     /// Creates an extended rcode value from its parts.
+    #[must_use]
     pub fn from_parts(rcode: Rcode, ext: u8) -> OptRcode {
         OptRcode::from_int(u16::from(ext) << 4 | u16::from(rcode.to_int()))
     }
 
     /// Returns the two parts of an extended rcode value.
+    #[must_use]
     pub fn to_parts(self) -> (Rcode, u8) {
         let res = self.to_int();
         (Rcode::from_int(res as u8), (res >> 8) as u8)
     }
 
     /// Returns the rcode part of the extended rcode.
+    #[must_use]
     pub fn rcode(self) -> Rcode {
         self.to_parts().0
     }
 
     /// Returns the extended octet of the extended rcode.
+    #[must_use]
     pub fn ext(self) -> u8 {
         self.to_parts().1
     }

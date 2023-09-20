@@ -73,6 +73,7 @@ impl<Octs> RelativeDname<Octs> {
     }
 
     /// Creates an empty relative domain name.
+    #[must_use]
     pub fn empty() -> Self
     where
         Octs: From<&'static [u8]>,
@@ -86,6 +87,7 @@ impl<Octs> RelativeDname<Octs> {
     /// rules for names with wildcard labels. Note that the comparison traits
     /// implemented for domain names do *not* consider wildcards and treat
     /// them as regular labels.
+    #[must_use]
     pub fn wildcard() -> Self
     where
         Octs: From<&'static [u8]>,
@@ -151,10 +153,12 @@ impl RelativeDname<[u8]> {
     }
 
     /// Returns an empty relative name atop a unsized slice.
+    #[must_use]
     pub fn empty_slice() -> &'static Self {
         unsafe { Self::from_slice_unchecked(b"") }
     }
 
+    #[must_use]
     pub fn wildcard_slice() -> &'static Self {
         unsafe { Self::from_slice_unchecked(b"\x01*") }
     }
@@ -179,11 +183,13 @@ impl RelativeDname<[u8]> {
 
 impl RelativeDname<&'static [u8]> {
     /// Creates an empty relative name atop a slice reference.
+    #[must_use]
     pub fn empty_ref() -> Self {
         Self::empty()
     }
 
     /// Creates a wildcard relative name atop a slice reference.
+    #[must_use]
     pub fn wildcard_ref() -> Self {
         Self::wildcard()
     }
@@ -192,11 +198,13 @@ impl RelativeDname<&'static [u8]> {
 #[cfg(feature = "std")]
 impl RelativeDname<Vec<u8>> {
     /// Creates an empty relative name atop a `Vec<u8>`.
+    #[must_use]
     pub fn empty_vec() -> Self {
         Self::empty()
     }
 
     /// Creates a wildcard relative name atop a `Vec<u8>`.
+    #[must_use]
     pub fn wildcard_vec() -> Self {
         Self::wildcard()
     }

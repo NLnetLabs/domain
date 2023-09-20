@@ -247,6 +247,7 @@ macro_rules! octets_wrapper {
             ///
             /// The caller has to ensure that `slice` contains a properly
             /// formated value of at most 65,535 octets.
+            #[must_use]
             pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
                 &*(slice as *const [u8] as *const Self)
             }
@@ -689,6 +690,7 @@ pub struct AlpnBuilder<Target> {
 
 impl<Target> AlpnBuilder<Target> {
     /// Creates a new, empty ALPN value builder.
+    #[must_use]
     pub fn empty() -> Self
     where
         Target: EmptyBuilder,
@@ -821,6 +823,7 @@ pub struct Port(u16);
 
 impl Port {
     /// Creates a new port value with the given port.
+    #[must_use]
     pub fn new(port: u16) -> Self {
         Port(port)
     }
@@ -833,6 +836,7 @@ impl Port {
     }
 
     /// Returns the port of this value.
+    #[must_use]
     pub fn port(self) -> u16 {
         self.0
     }
@@ -1639,7 +1643,7 @@ mod test {
         assert!(
             alpn.iter().eq(
                 [
-                    br#"f\oo,bar"#.as_ref(),
+                    br"f\oo,bar".as_ref(),
                     b"h2".as_ref(),
                 ].into_iter()
             )

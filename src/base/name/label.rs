@@ -65,11 +65,13 @@ impl Label {
     /// Returns a static reference to the root label.
     ///
     /// The root label is an empty label.
+    #[must_use]
     pub fn root() -> &'static Self {
         unsafe { Self::from_slice_unchecked(b"") }
     }
 
     /// Returns a static reference to the wildcard label `"*"`.
+    #[must_use]
     pub fn wildcard() -> &'static Self {
         unsafe { Self::from_slice_unchecked(b"*") }
     }
@@ -196,11 +198,13 @@ impl Label {
     /// # Panics
     ///
     /// Panics if `start` is beyond the end of `slice`.
+    #[must_use]
     pub fn iter_slice(slice: &[u8], start: usize) -> SliceLabelsIter {
         SliceLabelsIter { slice, start }
     }
 
     /// Returns a reference to the underlying octets slice.
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         unsafe { &*(self as *const Self as *const [u8]) }
     }
@@ -240,6 +244,7 @@ impl Label {
     /// Returns the label in canonical form.
     ///
     /// In this form, all ASCII letters are lowercase.
+    #[must_use]
     pub fn to_canonical(&self) -> OwnedLabel {
         let mut res = OwnedLabel::from_label(self);
         res.make_canonical();
@@ -247,6 +252,7 @@ impl Label {
     }
 
     /// Returns the composed label ordering.
+    #[must_use]
     pub fn composed_cmp(&self, other: &Self) -> cmp::Ordering {
         match self.0.len().cmp(&other.0.len()) {
             cmp::Ordering::Equal => {}
@@ -256,6 +262,7 @@ impl Label {
     }
 
     /// Returns the composed ordering with ASCII letters lowercased.
+    #[must_use]
     pub fn lowercase_composed_cmp(&self, other: &Self) -> cmp::Ordering {
         match self.0.len().cmp(&other.0.len()) {
             cmp::Ordering::Equal => {}
@@ -300,21 +307,25 @@ impl Label {
     ///
     /// This length is that of the label’s content only. It will _not_ contain
     /// the initial label length octet present in the wire format.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.as_slice().len()
     }
 
     /// Returns whether this is the empty label.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.as_slice().is_empty()
     }
 
     /// Returns whether the label is the root label.
+    #[must_use]
     pub fn is_root(&self) -> bool {
         self.is_empty()
     }
 
     /// Returns whether the label is the wildcard label.
+    #[must_use]
     pub fn is_wildcard(&self) -> bool {
         self.0.len() == 1 && self.0[0] == b'*'
     }
@@ -323,6 +334,7 @@ impl Label {
     ///
     /// This length is one more than the length of the label as their is a
     /// leading length octet.
+    #[must_use]
     pub fn compose_len(&self) -> u16 {
         u16::try_from(self.len()).expect("long label") + 1
     }
@@ -452,6 +464,7 @@ pub struct OwnedLabel([u8; 64]);
 
 impl OwnedLabel {
     /// Creates a new owned label from an existing label.
+    #[must_use]
     pub fn from_label(label: &Label) -> Self {
         let mut res = [0; 64];
         res[0] = label.len() as u8;
@@ -488,6 +501,7 @@ impl OwnedLabel {
     }
 
     /// Returns a reference to the label.
+    #[must_use]
     pub fn as_label(&self) -> &Label {
         unsafe {
             Label::from_slice_unchecked(&self.0[1..=(self.0[0] as usize)])
@@ -501,6 +515,7 @@ impl OwnedLabel {
     }
 
     /// Returns a slice that is the wire-representation of the label.
+    #[must_use]
     pub fn as_wire_slice(&self) -> &[u8] {
         let len = self.0[0] as usize;
         &self.0[..=len]

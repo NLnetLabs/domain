@@ -125,6 +125,7 @@ impl SvcParams<[u8]> {
     ///
     /// The caller has to ensure that `slice` contains a properly formatted
     /// parameter sequence.
+    #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         &*(slice as *const [u8] as *const Self)
     }
@@ -658,6 +659,7 @@ pub struct SvcParamsBuilder<Octs> {
 
 impl<Octs> SvcParamsBuilder<Octs> {
     /// Creates an empty parameter builder.
+    #[must_use]
     pub fn empty() -> Self
     where Octs: EmptyBuilder {
         Self { octets: Octs::empty() }
@@ -871,6 +873,7 @@ impl From<SvcParamsError> for ParseError {
 pub struct LongSvcParam(());
 
 impl LongSvcParam {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         "service parameter too long"
     }

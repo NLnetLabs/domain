@@ -53,6 +53,7 @@ pub struct Serial(pub u32);
 impl Serial {
     /// Returns a serial number for the current Unix time.
     #[cfg(feature = "std")]
+    #[must_use]
     pub fn now() -> Self {
         let now = SystemTime::now();
         let value = match now.duration_since(UNIX_EPOCH) {
@@ -63,11 +64,13 @@ impl Serial {
     }
 
     /// Creates a new serial number from its octets in big endian notation.
+    #[must_use]
     pub fn from_be_bytes(bytes: [u8; 4]) -> Self {
         Self(u32::from_be_bytes(bytes))
     }
 
     /// Returns the serial number as a raw integer.
+    #[must_use]
     pub fn into_int(self) -> u32 {
         self.0
     }
@@ -83,6 +86,7 @@ impl Serial {
     ///
     /// This method panics if `other` is greater than `2^31 - 1`.
     #[allow(clippy::should_implement_trait)]
+    #[must_use]
     pub fn add(self, other: u32) -> Self {
         assert!(other <= 0x7FFF_FFFF);
         Serial(self.0.wrapping_add(other))

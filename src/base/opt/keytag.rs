@@ -81,6 +81,7 @@ impl KeyTag<[u8]> {
     /// The caller needs to ensure that `slice` contains a valid key tag. The
     /// length needs to be an even number of octets and no longer than
     /// 65,536 octets.
+    #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         &*(slice as *const [u8] as *const Self)
     }

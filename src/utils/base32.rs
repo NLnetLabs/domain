@@ -238,6 +238,7 @@ pub struct Decoder<Builder> {
 
 impl<Builder: EmptyBuilder> Decoder<Builder> {
     /// Creates a new, empty decoder using the *base32hex* variant.
+    #[must_use]
     pub fn new_hex() -> Self {
         Decoder {
             alphabet: &DECODE_HEX_ALPHABET,
@@ -396,6 +397,7 @@ impl Default for SymbolConverter {
 
 impl SymbolConverter {
     /// Creates a new symbol converter.
+    #[must_use]
     pub fn new() -> Self {
         Default::default()
     }
