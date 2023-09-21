@@ -2,6 +2,11 @@
 #![cfg(feature = "net")]
 #![cfg_attr(docsrs, doc(cfg(feature = "net")))]
 
+//! # Example with various transport connections
+//! ```
+#![doc = include_str!("../../../examples/client-transports.rs")]
+//! ```
+
 pub mod error;
 pub mod factory;
 pub mod multi_stream;

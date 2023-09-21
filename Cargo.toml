@@ -90,10 +90,5 @@ name = "client"
 required-features = ["std", "rand"]
 
 [[example]]
-name = "tcp-client"
+name = "client-transports"
 required-features = ["net"]
-
-[[example]]
-name = "tls-client"
-required-features = ["net"]
-

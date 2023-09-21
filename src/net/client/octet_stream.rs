@@ -1,12 +1,4 @@
 //! A DNS over octet stream transport
-//! # Example with TCP connection to port 53
-//! ```
-#![doc = include_str!("../../../examples/tcp-client.rs")]
-//! ```
-//! # Example with TLS connection to port 853
-//! ```
-#![doc = include_str!("../../../examples/tls-client.rs")]
-//! ```
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
