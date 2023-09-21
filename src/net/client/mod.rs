@@ -7,6 +7,7 @@ pub mod factory;
 pub mod multi_stream;
 pub mod octet_stream;
 pub mod query;
+pub mod redundant;
 pub mod tcp_channel;
 pub mod tcp_factory;
 pub mod tcp_mutex;

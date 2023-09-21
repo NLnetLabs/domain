@@ -57,6 +57,9 @@ pub enum Error {
 
     /// Reply does not match the query.
     WrongReplyForQuery,
+
+    /// No transport available to transmit request.
+    NoTransportAvailable,
 }
 
 impl Display for Error {
@@ -98,6 +101,9 @@ impl Display for Error {
             Error::WrongReplyForQuery => {
                 write!(f, "reply does not match query")
             }
+            Error::NoTransportAvailable => {
+                write!(f, "no transport available")
+            }
         }
     }
 }
@@ -121,6 +127,7 @@ impl error::Error for Error {
             Error::UdpShortSend => None,
             Error::UdpTimeoutNoResponse => None,
             Error::WrongReplyForQuery => None,
+            Error::NoTransportAvailable => None,
         }
     }
 }
