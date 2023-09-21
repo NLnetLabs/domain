@@ -17,8 +17,10 @@ async fn main() {
     // Create DNS request message
     // Create a message builder wrapping a compressor wrapping a stream
     // target.
-    let mut msg =
-        MessageBuilder::from_target(StaticCompressor::new(StreamTarget::new_vec())).unwrap();
+    let mut msg = MessageBuilder::from_target(StaticCompressor::new(
+        StreamTarget::new_vec(),
+    ))
+    .unwrap();
     msg.header_mut().set_rd(true);
     let mut msg = msg.question();
     msg.push((Dname::<Vec<u8>>::vec_from_str("example.com").unwrap(), Aaaa))
@@ -70,13 +72,15 @@ async fn main() {
 
     // Some TLS boiler plate for the root certificates.
     let mut root_store = RootCertStore::empty();
-    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
+    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(
+        |ta| {
+            OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        },
+    ));
 
     // TLS config
     let client_config = Arc::new(
@@ -88,11 +92,13 @@ async fn main() {
 
     // Currently the only support TLS connections are the ones that have a
     // valid certificate. Use a well known public resolver.
-    let server_addr = SocketAddr::new(IpAddr::from_str("8.8.8.8").unwrap(), 853);
+    let server_addr =
+        SocketAddr::new(IpAddr::from_str("8.8.8.8").unwrap(), 853);
 
     // Create a new TLS connection factory. We pass the TLS config, the name of
     // the remote server and the destination address and port.
-    let tls_factory = TlsConnFactory::new(client_config, "dns.google", server_addr);
+    let tls_factory =
+        TlsConnFactory::new(client_config, "dns.google", server_addr);
 
     // Again create a multi_stream transport connection.
     let tls_conn = multi_stream::Connection::new().unwrap();
