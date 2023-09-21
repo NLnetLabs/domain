@@ -20,7 +20,7 @@ use crate::base::wire::Composer;
 use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
 use crate::net::client::error::Error;
 use crate::net::client::multi_stream;
-use crate::net::client::query::{GetResult, QueryMessage};
+use crate::net::client::query::{GetResult, QueryMessage, QueryMessage2};
 use crate::net::client::tcp_factory::TcpConnFactory;
 use crate::net::client::udp;
 
@@ -55,6 +55,15 @@ impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
     ) -> Result<Query<Octs>, Error> {
         self.inner.query(query_msg).await
     }
+
+    /// Start a query for the QueryMessage2 trait.
+    async fn query_impl2(
+        &self,
+        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    ) -> Result<Box<dyn GetResult + Send>, Error> {
+        let gr = self.inner.query(query_msg).await?;
+        Ok(Box::new(gr))
+    }
 }
 
 impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
@@ -71,7 +80,34 @@ impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
     }
 }
 
+impl<
+        Octs: AsRef<[u8]>
+            + Clone
+            + Composer
+            + Debug
+            + OctetsBuilder
+            + Send
+            + 'static,
+    > QueryMessage2<Octs> for Connection<Octs>
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a mut MessageBuilder<
+            StaticCompressor<StreamTarget<Octs>>,
+        >,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+                + Send
+                + '_,
+        >,
+    > {
+        return Box::pin(self.query_impl2(query_msg));
+    }
+}
+
 /// Object that contains the current state of a query.
+#[derive(Debug)]
 pub struct Query<Octs: Debug + OctetsBuilder> {
     /// Reqeust message.
     query_msg: MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
@@ -87,6 +123,7 @@ pub struct Query<Octs: Debug + OctetsBuilder> {
 }
 
 /// Status of the query.
+#[derive(Debug)]
 enum QueryState<Octs: Debug + OctetsBuilder> {
     /// Start a query over the UDP transport.
     StartUdpQuery,
@@ -136,7 +173,8 @@ impl<
             match &mut self.state {
                 QueryState::StartUdpQuery => {
                     let mut msg = self.query_msg.clone();
-                    let query = self.udp_conn.query(&mut msg).await?;
+                    let query =
+                        QueryMessage::query(&self.udp_conn, &mut msg).await?;
                     self.state = QueryState::GetUdpResult(query);
                     continue;
                 }
@@ -150,7 +188,8 @@ impl<
                 }
                 QueryState::StartTcpQuery => {
                     let mut msg = self.query_msg.clone();
-                    let query = self.tcp_conn.query(&mut msg).await?;
+                    let query =
+                        QueryMessage::query(&self.tcp_conn, &mut msg).await?;
                     self.state = QueryState::GetTcpResult(query);
                     continue;
                 }

@@ -9,6 +9,7 @@
 
 use bytes::Bytes;
 use std::boxed::Box;
+use std::fmt::Debug;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -20,7 +21,7 @@ use tokio::time::{timeout, Duration, Instant};
 
 use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
 use crate::net::client::error::Error;
-use crate::net::client::query::{GetResult, QueryMessage};
+use crate::net::client::query::{GetResult, QueryMessage, QueryMessage2};
 
 /// How many times do we try a new random port if we get ‘address in use.’
 const RETRY_RANDOM_PORT: usize = 10;
@@ -36,7 +37,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_RETRIES: u8 = 5;
 
 /// A UDP transport connection.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Connection {
     /// Reference to the actual connection object.
     inner: Arc<InnerConnection>,
@@ -59,13 +60,24 @@ impl Connection {
         self.inner.query(query_msg, self.clone()).await
     }
 
+    /// Start a new DNS query.
+    async fn query_impl2<
+        Octs: AsRef<[u8]> + Clone + Debug + Send + 'static,
+    >(
+        &self,
+        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    ) -> Result<Box<dyn GetResult + Send>, Error> {
+        let gr = self.inner.query(query_msg, self.clone()).await?;
+        Ok(Box::new(gr))
+    }
+
     /// Get a permit from the semaphore to start using a socket.
     async fn get_permit(&self) -> OwnedSemaphorePermit {
         self.inner.get_permit().await
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Send> QueryMessage<Query<Octs>, Octs>
+impl<Octs: AsRef<[u8]> + Clone + Debug + Send> QueryMessage<Query<Octs>, Octs>
     for Connection
 {
     fn query<'a>(
@@ -79,7 +91,27 @@ impl<Octs: AsRef<[u8]> + Clone + Send> QueryMessage<Query<Octs>, Octs>
     }
 }
 
+impl<Octs: AsRef<[u8]> + Clone + Debug + Send + 'static> QueryMessage2<Octs>
+    for Connection
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a mut MessageBuilder<
+            StaticCompressor<StreamTarget<Octs>>,
+        >,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+                + Send
+                + '_,
+        >,
+    > {
+        return Box::pin(self.query_impl2(query_msg));
+    }
+}
+
 /// State of the DNS query.
+#[derive(Debug)]
 enum QueryState {
     /// Get a semaphore permit.
     GetPermit(Connection),
@@ -98,6 +130,7 @@ enum QueryState {
 }
 
 /// The state of a DNS query.
+#[derive(Debug)]
 pub struct Query<Octs> {
     /// Address of remote server to connect to.
     remote_addr: SocketAddr,
@@ -266,7 +299,7 @@ impl<Octs: AsRef<[u8]> + Clone + Send> Query<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Send> GetResult for Query<Octs> {
+impl<Octs: AsRef<[u8]> + Clone + Debug + Send> GetResult for Query<Octs> {
     fn get_result(
         &mut self,
     ) -> Pin<
@@ -277,6 +310,7 @@ impl<Octs: AsRef<[u8]> + Clone + Send> GetResult for Query<Octs> {
 }
 
 /// Actual implementation of the UDP transport connection.
+#[derive(Debug)]
 struct InnerConnection {
     /// Address of the remote server.
     remote_addr: SocketAddr,

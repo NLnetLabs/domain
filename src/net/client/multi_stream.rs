@@ -35,7 +35,7 @@ use crate::net::client::error::Error;
 use crate::net::client::factory::ConnFactory;
 use crate::net::client::octet_stream::Connection as SingleConnection;
 use crate::net::client::octet_stream::QueryNoCheck as SingleQuery;
-use crate::net::client::query::{GetResult, QueryMessage};
+use crate::net::client::query::{GetResult, QueryMessage, QueryMessage2};
 
 /// Capacity of the channel that transports [ChanReq].
 const DEF_CHAN_CAP: usize = 8;
@@ -82,6 +82,7 @@ struct ChanReq<Octs: OctetsBuilder + Debug> {
 }
 
 /// The actual implementation of [Connection].
+#[derive(Debug)]
 struct InnerConnection<Octs: OctetsBuilder + Debug> {
     /// [InnerConnection::sender] and [InnerConnection::receiver] are
     /// part of a single channel.
@@ -98,7 +99,7 @@ struct InnerConnection<Octs: OctetsBuilder + Debug> {
     receiver: Futures_mutex<Option<mpsc::Receiver<ChanReq<Octs>>>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// A DNS over octect streams transport.
 pub struct Connection<Octs: OctetsBuilder + Debug> {
     /// Reference counted [InnerConnection].
@@ -106,6 +107,7 @@ pub struct Connection<Octs: OctetsBuilder + Debug> {
 }
 
 /// Status of a query. Used in [Query].
+#[derive(Debug)]
 enum QueryState<Octs: OctetsBuilder + Debug> {
     /// Get a octet_stream transport.
     GetConn(oneshot::Receiver<ChanResp<Octs>>),
@@ -180,6 +182,7 @@ struct State<'a, F, IO, Octs: OctetsBuilder> {
 }
 
 /// This struct represent an active DNS query.
+#[derive(Debug)]
 pub struct Query<Octs: OctetsBuilder + Debug> {
     /// Request message.
     ///
@@ -508,6 +511,20 @@ impl<
         Ok(Query::new(self.clone(), query_msg, rx))
     }
 
+    /// Start a DNS request.
+    ///
+    /// This function takes a precomposed message as a parameter and
+    /// returns a [Query] object wrapped in a [Result].
+    pub async fn query_impl2(
+        &self,
+        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    ) -> Result<Box<dyn GetResult + Send>, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.new_conn(None, tx).await?;
+        let gr = Query::new(self.clone(), query_msg, rx);
+        Ok(Box::new(gr))
+    }
+
     /// Shutdown this transport.
     pub async fn shutdown(&self) -> Result<(), &'static str> {
         self.inner.shutdown().await
@@ -534,6 +551,25 @@ impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
     ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>>
     {
         return Box::pin(self.query_impl(query_msg));
+    }
+}
+
+impl<Octs: Clone + Composer + Debug + OctetsBuilder + Send + 'static>
+    QueryMessage2<Octs> for Connection<Octs>
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a mut MessageBuilder<
+            StaticCompressor<StreamTarget<Octs>>,
+        >,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+                + Send
+                + '_,
+        >,
+    > {
+        return Box::pin(self.query_impl2(query_msg));
     }
 }
 
