@@ -6,9 +6,14 @@ Breaking changes
 
 New
 
+* Added support for the ZONEMD record type. ([#229] by @xofyarg)
+
 Bug fixes
 
 Other changes
+
+[#229]: https://github.com/NLnetLabs/domain/pull/229
+[@xofyarg]: https://github.com/xofyarg
 
 
 ## 0.8.1
