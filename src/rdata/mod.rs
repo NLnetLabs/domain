@@ -129,4 +129,9 @@ rdata_types! {
             Tsig<O, N>,
         }
     }
+    zonemd::{
+        zone {
+            Zonemd<O>,
+        }
+    }
 }
