@@ -7,7 +7,7 @@
 // - cookies
 // - random port
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -56,7 +56,7 @@ impl Connection {
     async fn query_impl<Octs: AsRef<[u8]> + Clone + Send>(
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<Query<Octs>, Error> {
+    ) -> Result<Query, Error> {
         self.inner.query(query_msg, self.clone()).await
     }
 
@@ -77,7 +77,7 @@ impl Connection {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Debug + Send> QueryMessage<Query<Octs>, Octs>
+impl<Octs: AsRef<[u8]> + Clone + Debug + Send> QueryMessage<Query, Octs>
     for Connection
 {
     fn query<'a>(
@@ -85,8 +85,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send> QueryMessage<Query<Octs>, Octs>
         query_msg: &'a mut MessageBuilder<
             StaticCompressor<StreamTarget<Octs>>,
         >,
-    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>>
-    {
+    ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
         return Box::pin(self.query_impl(query_msg));
     }
 }
@@ -131,12 +130,12 @@ enum QueryState {
 
 /// The state of a DNS query.
 #[derive(Debug)]
-pub struct Query<Octs> {
+pub struct Query {
     /// Address of remote server to connect to.
     remote_addr: SocketAddr,
 
     /// DNS request message.
-    query_msg: MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    query_msg: Message<BytesMut>,
 
     /// Semaphore permit that allow use of socket.
     _permit: Option<OwnedSemaphorePermit>,
@@ -151,15 +150,15 @@ pub struct Query<Octs> {
     state: QueryState,
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Send> Query<Octs> {
+impl Query {
     /// Create new Query object.
     fn new(
-        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+        query_msg: Message<BytesMut>,
         remote_addr: SocketAddr,
         conn: Connection,
-    ) -> Query<Octs> {
+    ) -> Query {
         Query {
-            query_msg: query_msg.clone(),
+            query_msg,
             remote_addr,
             _permit: None,
             sock: None,
@@ -202,11 +201,11 @@ impl<Octs: AsRef<[u8]> + Clone + Send> Query<Octs> {
                     continue;
                 }
                 QueryState::Send => {
-                    let dgram = self
-                        .query_msg
-                        .as_target()
-                        .as_target()
-                        .as_dgram_slice();
+                    // Set random ID in header
+                    let header = self.query_msg.header_mut();
+                    header.set_random_id();
+                    let dgram = self.query_msg.as_slice();
+
                     let sent = self
                         .sock
                         .as_ref()
@@ -214,14 +213,7 @@ impl<Octs: AsRef<[u8]> + Clone + Send> Query<Octs> {
                         .send(dgram)
                         .await
                         .map_err(|e| Error::UdpSend(Arc::new(e)))?;
-                    if sent
-                        != self
-                            .query_msg
-                            .as_target()
-                            .as_target()
-                            .as_dgram_slice()
-                            .len()
-                    {
+                    if sent != self.query_msg.as_slice().len() {
                         return Err(Error::UdpShortSend);
                     }
                     self.state = QueryState::Receive(Instant::now());
@@ -262,7 +254,14 @@ impl<Octs: AsRef<[u8]> + Clone + Send> Query<Octs> {
                         Ok(answer) => answer,
                         Err(_) => continue,
                     };
-                    if !answer.is_answer(&self.query_msg.as_message()) {
+
+                    // Unfortunately we cannot pass query_msg to is_answer
+                    // because is_answer requires Octets, which is not
+                    // implemented by BytesMut. Make a copy.
+                    let query_msg =
+                        Message::from_octets(self.query_msg.as_slice())
+                            .unwrap();
+                    if !answer.is_answer(&query_msg) {
                         continue;
                     }
                     self.sock = None;
@@ -299,7 +298,7 @@ impl<Octs: AsRef<[u8]> + Clone + Send> Query<Octs> {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Debug + Send> GetResult for Query<Octs> {
+impl GetResult for Query {
     fn get_result(
         &mut self,
     ) -> Pin<
@@ -333,7 +332,11 @@ impl InnerConnection {
         &self,
         query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
         conn: Connection,
-    ) -> Result<Query<Octs>, Error> {
+    ) -> Result<Query, Error> {
+        let slice = query_msg.as_target().as_target().as_dgram_slice();
+        let mut bytes = BytesMut::with_capacity(slice.len());
+        bytes.extend_from_slice(slice);
+        let query_msg = Message::from_octets(bytes).unwrap();
         Ok(Query::new(query_msg, self.remote_addr, conn))
     }
 

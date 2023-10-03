@@ -129,7 +129,7 @@ enum QueryState<Octs: Debug + OctetsBuilder> {
     StartUdpQuery,
 
     /// Get the result from the UDP transport.
-    GetUdpResult(udp::Query<Octs>),
+    GetUdpResult(udp::Query),
 
     /// Start a query over the TCP transport.
     StartTcpQuery,
