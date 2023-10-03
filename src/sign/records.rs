@@ -1,5 +1,7 @@
 //! Actual signing.
 
+use super::generic;
+use super::generic::{Rrset as _, Rrfamily as _};
 use super::key::SigningKey;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{Class, Rtype};
@@ -8,7 +10,7 @@ use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::record::Record;
 use crate::base::serial::Serial;
 use crate::base::Ttl;
-use crate::rdata::dnssec::{ProtoRrsig, RtypeBitmap};
+use crate::rdata::dnssec::{RtypeBitmap};
 use crate::rdata::{Dnskey, Ds, Nsec, Rrsig};
 use octseq::builder::{EmptyBuilder, FromBuilder, OctetsBuilder, Truncate};
 use std::iter::FromIterator;
@@ -79,7 +81,6 @@ impl<N, D> SortedRecords<N, D> {
         ApexName: ToDname + Clone,
     {
         let mut res = Vec::new();
-        let mut buf = Vec::new();
 
         // The owner name of a zone cut if we currently are at or below one.
         let mut cut: Option<FamilyName<N>> = None;
@@ -133,31 +134,14 @@ impl<N, D> SortedRecords<N, D> {
                     }
                 }
 
-                // Create the signature.
-                buf.clear();
-                let rrsig = ProtoRrsig::new(
-                    rrset.rtype(),
-                    key.algorithm()?,
-                    name.owner().rrsig_label_count(),
-                    rrset.ttl(),
-                    expiration,
-                    inception,
-                    key.key_tag()?,
-                    apex.owner().clone(),
-                );
-                rrsig.compose_canonical(&mut buf).unwrap();
-                for record in rrset.iter() {
-                    record.compose_canonical(&mut buf).unwrap();
-                }
-
                 // Create and push the RRSIG record.
                 res.push(Record::new(
                     name.owner().clone(),
                     name.class(),
                     rrset.ttl(),
-                    rrsig
-                        .into_rrsig(key.sign(&buf)?.into())
-                        .expect("long signature"),
+                    rrset.sign(
+                        apex.owner().clone(), expiration, inception, &key
+                    )?,
                 ));
             }
         }
@@ -171,7 +155,7 @@ impl<N, D> SortedRecords<N, D> {
     ) -> Vec<Record<N, Nsec<Octets, N>>>
     where
         N: ToDname + Clone,
-        D: RecordData,
+        D: RecordData + ComposeRecordData,
         Octets: FromBuilder,
         Octets::Builder: EmptyBuilder + Truncate + AsRef<[u8]> + AsMut<[u8]>,
         <Octets::Builder as OctetsBuilder>::AppendError: fmt::Debug,
@@ -228,14 +212,7 @@ impl<N, D> SortedRecords<N, D> {
                 ));
             }
 
-            let mut bitmap = RtypeBitmap::<Octets>::builder();
-            // Assume there’s gonna be an RRSIG.
-            bitmap.add(Rtype::Rrsig).unwrap();
-            for rrset in family.rrsets() {
-                bitmap.add(rrset.rtype()).unwrap()
-            }
-
-            prev = Some((name, bitmap.finalize()));
+            prev = Some((name, family.rtype_bitmap().unwrap()));
         }
         if let Some((prev_name, bitmap)) = prev {
             res.push(
@@ -348,6 +325,28 @@ impl<'a, N, D> Family<'a, N, D> {
         N: ToDname,
     {
         self.owner().ends_with(&apex.owner) && self.class() == apex.class
+    }
+}
+
+impl<'a, N, D> generic::Rrfamily for Family<'a, N, D>
+where
+    N: ToDname,
+    D: RecordData + ComposeRecordData,
+{
+    type Owner = N;
+    type Rrset<'s> = Rrset<'s, N, D> where 'a: 's, N: 's, D: 's;
+    type Iter<'s> = FamilyIter<'s, N, D>  where 'a: 's, N: 's, D: 's;
+
+    fn owner(&self) -> &Self::Owner {
+        self.slice[0].owner()
+    }
+
+    fn class(&self) -> Class {
+        self.slice[0].class()
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        self.rrsets()
     }
 }
 
@@ -470,6 +469,54 @@ impl<'a, N, D> Rrset<'a, N, D> {
     }
 }
 
+impl<'a, N, D> generic::Rrset for Rrset<'a, N, D>
+where
+    N: ToDname,
+    D: RecordData + ComposeRecordData,
+{
+    type Owner = N;
+    type RecordData<'s> = &'s D where D: 's, 'a: 's;
+    type Iter<'s> = RecordDataIter<'s, N, D> where N: 's, D: 's, 'a: 's;
+
+    fn owner(&self) -> &Self::Owner {
+        self.slice[0].owner()
+    }
+
+    fn class(&self) -> Class {
+        self.slice[0].class()
+    }
+
+    fn rtype(&self) -> Rtype {
+        self.slice[0].rtype()
+    }
+
+    fn ttl(&self) -> Ttl {
+        self.slice[0].ttl()
+    }
+
+    fn iter(&self) -> Self::Iter<'_> {
+        RecordDataIter { slice: self.slice }
+    }
+}
+
+
+//------------ RecordDataIter ------------------------------------------------
+
+pub struct RecordDataIter<'a, N, D> {
+    slice: &'a [Record<N, D>],
+}
+
+impl<'a, N, D> Iterator for RecordDataIter<'a, N, D> {
+    type Item = &'a D;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (res, slice) = self.slice.split_first()?;
+        self.slice = slice;
+        Some(res.data())
+    }
+}
+
+
 //------------ RecordsIter ---------------------------------------------------
 
 /// An iterator that produces families from sorted records.
@@ -566,6 +613,7 @@ where
         Some(Rrset::new(res))
     }
 }
+
 
 //------------ FamilyIter ----------------------------------------------------
 

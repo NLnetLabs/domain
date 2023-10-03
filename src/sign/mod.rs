@@ -8,3 +8,5 @@ pub mod key;
 //pub mod openssl;
 pub mod records;
 pub mod ring;
+
+pub mod generic;

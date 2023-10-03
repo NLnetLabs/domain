@@ -9,7 +9,7 @@ use crate::base::rdata::ComposeRecordData;
 use crate::rdata::{Dnskey, Ds};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
-use octseq::builder::infallible;
+use octseq::builder::{OctetsBuilder, infallible};
 use ring::digest;
 use ring::error::Unspecified;
 use ring::rand::SecureRandom;
@@ -62,6 +62,7 @@ impl<'a> Key<'a> {
 
 impl<'a> SigningKey for Key<'a> {
     type Octets = Vec<u8>;
+    type Signer = Vec<u8>;
     type Signature = Signature;
     type Error = Unspecified;
 
@@ -87,15 +88,23 @@ impl<'a> SigningKey for Key<'a> {
         .expect("long digest"))
     }
 
-    fn sign(&self, msg: &[u8]) -> Result<Self::Signature, Self::Error> {
+    fn sign<F>(&self, op: F) -> Result<Self::Signature, Self::Error>
+    where
+        F: FnOnce(
+            &mut Self::Signer
+        ) -> Result<(), <Self::Signer as OctetsBuilder>::AppendError>
+    {
+        let mut msg = Vec::new();
+        infallible(op(&mut msg));
+
         match self.key {
             RingKey::Ecdsa(ref key) => {
-                key.sign(self.rng, msg).map(Signature::sig)
+                key.sign(self.rng, &msg).map(Signature::sig)
             }
-            RingKey::Ed25519(ref key) => Ok(Signature::sig(key.sign(msg))),
+            RingKey::Ed25519(ref key) => Ok(Signature::sig(key.sign(&msg))),
             RingKey::Rsa(ref key, encoding) => {
                 let mut sig = vec![0; key.public_modulus_len()];
-                key.sign(encoding, self.rng, msg, &mut sig)?;
+                key.sign(encoding, self.rng, &msg, &mut sig)?;
                 Ok(Signature::vec(sig))
             }
         }
