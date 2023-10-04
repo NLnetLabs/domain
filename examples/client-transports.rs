@@ -1,15 +1,18 @@
 use domain::base::Dname;
 use domain::base::Rtype::Aaaa;
-use domain::base::{MessageBuilder, StaticCompressor, StreamTarget};
+use domain::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
 use domain::net::client::multi_stream;
-use domain::net::client::query::QueryMessage2;
+use domain::net::client::octet_stream;
+use domain::net::client::query::QueryMessage3;
 use domain::net::client::redundant;
 use domain::net::client::tcp_factory::TcpConnFactory;
 use domain::net::client::tls_factory::TlsConnFactory;
+use domain::net::client::udp;
 use domain::net::client::udp_tcp;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::net::TcpStream;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 
 #[tokio::main]
@@ -25,10 +28,17 @@ async fn main() {
     let mut msg = msg.question();
     msg.push((Dname::<Vec<u8>>::vec_from_str("example.com").unwrap(), Aaaa))
         .unwrap();
-    let mut msg = msg.as_builder_mut().clone();
+
+    let msg = Message::from_octets(
+        msg.as_target().as_target().as_dgram_slice().to_vec(),
+    )
+    .unwrap();
+
+    println!("request msg: {:?}", msg.as_slice());
 
     // Destination for UDP and TCP
-    let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
+    let server_addr =
+        SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
 
     // Create a new UDP+TCP transport connection. Pass the destination address
     // and port as parameter.
@@ -42,7 +52,7 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut query = udptcp_conn.query(&mut msg).await.unwrap();
+    let mut query = udptcp_conn.query(&msg).await.unwrap();
 
     // Get the reply
     let reply = query.get_result().await;
@@ -64,7 +74,7 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut query = tcp_conn.query(&mut msg).await.unwrap();
+    let mut query = tcp_conn.query(&msg).await.unwrap();
 
     // Get the reply
     let reply = query.get_result().await;
@@ -109,7 +119,7 @@ async fn main() {
         conn_run.run(tls_factory).await;
     });
 
-    let mut query = tls_conn.query(&mut msg).await.unwrap();
+    let mut query = tls_conn.query(&msg).await.unwrap();
     let reply = query.get_result().await;
     println!("TLS reply: {:?}", reply);
 
@@ -129,8 +139,39 @@ async fn main() {
 
     // Start a few queries.
     for _i in 1..10 {
-        let mut query = redun.query(&mut msg).await.unwrap();
+        let mut query = redun.query(&msg).await.unwrap();
         let reply = query.get_result().await;
         println!("redundant connection reply: {:?}", reply);
     }
+
+    // Create a new UDP transport connection. Pass the destination address
+    // and port as parameter. This transport does not retry over TCP if the
+    // reply is truncated.
+    let udp_conn = udp::Connection::new(server_addr).unwrap();
+
+    // Send a query message.
+    let mut query = udp_conn.query(&msg).await.unwrap();
+
+    // Get the reply
+    let reply = query.get_result().await;
+    println!("UDP reply: {:?}", reply);
+
+    // Create a single TCP transport connection. This is usefull for a
+    // single request or a small burst of requests.
+    let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
+
+    let tcp = octet_stream::Connection::new().unwrap();
+    let tcp_worker = tcp.clone();
+
+    tokio::spawn(async move {
+        tcp_worker.run(tcp_conn).await;
+        println!("run terminated");
+    });
+
+    // Send a query message.
+    let mut query = tcp.query(&msg).await.unwrap();
+
+    // Get the reply
+    let reply = query.get_result().await;
+    println!("TCP reply: {:?}", reply);
 }
