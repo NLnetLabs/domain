@@ -26,6 +26,8 @@ pub trait QueryMessage<GR: GetResult, Octs> {
     ) -> Pin<Box<dyn Future<Output = Result<GR, Error>> + Send + '_>>;
 }
 
+/*
+// This trait is replaced with QueryMessage3
 /// Trait for starting a DNS query based on a message.
 pub trait QueryMessage2<Octs> {
     /// Query function that takes a message builder type.
@@ -38,6 +40,7 @@ pub trait QueryMessage2<Octs> {
         >,
     ) -> Pin<Box<dyn Future<Output = QueryResultOutput> + Send + '_>>;
 }
+*/
 
 /// Trait for starting a DNS query based on a message.
 pub trait QueryMessage3<Octs> {

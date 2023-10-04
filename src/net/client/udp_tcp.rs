@@ -58,7 +58,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         */
     }
 
-    /// Start a query for the QueryMessage2 trait.
+    /// Start a query for the QueryMessage3 trait.
     async fn query_impl3(
         &self,
         query_msg: &Message<Octs>,

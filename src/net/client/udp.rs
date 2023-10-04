@@ -22,7 +22,7 @@ use tokio::time::{timeout, Duration, Instant};
 use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
 use crate::net::client::error::Error;
 use crate::net::client::query::{
-    GetResult, QueryMessage, QueryMessage2, QueryMessage3,
+    GetResult, QueryMessage, QueryMessage3,
 };
 
 /// How many times do we try a new random port if we get ‘address in use.’
@@ -63,17 +63,6 @@ impl Connection {
     }
 
     /// Start a new DNS query.
-    async fn query_impl2<
-        Octs: AsRef<[u8]> + Clone + Debug + Send + 'static,
-    >(
-        &self,
-        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<Box<dyn GetResult + Send>, Error> {
-        let gr = self.inner.query(query_msg, self.clone()).await?;
-        Ok(Box::new(gr))
-    }
-
-    /// Start a new DNS query.
     async fn query_impl3<
         Octs: AsRef<[u8]> + Clone + Debug + Send + 'static,
     >(
@@ -100,25 +89,6 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send> QueryMessage<Query, Octs>
         >,
     ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
         return Box::pin(self.query_impl(query_msg));
-    }
-}
-
-impl<Octs: AsRef<[u8]> + Clone + Debug + Send + 'static> QueryMessage2<Octs>
-    for Connection
-{
-    fn query<'a>(
-        &'a self,
-        query_msg: &'a mut MessageBuilder<
-            StaticCompressor<StreamTarget<Octs>>,
-        >,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
-                + Send
-                + '_,
-        >,
-    > {
-        return Box::pin(self.query_impl2(query_msg));
     }
 }
 
