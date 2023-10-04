@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
+use crate::base::Message;
 use crate::net::client::error::Error;
 use crate::net::client::multi_stream;
 use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
@@ -50,12 +50,9 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
     /// Start a query.
     pub async fn query_impl(
         &self,
-        _query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+        query_msg: &Message<Octs>,
     ) -> Result<Query<Octs>, Error> {
-        todo!();
-        /*
-                self.inner.query(query_msg).await
-        */
+        self.inner.query(query_msg).await
     }
 
     /// Start a query for the QueryMessage3 trait.
@@ -73,9 +70,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 {
     fn query<'a>(
         &'a self,
-        query_msg: &'a mut MessageBuilder<
-            StaticCompressor<StreamTarget<Octs>>,
-        >,
+        query_msg: &'a Message<Octs>,
     ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>>
     {
         return Box::pin(self.query_impl(query_msg));

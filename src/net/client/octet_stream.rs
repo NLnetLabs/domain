@@ -32,7 +32,6 @@ use std::vec::Vec;
 use crate::base::{
     opt::{AllOptData, Opt, OptRecord, TcpKeepalive},
     Message, MessageBuilder, ParsedDname, Rtype, StaticCompressor,
-    StreamTarget,
 };
 use crate::net::client::error::Error;
 use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
@@ -774,23 +773,19 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
     }
 }
 
-impl<Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Debug + Octets + Send>
-    QueryMessage<Query, Octs> for Connection<Octs>
+impl<
+        Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
+    > QueryMessage<Query, Octs> for Connection<Octs>
 {
     fn query<'a>(
         &'a self,
-        _query_msg: &'a mut MessageBuilder<
-            StaticCompressor<StreamTarget<Octs>>,
-        >,
+        query_msg: &'a Message<Octs>,
     ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
-        todo!();
-        /*
-                return Box::pin(self.query_impl(query_msg));
-        */
+        return Box::pin(self.query_impl(query_msg));
     }
 }
 
-impl<Octs: Clone + Octets + Send> Connection<Octs> {
+impl<Octs: Clone + Octets + Send + Sync> Connection<Octs> {
     /// Constructor for [Connection].
     ///
     /// Returns a [Connection] wrapped in a [Result](io::Result).
@@ -817,6 +812,20 @@ impl<Octs: Clone + Octets + Send> Connection<Octs> {
     /// This function takes a precomposed message as a parameter and
     /// returns a [Query] object wrapped in a [Result].
     async fn query_impl(
+        &self,
+        query_msg: &Message<Octs>,
+    ) -> Result<Query, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.query(tx, query_msg).await?;
+        let msg = query_msg;
+        Ok(Query::new(msg, rx))
+    }
+
+    /// Start a DNS request.
+    ///
+    /// This function takes a precomposed message as a parameter and
+    /// returns a [Query] object wrapped in a [Result].
+    async fn query_impl3(
         &self,
         query_msg: &Message<Octs>,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
@@ -853,7 +862,7 @@ impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync> QueryMessage3<Octs>
                 + '_,
         >,
     > {
-        return Box::pin(self.query_impl(query_msg));
+        return Box::pin(self.query_impl3(query_msg));
     }
 }
 

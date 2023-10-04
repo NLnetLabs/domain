@@ -29,7 +29,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep_until, Instant};
 
-use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
+use crate::base::Message;
 use crate::net::client::error::Error;
 use crate::net::client::factory::ConnFactory;
 use crate::net::client::octet_stream::Connection as SingleConnection;
@@ -206,7 +206,7 @@ pub struct Query<Octs: AsRef<[u8]>> {
     delayed_retry_count: u64,
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Octets + Send + 'static>
+impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync + 'static>
     InnerConnection<Octs>
 {
     /// Constructor for [InnerConnection].
@@ -486,6 +486,20 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
     ///
     /// This function takes a precomposed message as a parameter and
     /// returns a [Query] object wrapped in a [Result].
+    pub async fn query_impl(
+        &self,
+        query_msg: &Message<Octs>,
+    ) -> Result<Query<Octs>, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.new_conn(None, tx).await?;
+        let gr = Query::new(self.clone(), query_msg, rx);
+        Ok(gr)
+    }
+
+    /// Start a DNS request.
+    ///
+    /// This function takes a precomposed message as a parameter and
+    /// returns a [Query] object wrapped in a [Result].
     pub async fn query_impl3(
         &self,
         query_msg: &Message<Octs>,
@@ -516,15 +530,10 @@ impl<Octs: Clone + Debug + Octets + Send + Sync + 'static>
 {
     fn query<'a>(
         &'a self,
-        _query_msg: &'a mut MessageBuilder<
-            StaticCompressor<StreamTarget<Octs>>,
-        >,
+        query_msg: &'a Message<Octs>,
     ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>>
     {
-        todo!();
-        /*
-                return Box::pin(self.query_impl3(query_msg));
-        */
+        return Box::pin(self.query_impl(query_msg));
     }
 }
 

@@ -19,11 +19,9 @@ use tokio::net::UdpSocket;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout, Duration, Instant};
 
-use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
+use crate::base::Message;
 use crate::net::client::error::Error;
-use crate::net::client::query::{
-    GetResult, QueryMessage, QueryMessage3,
-};
+use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
 
 /// How many times do we try a new random port if we get ‘address in use.’
 const RETRY_RANDOM_PORT: usize = 10;
@@ -57,7 +55,7 @@ impl Connection {
     /// Start a new DNS query.
     async fn query_impl<Octs: AsRef<[u8]> + Clone + Send>(
         &self,
-        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+        query_msg: &Message<Octs>,
     ) -> Result<Query, Error> {
         self.inner.query(query_msg, self.clone()).await
     }
@@ -69,7 +67,7 @@ impl Connection {
         &self,
         query_msg: &Message<Octs>,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
-        let gr = self.inner.query3(query_msg, self.clone()).await?;
+        let gr = self.inner.query(query_msg, self.clone()).await?;
         Ok(Box::new(gr))
     }
 
@@ -79,14 +77,12 @@ impl Connection {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Debug + Send> QueryMessage<Query, Octs>
-    for Connection
+impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync>
+    QueryMessage<Query, Octs> for Connection
 {
     fn query<'a>(
         &'a self,
-        query_msg: &'a mut MessageBuilder<
-            StaticCompressor<StreamTarget<Octs>>,
-        >,
+        query_msg: &'a Message<Octs>,
     ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
         return Box::pin(self.query_impl(query_msg));
     }
@@ -328,20 +324,7 @@ impl InnerConnection {
     }
 
     /// Return a Query object that contains the query state.
-    async fn query<Octs: AsRef<[u8]> + Clone + Send>(
-        &self,
-        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-        conn: Connection,
-    ) -> Result<Query, Error> {
-        let slice = query_msg.as_target().as_target().as_dgram_slice();
-        let mut bytes = BytesMut::with_capacity(slice.len());
-        bytes.extend_from_slice(slice);
-        let query_msg = Message::from_octets(bytes).unwrap();
-        Ok(Query::new(query_msg, self.remote_addr, conn))
-    }
-
-    /// Return a Query object that contains the query state.
-    async fn query3<Octs: AsRef<[u8]> + Clone>(
+    async fn query<Octs: AsRef<[u8]> + Clone>(
         &self,
         query_msg: &Message<Octs>,
         conn: Connection,
