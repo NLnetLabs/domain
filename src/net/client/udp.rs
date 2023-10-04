@@ -21,7 +21,9 @@ use tokio::time::{timeout, Duration, Instant};
 
 use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
 use crate::net::client::error::Error;
-use crate::net::client::query::{GetResult, QueryMessage, QueryMessage2};
+use crate::net::client::query::{
+    GetResult, QueryMessage, QueryMessage2, QueryMessage3,
+};
 
 /// How many times do we try a new random port if we get ‘address in use.’
 const RETRY_RANDOM_PORT: usize = 10;
@@ -71,6 +73,17 @@ impl Connection {
         Ok(Box::new(gr))
     }
 
+    /// Start a new DNS query.
+    async fn query_impl3<
+        Octs: AsRef<[u8]> + Clone + Debug + Send + 'static,
+    >(
+        &self,
+        query_msg: &Message<Octs>,
+    ) -> Result<Box<dyn GetResult + Send>, Error> {
+        let gr = self.inner.query3(query_msg, self.clone()).await?;
+        Ok(Box::new(gr))
+    }
+
     /// Get a permit from the semaphore to start using a socket.
     async fn get_permit(&self) -> OwnedSemaphorePermit {
         self.inner.get_permit().await
@@ -106,6 +119,23 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + 'static> QueryMessage2<Octs>
         >,
     > {
         return Box::pin(self.query_impl2(query_msg));
+    }
+}
+
+impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
+    QueryMessage3<Octs> for Connection
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a Message<Octs>,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+                + Send
+                + '_,
+        >,
+    > {
+        return Box::pin(self.query_impl3(query_msg));
     }
 }
 
@@ -334,6 +364,19 @@ impl InnerConnection {
         conn: Connection,
     ) -> Result<Query, Error> {
         let slice = query_msg.as_target().as_target().as_dgram_slice();
+        let mut bytes = BytesMut::with_capacity(slice.len());
+        bytes.extend_from_slice(slice);
+        let query_msg = Message::from_octets(bytes).unwrap();
+        Ok(Query::new(query_msg, self.remote_addr, conn))
+    }
+
+    /// Return a Query object that contains the query state.
+    async fn query3<Octs: AsRef<[u8]> + Clone>(
+        &self,
+        query_msg: &Message<Octs>,
+        conn: Connection,
+    ) -> Result<Query, Error> {
+        let slice = query_msg.as_slice();
         let mut bytes = BytesMut::with_capacity(slice.len());
         bytes.extend_from_slice(slice);
         let query_msg = Message::from_octets(bytes).unwrap();

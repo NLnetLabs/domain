@@ -29,16 +29,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
 
-use crate::base::wire::Composer;
 use crate::base::{
     opt::{AllOptData, Opt, OptRecord, TcpKeepalive},
     Message, MessageBuilder, ParsedDname, Rtype, StaticCompressor,
     StreamTarget,
 };
 use crate::net::client::error::Error;
-use crate::net::client::query::{GetResult, QueryMessage};
+use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
 use crate::rdata::AllRecordData;
-use octseq::{Octets, OctetsBuilder};
+use octseq::Octets;
 
 use tokio::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -68,9 +67,9 @@ type ReplySender = oneshot::Sender<ChanResp>;
 
 #[derive(Debug)]
 /// A request from [Query] to [Connection::run] to start a DNS request.
-struct ChanReq<Octs: OctetsBuilder> {
+struct ChanReq<Octs: AsRef<[u8]>> {
     /// DNS request message
-    msg: MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    msg: Message<Octs>,
 
     /// Sender to send result back to [Query]
     sender: ReplySender,
@@ -87,7 +86,7 @@ type ChanResp = Result<Response, Error>;
 
 /// The actual implementation of [Connection].
 #[derive(Debug)]
-struct InnerConnection<Octs: OctetsBuilder> {
+struct InnerConnection<Octs: AsRef<[u8]>> {
     /// [InnerConnection::sender] and [InnerConnection::receiver] are
     /// part of a single channel.
     ///
@@ -118,7 +117,7 @@ struct Queries {
 
 #[derive(Clone, Debug)]
 /// A single DNS over octect stream connection.
-pub struct Connection<Octs: OctetsBuilder> {
+pub struct Connection<Octs: AsRef<[u8]>> {
     /// Reference counted [InnerConnection].
     inner: Arc<InnerConnection<Octs>>,
 }
@@ -212,9 +211,7 @@ enum ConnState {
 // This type could be local to InnerConnection, but I don't know how
 type ReaderChanReply = Message<Bytes>;
 
-impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
-    InnerConnection<Octs>
-{
+impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
     /// Constructor for [InnerConnection].
     ///
     /// This is the implementation of [Connection::new].
@@ -410,7 +407,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     pub async fn query(
         &self,
         sender: oneshot::Sender<ChanResp>,
-        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+        query_msg: &Message<Octs>,
     ) -> Result<(), Error> {
         // We should figure out how to get query_msg.
         let msg_clone = query_msg.clone();
@@ -584,7 +581,7 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     // Note: maybe reqmsg should be a return value.
     fn insert_req(
         &self,
-        mut req: ChanReq<Octs>,
+        req: ChanReq<Octs>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
         query_vec: &mut Queries,
@@ -643,11 +640,14 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
         // if many spoofed answers arrive over UDP: "TCP, by the
         // nature of its use of sequence numbers, is far more
         // resilient against forgery by third parties."
-        let hdr = req.msg.header_mut();
+
+        let mut mut_msg =
+            Message::from_octets(req.msg.as_slice().to_vec()).unwrap();
+        let hdr = mut_msg.header_mut();
         hdr.set_id(ind16);
 
         if status.send_keepalive {
-            let res_msg = add_tcp_keepalive(&req.msg);
+            let res_msg = add_tcp_keepalive(&mut_msg);
 
             match res_msg {
                 Ok(msg) => {
@@ -687,15 +687,26 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     /// Convert the query message to a vector.
     // This function should return the vector instead of storing it
     // through a reference.
-    fn convert_query<Target: AsMut<[u8]> + AsRef<[u8]>>(
-        msg: &MessageBuilder<StaticCompressor<StreamTarget<Target>>>,
+    fn convert_query<OctsSrc: AsRef<[u8]>>(
+        msg: &Message<OctsSrc>,
         reqmsg: &mut Option<Vec<u8>>,
     ) {
-        let vec = msg.as_target().as_target().as_stream_slice();
+        // Ideally there should be a write_all_vectored. Until there is one,
+        // copy to a new Vec and prepend the length octets.
 
-        // Store a clone of the request. That makes life easier
-        // and requests tend to be small
-        *reqmsg = Some(vec.to_vec());
+        let slice = msg.as_slice();
+        let len = slice.len();
+
+        println!("convert_query: slice len {}, slice {:?}", len, slice);
+
+        let mut vec = Vec::with_capacity(2 + len);
+        let len16 = len as u16;
+        vec.extend_from_slice(&len16.to_be_bytes());
+        vec.extend_from_slice(slice);
+
+        println!("convert_query: vec {:?}", vec);
+
+        *reqmsg = Some(vec);
     }
 
     /// Insert a sender (for the reply) in the query_vec and return the index.
@@ -763,16 +774,23 @@ impl<Octs: AsMut<[u8]> + Clone + Composer + Debug + OctetsBuilder>
     }
 }
 
-impl<
-        Octs: AsMut<[u8]>
-            + AsRef<[u8]>
-            + Clone
-            + Composer
-            + Debug
-            + OctetsBuilder
-            + Send,
-    > Connection<Octs>
+impl<Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Debug + Octets + Send>
+    QueryMessage<Query, Octs> for Connection<Octs>
 {
+    fn query<'a>(
+        &'a self,
+        _query_msg: &'a mut MessageBuilder<
+            StaticCompressor<StreamTarget<Octs>>,
+        >,
+    ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
+        todo!();
+        /*
+                return Box::pin(self.query_impl(query_msg));
+        */
+    }
+}
+
+impl<Octs: Clone + Octets + Send> Connection<Octs> {
     /// Constructor for [Connection].
     ///
     /// Returns a [Connection] wrapped in a [Result](io::Result).
@@ -800,12 +818,12 @@ impl<
     /// returns a [Query] object wrapped in a [Result].
     async fn query_impl(
         &self,
-        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    ) -> Result<Query, Error> {
+        query_msg: &Message<Octs>,
+    ) -> Result<Box<dyn GetResult + Send>, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.query(tx, query_msg).await?;
-        let msg = &query_msg.as_message();
-        Ok(Query::new(msg, rx))
+        let msg = query_msg;
+        Ok(Box::new(Query::new(msg, rx)))
     }
 
     /// Start a DNS request but do not check if the reply matches the request.
@@ -814,7 +832,7 @@ impl<
     /// match the request avoids having to keep the request around.
     pub async fn query_no_check(
         &self,
-        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+        query_msg: &mut Message<Octs>,
     ) -> Result<QueryNoCheck, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.query(tx, query_msg).await?;
@@ -822,22 +840,19 @@ impl<
     }
 }
 
-impl<
-        Octs: AsMut<[u8]>
-            + AsRef<[u8]>
-            + Clone
-            + Composer
-            + Debug
-            + OctetsBuilder
-            + Send,
-    > QueryMessage<Query, Octs> for Connection<Octs>
+impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync> QueryMessage3<Octs>
+    for Connection<Octs>
 {
     fn query<'a>(
         &'a self,
-        query_msg: &'a mut MessageBuilder<
-            StaticCompressor<StreamTarget<Octs>>,
+        query_msg: &'a Message<Octs>,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+                + Send
+                + '_,
         >,
-    ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
+    > {
         return Box::pin(self.query_impl(query_msg));
     }
 }
@@ -953,27 +968,27 @@ impl QueryNoCheck {
 /// This is surprisingly difficult. We need to copy the original message to
 /// a new MessageBuilder because MessageBuilder has no support for changing the
 /// opt record.
-fn add_tcp_keepalive<Octs: Clone + Composer + OctetsBuilder>(
-    msg: &MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-) -> Result<
-    MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-    crate::base::message_builder::PushError,
-> {
+fn add_tcp_keepalive<OctsSrc: Octets>(
+    msg: &Message<OctsSrc>,
+) -> Result<Message<Vec<u8>>, crate::base::message_builder::PushError> {
     // We can't just insert a new option in an existing
     // opt record. So we have to create new message and copy records
     // from the old one. And insert our option while copying the opt
     // record.
-    let src_clone = msg.clone();
-    let source = Message::from_octets(
-        src_clone.as_target().as_target().as_dgram_slice(),
-    )
-    .unwrap();
-    let target = msg.clone();
+    let source = msg;
+
+    let mut target =
+        MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
+            .unwrap();
+    let source_hdr = source.header();
+    let target_hdr = target.header_mut();
+    target_hdr.set_flags(source_hdr.flags());
+    target_hdr.set_opcode(source_hdr.opcode());
+    target_hdr.set_rcode(source_hdr.rcode());
+    target_hdr.set_id(source_hdr.id());
 
     let source = source.question();
-    // Go to additional and back to builder to delete all sections
-    // except for the header
-    let mut target = target.additional().builder().question();
+    let mut target = target.question();
     for rr in source {
         let rr = rr.unwrap();
         target.push(rr)?;
@@ -1045,7 +1060,9 @@ fn add_tcp_keepalive<Octs: Clone + Composer + OctetsBuilder>(
     // It would be nice to use .builder() here. But that one deletes all
     // section. We have to resort to .as_builder() which gives a
     // reference and then .clone()
-    Ok(target.as_builder().clone())
+    let result = target.as_builder().clone();
+    let msg = Message::from_octets(result.finish().into_target()).unwrap();
+    Ok(msg)
 }
 
 /// Check if a DNS reply match the query. Ignore whether id fields match.

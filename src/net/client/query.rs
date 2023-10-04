@@ -39,6 +39,17 @@ pub trait QueryMessage2<Octs> {
     ) -> Pin<Box<dyn Future<Output = QueryResultOutput> + Send + '_>>;
 }
 
+/// Trait for starting a DNS query based on a message.
+pub trait QueryMessage3<Octs> {
+    /// Query function that takes a message type.
+    ///
+    /// This function is intended to be cancel safe.
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a Message<Octs>,
+    ) -> Pin<Box<dyn Future<Output = QueryResultOutput> + Send + '_>>;
+}
+
 /// This type is the actual result type of the future returned by the
 /// query function in the QueryMessage2 trait.
 type QueryResultOutput = Result<Box<dyn GetResult + Send>, Error>;

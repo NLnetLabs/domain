@@ -25,9 +25,9 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{sleep_until, Duration, Instant};
 
 use crate::base::wire::Composer;
-use crate::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
+use crate::base::Message;
 use crate::net::client::error::Error;
-use crate::net::client::query::{GetResult, QueryMessage2};
+use crate::net::client::query::{GetResult, QueryMessage3};
 
 /*
 Basic algorithm:
@@ -92,7 +92,7 @@ impl<'a, Octs: Clone + Composer + Debug + Send + Sync + 'static>
     /// Add a transport connection.
     pub async fn add(
         &self,
-        conn: Box<dyn QueryMessage2<Octs> + Send + Sync>,
+        conn: Box<dyn QueryMessage3<Octs> + Send + Sync>,
     ) {
         self.inner.add(conn).await
     }
@@ -100,7 +100,7 @@ impl<'a, Octs: Clone + Composer + Debug + Send + Sync + 'static>
     /// Implementation of the query function.
     async fn query_impl(
         &self,
-        query_msg: &mut MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+        query_msg: &Message<Octs>,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
         Ok(Box::new(self.inner.query(query_msg.clone()).await.unwrap()))
     }
@@ -108,13 +108,11 @@ impl<'a, Octs: Clone + Composer + Debug + Send + Sync + 'static>
 
 impl<
         Octs: Clone + Composer + Debug + OctetsBuilder + Send + Sync + 'static,
-    > QueryMessage2<Octs> for Connection<Octs>
+    > QueryMessage3<Octs> for Connection<Octs>
 {
     fn query<'a>(
         &'a self,
-        query_msg: &'a mut MessageBuilder<
-            StaticCompressor<StreamTarget<Octs>>,
-        >,
+        query_msg: &'a Message<Octs>,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
@@ -128,12 +126,12 @@ impl<
 
 /// This type represents an active query request.
 #[derive(Debug)]
-pub struct Query<Octs: Send> {
+pub struct Query<Octs: AsRef<[u8]> + Send> {
     /// The state of the query
     state: QueryState,
 
     /// The query message
-    query_msg: MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    query_msg: Message<Octs>,
 
     /// List of connections identifiers and estimated response times.
     conn_rt: Vec<ConnRT>,
@@ -171,11 +169,10 @@ enum QueryState {
     Wait,
 }
 
-impl<Octs: Clone + Debug + Send + Sync + 'static> Query<Octs> {
+impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
     /// Create a new query object.
     fn new(
-        query_msg: MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
-        // conns: Vec<&'a dyn QueryMessage<GR, Octs>>,
+        query_msg: Message<Octs>,
         mut conn_rt: Vec<ConnRT>,
         sender: mpsc::Sender<ChanReq<Octs>>,
     ) -> Query<Octs> {
@@ -336,7 +333,7 @@ async fn start_request<Octs: Clone + Debug + Send>(
     index: usize,
     id: u64,
     sender: mpsc::Sender<ChanReq<Octs>>,
-    query_msg: MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    query_msg: Message<Octs>,
 ) -> (usize, Result<Message<Bytes>, Error>) {
     let (tx, rx) = oneshot::channel();
     sender
@@ -380,7 +377,7 @@ impl<Octs: Debug + Send> Debug for ChanReq<Octs> {
 /// Request to add a new connection
 struct AddReq<Octs> {
     /// New connection to add
-    conn: Box<dyn QueryMessage2<Octs> + Send + Sync>,
+    conn: Box<dyn QueryMessage3<Octs> + Send + Sync>,
 
     /// Channel to send the reply to
     tx: oneshot::Sender<AddReply>,
@@ -404,13 +401,13 @@ struct QueryReq<Octs: Send> {
     id: u64,
 
     /// Request message
-    query_msg: MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+    query_msg: Message<Octs>,
 
     /// Channel to send the reply to
     tx: oneshot::Sender<QueryReply>,
 }
 
-impl<Octs: Debug + Send> Debug for QueryReq<Octs> {
+impl<Octs: AsRef<[u8]> + Debug + Send> Debug for QueryReq<Octs> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("QueryReq")
             .field("id", &self.id)
@@ -468,7 +465,9 @@ struct InnerConnection<Octs: Send> {
     sender: mpsc::Sender<ChanReq<Octs>>,
 }
 
-impl<'a, Octs: Clone + Debug + Send + Sync + 'static> InnerConnection<Octs> {
+impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
+    InnerConnection<Octs>
+{
     /// Implementation of the new method.
     fn new() -> io::Result<InnerConnection<Octs>> {
         let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
@@ -483,7 +482,7 @@ impl<'a, Octs: Clone + Debug + Send + Sync + 'static> InnerConnection<Octs> {
         let mut next_id: u64 = 10;
         let mut conn_stats: Vec<ConnStats> = Vec::new();
         let mut conn_rt: Vec<ConnRT> = Vec::new();
-        let mut conns: Vec<Box<dyn QueryMessage2<Octs> + Send + Sync>> =
+        let mut conns: Vec<Box<dyn QueryMessage3<Octs> + Send + Sync>> =
             Vec::new();
 
         let mut receiver = self.receiver.lock().await;
@@ -511,14 +510,13 @@ impl<'a, Octs: Clone + Debug + Send + Sync + 'static> InnerConnection<Octs> {
                 ChanReq::GetRT(rt_req) => {
                     rt_req.tx.send(Ok(conn_rt.clone())).unwrap();
                 }
-                ChanReq::Query(mut query_req) => {
+                ChanReq::Query(query_req) => {
                     println!("QueryReq for id {}", query_req.id);
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == query_req.id);
                     let ind = opt_ind.unwrap();
                     println!("QueryReq for ind {}", ind);
-                    let query =
-                        conns[ind].query(&mut query_req.query_msg).await;
+                    let query = conns[ind].query(&query_req.query_msg).await;
                     query_req.tx.send(query).unwrap();
                 }
                 ChanReq::Report(time_report) => {
@@ -587,7 +585,7 @@ impl<'a, Octs: Clone + Debug + Send + Sync + 'static> InnerConnection<Octs> {
     }
 
     /// Implementation of the add method.
-    async fn add(&self, conn: Box<dyn QueryMessage2<Octs> + Send + Sync>) {
+    async fn add(&self, conn: Box<dyn QueryMessage3<Octs> + Send + Sync>) {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(ChanReq::Add(AddReq { conn, tx }))
@@ -599,7 +597,7 @@ impl<'a, Octs: Clone + Debug + Send + Sync + 'static> InnerConnection<Octs> {
     /// Implementation of the query method.
     async fn query(
         &'a self,
-        query_msg: MessageBuilder<StaticCompressor<StreamTarget<Octs>>>,
+        query_msg: Message<Octs>,
     ) -> Result<Query<Octs>, Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
@@ -607,12 +605,7 @@ impl<'a, Octs: Clone + Debug + Send + Sync + 'static> InnerConnection<Octs> {
             .await
             .unwrap();
         let conn_rt = rx.await.unwrap().unwrap();
-        Ok(Query::new(
-            query_msg,
-            //conns,
-            conn_rt,
-            self.sender.clone(),
-        ))
+        Ok(Query::new(query_msg, conn_rt, self.sender.clone()))
     }
 }
 
