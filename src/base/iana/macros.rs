@@ -22,6 +22,7 @@ macro_rules! int_enum {
 
         impl $ianatype {
             /// Returns a value from its raw integer value.
+            #[must_use]
             pub const fn from_int(value: $inttype) -> Self {
                 match value {
                     $( $value => $ianatype::$variant ),*,
@@ -30,6 +31,7 @@ macro_rules! int_enum {
             }
 
             /// Returns the raw integer value for a value.
+            #[must_use]
             pub const fn to_int(self) -> $inttype {
                 match self {
                     $( $ianatype::$variant => $value ),*,
@@ -38,6 +40,7 @@ macro_rules! int_enum {
             }
 
             /// Returns a value from a well-defined mnemonic.
+            #[must_use]
             pub fn from_mnemonic(m: &[u8]) -> Option<Self> {
                 $(
                     if m.eq_ignore_ascii_case($mnemonic) {
@@ -51,6 +54,7 @@ macro_rules! int_enum {
             ///
             /// This will also return a mnemonic if a well-defined variant
             /// is hidden in a `Int` variant.
+            #[must_use]
             pub const fn to_mnemonic(self) -> Option<&'static [u8]> {
                 match self {
                     $( $ianatype::$variant => Some($mnemonic) ),*,
@@ -224,6 +228,7 @@ macro_rules! int_enum_str_mnemonics_only {
 macro_rules! int_enum_str_decimal {
     ($ianatype:ident, $inttype:ident) => {
         impl $ianatype {
+            #[must_use]
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 core::str::from_utf8(bytes)
                     .ok()
@@ -284,6 +289,7 @@ macro_rules! int_enum_str_decimal {
 macro_rules! int_enum_str_with_decimal {
     ($ianatype:ident, $inttype:ident, $error:expr) => {
         impl $ianatype {
+            #[must_use]
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 $ianatype::from_mnemonic(bytes).or_else(|| {
                     core::str::from_utf8(bytes)
@@ -379,6 +385,7 @@ macro_rules! int_enum_str_with_prefix {
     ($ianatype:ident, $str_prefix:expr, $u8_prefix:expr, $inttype:ident,
      $error:expr) => {
         impl $ianatype {
+            #[must_use]
             pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
                 $ianatype::from_mnemonic(bytes).or_else(|| {
                     if bytes.len() <= $u8_prefix.len() {

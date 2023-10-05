@@ -448,6 +448,7 @@ impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownRecordData<Octs> {
 pub struct LongRecordData();
 
 impl LongRecordData {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         "record data too long"
     }

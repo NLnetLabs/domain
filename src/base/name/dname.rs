@@ -174,6 +174,7 @@ impl<Octs> Dname<Octs> {
     /// [`root_ref`]: #method.root_ref
     /// [`root_vec`]: #method.root_vec
     /// [`root_bytes`]: #method.root_bytes
+    #[must_use]
     pub fn root() -> Self
     where
         Octs: From<&'static [u8]>,
@@ -209,6 +210,7 @@ impl Dname<[u8]> {
     }
 
     /// Creates a domain name for the root label only atop an octets slice.
+    #[must_use]
     pub fn root_slice() -> &'static Self {
         unsafe { Self::from_slice_unchecked("\0".as_ref()) }
     }
@@ -238,6 +240,7 @@ impl Dname<[u8]> {
 
 impl Dname<&'static [u8]> {
     /// Creates a domain name for the root label only atop a slice reference.
+    #[must_use]
     pub fn root_ref() -> Self {
         Self::root()
     }
@@ -246,6 +249,7 @@ impl Dname<&'static [u8]> {
 #[cfg(feature = "std")]
 impl Dname<Vec<u8>> {
     /// Creates a domain name for the root label only atop a `Vec<u8>`.
+    #[must_use]
     pub fn root_vec() -> Self {
         Self::root()
     }

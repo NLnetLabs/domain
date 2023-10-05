@@ -671,6 +671,7 @@ impl Nsec3Salt<()> {
 
 impl<Octs: ?Sized> Nsec3Salt<Octs> {
     /// Creates an empty salt value.
+    #[must_use]
     pub fn empty() -> Self
     where
         Octs: From<&'static [u8]>,

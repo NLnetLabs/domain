@@ -609,6 +609,7 @@ impl Time48 {
     /// too far in the future to fit into this type. For a correctly set
     /// clock, this will happen in December 8,921,556, so should be fine.
     #[cfg(feature = "std")]
+    #[must_use]
     pub fn now() -> Time48 {
         Self::from_u64(
             SystemTime::now()
@@ -622,6 +623,7 @@ impl Time48 {
     ///
     /// The upper 16 bits of the arument must be zero or else this function
     /// panics. This is also why we don’t implement `From`.
+    #[must_use]
     pub fn from_u64(value: u64) -> Self {
         assert!(value & 0xFFFF_0000_0000_0000 == 0);
         Time48(value)
@@ -649,6 +651,7 @@ impl Time48 {
     /// Converts a value into its wire format.
     ///
     /// Returns the octets of the encoded value in network byte order.
+    #[must_use]
     pub fn into_octets(self) -> [u8; 6] {
         let mut res = [0u8; 6];
         res[0] = (self.0 >> 40) as u8;
@@ -664,6 +667,7 @@ impl Time48 {
     ///
     /// Returns `true` iff `other` is at most `fudge` seconds before or after
     /// this value’s time.
+    #[must_use]
     pub fn eq_fudged(self, other: Self, fudge: u64) -> bool {
         self.0.saturating_sub(fudge) <= other.0
             && self.0.saturating_add(fudge) >= other.0

@@ -45,6 +45,7 @@ impl<Octets> UncertainDname<Octets> {
     }
 
     /// Creates a new uncertain domain name containing the root label only.
+    #[must_use]
     pub fn root() -> Self
     where
         Octets: From<&'static [u8]>,
@@ -53,6 +54,7 @@ impl<Octets> UncertainDname<Octets> {
     }
 
     /// Creates a new uncertain yet empty domain name.
+    #[must_use]
     pub fn empty() -> Self
     where
         Octets: From<&'static [u8]>,
@@ -147,11 +149,13 @@ impl<Octets> UncertainDname<Octets> {
 
 impl UncertainDname<&'static [u8]> {
     /// Creates an empty relative name atop a slice reference.
+    #[must_use]
     pub fn empty_ref() -> Self {
         Self::empty()
     }
 
     /// Creates an absolute name that is the root label atop a slice reference.
+    #[must_use]
     pub fn root_ref() -> Self {
         Self::root()
     }
@@ -160,11 +164,13 @@ impl UncertainDname<&'static [u8]> {
 #[cfg(feature = "std")]
 impl UncertainDname<Vec<u8>> {
     /// Creates an empty relative name atop a `Vec<u8>`.
+    #[must_use]
     pub fn empty_vec() -> Self {
         Self::empty()
     }
 
     /// Creates an absolute name from the root label atop a `Vec<u8>`.
+    #[must_use]
     pub fn root_vec() -> Self {
         Self::root()
     }

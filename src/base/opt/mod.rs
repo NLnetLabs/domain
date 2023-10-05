@@ -305,6 +305,7 @@ pub struct OptHeader {
 
 impl OptHeader {
     /// Returns a reference to an OPT header pointing into a record’s octets.
+    #[must_use]
     pub fn for_record_slice(slice: &[u8]) -> &OptHeader {
         assert!(slice.len() >= mem::size_of::<Self>());
         unsafe { &*(slice.as_ptr() as *const OptHeader) }
@@ -323,6 +324,7 @@ impl OptHeader {
     /// This value refers to the abilities of the sender’s DNS implementation,
     /// not such things as network MTUs. Which means that the largest UDP
     /// payload that can actually be sent back to the sender may be smaller.
+    #[must_use]
     pub fn udp_payload_size(&self) -> u16 {
         u16::from_be_bytes(self.inner[3..5].try_into().unwrap())
     }
@@ -336,6 +338,7 @@ impl OptHeader {
     ///
     /// Some of the bits of the rcode are stored in the regular message
     /// header. Such a header needs to be passed to the method.
+    #[must_use]
     pub fn rcode(&self, header: Header) -> OptRcode {
         OptRcode::from_parts(header.rcode(), self.inner[5])
     }
@@ -351,6 +354,7 @@ impl OptHeader {
     /// Returns the EDNS version of the OPT header.
     ///
     /// Only EDNS version 0 is currently defined.
+    #[must_use]
     pub fn version(&self) -> u8 {
         self.inner[6]
     }
@@ -368,6 +372,7 @@ impl OptHeader {
     /// [RFC 3225].
     ///
     /// [RFC 3225]: https://tools.ietf.org/html/rfc3225
+    #[must_use]
     pub fn dnssec_ok(&self) -> bool {
         self.inner[7] & 0x80 != 0
     }
@@ -535,16 +540,19 @@ pub struct OptionHeader {
 #[allow(clippy::len_without_is_empty)]
 impl OptionHeader {
     /// Creates a new option header from code and length.
+    #[must_use]
     pub fn new(code: u16, len: u16) -> Self {
         OptionHeader { code, len }
     }
 
     /// Returns the option code.
+    #[must_use]
     pub fn code(self) -> u16 {
         self.code
     }
 
     /// Returns the length of the option data.
+    #[must_use]
     pub fn len(self) -> u16 {
         self.len
     }
@@ -817,6 +825,7 @@ impl<Octs: AsRef<[u8]>> fmt::Display for UnknownOptData<Octs> {
 pub struct LongOptData(());
 
 impl LongOptData {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         "option data too long"
     }

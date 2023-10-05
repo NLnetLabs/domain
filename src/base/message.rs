@@ -729,6 +729,7 @@ impl<'a, Octs: Octets + ?Sized> QuestionSection<'a, Octs> {
     }
 
     /// Returns the current position relative to the beginning of the message.
+    #[must_use]
     pub fn pos(&self) -> usize {
         self.parser.pos()
     }
@@ -828,6 +829,7 @@ pub enum Section {
 
 impl Section {
     /// Returns the first section.
+    #[must_use]
     pub fn first() -> Self {
         Section::Answer
     }
@@ -908,6 +910,7 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
     }
 
     /// Returns the current position relative to the beginning of the message.
+    #[must_use]
     pub fn pos(&self) -> usize {
         self.parser.pos()
     }
@@ -927,6 +930,7 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
     /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
     /// [`ParsedDname`]: ../name/struct.ParsedDname.html
     /// [domain::rdata::parsed]: ../../rdata/parsed/index.html
+    #[must_use]
     pub fn limit_to<Data: ParseRecordData<'a, Octs>>(
         self,
     ) -> RecordIter<'a, Octs, Data> {
@@ -939,6 +943,7 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
     /// of class IN.
     ///
     /// [`limit_to`]: #method.limit_to
+    #[must_use]
     pub fn limit_to_in<Data: ParseRecordData<'a, Octs>>(
         self,
     ) -> RecordIter<'a, Octs, Data> {
@@ -1089,6 +1094,7 @@ where
     ///
     /// The returned iterator will continue right after the last record
     /// previously returned.
+    #[must_use]
     pub fn unwrap(self) -> RecordSection<'a, Octs> {
         self.section
     }

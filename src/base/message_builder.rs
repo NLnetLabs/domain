@@ -196,6 +196,7 @@ impl<Target: OctetsBuilder + Truncate> MessageBuilder<Target> {
 #[cfg(feature = "std")]
 impl MessageBuilder<Vec<u8>> {
     /// Creates a new message builder atop a `Vec<u8>`.
+    #[must_use]
     pub fn new_vec() -> Self {
         infallible(Self::from_target(Vec::new()))
     }
@@ -204,6 +205,7 @@ impl MessageBuilder<Vec<u8>> {
 #[cfg(feature = "std")]
 impl MessageBuilder<StreamTarget<Vec<u8>>> {
     /// Creates a new builder for a streamable message atop a `Vec<u8>`.
+    #[must_use]
     pub fn new_stream_vec() -> Self {
         Self::from_target(StreamTarget::new_vec()).unwrap()
     }
@@ -1577,6 +1579,7 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
     /// This field contains the largest UDP datagram the sender can accept.
     /// This is not the path MTU but really what the sender can work with
     /// internally.
+    #[must_use]
     pub fn udp_payload_size(&self) -> u16 {
         self.opt_header().udp_payload_size()
     }
@@ -1590,6 +1593,7 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
     ///
     /// The method assembles the rcode both from the message header and the
     /// OPT header.
+    #[must_use]
     pub fn rcode(&self) -> OptRcode {
         self.opt_header()
             .rcode(*Header::for_message_slice(self.target.as_ref()))
@@ -1607,6 +1611,7 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
     /// Returns the EDNS version of the OPT header.
     ///
     /// Only EDNS version 0 is currently defined.
+    #[must_use]
     pub fn version(&self) -> u8 {
         self.opt_header().version()
     }
@@ -1624,6 +1629,7 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
     /// [RFC 3225].
     ///
     /// [RFC 3225]: https://tools.ietf.org/html/rfc3225
+    #[must_use]
     pub fn dnssec_ok(&self) -> bool {
         self.opt_header().dnssec_ok()
     }
@@ -1681,6 +1687,7 @@ impl<Target: Composer> StreamTarget<Target> {
 #[cfg(feature = "std")]
 impl StreamTarget<Vec<u8>> {
     /// Creates a stream target atop an empty `Vec<u8>`.
+    #[must_use]
     pub fn new_vec() -> Self {
         infallible(Self::new(Vec::new()))
     }

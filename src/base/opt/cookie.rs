@@ -67,6 +67,7 @@ pub struct Cookie {
 
 impl Cookie {
     /// Creates a new cookie from client and optional server cookie.
+    #[must_use]
     pub fn new(
         client: ClientCookie,
         server: Option<ServerCookie>
@@ -75,11 +76,13 @@ impl Cookie {
     }
 
     /// Returns the client cookie.
+    #[must_use]
     pub fn client(&self) -> ClientCookie {
         self.client
     }
 
     /// Returns a reference to the server cookie if present.
+    #[must_use]
     pub fn server(&self) -> Option<&ServerCookie> {
         self.server.as_ref()
     }
@@ -128,6 +131,7 @@ impl Cookie {
 
     /// Creates a random client cookie for including in an initial request.
     #[cfg(feature = "rand")]
+    #[must_use]
     pub fn create_initial() -> Self {
         Self::new(ClientCookie::new_random(), None)
     }
@@ -265,17 +269,20 @@ pub struct ClientCookie([u8; 8]);
 
 impl ClientCookie {
     /// Creates a new client cookie from the given octets.
+    #[must_use]
     pub const fn from_octets(octets: [u8; 8]) -> Self {
         Self(octets)
     }
 
     /// Creates a new random client cookie.
     #[cfg(feature = "rand")]
+    #[must_use]
     pub fn new_random() -> Self {
         Self(rand::random())
     }
 
     /// Converts the cookie into its octets.
+    #[must_use]
     pub fn into_octets(self) -> [u8; 8] {
         self.0
     }
@@ -385,6 +392,7 @@ impl ServerCookie {
     ///
     /// The function panics if `octets` is shorter than 8 octets or longer
     /// than 32.
+    #[must_use]
     pub fn from_octets(slice: &[u8]) -> Self {
         assert!(slice.len() >= 8, "server cookie shorter than 8 octets");
         let mut res = Array::new();
@@ -428,6 +436,7 @@ impl ServerCookie {
     }
 
     /// Returns the length of the wire format of the cookie.
+    #[must_use]
     pub fn compose_len(&self) -> u16 {
         u16::try_from(self.0.len()).expect("long server cookie")
     }
@@ -496,6 +505,7 @@ pub struct StandardServerCookie(
 
 impl StandardServerCookie {
     /// Creates a new server cookie from the provided components.
+    #[must_use]
     pub fn new(
         version: u8,
         reserved: [u8; 3],
@@ -528,16 +538,19 @@ impl StandardServerCookie {
     }
 
     /// Returns the version field of the cookie.
+    #[must_use]
     pub fn version(self) -> u8 {
         self.0[0]
     }
 
     /// Returns the reserved field of the cookie.
+    #[must_use]
     pub fn reserved(self) -> [u8; 3] {
         TryFrom::try_from(&self.0[1..4]).expect("bad slicing")
     }
 
     /// Returns the timestamp field of the cookie.
+    #[must_use]
     pub fn timestamp(self) -> Serial {
         Serial::from_be_bytes(
             TryFrom::try_from(&self.0[4..8]).expect("bad slicing")
@@ -545,6 +558,7 @@ impl StandardServerCookie {
     }
 
     /// Returns the hash field of the cookie.
+    #[must_use]
     pub fn hash(self) -> [u8; 8] {
         TryFrom::try_from(&self.0[8..]).expect("bad slicing")
     }

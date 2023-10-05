@@ -297,6 +297,7 @@ pub enum ParseError {
 
 impl ParseError {
     /// Creates a new parse error as a form error with the given message.
+    #[must_use]
     pub fn form_error(msg: &'static str) -> Self {
         FormError::new(msg).into()
     }
@@ -342,6 +343,7 @@ pub struct FormError(&'static str);
 
 impl FormError {
     /// Creates a new form error value with the given diagnostics string.
+    #[must_use]
     pub fn new(msg: &'static str) -> Self {
         FormError(msg)
     }

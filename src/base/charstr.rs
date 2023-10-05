@@ -62,6 +62,7 @@ impl CharStr<()> {
 
 impl<Octs: ?Sized> CharStr<Octs> {
     /// Creates a new empty character string.
+    #[must_use]
     pub fn empty() -> Self
     where
         Octs: From<&'static [u8]>,
@@ -103,6 +104,7 @@ impl CharStr<[u8]> {
     }
 
     /// Creates a new empty character string on an octets slice.
+    #[must_use]
     pub fn empty_slice() -> &'static Self {
         unsafe { Self::from_slice_unchecked(b"".as_ref()) }
     }
@@ -113,6 +115,7 @@ impl CharStr<[u8]> {
     ///
     /// The caller has to make sure that `octets` is at most 255 octets
     /// long. Otherwise, the behaviour is undefined.
+    #[must_use]
     pub unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         &*(slice as *const [u8] as *const Self)
     }
@@ -139,6 +142,7 @@ impl CharStr<[u8]> {
 
 impl<Octs: ?Sized> CharStr<Octs> {
     /// Creates a new empty builder for this character string type.
+    #[must_use]
     pub fn builder() -> CharStrBuilder<Octs::Builder>
     where
         Octs: IntoBuilder,
@@ -592,11 +596,13 @@ pub struct CharStrBuilder<Builder>(Builder);
 
 impl<Builder: EmptyBuilder> CharStrBuilder<Builder> {
     /// Creates a new empty builder with default capacity.
+    #[must_use]
     pub fn new() -> Self {
         CharStrBuilder(Builder::empty())
     }
 
     /// Creates a new empty builder with the given capacity.
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         CharStrBuilder(Builder::with_capacity(capacity))
     }
@@ -627,11 +633,13 @@ impl<Builder: OctetsBuilder + AsRef<[u8]>> CharStrBuilder<Builder> {
 #[cfg(feature = "std")]
 impl CharStrBuilder<Vec<u8>> {
     /// Creates a new empty characater string builder atop an octets vec.
+    #[must_use]
     pub fn new_vec() -> Self {
         Self::new()
     }
 
     /// Creates a new empty builder atop an octets vec with a given capacity.
+    #[must_use]
     pub fn vec_with_capacity(capacity: usize) -> Self {
         Self::with_capacity(capacity)
     }

@@ -26,10 +26,12 @@ pub struct Aaaa {
 }
 
 impl Aaaa {
+    #[must_use]
     pub fn new(addr: Ipv6Addr) -> Aaaa {
         Aaaa { addr }
     }
 
+    #[must_use]
     pub fn addr(&self) -> Ipv6Addr {
         self.addr
     }

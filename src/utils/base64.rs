@@ -220,6 +220,7 @@ pub struct Decoder<Builder> {
 
 impl<Builder: EmptyBuilder> Decoder<Builder> {
     /// Creates a new empty decoder.
+    #[must_use]
     pub fn new() -> Self {
         Decoder {
             buf: [0; 4],
@@ -335,6 +336,7 @@ pub struct SymbolConverter {
 
 impl SymbolConverter {
     /// Creates a new symbol converter.
+    #[must_use]
     pub fn new() -> Self {
         Default::default()
     }

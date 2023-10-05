@@ -106,6 +106,7 @@ impl<Octs> ParsedDname<Octs> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParsedDname<&'a Octs> {
+    #[must_use]
     pub fn deref_octets(&self) -> ParsedDname<Octs::Range<'a>> {
         ParsedDname {
             octets: self.octets.range(..),

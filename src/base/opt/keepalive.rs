@@ -34,11 +34,13 @@ pub struct TcpKeepalive(Option<IdleTimeout>);
 
 impl TcpKeepalive {
     /// Creates a new value from an optional idle timeout.
+    #[must_use]
     pub fn new(timeout: Option<IdleTimeout>) -> Self {
         TcpKeepalive(timeout)
     }
 
     /// Returns the idle timeout.
+    #[must_use]
     pub fn timeout(self) -> Option<IdleTimeout> {
         self.0
     }

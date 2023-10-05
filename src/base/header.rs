@@ -74,6 +74,7 @@ impl Header {
     /// The new header has all fields as either zero or false. Thus, the
     /// opcode will be [`Opcode::Query`] and the response code will be
     /// [`Rcode::NoError`].
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -83,6 +84,7 @@ impl Header {
     /// # Panics
     ///
     /// This function panics if the slice is less than four octets long.
+    #[must_use]
     pub fn for_message_slice(s: &[u8]) -> &Header {
         assert!(s.len() >= mem::size_of::<Header>());
         unsafe { &*(s.as_ptr() as *const Header) }
@@ -99,6 +101,7 @@ impl Header {
     }
 
     /// Returns a reference to the underlying octets slice.
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
@@ -122,6 +125,7 @@ impl Header {
     )]
     #[cfg_attr(not(feature = "std"), doc = "`set_random_id`")]
     /// can be used for this purpose.
+    #[must_use]
     pub fn id(self) -> u16 {
         u16::from_be_bytes(self.inner[..2].try_into().unwrap())
     }
@@ -138,6 +142,7 @@ impl Header {
     }
 
     /// Returns whether the [QR](Flags::qr) bit is set.
+    #[must_use]
     pub fn qr(self) -> bool {
         self.get_bit(2, 7)
     }
@@ -153,6 +158,7 @@ impl Header {
     /// the [`Opcode`] type for more information on the possible values and
     /// their meaning. Normal queries have the variant [`Opcode::Query`]
     /// which is also the default value when creating a new header.
+    #[must_use]
     pub fn opcode(self) -> Opcode {
         Opcode::from_int((self.inner[2] >> 3) & 0x0F)
     }
@@ -168,6 +174,7 @@ impl Header {
     /// in the header. The returned [`Flags`] type can be useful when you're
     /// working with all flags, rather than a single one, which can be easily
     /// obtained from the header directly.
+    #[must_use]
     pub fn flags(self) -> Flags {
         Flags {
             qr: self.qr(),
@@ -192,6 +199,7 @@ impl Header {
     }
 
     /// Returns whether the [AA](Flags::aa) bit is set.
+    #[must_use]
     pub fn aa(self) -> bool {
         self.get_bit(2, 2)
     }
@@ -202,6 +210,7 @@ impl Header {
     }
 
     /// Returns whether the [TC](Flags::tc) bit is set.
+    #[must_use]
     pub fn tc(self) -> bool {
         self.get_bit(2, 1)
     }
@@ -212,6 +221,7 @@ impl Header {
     }
 
     /// Returns whether the [RD](Flags::rd) bit is set.
+    #[must_use]
     pub fn rd(self) -> bool {
         self.get_bit(2, 0)
     }
@@ -222,6 +232,7 @@ impl Header {
     }
 
     /// Returns whether the [RA](Flags::ra) bit is set.
+    #[must_use]
     pub fn ra(self) -> bool {
         self.get_bit(3, 7)
     }
@@ -234,6 +245,7 @@ impl Header {
     /// Returns whether the reserved bit is set.
     ///
     /// This bit must be `false` in all queries and responses.
+    #[must_use]
     pub fn z(self) -> bool {
         self.get_bit(3, 6)
     }
@@ -244,6 +256,7 @@ impl Header {
     }
 
     /// Returns whether the [AD](Flags::ad) bit is set.
+    #[must_use]
     pub fn ad(self) -> bool {
         self.get_bit(3, 5)
     }
@@ -254,6 +267,7 @@ impl Header {
     }
 
     /// Returns whether the [CD](Flags::cd) bit is set.
+    #[must_use]
     pub fn cd(self) -> bool {
         self.get_bit(3, 4)
     }
@@ -270,6 +284,7 @@ impl Header {
     /// possible values and their meaning.
     ///
     /// [`Rcode`]: ../../iana/rcode/enum.Rcode.html
+    #[must_use]
     pub fn rcode(self) -> Rcode {
         Rcode::from_int(self.inner[3] & 0x0F)
     }
@@ -368,6 +383,7 @@ impl Flags {
     /// Creates new flags.
     ///
     /// All flags will be unset.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -473,6 +489,7 @@ pub struct HeaderCounts {
 ///
 impl HeaderCounts {
     /// Creates a new value with all counters set to zero.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -485,6 +502,7 @@ impl HeaderCounts {
     /// # Panics
     ///
     /// This function panics if the octets slice is shorter than 24 octets.
+    #[must_use]
     pub fn for_message_slice(message: &[u8]) -> &Self {
         assert!(message.len() >= mem::size_of::<HeaderSection>());
         unsafe {
@@ -510,6 +528,7 @@ impl HeaderCounts {
     }
 
     /// Returns a reference to the raw octets slice of the header counts.
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
@@ -534,6 +553,7 @@ impl HeaderCounts {
     ///
     /// This field contains the number of questions in the first
     /// section of the message, normally the question section.
+    #[must_use]
     pub fn qdcount(self) -> u16 {
         self.get_u16(0)
     }
@@ -572,6 +592,7 @@ impl HeaderCounts {
     ///
     /// This field contains the number of resource records in the second
     /// section of the message, normally the answer section.
+    #[must_use]
     pub fn ancount(self) -> u16 {
         self.get_u16(2)
     }
@@ -610,6 +631,7 @@ impl HeaderCounts {
     ///
     /// This field contains the number of resource records in the third
     /// section of the message, normally the authority section.
+    #[must_use]
     pub fn nscount(self) -> u16 {
         self.get_u16(4)
     }
@@ -648,6 +670,7 @@ impl HeaderCounts {
     ///
     /// This field contains the number of resource records in the fourth
     /// section of the message, normally the additional section.
+    #[must_use]
     pub fn arcount(self) -> u16 {
         self.get_u16(6)
     }
@@ -688,6 +711,7 @@ impl HeaderCounts {
     ///
     /// This is the same as the `qdcount()`. It is used in UPDATE queries
     /// where the first section is the zone section.
+    #[must_use]
     pub fn zocount(self) -> u16 {
         self.qdcount()
     }
@@ -701,6 +725,7 @@ impl HeaderCounts {
     ///
     /// This is the same as the `ancount()`. It is used in UPDATE queries
     /// where the first section is the prerequisite section.
+    #[must_use]
     pub fn prcount(self) -> u16 {
         self.ancount()
     }
@@ -714,6 +739,7 @@ impl HeaderCounts {
     ///
     /// This is the same as the `nscount()`. It is used in UPDATE queries
     /// where the first section is the update section.
+    #[must_use]
     pub fn upcount(self) -> u16 {
         self.nscount()
     }
@@ -727,6 +753,7 @@ impl HeaderCounts {
     ///
     /// This is the same as the `arcount()`. It is used in UPDATE queries
     /// where the first section is the additional section.
+    #[must_use]
     pub fn adcount(self) -> u16 {
         self.arcount()
     }
@@ -773,6 +800,7 @@ impl HeaderSection {
     ///
     /// The value will have all header and header counts fields set to zero
     /// or false.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -782,6 +810,7 @@ impl HeaderSection {
     /// # Panics
     ///
     /// This function panics if the octets slice is shorter than 12 octets.
+    #[must_use]
     pub fn for_message_slice(s: &[u8]) -> &HeaderSection {
         assert!(s.len() >= mem::size_of::<HeaderSection>());
         unsafe { &*(s.as_ptr() as *const HeaderSection) }
@@ -798,6 +827,7 @@ impl HeaderSection {
     }
 
     /// Returns a reference to the underlying octets slice.
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         &self.inner
     }
@@ -807,6 +837,7 @@ impl HeaderSection {
 ///
 impl HeaderSection {
     /// Returns a reference to the header.
+    #[must_use]
     pub fn header(&self) -> &Header {
         Header::for_message_slice(&self.inner)
     }
@@ -817,6 +848,7 @@ impl HeaderSection {
     }
 
     /// Returns a reference to the header counts.
+    #[must_use]
     pub fn counts(&self) -> &HeaderCounts {
         HeaderCounts::for_message_slice(&self.inner)
     }

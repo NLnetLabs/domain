@@ -577,6 +577,7 @@ impl Symbol {
     /// represent ASCII spaces, quotes, backslashes, and semicolons and the
     /// plain ASCII value for all other printable ASCII characters. Any other
     /// value is escaped using the decimal escape sequence.
+    #[must_use]
     pub fn from_octet(ch: u8) -> Self {
         if ch == b' ' || ch == b'"' || ch == b'\\' || ch == b';' {
             Symbol::SimpleEscape(ch)
@@ -666,6 +667,7 @@ impl Symbol {
     /// This is true for all symbols other than unescaped ASCII space and
     /// horizontal tabs, opening and closing parentheses, semicolon, and
     /// double quote.
+    #[must_use]
     pub fn is_word_char(self) -> bool {
         match self {
             Symbol::Char(ch) => {
@@ -1010,6 +1012,7 @@ pub(super) enum SymbolCharsEnum {
 
 impl SymbolCharsError {
     /// Returns a static description of the error.
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self.0 {
             SymbolCharsEnum::BadEscape => "illegale escape sequence",
@@ -1050,6 +1053,7 @@ enum SymbolOctetsEnum {
 }
 
 impl SymbolOctetsError {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self.0 {
             SymbolOctetsEnum::BadUtf8 => "illegal UTF-8 sequence",
@@ -1093,6 +1097,7 @@ enum BadSymbolEnum {
 
 impl BadSymbol {
     /// Returns a static description of the error.
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self.0 {
             BadSymbolEnum::NonAscii => "non-ASCII symbol",

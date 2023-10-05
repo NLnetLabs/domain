@@ -33,11 +33,13 @@ pub struct Expire(Option<u32>);
 
 impl Expire {
     /// Creates a new expire option with the given optional expire value.
+    #[must_use]
     pub fn new(expire: Option<u32>) -> Self {
         Expire(expire)
     }
 
     /// Returns the content of the optional expire value.
+    #[must_use]
     pub fn expire(self) -> Option<u32> {
         self.0
     }

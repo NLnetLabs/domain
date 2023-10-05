@@ -1773,6 +1773,7 @@ impl<Octs> RtypeBitmap<Octs> {
         Ok(RtypeBitmap(octets))
     }
 
+    #[must_use]
     pub fn builder() -> RtypeBitmapBuilder<Octs::Builder>
     where
         Octs: FromBuilder,
@@ -2123,6 +2124,7 @@ pub struct RtypeBitmapBuilder<Builder> {
 }
 
 impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
+    #[must_use]
     pub fn new() -> Self
     where
         Builder: EmptyBuilder,
@@ -2140,6 +2142,7 @@ impl<Builder: OctetsBuilder> RtypeBitmapBuilder<Builder> {
 
 #[cfg(feature = "std")]
 impl RtypeBitmapBuilder<Vec<u8>> {
+    #[must_use]
     pub fn new_vec() -> Self {
         Self::new()
     }
