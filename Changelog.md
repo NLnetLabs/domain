@@ -4,6 +4,12 @@
 
 Breaking changes
 
+* Move the `flatten_into` method for converting domain names into a
+  straight, flat form into a new `FlattenInto` trait. This trait is only
+  implemented for types that actually are or contain domain names. ([#216])
+* Marked various methods and functions that return values without side
+  effects as `#[must_use]`. ([#228] by [@WhyNotHugo])
+
 New
 
 * Added support for the ZONEMD record type. ([#229] by @xofyarg)
@@ -12,7 +18,9 @@ Bug fixes
 
 Other changes
 
+[#216]: https://github.com/NLnetLabs/domain/pull/229
 [#229]: https://github.com/NLnetLabs/domain/pull/229
+[@WhyNotHugo]: https://github.com/WhyNotHugo
 [@xofyarg]: https://github.com/xofyarg
 
 
