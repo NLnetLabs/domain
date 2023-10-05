@@ -6,22 +6,53 @@ Breaking changes
 
 New
 
-* Added a new method `FoundSrvs::into_srvs` that converts the value into an
-  iterator over the found SRV records without resolving them further.
-  ([#174], [#214]; this was added in 0.7.2 but missing in 0.8.0)
+* Added support for the ZONEMD record type. ([#229] by @xofyarg)
 
-Bug Fixes
-
-* Fix trait bounds on `FoundSrvs::into_stream` to make it usable again.
-  ([#174], [#214]; this was fixed in 0.7.2 but missing in 0.8.0)
+Bug fixes
 
 Other changes
 
+[#229]: https://github.com/NLnetLabs/domain/pull/229
+[@xofyarg]: https://github.com/xofyarg
+
+
+## 0.8.1
+
+Released 2023-09-18
+
+New
+
+* Added a new method `FoundSrvs::into_srvs` that converts the value into an
+  iterator over the found SRV records without resolving them further.
+  ([#174], [#214] by [@WhyNotHugo]); this was added in 0.7.2 but missing
+  in 0.8.0)
+* Added impl of `Borrow<Dname<[u8]>>` and `AsRef<Dname<[u8]>>` for
+  `Dname<_>`. ([#219] by [@iximeow}], [#225])
+* Added `Dname::fmt_with_dot` that can be used when wanting to display a
+  domain name with a dot at the end. ([#210])
+
+Bug Fixes
+
+* Fixed trait bounds on `FoundSrvs::into_stream` to make it usable again.
+  ([#174], [#214 by [@WhyNotHugo]]; this was fixed in 0.7.2 but missing in
+  0.8.0)
+* Fixed scanning of domain names that are just the root label. ([#210])
+* Fixed `util::base64::SymbolConverter` to also include the final group in
+  the output if there is padding. ([#212])
+
 [#174]: https://github.com/NLnetLabs/domain/pull/174
+[#210]: https://github.com/NLnetLabs/domain/pull/210
+[#212]: https://github.com/NLnetLabs/domain/pull/212
 [#214]: https://github.com/NLnetLabs/domain/pull/214
+[#219]: https://github.com/NLnetLabs/domain/pull/219
+[#225]: https://github.com/NLnetLabs/domain/pull/225
+[@iximeow]: https://github.com/iximeow
+[@WhyNotHugo]: https://github.com/WhyNotHugo
 
 
 ## 0.8.0
+
+Released 2023-05-12
 
 Breaking Changes
 

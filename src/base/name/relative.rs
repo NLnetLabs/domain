@@ -136,6 +136,15 @@ impl RelativeDname<[u8]> {
     }
 
     /// Creates a relative domain name from an octet slice.
+    ///
+    /// Note that the input must be in wire format, as shown below.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use domain::base::name::RelativeDname;
+    /// RelativeDname::from_slice(b"\x0c_submissions\x04_tcp");
+    /// ```
     pub fn from_slice(slice: &[u8]) -> Result<&Self, RelativeDnameError> {
         Self::check_slice(slice)?;
         Ok(unsafe { Self::from_slice_unchecked(slice) })

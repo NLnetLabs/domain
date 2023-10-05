@@ -1513,12 +1513,12 @@ mod test {
     #[test]
     #[cfg(feature = "bytes")]
     fn ds_octets_into() {
+        use super::*;
         use crate::base::iana::{Class, DigestAlg, SecAlg};
         use crate::base::name::Dname;
-        use crate::base::record::{Record, Ttl};
         use crate::rdata::Ds;
         use bytes::Bytes;
-        use octseq::OctetsInto;
+        use octseq::octets::OctetsInto;
 
         let ds: Record<Dname<&[u8]>, Ds<&[u8]>> = Record::new(
             Dname::from_octets(b"\x01a\x07example\0".as_ref()).unwrap(),

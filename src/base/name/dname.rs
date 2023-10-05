@@ -3,7 +3,7 @@
 //! This is a private module. Its public types are re-exported by the parent.
 
 use super::super::cmp::CanonicalOrd;
-use super::super::scan::{Scanner, Symbol};
+use super::super::scan::{Scanner, Symbol, Symbols};
 use super::super::wire::{FormError, ParseError};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
@@ -13,8 +13,10 @@ use super::traits::{FlattenInto, ToDname, ToLabelIter};
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
-use core::{cmp, fmt, hash, str};
-use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, Truncate};
+use core::{borrow, cmp, fmt, hash, str};
+use octseq::builder::{
+    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder, Truncate,
+};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 #[cfg(feature = "serde")]
@@ -94,7 +96,31 @@ impl<Octs> Dname<Octs> {
             + AsMut<[u8]>,
         Sym: IntoIterator<Item = Symbol>,
     {
+        // DnameBuilder can’t deal with a single dot, so we need to special
+        // case that.
+        let mut symbols = symbols.into_iter();
+        let first = match symbols.next() {
+            Some(first) => first,
+            None => return Err(FromStrError::UnexpectedEnd),
+        };
+        if first == Symbol::Char('.') {
+            if symbols.next().is_some() {
+                return Err(FromStrError::EmptyLabel);
+            } else {
+                // Make a root name.
+                let mut builder =
+                    <Octs as FromBuilder>::Builder::with_capacity(1);
+                builder
+                    .append_slice(b"\0")
+                    .map_err(|_| FromStrError::ShortBuf)?;
+                return Ok(unsafe {
+                    Self::from_octets_unchecked(builder.freeze())
+                });
+            }
+        }
+
         let mut builder = DnameBuilder::<Octs::Builder>::new();
+        builder.push_symbol(first)?;
         builder.append_symbols(symbols)?;
         builder.into_dname().map_err(Into::into)
     }
@@ -126,9 +152,9 @@ impl<Octs> Dname<Octs> {
             + AsMut<[u8]>,
         C: IntoIterator<Item = char>,
     {
-        let mut builder = DnameBuilder::<Octs::Builder>::new();
-        builder.append_chars(chars)?;
-        builder.into_dname().map_err(Into::into)
+        Symbols::with(chars.into_iter(), |symbols| {
+            Self::from_symbols(symbols)
+        })
     }
 
     /// Reads a name in presentation format from the beginning of a scanner.
@@ -163,6 +189,17 @@ impl Dname<[u8]> {
     }
 
     /// Creates a domain name from an octets slice.
+    ///
+    /// Note that the input must be in wire format, as shown below.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use domain::base::name::Dname;
+    /// Dname::from_slice(b"\x07example\x03com");
+    /// ```
+    ///
+    /// # Errors
     ///
     /// This will only succeed if `slice` contains a properly encoded
     /// absolute domain name.
@@ -307,6 +344,10 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
     #[allow(clippy::len_without_is_empty)] // never empty ...
     pub fn len(&self) -> usize {
         self.0.as_ref().len()
+    }
+
+    pub fn fmt_with_dot(&self) -> impl fmt::Display + '_ {
+        DisplayWithDot(self.for_slice())
     }
 }
 
@@ -828,8 +869,13 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Dname<Octs> {
     /// Formats the domain name.
     ///
     /// This will produce the domain name in ‘common display format’ without
-    /// the trailing dot.
+    /// the trailing dot with the exception of a root name which will be just
+    /// a dot.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.is_root() {
+            return f.write_str(".");
+        }
+
         let mut iter = self.iter();
         write!(f, "{}", iter.next().unwrap())?;
         for label in iter {
@@ -845,7 +891,40 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for Dname<Octs> {
 
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Dname<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Dname({}.)", self)
+        write!(f, "Dname({})", self.fmt_with_dot())
+    }
+}
+
+//--- AsRef and Borrow
+
+impl<Octs: AsRef<[u8]>> AsRef<Dname<[u8]>> for Dname<Octs> {
+    fn as_ref(&self) -> &Dname<[u8]> {
+        self.for_slice()
+    }
+}
+
+/// Borrow a domain name.
+///
+/// Containers holding an owned `Dname<_>` may be queried with name over a
+/// slice. This `Borrow<_>` impl supports user code querying containers with
+/// compatible-but-different types like the following example:
+///
+/// ```
+/// use std::collections::HashMap;
+///
+/// use domain::base::Dname;
+///
+/// fn get_description(
+///     hash: &HashMap<Dname<Vec<u8>>, String>
+/// ) -> Option<&str> {
+///     let lookup_name: &Dname<[u8]> =
+///         Dname::from_slice(b"\x03www\x07example\x03com\0").unwrap();
+///     hash.get(lookup_name).map(|x| x.as_ref())
+/// }
+/// ```
+impl<Octs: AsRef<[u8]>> borrow::Borrow<Dname<[u8]>> for Dname<Octs> {
+    fn borrow(&self) -> &Dname<[u8]> {
+        self.for_slice()
     }
 }
 
@@ -998,6 +1077,25 @@ impl<'a, Octs: Octets + ?Sized> Iterator for SuffixIter<'a, Octs> {
             self.start = Some(start + usize::from(label.compose_len()))
         }
         Some(res)
+    }
+}
+
+//------------ DisplayWithDot ------------------------------------------------
+
+struct DisplayWithDot<'a>(&'a Dname<[u8]>);
+
+impl<'a> fmt::Display for DisplayWithDot<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.0.is_root() {
+            f.write_str(".")
+        } else {
+            let mut iter = self.0.iter();
+            write!(f, "{}", iter.next().unwrap())?;
+            for label in iter {
+                write!(f, ".{}", label)?
+            }
+            Ok(())
+        }
     }
 }
 
@@ -1732,6 +1830,10 @@ pub(crate) mod test {
         use std::vec::Vec;
 
         assert_eq!(
+            Dname::<Vec<u8>>::from_str(".").unwrap().as_slice(),
+            b"\0"
+        );
+        assert_eq!(
             Dname::<Vec<u8>>::from_str("www.example.com")
                 .unwrap()
                 .as_slice(),
@@ -1871,6 +1973,10 @@ pub(crate) mod test {
                 Token::NewtypeStruct { name: "Dname" },
                 Token::Str("www.example.com"),
             ],
+        );
+        assert_tokens(
+            &Dname::root_vec().readable(),
+            &[Token::NewtypeStruct { name: "Dname" }, Token::Str(".")],
         );
     }
 }
