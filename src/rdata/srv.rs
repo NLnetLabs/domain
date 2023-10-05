@@ -6,13 +6,12 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
+use crate::base::name::{FlattenInto, ParsedDname, ToDname};
 use crate::base::rdata::{ComposeRecordData, ParseRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
 use core::cmp::Ordering;
 use core::fmt;
-use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 
@@ -70,6 +69,18 @@ impl<N> Srv<N> {
         ))
     }
 
+    pub(super) fn flatten<TargetName>(
+        self,
+    ) -> Result<Srv<TargetName>, N::AppendError>
+    where N: FlattenInto<TargetName> {
+        Ok(Srv::new(
+            self.priority,
+            self.weight,
+            self.port,
+            self.target.try_flatten_into()?,
+        ))
+    }
+
     pub fn scan<S: Scanner<Dname = N>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
@@ -79,23 +90,6 @@ impl<N> Srv<N> {
             u16::scan(scanner)?,
             scanner.scan_dname()?,
         ))
-    }
-}
-
-impl<Octs> Srv<ParsedDname<Octs>> {
-    pub fn flatten_into<Target>(self) -> Result<Srv<Dname<Target>>, PushError>
-    where
-        Octs: Octets,
-        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
-        <Target as FromBuilder>::Builder: EmptyBuilder,
-    {
-        let Self {
-            priority,
-            weight,
-            port,
-            target,
-        } = self;
-        Ok(Srv::new(priority, weight, port, target.to_dname()?))
     }
 }
 
@@ -112,7 +106,7 @@ impl<Octs> Srv<ParsedDname<Octs>> {
     }
 }
 
-//--- OctetsFrom
+//--- OctetsFrom and FlattenInto
 
 impl<Name, SrcName> OctetsFrom<Srv<SrcName>> for Srv<Name>
 where
@@ -127,6 +121,14 @@ where
             source.port,
             Name::try_octets_from(source.target)?,
         ))
+    }
+}
+
+impl<Name: FlattenInto<TName>, TName> FlattenInto<Srv<TName>> for Srv<Name> {
+    type AppendError = Name::AppendError;
+
+    fn try_flatten_into(self) -> Result<Srv<TName>, Name::AppendError> {
+        self.flatten()
     }
 }
 

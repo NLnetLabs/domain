@@ -3,7 +3,6 @@
 //! [RFC 7344]: https://tools.ietf.org/html/rfc7344
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-use crate::base::name::PushError;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData
 };
@@ -113,6 +112,12 @@ impl<Octs> Cdnskey<Octs> {
         })
     }
 
+    pub(super) fn flatten<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Cdnskey<Target>, Target::Error> {
+        self.convert_octets()
+    }
+
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -140,28 +145,6 @@ impl<Octs> Cdnskey<Octs> {
             SecAlg::scan(scanner)?,
             scanner.convert_entry(base64::SymbolConverter::new())?,
         ).map_err(|err| S::Error::custom(err.as_str()))
-    }
-}
-
-impl<SrcOcts> Cdnskey<SrcOcts> {
-    pub fn flatten_into<Octs>(self) -> Result<Cdnskey<Octs>, PushError>
-    where
-        Octs: OctetsFrom<SrcOcts>,
-    {
-        let Self {
-            flags,
-            protocol,
-            algorithm,
-            public_key,
-        } = self;
-        Ok(unsafe {
-            Cdnskey::new_unchecked(
-                flags,
-                protocol,
-                algorithm,
-                public_key.try_octets_into().map_err(Into::into)?,
-            )
-        })
     }
 }
 
@@ -433,6 +416,12 @@ impl<Octs> Cds<Octs> {
         })
     }
 
+    pub(super) fn flatten<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Cds<Target>, Target::Error> {
+        self.convert_octets()
+    }
+
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -460,22 +449,6 @@ impl<Octs> Cds<Octs> {
             DigestAlg::scan(scanner)?,
             scanner.convert_entry(base16::SymbolConverter::new())?,
         ).map_err(|err| S::Error::custom(err.as_str()))
-    }
-}
-
-impl<SrcOcts> Cds<SrcOcts> {
-    pub fn flatten_into<Octs>(self) -> Result<Cds<Octs>, PushError>
-    where
-        Octs: OctetsFrom<SrcOcts>,
-    {
-        Ok(unsafe {
-            Cds::new_unchecked(
-                self.key_tag,
-                self.algorithm,
-                self.digest_type,
-                self.digest.try_octets_into().map_err(Into::into)?,
-            )
-        })
     }
 }
 

@@ -1639,9 +1639,9 @@ mod test {
         assert!(
             alpn.iter().eq(
                 [
-                    br#"f\oo,bar"#.as_ref(),
+                    br"f\oo,bar".as_ref(),
                     b"h2".as_ref(),
-                ].into_iter()
+                ]
             )
         );
     }

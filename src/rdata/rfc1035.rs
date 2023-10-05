@@ -7,7 +7,7 @@
 use crate::base::charstr::CharStr;
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
+use crate::base::name::{FlattenInto, ParsedDname, ToDname};
 use crate::base::net::Ipv4Addr;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
@@ -64,11 +64,11 @@ impl A {
         self.addr = addr
     }
 
-    pub fn flatten_into(self) -> Result<A, PushError> {
+    pub(super) fn convert_octets<E>(self) -> Result<Self, E> {
         Ok(self)
     }
 
-    pub(super) fn convert_octets<E>(self) -> Result<Self, E> {
+    pub(super) fn flatten<E>(self) -> Result<Self, E> {
         Ok(self)
     }
 
@@ -252,6 +252,12 @@ impl<Octs> Hinfo<Octs> {
         ))
     }
 
+    pub(super) fn flatten<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Hinfo<Target>, Target::Error> {
+        self.convert_octets()
+    }
+
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -262,19 +268,6 @@ impl<Octs> Hinfo<Octs> {
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(scanner.scan_charstr()?, scanner.scan_charstr()?))
-    }
-}
-
-impl<SrcOcts> Hinfo<SrcOcts> {
-    pub fn flatten_into<Octs>(self) -> Result<Hinfo<Octs>, PushError>
-    where
-        Octs: OctetsFrom<SrcOcts>,
-    {
-        let Self { cpu, os } = self;
-        Ok(Hinfo::new(
-            cpu.try_octets_into().map_err(Into::into)?,
-            os.try_octets_into().map_err(Into::into)?,
-        ))
     }
 }
 
@@ -528,23 +521,20 @@ impl<N> Minfo<N> {
         ))
     }
 
+    pub(super) fn flatten<TargetName>(
+        self,
+    ) -> Result<Minfo<TargetName>, N::AppendError>
+    where N: FlattenInto<TargetName> {
+        Ok(Minfo::new(
+            self.rmailbx.try_flatten_into()?,
+            self.emailbx.try_flatten_into()?,
+        ))
+    }
+
     pub fn scan<S: Scanner<Dname = N>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(scanner.scan_dname()?, scanner.scan_dname()?))
-    }
-}
-
-impl<Octs: Octets> Minfo<ParsedDname<Octs>> {
-    pub fn flatten_into<Target>(
-        self,
-    ) -> Result<Minfo<Dname<Target>>, PushError>
-    where
-        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
-        <Target as FromBuilder>::Builder: EmptyBuilder,
-    {
-        let Self { rmailbx, emailbx } = self;
-        Ok(Minfo::new(rmailbx.flatten_into()?, emailbx.flatten_into()?))
     }
 }
 
@@ -559,7 +549,7 @@ impl<Octs> Minfo<ParsedDname<Octs>> {
     }
 }
 
-//--- OctetsFrom
+//--- OctetsFrom and FlattenInto
 
 impl<Name, SrcName> OctetsFrom<Minfo<SrcName>> for Minfo<Name>
 where
@@ -572,6 +562,17 @@ where
             Name::try_octets_from(source.rmailbx)?,
             Name::try_octets_from(source.emailbx)?,
         ))
+    }
+}
+
+impl<Name, TName> FlattenInto<Minfo<TName>> for Minfo<Name>
+where
+    Name: FlattenInto<TName>,
+{
+    type AppendError = Name::AppendError;
+
+    fn try_flatten_into(self) -> Result<Minfo<TName>, Name::AppendError> {
+        self.flatten()
     }
 }
 
@@ -745,24 +746,17 @@ impl<N> Mx<N> {
         Ok(Mx::new(self.preference, self.exchange.try_octets_into()?))
     }
 
+    pub(super) fn flatten<TargetName>(
+        self,
+    ) -> Result<Mx<TargetName>, N::AppendError>
+    where N: FlattenInto<TargetName> {
+        Ok(Mx::new(self.preference, self.exchange.try_flatten_into()?))
+    }
+
     pub fn scan<S: Scanner<Dname = N>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(u16::scan(scanner)?, scanner.scan_dname()?))
-    }
-}
-
-impl<Octs: Octets> Mx<ParsedDname<Octs>> {
-    pub fn flatten_into<Target>(self) -> Result<Mx<Dname<Target>>, PushError>
-    where
-        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
-        <Target as FromBuilder>::Builder: EmptyBuilder,
-    {
-        let Self {
-            preference,
-            exchange,
-        } = self;
-        Ok(Mx::new(preference, exchange.flatten_into()?))
     }
 }
 
@@ -774,7 +768,7 @@ impl<Octs> Mx<ParsedDname<Octs>> {
     }
 }
 
-//--- OctetsFrom
+//--- OctetsFrom and FlattenInto
 
 impl<Name, SrcName> OctetsFrom<Mx<SrcName>> for Mx<Name>
 where
@@ -787,6 +781,17 @@ where
             source.preference,
             Name::try_octets_from(source.exchange)?,
         ))
+    }
+}
+
+impl<Name, TName> FlattenInto<Mx<TName>> for Mx<Name>
+where
+    Name: FlattenInto<TName>,
+{
+    type AppendError = Name::AppendError;
+
+    fn try_flatten_into(self) -> Result<Mx<TName>, Name::AppendError> {
+        self.flatten()
     }
 }
 
@@ -1010,6 +1015,12 @@ impl<Octs> Null<Octs> {
             Null::from_octets_unchecked(self.data.try_octets_into()?)
         })
     }
+
+    pub(super) fn flatten<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Null<Target>, Target::Error> {
+        self.convert_octets()
+    }
 }
 
 impl<Octs> Null<Octs> {
@@ -1021,19 +1032,6 @@ impl<Octs> Null<Octs> {
             .parse_octets(len)
             .map(|res| unsafe { Self::from_octets_unchecked(res) })
             .map_err(Into::into)
-    }
-}
-
-impl<SrcOcts> Null<SrcOcts> {
-    pub fn flatten_into<Octs>(self) -> Result<Null<Octs>, PushError>
-    where
-        Octs: OctetsFrom<SrcOcts>,
-    {
-        Ok(unsafe {
-            Null::from_octets_unchecked(
-                self.data.try_octets_into().map_err(Into::into)?,
-            )
-        })
     }
 }
 
@@ -1278,6 +1276,21 @@ impl<N> Soa<N> {
         ))
     }
 
+    pub(super) fn flatten<TargetName>(
+        self,
+    ) -> Result<Soa<TargetName>, N::AppendError>
+    where N: FlattenInto<TargetName> {
+        Ok(Soa::new(
+            self.mname.try_flatten_into()?,
+            self.rname.try_flatten_into()?,
+            self.serial,
+            self.refresh,
+            self.retry,
+            self.expire,
+            self.minimum,
+        ))
+    }
+
     pub fn scan<S: Scanner<Dname = N>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
@@ -1289,35 +1302,6 @@ impl<N> Soa<N> {
             Ttl::scan(scanner)?,
             Ttl::scan(scanner)?,
             Ttl::scan(scanner)?,
-        ))
-    }
-}
-
-impl<Octs> Soa<ParsedDname<Octs>> {
-    pub fn flatten_into<Target>(self) -> Result<Soa<Dname<Target>>, PushError>
-    where
-        Octs: Octets,
-        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
-        <Target as FromBuilder>::Builder: EmptyBuilder,
-    {
-        let Self {
-            mname,
-            rname,
-            serial,
-            refresh,
-            retry,
-            expire,
-            minimum,
-        } = self;
-
-        Ok(Soa::new(
-            mname.flatten_into()?,
-            rname.flatten_into()?,
-            serial,
-            refresh,
-            retry,
-            expire,
-            minimum,
         ))
     }
 }
@@ -1338,7 +1322,7 @@ impl<Octs> Soa<ParsedDname<Octs>> {
     }
 }
 
-//--- OctetsFrom
+//--- OctetsFrom and FlattenInto
 
 impl<Name, SrcName> OctetsFrom<Soa<SrcName>> for Soa<Name>
 where
@@ -1356,6 +1340,17 @@ where
             source.expire,
             source.minimum,
         ))
+    }
+}
+
+impl<Name, TName> FlattenInto<Soa<TName>> for Soa<Name>
+where
+    Name: FlattenInto<TName>,
+{
+    type AppendError = Name::AppendError;
+
+    fn try_flatten_into(self) -> Result<Soa<TName>, Name::AppendError> {
+        self.flatten()
     }
 }
 
@@ -1735,11 +1730,10 @@ impl<SrcOcts> Txt<SrcOcts> {
         Ok(Txt(self.0.try_octets_into()?))
     }
 
-    pub fn flatten_into<Octs>(self) -> Result<Txt<Octs>, PushError>
-    where
-        Octs: OctetsFrom<SrcOcts>,
-    {
-        Ok(Txt(self.0.try_octets_into().map_err(Into::into)?))
+    pub(super) fn flatten<Octs: OctetsFrom<SrcOcts>>(
+        self,
+    ) -> Result<Txt<Octs>, Octs::Error> {
+        self.convert_octets()
     }
 }
 

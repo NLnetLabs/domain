@@ -30,11 +30,10 @@ macro_rules! rdata_types {
             pub mod $module;
         )*
 
-        use crate::base::name::{ParsedDname, PushError, ToDname};
+        use crate::base::name::{ParsedDname, ToDname};
         use crate::base::wire::Composer;
         use crate::base::rdata::ComposeRecordData;
-        use octseq::builder::{EmptyBuilder, FromBuilder};
-        use octseq::octets::{OctetsFrom, OctetsInto};
+        use octseq::octets::OctetsFrom;
 
 
         //------------- ZoneRecordData ---------------------------------------
@@ -134,36 +133,6 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<Octs, NOcts> ZoneRecordData<Octs, ParsedDname<NOcts>> {
-            pub fn flatten_into<Target>(
-                self,
-            ) -> Result<
-                ZoneRecordData<Target, crate::base::Dname<Target>>,
-                PushError
-            >
-            where
-                NOcts: octseq::octets::Octets,
-                Target: OctetsFrom<Octs>
-                    + for<'a> OctetsFrom<NOcts::Range<'a>>
-                    + FromBuilder,
-                <Target as FromBuilder>::Builder: EmptyBuilder,
-            {
-                match self {
-                    $( $( $(
-                        ZoneRecordData::$mtype(inner) => {
-                            inner.flatten_into().map(ZoneRecordData::$mtype)
-                        }
-                    )* )* )*
-                        ZoneRecordData::Unknown(inner) => {
-                            Ok(ZoneRecordData::Unknown(
-                                inner.try_octets_into().map_err(Into::into)?
-                            ))
-                        }
-                }
-
-            }
-        }
-
         //--- OctetsFrom
 
         impl<Octets, SrcOctets, Name, SrcName>
@@ -200,6 +169,45 @@ macro_rules! rdata_types {
             }
         }
 
+        //--- FlattenInto
+
+        impl<Octets, TargetOctets, Name, TargetName>
+            crate::base::name::FlattenInto<
+                ZoneRecordData<TargetOctets, TargetName>
+            >
+            for ZoneRecordData<Octets, Name>
+        where
+            TargetOctets: OctetsFrom<Octets>,
+            Name: crate::base::name::FlattenInto<
+                TargetName,
+                AppendError = TargetOctets::Error,
+            >,
+        {
+            type AppendError = TargetOctets::Error;
+
+            fn try_flatten_into(
+                self
+            ) -> Result<
+                ZoneRecordData<TargetOctets, TargetName>,
+                Self::AppendError
+            > {
+                match self {
+                    $( $( $(
+                        ZoneRecordData::$mtype(inner) => {
+                            inner.flatten().map(
+                                ZoneRecordData::$mtype
+                            )
+                        }
+                    )* )* )*
+                    ZoneRecordData::Unknown(inner) => {
+                        Ok(ZoneRecordData::Unknown(
+                            $crate::base::rdata::
+                            UnknownRecordData::try_octets_from(inner)?
+                        ))
+                    }
+                }
+            }
+        }
 
         //--- From
 
@@ -513,46 +521,6 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<Octs, NOcts> AllRecordData<Octs, ParsedDname<NOcts>> {
-            pub fn flatten_into<Target>(
-                self,
-            ) -> Result<
-                AllRecordData<Target, crate::base::Dname<Target>>,
-                PushError
-            >
-            where
-                NOcts: octseq::octets::Octets,
-                Target:
-                    OctetsFrom<Octs>
-                    + for<'a> OctetsFrom<NOcts::Range<'a>>
-                    + FromBuilder,
-                <Target as FromBuilder>::Builder: EmptyBuilder,
-            {
-                match self {
-                    $( $( $(
-                        AllRecordData::$mtype(inner) => {
-                            inner.flatten_into().map(AllRecordData::$mtype)
-                        }
-                    )* )* )*
-                    $( $( $(
-                        AllRecordData::$ptype(inner) => {
-                            Ok(AllRecordData::$ptype(inner.flatten_into()?))
-                        }
-                    )* )* )*
-                    AllRecordData::Opt(inner) => {
-                        Ok(AllRecordData::Opt(
-                            inner.try_octets_into().map_err(Into::into)?
-                        ))
-                    }
-                    AllRecordData::Unknown(inner) => {
-                        Ok(AllRecordData::Unknown(
-                            inner.try_octets_into().map_err(Into::into)?
-                        ))
-                    }
-                }
-            }
-        }
-
         //--- From and Into
 
         $( $( $(
@@ -649,6 +617,58 @@ macro_rules! rdata_types {
                         Ok(AllRecordData::Unknown(
                             $crate::base::rdata::UnknownRecordData
                                 ::try_octets_from(inner)?
+                        ))
+                    }
+                }
+            }
+        }
+
+        //--- FlattenInto
+
+        impl<Octets, TargetOctets, Name, TargetName>
+            crate::base::name::FlattenInto<
+                AllRecordData<TargetOctets, TargetName>
+            >
+            for AllRecordData<Octets, Name>
+        where
+            TargetOctets: OctetsFrom<Octets>,
+            Name: crate::base::name::FlattenInto<
+                TargetName,
+                AppendError = TargetOctets::Error,
+            >,
+        {
+            type AppendError = TargetOctets::Error;
+
+            fn try_flatten_into(
+                self
+            ) -> Result<
+                AllRecordData<TargetOctets, TargetName>,
+                Self::AppendError
+            > {
+                match self {
+                    $( $( $(
+                        AllRecordData::$mtype(inner) => {
+                            inner.flatten().map(
+                                AllRecordData::$mtype
+                            )
+                        }
+                    )* )* )*
+                    $( $( $(
+                        AllRecordData::$ptype(inner) => {
+                            inner.flatten().map(
+                                AllRecordData::$ptype
+                            )
+                        }
+                    )* )* )*
+                    AllRecordData::Opt(inner) => {
+                        Ok(AllRecordData::Opt(
+                            $crate::base::opt::Opt::try_octets_from(inner)?
+                        ))
+                    }
+                    AllRecordData::Unknown(inner) => {
+                        Ok(AllRecordData::Unknown(
+                            $crate::base::rdata::
+                            UnknownRecordData::try_octets_from(inner)?
                         ))
                     }
                 }
@@ -963,17 +983,15 @@ macro_rules! dname_type_base {
             ) -> Result<$target<Target>, Target::Error> {
                 Target::try_octets_from(self.$field).map($target::new)
             }
-        }
 
-        impl<Octs: octseq::octets::Octets> $target<ParsedDname<Octs>> {
-            pub fn flatten_into<Target>(
-                self,
-            ) -> Result<$target<crate::base::Dname<Target>>, PushError>
+            #[allow(dead_code)] // XXX Remove
+            pub(super) fn flatten<Target>(
+                self
+            ) -> Result<$target<Target>, N::AppendError>
             where
-                Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
-                <Target as FromBuilder>::Builder: EmptyBuilder,
+                N: crate::base::name::FlattenInto<Target>
             {
-                Ok($target::new(self.$field.flatten_into()?))
+                self.$field.try_flatten_into().map($target::new)
             }
         }
 
@@ -1017,6 +1035,19 @@ macro_rules! dname_type_base {
             }
         }
 
+        //--- FlattenInto
+
+        impl<Name, Target> crate::base::name::FlattenInto<$target<Target>>
+        for $target<Name>
+        where Name: crate::base::name::FlattenInto<Target> {
+            type AppendError = Name::AppendError;
+
+            fn try_flatten_into(
+                self
+            ) -> Result<$target<Target>, Self::AppendError> {
+                self.$field.try_flatten_into().map($target::new)
+            }
+        }
 
         //--- PartialEq and Eq
 

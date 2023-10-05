@@ -4,14 +4,11 @@
 //! parent.
 use super::SvcParams;
 use crate::base::iana::Rtype;
-use crate::base::name::{
-    Dname, ParsedDname, PushError as PushNameError, ToDname
-};
+use crate::base::name::{FlattenInto, ParsedDname, ToDname};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
 use crate::base::wire::{Compose, Composer, Parse, ParseError};
-use octseq::builder::{EmptyBuilder, FromBuilder};
 use octseq::octets::{Octets, OctetsFrom, OctetsInto};
 use octseq::parse::Parser;
 use core::{cmp, fmt, hash};
@@ -211,31 +208,25 @@ impl<Variant, Octs, Name> SvcbRdata<Variant, Octs, Name> {
             )
         })
     }
-}
 
-impl<Variant, Octs, NOcts> SvcbRdata<Variant, Octs, ParsedDname<NOcts>> {
-    /// Flattens a value using a parsed name into a flat name.
-    pub fn flatten_into<Target>(
-        self
-    ) -> Result<SvcbRdata<Variant, Target, Dname<Target>>, PushNameError>
+    pub(crate) fn flatten<TOcts, TName>(
+        self,
+    ) -> Result<SvcbRdata<Variant, TOcts, TName>, TOcts::Error>
     where
-        NOcts: Octets,
-        Target: OctetsFrom<Octs>
-            + for<'a> OctetsFrom<NOcts::Range<'a>>
-            + FromBuilder,
-        <Target as FromBuilder>::Builder: EmptyBuilder,
+        TOcts: OctetsFrom<Octs>,
+        Name: FlattenInto<TName, AppendError = TOcts::Error>,
     {
         Ok(unsafe {
             SvcbRdata::new_unchecked(
                 self.priority,
-                self.target.flatten_into()?,
-                self.params.try_octets_into().map_err(Into::into)?,
+                self.target.try_flatten_into()?,
+                self.params.try_octets_into()?,
             )
         })
     }
 }
 
-//--- OctetsFrom
+//--- OctetsFrom and FlattenInto
 
 impl<Variant, Octs, SrcOctets, Name, SrcName>
     OctetsFrom<SvcbRdata<Variant, SrcOctets, SrcName>>
@@ -250,6 +241,22 @@ where
         source: SvcbRdata<Variant, SrcOctets, SrcName>,
     ) -> Result<Self, Self::Error> {
         source.convert_octets()
+    }
+}
+
+impl<Variant, Octs, TOcts, Name, TName>
+    FlattenInto<SvcbRdata<Variant, TOcts, TName>>
+    for SvcbRdata<Variant, Octs, Name>
+where
+    TOcts: OctetsFrom<Octs>,
+    Name: FlattenInto<TName, AppendError = TOcts::Error>
+{
+    type AppendError = TOcts::Error;
+
+    fn try_flatten_into(
+        self
+    ) -> Result<SvcbRdata<Variant, TOcts, TName>, TOcts::Error> {
+        self.flatten()
     }
 }
 

@@ -1110,7 +1110,7 @@ mod test {
                 value::Ipv4Hint::<Octets512>::from_addrs(
                     [
                         [192, 0, 2, 1].into(), [192, 0, 2, 2].into()
-                    ].into_iter()
+                    ]
                 ).unwrap()
             )
         );

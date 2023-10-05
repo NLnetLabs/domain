@@ -102,7 +102,7 @@ pub use self::relative::{
     DnameIter, RelativeDname, RelativeDnameError, RelativeFromStrError,
     StripSuffixError,
 };
-pub use self::traits::{ToDname, ToLabelIter, ToRelativeDname};
+pub use self::traits::{FlattenInto, ToDname, ToLabelIter, ToRelativeDname};
 pub use self::uncertain::UncertainDname;
 
 mod builder;

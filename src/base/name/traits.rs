@@ -2,7 +2,6 @@
 //!
 //! This is a private module. Its public traits are re-exported by the parent.
 
-use super::builder::PushError;
 use super::chain::{Chain, LongChainError};
 use super::dname::Dname;
 use super::label::Label;
@@ -10,8 +9,10 @@ use super::relative::RelativeDname;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::cmp;
+use core::convert::Infallible;
 use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
+    infallible, BuilderAppendError, EmptyBuilder, FreezeBuilder, FromBuilder,
+    OctetsBuilder, ShortBuf,
 };
 #[cfg(feature = "std")]
 use std::borrow::Cow;
@@ -116,34 +117,32 @@ pub trait ToDname: ToLabelIter {
     /// some types of names.
     ///
     /// [`Dname`]: struct.Dname.html
-    fn to_dname<Octets>(&self) -> Result<Dname<Octets>, PushError>
+    fn to_dname<Octets>(
+        &self,
+    ) -> Result<Dname<Octets>, BuilderAppendError<Octets>>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
         let mut builder =
             Octets::Builder::with_capacity(self.compose_len().into());
-        for label in self.iter_labels() {
-            label
-                .compose(&mut builder)
-                .map_err(|_| PushError::ShortBuf)?;
-        }
+        self.iter_labels()
+            .try_for_each(|label| label.compose(&mut builder))?;
         Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
     }
 
     /// Converts the name into a single name in canonical form.
-    fn to_canonical_dname<Octets>(&self) -> Result<Dname<Octets>, PushError>
+    fn to_canonical_dname<Octets>(
+        &self,
+    ) -> Result<Dname<Octets>, BuilderAppendError<Octets>>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
         let mut builder =
             Octets::Builder::with_capacity(self.compose_len().into());
-        for label in self.iter_labels() {
-            label
-                .compose_canonical(&mut builder)
-                .map_err(|_| PushError::ShortBuf)?;
-        }
+        self.iter_labels()
+            .try_for_each(|label| label.compose_canonical(&mut builder))?;
         Ok(unsafe { Dname::from_octets_unchecked(builder.freeze()) })
     }
 
@@ -203,13 +202,13 @@ pub trait ToDname: ToLabelIter {
     /// Returns the domain name assembled into a `Vec<u8>`.
     #[cfg(feature = "std")]
     fn to_vec(&self) -> Dname<std::vec::Vec<u8>> {
-        self.to_dname().unwrap()
+        infallible(self.to_dname())
     }
 
     /// Returns the domain name assembled into a bytes value.
     #[cfg(feature = "bytes")]
     fn to_bytes(&self) -> Dname<Bytes> {
-        self.to_dname().unwrap()
+        infallible(self.to_dname())
     }
 
     /// Tests whether `self` and `other` are equal.
@@ -356,36 +355,30 @@ pub trait ToRelativeDname: ToLabelIter {
     /// [`RelativeDname`]: struct.RelativeDname.html
     fn to_relative_dname<Octets>(
         &self,
-    ) -> Result<RelativeDname<Octets>, PushError>
+    ) -> Result<RelativeDname<Octets>, BuilderAppendError<Octets>>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
         let mut builder =
             Octets::Builder::with_capacity(self.compose_len().into());
-        for label in self.iter_labels() {
-            label
-                .compose(&mut builder)
-                .map_err(|_| PushError::ShortBuf)?;
-        }
+        self.iter_labels()
+            .try_for_each(|label| label.compose(&mut builder))?;
         Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
     }
 
     /// Converts the name into a single name in canonical form.
     fn to_canonical_relative_dname<Octets>(
         &self,
-    ) -> Result<RelativeDname<Octets>, PushError>
+    ) -> Result<RelativeDname<Octets>, BuilderAppendError<Octets>>
     where
         Octets: FromBuilder,
         <Octets as FromBuilder>::Builder: EmptyBuilder,
     {
         let mut builder =
             Octets::Builder::with_capacity(self.compose_len().into());
-        for label in self.iter_labels() {
-            label
-                .compose_canonical(&mut builder)
-                .map_err(|_| PushError::ShortBuf)?;
-        }
+        self.iter_labels()
+            .try_for_each(|label| label.compose_canonical(&mut builder))?;
         Ok(unsafe { RelativeDname::from_octets_unchecked(builder.freeze()) })
     }
 
@@ -441,13 +434,13 @@ pub trait ToRelativeDname: ToLabelIter {
     /// Returns the domain name assembled into a `Vec<u8>`.
     #[cfg(feature = "std")]
     fn to_vec(&self) -> RelativeDname<std::vec::Vec<u8>> {
-        self.to_relative_dname().unwrap()
+        infallible(self.to_relative_dname())
     }
 
     /// Returns the domain name assembled into a bytes value.
     #[cfg(feature = "bytes")]
     fn to_bytes(&self) -> RelativeDname<Bytes> {
-        self.to_relative_dname().unwrap()
+        infallible(self.to_relative_dname())
     }
 
     /// Returns whether the name is empty.
@@ -527,3 +520,18 @@ pub trait ToRelativeDname: ToLabelIter {
 }
 
 impl<'a, N: ToRelativeDname + ?Sized + 'a> ToRelativeDname for &'a N {}
+
+//------------ FlattenInto ---------------------------------------------------
+
+pub trait FlattenInto<Target>: Sized {
+    type AppendError: Into<ShortBuf>;
+
+    fn try_flatten_into(self) -> Result<Target, Self::AppendError>;
+
+    fn flatten_into(self) -> Target
+    where
+        Self::AppendError: Into<Infallible>,
+    {
+        infallible(self.try_flatten_into())
+    }
+}

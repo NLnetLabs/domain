@@ -6,7 +6,7 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::{DigestAlg, Rtype, SecAlg};
-use crate::base::name::{Dname, ParsedDname, PushError, ToDname};
+use crate::base::name::{FlattenInto, ParsedDname, ToDname};
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
@@ -219,6 +219,12 @@ impl<Octs> Dnskey<Octs> {
         })
     }
 
+    pub(super) fn flatten<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Dnskey<Target>, Target::Error> {
+        self.convert_octets()
+    }
+
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -249,29 +255,6 @@ impl<Octs> Dnskey<Octs> {
             scanner.convert_entry(base64::SymbolConverter::new())?,
         )
         .map_err(|err| S::Error::custom(err.as_str()))
-    }
-}
-
-impl<SrcOcts> Dnskey<SrcOcts> {
-    pub fn flatten_into<Octs>(self) -> Result<Dnskey<Octs>, PushError>
-    where
-        Octs: OctetsFrom<SrcOcts>,
-    {
-        let Self {
-            flags,
-            protocol,
-            algorithm,
-            public_key,
-        } = self;
-
-        Ok(unsafe {
-            Dnskey::new_unchecked(
-                flags,
-                protocol,
-                algorithm,
-                public_key.try_octets_into().map_err(Into::into)?,
-            )
-        })
     }
 }
 
@@ -499,63 +482,6 @@ impl<Name> ProtoRrsig<Name> {
     }
 }
 
-impl<Octs> ProtoRrsig<ParsedDname<Octs>> {
-    pub fn flatten_into<Target>(
-        self,
-    ) -> Result<ProtoRrsig<Dname<Target>>, PushError>
-    where
-        Octs: Octets,
-        Target: for<'a> OctetsFrom<Octs::Range<'a>> + FromBuilder,
-        <Target as FromBuilder>::Builder: EmptyBuilder,
-    {
-        let Self {
-            type_covered,
-            algorithm,
-            labels,
-            original_ttl,
-            expiration,
-            inception,
-            key_tag,
-            signer_name,
-        } = self;
-
-        Ok(ProtoRrsig::new(
-            type_covered,
-            algorithm,
-            labels,
-            original_ttl,
-            expiration,
-            inception,
-            key_tag,
-            signer_name.flatten_into()?,
-        ))
-    }
-}
-
-//--- OctetsFrom
-
-impl<Name, SrcName> OctetsFrom<ProtoRrsig<SrcName>> for ProtoRrsig<Name>
-where
-    Name: OctetsFrom<SrcName>,
-{
-    type Error = Name::Error;
-
-    fn try_octets_from(
-        source: ProtoRrsig<SrcName>,
-    ) -> Result<Self, Self::Error> {
-        Ok(ProtoRrsig::new(
-            source.type_covered,
-            source.algorithm,
-            source.labels,
-            source.original_ttl,
-            source.expiration,
-            source.inception,
-            source.key_tag,
-            Name::try_octets_from(source.signer_name)?,
-        ))
-    }
-}
-
 impl<Name: ToDname> ProtoRrsig<Name> {
     pub fn compose<Target: Composer + ?Sized>(
         &self,
@@ -596,6 +522,52 @@ impl<Name: ToDname> ProtoRrsig<Name> {
         self.expiration.compose(target)?;
         self.inception.compose(target)?;
         self.key_tag.compose(target)
+    }
+}
+
+//--- OctetsFrom and FlattenInto
+
+impl<Name, SrcName> OctetsFrom<ProtoRrsig<SrcName>> for ProtoRrsig<Name>
+where
+    Name: OctetsFrom<SrcName>,
+{
+    type Error = Name::Error;
+
+    fn try_octets_from(
+        source: ProtoRrsig<SrcName>,
+    ) -> Result<Self, Self::Error> {
+        Ok(ProtoRrsig::new(
+            source.type_covered,
+            source.algorithm,
+            source.labels,
+            source.original_ttl,
+            source.expiration,
+            source.inception,
+            source.key_tag,
+            Name::try_octets_from(source.signer_name)?,
+        ))
+    }
+}
+
+impl<Name, TName> FlattenInto<ProtoRrsig<TName>> for ProtoRrsig<Name>
+where
+    Name: FlattenInto<TName>,
+{
+    type AppendError = Name::AppendError;
+
+    fn try_flatten_into(
+        self
+    ) -> Result<ProtoRrsig<TName>, Name::AppendError> {
+        Ok(ProtoRrsig::new(
+            self.type_covered,
+            self.algorithm,
+            self.labels,
+            self.original_ttl,
+            self.expiration,
+            self.inception,
+            self.key_tag,
+            self.signer_name.try_flatten_into()?,
+        ))
     }
 }
 
@@ -773,6 +745,28 @@ impl<Octs, Name> Rrsig<Octs, Name> {
         })
     }
 
+    pub(super) fn flatten<TOcts, TName>(
+        self,
+    ) -> Result<Rrsig<TOcts, TName>, TOcts::Error>
+    where
+        TOcts: OctetsFrom<Octs>,
+        Name: FlattenInto<TName, AppendError = TOcts::Error>,
+    {
+        Ok(unsafe {
+            Rrsig::new_unchecked(
+                self.type_covered,
+                self.algorithm,
+                self.labels,
+                self.original_ttl,
+                self.expiration,
+                self.inception,
+                self.key_tag,
+                self.signer_name.try_flatten_into()?,
+                TOcts::try_octets_from(self.signature)?,
+            )
+        })
+    }
+
     pub fn scan<S: Scanner<Octets = Octs, Dname = Name>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error>
@@ -792,45 +786,6 @@ impl<Octs, Name> Rrsig<Octs, Name> {
             scanner.convert_entry(base64::SymbolConverter::new())?,
         )
         .map_err(|err| S::Error::custom(err.as_str()))
-    }
-}
-
-impl<Octs, NOcts> Rrsig<Octs, ParsedDname<NOcts>> {
-    pub fn flatten_into<Target>(
-        self,
-    ) -> Result<Rrsig<Target, Dname<Target>>, PushError>
-    where
-        NOcts: Octets,
-        Target: OctetsFrom<Octs>
-            + for<'a> OctetsFrom<NOcts::Range<'a>>
-            + FromBuilder,
-        <Target as FromBuilder>::Builder: EmptyBuilder,
-    {
-        let Self {
-            type_covered,
-            algorithm,
-            labels,
-            original_ttl,
-            expiration,
-            inception,
-            key_tag,
-            signer_name,
-            signature,
-        } = self;
-
-        Ok(unsafe {
-            Rrsig::new_unchecked(
-                type_covered,
-                algorithm,
-                labels,
-                original_ttl,
-                expiration,
-                inception,
-                key_tag,
-                signer_name.flatten_into()?,
-                Target::try_octets_from(signature).map_err(Into::into)?,
-            )
-        })
     }
 }
 
@@ -864,7 +819,7 @@ impl<Octs> Rrsig<Octs, ParsedDname<Octs>> {
     }
 }
 
-//--- OctetsFrom
+//--- OctetsFrom and FlattenInto
 
 impl<Octs, SrcOcts, Name, SrcName> OctetsFrom<Rrsig<SrcOcts, SrcName>>
     for Rrsig<Octs, Name>
@@ -891,6 +846,19 @@ where
                 Octs::try_octets_from(source.signature)?,
             )
         })
+    }
+}
+
+impl<Octs, TOcts, Name, TName> FlattenInto<Rrsig<TOcts, TName>>
+    for Rrsig<Octs, Name>
+where
+    TOcts: OctetsFrom<Octs>,
+    Name: FlattenInto<TName, AppendError = TOcts::Error>,
+{
+    type AppendError = TOcts::Error;
+
+    fn try_flatten_into(self) -> Result<Rrsig<TOcts, TName>, TOcts::Error> {
+        self.flatten()
     }
 }
 
@@ -1218,31 +1186,25 @@ impl<Octs, Name> Nsec<Octs, Name> {
         ))
     }
 
+    pub(super) fn flatten<TOcts, TName>(
+        self,
+    ) -> Result<Nsec<TOcts, TName>, TOcts::Error>
+    where
+        TOcts: OctetsFrom<Octs>,
+        Name: FlattenInto<TName, AppendError = TOcts::Error>,
+    {
+        Ok(Nsec::new(
+            self.next_name.try_flatten_into()?,
+            self.types.convert_octets()?,
+        ))
+    }
+
     pub fn scan<S: Scanner<Octets = Octs, Dname = Name>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         Ok(Self::new(
             scanner.scan_dname()?,
             RtypeBitmap::scan(scanner)?,
-        ))
-    }
-}
-
-impl<Octs, NOcts> Nsec<Octs, ParsedDname<NOcts>> {
-    pub fn flatten_into<Target>(
-        self,
-    ) -> Result<Nsec<Target, Dname<Target>>, PushError>
-    where
-        NOcts: Octets,
-        Target: OctetsFrom<Octs>
-            + for<'a> OctetsFrom<NOcts::Range<'a>>
-            + FromBuilder,
-        <Target as FromBuilder>::Builder: EmptyBuilder,
-    {
-        let Self { next_name, types } = self;
-        Ok(Nsec::new(
-            next_name.flatten_into()?,
-            types.try_octets_into().map_err(Into::into)?,
         ))
     }
 }
@@ -1258,7 +1220,7 @@ impl<Octs: AsRef<[u8]>> Nsec<Octs, ParsedDname<Octs>> {
     }
 }
 
-//--- OctetsFrom
+//--- OctetsFrom and FlattenInto
 
 impl<Octs, SrcOcts, Name, SrcName> OctetsFrom<Nsec<SrcOcts, SrcName>>
     for Nsec<Octs, Name>
@@ -1275,6 +1237,19 @@ where
             Name::try_octets_from(source.next_name)?,
             RtypeBitmap::try_octets_from(source.types)?,
         ))
+    }
+}
+
+impl<Octs, TOcts, Name, TName> FlattenInto<Nsec<TOcts, TName>>
+    for Nsec<Octs, Name>
+where
+    TOcts: OctetsFrom<Octs>,
+    Name: FlattenInto<TName, AppendError = TOcts::Error>,
+{
+    type AppendError = TOcts::Error;
+
+    fn try_flatten_into(self) -> Result<Nsec<TOcts, TName>, TOcts::Error> {
+        self.flatten()
     }
 }
 
@@ -1539,6 +1514,12 @@ impl<Octs> Ds<Octs> {
         })
     }
 
+    pub(super) fn flatten<Target: OctetsFrom<Octs>>(
+        self,
+    ) -> Result<Ds<Target>, Target::Error> {
+        self.convert_octets()
+    }
+
     pub fn parse<'a, Src: Octets<Range<'a> = Octs> + ?Sized>(
         parser: &mut Parser<'a, Src>,
     ) -> Result<Self, ParseError> {
@@ -1569,28 +1550,6 @@ impl<Octs> Ds<Octs> {
             scanner.convert_entry(base16::SymbolConverter::new())?,
         )
         .map_err(|err| S::Error::custom(err.as_str()))
-    }
-}
-
-impl<SrcOcts> Ds<SrcOcts> {
-    pub fn flatten_into<Octs>(self) -> Result<Ds<Octs>, PushError>
-    where
-        Octs: OctetsFrom<SrcOcts>,
-    {
-        let Self {
-            key_tag,
-            algorithm,
-            digest_type,
-            digest,
-        } = self;
-        Ok(unsafe {
-            Ds::new_unchecked(
-                key_tag,
-                algorithm,
-                digest_type,
-                digest.try_octets_into().map_err(Into::into)?,
-            )
-        })
     }
 }
 
@@ -2427,6 +2386,7 @@ fn read_window(data: &[u8]) -> Option<((u8, &[u8]), &[u8])> {
 mod test {
     use super::*;
     use crate::base::iana::Rtype;
+    use crate::base::name::Dname;
     use crate::base::rdata::test::{
         test_compose_parse, test_rdlen, test_scan,
     };

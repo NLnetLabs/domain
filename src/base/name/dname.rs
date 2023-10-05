@@ -8,7 +8,7 @@ use super::super::wire::{FormError, ParseError};
 use super::builder::{DnameBuilder, FromStrError};
 use super::label::{Label, LabelTypeError, SplitLabelError};
 use super::relative::{DnameIter, RelativeDname};
-use super::traits::{ToDname, ToLabelIter};
+use super::traits::{FlattenInto, ToDname, ToLabelIter};
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::ops::{Bound, RangeBounds};
@@ -745,6 +745,20 @@ where
     /// [`UncertainDname`]: struct.UncertainDname.html
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_chars(s.chars())
+    }
+}
+
+//--- FlattenInto
+
+impl<Octs, Target> FlattenInto<Dname<Target>> for Dname<Octs>
+where
+    Target: OctetsFrom<Octs>,
+{
+    type AppendError = Target::Error;
+
+    fn try_flatten_into(self) -> Result<Dname<Target>, Self::AppendError> {
+        Target::try_octets_from(self.0)
+            .map(|octets| unsafe { Dname::from_octets_unchecked(octets) })
     }
 }
 

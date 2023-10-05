@@ -6,7 +6,6 @@
 
 use crate::base::cmp::CanonicalOrd;
 use crate::base::iana::Rtype;
-use crate::base::name::PushError;
 use crate::base::rdata::{ComposeRecordData, RecordData};
 use crate::base::scan::{Scan, Scanner};
 use crate::base::serial::Serial;
@@ -114,23 +113,10 @@ impl<Octs> Zonemd<Octs> {
         })
     }
 
-    pub fn flatten_into<OO>(self) -> Result<Zonemd<OO>, PushError>
-    where
-        OO: OctetsFrom<Octs>,
-    {
-        let Zonemd {
-            serial,
-            scheme,
-            algo,
-            digest,
-        } = self;
-
-        Ok(Zonemd {
-            serial,
-            scheme,
-            algo,
-            digest: digest.try_octets_into().map_err(Into::into)?,
-        })
+    pub(super) fn flatten<Target: OctetsFrom<Octs>>(
+        self
+    ) -> Result<Zonemd<Target>, Target::Error> {
+        self.convert_octets()
     }
 
     pub(super) fn convert_octets<Target: OctetsFrom<Octs>>(

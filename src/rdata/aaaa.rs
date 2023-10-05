@@ -37,11 +37,11 @@ impl Aaaa {
         self.addr = addr
     }
 
-    pub(super) fn flatten_into<E>(self) -> Result<Aaaa, E> {
+    pub(super) fn convert_octets<E>(self) -> Result<Self, E> {
         Ok(self)
     }
 
-    pub(super) fn convert_octets<E>(self) -> Result<Self, E> {
+    pub(super) fn flatten<E>(self) -> Result<Self, E> {
         Ok(self)
     }
 
