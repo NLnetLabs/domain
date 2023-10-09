@@ -37,8 +37,7 @@ async fn main() {
     println!("request msg: {:?}", msg.as_slice());
 
     // Destination for UDP and TCP
-    let server_addr =
-        SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
+    let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
 
     // Create a new UDP+TCP transport connection. Pass the destination address
     // and port as parameter.
@@ -133,9 +132,9 @@ async fn main() {
     });
 
     // Add the previously created transports.
-    redun.add(Box::new(udptcp_conn)).await;
-    redun.add(Box::new(tcp_conn)).await;
-    redun.add(Box::new(tls_conn)).await;
+    redun.add(Box::new(udptcp_conn)).await.unwrap();
+    redun.add(Box::new(tcp_conn)).await.unwrap();
+    redun.add(Box::new(tls_conn)).await.unwrap();
 
     // Start a few queries.
     for _i in 1..10 {
