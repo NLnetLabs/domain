@@ -72,15 +72,14 @@ impl Future for Next {
 impl<A: ToSocketAddrs + Clone + Send + Sync + 'static>
     ConnFactory<TlsStream<TcpStream>> for TlsConnFactory<A>
 {
-    fn next(
-        &self,
-    ) -> Pin<
+    type F = Pin<
         Box<
             dyn Future<Output = Result<TlsStream<TcpStream>, std::io::Error>>
-                + Send
-                + '_,
+                + Send,
         >,
-    > {
+    >;
+
+    fn next(&self) -> Self::F {
         let tls_connection = TlsConnector::from(self.client_config.clone());
         let server_name =
             match ServerName::try_from(self.server_name.as_str()) {

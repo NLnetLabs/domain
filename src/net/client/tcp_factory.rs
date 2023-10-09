@@ -53,10 +53,11 @@ impl Future for Next {
 impl<A: ToSocketAddrs + Clone + Send + 'static> ConnFactory<TcpStream>
     for TcpConnFactory<A>
 {
-    fn next(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = Result<TcpStream, std::io::Error>> + Send>>
-    {
+    type F = Pin<
+        Box<dyn Future<Output = Result<TcpStream, std::io::Error>> + Send>,
+    >;
+
+    fn next(&self) -> Self::F {
         Box::pin(Next {
             future: Box::pin(TcpStream::connect(self.addr.clone())),
         })
