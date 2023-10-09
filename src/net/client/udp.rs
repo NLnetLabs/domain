@@ -254,9 +254,12 @@ impl Query {
                     // Unfortunately we cannot pass query_msg to is_answer
                     // because is_answer requires Octets, which is not
                     // implemented by BytesMut. Make a copy.
-                    let query_msg =
-                        Message::from_octets(self.query_msg.as_slice())
-                            .unwrap();
+                    let query_msg = Message::from_octets(
+                        self.query_msg.as_slice(),
+                    )
+                    .expect(
+                        "Message failed to parse contents of another Message",
+                    );
                     if !answer.is_answer(&query_msg) {
                         continue;
                     }
@@ -332,7 +335,8 @@ impl InnerConnection {
         let slice = query_msg.as_slice();
         let mut bytes = BytesMut::with_capacity(slice.len());
         bytes.extend_from_slice(slice);
-        let query_msg = Message::from_octets(bytes).unwrap();
+        let query_msg = Message::from_octets(bytes)
+            .expect("Message failed to parse contents of another Message");
         Ok(Query::new(query_msg, self.remote_addr, conn))
     }
 

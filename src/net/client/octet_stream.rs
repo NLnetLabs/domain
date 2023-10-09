@@ -550,7 +550,8 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
                 return;
             }
             Some(_) => {
-                let sender = Self::take_query(query_vec, index).unwrap();
+                let sender = Self::take_query(query_vec, index)
+                    .expect("sender should be there");
                 let reply = Response { reply: answer };
                 _ = sender.send(Ok(reply));
             }
@@ -630,7 +631,9 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
             }
         };
 
-        let ind16: u16 = index.try_into().unwrap();
+        let ind16: u16 = index
+            .try_into()
+            .expect("insert should return a value that fits in u16");
 
         // We set the ID to the array index. Defense in depth
         // suggests that a random ID is better because it works
@@ -640,8 +643,8 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
         // nature of its use of sequence numbers, is far more
         // resilient against forgery by third parties."
 
-        let mut mut_msg =
-            Message::from_octets(req.msg.as_slice().to_vec()).unwrap();
+        let mut mut_msg = Message::from_octets(req.msg.as_slice().to_vec())
+            .expect("Message failed to parse contents of another Message");
         let hdr = mut_msg.header_mut();
         hdr.set_id(ind16);
 
@@ -875,7 +878,8 @@ impl Query {
     ) -> Query {
         let msg_ref: &[u8] = query_msg.as_ref();
         let vec = msg_ref.to_vec();
-        let msg = Message::from_octets(vec).unwrap();
+        let msg = Message::from_octets(vec)
+            .expect("Message failed to parse contents of another Message");
         Self {
             query_msg: msg,
             state: QueryState::Busy(receiver),
@@ -895,7 +899,7 @@ impl Query {
                     // Assume receive error
                     return Err(Error::StreamReceiveError);
                 }
-                let res = res.unwrap();
+                let res = res.expect("already check error case");
 
                 // clippy seems to be wrong here. Replacing
                 // the following with 'res?;' doesn't work
@@ -904,7 +908,7 @@ impl Query {
                     return Err(err);
                 }
 
-                let resp = res.unwrap();
+                let resp = res.expect("error case is checked already");
                 let msg = resp.reply;
 
                 if !is_answer_ignore_id(&msg, &self.query_msg) {
@@ -951,7 +955,7 @@ impl QueryNoCheck {
                     // Assume receive error
                     return Err(Error::StreamReceiveError);
                 }
-                let res = res.unwrap();
+                let res = res.expect("error case is checked already");
 
                 // clippy seems to be wrong here. Replacing
                 // the following with 'res?;' doesn't work
@@ -960,7 +964,7 @@ impl QueryNoCheck {
                     return Err(err);
                 }
 
-                let resp = res.unwrap();
+                let resp = res.expect("error case is checked already");
                 let msg = resp.reply;
 
                 Ok(msg)
@@ -979,7 +983,7 @@ impl QueryNoCheck {
 /// opt record.
 fn add_tcp_keepalive<OctsSrc: Octets>(
     msg: &Message<OctsSrc>,
-) -> Result<Message<Vec<u8>>, crate::base::message_builder::PushError> {
+) -> Result<Message<Vec<u8>>, Error> {
     // We can't just insert a new option in an existing
     // opt record. So we have to create new message and copy records
     // from the old one. And insert our option while copying the opt
@@ -988,7 +992,7 @@ fn add_tcp_keepalive<OctsSrc: Octets>(
 
     let mut target =
         MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
-            .unwrap();
+            .expect("Vec is expected to have enough space");
     let source_hdr = source.header();
     let target_hdr = target.header_mut();
     target_hdr.set_flags(source_hdr.flags());
@@ -999,39 +1003,55 @@ fn add_tcp_keepalive<OctsSrc: Octets>(
     let source = source.question();
     let mut target = target.question();
     for rr in source {
-        let rr = rr.unwrap();
-        target.push(rr)?;
+        let rr = rr.map_err(|_e| Error::MessageParseError)?;
+        target
+            .push(rr)
+            .map_err(|_e| Error::MessageBuilderPushError)?;
     }
-    let mut source = source.answer().unwrap();
+    let mut source =
+        source.answer().map_err(|_e| Error::MessageParseError)?;
     let mut target = target.answer();
     for rr in &mut source {
-        let rr = rr.unwrap();
+        let rr = rr.map_err(|_e| Error::MessageParseError)?;
         let rr = rr
             .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .unwrap()
-            .unwrap();
-        target.push(rr)?;
+            .map_err(|_e| Error::MessageParseError)?
+            .expect("record expected");
+        target
+            .push(rr)
+            .map_err(|_e| Error::MessageBuilderPushError)?;
     }
 
-    let mut source = source.next_section().unwrap().unwrap();
+    let mut source = source
+        .next_section()
+        .map_err(|_e| Error::MessageParseError)?
+        .expect("section should be present");
     let mut target = target.authority();
     for rr in &mut source {
-        let rr = rr.unwrap();
+        let rr = rr.map_err(|_e| Error::MessageParseError)?;
         let rr = rr
             .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .unwrap()
-            .unwrap();
-        target.push(rr)?;
+            .map_err(|_e| Error::MessageParseError)?
+            .expect("record expected");
+        target
+            .push(rr)
+            .map_err(|_e| Error::MessageBuilderPushError)?;
     }
 
-    let source = source.next_section().unwrap().unwrap();
+    let source = source
+        .next_section()
+        .map_err(|_e| Error::MessageParseError)?
+        .expect("section should be present");
     let mut target = target.additional();
     let mut found_opt_rr = false;
     for rr in source {
-        let rr = rr.unwrap();
+        let rr = rr.map_err(|_e| Error::MessageParseError)?;
         if rr.rtype() == Rtype::Opt {
             found_opt_rr = true;
-            let rr = rr.into_record::<Opt<_>>().unwrap().unwrap();
+            let rr = rr
+                .into_record::<Opt<_>>()
+                .map_err(|_e| Error::MessageParseError)?
+                .expect("record expected");
             let opt_record = OptRecord::from_record(rr);
             target
                 .opt(|newopt| {
@@ -1052,25 +1072,30 @@ fn add_tcp_keepalive<OctsSrc: Octets>(
                     newopt.tcp_keepalive(None).unwrap();
                     Ok(())
                 })
-                .unwrap();
+                .map_err(|_e| Error::MessageBuilderPushError)?;
         } else {
             let rr = rr
                 .into_record::<AllRecordData<_, ParsedDname<_>>>()
-                .unwrap()
-                .unwrap();
-            target.push(rr)?;
+                .map_err(|_e| Error::MessageParseError)?
+                .expect("record expected");
+            target
+                .push(rr)
+                .map_err(|_e| Error::MessageBuilderPushError)?;
         }
     }
     if !found_opt_rr {
         // send an empty keepalive option
-        target.opt(|opt| opt.tcp_keepalive(None))?;
+        target
+            .opt(|opt| opt.tcp_keepalive(None))
+            .map_err(|_e| Error::MessageBuilderPushError)?;
     }
 
     // It would be nice to use .builder() here. But that one deletes all
     // section. We have to resort to .as_builder() which gives a
     // reference and then .clone()
     let result = target.as_builder().clone();
-    let msg = Message::from_octets(result.finish().into_target()).unwrap();
+    let msg = Message::from_octets(result.finish().into_target())
+        .expect("Message should be able to parse output from MessageBuilder");
     Ok(msg)
 }
 

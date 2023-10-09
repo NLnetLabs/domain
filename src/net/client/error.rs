@@ -13,6 +13,15 @@ pub enum Error {
     /// Connection was already closed.
     ConnectionClosed,
 
+    /// PushError from MessageBuilder.
+    MessageBuilderPushError,
+
+    /// ParseError from Message.
+    MessageParseError,
+
+    /// Underlying transport not found in redundant connection
+    RedundantTransportNotFound,
+
     /// Octet sequence too short to be a valid DNS message.
     ShortMessage,
 
@@ -66,6 +75,14 @@ impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             Error::ConnectionClosed => write!(f, "connection closed"),
+            Error::MessageBuilderPushError => {
+                write!(f, "PushError from MessageBuilder")
+            }
+            Error::MessageParseError => write!(f, "ParseError from Message"),
+            Error::RedundantTransportNotFound => write!(
+                f,
+                "Underlying transport not found in redundant connection"
+            ),
             Error::ShortMessage => {
                 write!(f, "octet sequence to short to be a valid message")
             }
@@ -112,6 +129,9 @@ impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             Error::ConnectionClosed => None,
+            Error::MessageBuilderPushError => None,
+            Error::MessageParseError => None,
+            Error::RedundantTransportNotFound => None,
             Error::ShortMessage => None,
             Error::StreamIdleTimeout => None,
             Error::StreamReceiveError => None,

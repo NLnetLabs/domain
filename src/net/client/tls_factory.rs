@@ -83,7 +83,15 @@ impl<A: ToSocketAddrs + Clone + Send + Sync + 'static>
     > {
         let tls_connection = TlsConnector::from(self.client_config.clone());
         let server_name =
-            ServerName::try_from(self.server_name.as_str()).unwrap();
+            match ServerName::try_from(self.server_name.as_str()) {
+                Err(_) => {
+                    return Box::pin(error_helper(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "invalid DNS name",
+                    )));
+                }
+                Ok(res) => res,
+            };
         let addr = self.addr.clone();
         Box::pin(Next {
             future: Box::pin(async {
@@ -93,4 +101,10 @@ impl<A: ToSocketAddrs + Clone + Send + Sync + 'static>
             }),
         })
     }
+}
+
+async fn error_helper(
+    err: std::io::Error,
+) -> Result<TlsStream<TcpStream>, std::io::Error> {
+    return Err(err);
 }

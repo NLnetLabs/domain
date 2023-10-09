@@ -93,7 +93,7 @@ impl<'a, Octs: Clone + Composer + Debug + Send + Sync + 'static>
     pub async fn add(
         &self,
         conn: Box<dyn QueryMessage3<Octs> + Send + Sync>,
-    ) {
+    ) -> Result<(), Error> {
         self.inner.add(conn).await
     }
 
@@ -102,7 +102,8 @@ impl<'a, Octs: Clone + Composer + Debug + Send + Sync + 'static>
         &self,
         query_msg: &Message<Octs>,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
-        Ok(Box::new(self.inner.query(query_msg.clone()).await.unwrap()))
+        let query = self.inner.query(query_msg.clone()).await?;
+        Ok(Box::new(query))
     }
 }
 
@@ -151,7 +152,7 @@ pub struct Query<Octs: AsRef<[u8]> + Send> {
 }
 
 /// Result of the futures in fut_list.
-type FutListOutput = (usize, Result<Message<Bytes>, Error>);
+type FutListOutput = Result<(usize, Result<Message<Bytes>, Error>), Error>;
 
 /// The various states a query can be in.
 #[derive(Debug)]
@@ -237,7 +238,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
                     tokio::select! {
                         res = self.fut_list.next() => {
                             println!("got res {:?}", res);
-                            let res = res.unwrap();
+                            let res = res.expect("res should not be empty")?;
                             self.result = Some(res.1);
                             self.res_index= res.0;
 
@@ -265,11 +266,16 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
                         || self.conn_rt[ind].start.is_none()
                     {
                         // Nothing more to report. Return result.
-                        let res = self.result.take().unwrap();
+                        let res = self
+                            .result
+                            .take()
+                            .expect("result should not be empty");
                         return res;
                     }
 
-                    let start = self.conn_rt[ind].start.unwrap();
+                    let start = self.conn_rt[ind]
+                        .start
+                        .expect("start time should not be empty");
                     let elapsed = start.elapsed();
                     println!(
                         "expected rt was {:?}",
@@ -287,14 +293,17 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
                         // Failed entry
                         ChanReq::Failure(time_report)
                     };
-                    self.sender.send(report).await.unwrap();
+
+                    // Send could fail but we don't care.
+                    let _ = self.sender.send(report).await;
+
                     self.state = QueryState::Report(ind + 1);
                     continue;
                 }
                 QueryState::Wait => {
                     let res = self.fut_list.next().await;
                     println!("got res {:?}", res);
-                    let res = res.unwrap();
+                    let res = res.expect("res should not be empty")?;
                     self.result = Some(res.1);
                     self.res_index = res.0;
                     self.state = QueryState::Report(0);
@@ -334,7 +343,7 @@ async fn start_request<Octs: Clone + Debug + Send>(
     id: u64,
     sender: mpsc::Sender<ChanReq<Octs>>,
     query_msg: Message<Octs>,
-) -> (usize, Result<Message<Bytes>, Error>) {
+) -> Result<(usize, Result<Message<Bytes>, Error>), Error> {
     let (tx, rx) = oneshot::channel();
     sender
         .send(ChanReq::Query(QueryReq {
@@ -343,11 +352,11 @@ async fn start_request<Octs: Clone + Debug + Send>(
             tx,
         }))
         .await
-        .unwrap();
-    let mut query = rx.await.unwrap().unwrap();
+        .expect("send is expected to work");
+    let mut query = rx.await.expect("receive is expected to work")?;
     let reply = query.get_result().await;
 
-    (index, reply)
+    Ok((index, reply))
 }
 
 /// The commands that can be sent to the run function.
@@ -488,9 +497,11 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
         let mut receiver = self.receiver.lock().await;
         let opt_receiver = receiver.take();
         drop(receiver);
-        let mut receiver = opt_receiver.unwrap();
+        let mut receiver =
+            opt_receiver.expect("receiver should not be empty");
         loop {
-            let req = receiver.recv().await.unwrap();
+            let req =
+                receiver.recv().await.expect("receiver should not fail");
             match req {
                 ChanReq::Add(add_req) => {
                     let id = next_id;
@@ -505,19 +516,33 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
                         start: None,
                     });
                     conns.push(add_req.conn);
-                    add_req.tx.send(Ok(())).unwrap();
+
+                    // Don't care if send fails
+                    let _ = add_req.tx.send(Ok(()));
                 }
                 ChanReq::GetRT(rt_req) => {
-                    rt_req.tx.send(Ok(conn_rt.clone())).unwrap();
+                    // Don't care if send fails
+                    let _ = rt_req.tx.send(Ok(conn_rt.clone()));
                 }
                 ChanReq::Query(query_req) => {
                     println!("QueryReq for id {}", query_req.id);
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == query_req.id);
-                    let ind = opt_ind.unwrap();
-                    println!("QueryReq for ind {}", ind);
-                    let query = conns[ind].query(&query_req.query_msg).await;
-                    query_req.tx.send(query).unwrap();
+                    match opt_ind {
+                        Some(ind) => {
+                            println!("QueryReq for ind {}", ind);
+                            let query =
+                                conns[ind].query(&query_req.query_msg).await;
+                            // Don't care if send fails
+                            let _ = query_req.tx.send(query);
+                        }
+                        None => {
+                            // Don't care if send fails
+                            let _ = query_req
+                                .tx
+                                .send(Err(Error::RedundantTransportNotFound));
+                        }
+                    }
                 }
                 ChanReq::Report(time_report) => {
                     println!(
@@ -526,25 +551,27 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
                     );
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
-                    let ind = opt_ind.unwrap();
-                    println!("Report for ind {}", ind);
-                    let elapsed = time_report.elapsed.as_secs_f64();
-                    conn_stats[ind].mean +=
-                        (elapsed - conn_stats[ind].mean) / SMOOTH_N;
-                    let elapsed_sq = elapsed * elapsed;
-                    conn_stats[ind].mean_sq +=
-                        (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
-                    println!(
-                        "new mean {} mean_sq {}",
-                        conn_stats[ind].mean, conn_stats[ind].mean_sq
-                    );
-                    let mean = conn_stats[ind].mean;
-                    let var = conn_stats[ind].mean_sq - mean * mean;
-                    let std_dev = if var < 0. { 0. } else { f64::sqrt(var) };
-                    println!("std dev {}", std_dev);
-                    let est_rt = mean + 3. * std_dev;
-                    conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
-                    println!("new est_rt {:?}", conn_rt[ind].est_rt);
+                    if let Some(ind) = opt_ind {
+                        println!("Report for ind {}", ind);
+                        let elapsed = time_report.elapsed.as_secs_f64();
+                        conn_stats[ind].mean +=
+                            (elapsed - conn_stats[ind].mean) / SMOOTH_N;
+                        let elapsed_sq = elapsed * elapsed;
+                        conn_stats[ind].mean_sq +=
+                            (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
+                        println!(
+                            "new mean {} mean_sq {}",
+                            conn_stats[ind].mean, conn_stats[ind].mean_sq
+                        );
+                        let mean = conn_stats[ind].mean;
+                        let var = conn_stats[ind].mean_sq - mean * mean;
+                        let std_dev =
+                            if var < 0. { 0. } else { f64::sqrt(var) };
+                        println!("std dev {}", std_dev);
+                        let est_rt = mean + 3. * std_dev;
+                        conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
+                        println!("new est_rt {:?}", conn_rt[ind].est_rt);
+                    }
                 }
                 ChanReq::Failure(time_report) => {
                     println!(
@@ -553,45 +580,50 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
                     );
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
-                    let ind = opt_ind.unwrap();
-                    println!("Failure Report for ind {}", ind);
-                    let elapsed = time_report.elapsed.as_secs_f64();
-                    if elapsed < conn_stats[ind].mean {
-                        // Do not update the mean if a
-                        // failure took less time than the
-                        // current mean.
-                        println!("ignoring better time");
-                        continue;
+                    if let Some(ind) = opt_ind {
+                        println!("Failure Report for ind {}", ind);
+                        let elapsed = time_report.elapsed.as_secs_f64();
+                        if elapsed < conn_stats[ind].mean {
+                            // Do not update the mean if a
+                            // failure took less time than the
+                            // current mean.
+                            println!("ignoring better time");
+                            continue;
+                        }
+                        conn_stats[ind].mean +=
+                            (elapsed - conn_stats[ind].mean) / SMOOTH_N;
+                        let elapsed_sq = elapsed * elapsed;
+                        conn_stats[ind].mean_sq +=
+                            (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
+                        println!(
+                            "new mean {} mean_sq {}",
+                            conn_stats[ind].mean, conn_stats[ind].mean_sq
+                        );
+                        let mean = conn_stats[ind].mean;
+                        let var = conn_stats[ind].mean_sq - mean * mean;
+                        let std_dev =
+                            if var < 0. { 0. } else { f64::sqrt(var) };
+                        println!("std dev {}", std_dev);
+                        let est_rt = mean + 3. * std_dev;
+                        conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
+                        println!("new est_rt {:?}", conn_rt[ind].est_rt);
                     }
-                    conn_stats[ind].mean +=
-                        (elapsed - conn_stats[ind].mean) / SMOOTH_N;
-                    let elapsed_sq = elapsed * elapsed;
-                    conn_stats[ind].mean_sq +=
-                        (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
-                    println!(
-                        "new mean {} mean_sq {}",
-                        conn_stats[ind].mean, conn_stats[ind].mean_sq
-                    );
-                    let mean = conn_stats[ind].mean;
-                    let var = conn_stats[ind].mean_sq - mean * mean;
-                    let std_dev = if var < 0. { 0. } else { f64::sqrt(var) };
-                    println!("std dev {}", std_dev);
-                    let est_rt = mean + 3. * std_dev;
-                    conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
-                    println!("new est_rt {:?}", conn_rt[ind].est_rt);
                 }
             }
         }
     }
 
     /// Implementation of the add method.
-    async fn add(&self, conn: Box<dyn QueryMessage3<Octs> + Send + Sync>) {
+    async fn add(
+        &self,
+        conn: Box<dyn QueryMessage3<Octs> + Send + Sync>,
+    ) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(ChanReq::Add(AddReq { conn, tx }))
             .await
-            .unwrap();
-        rx.await.unwrap().unwrap();
+            .expect("send should not fail");
+        rx.await.expect("receive should not fail")
     }
 
     /// Implementation of the query method.
@@ -603,8 +635,8 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
         self.sender
             .send(ChanReq::GetRT(RTReq { tx }))
             .await
-            .unwrap();
-        let conn_rt = rx.await.unwrap().unwrap();
+            .expect("send should not fail");
+        let conn_rt = rx.await.expect("receive should not fail")?;
         Ok(Query::new(query_msg, conn_rt, self.sender.clone()))
     }
 }
