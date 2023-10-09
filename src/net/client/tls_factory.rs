@@ -103,8 +103,9 @@ impl<A: ToSocketAddrs + Clone + Send + Sync + 'static>
     }
 }
 
+/// Helper to return an error as an async function.
 async fn error_helper(
     err: std::io::Error,
 ) -> Result<TlsStream<TcpStream>, std::io::Error> {
-    return Err(err);
+    Err(err)
 }
