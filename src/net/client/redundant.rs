@@ -65,6 +65,8 @@ const PROBE_P: f64 = 0.05;
 /// When a worse connection is probed, give it a slight head start.
 const PROBE_RT: Duration = Duration::from_millis(1);
 
+//------------ Connection -----------------------------------------------------
+
 /// This type represents a transport connection.
 #[derive(Clone)]
 pub struct Connection<Octs: Send> {
@@ -125,6 +127,8 @@ impl<
     }
 }
 
+//------------ Query ----------------------------------------------------------
+
 /// This type represents an active query request.
 #[derive(Debug)]
 pub struct Query<Octs: AsRef<[u8]> + Send> {
@@ -151,9 +155,6 @@ pub struct Query<Octs: AsRef<[u8]> + Send> {
     res_index: usize,
 }
 
-/// Result of the futures in fut_list.
-type FutListOutput = Result<(usize, Result<Message<Bytes>, Error>), Error>;
-
 /// The various states a query can be in.
 #[derive(Debug)]
 enum QueryState {
@@ -169,6 +170,110 @@ enum QueryState {
     /// Wait for one of the requests to finish.
     Wait,
 }
+
+/// The commands that can be sent to the run function.
+enum ChanReq<Octs: Send> {
+    /// Add a connection
+    Add(AddReq<Octs>),
+
+    /// Get the list of estimated response times for all connections
+    GetRT(RTReq),
+
+    /// Start a query
+    Query(QueryReq<Octs>),
+
+    /// Report how long it took to get a response
+    Report(TimeReport),
+
+    /// Report that a connection failed to provide a timely response
+    Failure(TimeReport),
+}
+
+impl<Octs: Debug + Send> Debug for ChanReq<Octs> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("ChanReq").finish()
+    }
+}
+
+/// Request to add a new connection
+struct AddReq<Octs> {
+    /// New connection to add
+    conn: Box<dyn QueryMessage3<Octs> + Send + Sync>,
+
+    /// Channel to send the reply to
+    tx: oneshot::Sender<AddReply>,
+}
+
+/// Reply to an Add request
+type AddReply = Result<(), Error>;
+
+/// Request to give the estimated response times for all connections
+struct RTReq /*<Octs>*/ {
+    /// Channel to send the reply to
+    tx: oneshot::Sender<RTReply>,
+}
+
+/// Reply to a RT request
+type RTReply = Result<Vec<ConnRT>, Error>;
+
+/// Request to start a query
+struct QueryReq<Octs: Send> {
+    /// Identifier of connection
+    id: u64,
+
+    /// Request message
+    query_msg: Message<Octs>,
+
+    /// Channel to send the reply to
+    tx: oneshot::Sender<QueryReply>,
+}
+
+impl<Octs: AsRef<[u8]> + Debug + Send> Debug for QueryReq<Octs> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("QueryReq")
+            .field("id", &self.id)
+            .field("query_msg", &self.query_msg)
+            .finish()
+    }
+}
+
+/// Reply to a query request.
+type QueryReply = Result<Box<dyn GetResult + Send>, Error>;
+
+/// Report the amount of time until success or failure.
+#[derive(Debug)]
+struct TimeReport {
+    /// Identifier of the transport connection.
+    id: u64,
+
+    /// Time spend waiting for a reply.
+    elapsed: Duration,
+}
+
+/// Connection statistics to compute the estimated response time.
+struct ConnStats {
+    /// Aproximation of the windowed average of response times.
+    mean: f64,
+
+    /// Aproximation of the windowed average of the square of response times.
+    mean_sq: f64,
+}
+
+/// Data required to schedule requests and report timing results.
+#[derive(Clone, Debug)]
+struct ConnRT {
+    /// Estimated response time.
+    est_rt: Duration,
+
+    /// Identifier of the connection.
+    id: u64,
+
+    /// Start of a request using this connection.
+    start: Option<Instant>,
+}
+
+/// Result of the futures in fut_list.
+type FutListOutput = Result<(usize, Result<Message<Bytes>, Error>), Error>;
 
 impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
     /// Create a new query object.
@@ -335,135 +440,7 @@ impl<
     }
 }
 
-/// Async function to send a request and wait for the reply.
-///
-/// This gives a single future that we can put in a list.
-async fn start_request<Octs: Clone + Debug + Send>(
-    index: usize,
-    id: u64,
-    sender: mpsc::Sender<ChanReq<Octs>>,
-    query_msg: Message<Octs>,
-) -> Result<(usize, Result<Message<Bytes>, Error>), Error> {
-    let (tx, rx) = oneshot::channel();
-    sender
-        .send(ChanReq::Query(QueryReq {
-            id,
-            query_msg: query_msg.clone(),
-            tx,
-        }))
-        .await
-        .expect("send is expected to work");
-    let mut query = rx.await.expect("receive is expected to work")?;
-    let reply = query.get_result().await;
-
-    Ok((index, reply))
-}
-
-/// The commands that can be sent to the run function.
-enum ChanReq<Octs: Send> {
-    /// Add a connection
-    Add(AddReq<Octs>),
-
-    /// Get the list of estimated response times for all connections
-    GetRT(RTReq),
-
-    /// Start a query
-    Query(QueryReq<Octs>),
-
-    /// Report how long it took to get a response
-    Report(TimeReport),
-
-    /// Report that a connection failed to provide a timely response
-    Failure(TimeReport),
-}
-
-impl<Octs: Debug + Send> Debug for ChanReq<Octs> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.debug_struct("ChanReq").finish()
-    }
-}
-
-/// Request to add a new connection
-struct AddReq<Octs> {
-    /// New connection to add
-    conn: Box<dyn QueryMessage3<Octs> + Send + Sync>,
-
-    /// Channel to send the reply to
-    tx: oneshot::Sender<AddReply>,
-}
-
-/// Reply to an Add request
-type AddReply = Result<(), Error>;
-
-/// Request to give the estimated response times for all connections
-struct RTReq /*<Octs>*/ {
-    /// Channel to send the reply to
-    tx: oneshot::Sender<RTReply>,
-}
-
-/// Reply to a RT request
-type RTReply = Result<Vec<ConnRT>, Error>;
-
-/// Request to start a query
-struct QueryReq<Octs: Send> {
-    /// Identifier of connection
-    id: u64,
-
-    /// Request message
-    query_msg: Message<Octs>,
-
-    /// Channel to send the reply to
-    tx: oneshot::Sender<QueryReply>,
-}
-
-impl<Octs: AsRef<[u8]> + Debug + Send> Debug for QueryReq<Octs> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.debug_struct("QueryReq")
-            .field("id", &self.id)
-            .field("query_msg", &self.query_msg)
-            .finish()
-    }
-}
-
-/// Reply to a query request.
-type QueryReply = Result<Box<dyn GetResult + Send>, Error>;
-
-/// Report the amount of time until success or failure.
-#[derive(Debug)]
-struct TimeReport {
-    /// Identifier of the transport connection.
-    id: u64,
-
-    /// Time spend waiting for a reply.
-    elapsed: Duration,
-}
-
-/// Connection statistics to compute the estimated response time.
-struct ConnStats {
-    /// Aproximation of the windowed average of response times.
-    mean: f64,
-
-    /// Aproximation of the windowed average of the square of response times.
-    mean_sq: f64,
-}
-
-/// Data required to schedule requests and report timing results.
-#[derive(Clone, Debug)]
-struct ConnRT {
-    /// Estimated response time.
-    est_rt: Duration,
-
-    /// Identifier of the connection.
-    id: u64,
-
-    /// Start of a request using this connection.
-    start: Option<Instant>,
-}
-
-/// Compare ConnRT elements based on estimated response time.
-fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT) -> Ordering {
-    e1.est_rt.cmp(&e2.est_rt)
-}
+//------------ InnerConnection ------------------------------------------------
 
 /// Type that actually implements the connection.
 struct InnerConnection<Octs: Send> {
@@ -641,4 +618,33 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
     }
 }
 
-//fn test_send<T: Send>(t: T) -> T { t }
+//------------ Utility --------------------------------------------------------
+
+/// Async function to send a request and wait for the reply.
+///
+/// This gives a single future that we can put in a list.
+async fn start_request<Octs: Clone + Debug + Send>(
+    index: usize,
+    id: u64,
+    sender: mpsc::Sender<ChanReq<Octs>>,
+    query_msg: Message<Octs>,
+) -> Result<(usize, Result<Message<Bytes>, Error>), Error> {
+    let (tx, rx) = oneshot::channel();
+    sender
+        .send(ChanReq::Query(QueryReq {
+            id,
+            query_msg: query_msg.clone(),
+            tx,
+        }))
+        .await
+        .expect("send is expected to work");
+    let mut query = rx.await.expect("receive is expected to work")?;
+    let reply = query.get_result().await;
+
+    Ok((index, reply))
+}
+
+/// Compare ConnRT elements based on estimated response time.
+fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT) -> Ordering {
+    e1.est_rt.cmp(&e2.est_rt)
+}

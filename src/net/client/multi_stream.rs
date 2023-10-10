@@ -43,60 +43,7 @@ const DEF_CHAN_CAP: usize = 8;
 /// [InnerConnection::run] terminated.
 const ERR_CONN_CLOSED: &str = "connection closed";
 
-/// Response to the DNS request sent by [InnerConnection::run] to [Query].
-#[derive(Debug)]
-struct ChanRespOk<Octs: AsRef<[u8]>> {
-    /// id of this connection.
-    id: u64,
-
-    /// New octet_stream transport.
-    conn: SingleConnection<Octs>,
-}
-
-/// The reply to a NewConn request.
-type ChanResp<Octs> = Result<ChanRespOk<Octs>, Arc<std::io::Error>>;
-
-/// This is the type of sender in [ReqCmd].
-type ReplySender<Octs> = oneshot::Sender<ChanResp<Octs>>;
-
-#[derive(Debug)]
-/// Commands that can be requested.
-enum ReqCmd<Octs: AsRef<[u8]>> {
-    /// Request for a (new) connection.
-    ///
-    /// The id of the previous connection (if any) is passed as well as a
-    /// channel to send the reply.
-    NewConn(Option<u64>, ReplySender<Octs>),
-
-    /// Shutdown command.
-    Shutdown,
-}
-
-#[derive(Debug)]
-/// A request to [Connection::run] either for a new octet_stream or to
-/// shutdown.
-struct ChanReq<Octs: AsRef<[u8]>> {
-    /// A requests consists of a command.
-    cmd: ReqCmd<Octs>,
-}
-
-/// The actual implementation of [Connection].
-#[derive(Debug)]
-struct InnerConnection<Octs: AsRef<[u8]>> {
-    /// [InnerConnection::sender] and [InnerConnection::receiver] are
-    /// part of a single channel.
-    ///
-    /// Used by [Query] to send requests to [InnerConnection::run].
-    sender: mpsc::Sender<ChanReq<Octs>>,
-
-    /// receiver part of the channel.
-    ///
-    /// Protected by a mutex to allow read/write access by
-    /// [InnerConnection::run].
-    /// The Option is to allow [InnerConnection::run] to signal that the
-    /// connection is closed.
-    receiver: Futures_mutex<Option<mpsc::Receiver<ChanReq<Octs>>>>,
-}
+//------------ Connection -----------------------------------------------------
 
 #[derive(Clone, Debug)]
 /// A DNS over octect streams transport.
@@ -105,80 +52,106 @@ pub struct Connection<Octs: AsRef<[u8]>> {
     inner: Arc<InnerConnection<Octs>>,
 }
 
-/// Status of a query. Used in [Query].
-#[derive(Debug)]
-enum QueryState<Octs: AsRef<[u8]>> {
-    /// Get a octet_stream transport.
-    GetConn(oneshot::Receiver<ChanResp<Octs>>),
-
-    /// Start a query using the transport.
-    StartQuery(SingleConnection<Octs>),
-
-    /// Get the result of the query.
-    GetResult(SingleQuery),
-
-    /// Wait until trying again.
+impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
+    Connection<Octs>
+{
+    /// Constructor for [Connection].
     ///
-    /// The instant represents when the error occured, the duration how
-    /// long to wait.
-    Delay(Instant, Duration),
+    /// Returns a [Connection] wrapped in a [Result](io::Result).
+    pub fn new() -> io::Result<Connection<Octs>> {
+        let connection = InnerConnection::new()?;
+        Ok(Self {
+            inner: Arc::new(connection),
+        })
+    }
 
-    /// The response has been received and the query is done.
-    Done,
+    /// Main execution function for [Connection].
+    ///
+    /// This function has to run in the background or together with
+    /// any calls to [query](Self::query) or [Query::get_result].
+    pub async fn run<
+        F: ConnFactory<IO> + Send,
+        IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Unpin,
+    >(
+        &self,
+        factory: F,
+    ) -> Option<()> {
+        self.inner.run(factory).await
+    }
+
+    /// Start a DNS request.
+    ///
+    /// This function takes a precomposed message as a parameter and
+    /// returns a [Query] object wrapped in a [Result].
+    pub async fn query_impl(
+        &self,
+        query_msg: &Message<Octs>,
+    ) -> Result<Query<Octs>, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.new_conn(None, tx).await?;
+        let gr = Query::new(self.clone(), query_msg, rx);
+        Ok(gr)
+    }
+
+    /// Start a DNS request.
+    ///
+    /// This function takes a precomposed message as a parameter and
+    /// returns a [Query] object wrapped in a [Result].
+    pub async fn query_impl3(
+        &self,
+        query_msg: &Message<Octs>,
+    ) -> Result<Box<dyn GetResult + Send>, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.new_conn(None, tx).await?;
+        let gr = Query::new(self.clone(), query_msg, rx);
+        Ok(Box::new(gr))
+    }
+
+    /// Shutdown this transport.
+    pub async fn shutdown(&self) -> Result<(), &'static str> {
+        self.inner.shutdown().await
+    }
+
+    /// Request a new connection.
+    async fn new_conn(
+        &self,
+        id: u64,
+        tx: oneshot::Sender<ChanResp<Octs>>,
+    ) -> Result<(), Error> {
+        self.inner.new_conn(Some(id), tx).await
+    }
 }
 
-/// State associated with a failed attempt to create a new octet_stream
-/// transport.
-#[derive(Clone)]
-struct ErrorState {
-    /// The error we got from the most recent attempt.
-    error: Arc<std::io::Error>,
-
-    /// How many times we tried so far.
-    retries: u64,
-
-    /// When we got an error.
-    timer: Instant,
-
-    /// Time to wait before trying to create a new connection.
-    timeout: Duration,
+impl<Octs: Clone + Debug + Octets + Send + Sync + 'static>
+    QueryMessage<Query<Octs>, Octs> for Connection<Octs>
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a Message<Octs>,
+    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>>
+    {
+        return Box::pin(self.query_impl(query_msg));
+    }
 }
 
-/// State of the current underlying octet_stream transport.
-enum SingleConnState3<Octs: AsRef<[u8]>> {
-    /// No current octet_stream transport.
-    None,
-
-    /// Current octet_stream transport.
-    Some(SingleConnection<Octs>),
-
-    /// State that deals with an error getting a new octet stream from
-    /// a factory.
-    Err(ErrorState),
+impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
+    QueryMessage3<Octs> for Connection<Octs>
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a Message<Octs>,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+                + Send
+                + '_,
+        >,
+    > {
+        return Box::pin(self.query_impl3(query_msg));
+    }
 }
 
-/// Internal datastructure of [InnerConnection::run] to keep track of
-/// the status of the connection.
-// The types Status and ConnState are only used in InnerConnection
-struct State3<'a, F, IO, Octs: AsRef<[u8]>> {
-    /// Underlying octet_stream connection.
-    conn_state: SingleConnState3<Octs>,
-
-    /// Current connection id.
-    conn_id: u64,
-
-    /// Factory for new octet streams.
-    factory: F,
-
-    /// Collection of futures for the async run function of the underlying
-    /// octet_stream.
-    runners: FuturesUnordered<
-        Pin<Box<dyn Future<Output = Option<()>> + Send + 'a>>,
-    >,
-
-    /// Phantom data for type IO
-    phantom: PhantomData<&'a IO>,
-}
+//------------ Query ----------------------------------------------------------
 
 /// This struct represent an active DNS query.
 #[derive(Debug)]
@@ -204,6 +177,273 @@ pub struct Query<Octs: AsRef<[u8]>> {
     // imm_retry_count: u16,
     /// Number of retries with delay.
     delayed_retry_count: u64,
+}
+
+/// Status of a query. Used in [Query].
+#[derive(Debug)]
+enum QueryState<Octs: AsRef<[u8]>> {
+    /// Get a octet_stream transport.
+    GetConn(oneshot::Receiver<ChanResp<Octs>>),
+
+    /// Start a query using the transport.
+    StartQuery(SingleConnection<Octs>),
+
+    /// Get the result of the query.
+    GetResult(SingleQuery),
+
+    /// Wait until trying again.
+    ///
+    /// The instant represents when the error occured, the duration how
+    /// long to wait.
+    Delay(Instant, Duration),
+
+    /// The response has been received and the query is done.
+    Done,
+}
+
+/// The reply to a NewConn request.
+type ChanResp<Octs> = Result<ChanRespOk<Octs>, Arc<std::io::Error>>;
+
+/// Response to the DNS request sent by [InnerConnection::run] to [Query].
+#[derive(Debug)]
+struct ChanRespOk<Octs: AsRef<[u8]>> {
+    /// id of this connection.
+    id: u64,
+
+    /// New octet_stream transport.
+    conn: SingleConnection<Octs>,
+}
+
+impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
+    Query<Octs>
+{
+    /// Constructor for [Query], takes a DNS query and a receiver for the
+    /// reply.
+    fn new(
+        conn: Connection<Octs>,
+        query_msg: &Message<Octs>,
+        receiver: oneshot::Receiver<ChanResp<Octs>>,
+    ) -> Query<Octs> {
+        Self {
+            conn,
+            query_msg: query_msg.clone(),
+            state: QueryState::GetConn(receiver),
+            conn_id: 0,
+            //imm_retry_count: 0,
+            delayed_retry_count: 0,
+        }
+    }
+
+    /// Get the result of a DNS query.
+    ///
+    /// This function returns the reply to a DNS query wrapped in a
+    /// [Result].
+    pub async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
+        loop {
+            match self.state {
+                QueryState::GetConn(ref mut receiver) => {
+                    let res = receiver.await;
+                    if res.is_err() {
+                        // Assume receive error
+                        self.state = QueryState::Done;
+                        return Err(Error::StreamReceiveError);
+                    }
+                    let res = res.expect("error is checked before");
+
+                    // Another Result. This time from executing the request
+                    match res {
+                        Err(_) => {
+                            self.delayed_retry_count += 1;
+                            let retry_time =
+                                retry_time(self.delayed_retry_count);
+                            self.state =
+                                QueryState::Delay(Instant::now(), retry_time);
+                            continue;
+                        }
+                        Ok(ok_res) => {
+                            let id = ok_res.id;
+                            let conn = ok_res.conn;
+
+                            self.conn_id = id;
+                            self.state = QueryState::StartQuery(conn);
+                            continue;
+                        }
+                    }
+                }
+                QueryState::StartQuery(ref mut conn) => {
+                    let mut msg = self.query_msg.clone();
+                    let query_res = conn.query_no_check(&mut msg).await;
+                    match query_res {
+                        Err(err) => {
+                            if let Error::ConnectionClosed = err {
+                                let (tx, rx) = oneshot::channel();
+                                let res = self
+                                    .conn
+                                    .new_conn(self.conn_id, tx)
+                                    .await;
+                                if let Err(err) = res {
+                                    self.state = QueryState::Done;
+                                    return Err(err);
+                                }
+                                self.state = QueryState::GetConn(rx);
+                                continue;
+                            }
+                            return Err(err);
+                        }
+                        Ok(query) => {
+                            self.state = QueryState::GetResult(query);
+                            continue;
+                        }
+                    }
+                }
+                QueryState::GetResult(ref mut query) => {
+                    let reply = query.get_result().await;
+
+                    if reply.is_err() {
+                        self.delayed_retry_count += 1;
+                        let retry_time = retry_time(self.delayed_retry_count);
+                        self.state =
+                            QueryState::Delay(Instant::now(), retry_time);
+                        continue;
+                    }
+
+                    let msg = reply.expect("error is checked before");
+                    let query_msg_ref: &[u8] = self.query_msg.as_ref();
+                    let query_msg_vec = query_msg_ref.to_vec();
+                    let query_msg = Message::from_octets(query_msg_vec)
+                        .expect("how to go from MessageBuild to Message?");
+
+                    if !is_answer_ignore_id(&msg, &query_msg) {
+                        return Err(Error::WrongReplyForQuery);
+                    }
+                    return Ok(msg);
+                }
+                QueryState::Delay(instant, duration) => {
+                    sleep_until(instant + duration).await;
+                    let (tx, rx) = oneshot::channel();
+                    let res = self.conn.new_conn(self.conn_id, tx).await;
+                    if let Err(err) = res {
+                        self.state = QueryState::Done;
+                        return Err(err);
+                    }
+                    self.state = QueryState::GetConn(rx);
+                    continue;
+                }
+                QueryState::Done => {
+                    panic!("Already done");
+                }
+            }
+        }
+    }
+}
+
+impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
+    GetResult for Query<Octs>
+{
+    fn get_result(
+        &mut self,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+    > {
+        Box::pin(self.get_result_impl())
+    }
+}
+
+//------------ InnerConnection ------------------------------------------------
+
+/// The actual implementation of [Connection].
+#[derive(Debug)]
+struct InnerConnection<Octs: AsRef<[u8]>> {
+    /// [InnerConnection::sender] and [InnerConnection::receiver] are
+    /// part of a single channel.
+    ///
+    /// Used by [Query] to send requests to [InnerConnection::run].
+    sender: mpsc::Sender<ChanReq<Octs>>,
+
+    /// receiver part of the channel.
+    ///
+    /// Protected by a mutex to allow read/write access by
+    /// [InnerConnection::run].
+    /// The Option is to allow [InnerConnection::run] to signal that the
+    /// connection is closed.
+    receiver: Futures_mutex<Option<mpsc::Receiver<ChanReq<Octs>>>>,
+}
+
+#[derive(Debug)]
+/// A request to [Connection::run] either for a new octet_stream or to
+/// shutdown.
+struct ChanReq<Octs: AsRef<[u8]>> {
+    /// A requests consists of a command.
+    cmd: ReqCmd<Octs>,
+}
+
+#[derive(Debug)]
+/// Commands that can be requested.
+enum ReqCmd<Octs: AsRef<[u8]>> {
+    /// Request for a (new) connection.
+    ///
+    /// The id of the previous connection (if any) is passed as well as a
+    /// channel to send the reply.
+    NewConn(Option<u64>, ReplySender<Octs>),
+
+    /// Shutdown command.
+    Shutdown,
+}
+
+/// This is the type of sender in [ReqCmd].
+type ReplySender<Octs> = oneshot::Sender<ChanResp<Octs>>;
+
+/// Internal datastructure of [InnerConnection::run] to keep track of
+/// the status of the connection.
+// The types Status and ConnState are only used in InnerConnection
+struct State3<'a, F, IO, Octs: AsRef<[u8]>> {
+    /// Underlying octet_stream connection.
+    conn_state: SingleConnState3<Octs>,
+
+    /// Current connection id.
+    conn_id: u64,
+
+    /// Factory for new octet streams.
+    factory: F,
+
+    /// Collection of futures for the async run function of the underlying
+    /// octet_stream.
+    runners: FuturesUnordered<
+        Pin<Box<dyn Future<Output = Option<()>> + Send + 'a>>,
+    >,
+
+    /// Phantom data for type IO
+    phantom: PhantomData<&'a IO>,
+}
+
+/// State of the current underlying octet_stream transport.
+enum SingleConnState3<Octs: AsRef<[u8]>> {
+    /// No current octet_stream transport.
+    None,
+
+    /// Current octet_stream transport.
+    Some(SingleConnection<Octs>),
+
+    /// State that deals with an error getting a new octet stream from
+    /// a factory.
+    Err(ErrorState),
+}
+
+/// State associated with a failed attempt to create a new octet_stream
+/// transport.
+#[derive(Clone)]
+struct ErrorState {
+    /// The error we got from the most recent attempt.
+    error: Arc<std::io::Error>,
+
+    /// How many times we tried so far.
+    retries: u64,
+
+    /// When we got an error.
+    timer: Instant,
+
+    /// Time to wait before trying to create a new connection.
+    timeout: Duration,
 }
 
 impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync + 'static>
@@ -455,239 +695,7 @@ impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync + 'static>
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
-    Connection<Octs>
-{
-    /// Constructor for [Connection].
-    ///
-    /// Returns a [Connection] wrapped in a [Result](io::Result).
-    pub fn new() -> io::Result<Connection<Octs>> {
-        let connection = InnerConnection::new()?;
-        Ok(Self {
-            inner: Arc::new(connection),
-        })
-    }
-
-    /// Main execution function for [Connection].
-    ///
-    /// This function has to run in the background or together with
-    /// any calls to [query](Self::query) or [Query::get_result].
-    pub async fn run<
-        F: ConnFactory<IO> + Send,
-        IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Unpin,
-    >(
-        &self,
-        factory: F,
-    ) -> Option<()> {
-        self.inner.run(factory).await
-    }
-
-    /// Start a DNS request.
-    ///
-    /// This function takes a precomposed message as a parameter and
-    /// returns a [Query] object wrapped in a [Result].
-    pub async fn query_impl(
-        &self,
-        query_msg: &Message<Octs>,
-    ) -> Result<Query<Octs>, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.inner.new_conn(None, tx).await?;
-        let gr = Query::new(self.clone(), query_msg, rx);
-        Ok(gr)
-    }
-
-    /// Start a DNS request.
-    ///
-    /// This function takes a precomposed message as a parameter and
-    /// returns a [Query] object wrapped in a [Result].
-    pub async fn query_impl3(
-        &self,
-        query_msg: &Message<Octs>,
-    ) -> Result<Box<dyn GetResult + Send>, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.inner.new_conn(None, tx).await?;
-        let gr = Query::new(self.clone(), query_msg, rx);
-        Ok(Box::new(gr))
-    }
-
-    /// Shutdown this transport.
-    pub async fn shutdown(&self) -> Result<(), &'static str> {
-        self.inner.shutdown().await
-    }
-
-    /// Request a new connection.
-    async fn new_conn(
-        &self,
-        id: u64,
-        tx: oneshot::Sender<ChanResp<Octs>>,
-    ) -> Result<(), Error> {
-        self.inner.new_conn(Some(id), tx).await
-    }
-}
-
-impl<Octs: Clone + Debug + Octets + Send + Sync + 'static>
-    QueryMessage<Query<Octs>, Octs> for Connection<Octs>
-{
-    fn query<'a>(
-        &'a self,
-        query_msg: &'a Message<Octs>,
-    ) -> Pin<Box<dyn Future<Output = Result<Query<Octs>, Error>> + Send + '_>>
-    {
-        return Box::pin(self.query_impl(query_msg));
-    }
-}
-
-impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
-    QueryMessage3<Octs> for Connection<Octs>
-{
-    fn query<'a>(
-        &'a self,
-        query_msg: &'a Message<Octs>,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
-                + Send
-                + '_,
-        >,
-    > {
-        return Box::pin(self.query_impl3(query_msg));
-    }
-}
-
-impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
-    Query<Octs>
-{
-    /// Constructor for [Query], takes a DNS query and a receiver for the
-    /// reply.
-    fn new(
-        conn: Connection<Octs>,
-        query_msg: &Message<Octs>,
-        receiver: oneshot::Receiver<ChanResp<Octs>>,
-    ) -> Query<Octs> {
-        Self {
-            conn,
-            query_msg: query_msg.clone(),
-            state: QueryState::GetConn(receiver),
-            conn_id: 0,
-            //imm_retry_count: 0,
-            delayed_retry_count: 0,
-        }
-    }
-
-    /// Get the result of a DNS query.
-    ///
-    /// This function returns the reply to a DNS query wrapped in a
-    /// [Result].
-    pub async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        loop {
-            match self.state {
-                QueryState::GetConn(ref mut receiver) => {
-                    let res = receiver.await;
-                    if res.is_err() {
-                        // Assume receive error
-                        self.state = QueryState::Done;
-                        return Err(Error::StreamReceiveError);
-                    }
-                    let res = res.expect("error is checked before");
-
-                    // Another Result. This time from executing the request
-                    match res {
-                        Err(_) => {
-                            self.delayed_retry_count += 1;
-                            let retry_time =
-                                retry_time(self.delayed_retry_count);
-                            self.state =
-                                QueryState::Delay(Instant::now(), retry_time);
-                            continue;
-                        }
-                        Ok(ok_res) => {
-                            let id = ok_res.id;
-                            let conn = ok_res.conn;
-
-                            self.conn_id = id;
-                            self.state = QueryState::StartQuery(conn);
-                            continue;
-                        }
-                    }
-                }
-                QueryState::StartQuery(ref mut conn) => {
-                    let mut msg = self.query_msg.clone();
-                    let query_res = conn.query_no_check(&mut msg).await;
-                    match query_res {
-                        Err(err) => {
-                            if let Error::ConnectionClosed = err {
-                                let (tx, rx) = oneshot::channel();
-                                let res = self
-                                    .conn
-                                    .new_conn(self.conn_id, tx)
-                                    .await;
-                                if let Err(err) = res {
-                                    self.state = QueryState::Done;
-                                    return Err(err);
-                                }
-                                self.state = QueryState::GetConn(rx);
-                                continue;
-                            }
-                            return Err(err);
-                        }
-                        Ok(query) => {
-                            self.state = QueryState::GetResult(query);
-                            continue;
-                        }
-                    }
-                }
-                QueryState::GetResult(ref mut query) => {
-                    let reply = query.get_result().await;
-
-                    if reply.is_err() {
-                        self.delayed_retry_count += 1;
-                        let retry_time = retry_time(self.delayed_retry_count);
-                        self.state =
-                            QueryState::Delay(Instant::now(), retry_time);
-                        continue;
-                    }
-
-                    let msg = reply.expect("error is checked before");
-                    let query_msg_ref: &[u8] = self.query_msg.as_ref();
-                    let query_msg_vec = query_msg_ref.to_vec();
-                    let query_msg = Message::from_octets(query_msg_vec)
-                        .expect("how to go from MessageBuild to Message?");
-
-                    if !is_answer_ignore_id(&msg, &query_msg) {
-                        return Err(Error::WrongReplyForQuery);
-                    }
-                    return Ok(msg);
-                }
-                QueryState::Delay(instant, duration) => {
-                    sleep_until(instant + duration).await;
-                    let (tx, rx) = oneshot::channel();
-                    let res = self.conn.new_conn(self.conn_id, tx).await;
-                    if let Err(err) = res {
-                        self.state = QueryState::Done;
-                        return Err(err);
-                    }
-                    self.state = QueryState::GetConn(rx);
-                    continue;
-                }
-                QueryState::Done => {
-                    panic!("Already done");
-                }
-            }
-        }
-    }
-}
-
-impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
-    GetResult for Query<Octs>
-{
-    fn get_result(
-        &mut self,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
-    > {
-        Box::pin(self.get_result_impl())
-    }
-}
+//------------ Utility --------------------------------------------------------
 
 /// Compute the retry timeout based on the number of retries so far.
 ///

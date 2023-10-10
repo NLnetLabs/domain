@@ -61,27 +61,254 @@ const DEF_CHAN_CAP: usize = 8;
 /// [InnerConnection::run].
 const READ_REPLY_CHAN_CAP: usize = 8;
 
-/// This is the type of sender in [ChanReq].
-type ReplySender = oneshot::Sender<ChanResp>;
+//------------ Connection -----------------------------------------------------
 
-#[derive(Debug)]
-/// A request from [Query] to [Connection::run] to start a DNS request.
-struct ChanReq<Octs: AsRef<[u8]>> {
-    /// DNS request message
-    msg: Message<Octs>,
-
-    /// Sender to send result back to [Query]
-    sender: ReplySender,
+#[derive(Clone, Debug)]
+/// A single DNS over octect stream connection.
+pub struct Connection<Octs: AsRef<[u8]>> {
+    /// Reference counted [InnerConnection].
+    inner: Arc<InnerConnection<Octs>>,
 }
 
-#[derive(Debug)]
-/// a response to a [ChanReq].
-struct Response {
-    /// The DNS reply message.
-    reply: Message<Bytes>,
+impl<Octs: Clone + Octets + Send + Sync> Connection<Octs> {
+    /// Constructor for [Connection].
+    ///
+    /// Returns a [Connection] wrapped in a [Result](io::Result).
+    pub fn new() -> io::Result<Connection<Octs>> {
+        let connection = InnerConnection::new()?;
+        Ok(Self {
+            inner: Arc::new(connection),
+        })
+    }
+
+    /// Main execution function for [Connection].
+    ///
+    /// This function has to run in the background or together with
+    /// any calls to [query](Self::query) or [Query::get_result].
+    pub async fn run<IO: AsyncReadExt + AsyncWriteExt + Unpin>(
+        &self,
+        io: IO,
+    ) -> Option<()> {
+        self.inner.run(io).await
+    }
+
+    /// Start a DNS request.
+    ///
+    /// This function takes a precomposed message as a parameter and
+    /// returns a [Query] object wrapped in a [Result].
+    async fn query_impl(
+        &self,
+        query_msg: &Message<Octs>,
+    ) -> Result<Query, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.query(tx, query_msg).await?;
+        let msg = query_msg;
+        Ok(Query::new(msg, rx))
+    }
+
+    /// Start a DNS request.
+    ///
+    /// This function takes a precomposed message as a parameter and
+    /// returns a [Query] object wrapped in a [Result].
+    async fn query_impl3(
+        &self,
+        query_msg: &Message<Octs>,
+    ) -> Result<Box<dyn GetResult + Send>, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.query(tx, query_msg).await?;
+        let msg = query_msg;
+        Ok(Box::new(Query::new(msg, rx)))
+    }
+
+    /// Start a DNS request but do not check if the reply matches the request.
+    ///
+    /// This function is similar to [Self::query]. Not checking if the reply
+    /// match the request avoids having to keep the request around.
+    pub async fn query_no_check(
+        &self,
+        query_msg: &mut Message<Octs>,
+    ) -> Result<QueryNoCheck, Error> {
+        let (tx, rx) = oneshot::channel();
+        self.inner.query(tx, query_msg).await?;
+        Ok(QueryNoCheck::new(rx))
+    }
 }
-/// Response to the DNS request sent by [InnerConnection::run] to [Query].
-type ChanResp = Result<Response, Error>;
+
+impl<
+        Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
+    > QueryMessage<Query, Octs> for Connection<Octs>
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a Message<Octs>,
+    ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
+        return Box::pin(self.query_impl(query_msg));
+    }
+}
+
+impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync> QueryMessage3<Octs>
+    for Connection<Octs>
+{
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a Message<Octs>,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+                + Send
+                + '_,
+        >,
+    > {
+        return Box::pin(self.query_impl3(query_msg));
+    }
+}
+
+//------------ Query ----------------------------------------------------------
+
+/// This struct represent an active DNS query.
+#[derive(Debug)]
+pub struct Query {
+    /// Request message.
+    ///
+    /// The reply message is compared with the request message to see if
+    /// it matches the query.
+    query_msg: Message<Vec<u8>>,
+
+    /// Current state of the query.
+    state: QueryState,
+}
+
+/// Status of a query. Used in [Query].
+#[derive(Debug)]
+enum QueryState {
+    /// A request is in progress.
+    ///
+    /// The receiver for receiving the response is part of this state.
+    Busy(oneshot::Receiver<ChanResp>),
+
+    /// The response has been received and the query is done.
+    Done,
+}
+
+impl Query {
+    /// Constructor for [Query], takes a DNS query and a receiver for the
+    /// reply.
+    fn new<Octs: Octets>(
+        query_msg: &Message<Octs>,
+        receiver: oneshot::Receiver<ChanResp>,
+    ) -> Query {
+        let msg_ref: &[u8] = query_msg.as_ref();
+        let vec = msg_ref.to_vec();
+        let msg = Message::from_octets(vec)
+            .expect("Message failed to parse contents of another Message");
+        Self {
+            query_msg: msg,
+            state: QueryState::Busy(receiver),
+        }
+    }
+
+    /// Get the result of a DNS query.
+    ///
+    /// This function returns the reply to a DNS query wrapped in a
+    /// [Result].
+    pub async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
+        match self.state {
+            QueryState::Busy(ref mut receiver) => {
+                let res = receiver.await;
+                self.state = QueryState::Done;
+                if res.is_err() {
+                    // Assume receive error
+                    return Err(Error::StreamReceiveError);
+                }
+                let res = res.expect("already check error case");
+
+                // clippy seems to be wrong here. Replacing
+                // the following with 'res?;' doesn't work
+                #[allow(clippy::question_mark)]
+                if let Err(err) = res {
+                    return Err(err);
+                }
+
+                let resp = res.expect("error case is checked already");
+                let msg = resp.reply;
+
+                if !is_answer_ignore_id(&msg, &self.query_msg) {
+                    return Err(Error::WrongReplyForQuery);
+                }
+                Ok(msg)
+            }
+            QueryState::Done => {
+                panic!("Already done");
+            }
+        }
+    }
+}
+
+impl GetResult for Query {
+    fn get_result(
+        &mut self,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+    > {
+        Box::pin(self.get_result_impl())
+    }
+}
+
+//------------ QueryNoCheck ---------------------------------------------------
+
+/// This represents that state of an active DNS query if there is no need
+/// to check that the reply matches the request. The assumption is that the
+/// caller will do this check.
+#[derive(Debug)]
+pub struct QueryNoCheck {
+    /// Current state of the query.
+    state: QueryState,
+}
+
+impl QueryNoCheck {
+    /// Constructor for [Query], takes a DNS query and a receiver for the
+    /// reply.
+    fn new(receiver: oneshot::Receiver<ChanResp>) -> QueryNoCheck {
+        Self {
+            state: QueryState::Busy(receiver),
+        }
+    }
+
+    /// Get the result of a DNS query.
+    ///
+    /// This function returns the reply to a DNS query wrapped in a
+    /// [Result].
+    pub async fn get_result(&mut self) -> Result<Message<Bytes>, Error> {
+        match self.state {
+            QueryState::Busy(ref mut receiver) => {
+                let res = receiver.await;
+                self.state = QueryState::Done;
+                if res.is_err() {
+                    // Assume receive error
+                    return Err(Error::StreamReceiveError);
+                }
+                let res = res.expect("error case is checked already");
+
+                // clippy seems to be wrong here. Replacing
+                // the following with 'res?;' doesn't work
+                #[allow(clippy::question_mark)]
+                if let Err(err) = res {
+                    return Err(err);
+                }
+
+                let resp = res.expect("error case is checked already");
+                let msg = resp.reply;
+
+                Ok(msg)
+            }
+            QueryState::Done => {
+                panic!("Already done");
+            }
+        }
+    }
+}
+
+//------------ InnerConnection ------------------------------------------------
 
 /// The actual implementation of [Connection].
 #[derive(Debug)]
@@ -101,6 +328,29 @@ struct InnerConnection<Octs: AsRef<[u8]>> {
     receiver: Futures_mutex<Option<mpsc::Receiver<ChanReq<Octs>>>>,
 }
 
+#[derive(Debug)]
+/// A request from [Query] to [Connection::run] to start a DNS request.
+struct ChanReq<Octs: AsRef<[u8]>> {
+    /// DNS request message
+    msg: Message<Octs>,
+
+    /// Sender to send result back to [Query]
+    sender: ReplySender,
+}
+
+/// This is the type of sender in [ChanReq].
+type ReplySender = oneshot::Sender<ChanResp>;
+
+/// Response to the DNS request sent by [InnerConnection::run] to [Query].
+type ChanResp = Result<Response, Error>;
+
+#[derive(Debug)]
+/// a response to a [ChanReq].
+struct Response {
+    /// The DNS reply message.
+    reply: Message<Bytes>,
+}
+
 /// Internal datastructure of [InnerConnection::run] to keep track of
 /// outstanding DNS requests.
 struct Queries {
@@ -112,47 +362,6 @@ struct Queries {
 
     /// Vector of senders to forward a DNS reply message (or error) to.
     vec: Vec<Option<ReplySender>>,
-}
-
-#[derive(Clone, Debug)]
-/// A single DNS over octect stream connection.
-pub struct Connection<Octs: AsRef<[u8]>> {
-    /// Reference counted [InnerConnection].
-    inner: Arc<InnerConnection<Octs>>,
-}
-
-/// Status of a query. Used in [Query].
-#[derive(Debug)]
-enum QueryState {
-    /// A request is in progress.
-    ///
-    /// The receiver for receiving the response is part of this state.
-    Busy(oneshot::Receiver<ChanResp>),
-
-    /// The response has been received and the query is done.
-    Done,
-}
-
-/// This struct represent an active DNS query.
-#[derive(Debug)]
-pub struct Query {
-    /// Request message.
-    ///
-    /// The reply message is compared with the request message to see if
-    /// it matches the query.
-    query_msg: Message<Vec<u8>>,
-
-    /// Current state of the query.
-    state: QueryState,
-}
-
-/// This represents that state of an active DNS query if there is no need
-/// to check that the reply matches the request. The assumption is that the
-/// caller will do this check.
-#[derive(Debug)]
-pub struct QueryNoCheck {
-    /// Current state of the query.
-    state: QueryState,
 }
 
 /// Internal datastructure of [InnerConnection::run] to keep track of
@@ -176,6 +385,7 @@ struct Status {
     /// edns-tcp-keepalive option may change that.
     idle_timeout: Option<Duration>,
 }
+
 /// Status of the connection. Used in [Status].
 enum ConnState {
     /// The connection is in this state from the start and when at least
@@ -776,205 +986,7 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
     }
 }
 
-impl<
-        Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
-    > QueryMessage<Query, Octs> for Connection<Octs>
-{
-    fn query<'a>(
-        &'a self,
-        query_msg: &'a Message<Octs>,
-    ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
-        return Box::pin(self.query_impl(query_msg));
-    }
-}
-
-impl<Octs: Clone + Octets + Send + Sync> Connection<Octs> {
-    /// Constructor for [Connection].
-    ///
-    /// Returns a [Connection] wrapped in a [Result](io::Result).
-    pub fn new() -> io::Result<Connection<Octs>> {
-        let connection = InnerConnection::new()?;
-        Ok(Self {
-            inner: Arc::new(connection),
-        })
-    }
-
-    /// Main execution function for [Connection].
-    ///
-    /// This function has to run in the background or together with
-    /// any calls to [query](Self::query) or [Query::get_result].
-    pub async fn run<IO: AsyncReadExt + AsyncWriteExt + Unpin>(
-        &self,
-        io: IO,
-    ) -> Option<()> {
-        self.inner.run(io).await
-    }
-
-    /// Start a DNS request.
-    ///
-    /// This function takes a precomposed message as a parameter and
-    /// returns a [Query] object wrapped in a [Result].
-    async fn query_impl(
-        &self,
-        query_msg: &Message<Octs>,
-    ) -> Result<Query, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.inner.query(tx, query_msg).await?;
-        let msg = query_msg;
-        Ok(Query::new(msg, rx))
-    }
-
-    /// Start a DNS request.
-    ///
-    /// This function takes a precomposed message as a parameter and
-    /// returns a [Query] object wrapped in a [Result].
-    async fn query_impl3(
-        &self,
-        query_msg: &Message<Octs>,
-    ) -> Result<Box<dyn GetResult + Send>, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.inner.query(tx, query_msg).await?;
-        let msg = query_msg;
-        Ok(Box::new(Query::new(msg, rx)))
-    }
-
-    /// Start a DNS request but do not check if the reply matches the request.
-    ///
-    /// This function is similar to [Self::query]. Not checking if the reply
-    /// match the request avoids having to keep the request around.
-    pub async fn query_no_check(
-        &self,
-        query_msg: &mut Message<Octs>,
-    ) -> Result<QueryNoCheck, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.inner.query(tx, query_msg).await?;
-        Ok(QueryNoCheck::new(rx))
-    }
-}
-
-impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync> QueryMessage3<Octs>
-    for Connection<Octs>
-{
-    fn query<'a>(
-        &'a self,
-        query_msg: &'a Message<Octs>,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
-                + Send
-                + '_,
-        >,
-    > {
-        return Box::pin(self.query_impl3(query_msg));
-    }
-}
-
-impl Query {
-    /// Constructor for [Query], takes a DNS query and a receiver for the
-    /// reply.
-    fn new<Octs: Octets>(
-        query_msg: &Message<Octs>,
-        receiver: oneshot::Receiver<ChanResp>,
-    ) -> Query {
-        let msg_ref: &[u8] = query_msg.as_ref();
-        let vec = msg_ref.to_vec();
-        let msg = Message::from_octets(vec)
-            .expect("Message failed to parse contents of another Message");
-        Self {
-            query_msg: msg,
-            state: QueryState::Busy(receiver),
-        }
-    }
-
-    /// Get the result of a DNS query.
-    ///
-    /// This function returns the reply to a DNS query wrapped in a
-    /// [Result].
-    pub async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        match self.state {
-            QueryState::Busy(ref mut receiver) => {
-                let res = receiver.await;
-                self.state = QueryState::Done;
-                if res.is_err() {
-                    // Assume receive error
-                    return Err(Error::StreamReceiveError);
-                }
-                let res = res.expect("already check error case");
-
-                // clippy seems to be wrong here. Replacing
-                // the following with 'res?;' doesn't work
-                #[allow(clippy::question_mark)]
-                if let Err(err) = res {
-                    return Err(err);
-                }
-
-                let resp = res.expect("error case is checked already");
-                let msg = resp.reply;
-
-                if !is_answer_ignore_id(&msg, &self.query_msg) {
-                    return Err(Error::WrongReplyForQuery);
-                }
-                Ok(msg)
-            }
-            QueryState::Done => {
-                panic!("Already done");
-            }
-        }
-    }
-}
-
-impl GetResult for Query {
-    fn get_result(
-        &mut self,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
-    > {
-        Box::pin(self.get_result_impl())
-    }
-}
-
-impl QueryNoCheck {
-    /// Constructor for [Query], takes a DNS query and a receiver for the
-    /// reply.
-    fn new(receiver: oneshot::Receiver<ChanResp>) -> QueryNoCheck {
-        Self {
-            state: QueryState::Busy(receiver),
-        }
-    }
-
-    /// Get the result of a DNS query.
-    ///
-    /// This function returns the reply to a DNS query wrapped in a
-    /// [Result].
-    pub async fn get_result(&mut self) -> Result<Message<Bytes>, Error> {
-        match self.state {
-            QueryState::Busy(ref mut receiver) => {
-                let res = receiver.await;
-                self.state = QueryState::Done;
-                if res.is_err() {
-                    // Assume receive error
-                    return Err(Error::StreamReceiveError);
-                }
-                let res = res.expect("error case is checked already");
-
-                // clippy seems to be wrong here. Replacing
-                // the following with 'res?;' doesn't work
-                #[allow(clippy::question_mark)]
-                if let Err(err) = res {
-                    return Err(err);
-                }
-
-                let resp = res.expect("error case is checked already");
-                let msg = resp.reply;
-
-                Ok(msg)
-            }
-            QueryState::Done => {
-                panic!("Already done");
-            }
-        }
-    }
-}
+//------------ Utility --------------------------------------------------------
 
 /// Add an edns-tcp-keepalive option to a MessageBuilder.
 ///

@@ -17,6 +17,8 @@ use tokio_rustls::TlsConnector;
 
 use crate::net::client::factory::ConnFactory;
 
+//------------ TlsConnFactory -------------------------------------------------
+
 /// Factory object for TLS connections
 pub struct TlsConnFactory<A: ToSocketAddrs> {
     /// Configuration for setting up a TLS connection.
@@ -27,18 +29,6 @@ pub struct TlsConnFactory<A: ToSocketAddrs> {
 
     /// Remote address to connect to.
     addr: A,
-}
-
-/// Internal structure that contains the future for creating a new
-/// TLS connection.
-pub struct Next {
-    /// Future for creating a new TLS connection.
-    future: Pin<
-        Box<
-            dyn Future<Output = Result<TlsStream<TcpStream>, std::io::Error>>
-                + Send,
-        >,
-    >,
 }
 
 impl<A: ToSocketAddrs> TlsConnFactory<A> {
@@ -53,19 +43,6 @@ impl<A: ToSocketAddrs> TlsConnFactory<A> {
             server_name: String::from(server_name),
             addr,
         }
-    }
-}
-
-impl Future for Next {
-    type Output = Result<TlsStream<TcpStream>, std::io::Error>;
-
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<TlsStream<TcpStream>, std::io::Error>> {
-        let me = self.deref_mut();
-        let io = ready!(me.future.as_mut().poll(cx))?;
-        Poll::Ready(Ok(io))
     }
 }
 
@@ -101,6 +78,35 @@ impl<A: ToSocketAddrs + Clone + Send + Sync + 'static>
         })
     }
 }
+
+//------------ Next -----------------------------------------------------------
+
+/// Internal structure that contains the future for creating a new
+/// TLS connection.
+pub struct Next {
+    /// Future for creating a new TLS connection.
+    future: Pin<
+        Box<
+            dyn Future<Output = Result<TlsStream<TcpStream>, std::io::Error>>
+                + Send,
+        >,
+    >,
+}
+
+impl Future for Next {
+    type Output = Result<TlsStream<TcpStream>, std::io::Error>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<TlsStream<TcpStream>, std::io::Error>> {
+        let me = self.deref_mut();
+        let io = ready!(me.future.as_mut().poll(cx))?;
+        Poll::Ready(Ok(io))
+    }
+}
+
+//------------ Utility --------------------------------------------------------
 
 /// Helper to return an error as an async function.
 async fn error_helper(

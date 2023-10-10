@@ -23,7 +23,9 @@ use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
 use crate::net::client::tcp_factory::TcpConnFactory;
 use crate::net::client::udp;
 
-/// DNS transport connection that first issue a query over a UDP transport and
+//------------ Connection -----------------------------------------------------
+
+/// DNS transport connection that first issues a query over a UDP transport and
 /// falls back to TCP if the reply is truncated.
 #[derive(Clone)]
 pub struct Connection<Octs: AsRef<[u8]> + Debug> {
@@ -93,6 +95,8 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         return Box::pin(self.query_impl3(query_msg));
     }
 }
+
+//------------ Query ----------------------------------------------------------
 
 /// Object that contains the current state of a query.
 #[derive(Debug)]
@@ -193,6 +197,8 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
         Box::pin(self.get_result_impl())
     }
 }
+
+//------------ InnerConnection ------------------------------------------------
 
 /// The actual connection object.
 struct InnerConnection<Octs: AsRef<[u8]> + Debug> {
