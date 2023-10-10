@@ -9,7 +9,7 @@
 
 use bytes::{Bytes, BytesMut};
 use std::boxed::Box;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -36,6 +36,8 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// Maximum number of retries after timeouts.
 const MAX_RETRIES: u8 = 5;
 
+//------------ Connection -----------------------------------------------------
+
 /// A UDP transport connection.
 #[derive(Clone, Debug)]
 pub struct Connection {
@@ -56,7 +58,7 @@ impl Connection {
     async fn query_impl<Octs: AsRef<[u8]> + Clone + Send>(
         &self,
         query_msg: &Message<Octs>,
-    ) -> Result<Query, Error> {
+    ) -> Result<Query2, Error> {
         self.inner.query(query_msg, self.clone()).await
     }
 
@@ -78,12 +80,13 @@ impl Connection {
 }
 
 impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync>
-    QueryMessage<Query, Octs> for Connection
+    QueryMessage<Query2, Octs> for Connection
 {
     fn query<'a>(
         &'a self,
         query_msg: &'a Message<Octs>,
-    ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Query2, Error>> + Send + '_>>
+    {
         return Box::pin(self.query_impl(query_msg));
     }
 }
@@ -105,6 +108,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
     }
 }
 
+//------------ Query ----------------------------------------------------------
+
+/*
+
 /// State of the DNS query.
 #[derive(Debug)]
 enum QueryState {
@@ -123,6 +130,9 @@ enum QueryState {
     /// Receive the reply.
     Receive(Instant),
 }
+*/
+
+/*
 
 /// The state of a DNS query.
 #[derive(Debug)]
@@ -307,6 +317,169 @@ impl GetResult for Query {
     }
 }
 
+*/
+
+//------------ Query2 ---------------------------------------------------------
+
+/// The state of a DNS query.
+pub struct Query2 {
+    /// Future that does the actual work of GetResult.
+    get_result_fut:
+        Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
+}
+
+impl Query2 {
+    /// Create new Query object.
+    fn new(
+        query_msg: Message<BytesMut>,
+        remote_addr: SocketAddr,
+        conn: Connection,
+    ) -> Query2 {
+        Query2 {
+            get_result_fut: Box::pin(Self::get_result_impl2(
+                query_msg,
+                remote_addr,
+                conn,
+            )),
+        }
+    }
+
+    /// Async function that waits for the future stored in Query to complete.
+    async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
+        (&mut self.get_result_fut).await
+    }
+
+    /// Get the result of a DNS Query.
+    ///
+    /// This function is not cancel safe.
+    async fn get_result_impl2(
+        mut query_msg: Message<BytesMut>,
+        remote_addr: SocketAddr,
+        conn: Connection,
+    ) -> Result<Message<Bytes>, Error> {
+        let recv_size = 2000; // Should be configurable.
+
+        let mut retries: u8 = 0;
+
+        // We need to get past the semaphore that limits the
+        // number of concurrent sockets we can use.
+        let _permit = conn.get_permit().await;
+
+        loop {
+            let sock = Some(Self::udp_bind(remote_addr.is_ipv4()).await?);
+
+            sock.as_ref()
+                .expect("socket should be present")
+                .connect(remote_addr)
+                .await
+                .map_err(|e| Error::UdpConnect(Arc::new(e)))?;
+
+            // Set random ID in header
+            let header = query_msg.header_mut();
+            header.set_random_id();
+            let dgram = query_msg.as_slice();
+
+            let sent = sock
+                .as_ref()
+                .expect("socket should be present")
+                .send(dgram)
+                .await
+                .map_err(|e| Error::UdpSend(Arc::new(e)))?;
+            if sent != query_msg.as_slice().len() {
+                return Err(Error::UdpShortSend);
+            }
+
+            let start = Instant::now();
+            let elapsed = start.elapsed();
+            if elapsed > READ_TIMEOUT {
+                todo!();
+            }
+            let remain = READ_TIMEOUT - elapsed;
+
+            let mut buf = vec![0; recv_size]; // XXX use uninit'ed mem here.
+            let timeout_res = timeout(
+                remain,
+                sock.as_ref()
+                    .expect("socket should be present")
+                    .recv(&mut buf),
+            )
+            .await;
+            if timeout_res.is_err() {
+                retries += 1;
+                if retries < MAX_RETRIES {
+                    continue;
+                }
+                return Err(Error::UdpTimeoutNoResponse);
+            }
+            let len = timeout_res
+                .expect("errror case is checked above")
+                .map_err(|e| Error::UdpReceive(Arc::new(e)))?;
+            buf.truncate(len);
+
+            // We ignore garbage since there is a timer on this whole thing.
+            let answer = match Message::from_octets(buf.into()) {
+                Ok(answer) => answer,
+                Err(_) => continue,
+            };
+
+            // Unfortunately we cannot pass query_msg to is_answer
+            // because is_answer requires Octets, which is not
+            // implemented by BytesMut. Make a copy.
+            let query_msg = Message::from_octets(query_msg.as_slice())
+                .expect(
+                    "Message failed to parse contents of another Message",
+                );
+            if !answer.is_answer(&query_msg) {
+                continue;
+            }
+            return Ok(answer);
+        }
+    }
+
+    /// Bind to a local UDP port.
+    ///
+    /// This should explicitly pick a random number in a suitable range of
+    /// ports.
+    async fn udp_bind(v4: bool) -> Result<UdpSocket, Error> {
+        let mut i = 0;
+        loop {
+            let local: SocketAddr = if v4 {
+                ([0u8; 4], 0).into()
+            } else {
+                ([0u16; 8], 0).into()
+            };
+            match UdpSocket::bind(&local).await {
+                Ok(sock) => return Ok(sock),
+                Err(err) => {
+                    if i == RETRY_RANDOM_PORT {
+                        return Err(Error::UdpBind(Arc::new(err)));
+                    } else {
+                        i += 1
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Debug for Query2 {
+    fn fmt(&self, _: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
+        todo!()
+    }
+}
+
+impl GetResult for Query2 {
+    fn get_result(
+        &mut self,
+    ) -> Pin<
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
+    > {
+        Box::pin(self.get_result_impl())
+    }
+}
+
+//------------ InnerConnection ------------------------------------------------
+
 /// Actual implementation of the UDP transport connection.
 #[derive(Debug)]
 struct InnerConnection {
@@ -331,13 +504,13 @@ impl InnerConnection {
         &self,
         query_msg: &Message<Octs>,
         conn: Connection,
-    ) -> Result<Query, Error> {
+    ) -> Result<Query2, Error> {
         let slice = query_msg.as_slice();
         let mut bytes = BytesMut::with_capacity(slice.len());
         bytes.extend_from_slice(slice);
         let query_msg = Message::from_octets(bytes)
             .expect("Message failed to parse contents of another Message");
-        Ok(Query::new(query_msg, self.remote_addr, conn))
+        Ok(Query2::new(query_msg, self.remote_addr, conn))
     }
 
     /// Return a permit for a our semaphore.
