@@ -530,6 +530,8 @@ where
         let txn = service.call(msg /* also send client addr */)?;
 
         tokio::spawn(async move {
+            // TODO: Shouldn't this counter be incremented just before
+            // service.call() is invoked?
             metrics
                 .num_inflight_requests
                 .fetch_add(1, Ordering::Relaxed);
