@@ -3,7 +3,6 @@
 use futures::Future;
 use std::io;
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -43,7 +42,7 @@ impl AsyncDgramSock for UdpSocket {
         data: &[u8],
         dest: &Self::Addr,
     ) -> Poll<Result<usize, io::Error>> {
-        UdpSocket::poll_send_to(self.deref(), cx, data, *dest)
+        UdpSocket::poll_send_to(self, cx, data, *dest)
     }
 
     fn poll_recv_from(
@@ -51,7 +50,7 @@ impl AsyncDgramSock for UdpSocket {
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<Result<Self::Addr, io::Error>> {
-        UdpSocket::poll_recv_from(self.deref(), cx, buf)
+        UdpSocket::poll_recv_from(self, cx, buf)
     }
 
     fn poll_peek_from(
@@ -59,7 +58,7 @@ impl AsyncDgramSock for UdpSocket {
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<Result<Self::Addr, io::Error>> {
-        UdpSocket::poll_peek_from(self.deref(), cx, buf)
+        UdpSocket::poll_peek_from(self, cx, buf)
     }
 }
 

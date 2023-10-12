@@ -71,8 +71,11 @@
 
 use tokio::net::{TcpListener, UdpSocket};
 
-pub type UdpServer<Buf, Svc> = dgram::DgramServer<UdpSocket, Buf, Svc>;
-pub type TcpServer<Buf, Svc> = stream::StreamServer<TcpListener, Buf, Svc>;
+use crate::base::Message;
+use buf::BufSource;
+
+pub type UdpServer<Buf, Svc> = dgram::DgramServer<UdpSocket, Buf, Svc, Message<<Buf as BufSource>::Output>>;
+pub type TcpServer<Buf, Svc> = stream::StreamServer<TcpListener, Buf, Svc, Message<<Buf as BufSource>::Output>>;
 
 pub mod buf;
 pub mod dgram;

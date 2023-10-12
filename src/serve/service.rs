@@ -3,8 +3,32 @@ use std::time::Duration;
 
 use futures::{Future, Stream};
 
-use crate::base::octets::OctetsBuilder;
+use crate::base::octets::{OctetsBuilder, ShortBuf};
 use crate::base::{Message, StreamTarget};
+
+pub trait MsgLenProvider<RequestOctets: AsRef<[u8]>> {
+    type MsgLen;
+
+    type Msg;
+
+    fn determine_msg_len(hdr_buf: &mut RequestOctets) -> usize;
+
+    fn from_octets(octets: RequestOctets) -> Result<Self::Msg, ShortBuf>;
+}
+
+impl<RequestOctets: AsRef<[u8]>> MsgLenProvider<RequestOctets> for Message<RequestOctets> {
+    type MsgLen = u16;
+
+    type Msg = Self;
+
+    fn determine_msg_len(hdr_buf: &mut RequestOctets) -> usize {
+        u16::from_be_bytes(hdr_buf.as_ref().try_into().unwrap()) as usize
+    }
+
+    fn from_octets(octets: RequestOctets) -> Result<Self, ShortBuf> {
+        Self::from_octets(octets)
+    }
+}
 
 //------------ Service -------------------------------------------------------
 
@@ -26,7 +50,7 @@ use crate::base::{Message, StreamTarget};
 /// You can either implement the [`Service`] trait directly, or use the blanket
 /// impl to turn any function with a compatible signature into a [`Service`]
 /// implementation.
-pub trait Service<RequestOctets: AsRef<[u8]>> {
+pub trait Service<RequestOctets: AsRef<[u8]>, MsgTyp: MsgLenProvider<RequestOctets>> {
     type Error: Send + Sync + 'static;
 
     type ResponseOctets: OctetsBuilder
@@ -53,21 +77,22 @@ pub trait Service<RequestOctets: AsRef<[u8]>> {
 
     fn call(
         &self,
-        message: Message<RequestOctets>,
+        message: MsgTyp,
     ) -> Result<
         Transaction<Self::Single, Self::Stream>,
         ServiceError<Self::Error>,
     >;
 }
 
-impl<F, SrvErr, ReqOct, RespOct, Sing, Strm> Service<ReqOct> for F
+impl<F, SrvErr, ReqOct, RespOct, MsgTyp, Sing, Strm> Service<ReqOct, MsgTyp> for F
 where
     F: Fn(
-        Message<ReqOct>,
+        MsgTyp,
     ) -> Result<Transaction<Sing, Strm>, ServiceError<SrvErr>>,
     ReqOct: AsRef<[u8]>,
     RespOct:
         OctetsBuilder + Send + Sync + 'static + std::convert::AsRef<[u8]>,
+    MsgTyp: MsgLenProvider<ReqOct>,
     Sing: Future<Output = Result<CallResult<RespOct>, ServiceError<SrvErr>>>
         + Send
         + 'static,
@@ -83,7 +108,7 @@ where
 
     fn call(
         &self,
-        message: Message<ReqOct>,
+        message: MsgTyp,
     ) -> Result<
         Transaction<Self::Single, Self::Stream>,
         ServiceError<Self::Error>,

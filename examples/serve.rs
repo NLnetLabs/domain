@@ -97,7 +97,7 @@ impl Stream for NoStream {
 
 struct MyService;
 
-impl Service<Vec<u8>> for MyService {
+impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
     type Error = ();
 
     type ResponseOctets = Vec<u8>;
@@ -269,7 +269,7 @@ impl AsyncAccept for RustlsTcpListener {
     }
 }
 
-fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>> {
+fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>, Message<Vec<u8>>> {
     #[allow(clippy::type_complexity)]
     fn query(
         count: Arc<AtomicU8>,
@@ -305,6 +305,8 @@ fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>> {
 async fn main() {
     let svc = Arc::new(MyService);
 
+    // Run a DNS server on UDP port 8053 on 127.0.0.1. Test it like so:
+    //    dig +short +keepopen +tcp -4 @127.0.0.1 -p 8082 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
     let buf_source = Arc::new(VecBufSource);
     let srv = Arc::new(DgramServer::new(
@@ -431,7 +433,10 @@ async fn main() {
     }
 
     // https://github.com/rustls/hyper-rustls/blob/main/examples/ has sample
-    // certificate and key files that can be used here.
+    // certificate and key files that can be used here, like so:
+    //
+    //   wget -O /tmp/my.crt https://raw.githubusercontent.com/rustls/hyper-rustls/main/examples/sample.pem
+    //   wget -O /tmp/my.key https://raw.githubusercontent.com/rustls/hyper-rustls/main/examples/sample.rsa
     let certs = load_certs(&Path::new("/tmp/my.crt")).unwrap();
     let mut keys = load_keys(&Path::new("/tmp/my.key")).unwrap();
 

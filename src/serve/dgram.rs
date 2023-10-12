@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use std::{future::poll_fn, sync::atomic::Ordering};
 
 use std::{
@@ -5,13 +6,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::base::Message;
-
 use super::{
     buf::BufSource,
     server::ServerMetrics,
     service::{
-        CallResult, Service, ServiceCommand, ServiceError, Transaction,
+        CallResult, Service, ServiceCommand, ServiceError, Transaction, MsgLenProvider,
     },
     sock::AsyncDgramSock,
 };
@@ -22,20 +21,22 @@ use tokio::{io::ReadBuf, sync::watch};
 
 //------------ DgramServer ---------------------------------------------------
 
-pub struct DgramServer<Sock, Buf, Svc> {
+pub struct DgramServer<Sock, Buf, Svc, MsgTyp> {
     command_rx: watch::Receiver<ServiceCommand>,
     command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
     sock: Arc<Sock>,
     buf: Arc<Buf>,
     service: Arc<Svc>,
     metrics: Arc<ServerMetrics>,
+    _phantom: std::marker::PhantomData<MsgTyp>,
 }
 
-impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
+impl<Sock, Buf, Svc, MsgTyp> DgramServer<Sock, Buf, Svc, MsgTyp>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource,
-    Svc: Service<Buf::Output>,
+    MsgTyp: MsgLenProvider<Buf::Output, Msg = MsgTyp>,
+    Svc: Service<Buf::Output, MsgTyp>,
 {
     pub fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
@@ -49,6 +50,7 @@ where
             buf,
             service,
             metrics,
+            _phantom: PhantomData,
         }
     }
 
@@ -115,7 +117,7 @@ where
         buf: <Buf as BufSource>::Output,
         addr: <Sock as AsyncDgramSock>::Addr,
     ) -> Result<(), ServiceError<Svc::Error>> {
-        let msg = Message::from_octets(buf)
+        let msg = MsgTyp::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
 
         let metrics = self.metrics.clone();

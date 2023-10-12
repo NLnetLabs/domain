@@ -1,7 +1,8 @@
 use super::buf::BufSource;
 use super::server::ServerMetrics;
-use super::service::{CallResult, Service, Transaction};
+use super::service::{CallResult, Service, Transaction, MsgLenProvider};
 
+use core::marker::PhantomData;
 use std::{boxed::Box, io, sync::Mutex, time::Duration};
 use std::{
     future::poll_fn,
@@ -27,8 +28,6 @@ use tokio::{
     time::timeout,
 };
 
-use crate::base::Message;
-
 use super::{
     service::{ServiceCommand, ServiceError},
     sock::AsyncAccept,
@@ -36,21 +35,23 @@ use super::{
 
 //------------ StreamServer --------------------------------------------------
 
-pub struct StreamServer<Listener, Buf, Svc> {
+pub struct StreamServer<Listener, Buf, Svc, MsgTyp> {
     command_rx: watch::Receiver<ServiceCommand>,
     command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
     listener: Arc<Listener>,
     buf: Arc<Buf>,
     service: Arc<Svc>,
     metrics: Arc<ServerMetrics>,
+    _phantom: PhantomData<MsgTyp>,
 }
 
-impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
+impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
 where
     Listener: AsyncAccept + Send + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    MsgTyp: MsgLenProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     pub fn new(listener: Listener, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
@@ -69,6 +70,7 @@ where
             buf,
             service,
             metrics,
+            _phantom: PhantomData,
         }
     }
 
@@ -117,6 +119,7 @@ where
                                 Listener::StreamType,
                                 Buf,
                                 Svc,
+                                MsgTyp,
                             >::new(
                                 conn_service,
                                 conn_buf,
@@ -169,25 +172,28 @@ where
 
 //------------ ConnectedStream -----------------------------------------------
 
-struct ConnectedStream<Stream, Buf, Svc>
+struct ConnectedStream<Stream, Buf, Svc, MsgTyp>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    MsgTyp: MsgLenProvider<Buf::Output>,
+    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     buf_source: Arc<Buf>,
     metrics: Arc<ServerMetrics>,
     service: Arc<Svc>,
     stream: Option<Stream>,
+    _phantom: PhantomData<MsgTyp>,
 }
 
-impl<Stream, Buf, Svc> ConnectedStream<Stream, Buf, Svc>
+impl<Stream, Buf, Svc, MsgTyp> ConnectedStream<Stream, Buf, Svc, MsgTyp>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    MsgTyp: MsgLenProvider<Buf::Output, Msg = MsgTyp>,
+    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     fn new(
         service: Arc<Svc>,
@@ -200,6 +206,7 @@ where
             service,
             metrics,
             stream: Some(stream),
+            _phantom: PhantomData,
         }
     }
 
@@ -233,7 +240,7 @@ where
         let mut state =
             StreamState::new(stream_tx, result_q_tx, idle_timeout);
 
-        let mut msg_size_buf = self.buf_source.create_sized(2);
+        let mut msg_size_buf = self.buf_source.create_sized(std::mem::size_of::<MsgTyp::MsgLen>());
 
         loop {
             if let Err(err) = self
@@ -267,7 +274,7 @@ where
     async fn transceive_one_request(
         &self,
         command_rx: &mut watch::Receiver<ServiceCommand>,
-        state: &mut StreamState<Stream, Buf, Svc>,
+        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
         stream_rx: &mut ReadHalf<Stream>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
         msg_size_buf: &mut <Buf as BufSource>::Output,
@@ -281,8 +288,7 @@ where
         )
         .await?;
 
-        let msg_len =
-            u16::from_be_bytes(msg_size_buf.as_ref().try_into().unwrap());
+        let msg_len = MsgTyp::determine_msg_len(msg_size_buf);
         let mut msg_buf = self.buf_source.create_sized(msg_len as usize);
 
         self.transceive_until(
@@ -306,7 +312,7 @@ where
     async fn transceive_until(
         &self,
         command_rx: &mut watch::Receiver<ServiceCommand>,
-        state: &mut StreamState<Stream, Buf, Svc>,
+        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
         stream_rx: &mut ReadHalf<Stream>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
         buf: &mut <Buf as BufSource>::Output,
@@ -518,11 +524,11 @@ where
 
     async fn process_message(
         &self,
-        state: &StreamState<Stream, Buf, Svc>,
+        state: &StreamState<Stream, Buf, Svc, MsgTyp>,
         buf: <Buf as BufSource>::Output,
         service: Arc<Svc>,
     ) -> Result<(), ServiceError<Svc::Error>> {
-        let msg = Message::from_octets(buf)
+        let msg = MsgTyp::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
 
         let metrics = self.metrics.clone();
@@ -593,7 +599,7 @@ where
 
     async fn flush_write_queue(
         &self,
-        state: &mut StreamState<Stream, Buf, Svc>,
+        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
     ) {
         // Stop accepting new response messages (should we check
@@ -608,7 +614,7 @@ where
 
     async fn handle_queued_result(
         &self,
-        state: &mut StreamState<Stream, Buf, Svc>,
+        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
         mut call_result: CallResult<Svc::ResponseOctets>,
     ) {
         if let Some(msg) = call_result.response() {
@@ -621,8 +627,8 @@ where
 
     async fn write_result_to_stream(
         &self,
-        state: &mut StreamState<Stream, Buf, Svc>,
-        msg: crate::base::StreamTarget<<Svc as Service<<Buf as BufSource>::Output>>::ResponseOctets>
+        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+        msg: crate::base::StreamTarget<<Svc as Service<<Buf as BufSource>::Output, MsgTyp>>::ResponseOctets>
     ) {
         // TODO: spawn this as a task and serialize access to write with a lock?
         if let Err(err) =
@@ -644,7 +650,7 @@ where
     async fn act_on_queued_command(
         &self,
         cmd: ServiceCommand,
-        state: &mut StreamState<Stream, Buf, Svc>
+        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>
     ) {
         match cmd {
             ServiceCommand::CloseConnection { .. } => todo!(),
@@ -702,12 +708,13 @@ enum ConnectionEvent<T> {
 
 //------------ StreamState ---------------------------------------------------
 
-pub struct StreamState<Stream, Buf, Svc>
+pub struct StreamState<Stream, Buf, Svc, MsgTyp>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    MsgTyp: MsgLenProvider<Buf::Output>,
+    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     stream_tx: WriteHalf<Stream>,
 
@@ -740,12 +747,13 @@ where
     idle_timeout: chrono::Duration,
 }
 
-impl<Stream, Buf, Svc> StreamState<Stream, Buf, Svc>
+impl<Stream, Buf, Svc, MsgTyp> StreamState<Stream, Buf, Svc, MsgTyp>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
+    MsgTyp: MsgLenProvider<Buf::Output>,
+    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     fn new(
         stream_tx: WriteHalf<Stream>,
