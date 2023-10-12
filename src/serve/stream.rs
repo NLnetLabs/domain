@@ -358,7 +358,7 @@ where
                                 ProcessActionResult::CallResultReceived(
                                     call_result,
                                 ) => {
-                                    self.apply_call_result(
+                                    self.write_queued_result(
                                         state,
                                         call_result,
                                     )
@@ -602,11 +602,11 @@ where
         // the write queue and exit this connection handler.
         result_q_rx.close();
         while let Some(call_result) = result_q_rx.recv().await {
-            self.apply_call_result(state, call_result).await;
+            self.write_queued_result(state, call_result).await;
         }
     }
 
-    async fn apply_call_result(
+    async fn write_queued_result(
         &self,
         state: &mut StreamState<Stream, Buf, Svc>,
         mut call_result: CallResult<Svc::ResponseOctets>,
