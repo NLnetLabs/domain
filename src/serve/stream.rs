@@ -538,7 +538,7 @@ where
             match txn {
                 Transaction::Single(call_fut) => {
                     if let Ok(call_result) = call_fut.await {
-                        Self::handle_call_result(&tx, call_result, &metrics)
+                        Self::enqueue_call_result(&tx, call_result, &metrics)
                             .await
                     }
                 }
@@ -548,7 +548,7 @@ where
                     while let Some(call_result) = stream.next().await {
                         match call_result {
                             Ok(call_result) => {
-                                Self::handle_call_result(
+                                Self::enqueue_call_result(
                                     &tx,
                                     call_result,
                                     &metrics,
@@ -568,7 +568,7 @@ where
         Ok(())
     }
 
-    async fn handle_call_result(
+    async fn enqueue_call_result(
         tx: &mpsc::Sender<CallResult<Svc::ResponseOctets>>,
         mut call_result: CallResult<Svc::ResponseOctets>,
         metrics: &Arc<ServerMetrics>,
