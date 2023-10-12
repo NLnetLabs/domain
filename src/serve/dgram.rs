@@ -10,7 +10,7 @@ use super::{
     buf::BufSource,
     server::ServerMetrics,
     service::{
-        CallResult, Service, ServiceCommand, ServiceError, Transaction, MsgLenProvider,
+        CallResult, Service, ServiceCommand, ServiceError, Transaction, MsgProvider,
     },
     sock::AsyncDgramSock,
 };
@@ -35,7 +35,7 @@ impl<Sock, Buf, Svc, MsgTyp> DgramServer<Sock, Buf, Svc, MsgTyp>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource,
-    MsgTyp: MsgLenProvider<Buf::Output, Msg = MsgTyp>,
+    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp>,
     Svc: Service<Buf::Output, MsgTyp>,
 {
     pub fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {

@@ -1,6 +1,6 @@
 use super::buf::BufSource;
 use super::server::ServerMetrics;
-use super::service::{CallResult, Service, Transaction, MsgLenProvider};
+use super::service::{CallResult, Service, Transaction, MsgProvider};
 
 use core::marker::PhantomData;
 use std::{boxed::Box, io, sync::Mutex, time::Duration};
@@ -50,7 +50,7 @@ where
     Listener: AsyncAccept + Send + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgLenProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
+    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     pub fn new(listener: Listener, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
@@ -177,7 +177,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgLenProvider<Buf::Output>,
+    MsgTyp: MsgProvider<Buf::Output>,
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     buf_source: Arc<Buf>,
@@ -192,7 +192,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgLenProvider<Buf::Output, Msg = MsgTyp>,
+    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp>,
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     fn new(
@@ -240,7 +240,7 @@ where
         let mut state =
             StreamState::new(stream_tx, result_q_tx, idle_timeout);
 
-        let mut msg_size_buf = self.buf_source.create_sized(std::mem::size_of::<MsgTyp::MsgLen>());
+        let mut msg_size_buf = self.buf_source.create_sized(MsgTyp::MIN_HDR_BYTES);
 
         loop {
             if let Err(err) = self
@@ -289,7 +289,7 @@ where
         .await?;
 
         let msg_len = MsgTyp::determine_msg_len(msg_size_buf);
-        let mut msg_buf = self.buf_source.create_sized(msg_len as usize);
+        let mut msg_buf = self.buf_source.create_sized(msg_len);
 
         self.transceive_until(
             command_rx,
@@ -497,7 +497,7 @@ where
             // This can happen if the command sender is dropped, i.e. the
             // parent server no longer exists but was not cleanly shutdown.
             Either::Left((Err(_err), _incomplete_call_result_fut)) => {
-                return Err(ConnectionEvent::DisconnectWithFlush);
+                Err(ConnectionEvent::DisconnectWithFlush)
             }
 
             // It is no longer possible to read the results of requests
@@ -508,7 +508,7 @@ where
             // request.
             // TODO: Describe when this can occur.
             Either::Right((None, _incomplete_command_changed_fut)) => {
-                return Err(ConnectionEvent::DisconnectWithFlush);
+                Err(ConnectionEvent::DisconnectWithFlush)
             }
 
             // The service finished processing a request so apply the
@@ -713,7 +713,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgLenProvider<Buf::Output>,
+    MsgTyp: MsgProvider<Buf::Output>,
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     stream_tx: WriteHalf<Stream>,
@@ -752,7 +752,7 @@ where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgLenProvider<Buf::Output>,
+    MsgTyp: MsgProvider<Buf::Output>,
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     fn new(

@@ -6,18 +6,39 @@ use futures::{Future, Stream};
 use crate::base::octets::{OctetsBuilder, ShortBuf};
 use crate::base::{Message, StreamTarget};
 
-pub trait MsgLenProvider<RequestOctets: AsRef<[u8]>> {
-    type MsgLen;
+//------------ MsgProvider ---------------------------------------------------
 
+/// A MsgProvider can determine the number of bytes of message data to expect
+/// and then turn those bytes into a concrete message type.
+pub trait MsgProvider<RequestOctets: AsRef<[u8]>> {
+    /// The number of bytes that need to be read before it is possible to
+    /// determine how many more bytes of message should follow. Not all
+    /// message types require this, e.g. UDP DNS message length is determined
+    /// by the size of the UDP message received, while for TCP DNS messages
+    /// the number of bytes to expect is determined by the first two bytes
+    /// received.
+    const MIN_HDR_BYTES: usize;
+
+    /// The concrete type of message that we produce from given message
+    /// bytes.
     type Msg;
 
+    /// The actual number of message bytes to follow given at least
+    /// MIN_HDR_BYTES of message header.
     fn determine_msg_len(hdr_buf: &mut RequestOctets) -> usize;
 
+    /// Convert a sequence of bytes to a concrete message.
     fn from_octets(octets: RequestOctets) -> Result<Self::Msg, ShortBuf>;
 }
 
-impl<RequestOctets: AsRef<[u8]>> MsgLenProvider<RequestOctets> for Message<RequestOctets> {
-    type MsgLen = u16;
+/// An implementation of MsgProvider for DNS [Message]s.
+impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets> for Message<RequestOctets> {
+    /// RFC 1035 section 4.2.2 "TCP Usage" says:
+    ///     "The message is prefixed with a two byte length field which gives
+    ///      the message length, excluding the two byte length field.  This
+    ///      length field allows the low-level processing to assemble a
+    ///      complete message before beginning to parse it."
+    const MIN_HDR_BYTES: usize = 2;
 
     type Msg = Self;
 
@@ -50,7 +71,7 @@ impl<RequestOctets: AsRef<[u8]>> MsgLenProvider<RequestOctets> for Message<Reque
 /// You can either implement the [`Service`] trait directly, or use the blanket
 /// impl to turn any function with a compatible signature into a [`Service`]
 /// implementation.
-pub trait Service<RequestOctets: AsRef<[u8]>, MsgTyp: MsgLenProvider<RequestOctets>> {
+pub trait Service<RequestOctets: AsRef<[u8]>, MsgTyp: MsgProvider<RequestOctets>> {
     type Error: Send + Sync + 'static;
 
     type ResponseOctets: OctetsBuilder
@@ -92,7 +113,7 @@ where
     ReqOct: AsRef<[u8]>,
     RespOct:
         OctetsBuilder + Send + Sync + 'static + std::convert::AsRef<[u8]>,
-    MsgTyp: MsgLenProvider<ReqOct>,
+    MsgTyp: MsgProvider<ReqOct>,
     Sing: Future<Output = Result<CallResult<RespOct>, ServiceError<SrvErr>>>
         + Send
         + 'static,
