@@ -122,10 +122,11 @@ impl FoundSrvs {
 
     /// Converts the value into an iterator over the found SRV records.
     ///
-    /// If results were found, this returns them in the order prescribed by the SRV records.
+    /// If results were found, this returns them in the order prescribed by
+    /// the SRV records.
     ///
-    /// If not results were found, the iterator will yield a single entry with the bare host and
-    /// the default fallback port.
+    /// If not results were found, the iterator will yield a single entry
+    /// with the bare host and the default fallback port.
     pub fn into_srvs(self) -> impl Iterator<Item = Srv<Dname<OctetsVec>>> {
         let (left, right) = match self.items {
             Ok(ok) => (Some(ok.into_iter()), None),
@@ -137,11 +138,11 @@ impl FoundSrvs {
             .map(|item| item.srv)
     }
 
-    /// Moves all results from `other` into `Self`, leaving `other` empty.
+    /// Merges all results from `other` into `self`.
     ///
     /// Reorders merged results as if they were from a single query.
-    pub fn merge(&mut self, other: &mut Self) {
-        if self.items.is_err() {
+    pub fn merge(&mut self, other: &Self) {
+       if self.items.is_err() {
             let one =
                 mem::replace(&mut self.items, Ok(Vec::new())).unwrap_err();
             self.items.as_mut().unwrap().push(one);
