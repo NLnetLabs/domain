@@ -179,7 +179,7 @@ impl<Octs: AsRef<[u8]>> ParsedDname<Octs> {
         let range = {
             let mut parser = self.parser();
             let len = loop {
-                match LabelType::peek(&mut parser).unwrap() {
+                match LabelType::peek(&parser).unwrap() {
                     LabelType::Normal(0) => {
                         unreachable!()
                     }
@@ -210,7 +210,7 @@ impl<Octs: AsRef<[u8]>> ParsedDname<Octs> {
         let (pos, len) = {
             let mut parser = self.parser();
             let len = loop {
-                match LabelType::peek(&mut parser).unwrap() {
+                match LabelType::peek(&parser).unwrap() {
                     LabelType::Normal(0) => {
                         unreachable!()
                     }
@@ -661,7 +661,7 @@ impl LabelType {
 
     /// Returns the label type at the beginning of `parser` without advancing.
     pub fn peek<Ref: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Ref>,
+        parser: &Parser<Ref>,
     ) -> Result<Self, ParseError> {
         let ltype = parser.peek(1)?[0];
         match ltype {
