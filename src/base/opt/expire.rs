@@ -142,6 +142,7 @@ mod test {
     use super::super::test::test_option_compose_parse;
     
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn expire_compose_parse() {
         test_option_compose_parse(
             &Expire::new(None),

@@ -2274,6 +2274,7 @@ mod test {
     // This covers all the other generated types, too.
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cname_compose_parse_scan() {
         let rdata =
             Cname::<Dname<Vec<u8>>>::from_str("www.example.com").unwrap();
@@ -2285,6 +2286,7 @@ mod test {
     //--- Hinfo
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn hinfo_compose_parse_scan() {
         let rdata = Hinfo::new(
             CharStr::from_octets("cpu").unwrap(),
@@ -2307,6 +2309,7 @@ mod test {
     //--- Minfo
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn minfo_compose_parse_scan() {
         let rdata = Minfo::<Dname<Vec<u8>>>::new(
             Dname::from_str("r.example.com").unwrap(),
@@ -2332,6 +2335,7 @@ mod test {
     //--- Mx
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn mx_compose_parse_scan() {
         let rdata = Mx::<Dname<Vec<u8>>>::new(
             12,
@@ -2345,6 +2349,7 @@ mod test {
     //--- Null
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn null_compose_parse_scan() {
         let rdata = Null::from_octets("foo").unwrap();
         test_rdlen(&rdata);
@@ -2354,6 +2359,7 @@ mod test {
     //--- Soa
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn soa_compose_parse_scan() {
         let rdata = Soa::<Dname<Vec<u8>>>::new(
             Dname::from_str("m.example.com").unwrap(),
@@ -2384,6 +2390,7 @@ mod test {
     //--- Txt
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn txt_compose_parse_scan() {
         let rdata = Txt::from_octets(b"\x03foo\x03bar".as_ref()).unwrap();
         test_rdlen(&rdata);

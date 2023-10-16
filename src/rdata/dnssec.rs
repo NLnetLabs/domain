@@ -2399,6 +2399,7 @@ mod test {
     //--- Dnskey
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn dnskey_compose_parse_scan() {
         let rdata = Dnskey::new(10, 11, SecAlg::RsaSha1, b"key0").unwrap();
         test_rdlen(&rdata);
@@ -2409,6 +2410,7 @@ mod test {
     //--- Rrsig
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn rrsig_compose_parse_scan() {
         let rdata = Rrsig::new(
             Rtype::A,
@@ -2444,6 +2446,7 @@ mod test {
     //--- Nsec
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsec_compose_parse_scan() {
         let mut rtype = RtypeBitmapBuilder::new_vec();
         rtype.add(Rtype::A).unwrap();
@@ -2460,6 +2463,7 @@ mod test {
     //--- Ds
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn ds_compose_parse_scan() {
         let rdata =
             Ds::new(10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key").unwrap();

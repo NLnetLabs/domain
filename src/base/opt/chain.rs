@@ -208,6 +208,7 @@ mod test {
     use core::str::FromStr;
     
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn chain_compose_parse() {
         test_option_compose_parse(
             &Chain::new(Dname::<Vec<u8>>::from_str("example.com").unwrap()),

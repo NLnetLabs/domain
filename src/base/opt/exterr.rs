@@ -314,6 +314,7 @@ mod tests {
     use super::super::test::test_option_compose_parse;
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsid_compose_parse() {
         let ede = ExtendedError::new(
             ExtendedErrorCode::StaleAnswer,

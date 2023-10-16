@@ -290,6 +290,7 @@ mod test {
     use super::super::test::test_option_compose_parse;
     
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn nsid_compose_parse() {
         test_option_compose_parse(
             &Nsid::from_octets("foo").unwrap(),

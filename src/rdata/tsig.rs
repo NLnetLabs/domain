@@ -717,6 +717,7 @@ mod test {
     use std::vec::Vec;
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn tsig_compose_parse_scan() {
         let rdata = Tsig::new(
             Dname::<Vec<u8>>::from_str("key.example.com.").unwrap(),

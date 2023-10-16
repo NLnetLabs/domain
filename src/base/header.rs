@@ -979,19 +979,19 @@ mod test {
     #[test]
     #[should_panic]
     fn short_header() {
-        Header::for_message_slice(b"134");
+        let _ = Header::for_message_slice(b"134");
     }
 
     #[test]
     #[should_panic]
     fn short_header_counts() {
-        HeaderCounts::for_message_slice(b"12345678");
+        let _ = HeaderCounts::for_message_slice(b"12345678");
     }
 
     #[test]
     #[should_panic]
     fn short_header_section() {
-        HeaderSection::for_message_slice(b"1234");
+        let _ = HeaderSection::for_message_slice(b"1234");
     }
 
     macro_rules! test_field {

@@ -908,6 +908,7 @@ pub(super) mod test {
     use std::vec::Vec;
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn opt_compose_parse_scan() {
         let rdata = Opt::from_octets("fo\x00\x03foo").unwrap();
         test_rdlen(&rdata);

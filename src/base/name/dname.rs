@@ -671,7 +671,7 @@ impl<Octs> Dname<Octs> {
 
     /// Peeks at a parser and returns the length of a name at its beginning.
     fn parse_name_len<Source: AsRef<[u8]> + ?Sized>(
-        parser: &mut Parser<Source>,
+        parser: &Parser<Source>,
     ) -> Result<usize, ParseError> {
         let len = {
             let mut tmp = parser.peek_all();

@@ -368,12 +368,13 @@ mod test {
     use std::vec::Vec;
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn zonemd_compose_parse_scan() {
         let serial = 2023092203;
         let scheme = 1.into();
         let algo = 241.into();
         let digest_str = "CDBE0DED9484490493580583BF868A3E95F89FC3515BF26ADBD230A6C23987F36BC6E504EFC83606F9445476D4E57FFB";
-        let digest: Vec<u8> = decode(&digest_str).unwrap();
+        let digest: Vec<u8> = decode(digest_str).unwrap();
         let rdata = Zonemd::new(serial.into(), scheme, algo, digest);
         test_rdlen(&rdata);
         test_compose_parse(&rdata, |parser| Zonemd::parse(parser));

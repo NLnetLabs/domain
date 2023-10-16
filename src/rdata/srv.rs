@@ -292,6 +292,7 @@ mod test {
     use std::vec::Vec;
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn srv_compose_parse_scan() {
         let rdata = Srv::new(
             10,

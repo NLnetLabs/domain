@@ -227,13 +227,16 @@ mod test {
     use super::super::test::test_option_compose_parse;
     
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn tcp_keepalive_compose_parse_none() {
         test_option_compose_parse(
             &TcpKeepalive::new(None),
             |parser| TcpKeepalive::parse(parser)
         );
     }
+
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn tcp_keepalive_compose_parse_some() {
         test_option_compose_parse(
             &TcpKeepalive::new(Some(12.into())),

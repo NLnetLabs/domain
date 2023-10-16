@@ -41,6 +41,7 @@ mod test {
     // This covers all the other generated types, too.
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn dname_compose_parse_scan() {
         let rdata =
             Dname::<Name<Vec<u8>>>::from_str("www.example.com").unwrap();

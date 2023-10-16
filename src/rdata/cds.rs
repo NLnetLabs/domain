@@ -655,6 +655,7 @@ mod test {
     //--- Cdnskey
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cdnskey_compose_parse_scan() {
         let rdata = Cdnskey::new(10, 11, SecAlg::RsaSha1, b"key").unwrap();
         test_rdlen(&rdata);
@@ -665,6 +666,7 @@ mod test {
     //--- Cds
 
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn cds_compose_parse_scan() {
         let rdata = Cds::new(
             10, SecAlg::RsaSha1, DigestAlg::Sha256, b"key"

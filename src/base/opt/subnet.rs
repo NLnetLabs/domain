@@ -388,6 +388,7 @@ mod tests {
     check!(prefix_too_long, "192.0.2.0", 100, "192.0.2.0", false);
     
     #[test]
+    #[allow(clippy::redundant_closure)] // lifetimes ...
     fn client_subnet_compose_parse() {
         test_option_compose_parse(
             &ClientSubnet::new(4, 6, IpAddr::from_str("127.0.0.1").unwrap()),
