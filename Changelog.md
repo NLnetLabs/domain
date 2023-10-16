@@ -13,13 +13,15 @@ Breaking changes
 New
 
 * Added support for the ZONEMD record type. ([#229] by @xofyarg)
+* Re-exported the _octseq_ crate as `dep::octseq`. ([#230])
 
 Bug fixes
 
 Other changes
 
-[#216]: https://github.com/NLnetLabs/domain/pull/229
+[#216]: https://github.com/NLnetLabs/domain/pull/216
 [#229]: https://github.com/NLnetLabs/domain/pull/229
+[#230]: https://github.com/NLnetLabs/domain/pull/230
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 [@xofyarg]: https://github.com/xofyarg
 
