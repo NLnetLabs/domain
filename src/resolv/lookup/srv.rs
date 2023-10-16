@@ -142,7 +142,7 @@ impl FoundSrvs {
     ///
     /// Reorders merged results as if they were from a single query.
     pub fn merge(&mut self, other: &Self) {
-       if self.items.is_err() {
+        if self.items.is_err() {
             let one =
                 mem::replace(&mut self.items, Ok(Vec::new())).unwrap_err();
             self.items.as_mut().unwrap().push(one);
