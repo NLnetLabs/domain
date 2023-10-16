@@ -32,8 +32,7 @@ use tokio::time::{sleep_until, Instant};
 use crate::base::Message;
 use crate::net::client::error::Error;
 use crate::net::client::factory::ConnFactory;
-use crate::net::client::octet_stream::Connection as SingleConnection;
-use crate::net::client::octet_stream::QueryNoCheck as SingleQuery;
+use crate::net::client::octet_stream;
 use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
 
 /// Capacity of the channel that transports [ChanReq].
@@ -42,6 +41,15 @@ const DEF_CHAN_CAP: usize = 8;
 /// Error reported when the connection is closed and
 /// [InnerConnection::run] terminated.
 const ERR_CONN_CLOSED: &str = "connection closed";
+
+//------------ Config ---------------------------------------------------------
+
+/// Configuration for an octet_stream transport connection.
+#[derive(Clone, Debug, Default)]
+pub struct Config {
+    /// Response timeout.
+    pub octet_stream: Option<octet_stream::Config>,
+}
 
 //------------ Connection -----------------------------------------------------
 
@@ -58,8 +66,15 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
     /// Constructor for [Connection].
     ///
     /// Returns a [Connection] wrapped in a [Result](io::Result).
-    pub fn new() -> io::Result<Connection<Octs>> {
-        let connection = InnerConnection::new()?;
+    pub fn new(config: Option<Config>) -> Result<Connection<Octs>, Error> {
+        let config = match config {
+            Some(config) => {
+                check_config(&config)?;
+                config
+            }
+            None => Default::default(),
+        };
+        let connection = InnerConnection::new(config)?;
         Ok(Self {
             inner: Arc::new(connection),
         })
@@ -75,7 +90,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
     >(
         &self,
         factory: F,
-    ) -> Option<()> {
+    ) -> Result<(), Error> {
         self.inner.run(factory).await
     }
 
@@ -186,10 +201,10 @@ enum QueryState<Octs: AsRef<[u8]>> {
     GetConn(oneshot::Receiver<ChanResp<Octs>>),
 
     /// Start a query using the transport.
-    StartQuery(SingleConnection<Octs>),
+    StartQuery(octet_stream::Connection<Octs>),
 
     /// Get the result of the query.
-    GetResult(SingleQuery),
+    GetResult(octet_stream::QueryNoCheck),
 
     /// Wait until trying again.
     ///
@@ -211,7 +226,7 @@ struct ChanRespOk<Octs: AsRef<[u8]>> {
     id: u64,
 
     /// New octet_stream transport.
-    conn: SingleConnection<Octs>,
+    conn: octet_stream::Connection<Octs>,
 }
 
 impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
@@ -354,6 +369,9 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 /// The actual implementation of [Connection].
 #[derive(Debug)]
 struct InnerConnection<Octs: AsRef<[u8]>> {
+    /// User configuration values.
+    config: Config,
+
     /// [InnerConnection::sender] and [InnerConnection::receiver] are
     /// part of a single channel.
     ///
@@ -422,7 +440,7 @@ enum SingleConnState3<Octs: AsRef<[u8]>> {
     None,
 
     /// Current octet_stream transport.
-    Some(SingleConnection<Octs>),
+    Some(octet_stream::Connection<Octs>),
 
     /// State that deals with an error getting a new octet stream from
     /// a factory.
@@ -452,9 +470,10 @@ impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync + 'static>
     /// Constructor for [InnerConnection].
     ///
     /// This is the implementation of [Connection::new].
-    pub fn new() -> io::Result<InnerConnection<Octs>> {
+    pub fn new(config: Config) -> Result<InnerConnection<Octs>, Error> {
         let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
         Ok(Self {
+            config,
             sender: tx,
             receiver: Futures_mutex::new(Some(rx)),
         })
@@ -473,7 +492,7 @@ impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync + 'static>
     >(
         &self,
         factory: F,
-    ) -> Option<()> {
+    ) -> Result<(), Error> {
         let mut receiver = {
             let mut locked_opt_receiver = self.receiver.lock().await;
             let opt_receiver = locked_opt_receiver.take();
@@ -599,9 +618,7 @@ impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync + 'static>
 
                             let stream = res_conn
                                 .expect("error case is checked before");
-                            let conn = SingleConnection::new()
-                                .expect(
-                                "the connect implementation cannot fail");
+                            let conn = octet_stream::Connection::new(self.config.octet_stream.clone())?;
                             let conn_run = conn.clone();
 
                             let clo = || async move {
@@ -655,7 +672,7 @@ impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync + 'static>
         }
 
         // Done
-        Some(())
+        Ok(())
     }
 
     /// Request a new connection.
@@ -733,4 +750,10 @@ fn is_answer_ignore_id<
 /// future return by a factory.
 async fn factory_nop<IO>() -> Result<IO, std::io::Error> {
     Err(io::Error::new(io::ErrorKind::Other, "nop"))
+}
+
+/// Check if config is valid.
+fn check_config(_config: &Config) -> Result<(), Error> {
+    // Nothing to check at the moment.
+    Ok(())
 }

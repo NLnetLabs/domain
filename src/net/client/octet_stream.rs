@@ -24,6 +24,7 @@ use futures::lock::Mutex as Futures_mutex;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
+use std::io::ErrorKind;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -38,13 +39,12 @@ use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
 use crate::rdata::AllRecordData;
 use octseq::Octets;
 
-use tokio::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 
-/// Time to wait on a non-idle connection for the other side to send
-/// a response on any outstanding query.
+/// Default configuration value for the amount of time to wait on a non-idle
+/// connection for the other side to send a response on any outstanding query.
 // Implement a simple response timer to see if the connection and the server
 // are alive. Set the timer when the connection goes from idle to busy.
 // Reset the timer each time a reply arrives. Cancel the timer when the
@@ -52,7 +52,13 @@ use tokio::time::sleep;
 // queries as timed out and shutdown the connection.
 //
 // Note: nsd has 120 seconds, unbound has 3 seconds.
-const RESPONSE_TIMEOUT: Duration = Duration::from_secs(19);
+const DEF_RESPONSE_TIMEOUT: Duration = Duration::from_secs(19);
+
+/// Minimum configuration value for response_timeout.
+const MIN_RESPONSE_TIMEOUT: Duration = Duration::from_millis(1);
+
+/// Maximum configuration value for response_timeout.
+const MAX_RESPONSE_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Capacity of the channel that transports [ChanReq].
 const DEF_CHAN_CAP: usize = 8;
@@ -60,6 +66,23 @@ const DEF_CHAN_CAP: usize = 8;
 /// Capacity of a private channel between [InnerConnection::reader] and
 /// [InnerConnection::run].
 const READ_REPLY_CHAN_CAP: usize = 8;
+
+//------------ Config ---------------------------------------------------------
+
+/// Configuration for an octet_stream transport connection.
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Response timeout.
+    pub response_timeout: Duration,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            response_timeout: DEF_RESPONSE_TIMEOUT,
+        }
+    }
+}
 
 //------------ Connection -----------------------------------------------------
 
@@ -74,8 +97,15 @@ impl<Octs: Clone + Octets + Send + Sync> Connection<Octs> {
     /// Constructor for [Connection].
     ///
     /// Returns a [Connection] wrapped in a [Result](io::Result).
-    pub fn new() -> io::Result<Connection<Octs>> {
-        let connection = InnerConnection::new()?;
+    pub fn new(config: Option<Config>) -> Result<Connection<Octs>, Error> {
+        let config = match config {
+            Some(config) => {
+                check_config(&config)?;
+                config
+            }
+            None => Default::default(),
+        };
+        let connection = InnerConnection::new(config)?;
         Ok(Self {
             inner: Arc::new(connection),
         })
@@ -313,6 +343,9 @@ impl QueryNoCheck {
 /// The actual implementation of [Connection].
 #[derive(Debug)]
 struct InnerConnection<Octs: AsRef<[u8]>> {
+    /// User configuration variables.
+    config: Config,
+
     /// [InnerConnection::sender] and [InnerConnection::receiver] are
     /// part of a single channel.
     ///
@@ -424,9 +457,10 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
     /// Constructor for [InnerConnection].
     ///
     /// This is the implementation of [Connection::new].
-    pub fn new() -> io::Result<InnerConnection<Octs>> {
+    pub fn new(config: Config) -> Result<InnerConnection<Octs>, Error> {
         let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
         Ok(Self {
+            config,
             sender: tx,
             receiver: Futures_mutex::new(Some(rx)),
         })
@@ -472,7 +506,7 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
                 ConnState::Active(opt_instant) => {
                     if let Some(instant) = opt_instant {
                         let elapsed = instant.elapsed();
-                        if elapsed > RESPONSE_TIMEOUT {
+                        if elapsed > self.config.response_timeout {
                             Self::error(
                                 Error::StreamReadTimeout,
                                 &mut query_vec,
@@ -480,7 +514,7 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
                             status.state = ConnState::ReadTimeout;
                             break;
                         }
-                        Some(RESPONSE_TIMEOUT - elapsed)
+                        Some(self.config.response_timeout - elapsed)
                     } else {
                         None
                     }
@@ -513,7 +547,7 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
                 None =>
                 // Just use the response timeout
                 {
-                    RESPONSE_TIMEOUT
+                    self.config.response_timeout
                 }
             };
 
@@ -1126,4 +1160,17 @@ fn is_answer_ignore_id<
     } else {
         reply.question() == query.question()
     }
+}
+
+/// Check if config is valid.
+fn check_config(config: &Config) -> Result<(), Error> {
+    if config.response_timeout < MIN_RESPONSE_TIMEOUT
+        || config.response_timeout > MAX_RESPONSE_TIMEOUT
+    {
+        return Err(Error::OctetStreamConfigError(Arc::new(
+            std::io::Error::new(ErrorKind::Other, "response_timeout"),
+        )));
+    }
+
+    Ok(())
 }

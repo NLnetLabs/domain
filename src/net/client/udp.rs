@@ -11,7 +11,7 @@ use bytes::{Bytes, BytesMut};
 use std::boxed::Box;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
-use std::io;
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -26,15 +26,59 @@ use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
 /// How many times do we try a new random port if we get ‘address in use.’
 const RETRY_RANDOM_PORT: usize = 10;
 
-/// Maximum number of parallel DNS query over a single UDP transport
-/// connection.
-const MAX_PARALLEL: usize = 100;
+/// Default configuration value for the maximum number of parallel DNS query
+/// over a single UDP transport connection.
+const DEF_MAX_PARALLEL: usize = 100;
 
-/// Maximum amount of time to wait for a reply.
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// Minimum configuration value for max_parallel.
+const MIN_MAX_PARALLEL: usize = 1;
 
-/// Maximum number of retries after timeouts.
-const MAX_RETRIES: u8 = 5;
+/// Maximum configuration value for max_parallel.
+const MAX_MAX_PARALLEL: usize = 1000;
+
+/// Default configuration value for the maximum amount of time to wait for a
+/// reply.
+const DEF_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Minimum configuration value for read_timeout.
+const MIN_READ_TIMEOUT: Duration = Duration::from_millis(1);
+
+/// Maximum configuration value for read_timeout.
+const MAX_READ_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Default configuration value for maximum number of retries after timeouts.
+const DEF_MAX_RETRIES: u8 = 5;
+
+/// Minimum allowed configuration value for max_retries.
+const MIN_MAX_RETRIES: u8 = 1;
+
+/// Maximum allowed configuration value for max_retries.
+const MAX_MAX_RETRIES: u8 = 100;
+
+//------------ Config ---------------------------------------------------------
+
+/// Configuration for a UDP transport connection.
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Maximum number of parallel requests for a transport connection.
+    pub max_parallel: usize,
+
+    /// Read timeout.
+    pub read_timeout: Duration,
+
+    /// Maimum number of retries.
+    pub max_retries: u8,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            max_parallel: DEF_MAX_PARALLEL,
+            read_timeout: DEF_READ_TIMEOUT,
+            max_retries: DEF_MAX_RETRIES,
+        }
+    }
+}
 
 //------------ Connection -----------------------------------------------------
 
@@ -47,8 +91,18 @@ pub struct Connection {
 
 impl Connection {
     /// Create a new UDP transport connection.
-    pub fn new(remote_addr: SocketAddr) -> io::Result<Connection> {
-        let connection = InnerConnection::new(remote_addr)?;
+    pub fn new(
+        config: Option<Config>,
+        remote_addr: SocketAddr,
+    ) -> Result<Connection, Error> {
+        let config = match config {
+            Some(config) => {
+                check_config(&config)?;
+                config
+            }
+            None => Default::default(),
+        };
+        let connection = InnerConnection::new(config, remote_addr)?;
         Ok(Self {
             inner: Arc::new(connection),
         })
@@ -331,12 +385,14 @@ pub struct Query2 {
 impl Query2 {
     /// Create new Query object.
     fn new(
+        config: Config,
         query_msg: Message<BytesMut>,
         remote_addr: SocketAddr,
         conn: Connection,
     ) -> Query2 {
         Query2 {
             get_result_fut: Box::pin(Self::get_result_impl2(
+                config,
                 query_msg,
                 remote_addr,
                 conn,
@@ -353,6 +409,7 @@ impl Query2 {
     ///
     /// This function is not cancel safe.
     async fn get_result_impl2(
+        config: Config,
         mut query_msg: Message<BytesMut>,
         remote_addr: SocketAddr,
         conn: Connection,
@@ -391,10 +448,10 @@ impl Query2 {
 
             let start = Instant::now();
             let elapsed = start.elapsed();
-            if elapsed > READ_TIMEOUT {
+            if elapsed > config.read_timeout {
                 todo!();
             }
-            let remain = READ_TIMEOUT - elapsed;
+            let remain = config.read_timeout - elapsed;
 
             let mut buf = vec![0; recv_size]; // XXX use uninit'ed mem here.
             let timeout_res = timeout(
@@ -406,7 +463,7 @@ impl Query2 {
             .await;
             if timeout_res.is_err() {
                 retries += 1;
-                if retries < MAX_RETRIES {
+                if retries < config.max_retries {
                     continue;
                 }
                 return Err(Error::UdpTimeoutNoResponse);
@@ -483,6 +540,9 @@ impl GetResult for Query2 {
 /// Actual implementation of the UDP transport connection.
 #[derive(Debug)]
 struct InnerConnection {
+    /// User configuration variables.
+    config: Config,
+
     /// Address of the remote server.
     remote_addr: SocketAddr,
 
@@ -492,10 +552,15 @@ struct InnerConnection {
 
 impl InnerConnection {
     /// Create new InnerConnection object.
-    fn new(remote_addr: SocketAddr) -> io::Result<InnerConnection> {
+    fn new(
+        config: Config,
+        remote_addr: SocketAddr,
+    ) -> Result<InnerConnection, Error> {
+        let max_parallel = config.max_parallel;
         Ok(Self {
+            config,
             remote_addr,
-            semaphore: Arc::new(Semaphore::new(MAX_PARALLEL)),
+            semaphore: Arc::new(Semaphore::new(max_parallel)),
         })
     }
 
@@ -510,7 +575,12 @@ impl InnerConnection {
         bytes.extend_from_slice(slice);
         let query_msg = Message::from_octets(bytes)
             .expect("Message failed to parse contents of another Message");
-        Ok(Query2::new(query_msg, self.remote_addr, conn))
+        Ok(Query2::new(
+            self.config.clone(),
+            query_msg,
+            self.remote_addr,
+            conn,
+        ))
     }
 
     /// Return a permit for a our semaphore.
@@ -521,4 +591,37 @@ impl InnerConnection {
             .await
             .expect("the semaphore has not been closed")
     }
+}
+
+//------------ Utility --------------------------------------------------------
+
+/// Check if config is valid.
+fn check_config(config: &Config) -> Result<(), Error> {
+    if config.max_parallel < MIN_MAX_PARALLEL
+        || config.max_parallel > MAX_MAX_PARALLEL
+    {
+        return Err(Error::UdpConfigError(Arc::new(std::io::Error::new(
+            ErrorKind::Other,
+            "max_parallel",
+        ))));
+    }
+
+    if config.read_timeout < MIN_READ_TIMEOUT
+        || config.read_timeout > MAX_READ_TIMEOUT
+    {
+        return Err(Error::UdpConfigError(Arc::new(std::io::Error::new(
+            ErrorKind::Other,
+            "read_timeout",
+        ))));
+    }
+
+    if config.max_retries < MIN_MAX_RETRIES
+        || config.max_retries > MAX_MAX_RETRIES
+    {
+        return Err(Error::UdpConfigError(Arc::new(std::io::Error::new(
+            ErrorKind::Other,
+            "max_retries",
+        ))));
+    }
+    Ok(())
 }

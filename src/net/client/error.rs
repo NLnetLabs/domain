@@ -19,6 +19,9 @@ pub enum Error {
     /// ParseError from Message.
     MessageParseError,
 
+    /// octet_stream configuration error.
+    OctetStreamConfigError(Arc<std::io::Error>),
+
     /// Underlying transport not found in redundant connection
     RedundantTransportNotFound,
 
@@ -48,6 +51,9 @@ pub enum Error {
 
     /// Binding a UDP socket gave an error.
     UdpBind(Arc<std::io::Error>),
+
+    /// UDP configuration error.
+    UdpConfigError(Arc<std::io::Error>),
 
     /// Connecting a UDP socket gave an error.
     UdpConnect(Arc<std::io::Error>),
@@ -79,6 +85,7 @@ impl Display for Error {
                 write!(f, "PushError from MessageBuilder")
             }
             Error::MessageParseError => write!(f, "ParseError from Message"),
+            Error::OctetStreamConfigError(_) => write!(f, "bad config value"),
             Error::RedundantTransportNotFound => write!(
                 f,
                 "Underlying transport not found in redundant connection"
@@ -106,6 +113,7 @@ impl Display for Error {
                 write!(f, "unexpected end of data")
             }
             Error::UdpBind(_) => write!(f, "error binding UDP socket"),
+            Error::UdpConfigError(_) => write!(f, "bad config value"),
             Error::UdpConnect(_) => write!(f, "error connecting UDP socket"),
             Error::UdpReceive(_) => {
                 write!(f, "error receiving from UDP socket")
@@ -131,6 +139,7 @@ impl error::Error for Error {
             Error::ConnectionClosed => None,
             Error::MessageBuilderPushError => None,
             Error::MessageParseError => None,
+            Error::OctetStreamConfigError(e) => Some(e),
             Error::RedundantTransportNotFound => None,
             Error::ShortMessage => None,
             Error::StreamIdleTimeout => None,
@@ -141,6 +150,7 @@ impl error::Error for Error {
             Error::StreamWriteError(e) => Some(e),
             Error::StreamUnexpectedEndOfData => None,
             Error::UdpBind(e) => Some(e),
+            Error::UdpConfigError(e) => Some(e),
             Error::UdpConnect(e) => Some(e),
             Error::UdpReceive(e) => Some(e),
             Error::UdpSend(e) => Some(e),

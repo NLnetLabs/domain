@@ -11,7 +11,6 @@ use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
-use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -22,6 +21,18 @@ use crate::net::client::multi_stream;
 use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
 use crate::net::client::tcp_factory::TcpConnFactory;
 use crate::net::client::udp;
+
+//------------ Config ---------------------------------------------------------
+
+/// Configuration for an octet_stream transport connection.
+#[derive(Clone, Debug, Default)]
+pub struct Config {
+    /// Configuration for the UDP transport.
+    pub udp: Option<udp::Config>,
+
+    /// Configuration for the multi_stream (TCP) transport.
+    pub multi_stream: Option<multi_stream::Config>,
+}
 
 //------------ Connection -----------------------------------------------------
 
@@ -37,15 +48,25 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
     Connection<Octs>
 {
     /// Create a new connection.
-    pub fn new(remote_addr: SocketAddr) -> io::Result<Connection<Octs>> {
-        let connection = InnerConnection::new(remote_addr)?;
+    pub fn new(
+        config: Option<Config>,
+        remote_addr: SocketAddr,
+    ) -> Result<Connection<Octs>, Error> {
+        let config = match config {
+            Some(config) => {
+                check_config(&config)?;
+                config
+            }
+            None => Default::default(),
+        };
+        let connection = InnerConnection::new(config, remote_addr)?;
         Ok(Self {
             inner: Arc::new(connection),
         })
     }
 
     /// Worker function for a connection object.
-    pub async fn run(&self) -> Option<()> {
+    pub async fn run(&self) -> Result<(), Error> {
         self.inner.run().await
     }
 
@@ -219,9 +240,12 @@ impl<Octs: Clone + Debug + Octets + Send + Sync + 'static>
     ///
     /// Create the UDP and TCP connections. Store the remote address because
     /// run needs it later.
-    fn new(remote_addr: SocketAddr) -> io::Result<InnerConnection<Octs>> {
-        let udp_conn = udp::Connection::new(remote_addr)?;
-        let tcp_conn = multi_stream::Connection::new()?;
+    fn new(
+        config: Config,
+        remote_addr: SocketAddr,
+    ) -> Result<InnerConnection<Octs>, Error> {
+        let udp_conn = udp::Connection::new(config.udp, remote_addr)?;
+        let tcp_conn = multi_stream::Connection::new(config.multi_stream)?;
 
         Ok(Self {
             remote_addr,
@@ -234,7 +258,7 @@ impl<Octs: Clone + Debug + Octets + Send + Sync + 'static>
     ///
     /// Create a TCP connection factory and pass that to worker function
     /// of the multi_stream object.
-    pub async fn run(&self) -> Option<()> {
+    pub async fn run(&self) -> Result<(), Error> {
         let tcp_factory = TcpConnFactory::new(self.remote_addr);
         self.tcp_conn.run(tcp_factory).await
     }
@@ -252,4 +276,10 @@ impl<Octs: Clone + Debug + Octets + Send + Sync + 'static>
             self.tcp_conn.clone(),
         ))
     }
+}
+
+/// Check if config is valid.
+fn check_config(_config: &Config) -> Result<(), Error> {
+    // Nothing to check at the moment.
+    Ok(())
 }
