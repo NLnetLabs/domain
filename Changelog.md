@@ -9,6 +9,8 @@ Breaking changes
   implemented for types that actually are or contain domain names. ([#216])
 * Marked various methods and functions that return values without side
   effects as `#[must_use]`. ([#228] by [@WhyNotHugo])
+* Changed the signature of `FoundSrvs::merge` to use a non-mut `other`.
+  ([#232])
 
 New
 
@@ -22,6 +24,7 @@ Other changes
 [#216]: https://github.com/NLnetLabs/domain/pull/216
 [#229]: https://github.com/NLnetLabs/domain/pull/229
 [#230]: https://github.com/NLnetLabs/domain/pull/230
+[#232]: https://github.com/NLnetLabs/domain/pull/230
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 [@xofyarg]: https://github.com/xofyarg
 
