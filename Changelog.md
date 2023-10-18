@@ -13,6 +13,7 @@ Breaking changes
   effects as `#[must_use]`. ([#228] by [@WhyNotHugo])
 * Changed the signature of `FoundSrvs::merge` to use a non-mut `other`.
   ([#232])
+* The minimum Rust version is now 1.67. ([#235])
 
 New
 
@@ -24,7 +25,8 @@ New
 [#229]: https://github.com/NLnetLabs/domain/pull/229
 [#230]: https://github.com/NLnetLabs/domain/pull/230
 [#231]: https://github.com/NLnetLabs/domain/pull/231
-[#232]: https://github.com/NLnetLabs/domain/pull/230
+[#232]: https://github.com/NLnetLabs/domain/pull/232
+[#235]: https://github.com/NLnetLabs/domain/pull/235
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 [@xofyarg]: https://github.com/xofyarg
 
