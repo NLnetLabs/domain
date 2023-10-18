@@ -44,6 +44,7 @@ impl<'a> Key<'a> {
         let keypair = EcdsaKeyPair::from_pkcs8(
             &ECDSA_P256_SHA256_FIXED_SIGNING,
             pkcs8.as_ref(),
+            rng,
         )?;
         let public_key = keypair.public_key().as_ref()[1..].into();
         Ok(Key {
@@ -94,7 +95,7 @@ impl<'a> SigningKey for Key<'a> {
             }
             RingKey::Ed25519(ref key) => Ok(Signature::sig(key.sign(msg))),
             RingKey::Rsa(ref key, encoding) => {
-                let mut sig = vec![0; key.public_modulus_len()];
+                let mut sig = vec![0; key.public().modulus_len()];
                 key.sign(encoding, self.rng, msg, &mut sig)?;
                 Ok(Signature::vec(sig))
             }
