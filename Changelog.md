@@ -14,8 +14,9 @@ Breaking changes
 
 New
 
-* Added support for the ZONEMD record type. ([#229] by @xofyarg)
+* Added support for the ZONEMD record type. ([#229] by [@xofyarg])
 * Re-exported the _octseq_ crate as `dep::octseq`. ([#230])
+* Added a blanket impl for mut refs to `Composer`. ([#231] by [@xofyarg])
 
 Bug fixes
 
@@ -24,6 +25,7 @@ Other changes
 [#216]: https://github.com/NLnetLabs/domain/pull/216
 [#229]: https://github.com/NLnetLabs/domain/pull/229
 [#230]: https://github.com/NLnetLabs/domain/pull/230
+[#231]: https://github.com/NLnetLabs/domain/pull/231
 [#232]: https://github.com/NLnetLabs/domain/pull/230
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 [@xofyarg]: https://github.com/xofyarg
