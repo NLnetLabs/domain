@@ -46,6 +46,19 @@ impl Composer for bytes::BytesMut {}
 #[cfg(feature = "smallvec")]
 impl<A: smallvec::Array<Item = u8>> Composer for smallvec::SmallVec<A> {}
 
+impl<T: Composer> Composer for &mut T {
+    fn append_compressed_dname<N: ToDname + ?Sized>(
+        &mut self,
+        name: &N,
+    ) -> Result<(), Self::AppendError> {
+        Composer::append_compressed_dname(*self, name)
+    }
+
+    fn can_compress(&self) -> bool {
+        Composer::can_compress(*self)
+    }
+}
+
 //------------ Compose -------------------------------------------------------
 
 /// An extension trait to add composing to foreign types.
