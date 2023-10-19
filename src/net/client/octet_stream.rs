@@ -904,11 +904,11 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
                     // Adding keepalive option
                     // failed. Send the original
                     // request.
-                    Self::convert_query(&req.msg, reqmsg);
+                    Self::convert_query(&mut_msg, reqmsg);
                 }
             }
         } else {
-            Self::convert_query(&req.msg, reqmsg);
+            Self::convert_query(&mut_msg, reqmsg);
         }
     }
 
@@ -943,14 +943,10 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
         let slice = msg.as_slice();
         let len = slice.len();
 
-        println!("convert_query: slice len {}, slice {:?}", len, slice);
-
         let mut vec = Vec::with_capacity(2 + len);
         let len16 = len as u16;
         vec.extend_from_slice(&len16.to_be_bytes());
         vec.extend_from_slice(slice);
-
-        println!("convert_query: vec {:?}", vec);
 
         *reqmsg = Some(vec);
     }
