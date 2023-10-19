@@ -8,6 +8,7 @@
 // - random port
 
 use bytes::{Bytes, BytesMut};
+use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
@@ -19,6 +20,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout, Duration, Instant};
 
+use crate::base::iana::Rcode;
 use crate::base::Message;
 use crate::net::client::error::Error;
 use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
@@ -324,7 +326,7 @@ impl Query {
                     .expect(
                         "Message failed to parse contents of another Message",
                     );
-                    if !answer.is_answer(&query_msg) {
+                    if !is_answer(answer, &query_msg) {
                         continue;
                     }
                     self.sock = None;
@@ -447,50 +449,66 @@ impl Query2 {
             }
 
             let start = Instant::now();
-            let elapsed = start.elapsed();
-            if elapsed > config.read_timeout {
-                todo!();
-            }
-            let remain = config.read_timeout - elapsed;
 
-            let mut buf = vec![0; recv_size]; // XXX use uninit'ed mem here.
-            let timeout_res = timeout(
-                remain,
-                sock.as_ref()
-                    .expect("socket should be present")
-                    .recv(&mut buf),
-            )
-            .await;
-            if timeout_res.is_err() {
-                retries += 1;
-                if retries < config.max_retries {
+            loop {
+                let elapsed = start.elapsed();
+                if elapsed > config.read_timeout {
+                    // Break out of the receive loop and continue in the
+                    // transmit loop.
+                    break;
+                }
+                let remain = config.read_timeout - elapsed;
+
+                let mut buf = vec![0; recv_size]; // XXX use uninit'ed mem here.
+                let timeout_res = timeout(
+                    remain,
+                    sock.as_ref()
+                        .expect("socket should be present")
+                        .recv(&mut buf),
+                )
+                .await;
+                if timeout_res.is_err() {
+                    retries += 1;
+                    if retries < config.max_retries {
+                        // Break out of the receive loop and continue in the
+                        // transmit loop.
+                        break;
+                    }
+                    return Err(Error::UdpTimeoutNoResponse);
+                }
+                let len = timeout_res
+                    .expect("errror case is checked above")
+                    .map_err(|e| Error::UdpReceive(Arc::new(e)))?;
+                buf.truncate(len);
+
+                // We ignore garbage since there is a timer on this whole
+                // thing.
+                let answer = match Message::from_octets(buf.into()) {
+                    // Just go back to receiving.
+                    Ok(answer) => answer,
+                    Err(_) => continue,
+                };
+
+                // Unfortunately we cannot pass query_msg to is_answer
+                // because is_answer requires Octets, which is not
+                // implemented by BytesMut. Make a copy.
+                let query_msg = Message::from_octets(query_msg.as_slice())
+                    .expect(
+                        "Message failed to parse contents of another Message",
+                    );
+                if !is_answer(&answer, &query_msg) {
+                    // Wrong answer, go back to receiving
                     continue;
                 }
-                return Err(Error::UdpTimeoutNoResponse);
+                return Ok(answer);
             }
-            let len = timeout_res
-                .expect("errror case is checked above")
-                .map_err(|e| Error::UdpReceive(Arc::new(e)))?;
-            buf.truncate(len);
-
-            // We ignore garbage since there is a timer on this whole thing.
-            let answer = match Message::from_octets(buf.into()) {
-                Ok(answer) => answer,
-                Err(_) => continue,
-            };
-
-            // Unfortunately we cannot pass query_msg to is_answer
-            // because is_answer requires Octets, which is not
-            // implemented by BytesMut. Make a copy.
-            let query_msg = Message::from_octets(query_msg.as_slice())
-                .expect(
-                    "Message failed to parse contents of another Message",
-                );
-            if !answer.is_answer(&query_msg) {
+            retries += 1;
+            if retries < config.max_retries {
                 continue;
             }
-            return Ok(answer);
+            break;
         }
+        Err(Error::UdpTimeoutNoResponse)
     }
 
     /// Bind to a local UDP port.
@@ -624,4 +642,43 @@ fn check_config(config: &Config) -> Result<(), Error> {
         ))));
     }
     Ok(())
+}
+
+/// Check if a message is a valid reply for a query. Allow the question section
+/// to be empty if there is an error or if the reply is truncated.
+fn is_answer<
+    QueryOcts: AsRef<[u8]> + Octets,
+    ReplyOcts: AsRef<[u8]> + Octets,
+>(
+    reply: &Message<ReplyOcts>,
+    query: &Message<QueryOcts>,
+) -> bool {
+    let reply_header = reply.header();
+    let reply_hcounts = reply.header_counts();
+
+    // First check qr and id
+    if !reply_header.qr() || reply_header.id() != query.header().id() {
+        return false;
+    }
+
+    // If either tc is set or the result is an error, then the question
+    // section can be empty. In that case we require all other sections
+    // to be empty as well.
+    if (reply_header.tc() || reply_header.rcode() != Rcode::NoError)
+        && reply_hcounts.qdcount() == 0
+        && reply_hcounts.ancount() == 0
+        && reply_hcounts.nscount() == 0
+        && reply_hcounts.arcount() == 0
+    {
+        // We can accept this as a valid reply.
+        return true;
+    }
+
+    // Remaining checks. The question section in the reply has to be the
+    // same as in the query.
+    if reply_hcounts.qdcount() != query.header_counts().qdcount() {
+        false
+    } else {
+        reply.question() == query.question()
+    }
 }
