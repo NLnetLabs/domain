@@ -29,6 +29,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep_until, Instant};
 
+use crate::base::iana::Rcode;
 use crate::base::Message;
 use crate::net::client::error::Error;
 use crate::net::client::factory::ConnFactory;
@@ -737,9 +738,30 @@ fn is_answer_ignore_id<
     reply: &Message<Octs1>,
     query: &Message<Octs2>,
 ) -> bool {
-    if !reply.header().qr()
-        || reply.header_counts().qdcount() != query.header_counts().qdcount()
+    let reply_header = reply.header();
+    let reply_hcounts = reply.header_counts();
+
+    // First check qr is set
+    if !reply_header.qr() {
+        return false;
+    }
+
+    // If the result is an error, then the question
+    // section can be empty. In that case we require all other sections
+    // to be empty as well.
+    if reply_header.rcode() != Rcode::NoError
+        && reply_hcounts.qdcount() == 0
+        && reply_hcounts.ancount() == 0
+        && reply_hcounts.nscount() == 0
+        && reply_hcounts.arcount() == 0
     {
+        // We can accept this as a valid reply.
+        return true;
+    }
+
+    // Remaining checks. The question section in the reply has to be the
+    // same as in the query.
+    if reply_hcounts.qdcount() != query.header_counts().qdcount() {
         false
     } else {
         reply.question() == query.question()
