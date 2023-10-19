@@ -41,13 +41,14 @@ async fn main() {
 
     // Create a new UDP+TCP transport connection. Pass the destination address
     // and port as parameter.
-    let udptcp_conn = udp_tcp::Connection::new(server_addr).unwrap();
+    let udptcp_conn = udp_tcp::Connection::new(None, server_addr).unwrap();
 
     // Create a clone for the run function. Start the run function on a
     // separate task.
     let conn_run = udptcp_conn.clone();
     tokio::spawn(async move {
-        conn_run.run().await;
+        let res = conn_run.run().await;
+        println!("run exited with {:?}", res);
     });
 
     // Send a query message.
@@ -63,13 +64,14 @@ async fn main() {
 
     // A muli_stream transport connection sets up new TCP connections when
     // needed.
-    let tcp_conn = multi_stream::Connection::<Vec<u8>>::new().unwrap();
+    let tcp_conn = multi_stream::Connection::<Vec<u8>>::new(None).unwrap();
 
     // Start the run function as a separate task. The run function receives
     // the factory as a parameter.
     let conn_run = tcp_conn.clone();
     tokio::spawn(async move {
-        conn_run.run(tcp_factory).await;
+        let res = conn_run.run(tcp_factory).await;
+        println!("run exited with {:?}", res);
     });
 
     // Send a query message.
@@ -110,12 +112,13 @@ async fn main() {
         TlsConnFactory::new(client_config, "dns.google", server_addr);
 
     // Again create a multi_stream transport connection.
-    let tls_conn = multi_stream::Connection::new().unwrap();
+    let tls_conn = multi_stream::Connection::new(None).unwrap();
 
     // Can start the run function.
     let conn_run = tls_conn.clone();
     tokio::spawn(async move {
-        conn_run.run(tls_factory).await;
+        let res = conn_run.run(tls_factory).await;
+        println!("run exited with {:?}", res);
     });
 
     let mut query = tls_conn.query(&msg).await.unwrap();
@@ -123,7 +126,7 @@ async fn main() {
     println!("TLS reply: {:?}", reply);
 
     // Create a transport connection for redundant connections.
-    let redun = redundant::Connection::new().unwrap();
+    let redun = redundant::Connection::new(None).unwrap();
 
     // Start the run function on a separate task.
     let redun_run = redun.clone();
@@ -146,7 +149,7 @@ async fn main() {
     // Create a new UDP transport connection. Pass the destination address
     // and port as parameter. This transport does not retry over TCP if the
     // reply is truncated.
-    let udp_conn = udp::Connection::new(server_addr).unwrap();
+    let udp_conn = udp::Connection::new(None, server_addr).unwrap();
 
     // Send a query message.
     let mut query = udp_conn.query(&msg).await.unwrap();
@@ -159,7 +162,7 @@ async fn main() {
     // single request or a small burst of requests.
     let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
 
-    let tcp = octet_stream::Connection::new().unwrap();
+    let tcp = octet_stream::Connection::new(None).unwrap();
     let tcp_worker = tcp.clone();
 
     tokio::spawn(async move {
