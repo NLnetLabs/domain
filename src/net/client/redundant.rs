@@ -8,7 +8,7 @@ use bytes::Bytes;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 
-use octseq::OctetsBuilder;
+use octseq::{Octets, OctetsBuilder};
 
 use rand::random;
 
@@ -16,7 +16,6 @@ use std::boxed::Box;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
-use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
@@ -24,6 +23,7 @@ use std::vec::Vec;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{sleep_until, Duration, Instant};
 
+use crate::base::iana::OptRcode;
 use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::net::client::error::Error;
@@ -65,6 +65,21 @@ const PROBE_P: f64 = 0.05;
 /// When a worse connection is probed, give it a slight head start.
 const PROBE_RT: Duration = Duration::from_millis(1);
 
+//------------ Config ---------------------------------------------------------
+
+/// User configuration variables.
+#[derive(Clone, Debug, Default)]
+pub struct Config {
+    /// Defer transport errors.
+    pub defer_transport_error: bool,
+
+    /// Defer replies that report Refused.
+    pub defer_refused: bool,
+
+    /// Defer replies that report ServFail.
+    pub defer_servfail: bool,
+}
+
 //------------ Connection -----------------------------------------------------
 
 /// This type represents a transport connection.
@@ -78,8 +93,15 @@ impl<'a, Octs: Clone + Composer + Debug + Send + Sync + 'static>
     Connection<Octs>
 {
     /// Create a new connection.
-    pub fn new() -> io::Result<Connection<Octs>> {
-        let connection = InnerConnection::new()?;
+    pub fn new(config: Option<Config>) -> Result<Connection<Octs>, Error> {
+        let config = match config {
+            Some(config) => {
+                check_config(&config)?;
+                config
+            }
+            None => Default::default(),
+        };
+        let connection = InnerConnection::new(config)?;
         //test_send(connection);
         Ok(Self {
             inner: Arc::new(connection),
@@ -132,6 +154,9 @@ impl<
 /// This type represents an active query request.
 #[derive(Debug)]
 pub struct Query<Octs: AsRef<[u8]> + Send> {
+    /// User configuration.
+    config: Config,
+
     /// The state of the query
     state: QueryState,
 
@@ -147,6 +172,14 @@ pub struct Query<Octs: AsRef<[u8]> + Send> {
     /// List of futures for outstanding requests.
     fut_list:
         FuturesUnordered<Pin<Box<dyn Future<Output = FutListOutput> + Send>>>,
+
+    /// Transport error that should be reported if nothing better shows
+    /// up.
+    deferred_transport_error: Option<Error>,
+
+    /// Reply that should be returned to the user if nothing better shows
+    /// up.
+    deferred_reply: Option<Message<Bytes>>,
 
     /// The result from one of the connectons.
     result: Option<Result<Message<Bytes>, Error>>,
@@ -273,25 +306,18 @@ struct ConnRT {
 }
 
 /// Result of the futures in fut_list.
-type FutListOutput = Result<(usize, Result<Message<Bytes>, Error>), Error>;
+type FutListOutput = (usize, Result<Message<Bytes>, Error>);
 
 impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
     /// Create a new query object.
     fn new(
+        config: Config,
         query_msg: Message<Octs>,
         mut conn_rt: Vec<ConnRT>,
         sender: mpsc::Sender<ChanReq<Octs>>,
     ) -> Query<Octs> {
         let conn_rt_len = conn_rt.len();
-        println!("before sort:");
-        for (i, item) in conn_rt.iter().enumerate().take(conn_rt_len) {
-            println!("{}: id {} ert {:?}", i, item.id, item.est_rt);
-        }
         conn_rt.sort_unstable_by(conn_rt_cmp);
-        println!("after sort:");
-        for (i, item) in conn_rt.iter().enumerate().take(conn_rt_len) {
-            println!("{}: id {} ert {:?}", i, item.id, item.est_rt);
-        }
 
         // Do we want to probe a less performant upstream?
         if conn_rt_len > 1 && random::<f64>() < PROBE_P {
@@ -300,19 +326,18 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
 
             // Sort again
             conn_rt.sort_unstable_by(conn_rt_cmp);
-            println!("sort for probe :");
-            for (i, item) in conn_rt.iter().enumerate().take(conn_rt_len) {
-                println!("{}: id {} ert {:?}", i, item.id, item.est_rt);
-            }
         }
 
         Query {
+            config,
             query_msg,
             //conns,
             conn_rt,
             sender,
             state: QueryState::Init,
             fut_list: FuturesUnordered::new(),
+            deferred_transport_error: None,
+            deferred_reply: None,
             result: None,
             res_index: 0,
         }
@@ -338,19 +363,70 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
                         self.query_msg.clone(),
                     );
                     self.fut_list.push(Box::pin(fut));
-                    println!("timeout {:?}", self.conn_rt[ind].est_rt);
                     let timeout = Instant::now() + self.conn_rt[ind].est_rt;
-                    tokio::select! {
-                        res = self.fut_list.next() => {
-                            println!("got res {:?}", res);
-                            let res = res.expect("res should not be empty")?;
+                    loop {
+                        tokio::select! {
+                            res = self.fut_list.next() => {
+                            let res = res.expect("res should not be empty");
+                            match res.1 {
+                                Err(ref err) => {
+                                    if self.config.defer_transport_error {
+                                    if self.deferred_transport_error.is_none() {
+                                        self.deferred_transport_error = Some(err.clone());
+                                    }
+                                    if res.0 == ind {
+                                        // The current upstream finished,
+                                        // try the next one, if any.
+                                        self.state =
+                                        if ind+1 < self.conn_rt.len() {
+                                            QueryState::Probe(ind+1)
+                                        }
+                                        else
+                                        {
+                                            QueryState::Wait
+                                        };
+                                        // Break out of receive loop
+                                        break;
+                                    }
+                                    // Just continue receiving
+                                    continue;
+                                    }
+                                    // Return error to the user.
+                                }
+                                Ok(ref msg) => {
+                                if skip(msg, &self.config) {
+                                    if self.deferred_reply.is_none() {
+                                        self.deferred_reply = Some(msg.clone());
+                                    }
+                                    if res.0 == ind {
+                                    // The current upstream finished,
+                                    // try the next one, if any.
+                                    self.state =
+                                    if ind+1 < self.conn_rt.len() {
+                                        QueryState::Probe(ind+1)
+                                    }
+                                    else
+                                    {
+                                        QueryState::Wait
+                                    };
+                                    // Break out of receive loop
+                                    break;
+                                    }
+                                    // Just continue receiving
+                                    continue;
+                                }
+                                // Now we have a reply that can be
+                                // returned to the user.
+                                }
+                            }
                             self.result = Some(res.1);
                             self.res_index= res.0;
 
                             self.state = QueryState::Report(0);
-                            continue;
-                        }
-                        _ = sleep_until(timeout) => {
+                            // Break out of receive loop
+                            break;
+                            }
+                            _ = sleep_until(timeout) => {
                             // Move to the next Probe state if there
                             // are more upstreams to try, otherwise
                             // move to the Wait state.
@@ -362,9 +438,13 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
                             {
                                 QueryState::Wait
                             };
-                            continue;
+                            // Break out of receive loop
+                            break;
+                            }
                         }
                     }
+                    // Continue with state machine loop
+                    continue;
                 }
                 QueryState::Report(ind) => {
                     if ind >= self.conn_rt.len()
@@ -382,11 +462,6 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
                         .start
                         .expect("start time should not be empty");
                     let elapsed = start.elapsed();
-                    println!(
-                        "expected rt was {:?}",
-                        self.conn_rt[ind].est_rt
-                    );
-                    println!("reporting duration {:?}", elapsed);
                     let time_report = TimeReport {
                         id: self.conn_rt[ind].id,
                         elapsed,
@@ -406,12 +481,61 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
                     continue;
                 }
                 QueryState::Wait => {
-                    let res = self.fut_list.next().await;
-                    println!("got res {:?}", res);
-                    let res = res.expect("res should not be empty")?;
-                    self.result = Some(res.1);
-                    self.res_index = res.0;
-                    self.state = QueryState::Report(0);
+                    loop {
+                        if self.fut_list.is_empty() {
+                            // We have nothing left. There should be a reply or
+                            // an error. Prefer a reply over an error.
+                            if self.deferred_reply.is_some() {
+                                let msg = self
+                                    .deferred_reply
+                                    .take()
+                                    .expect("just checked for Some");
+                                return Ok(msg);
+                            }
+                            if self.deferred_transport_error.is_some() {
+                                let err = self
+                                    .deferred_transport_error
+                                    .take()
+                                    .expect("just checked for Some");
+                                return Err(err);
+                            }
+                            panic!("either deferred_reply or deferred_error should be present");
+                        }
+                        let res = self.fut_list.next().await;
+                        let res = res.expect("res should not be empty");
+                        match res.1 {
+                            Err(ref err) => {
+                                if self.config.defer_transport_error {
+                                    if self.deferred_transport_error.is_none()
+                                    {
+                                        self.deferred_transport_error =
+                                            Some(err.clone());
+                                    }
+                                    // Just continue with the next future, or
+                                    // finish if fut_list is empty.
+                                    continue;
+                                }
+                                // Return error to the user.
+                            }
+                            Ok(ref msg) => {
+                                if skip(msg, &self.config) {
+                                    if self.deferred_reply.is_none() {
+                                        self.deferred_reply =
+                                            Some(msg.clone());
+                                    }
+                                    // Just continue with the next future, or
+                                    // finish if fut_list is empty.
+                                    continue;
+                                }
+                                // Return reply to user.
+                            }
+                        }
+                        self.result = Some(res.1);
+                        self.res_index = res.0;
+                        self.state = QueryState::Report(0);
+                        // Break out of loop to continue with the state machine
+                        break;
+                    }
                     continue;
                 }
             }
@@ -444,6 +568,9 @@ impl<
 
 /// Type that actually implements the connection.
 struct InnerConnection<Octs: Send> {
+    /// User configuation.
+    config: Config,
+
     /// Receive side of the channel used by the runner.
     receiver: Mutex<Option<mpsc::Receiver<ChanReq<Octs>>>>,
 
@@ -455,9 +582,10 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
     InnerConnection<Octs>
 {
     /// Implementation of the new method.
-    fn new() -> io::Result<InnerConnection<Octs>> {
+    fn new(config: Config) -> Result<InnerConnection<Octs>, Error> {
         let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
         Ok(Self {
+            config,
             receiver: Mutex::new(Some(rx)),
             sender: tx,
         })
@@ -502,12 +630,10 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
                     let _ = rt_req.tx.send(Ok(conn_rt.clone()));
                 }
                 ChanReq::Query(query_req) => {
-                    println!("QueryReq for id {}", query_req.id);
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == query_req.id);
                     match opt_ind {
                         Some(ind) => {
-                            println!("QueryReq for ind {}", ind);
                             let query =
                                 conns[ind].query(&query_req.query_msg).await;
                             // Don't care if send fails
@@ -522,49 +648,32 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
                     }
                 }
                 ChanReq::Report(time_report) => {
-                    println!(
-                        "for {} time {:?}",
-                        time_report.id, time_report.elapsed
-                    );
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
-                        println!("Report for ind {}", ind);
                         let elapsed = time_report.elapsed.as_secs_f64();
                         conn_stats[ind].mean +=
                             (elapsed - conn_stats[ind].mean) / SMOOTH_N;
                         let elapsed_sq = elapsed * elapsed;
                         conn_stats[ind].mean_sq +=
                             (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
-                        println!(
-                            "new mean {} mean_sq {}",
-                            conn_stats[ind].mean, conn_stats[ind].mean_sq
-                        );
                         let mean = conn_stats[ind].mean;
                         let var = conn_stats[ind].mean_sq - mean * mean;
                         let std_dev =
                             if var < 0. { 0. } else { f64::sqrt(var) };
-                        println!("std dev {}", std_dev);
                         let est_rt = mean + 3. * std_dev;
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
-                        println!("new est_rt {:?}", conn_rt[ind].est_rt);
                     }
                 }
                 ChanReq::Failure(time_report) => {
-                    println!(
-                        "failure for {} time {:?}",
-                        time_report.id, time_report.elapsed
-                    );
                     let opt_ind =
                         conn_rt.iter().position(|e| e.id == time_report.id);
                     if let Some(ind) = opt_ind {
-                        println!("Failure Report for ind {}", ind);
                         let elapsed = time_report.elapsed.as_secs_f64();
                         if elapsed < conn_stats[ind].mean {
                             // Do not update the mean if a
                             // failure took less time than the
                             // current mean.
-                            println!("ignoring better time");
                             continue;
                         }
                         conn_stats[ind].mean +=
@@ -572,18 +681,12 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
                         let elapsed_sq = elapsed * elapsed;
                         conn_stats[ind].mean_sq +=
                             (elapsed_sq - conn_stats[ind].mean_sq) / SMOOTH_N;
-                        println!(
-                            "new mean {} mean_sq {}",
-                            conn_stats[ind].mean, conn_stats[ind].mean_sq
-                        );
                         let mean = conn_stats[ind].mean;
                         let var = conn_stats[ind].mean_sq - mean * mean;
                         let std_dev =
                             if var < 0. { 0. } else { f64::sqrt(var) };
-                        println!("std dev {}", std_dev);
                         let est_rt = mean + 3. * std_dev;
                         conn_rt[ind].est_rt = Duration::from_secs_f64(est_rt);
-                        println!("new est_rt {:?}", conn_rt[ind].est_rt);
                     }
                 }
             }
@@ -614,7 +717,12 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
             .await
             .expect("send should not fail");
         let conn_rt = rx.await.expect("receive should not fail")?;
-        Ok(Query::new(query_msg, conn_rt, self.sender.clone()))
+        Ok(Query::new(
+            self.config.clone(),
+            query_msg,
+            conn_rt,
+            self.sender.clone(),
+        ))
     }
 }
 
@@ -628,7 +736,7 @@ async fn start_request<Octs: Clone + Debug + Send>(
     id: u64,
     sender: mpsc::Sender<ChanReq<Octs>>,
     query_msg: Message<Octs>,
-) -> Result<(usize, Result<Message<Bytes>, Error>), Error> {
+) -> (usize, Result<Message<Bytes>, Error>) {
     let (tx, rx) = oneshot::channel();
     sender
         .send(ChanReq::Query(QueryReq {
@@ -638,13 +746,58 @@ async fn start_request<Octs: Clone + Debug + Send>(
         }))
         .await
         .expect("send is expected to work");
-    let mut query = rx.await.expect("receive is expected to work")?;
+    let mut query = match rx.await.expect("receive is expected to work") {
+        Err(err) => return (index, Err(err)),
+        Ok(query) => query,
+    };
     let reply = query.get_result().await;
 
-    Ok((index, reply))
+    (index, reply)
 }
 
 /// Compare ConnRT elements based on estimated response time.
 fn conn_rt_cmp(e1: &ConnRT, e2: &ConnRT) -> Ordering {
     e1.est_rt.cmp(&e2.est_rt)
+}
+
+/// Return if this reply should be skipped or not.
+fn skip<Octs: Octets>(msg: &Message<Octs>, config: &Config) -> bool {
+    // Check if we actually need to check.
+    if !config.defer_refused && !config.defer_servfail {
+        return false;
+    }
+
+    let opt_rcode = get_opt_rcode(msg);
+    // OptRcode needs PartialEq
+    if let OptRcode::Refused = opt_rcode {
+        if config.defer_refused {
+            return true;
+        }
+    }
+    if let OptRcode::ServFail = opt_rcode {
+        if config.defer_servfail {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Get the extended rcode of a message.
+fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
+    let opt = msg.opt();
+    match opt {
+        Some(opt) => opt.rcode(msg.header()),
+        None => {
+            // Convert Rcode to OptRcode, this should be part of
+            // OptRcode
+            OptRcode::from_int(msg.header().rcode().to_int() as u16)
+        }
+    }
+}
+
+/// Check if config is valid.
+fn check_config(_config: &Config) -> Result<(), Error> {
+    // Nothing to check at the moment.
+    Ok(())
 }
