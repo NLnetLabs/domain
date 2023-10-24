@@ -274,7 +274,7 @@ impl<Target: Composer> MessageBuilder<Target> {
 
 /// # Access to the Message Header
 ///
-impl<Target: OctetsBuilder + AsRef<[u8]>> MessageBuilder<Target> {
+impl<Target: AsRef<[u8]>> MessageBuilder<Target> {
     /// Return the current value of the message header.
     pub fn header(&self) -> Header {
         *Header::for_message_slice(self.target.as_ref())
@@ -297,6 +297,16 @@ impl<Target: OctetsBuilder + AsMut<[u8]>> MessageBuilder<Target> {
         HeaderCounts::for_message_slice_mut(self.target.as_mut())
     }
 }
+
+/// # Access to the assembled sections
+///
+impl<Target: AsRef<[u8]>> MessageBuilder<Target> {
+    /// Returns an octets slice of all the data sections.
+    pub fn data_sections(&self) -> &[u8] {
+        &self.as_slice()[mem::size_of::<HeaderSection>()..]
+    }
+}
+
 
 /// # Conversions
 ///
@@ -449,8 +459,6 @@ where
 }
 
 //--- AsRef
-//
-// XXX Should we deref down to target?
 
 impl<Target> AsRef<Target> for MessageBuilder<Target> {
     fn as_ref(&self) -> &Target {
@@ -461,6 +469,12 @@ impl<Target> AsRef<Target> for MessageBuilder<Target> {
 impl<Target: AsRef<[u8]>> AsRef<[u8]> for MessageBuilder<Target> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
+    }
+}
+
+impl<Target: AsRef<[u8]>> AsRef<Message<[u8]>> for MessageBuilder<Target> {
+    fn as_ref(&self) -> &Message<[u8]> {
+        unsafe { Message::from_slice_unchecked(self.target.as_ref()) }
     }
 }
 
@@ -687,6 +701,12 @@ impl<Target> AsRef<Target> for QuestionBuilder<Target> {
 impl<Target: AsRef<[u8]>> AsRef<[u8]> for QuestionBuilder<Target> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
+    }
+}
+
+impl<Target: AsRef<[u8]>> AsRef<Message<[u8]>> for QuestionBuilder<Target> {
+    fn as_ref(&self) -> &Message<[u8]> {
+        unsafe { Message::from_slice_unchecked(self.as_target().as_ref()) }
     }
 }
 
@@ -934,6 +954,12 @@ impl<Target: AsRef<[u8]>> AsRef<[u8]> for AnswerBuilder<Target> {
     }
 }
 
+impl<Target: AsRef<[u8]>> AsRef<Message<[u8]>> for AnswerBuilder<Target> {
+    fn as_ref(&self) -> &Message<[u8]> {
+        unsafe { Message::from_slice_unchecked(self.as_target().as_ref()) }
+    }
+}
+
 //------------ AuthorityBuilder ----------------------------------------------
 
 /// Builds the authority section of a DNS message.
@@ -1176,6 +1202,12 @@ impl<Target> AsRef<Target> for AuthorityBuilder<Target> {
 impl<Target: AsRef<[u8]>> AsRef<[u8]> for AuthorityBuilder<Target> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
+    }
+}
+
+impl<Target: AsRef<[u8]>> AsRef<Message<[u8]>> for AuthorityBuilder<Target> {
+    fn as_ref(&self) -> &Message<[u8]> {
+        unsafe { Message::from_slice_unchecked(self.as_target().as_ref()) }
     }
 }
 
@@ -1450,6 +1482,12 @@ impl<Target> AsRef<Target> for AdditionalBuilder<Target> {
 impl<Target: AsRef<[u8]>> AsRef<[u8]> for AdditionalBuilder<Target> {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
+    }
+}
+
+impl<Target: AsRef<[u8]>> AsRef<Message<[u8]>> for AdditionalBuilder<Target> {
+    fn as_ref(&self) -> &Message<[u8]> {
+        unsafe { Message::from_slice_unchecked(self.as_target().as_ref()) }
     }
 }
 

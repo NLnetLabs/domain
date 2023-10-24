@@ -202,7 +202,7 @@ impl Message<[u8]> {
     /// The methods for header access rely on the octets being at least as
     /// long as a header. If the sequence is shorter, the behavior is
     /// undefined.
-    unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
+    pub(super) unsafe fn from_slice_unchecked(slice: &[u8]) -> &Self {
         &*(slice as *const [u8] as *const Self)
     }
 
@@ -297,6 +297,14 @@ impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
 
 /// # Access to Sections
 ///
+impl<Octs: AsRef<[u8]> + ?Sized> Message<Octs> {
+    /// Returns an octets slice of all the data sections.
+    pub fn data_sections(&self) -> &[u8]
+    where Octs: AsRef<[u8]> {
+        &self.octets.as_ref()[mem::size_of::<HeaderSection>()..]
+    }
+}
+
 impl<Octs: Octets + ?Sized> Message<Octs> {
     /// Returns the question section.
     pub fn question(&self) -> QuestionSection<'_, Octs> {
@@ -638,6 +646,12 @@ impl<Octs> AsRef<Octs> for Message<Octs> {
 impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for Message<Octs> {
     fn as_ref(&self) -> &[u8] {
         self.octets.as_ref()
+    }
+}
+
+impl<Octs: AsRef<[u8]>> AsRef<Message<[u8]>> for Message<Octs> {
+    fn as_ref(&self) -> &Message<[u8]> {
+        self.for_slice()
     }
 }
 
@@ -1148,6 +1162,142 @@ where
                 Ok(None) => {}
             }
         }
+    }
+}
+
+//------------ ComposeMessage ------------------------------------------------
+
+/// A type that can construct a DNS message.
+///
+/// This trait can be used anywhere where a DNS message in wire formed is
+/// needed as input but the particular details of how the message is stored or
+/// produced don’t matter.
+///
+/// There are two kinds of trait methods: One set allows the message to be
+/// composed into a new target and must be available by all implementations.
+/// These are `header`, `header_counts` and `compose_data` which, if appended
+/// into a target in this order will result in a message.
+///
+/// The second set of traits methods is optional and allows an implementation
+/// to provide data that makes it possible to build more efficient code such
+/// as using vectored IO.
+///
+/// The trait has a blanket implementation for everything that can make
+/// itself look like a `Message<[u8]>` which, given a proper octets type, is
+/// true for all `Message<_>` types as well as all message builders including
+/// the section builder sub-types.
+pub trait ComposeMessage {
+    /// Returns the header of the message.
+    fn header(&self) -> Header;
+
+    /// Returns the header counts of the message.
+    fn header_counts(&self) -> HeaderCounts;
+
+    /// Appends the data sections to the provided target.
+    ///
+    /// An implementation can compress names if it wants to. If so, it needs
+    /// to consider that the data section starts at index 12 of the message.
+    fn compose_data<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError>;
+
+    /// Appends the entire messageto the provided target.
+    ///
+    /// This is identical to appending the header and header counts and then
+    /// composing the data.
+    fn compose_message<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.header().as_slice())?;
+        target.append_slice(self.header_counts().as_slice())?;
+        self.compose_data(target)
+    }
+
+    /// Returns the length of the composed message if available.
+    fn len(&self) -> Option<usize>;
+
+    /// Returns an octets slice of data sections of the message if available.
+    ///
+    /// If the data sections aren’t available as a single octets slice, an
+    /// implementation should just return `None`. If they are, the returned
+    /// slice should be identical to what `compose_data` produces.
+    fn data(&self) -> Option<&[u8]>;
+
+    /// Returns an octets slice of the netire message if available.
+    fn message(&self) -> Option<&[u8]>;
+}
+
+impl ComposeMessage for Message<[u8]> {
+    fn header(&self) -> Header {
+        Message::header(self)
+    }
+
+    fn header_counts(&self) -> HeaderCounts {
+        Message::header_counts(self)
+    }
+
+    fn compose_data<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.data_sections())
+    }
+
+    fn compose_message<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.as_ref())
+    }
+
+    fn len(&self) -> Option<usize> {
+        Some(self.octets.as_ref().len())
+    }
+
+    fn data(&self) -> Option<&[u8]> {
+        Some(self.data_sections())
+    }
+
+    fn message(&self) -> Option<&[u8]> {
+        Some(self.as_ref())
+    }
+}
+
+impl<T: AsRef<Message<[u8]>>> ComposeMessage for T {
+    fn header(&self) -> Header {
+        Message::header(self.as_ref())
+    }
+
+    fn header_counts(&self) -> HeaderCounts {
+        Message::header_counts(self.as_ref())
+    }
+
+    fn compose_data<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.as_ref().data_sections())
+    }
+
+    fn compose_message<Target: Composer + ?Sized>(
+        &self,
+        target: &mut Target,
+    ) -> Result<(), Target::AppendError> {
+        target.append_slice(self.as_ref().as_ref())
+    }
+
+    fn len(&self) -> Option<usize> {
+        Some(self.as_ref().octets.as_ref().len())
+    }
+
+    fn data(&self) -> Option<&[u8]> {
+        Some(self.as_ref().data_sections())
+    }
+
+    fn message(&self) -> Option<&[u8]> {
+        Some(self.as_ref().as_ref())
     }
 }
 
