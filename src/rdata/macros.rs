@@ -357,7 +357,7 @@ macro_rules! rdata_types {
             }
         }
 
-        impl<'a, Octs: octseq::octets::Octets>
+        impl<'a, Octs: octseq::octets::Octets + ?Sized>
         $crate::base::rdata::ParseRecordData<'a, Octs>
         for ZoneRecordData<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
             fn parse_rdata(
