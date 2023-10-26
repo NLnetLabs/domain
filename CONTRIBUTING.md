@@ -103,7 +103,7 @@ instance:
 
 This separator makes it easier to see where something new starts when
 scrolling through a file. It also allows to search for the start of a
-certain primary by searching for, e.g., `-- FooIter`.  
+certain primary by searching for, e.g., `-- FooIter`.
 
 Multiple primaries can be grouped with a similar separator that uses equals
 signs instead of hyphens if that makes sense. For instance, all error
