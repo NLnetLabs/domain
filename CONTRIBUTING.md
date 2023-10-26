@@ -83,7 +83,7 @@ certain primary by searching for, e.g., `-- FooIter`.
 
 Multiple items can be grouped with a similar separator that uses equals
 signs instead of hyphens if that makes sense. For instance, all error
-types are usually collected into a group titles “Error types.”
+types are usually collected into a group titled “Error types.”
 
 Items are ordered semantically with the most important items going first
 and items used by other items generally below them. This requires a bit of
