@@ -29,8 +29,24 @@ The description should describe in detail what the pull request changes.
 If the pull request results in a breaking change, the description should
 note that.
 
+Do not update `Changelog.md` as part of the pull request. Git tends to
+mess up merging this file so there will weird merge conflicts for every
+request. Instead, the person merging will update the changelog.
 
 ## Code organization and formatting
+
+The following describes the principles on which the current structure of
+the code is based. These aren’t hard and fast rules that need to be
+followed at all cost but rather describe how things would be handled in an
+ideal world. If there is good reasons to do things differently, then do
+so.
+
+The overall purpose is to make it as easy as possible for a reader to find
+what they are looking for and understand how things work.
+
+As a consequence, only few of the following is enforced formally (the
+`rustfmt` run as part of the CI workflow being the possibly only
+exceptions). But in a review of a pull request, there may be questions …
 
 ### Repository structure
 
@@ -54,11 +70,19 @@ All other branches that do not have a pull request associated with them
 can and should be deleted to keep the repository clean. Use a draft PR to
 signal that you want to keep a branch around.
 
-### Code structure
+#### Changelog
 
-The main purpose of all of the following is to make it as easy as possible
-for a reader to find what they are looking for and understand how things
-work. Remember, that reader will likely be future you.
+The repository contains a dedicated `Changelog.md` that is updated
+manually by whoever merges a pull request and forms the basis for the
+release notes. We keep it as a single file with all the changes in the
+repository to make is easier to hunt for the time of a certain change
+without having to consult Github – or indeed the repository being hosted
+on Github for all eternity. It is written manually and not auto-generated
+from commit message because what should go into the two differs. The
+changelog entry contains a short summary of what changed, the commit
+message should be more elaborate and possibly also explain the reasons.
+
+### Code structure
 
 #### Module structure
 
@@ -180,9 +204,10 @@ use std::fs::create_dir_all;
 ### Pull requests
 
 Pull requests that contain more than trivial changes need to be reviewed
-by a core team member other than the person submitting the request. Pull
-request created for maintenance reasons or that are obviously trivial
-don’t need a review. Developer discretion is advised.
+by a core team member (currently anyone with write access to the Github
+repository) other than the person submitting the request. Pull request
+created for maintenance reasons or that are obviously trivial don’t need
+a review. Developer discretion is advised.
 
 Before merging, consider whether a pull request contains breaking changes.
 Be conservative when making a decision. Anything that may result in
