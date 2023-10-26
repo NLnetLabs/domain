@@ -404,7 +404,7 @@ impl<Octs: AsRef<[u8]>> RecordData for UnknownRecordData<Octs> {
     }
 }
 
-impl<'a, Octs: Octets> ParseRecordData<'a, Octs>
+impl<'a, Octs: Octets + ?Sized> ParseRecordData<'a, Octs>
     for UnknownRecordData<Octs::Range<'a>>
 {
     fn parse_rdata(
