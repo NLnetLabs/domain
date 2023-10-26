@@ -22,9 +22,7 @@
 
 use crate::base::scan::{ConvertSymbols, EntrySymbol, ScannerError};
 use core::fmt;
-use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder,
-};
+use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, OctetsBuilder};
 #[cfg(feature = "std")]
 use std::string::String;
 

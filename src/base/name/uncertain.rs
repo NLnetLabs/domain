@@ -13,9 +13,7 @@ use super::traits::ToLabelIter;
 #[cfg(feature = "bytes")]
 use bytes::Bytes;
 use core::{fmt, hash, str};
-use octseq::builder::{
-    EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder,
-};
+use octseq::builder::{EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder};
 #[cfg(feature = "serde")]
 use octseq::serde::{DeserializeOctets, SerializeOctets};
 #[cfg(feature = "std")]

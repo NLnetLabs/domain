@@ -88,9 +88,7 @@
 //! to construct a name from scratch by appending octets, slices, or complete
 //! labels.
 
-pub use self::builder::{
-    DnameBuilder, FromStrError, PushError, PushNameError,
-};
+pub use self::builder::{DnameBuilder, FromStrError, PushError, PushNameError};
 pub use self::chain::{Chain, ChainIter, LongChainError, UncertainChainIter};
 pub use self::dname::{Dname, DnameError};
 pub use self::label::{

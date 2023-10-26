@@ -9,9 +9,7 @@
 //! The main type is [`StubResolver`] that implements the [`Resolver`] trait
 //! and thus can be used with the various lookup functions.
 
-use self::conf::{
-    ResolvConf, ResolvOptions, SearchSuffix, ServerConf, Transport,
-};
+use self::conf::{ResolvConf, ResolvOptions, SearchSuffix, ServerConf, Transport};
 use crate::base::iana::Rcode;
 use crate::base::message::Message;
 use crate::base::message_builder::{

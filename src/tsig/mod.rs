@@ -59,9 +59,7 @@ mod interop;
 use crate::base::header::HeaderSection;
 use crate::base::iana::{Class, Rcode, TsigRcode};
 use crate::base::message::Message;
-use crate::base::message_builder::{
-    AdditionalBuilder, MessageBuilder, PushError,
-};
+use crate::base::message_builder::{AdditionalBuilder, MessageBuilder, PushError};
 use crate::base::name::{Dname, Label, ParsedDname, ToDname, ToLabelIter};
 use crate::base::record::Record;
 use crate::base::wire::{Composer, ParseError};
