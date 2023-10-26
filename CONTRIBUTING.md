@@ -13,7 +13,7 @@ This is a first draft version. Feel free to, er, contribute to it.
 #### When is a pull request required?
 
 All changes to code and documentation have to go through pull requests.
-Exceptions are minor modification that don’t actually change the code or
+Exceptions are minor modifications that don’t actually change the code or
 content of documentation. Examples are small changes suggested by Clippy or
 spelling fixes or adding missing words in documentation.
 
@@ -79,7 +79,7 @@ instance:
 
 This separator makes it easier to see where something new starts when
 scrolling through a file. It also allows to search for the start of a
-certain primary by searching for, e.g., `-- FooIter`.
+certain primary by searching for, e.g., `-- FooIter`.  
 
 Multiple primaries can be grouped with a similar separator that uses equals
 signs instead of hyphens if that makes sense. For instance, all error
@@ -121,7 +121,7 @@ it, including private items. This is helpful since many editors mark
 docstrings and comments differently, highlighting docstring as more important.
 
 The docstring itself should consist of a headline giving a short summary
-of the purpose of the element is. This really is only a single line which 
+of the purpose of the element. This really is only a single line which 
 forces it to stay short. More information can be given in additional lines
 separated by an empty docstring line. This information should include
 everything that may be odd or unexpected about the use of the element.
@@ -181,7 +181,7 @@ use std::fs::create_dir_all;
 
 Pull requests that contain more than trivial changes need to be reviewed
 by a core team member other than the person submitting the request. Pull
-request created for maintenance reasons or that are obviously trivial
+requests created for maintenance reasons or that are obviously trivial
 don’t need a review. Developer discretion is advised.
 
 Before merging, consider whether a pull request contains breaking changes.
@@ -192,7 +192,7 @@ update` should be considered breaking.
 Pull requests are normally merged by way of squashing. The squash commit
 (or merge commit if for some reason a merge was used) should have a commit
 message that consists of the pull requests title followed by the pull
-request’s number in parenthesis as the first line and the pull request’s
+request’s number in parentheses as the first line and the pull request’s
 description after a blank line converted to plain text and reformatted to
 a line length of 78 characters.
 
