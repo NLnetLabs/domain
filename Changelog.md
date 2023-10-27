@@ -1,17 +1,13 @@
 # Change Log
 
-## Unrelease next version
+## Unreleased next version
 
-Breaking changes
-
-New
+Released 2023-10-27.
 
 Bug fixes
 
 * Added missing `?Sized` bounds to the octets type for parsing
   `ZoneRecordData` and `UnknownRecordData`. ([#237] by [@hunts])
-
-Other changes
 
 [#237]: https://github.com/NLnetLabs/domain/pull/237
 [@hunts]: https://github.com/hunts
