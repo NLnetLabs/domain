@@ -1,6 +1,6 @@
 # Change Log
 
-## Unreleased next version
+## 0.9.1
 
 Released 2023-10-27.
 
