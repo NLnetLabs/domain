@@ -7,7 +7,7 @@
 // - cookies
 // - random port
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::{Debug, Formatter};
@@ -22,8 +22,9 @@ use tokio::time::{timeout, Duration, Instant};
 
 use crate::base::iana::Rcode;
 use crate::base::Message;
+use crate::net::client::base_message_builder::BaseMessageBuilder;
 use crate::net::client::error::Error;
-use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
+use crate::net::client::query::{GetResult, QueryMessage4};
 
 /// How many times do we try a new random port if we get ‘address in use.’
 const RETRY_RANDOM_PORT: usize = 10;
@@ -111,19 +112,11 @@ impl Connection {
     }
 
     /// Start a new DNS query.
-    async fn query_impl<Octs: AsRef<[u8]> + Clone + Send>(
-        &self,
-        query_msg: &Message<Octs>,
-    ) -> Result<Query2, Error> {
-        self.inner.query(query_msg, self.clone()).await
-    }
-
-    /// Start a new DNS query.
-    async fn query_impl3<
-        Octs: AsRef<[u8]> + Clone + Debug + Send + 'static,
+    async fn query_impl4<
+        BMB: BaseMessageBuilder + Clone + Send + Sync + 'static,
     >(
         &self,
-        query_msg: &Message<Octs>,
+        query_msg: &BMB,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
         let gr = self.inner.query(query_msg, self.clone()).await?;
         Ok(Box::new(gr))
@@ -135,24 +128,12 @@ impl Connection {
     }
 }
 
-impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync>
-    QueryMessage<Query2, Octs> for Connection
+impl<BMB: BaseMessageBuilder + Clone + Send + Sync + 'static>
+    QueryMessage4<BMB> for Connection
 {
     fn query<'a>(
         &'a self,
-        query_msg: &'a Message<Octs>,
-    ) -> Pin<Box<dyn Future<Output = Result<Query2, Error>> + Send + '_>>
-    {
-        return Box::pin(self.query_impl(query_msg));
-    }
-}
-
-impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
-    QueryMessage3<Octs> for Connection
-{
-    fn query<'a>(
-        &'a self,
-        query_msg: &'a Message<Octs>,
+        query_msg: &'a BMB,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
@@ -160,7 +141,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
                 + '_,
         >,
     > {
-        return Box::pin(self.query_impl3(query_msg));
+        return Box::pin(self.query_impl4(query_msg));
     }
 }
 
@@ -375,27 +356,27 @@ impl GetResult for Query {
 
 */
 
-//------------ Query2 ---------------------------------------------------------
+//------------ Query4 ---------------------------------------------------------
 
 /// The state of a DNS query.
-pub struct Query2 {
+pub struct Query4 {
     /// Future that does the actual work of GetResult.
     get_result_fut:
         Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
 }
 
-impl Query2 {
+impl Query4 {
     /// Create new Query object.
-    fn new(
+    fn new<BMB: BaseMessageBuilder + Clone + Send + Sync + 'static>(
         config: Config,
-        query_msg: Message<BytesMut>,
+        query_msg: &BMB,
         remote_addr: SocketAddr,
         conn: Connection,
-    ) -> Query2 {
-        Query2 {
+    ) -> Self {
+        Self {
             get_result_fut: Box::pin(Self::get_result_impl2(
                 config,
-                query_msg,
+                query_msg.clone(),
                 remote_addr,
                 conn,
             )),
@@ -410,9 +391,9 @@ impl Query2 {
     /// Get the result of a DNS Query.
     ///
     /// This function is not cancel safe.
-    async fn get_result_impl2(
+    async fn get_result_impl2<BMB: BaseMessageBuilder>(
         config: Config,
-        mut query_msg: Message<BytesMut>,
+        mut query_bmb: BMB,
         remote_addr: SocketAddr,
         conn: Connection,
     ) -> Result<Message<Bytes>, Error> {
@@ -434,8 +415,9 @@ impl Query2 {
                 .map_err(|e| Error::UdpConnect(Arc::new(e)))?;
 
             // Set random ID in header
-            let header = query_msg.header_mut();
+            let header = query_bmb.header_mut();
             header.set_random_id();
+            let query_msg = query_bmb.to_message();
             let dgram = query_msg.as_slice();
 
             let sent = sock
@@ -444,7 +426,7 @@ impl Query2 {
                 .send(dgram)
                 .await
                 .map_err(|e| Error::UdpSend(Arc::new(e)))?;
-            if sent != query_msg.as_slice().len() {
+            if sent != dgram.len() {
                 return Err(Error::UdpShortSend);
             }
 
@@ -489,13 +471,6 @@ impl Query2 {
                     Err(_) => continue,
                 };
 
-                // Unfortunately we cannot pass query_msg to is_answer
-                // because is_answer requires Octets, which is not
-                // implemented by BytesMut. Make a copy.
-                let query_msg = Message::from_octets(query_msg.as_slice())
-                    .expect(
-                        "Message failed to parse contents of another Message",
-                    );
                 if !is_answer(&answer, &query_msg) {
                     // Wrong answer, go back to receiving
                     continue;
@@ -537,13 +512,13 @@ impl Query2 {
     }
 }
 
-impl Debug for Query2 {
+impl Debug for Query4 {
     fn fmt(&self, _: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         todo!()
     }
 }
 
-impl GetResult for Query2 {
+impl GetResult for Query4 {
     fn get_result(
         &mut self,
     ) -> Pin<
@@ -583,17 +558,14 @@ impl InnerConnection {
     }
 
     /// Return a Query object that contains the query state.
-    async fn query<Octs: AsRef<[u8]> + Clone>(
+    async fn query<
+        BMB: BaseMessageBuilder + Clone + Send + Sync + 'static,
+    >(
         &self,
-        query_msg: &Message<Octs>,
+        query_msg: &BMB,
         conn: Connection,
-    ) -> Result<Query2, Error> {
-        let slice = query_msg.as_slice();
-        let mut bytes = BytesMut::with_capacity(slice.len());
-        bytes.extend_from_slice(slice);
-        let query_msg = Message::from_octets(bytes)
-            .expect("Message failed to parse contents of another Message");
-        Ok(Query2::new(
+    ) -> Result<Query4, Error> {
+        Ok(Query4::new(
             self.config.clone(),
             query_msg,
             self.remote_addr,

@@ -8,7 +8,7 @@ use bytes::Bytes;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 
-use octseq::{Octets, OctetsBuilder};
+use octseq::Octets;
 
 use rand::random;
 
@@ -24,10 +24,9 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{sleep_until, Duration, Instant};
 
 use crate::base::iana::OptRcode;
-use crate::base::wire::Composer;
 use crate::base::Message;
 use crate::net::client::error::Error;
-use crate::net::client::query::{GetResult, QueryMessage3};
+use crate::net::client::query::{GetResult, QueryMessage4};
 
 /*
 Basic algorithm:
@@ -84,16 +83,14 @@ pub struct Config {
 
 /// This type represents a transport connection.
 #[derive(Clone)]
-pub struct Connection<Octs: Send> {
+pub struct Connection<BMB> {
     /// Reference to the actual implementation of the connection.
-    inner: Arc<InnerConnection<Octs>>,
+    inner: Arc<InnerConnection<BMB>>,
 }
 
-impl<'a, Octs: Clone + Composer + Debug + Send + Sync + 'static>
-    Connection<Octs>
-{
+impl<'a, BMB: Clone + Debug + Send + Sync + 'static> Connection<BMB> {
     /// Create a new connection.
-    pub fn new(config: Option<Config>) -> Result<Connection<Octs>, Error> {
+    pub fn new(config: Option<Config>) -> Result<Self, Error> {
         let config = match config {
             Some(config) => {
                 check_config(&config)?;
@@ -116,7 +113,7 @@ impl<'a, Octs: Clone + Composer + Debug + Send + Sync + 'static>
     /// Add a transport connection.
     pub async fn add(
         &self,
-        conn: Box<dyn QueryMessage3<Octs> + Send + Sync>,
+        conn: Box<dyn QueryMessage4<BMB> + Send + Sync>,
     ) -> Result<(), Error> {
         self.inner.add(conn).await
     }
@@ -124,20 +121,19 @@ impl<'a, Octs: Clone + Composer + Debug + Send + Sync + 'static>
     /// Implementation of the query function.
     async fn query_impl(
         &self,
-        query_msg: &Message<Octs>,
+        query_msg: &BMB,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
         let query = self.inner.query(query_msg.clone()).await?;
         Ok(Box::new(query))
     }
 }
 
-impl<
-        Octs: Clone + Composer + Debug + OctetsBuilder + Send + Sync + 'static,
-    > QueryMessage3<Octs> for Connection<Octs>
+impl<BMB: Clone + Debug + Send + Sync + 'static> QueryMessage4<BMB>
+    for Connection<BMB>
 {
     fn query<'a>(
         &'a self,
-        query_msg: &'a Message<Octs>,
+        query_msg: &'a BMB,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
@@ -153,7 +149,7 @@ impl<
 
 /// This type represents an active query request.
 #[derive(Debug)]
-pub struct Query<Octs: AsRef<[u8]> + Send> {
+pub struct Query<BMB> {
     /// User configuration.
     config: Config,
 
@@ -161,13 +157,13 @@ pub struct Query<Octs: AsRef<[u8]> + Send> {
     state: QueryState,
 
     /// The query message
-    query_msg: Message<Octs>,
+    query_msg: BMB,
 
     /// List of connections identifiers and estimated response times.
     conn_rt: Vec<ConnRT>,
 
     /// Channel to send requests to the run function.
-    sender: mpsc::Sender<ChanReq<Octs>>,
+    sender: mpsc::Sender<ChanReq<BMB>>,
 
     /// List of futures for outstanding requests.
     fut_list:
@@ -205,15 +201,15 @@ enum QueryState {
 }
 
 /// The commands that can be sent to the run function.
-enum ChanReq<Octs: Send> {
+enum ChanReq<BMB> {
     /// Add a connection
-    Add(AddReq<Octs>),
+    Add(AddReq<BMB>),
 
     /// Get the list of estimated response times for all connections
     GetRT(RTReq),
 
     /// Start a query
-    Query(QueryReq<Octs>),
+    Query(QueryReq<BMB>),
 
     /// Report how long it took to get a response
     Report(TimeReport),
@@ -222,16 +218,16 @@ enum ChanReq<Octs: Send> {
     Failure(TimeReport),
 }
 
-impl<Octs: Debug + Send> Debug for ChanReq<Octs> {
+impl<BMB> Debug for ChanReq<BMB> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("ChanReq").finish()
     }
 }
 
 /// Request to add a new connection
-struct AddReq<Octs> {
+struct AddReq<BMB> {
     /// New connection to add
-    conn: Box<dyn QueryMessage3<Octs> + Send + Sync>,
+    conn: Box<dyn QueryMessage4<BMB> + Send + Sync>,
 
     /// Channel to send the reply to
     tx: oneshot::Sender<AddReply>,
@@ -250,18 +246,18 @@ struct RTReq /*<Octs>*/ {
 type RTReply = Result<Vec<ConnRT>, Error>;
 
 /// Request to start a query
-struct QueryReq<Octs: Send> {
+struct QueryReq<BMB> {
     /// Identifier of connection
     id: u64,
 
     /// Request message
-    query_msg: Message<Octs>,
+    query_msg: BMB,
 
     /// Channel to send the reply to
     tx: oneshot::Sender<QueryReply>,
 }
 
-impl<Octs: AsRef<[u8]> + Debug + Send> Debug for QueryReq<Octs> {
+impl<BMB: Debug> Debug for QueryReq<BMB> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("QueryReq")
             .field("id", &self.id)
@@ -308,14 +304,14 @@ struct ConnRT {
 /// Result of the futures in fut_list.
 type FutListOutput = (usize, Result<Message<Bytes>, Error>);
 
-impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
+impl<BMB: Clone + Send + Sync + 'static> Query<BMB> {
     /// Create a new query object.
     fn new(
         config: Config,
-        query_msg: Message<Octs>,
+        query_msg: BMB,
         mut conn_rt: Vec<ConnRT>,
-        sender: mpsc::Sender<ChanReq<Octs>>,
-    ) -> Query<Octs> {
+        sender: mpsc::Sender<ChanReq<BMB>>,
+    ) -> Self {
         let conn_rt_len = conn_rt.len();
         conn_rt.sort_unstable_by(conn_rt_cmp);
 
@@ -328,7 +324,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
             conn_rt.sort_unstable_by(conn_rt_cmp);
         }
 
-        Query {
+        Self {
             config,
             query_msg,
             //conns,
@@ -543,18 +539,7 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static> Query<Octs> {
     }
 }
 
-impl<
-        Octs: AsMut<[u8]>
-            + AsRef<[u8]>
-            + Clone
-            + Composer
-            + Debug
-            + OctetsBuilder
-            + Send
-            + Sync
-            + 'static,
-    > GetResult for Query<Octs>
-{
+impl<BMB: Clone + Debug + Send + Sync + 'static> GetResult for Query<BMB> {
     fn get_result(
         &mut self,
     ) -> Pin<
@@ -567,22 +552,20 @@ impl<
 //------------ InnerConnection ------------------------------------------------
 
 /// Type that actually implements the connection.
-struct InnerConnection<Octs: Send> {
+struct InnerConnection<BMB> {
     /// User configuation.
     config: Config,
 
     /// Receive side of the channel used by the runner.
-    receiver: Mutex<Option<mpsc::Receiver<ChanReq<Octs>>>>,
+    receiver: Mutex<Option<mpsc::Receiver<ChanReq<BMB>>>>,
 
     /// To send a request to the runner.
-    sender: mpsc::Sender<ChanReq<Octs>>,
+    sender: mpsc::Sender<ChanReq<BMB>>,
 }
 
-impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
-    InnerConnection<Octs>
-{
+impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
     /// Implementation of the new method.
-    fn new(config: Config) -> Result<InnerConnection<Octs>, Error> {
+    fn new(config: Config) -> Result<Self, Error> {
         let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
         Ok(Self {
             config,
@@ -596,7 +579,7 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
         let mut next_id: u64 = 10;
         let mut conn_stats: Vec<ConnStats> = Vec::new();
         let mut conn_rt: Vec<ConnRT> = Vec::new();
-        let mut conns: Vec<Box<dyn QueryMessage3<Octs> + Send + Sync>> =
+        let mut conns: Vec<Box<dyn QueryMessage4<BMB> + Send + Sync>> =
             Vec::new();
 
         let mut receiver = self.receiver.lock().await;
@@ -696,7 +679,7 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
     /// Implementation of the add method.
     async fn add(
         &self,
-        conn: Box<dyn QueryMessage3<Octs> + Send + Sync>,
+        conn: Box<dyn QueryMessage4<BMB> + Send + Sync>,
     ) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
@@ -707,10 +690,7 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
     }
 
     /// Implementation of the query method.
-    async fn query(
-        &'a self,
-        query_msg: Message<Octs>,
-    ) -> Result<Query<Octs>, Error> {
+    async fn query(&'a self, query_msg: BMB) -> Result<Query<BMB>, Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(ChanReq::GetRT(RTReq { tx }))
@@ -731,19 +711,15 @@ impl<'a, Octs: AsRef<[u8]> + Clone + Debug + Send + Sync + 'static>
 /// Async function to send a request and wait for the reply.
 ///
 /// This gives a single future that we can put in a list.
-async fn start_request<Octs: Clone + Debug + Send>(
+async fn start_request<BMB>(
     index: usize,
     id: u64,
-    sender: mpsc::Sender<ChanReq<Octs>>,
-    query_msg: Message<Octs>,
+    sender: mpsc::Sender<ChanReq<BMB>>,
+    query_msg: BMB,
 ) -> (usize, Result<Message<Bytes>, Error>) {
     let (tx, rx) = oneshot::channel();
     sender
-        .send(ChanReq::Query(QueryReq {
-            id,
-            query_msg: query_msg.clone(),
-            tx,
-        }))
+        .send(ChanReq::Query(QueryReq { id, query_msg, tx }))
         .await
         .expect("send is expected to work");
     let mut query = match rx.await.expect("receive is expected to work") {

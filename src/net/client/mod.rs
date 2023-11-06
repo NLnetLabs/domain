@@ -7,6 +7,8 @@
 #![doc = include_str!("../../../examples/client-transports.rs")]
 //! ```
 
+pub mod base_message_builder;
+pub mod bmb;
 pub mod error;
 pub mod factory;
 pub mod multi_stream;

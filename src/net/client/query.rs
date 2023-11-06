@@ -8,7 +8,6 @@ use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
-// use std::sync::Arc;
 
 use crate::base::Message;
 use crate::net::client::error::Error;
@@ -48,6 +47,17 @@ pub trait QueryMessage3<Octs> {
     fn query<'a>(
         &'a self,
         query_msg: &'a Message<Octs>,
+    ) -> Pin<Box<dyn Future<Output = QueryResultOutput> + Send + '_>>;
+}
+
+/// Trait for starting a DNS query based on a base message builder.
+pub trait QueryMessage4<BMB> {
+    /// Query function that takes a BaseMessageBuilder type.
+    ///
+    /// This function is intended to be cancel safe.
+    fn query<'a>(
+        &'a self,
+        query_msg: &'a BMB,
     ) -> Pin<Box<dyn Future<Output = QueryResultOutput> + Send + '_>>;
 }
 

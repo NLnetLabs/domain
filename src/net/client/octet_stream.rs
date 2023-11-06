@@ -31,12 +31,13 @@ use std::time::{Duration, Instant};
 use std::vec::Vec;
 
 use crate::base::{
-    opt::{AllOptData, Opt, OptRecord, TcpKeepalive},
-    Message, MessageBuilder, ParsedDname, Rtype, StaticCompressor,
+    opt::{AllOptData, OptRecord, TcpKeepalive},
+    Message,
 };
+use crate::net::client::base_message_builder::BaseMessageBuilder;
+use crate::net::client::base_message_builder::OptTypes;
 use crate::net::client::error::Error;
-use crate::net::client::query::{GetResult, QueryMessage, QueryMessage3};
-use crate::rdata::AllRecordData;
+use crate::net::client::query::{GetResult, QueryMessage4};
 use octseq::Octets;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -88,16 +89,16 @@ impl Default for Config {
 
 #[derive(Clone, Debug)]
 /// A single DNS over octect stream connection.
-pub struct Connection<Octs: AsRef<[u8]>> {
+pub struct Connection<BMB> {
     /// Reference counted [InnerConnection].
-    inner: Arc<InnerConnection<Octs>>,
+    inner: Arc<InnerConnection<BMB>>,
 }
 
-impl<Octs: Clone + Octets + Send + Sync> Connection<Octs> {
+impl<BMB: BaseMessageBuilder + Clone> Connection<BMB> {
     /// Constructor for [Connection].
     ///
     /// Returns a [Connection] wrapped in a [Result](io::Result).
-    pub fn new(config: Option<Config>) -> Result<Connection<Octs>, Error> {
+    pub fn new(config: Option<Config>) -> Result<Self, Error> {
         let config = match config {
             Some(config) => {
                 check_config(&config)?;
@@ -126,23 +127,9 @@ impl<Octs: Clone + Octets + Send + Sync> Connection<Octs> {
     ///
     /// This function takes a precomposed message as a parameter and
     /// returns a [Query] object wrapped in a [Result].
-    async fn query_impl(
+    async fn query_impl4(
         &self,
-        query_msg: &Message<Octs>,
-    ) -> Result<Query, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.inner.query(tx, query_msg).await?;
-        let msg = query_msg;
-        Ok(Query::new(msg, rx))
-    }
-
-    /// Start a DNS request.
-    ///
-    /// This function takes a precomposed message as a parameter and
-    /// returns a [Query] object wrapped in a [Result].
-    async fn query_impl3(
-        &self,
-        query_msg: &Message<Octs>,
+        query_msg: &BMB,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.query(tx, query_msg).await?;
@@ -156,7 +143,7 @@ impl<Octs: Clone + Octets + Send + Sync> Connection<Octs> {
     /// match the request avoids having to keep the request around.
     pub async fn query_no_check(
         &self,
-        query_msg: &mut Message<Octs>,
+        query_msg: &BMB,
     ) -> Result<QueryNoCheck, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.query(tx, query_msg).await?;
@@ -164,24 +151,10 @@ impl<Octs: Clone + Octets + Send + Sync> Connection<Octs> {
     }
 }
 
-impl<
-        Octs: AsMut<[u8]> + AsRef<[u8]> + Clone + Debug + Octets + Send + Sync,
-    > QueryMessage<Query, Octs> for Connection<Octs>
-{
+impl<BMB: BaseMessageBuilder + Clone> QueryMessage4<BMB> for Connection<BMB> {
     fn query<'a>(
         &'a self,
-        query_msg: &'a Message<Octs>,
-    ) -> Pin<Box<dyn Future<Output = Result<Query, Error>> + Send + '_>> {
-        return Box::pin(self.query_impl(query_msg));
-    }
-}
-
-impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync> QueryMessage3<Octs>
-    for Connection<Octs>
-{
-    fn query<'a>(
-        &'a self,
-        query_msg: &'a Message<Octs>,
+        query_msg: &'a BMB,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
@@ -189,7 +162,7 @@ impl<Octs: AsRef<[u8]> + Clone + Octets + Send + Sync> QueryMessage3<Octs>
                 + '_,
         >,
     > {
-        return Box::pin(self.query_impl3(query_msg));
+        return Box::pin(self.query_impl4(query_msg));
     }
 }
 
@@ -223,12 +196,11 @@ enum QueryState {
 impl Query {
     /// Constructor for [Query], takes a DNS query and a receiver for the
     /// reply.
-    fn new<Octs: Octets>(
-        query_msg: &Message<Octs>,
+    fn new<BMB: BaseMessageBuilder>(
+        query_msg: &BMB,
         receiver: oneshot::Receiver<ChanResp>,
     ) -> Query {
-        let msg_ref: &[u8] = query_msg.as_ref();
-        let vec = msg_ref.to_vec();
+        let vec = query_msg.to_vec();
         let msg = Message::from_octets(vec)
             .expect("Message failed to parse contents of another Message");
         Self {
@@ -342,7 +314,7 @@ impl QueryNoCheck {
 
 /// The actual implementation of [Connection].
 #[derive(Debug)]
-struct InnerConnection<Octs: AsRef<[u8]>> {
+struct InnerConnection<BMB> {
     /// User configuration variables.
     config: Config,
 
@@ -350,7 +322,7 @@ struct InnerConnection<Octs: AsRef<[u8]>> {
     /// part of a single channel.
     ///
     /// Used by [Query] to send requests to [InnerConnection::run].
-    sender: mpsc::Sender<ChanReq<Octs>>,
+    sender: mpsc::Sender<ChanReq<BMB>>,
 
     /// receiver part of the channel.
     ///
@@ -358,14 +330,14 @@ struct InnerConnection<Octs: AsRef<[u8]>> {
     /// [InnerConnection::run].
     /// The Option is to allow [InnerConnection::run] to signal that the
     /// connection is closed.
-    receiver: Futures_mutex<Option<mpsc::Receiver<ChanReq<Octs>>>>,
+    receiver: Futures_mutex<Option<mpsc::Receiver<ChanReq<BMB>>>>,
 }
 
 #[derive(Debug)]
 /// A request from [Query] to [Connection::run] to start a DNS request.
-struct ChanReq<Octs: AsRef<[u8]>> {
+struct ChanReq<BMB> {
     /// DNS request message
-    msg: Message<Octs>,
+    msg: BMB,
 
     /// Sender to send result back to [Query]
     sender: ReplySender,
@@ -453,11 +425,11 @@ enum ConnState {
 // This type could be local to InnerConnection, but I don't know how
 type ReaderChanReply = Message<Bytes>;
 
-impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
+impl<BMB: BaseMessageBuilder + Clone> InnerConnection<BMB> {
     /// Constructor for [InnerConnection].
     ///
     /// This is the implementation of [Connection::new].
-    pub fn new(config: Config) -> Result<InnerConnection<Octs>, Error> {
+    pub fn new(config: Config) -> Result<Self, Error> {
         let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
         Ok(Self {
             config,
@@ -650,14 +622,13 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
     pub async fn query(
         &self,
         sender: oneshot::Sender<ChanResp>,
-        query_msg: &Message<Octs>,
+        query_msg: &BMB,
     ) -> Result<(), Error> {
         // We should figure out how to get query_msg.
-        let msg_clone = query_msg.clone();
 
         let req = ChanReq {
             sender,
-            msg: msg_clone,
+            msg: query_msg.clone(),
         };
         match self.sender.send(req).await {
             Err(_) =>
@@ -825,7 +796,7 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
     // Note: maybe reqmsg should be a return value.
     fn insert_req(
         &self,
-        req: ChanReq<Octs>,
+        mut req: ChanReq<BMB>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
         query_vec: &mut Queries,
@@ -887,29 +858,17 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
         // nature of its use of sequence numbers, is far more
         // resilient against forgery by third parties."
 
-        let mut mut_msg = Message::from_octets(req.msg.as_slice().to_vec())
-            .expect("Message failed to parse contents of another Message");
-        let hdr = mut_msg.header_mut();
+        let hdr = req.msg.header_mut();
         hdr.set_id(ind16);
 
         if status.send_keepalive {
-            let res_msg = add_tcp_keepalive(&mut_msg);
+            let res = add_tcp_keepalive(&mut req.msg);
 
-            match res_msg {
-                Ok(msg) => {
-                    Self::convert_query(&msg, reqmsg);
-                    status.send_keepalive = false;
-                }
-                Err(_) => {
-                    // Adding keepalive option
-                    // failed. Send the original
-                    // request.
-                    Self::convert_query(&mut_msg, reqmsg);
-                }
+            if let Ok(()) = res {
+                status.send_keepalive = false;
             }
-        } else {
-            Self::convert_query(&mut_msg, reqmsg);
         }
+        Self::convert_query(&req.msg, reqmsg);
     }
 
     /// Take an element out of query_vec.
@@ -933,20 +892,20 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
     /// Convert the query message to a vector.
     // This function should return the vector instead of storing it
     // through a reference.
-    fn convert_query<OctsSrc: AsRef<[u8]>>(
-        msg: &Message<OctsSrc>,
+    fn convert_query(
+        msg: &dyn BaseMessageBuilder,
         reqmsg: &mut Option<Vec<u8>>,
     ) {
         // Ideally there should be a write_all_vectored. Until there is one,
         // copy to a new Vec and prepend the length octets.
 
-        let slice = msg.as_slice();
+        let slice = msg.to_vec();
         let len = slice.len();
 
         let mut vec = Vec::with_capacity(2 + len);
         let len16 = len as u16;
         vec.extend_from_slice(&len16.to_be_bytes());
-        vec.extend_from_slice(slice);
+        vec.extend_from_slice(&slice);
 
         *reqmsg = Some(vec);
     }
@@ -1018,127 +977,12 @@ impl<Octs: AsRef<[u8]> + Clone> InnerConnection<Octs> {
 
 //------------ Utility --------------------------------------------------------
 
-/// Add an edns-tcp-keepalive option to a MessageBuilder.
-///
-/// This is surprisingly difficult. We need to copy the original message to
-/// a new MessageBuilder because MessageBuilder has no support for changing the
-/// opt record.
-fn add_tcp_keepalive<OctsSrc: Octets>(
-    msg: &Message<OctsSrc>,
-) -> Result<Message<Vec<u8>>, Error> {
-    // We can't just insert a new option in an existing
-    // opt record. So we have to create new message and copy records
-    // from the old one. And insert our option while copying the opt
-    // record.
-    let source = msg;
-
-    let mut target =
-        MessageBuilder::from_target(StaticCompressor::new(Vec::new()))
-            .expect("Vec is expected to have enough space");
-    let source_hdr = source.header();
-    let target_hdr = target.header_mut();
-    target_hdr.set_flags(source_hdr.flags());
-    target_hdr.set_opcode(source_hdr.opcode());
-    target_hdr.set_rcode(source_hdr.rcode());
-    target_hdr.set_id(source_hdr.id());
-
-    let source = source.question();
-    let mut target = target.question();
-    for rr in source {
-        let rr = rr.map_err(|_e| Error::MessageParseError)?;
-        target
-            .push(rr)
-            .map_err(|_e| Error::MessageBuilderPushError)?;
-    }
-    let mut source =
-        source.answer().map_err(|_e| Error::MessageParseError)?;
-    let mut target = target.answer();
-    for rr in &mut source {
-        let rr = rr.map_err(|_e| Error::MessageParseError)?;
-        let rr = rr
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .map_err(|_e| Error::MessageParseError)?
-            .expect("record expected");
-        target
-            .push(rr)
-            .map_err(|_e| Error::MessageBuilderPushError)?;
-    }
-
-    let mut source = source
-        .next_section()
-        .map_err(|_e| Error::MessageParseError)?
-        .expect("section should be present");
-    let mut target = target.authority();
-    for rr in &mut source {
-        let rr = rr.map_err(|_e| Error::MessageParseError)?;
-        let rr = rr
-            .into_record::<AllRecordData<_, ParsedDname<_>>>()
-            .map_err(|_e| Error::MessageParseError)?
-            .expect("record expected");
-        target
-            .push(rr)
-            .map_err(|_e| Error::MessageBuilderPushError)?;
-    }
-
-    let source = source
-        .next_section()
-        .map_err(|_e| Error::MessageParseError)?
-        .expect("section should be present");
-    let mut target = target.additional();
-    let mut found_opt_rr = false;
-    for rr in source {
-        let rr = rr.map_err(|_e| Error::MessageParseError)?;
-        if rr.rtype() == Rtype::Opt {
-            found_opt_rr = true;
-            let rr = rr
-                .into_record::<Opt<_>>()
-                .map_err(|_e| Error::MessageParseError)?
-                .expect("record expected");
-            let opt_record = OptRecord::from_record(rr);
-            target
-                .opt(|newopt| {
-                    newopt
-                        .set_udp_payload_size(opt_record.udp_payload_size());
-                    newopt.set_version(opt_record.version());
-                    newopt.set_dnssec_ok(opt_record.dnssec_ok());
-                    for option in opt_record.opt().iter::<AllOptData<_, _>>()
-                    {
-                        let option = option.unwrap();
-                        if let AllOptData::TcpKeepalive(_) = option {
-                            // Ignore existing TcpKeepalive
-                        } else {
-                            newopt.push(&option).unwrap();
-                        }
-                    }
-                    // send an empty keepalive option
-                    newopt.tcp_keepalive(None).unwrap();
-                    Ok(())
-                })
-                .map_err(|_e| Error::MessageBuilderPushError)?;
-        } else {
-            let rr = rr
-                .into_record::<AllRecordData<_, ParsedDname<_>>>()
-                .map_err(|_e| Error::MessageParseError)?
-                .expect("record expected");
-            target
-                .push(rr)
-                .map_err(|_e| Error::MessageBuilderPushError)?;
-        }
-    }
-    if !found_opt_rr {
-        // send an empty keepalive option
-        target
-            .opt(|opt| opt.tcp_keepalive(None))
-            .map_err(|_e| Error::MessageBuilderPushError)?;
-    }
-
-    // It would be nice to use .builder() here. But that one deletes all
-    // section. We have to resort to .as_builder() which gives a
-    // reference and then .clone()
-    let result = target.as_builder().clone();
-    let msg = Message::from_octets(result.finish().into_target())
-        .expect("Message should be able to parse output from MessageBuilder");
-    Ok(msg)
+/// Add an edns-tcp-keepalive option to a BaseMessageBuilder.
+fn add_tcp_keepalive<BMB: BaseMessageBuilder>(
+    msg: &mut BMB,
+) -> Result<(), Error> {
+    msg.add_opt(OptTypes::TypeTcpKeepalive(TcpKeepalive::new(None)));
+    Ok(())
 }
 
 /// Check if a DNS reply match the query. Ignore whether id fields match.
