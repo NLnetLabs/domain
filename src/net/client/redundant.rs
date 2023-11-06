@@ -82,7 +82,7 @@ pub struct Config {
 //------------ Connection -----------------------------------------------------
 
 /// This type represents a transport connection.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Connection<BMB> {
     /// Reference to the actual implementation of the connection.
     inner: Arc<InnerConnection<BMB>>,
@@ -552,6 +552,7 @@ impl<BMB: Clone + Debug + Send + Sync + 'static> GetResult for Query<BMB> {
 //------------ InnerConnection ------------------------------------------------
 
 /// Type that actually implements the connection.
+#[derive(Debug)]
 struct InnerConnection<BMB> {
     /// User configuation.
     config: Config,
