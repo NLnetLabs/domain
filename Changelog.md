@@ -6,9 +6,18 @@ Breaking changes
 
 New
 
+* Removed the `Sized` bound for octets types used by the `tsig` module.
+  ([#241] by [@torin-carey])
+* Added an impl for `AsRef<Message<[u8]>>` for any message. ([#242] by
+  [@torin-carey])
+
 Bug fixes
 
 Other changes
+
+[#242]: https://github.com/NLnetLabs/domain/pull/242
+[#241]: https://github.com/NLnetLabs/domain/pull/241
+[@torin-carey]: https://github.com/torin-carey
 
 
 ## 0.9.1
