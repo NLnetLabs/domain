@@ -874,6 +874,9 @@ impl<'a> EntryScanner<'a> {
                             (*write - start - 1) as u8;
                         return Ok(Some(false));
                     } else {
+                        // There’s been nothing. Reset the write position
+                        // and return.
+                        *write = start;
                         return Ok(None);
                     }
                 }
