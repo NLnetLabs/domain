@@ -1532,6 +1532,8 @@ impl std::error::Error for Error {}
 #[cfg(feature = "std")]
 mod test {
     use super::*;
+    use crate::base::ParsedDname;
+    use octseq::Parser;
     use std::vec::Vec;
 
     fn with_entry(s: &str, op: impl FnOnce(EntryScanner)) {
@@ -1590,6 +1592,29 @@ mod test {
                         let (first, tail) = result.split_first().unwrap();
                         assert_eq!(first, &record);
                         result = tail;
+
+                        let mut buf = BytesMut::new();
+                        record.compose(&mut buf).unwrap();
+                        let buf = buf.freeze();
+                        let mut parser = Parser::from_ref(&buf);
+                        let parsed =
+                            Record::<
+                                ParsedDname<Bytes>,
+                                ZoneRecordData<Bytes, ParsedDname<Bytes>>,
+                            >::parse(&mut parser)
+                            .unwrap()
+                            .unwrap();
+
+                        // The unknown test case has known type/class
+                        // to current implementation. The parsed
+                        // record will not be unknown again. So here
+                        // we don't compare it with the original.
+                        if !matches!(
+                            record.data(),
+                            ZoneRecordData::Unknown(_)
+                        ) {
+                            assert_eq!(first, &parsed);
+                        }
                     }
                     _ => panic!(),
                 }

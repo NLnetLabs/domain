@@ -1,12 +1,12 @@
 origin: example.com.
 zonefile: |
-  example.com. 3600 IN TXT \# 3 66 6f 6f
+  example.com. 3600 IN TXT \# 4 03 66 6f 6f
 result:
   - owner: example.com.
     class: IN
     ttl: 3600
     data: !Unknown
       rtype: Txt
-      data: 666f6f
+      data: 03666f6f
 
 
