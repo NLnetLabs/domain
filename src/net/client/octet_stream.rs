@@ -20,13 +20,12 @@
 use bytes;
 use bytes::{Bytes, BytesMut};
 use core::convert::From;
-use futures::lock::Mutex as Futures_mutex;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
 use std::io::ErrorKind;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::vec::Vec;
 
@@ -94,7 +93,7 @@ pub struct Connection<BMB> {
     inner: Arc<InnerConnection<BMB>>,
 }
 
-impl<BMB: BaseMessageBuilder + Clone> Connection<BMB> {
+impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     /// Constructor for [Connection].
     ///
     /// Returns a [Connection] wrapped in a [Result](io::Result).
@@ -116,11 +115,12 @@ impl<BMB: BaseMessageBuilder + Clone> Connection<BMB> {
     ///
     /// This function has to run in the background or together with
     /// any calls to [query](Self::query) or [Query::get_result].
-    pub async fn run<IO: AsyncReadExt + AsyncWriteExt + Unpin>(
+    /// Worker function for a connection object.
+    pub fn run<IO: AsyncReadExt + AsyncWriteExt + Send + Unpin + 'static>(
         &self,
         io: IO,
-    ) -> Option<()> {
-        self.inner.run(io).await
+    ) -> Pin<Box<dyn Future<Output = Option<()>> + Send>> {
+        self.inner.run(io)
     }
 
     /// Start a DNS request.
@@ -151,7 +151,9 @@ impl<BMB: BaseMessageBuilder + Clone> Connection<BMB> {
     }
 }
 
-impl<BMB: BaseMessageBuilder + Clone> QueryMessage4<BMB> for Connection<BMB> {
+impl<BMB: BaseMessageBuilder + Clone + 'static> QueryMessage4<BMB>
+    for Connection<BMB>
+{
     fn query<'a>(
         &'a self,
         query_msg: &'a BMB,
@@ -330,7 +332,7 @@ struct InnerConnection<BMB> {
     /// [InnerConnection::run].
     /// The Option is to allow [InnerConnection::run] to signal that the
     /// connection is closed.
-    receiver: Futures_mutex<Option<mpsc::Receiver<ChanReq<BMB>>>>,
+    receiver: Mutex<Option<mpsc::Receiver<ChanReq<BMB>>>>,
 }
 
 #[derive(Debug)]
@@ -425,7 +427,7 @@ enum ConnState {
 // This type could be local to InnerConnection, but I don't know how
 type ReaderChanReply = Message<Bytes>;
 
-impl<BMB: BaseMessageBuilder + Clone> InnerConnection<BMB> {
+impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     /// Constructor for [InnerConnection].
     ///
     /// This is the implementation of [Connection::new].
@@ -434,17 +436,32 @@ impl<BMB: BaseMessageBuilder + Clone> InnerConnection<BMB> {
         Ok(Self {
             config,
             sender: tx,
-            receiver: Futures_mutex::new(Some(rx)),
+            receiver: Mutex::new(Some(rx)),
         })
+    }
+
+    /// Run method.
+    ///
+    /// Make sure the future does not contain a reference to self.
+    pub fn run<IO: AsyncReadExt + AsyncWriteExt + Send + Unpin + 'static>(
+        &self,
+        io: IO,
+    ) -> Pin<Box<dyn Future<Output = Option<()>> + Send>> {
+        let mut receiver = self.receiver.lock().unwrap();
+        let opt_receiver = receiver.take();
+        drop(receiver);
+
+        Box::pin(Self::run_impl(self.config.clone(), io, opt_receiver))
     }
 
     /// Main execution function for [InnerConnection].
     ///
     /// This function Gets called by [Connection::run].
     /// This function is not async cancellation safe
-    pub async fn run<IO: AsyncReadExt + AsyncWriteExt + Unpin>(
-        &self,
+    async fn run_impl<IO: AsyncReadExt + AsyncWriteExt + Unpin>(
+        config: Config,
         io: IO,
+        opt_receiver: Option<mpsc::Receiver<ChanReq<BMB>>>,
     ) -> Option<()> {
         let (reply_sender, mut reply_receiver) =
             mpsc::channel::<ReaderChanReply>(READ_REPLY_CHAN_CAP);
@@ -454,11 +471,7 @@ impl<BMB: BaseMessageBuilder + Clone> InnerConnection<BMB> {
         let reader_fut = Self::reader(&mut read_stream, reply_sender);
         tokio::pin!(reader_fut);
 
-        let mut receiver = {
-            let mut locked_opt_receiver = self.receiver.lock().await;
-            let opt_receiver = locked_opt_receiver.take();
-            opt_receiver.expect("no receiver present?")
-        };
+        let mut receiver = { opt_receiver.expect("no receiver present?") };
 
         let mut status = Status {
             state: ConnState::Active(None),
@@ -478,7 +491,7 @@ impl<BMB: BaseMessageBuilder + Clone> InnerConnection<BMB> {
                 ConnState::Active(opt_instant) => {
                     if let Some(instant) = opt_instant {
                         let elapsed = instant.elapsed();
-                        if elapsed > self.config.response_timeout {
+                        if elapsed > config.response_timeout {
                             Self::error(
                                 Error::StreamReadTimeout,
                                 &mut query_vec,
@@ -486,7 +499,7 @@ impl<BMB: BaseMessageBuilder + Clone> InnerConnection<BMB> {
                             status.state = ConnState::ReadTimeout;
                             break;
                         }
-                        Some(self.config.response_timeout - elapsed)
+                        Some(config.response_timeout - elapsed)
                     } else {
                         None
                     }
@@ -519,7 +532,7 @@ impl<BMB: BaseMessageBuilder + Clone> InnerConnection<BMB> {
                 None =>
                 // Just use the response timeout
                 {
-                    self.config.response_timeout
+                    config.response_timeout
                 }
             };
 
@@ -586,9 +599,13 @@ impl<BMB: BaseMessageBuilder + Clone> InnerConnection<BMB> {
                 res = recv_fut, if !do_write => {
                     match res {
                         Some(req) =>
-                            self.insert_req(req, &mut status,
+                            Self::insert_req(req, &mut status,
                                 &mut reqmsg, &mut query_vec),
-                        None => panic!("recv failed"),
+                        None => {
+                // All references to the connection object have
+                // been dropped. Shutdown.
+                break;
+            }
                     }
                 }
                 _ = sleep_fut => {
@@ -795,7 +812,6 @@ impl<BMB: BaseMessageBuilder + Clone> InnerConnection<BMB> {
     /// idle. Addend a edns-tcp-keepalive option if needed.
     // Note: maybe reqmsg should be a return value.
     fn insert_req(
-        &self,
         mut req: ChanReq<BMB>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,

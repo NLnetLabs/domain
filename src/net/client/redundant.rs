@@ -18,9 +18,10 @@ use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::vec::Vec;
 
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{sleep_until, Duration, Instant};
 
 use crate::base::iana::OptRcode;
@@ -106,8 +107,8 @@ impl<'a, BMB: Clone + Debug + Send + Sync + 'static> Connection<BMB> {
     }
 
     /// Runner function for a connection.
-    pub async fn run(&self) {
-        self.inner.run().await
+    pub fn run(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        self.inner.run()
     }
 
     /// Add a transport connection.
@@ -575,22 +576,33 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
         })
     }
 
+    /// Run method.
+    ///
+    /// Make sure the future does not contain a reference to self.
+    fn run(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let mut receiver = self.receiver.lock().unwrap();
+        let opt_receiver = receiver.take();
+        drop(receiver);
+
+        Box::pin(Self::run_impl(opt_receiver))
+    }
+
     /// Implementation of the run method.
-    async fn run(&self) {
+    async fn run_impl(opt_receiver: Option<mpsc::Receiver<ChanReq<BMB>>>) {
         let mut next_id: u64 = 10;
         let mut conn_stats: Vec<ConnStats> = Vec::new();
         let mut conn_rt: Vec<ConnRT> = Vec::new();
         let mut conns: Vec<Box<dyn QueryMessage4<BMB> + Send + Sync>> =
             Vec::new();
 
-        let mut receiver = self.receiver.lock().await;
-        let opt_receiver = receiver.take();
-        drop(receiver);
         let mut receiver =
             opt_receiver.expect("receiver should not be empty");
         loop {
-            let req =
-                receiver.recv().await.expect("receiver should not fail");
+            let req = match receiver.recv().await {
+                Some(req) => req,
+                None => break, // All references to connection objects are
+                               // dropped. Shutdown.
+            };
             match req {
                 ChanReq::Add(add_req) => {
                     let id = next_id;

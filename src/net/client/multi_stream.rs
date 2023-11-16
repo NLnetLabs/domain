@@ -8,7 +8,6 @@
 
 use bytes::Bytes;
 
-use futures::lock::Mutex as Futures_mutex;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 
@@ -21,7 +20,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io;
@@ -84,21 +83,21 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     ///
     /// This function has to run in the background or together with
     /// any calls to [query](Self::query) or [Query::get_result].
-    pub async fn run<
-        F: ConnFactory<IO> + Send,
-        IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Unpin,
+    pub fn run<
+        F: ConnFactory<IO> + Send + 'static,
+        IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
     >(
         &self,
         factory: F,
-    ) -> Result<(), Error> {
-        self.inner.run(factory).await
+    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
+        self.inner.run(factory)
     }
 
     /// Start a DNS request.
     ///
     /// This function takes a precomposed message as a parameter and
     /// returns a [Query] object wrapped in a [Result].
-    pub async fn query_impl4(
+    async fn query_impl4(
         &self,
         query_msg: &BMB,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
@@ -365,7 +364,7 @@ struct InnerConnection<BMB> {
     /// [InnerConnection::run].
     /// The Option is to allow [InnerConnection::run] to signal that the
     /// connection is closed.
-    receiver: Futures_mutex<Option<mpsc::Receiver<ChanReq<BMB>>>>,
+    receiver: Mutex<Option<mpsc::Receiver<ChanReq<BMB>>>>,
 }
 
 #[derive(Debug)]
@@ -454,27 +453,42 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
         Ok(Self {
             config,
             sender: tx,
-            receiver: Futures_mutex::new(Some(rx)),
+            receiver: Mutex::new(Some(rx)),
         })
     }
 
     /// Main execution function for [InnerConnection].
     ///
     /// This function Gets called by [Connection::run].
-    /// This function is not async cancellation safe
-    #[rustfmt::skip]
+    /// This function is not async cancellation safe.
+    /// Make sure the resulting future does not contain a reference to self.
+    pub fn run<
+        F: ConnFactory<IO> + Send + 'static,
+        IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
+    >(
+        &self,
+        factory: F,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
+        let mut receiver = self.receiver.lock().unwrap();
+        let opt_receiver = receiver.take();
+        drop(receiver);
 
-    pub async fn run<
+        Box::pin(Self::run_impl(self.config.clone(), factory, opt_receiver))
+    }
+
+    /// Implementation of the run method. This function does not have
+    /// a reference to self.
+    #[rustfmt::skip]
+    async fn run_impl<
         'a,
         F: ConnFactory<IO> + Send,
         IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Unpin,
     >(
-        &self,
+	config: Config,
         factory: F,
+	opt_receiver: Option<mpsc::Receiver<ChanReq<BMB>>>
     ) -> Result<(), Error> {
         let mut receiver = {
-            let mut locked_opt_receiver = self.receiver.lock().await;
-            let opt_receiver = locked_opt_receiver.take();
             opt_receiver.expect("no receiver present?")
         };
         let mut curr_cmd: Option<ReqCmd<BMB>> = None;
@@ -597,7 +611,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
 
                             let stream = res_conn
                                 .expect("error case is checked before");
-                            let conn = octet_stream::Connection::new(self.config.octet_stream.clone())?;
+                            let conn = octet_stream::Connection::new(config.octet_stream.clone())?;
                             let conn_run = conn.clone();
 
                             let clo = || async move {
@@ -633,7 +647,9 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
             tokio::select! {
                 msg = recv_fut => {
                     if msg.is_none() {
-                        panic!("recv failed");
+			// All references to the connection object have been
+			// dropped. Shutdown.
+                        break;
                     }
                     curr_cmd = Some(msg.expect("None is checked before").cmd);
                 }

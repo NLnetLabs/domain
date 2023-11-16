@@ -64,8 +64,10 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     }
 
     /// Worker function for a connection object.
-    pub async fn run(&self) -> Result<(), Error> {
-        self.inner.run().await
+    pub fn run(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
+        self.inner.run()
     }
 
     /// Start a query for the QueryMessage4 trait.
@@ -229,9 +231,11 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     ///
     /// Create a TCP connection factory and pass that to worker function
     /// of the multi_stream object.
-    pub async fn run(&self) -> Result<(), Error> {
+    fn run(&self) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
         let tcp_factory = TcpConnFactory::new(self.remote_addr);
-        self.tcp_conn.run(tcp_factory).await
+
+        let fut = self.tcp_conn.run(tcp_factory);
+        Box::pin(fut)
     }
 
     /// Implementation of the query function.
