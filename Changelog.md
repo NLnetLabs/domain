@@ -13,11 +13,16 @@ New
 
 Bug fixes
 
+* Fixed in scanning absolute domain names from a zonefile that resulted
+  in illegal wire data being produced. ([#240] by [@xofyarg)]
+
 Other changes
 
-[#242]: https://github.com/NLnetLabs/domain/pull/242
+[#240]: https://github.com/NLnetLabs/domain/pull/240
 [#241]: https://github.com/NLnetLabs/domain/pull/241
+[#242]: https://github.com/NLnetLabs/domain/pull/242
 [@torin-carey]: https://github.com/torin-carey
+[@xofyarg]: https://github.com/xofyarg
 
 
 ## 0.9.1
