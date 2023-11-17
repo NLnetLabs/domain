@@ -31,6 +31,7 @@ use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
 use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
 use crate::resolv::resolver::{Resolver, SearchNames};
 use bytes::Bytes;
+use futures::stream::{FuturesUnordered, StreamExt};
 use octseq::array::Array;
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -128,10 +129,21 @@ impl StubResolver {
         let redun = redundant::Connection::new(None).unwrap();
 
         // Start the run function on a separate task.
-        let redun_run = redun.clone();
+        let redun_run_fut = redun.run();
+
+        // It would be nice to have just one task. However redun.run() has to
+        // execute before we can call redun.add(). However, we need to know
+        // the type of the elements we add to FuturesUnordered. For the moment
+        // we have two tasks.
         tokio::spawn(async move {
-            redun_run.run().await;
+            redun_run_fut.await;
         });
+
+        let fut_list_tcp = FuturesUnordered::new();
+        let fut_list_udp_tcp = FuturesUnordered::new();
+
+        // Start the tasks with empty base transports. We need redun to be
+        // running before we can add transports.
 
         // We have 3 modes of operation: use_vc: only use TCP, ign_tc: only
         // UDP no fallback to TCP, and normal with is UDP falling back to TCP.
@@ -145,9 +157,10 @@ impl StubResolver {
                     // Create a clone for the run function. Start the run function on a
                     // separate task.
                     let conn_run = tcp_conn.clone();
-                    tokio::spawn(async move {
-                        let res = conn_run.run(tcp_factory).await;
-                        println!("run exited with {:?}", res);
+                    fut_list_tcp.push(async move {
+                        let fut = conn_run.run(tcp_factory);
+                        drop(conn_run);
+                        let _res = fut.await;
                     });
                     redun.add(Box::new(tcp_conn)).await.unwrap();
                 }
@@ -163,14 +176,19 @@ impl StubResolver {
                     // Create a clone for the run function. Start the run function on a
                     // separate task.
                     let conn_run = udptcp_conn.clone();
-                    tokio::spawn(async move {
-                        let res = conn_run.run().await;
-                        println!("run exited with {:?}", res);
+                    fut_list_udp_tcp.push(async move {
+                        let fut = conn_run.run();
+                        drop(conn_run);
+                        let _res = fut.await;
                     });
                     redun.add(Box::new(udptcp_conn)).await.unwrap();
                 }
             }
         }
+
+        tokio::spawn(async move {
+            run(fut_list_tcp, fut_list_udp_tcp).await;
+        });
 
         redun
     }
@@ -186,6 +204,27 @@ impl StubResolver {
         }
 
         (*opt_transport).as_ref().unwrap().clone()
+    }
+}
+
+async fn run<TcpFut: Future, UdpTcpFut: Future>(
+    mut fut_list_tcp: FuturesUnordered<TcpFut>,
+    mut fut_list_udp_tcp: FuturesUnordered<UdpTcpFut>,
+) {
+    loop {
+        let tcp_empty = fut_list_tcp.is_empty();
+        let udp_tcp_empty = fut_list_udp_tcp.is_empty();
+        if tcp_empty && udp_tcp_empty {
+            break;
+        }
+        tokio::select! {
+        _ = fut_list_tcp.next(), if !tcp_empty => {
+            // Nothing to do
+        }
+        _ = fut_list_udp_tcp.next(), if !udp_tcp_empty => {
+            // Nothing to do
+        }
+        }
     }
 }
 
