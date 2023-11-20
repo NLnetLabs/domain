@@ -30,7 +30,7 @@ ring           = { version = "0.17", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
 smallvec       = { version = "1", optional = true }
-tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "time", "sync" ] }
+tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "time", "sync", "rt-multi-thread" ] }
 tokio-rustls   = { version = "0.24", optional = true, features = [] }
 
 # XXX Force proc-macro2 to at least 1.0.69 for minimal-version build
@@ -45,7 +45,7 @@ default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 interop     = ["bytes", "ring"]
-resolv      = ["bytes", "futures", "smallvec", "std", "tokio", "libc", "rand"]
+resolv      = ["bytes", "futures", "net", "smallvec", "std", "tokio", "libc", "rand"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
 sign        = ["std"]

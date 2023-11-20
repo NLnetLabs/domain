@@ -19,6 +19,13 @@ use crate::base::message_builder::{
 };
 use crate::base::name::{ToDname, ToRelativeDname};
 use crate::base::question::Question;
+use crate::net::client::base_message_builder::BaseMessageBuilder;
+use crate::net::client::bmb;
+use crate::net::client::multi_stream;
+use crate::net::client::query::QueryMessage4;
+use crate::net::client::redundant;
+use crate::net::client::tcp_factory::TcpConnFactory;
+use crate::net::client::udp_tcp;
 use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
 use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
@@ -26,18 +33,17 @@ use crate::resolv::resolver::{Resolver, SearchNames};
 use bytes::Bytes;
 use octseq::array::Array;
 use std::boxed::Box;
+use std::fmt::Debug;
 use std::future::Future;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::pin::Pin;
-use std::slice::SliceIndex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::vec::Vec;
 use std::{io, ops};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, UdpSocket};
 #[cfg(feature = "resolv-sync")]
 use tokio::runtime;
+use tokio::sync::Mutex;
 use tokio::time::timeout;
 
 //------------ Sub-modules ---------------------------------------------------
@@ -45,9 +51,6 @@ use tokio::time::timeout;
 pub mod conf;
 
 //------------ Module Configuration ------------------------------------------
-
-/// How many times do we try a new random port if we get ‘address in use.’
-const RETRY_RANDOM_PORT: usize = 10;
 
 //------------ StubResolver --------------------------------------------------
 
@@ -70,16 +73,14 @@ const RETRY_RANDOM_PORT: usize = 10;
 /// [`query()`]: #method.query
 /// [`run()`]: #method.run
 /// [`run_with_conf()`]: #method.run_with_conf
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct StubResolver {
-    /// Preferred servers.
-    preferred: ServerList,
-
-    /// Streaming servers.
-    stream: ServerList,
+    transport: Mutex<Option<redundant::Connection<bmb::BMB<Vec<u8>>>>>,
 
     /// Resolver options.
     options: ResolvOptions,
+
+    servers: Vec<ServerConf>,
 }
 
 impl StubResolver {
@@ -91,11 +92,10 @@ impl StubResolver {
     /// Creates a new resolver using the given configuraiton.
     pub fn from_conf(conf: ResolvConf) -> Self {
         StubResolver {
-            preferred: ServerList::from_conf(&conf, |s| {
-                s.transport.is_preferred()
-            }),
-            stream: ServerList::from_conf(&conf, |s| s.transport.is_stream()),
+            transport: None.into(),
             options: conf.options,
+
+            servers: conf.servers,
         }
     }
 
@@ -117,6 +117,75 @@ impl StubResolver {
         message: QueryMessage,
     ) -> Result<Answer, io::Error> {
         Query::new(self)?.run(message).await
+    }
+
+    async fn setup_transport<
+        BMB: Clone + Debug + BaseMessageBuilder + Send + Sync + 'static,
+    >(
+        &self,
+    ) -> redundant::Connection<BMB> {
+        // Create a redundant transport and fill it with the right transports
+        let redun = redundant::Connection::new(None).unwrap();
+
+        // Start the run function on a separate task.
+        let redun_run = redun.clone();
+        tokio::spawn(async move {
+            redun_run.run().await;
+        });
+
+        // We have 3 modes of operation: use_vc: only use TCP, ign_tc: only
+        // UDP no fallback to TCP, and normal with is UDP falling back to TCP.
+        if self.options.use_vc {
+            for s in &self.servers {
+                if let Transport::Tcp = s.transport {
+                    let tcp_factory = TcpConnFactory::new(s.addr);
+                    let tcp_conn =
+                        multi_stream::Connection::new(None).unwrap();
+                    // TODO: How do we handle this?
+                    // Create a clone for the run function. Start the run function on a
+                    // separate task.
+                    let conn_run = tcp_conn.clone();
+                    tokio::spawn(async move {
+                        let res = conn_run.run(tcp_factory).await;
+                        println!("run exited with {:?}", res);
+                    });
+                    redun.add(Box::new(tcp_conn)).await.unwrap();
+                }
+            }
+        } else if self.options.ign_tc {
+            todo!();
+        } else {
+            for s in &self.servers {
+                if let Transport::Udp = s.transport {
+                    let udptcp_conn =
+                        udp_tcp::Connection::new(None, s.addr).unwrap();
+                    // TODO: How do we handle this?
+                    // Create a clone for the run function. Start the run function on a
+                    // separate task.
+                    let conn_run = udptcp_conn.clone();
+                    tokio::spawn(async move {
+                        let res = conn_run.run().await;
+                        println!("run exited with {:?}", res);
+                    });
+                    redun.add(Box::new(udptcp_conn)).await.unwrap();
+                }
+            }
+        }
+
+        redun
+    }
+
+    async fn get_transport(
+        &self,
+    ) -> redundant::Connection<bmb::BMB<Vec<u8>>> {
+        let mut opt_transport = self.transport.lock().await;
+
+        if opt_transport.is_none() {
+            let transport = self.setup_transport().await;
+            *opt_transport = Some(transport);
+        }
+
+        (*opt_transport).as_ref().unwrap().clone()
     }
 }
 
@@ -238,14 +307,7 @@ pub struct Query<'a> {
     /// The resolver whose configuration we are using.
     resolver: &'a StubResolver,
 
-    /// Are we still in the preferred server list or have gone streaming?
-    preferred: bool,
-
-    /// The number of attempts, starting with zero.
-    attempt: usize,
-
-    /// The index in the server list we currently trying.
-    counter: ServerListCounter,
+    edns: Arc<AtomicBool>,
 
     /// The preferred error to return.
     ///
@@ -259,23 +321,9 @@ pub struct Query<'a> {
 
 impl<'a> Query<'a> {
     pub fn new(resolver: &'a StubResolver) -> Result<Self, io::Error> {
-        let (preferred, counter) =
-            if resolver.options().use_vc || resolver.preferred.is_empty() {
-                if resolver.stream.is_empty() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        "no servers available",
-                    ));
-                }
-                (false, resolver.stream.counter(resolver.options().rotate))
-            } else {
-                (true, resolver.preferred.counter(resolver.options().rotate))
-            };
         Ok(Query {
             resolver,
-            preferred,
-            attempt: 0,
-            counter,
+            edns: Arc::new(AtomicBool::new(true)),
             error: Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 "all timed out",
@@ -291,26 +339,14 @@ impl<'a> Query<'a> {
             match self.run_query(&mut message).await {
                 Ok(answer) => {
                     if answer.header().rcode() == Rcode::FormErr
-                        && self.current_server().does_edns()
+                        && self.does_edns()
                     {
                         // FORMERR with EDNS: turn off EDNS and try again.
-                        self.current_server().disable_edns();
+                        self.disable_edns();
                         continue;
                     } else if answer.header().rcode() == Rcode::ServFail {
                         // SERVFAIL: go to next server.
                         self.update_error_servfail(answer);
-                    } else if answer.header().tc()
-                        && self.preferred
-                        && !self.resolver.options().ign_tc
-                    {
-                        // Truncated. If we can, switch to stream transports
-                        // and try again. Otherwise return the truncated
-                        // answer.
-                        if self.switch_to_stream() {
-                            continue;
-                        } else {
-                            return Ok(answer);
-                        }
                     } else {
                         // I guess we have an answer ...
                         return Ok(answer);
@@ -318,9 +354,7 @@ impl<'a> Query<'a> {
                 }
                 Err(err) => self.update_error(err),
             }
-            if !self.next_server() {
-                return self.error;
-            }
+            return self.error;
         }
     }
 
@@ -339,18 +373,21 @@ impl<'a> Query<'a> {
         &mut self,
         message: &mut QueryMessage,
     ) -> Result<Answer, io::Error> {
-        let server = self.current_server();
-        server.prepare_message(message);
-        server.query(message).await
-    }
+        let msg = Message::from_octets(
+            message.as_target().as_dgram_slice().to_vec(),
+        )
+        .unwrap();
 
-    fn current_server(&self) -> &ServerInfo {
-        let list = if self.preferred {
-            &self.resolver.preferred
-        } else {
-            &self.resolver.stream
-        };
-        self.counter.info(list)
+        let bmb = bmb::BMB::new(msg);
+
+        let transport = self.resolver.get_transport().await;
+        let mut gr_fut = transport.query(&bmb).await.unwrap();
+        let reply =
+            timeout(self.resolver.options.timeout, gr_fut.get_result())
+                .await
+                .unwrap()
+                .unwrap();
+        Ok(Answer { message: reply })
     }
 
     fn update_error(&mut self, err: io::Error) {
@@ -366,34 +403,12 @@ impl<'a> Query<'a> {
         self.error = Ok(answer)
     }
 
-    fn switch_to_stream(&mut self) -> bool {
-        if !self.preferred {
-            // We already did this.
-            return false;
-        }
-        self.preferred = false;
-        self.attempt = 0;
-        self.counter =
-            self.resolver.stream.counter(self.resolver.options().rotate);
-        true
+    pub fn does_edns(&self) -> bool {
+        self.edns.load(Ordering::Relaxed)
     }
 
-    fn next_server(&mut self) -> bool {
-        if self.counter.next() {
-            return true;
-        }
-        self.attempt += 1;
-        if self.attempt >= self.resolver.options().attempts {
-            return false;
-        }
-        self.counter = if self.preferred {
-            self.resolver
-                .preferred
-                .counter(self.resolver.options().rotate)
-        } else {
-            self.resolver.stream.counter(self.resolver.options().rotate)
-        };
-        true
+    pub fn disable_edns(&self) {
+        self.edns.store(false, Ordering::Relaxed);
     }
 }
 
@@ -448,312 +463,6 @@ impl ops::Deref for Answer {
 impl AsRef<Message<Bytes>> for Answer {
     fn as_ref(&self) -> &Message<Bytes> {
         &self.message
-    }
-}
-
-//------------ ServerInfo ----------------------------------------------------
-
-#[derive(Clone, Debug)]
-struct ServerInfo {
-    /// The basic server configuration.
-    conf: ServerConf,
-
-    /// Whether this server supports EDNS.
-    ///
-    /// We start out with assuming it does and unset it if we get a FORMERR.
-    edns: Arc<AtomicBool>,
-}
-
-impl ServerInfo {
-    pub fn does_edns(&self) -> bool {
-        self.edns.load(Ordering::Relaxed)
-    }
-
-    pub fn disable_edns(&self) {
-        self.edns.store(false, Ordering::Relaxed);
-    }
-
-    pub fn prepare_message(&self, query: &mut QueryMessage) {
-        query.rewind();
-        if self.does_edns() {
-            query
-                .opt(|opt| {
-                    opt.set_udp_payload_size(self.conf.udp_payload_size);
-                    Ok(())
-                })
-                .unwrap();
-        }
-    }
-
-    pub async fn query(
-        &self,
-        query: &QueryMessage,
-    ) -> Result<Answer, io::Error> {
-        let res = match self.conf.transport {
-            Transport::Udp => {
-                timeout(
-                    self.conf.request_timeout,
-                    Self::udp_query(
-                        query,
-                        self.conf.addr,
-                        self.conf.recv_size,
-                    ),
-                )
-                .await
-            }
-            Transport::Tcp => {
-                timeout(
-                    self.conf.request_timeout,
-                    Self::tcp_query(query, self.conf.addr),
-                )
-                .await
-            }
-        };
-        match res {
-            Ok(Ok(answer)) => Ok(answer),
-            Ok(Err(err)) => Err(err),
-            Err(_) => Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "request timed out",
-            )),
-        }
-    }
-
-    pub async fn tcp_query(
-        query: &QueryMessage,
-        addr: SocketAddr,
-    ) -> Result<Answer, io::Error> {
-        let mut sock = TcpStream::connect(&addr).await?;
-        sock.write_all(query.as_target().as_stream_slice()).await?;
-
-        // This loop can be infinite because we have a timeout on this whole
-        // thing, anyway.
-        loop {
-            let mut buf = Vec::new();
-            let len = sock.read_u16().await? as u64;
-            AsyncReadExt::take(&mut sock, len)
-                .read_to_end(&mut buf)
-                .await?;
-            if let Ok(answer) = Message::from_octets(buf.into()) {
-                if answer.is_answer(&query.as_message()) {
-                    return Ok(answer.into());
-                }
-            // else try with the next message.
-            } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "short buf",
-                ));
-            }
-        }
-    }
-
-    pub async fn udp_query(
-        query: &QueryMessage,
-        addr: SocketAddr,
-        recv_size: usize,
-    ) -> Result<Answer, io::Error> {
-        let sock = Self::udp_bind(addr.is_ipv4()).await?;
-        sock.connect(addr).await?;
-        let sent = sock.send(query.as_target().as_dgram_slice()).await?;
-        if sent != query.as_target().as_dgram_slice().len() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "short UDP send",
-            ));
-        }
-        loop {
-            let mut buf = vec![0; recv_size]; // XXX use uninit'ed mem here.
-            let len = sock.recv(&mut buf).await?;
-            buf.truncate(len);
-
-            // We ignore garbage since there is a timer on this whole thing.
-            let answer = match Message::from_octets(buf.into()) {
-                Ok(answer) => answer,
-                Err(_) => continue,
-            };
-            if !answer.is_answer(&query.as_message()) {
-                continue;
-            }
-            return Ok(answer.into());
-        }
-    }
-
-    async fn udp_bind(v4: bool) -> Result<UdpSocket, io::Error> {
-        let mut i = 0;
-        loop {
-            let local: SocketAddr = if v4 {
-                ([0u8; 4], 0).into()
-            } else {
-                ([0u16; 8], 0).into()
-            };
-            match UdpSocket::bind(&local).await {
-                Ok(sock) => return Ok(sock),
-                Err(err) => {
-                    if i == RETRY_RANDOM_PORT {
-                        return Err(err);
-                    } else {
-                        i += 1
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl From<ServerConf> for ServerInfo {
-    fn from(conf: ServerConf) -> Self {
-        ServerInfo {
-            conf,
-            edns: Arc::new(AtomicBool::new(true)),
-        }
-    }
-}
-
-impl<'a> From<&'a ServerConf> for ServerInfo {
-    fn from(conf: &'a ServerConf) -> Self {
-        conf.clone().into()
-    }
-}
-
-//------------ ServerList ----------------------------------------------------
-
-#[derive(Clone, Debug)]
-struct ServerList {
-    /// The actual list of servers.
-    servers: Vec<ServerInfo>,
-
-    /// Where to start accessing the list.
-    ///
-    /// In rotate mode, this value will always keep growing and will have to
-    /// be used modulo `servers`’s length.
-    ///
-    /// When it eventually wraps around the end of usize’s range, there will
-    /// be a jump in rotation. Since that will happen only oh-so-often, we
-    /// accept that in favour of simpler code.
-    start: Arc<AtomicUsize>,
-}
-
-impl ServerList {
-    pub fn from_conf<F>(conf: &ResolvConf, filter: F) -> Self
-    where
-        F: Fn(&ServerConf) -> bool,
-    {
-        ServerList {
-            servers: {
-                conf.servers
-                    .iter()
-                    .filter(|f| filter(f))
-                    .map(Into::into)
-                    .collect()
-            },
-            start: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.servers.is_empty()
-    }
-
-    pub fn counter(&self, rotate: bool) -> ServerListCounter {
-        let res = ServerListCounter::new(self);
-        if rotate {
-            self.rotate()
-        }
-        res
-    }
-
-    pub fn iter(&self) -> ServerListIter {
-        ServerListIter::new(self)
-    }
-
-    pub fn rotate(&self) {
-        self.start.fetch_add(1, Ordering::SeqCst);
-    }
-}
-
-impl<'a> IntoIterator for &'a ServerList {
-    type Item = &'a ServerInfo;
-    type IntoIter = ServerListIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<I: SliceIndex<[ServerInfo]>> ops::Index<I> for ServerList {
-    type Output = <I as SliceIndex<[ServerInfo]>>::Output;
-
-    fn index(&self, index: I) -> &<I as SliceIndex<[ServerInfo]>>::Output {
-        self.servers.index(index)
-    }
-}
-
-//------------ ServerListCounter ---------------------------------------------
-
-#[derive(Clone, Debug)]
-struct ServerListCounter {
-    cur: usize,
-    end: usize,
-}
-
-impl ServerListCounter {
-    fn new(list: &ServerList) -> Self {
-        if list.servers.is_empty() {
-            return ServerListCounter { cur: 0, end: 0 };
-        }
-
-        // We modulo the start value here to prevent hick-ups towards the
-        // end of usize’s range.
-        let start = list.start.load(Ordering::Relaxed) % list.servers.len();
-        ServerListCounter {
-            cur: start,
-            end: start + list.servers.len(),
-        }
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> bool {
-        let next = self.cur + 1;
-        if next < self.end {
-            self.cur = next;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn info<'a>(&self, list: &'a ServerList) -> &'a ServerInfo {
-        &list[self.cur % list.servers.len()]
-    }
-}
-
-//------------ ServerListIter ------------------------------------------------
-
-#[derive(Clone, Debug)]
-struct ServerListIter<'a> {
-    servers: &'a ServerList,
-    counter: ServerListCounter,
-}
-
-impl<'a> ServerListIter<'a> {
-    fn new(list: &'a ServerList) -> Self {
-        ServerListIter {
-            servers: list,
-            counter: ServerListCounter::new(list),
-        }
-    }
-}
-
-impl<'a> Iterator for ServerListIter<'a> {
-    type Item = &'a ServerInfo;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.counter.next() {
-            Some(self.counter.info(self.servers))
-        } else {
-            None
-        }
     }
 }
 
