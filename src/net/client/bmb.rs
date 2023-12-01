@@ -161,6 +161,6 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
     fn add_opt(&mut self, opt: OptTypes) {
         self.opts.push(opt);
-        println!("add_opt: after push: {:?}", self);
+        //println!("add_opt: after push: {:?}", self);
     }
 }
