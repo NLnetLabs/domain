@@ -1,6 +1,6 @@
 use domain::base::Dname;
 use domain::base::Rtype::Aaaa;
-use domain::base::{Message, MessageBuilder, StaticCompressor, StreamTarget};
+use domain::base::{Message, MessageBuilder};
 use domain::net::client::bmb::BMB;
 use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
@@ -24,23 +24,14 @@ async fn main() {
     // that implements both MessageBuilder and BaseMEssageBuilder. Until
     // that time, first create a message using MessageBuilder, then turn
     // that into a Message, and create a BaseMessaBuilder based on the message.
-    //
-    // TODO: No need for StreamTarget at the moment, this should also be
-    // handled better.
-    let mut msg = MessageBuilder::from_target(StaticCompressor::new(
-        StreamTarget::new_vec(),
-    ))
-    .unwrap();
+    let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
     let mut msg = msg.question();
     msg.push((Dname::<Vec<u8>>::vec_from_str("example.com").unwrap(), Aaaa))
         .unwrap();
 
     // Create a Message to pass to BMB.
-    let msg = Message::from_octets(
-        msg.as_target().as_target().as_dgram_slice().to_vec(),
-    )
-    .unwrap();
+    let msg = Message::from_octets(msg.as_target().to_vec()).unwrap();
 
     // Transports take a BaseMEssageBuilder to be able to add options along
     // the way and only flatten just before actually writing to the network.
@@ -62,6 +53,7 @@ async fn main() {
         max_parallel: 1,
         read_timeout: Duration::from_millis(1000),
         max_retries: 1,
+        udp_payload_size: Some(1400),
     };
     let udp_tcp_config = udp_tcp::Config {
         udp: Some(udp_config.clone()),
