@@ -58,6 +58,10 @@ const MIN_MAX_RETRIES: u8 = 1;
 /// Maximum allowed configuration value for max_retries.
 const MAX_MAX_RETRIES: u8 = 100;
 
+/// Default UDP payload size. See draft-ietf-dnsop-avoid-fragmentation-15
+/// for discussion.
+const DEF_UDP_PAYLOAD_SIZE: u16 = 1232;
+
 //------------ Config ---------------------------------------------------------
 
 /// Configuration for a UDP transport connection.
@@ -71,6 +75,10 @@ pub struct Config {
 
     /// Maimum number of retries.
     pub max_retries: u8,
+
+    /// EDNS(0) UDP payload size. Set this value to None to be able to create
+    /// a DNS request without ENDS(0) option.
+    pub udp_payload_size: Option<u16>,
 }
 
 impl Default for Config {
@@ -79,6 +87,7 @@ impl Default for Config {
             max_parallel: DEF_MAX_PARALLEL,
             read_timeout: DEF_READ_TIMEOUT,
             max_retries: DEF_MAX_RETRIES,
+            udp_payload_size: Some(DEF_UDP_PAYLOAD_SIZE),
         }
     }
 }
@@ -372,6 +381,7 @@ impl Query4 {
         query_msg: &BMB,
         remote_addr: SocketAddr,
         conn: Connection,
+        udp_payload_size: Option<u16>,
     ) -> Self {
         Self {
             get_result_fut: Box::pin(Self::get_result_impl2(
@@ -379,6 +389,7 @@ impl Query4 {
                 query_msg.clone(),
                 remote_addr,
                 conn,
+                udp_payload_size,
             )),
         }
     }
@@ -396,6 +407,7 @@ impl Query4 {
         mut query_bmb: BMB,
         remote_addr: SocketAddr,
         conn: Connection,
+        udp_payload_size: Option<u16>,
     ) -> Result<Message<Bytes>, Error> {
         let recv_size = 2000; // Should be configurable.
 
@@ -417,6 +429,10 @@ impl Query4 {
             // Set random ID in header
             let header = query_bmb.header_mut();
             header.set_random_id();
+            // Set UDP payload size
+            if let Some(size) = udp_payload_size {
+                query_bmb.set_udp_payload_size(size)
+            }
             let query_msg = query_bmb.to_message();
             let dgram = query_msg.as_slice();
 
@@ -570,6 +586,7 @@ impl InnerConnection {
             query_msg,
             self.remote_addr,
             conn,
+            self.config.udp_payload_size,
         ))
     }
 

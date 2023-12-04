@@ -33,6 +33,9 @@ pub struct BMB<Octs: AsRef<[u8]>> {
 
     /// Collection of EDNS options to add.
     opts: Vec<OptTypes>,
+
+    /// UDP payload size.
+    udp_payload_size: Option<u16>,
 }
 
 impl<Octs: AsRef<[u8]> + Debug + Octets> BMB<Octs> {
@@ -43,6 +46,7 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> BMB<Octs> {
             msg,
             header,
             opts: Vec::new(),
+            udp_payload_size: None,
         }
     }
 
@@ -115,18 +119,24 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> BMB<Octs> {
                     .map_err(|_e| Error::MessageBuilderPushError)?;
             }
         }
-        target
-            .opt(|opt| {
-                for o in &self.opts {
-                    match o {
-                        OptTypes::TypeTcpKeepalive(tka) => {
-                            opt.tcp_keepalive(tka.timeout())?
+
+        if self.udp_payload_size.is_some() || !self.opts.is_empty() {
+            target
+                .opt(|opt| {
+                    if let Some(size) = self.udp_payload_size {
+                        opt.set_udp_payload_size(size)
+                    }
+                    for o in &self.opts {
+                        match o {
+                            OptTypes::TypeTcpKeepalive(tka) => {
+                                opt.tcp_keepalive(tka.timeout())?
+                            }
                         }
                     }
-                }
-                Ok(())
-            })
-            .map_err(|_e| Error::MessageBuilderPushError)?;
+                    Ok(())
+                })
+                .map_err(|_e| Error::MessageBuilderPushError)?;
+        }
 
         // It would be nice to use .builder() here. But that one deletes all
         // section. We have to resort to .as_builder() which gives a
@@ -157,6 +167,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
     fn header_mut(&mut self) -> &mut Header {
         &mut self.header
+    }
+
+    fn set_udp_payload_size(&mut self, value: u16) {
+        self.udp_payload_size = Some(value);
     }
 
     fn add_opt(&mut self, opt: OptTypes) {

@@ -35,6 +35,9 @@ pub trait BaseMessageBuilder: Debug + Send + Sync {
     /// Return a reference to a mutable Header to record changes to the header.
     fn header_mut(&mut self) -> &mut Header;
 
+    /// Set the UDP payload size.
+    fn set_udp_payload_size(&mut self, value: u16);
+
     /// Add an EDNS option.
     fn add_opt(&mut self, opt: OptTypes);
 }
