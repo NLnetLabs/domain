@@ -1,6 +1,6 @@
 use domain::base::Dname;
+use domain::base::MessageBuilder;
 use domain::base::Rtype::Aaaa;
-use domain::base::{Message, MessageBuilder};
 use domain::net::client::bmb::BMB;
 use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
@@ -31,7 +31,7 @@ async fn main() {
         .unwrap();
 
     // Create a Message to pass to BMB.
-    let msg = Message::from_octets(msg.as_target().to_vec()).unwrap();
+    let msg = msg.into_message();
 
     // Transports take a BaseMEssageBuilder to be able to add options along
     // the way and only flatten just before actually writing to the network.
