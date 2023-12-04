@@ -203,7 +203,16 @@ async fn main() {
 
     // Create a single TCP transport connection. This is usefull for a
     // single request or a small burst of requests.
-    let tcp_conn = TcpStream::connect(server_addr).await.unwrap();
+    let tcp_conn = match TcpStream::connect(server_addr).await {
+        Ok(conn) => conn,
+        Err(err) => {
+            println!(
+                "TCP Connection to {} failed: {}, exiting",
+                server_addr, err
+            );
+            return;
+        }
+    };
 
     let tcp = octet_stream::Connection::<BMB<Vec<u8>>>::new(None).unwrap();
     let run_fut = tcp.run(tcp_conn);
