@@ -24,7 +24,7 @@ use crate::net::client::bmb;
 use crate::net::client::multi_stream;
 use crate::net::client::query::QueryMessage4;
 use crate::net::client::redundant;
-use crate::net::client::tcp_factory::TcpConnFactory;
+use crate::net::client::tcp_conn_stream::TcpConnStream;
 use crate::net::client::udp_tcp;
 use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
@@ -150,7 +150,7 @@ impl StubResolver {
         if self.options.use_vc {
             for s in &self.servers {
                 if let Transport::Tcp = s.transport {
-                    let tcp_factory = TcpConnFactory::new(s.addr);
+                    let tcp_conn_stream = TcpConnStream::new(s.addr);
                     let tcp_conn =
                         multi_stream::Connection::new(None).unwrap();
                     // TODO: How do we handle this?
@@ -158,7 +158,7 @@ impl StubResolver {
                     // separate task.
                     let conn_run = tcp_conn.clone();
                     fut_list_tcp.push(async move {
-                        let fut = conn_run.run(tcp_factory);
+                        let fut = conn_run.run(tcp_conn_stream);
                         drop(conn_run);
                         let _res = fut.await;
                     });
