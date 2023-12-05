@@ -9,13 +9,13 @@
 
 pub mod base_message_builder;
 pub mod bmb;
+pub mod connection_stream;
 pub mod error;
-pub mod factory;
 pub mod multi_stream;
 pub mod octet_stream;
 pub mod query;
 pub mod redundant;
-pub mod tcp_factory;
-pub mod tls_factory;
+pub mod tcp_conn_stream;
+pub mod tls_conn_stream;
 pub mod udp;
 pub mod udp_tcp;

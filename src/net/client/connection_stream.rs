@@ -1,4 +1,4 @@
-//! Trait for connection factories
+//! Trait for connection streams
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -9,7 +9,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 /// This trait is for creating new network connections.
 ///
 /// The IO type is the type of the resulting connection object.
-pub trait ConnFactory<IO: AsyncRead + AsyncWrite + Send + Unpin> {
+pub trait ConnectionStream<IO: AsyncRead + AsyncWrite + Send + Unpin> {
     /// The next method is an asynchronous function that returns a
     /// new connection.
     ///

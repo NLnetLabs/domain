@@ -1,4 +1,4 @@
-//! A factory for TCP connections
+//! A stream of TCP connections
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -11,27 +11,27 @@ use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 use tokio::net::{TcpStream, ToSocketAddrs};
 
-use crate::net::client::factory::ConnFactory;
+use crate::net::client::connection_stream::ConnectionStream;
 
-//------------ TcpConnFactory -------------------------------------------------
+//------------ TcpConnStream --------------------------------------------------
 
-/// This a connection factory that produces TCP connections.
-pub struct TcpConnFactory<A: ToSocketAddrs> {
+/// This a stream of TCP connections.
+pub struct TcpConnStream<A: ToSocketAddrs> {
     /// Remote address to connect to.
     addr: A,
 }
 
-impl<A: ToSocketAddrs + Clone + Debug + Send + 'static> TcpConnFactory<A> {
-    /// Create a new factory.
+impl<A: ToSocketAddrs + Clone + Debug + Send + 'static> TcpConnStream<A> {
+    /// Create a new TCP connection stream.
     ///
     /// addr is the destination address to connect to.
-    pub fn new(addr: A) -> TcpConnFactory<A> {
+    pub fn new(addr: A) -> Self {
         Self { addr }
     }
 }
 
-impl<A: ToSocketAddrs + Clone + Send + 'static> ConnFactory<TcpStream>
-    for TcpConnFactory<A>
+impl<A: ToSocketAddrs + Clone + Send + 'static> ConnectionStream<TcpStream>
+    for TcpConnStream<A>
 {
     type F = Pin<
         Box<dyn Future<Output = Result<TcpStream, std::io::Error>> + Send>,

@@ -31,8 +31,8 @@ use tokio::time::{sleep_until, Instant};
 use crate::base::iana::Rcode;
 use crate::base::Message;
 use crate::net::client::base_message_builder::BaseMessageBuilder;
+use crate::net::client::connection_stream::ConnectionStream;
 use crate::net::client::error::Error;
-use crate::net::client::factory::ConnFactory;
 use crate::net::client::octet_stream;
 use crate::net::client::query::{GetResult, QueryMessage4};
 
@@ -84,13 +84,13 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     /// This function has to run in the background or together with
     /// any calls to [query](Self::query) or [Query::get_result].
     pub fn run<
-        F: ConnFactory<IO> + Send + 'static,
+        S: ConnectionStream<IO> + Send + 'static,
         IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
     >(
         &self,
-        factory: F,
+        stream: S,
     ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
-        self.inner.run(factory)
+        self.inner.run(stream)
     }
 
     /// Start a DNS request.
@@ -394,15 +394,15 @@ type ReplySender<BMB> = oneshot::Sender<ChanResp<BMB>>;
 /// Internal datastructure of [InnerConnection::run] to keep track of
 /// the status of the connection.
 // The types Status and ConnState are only used in InnerConnection
-struct State3<'a, F, IO, BMB> {
+struct State3<'a, S, IO, BMB> {
     /// Underlying octet_stream connection.
     conn_state: SingleConnState3<BMB>,
 
     /// Current connection id.
     conn_id: u64,
 
-    /// Factory for new octet streams.
-    factory: F,
+    /// Connection stream for new octet streams.
+    stream: S,
 
     /// Collection of futures for the async run function of the underlying
     /// octet_stream.
@@ -423,7 +423,7 @@ enum SingleConnState3<BMB> {
     Some(octet_stream::Connection<BMB>),
 
     /// State that deals with an error getting a new octet stream from
-    /// a factory.
+    /// a connection stream.
     Err(ErrorState),
 }
 
@@ -463,17 +463,17 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     /// This function is not async cancellation safe.
     /// Make sure the resulting future does not contain a reference to self.
     pub fn run<
-        F: ConnFactory<IO> + Send + 'static,
+        S: ConnectionStream<IO> + Send + 'static,
         IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
     >(
         &self,
-        factory: F,
+        stream: S,
     ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
         let mut receiver = self.receiver.lock().unwrap();
         let opt_receiver = receiver.take();
         drop(receiver);
 
-        Box::pin(Self::run_impl(self.config.clone(), factory, opt_receiver))
+        Box::pin(Self::run_impl(self.config.clone(), stream, opt_receiver))
     }
 
     /// Implementation of the run method. This function does not have
@@ -481,11 +481,11 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     #[rustfmt::skip]
     async fn run_impl<
         'a,
-        F: ConnFactory<IO> + Send,
+        S: ConnectionStream<IO> + Send,
         IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Unpin,
     >(
 	config: Config,
-        factory: F,
+        stream: S,
 	opt_receiver: Option<mpsc::Receiver<ChanReq<BMB>>>
     ) -> Result<(), Error> {
         let mut receiver = {
@@ -493,10 +493,10 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
         };
         let mut curr_cmd: Option<ReqCmd<BMB>> = None;
 
-        let mut state = State3::<'a, F, IO, BMB> {
+        let mut state = State3::<'a, S, IO, BMB> {
             conn_state: SingleConnState3::None,
             conn_id: 0,
-            factory,
+            stream,
             runners: FuturesUnordered::<
                 Pin<Box<dyn Future<Output = Option<()>> + Send>>,
             >::new(),
@@ -506,7 +506,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
         let mut do_stream = false;
         let mut stream_fut: Pin<
             Box<dyn Future<Output = Result<IO, std::io::Error>> + Send>,
-        > = Box::pin(factory_nop());
+        > = Box::pin(stream_nop());
         let mut opt_chan = None;
 
         loop {
@@ -557,7 +557,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
                             _ = chan.send(resp);
                         } else {
                             opt_chan = Some(chan);
-                            stream_fut = Box::pin(state.factory.next());
+                            stream_fut = Box::pin(state.stream.next());
                             do_stream = true;
                         }
                     }
@@ -572,7 +572,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
                     tokio::select! {
                         res_conn = stream_fut.as_mut() => {
                             do_stream = false;
-                            stream_fut = Box::pin(factory_nop());
+                            stream_fut = Box::pin(stream_nop());
 
                             if let Err(error) = res_conn {
                                 let error = Arc::new(error);
@@ -763,8 +763,8 @@ fn is_answer_ignore_id<
 }
 
 /// Helper function to create an empty future that is compatible with the
-/// future return by a factory.
-async fn factory_nop<IO>() -> Result<IO, std::io::Error> {
+/// future returned by a connection stream.
+async fn stream_nop<IO>() -> Result<IO, std::io::Error> {
     Err(io::Error::new(io::ErrorKind::Other, "nop"))
 }
 

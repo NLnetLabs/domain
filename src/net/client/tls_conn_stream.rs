@@ -1,4 +1,4 @@
-//! A factory for TLS connections
+//! A stream of TLS connections
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -15,12 +15,12 @@ use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::{ClientConfig, ServerName};
 use tokio_rustls::TlsConnector;
 
-use crate::net::client::factory::ConnFactory;
+use crate::net::client::connection_stream::ConnectionStream;
 
-//------------ TlsConnFactory -------------------------------------------------
+//------------ TlsConnStream -------------------------------------------------
 
-/// Factory object for TLS connections
-pub struct TlsConnFactory<A: ToSocketAddrs> {
+/// Stream of TLS connections
+pub struct TlsConnStream<A: ToSocketAddrs> {
     /// Configuration for setting up a TLS connection.
     client_config: Arc<ClientConfig>,
 
@@ -31,13 +31,13 @@ pub struct TlsConnFactory<A: ToSocketAddrs> {
     addr: A,
 }
 
-impl<A: ToSocketAddrs> TlsConnFactory<A> {
-    /// Function to create a new TLS connection factory
+impl<A: ToSocketAddrs> TlsConnStream<A> {
+    /// Function to create a new TLS connection stream
     pub fn new(
         client_config: Arc<ClientConfig>,
         server_name: &str,
         addr: A,
-    ) -> TlsConnFactory<A> {
+    ) -> Self {
         Self {
             client_config,
             server_name: String::from(server_name),
@@ -47,7 +47,7 @@ impl<A: ToSocketAddrs> TlsConnFactory<A> {
 }
 
 impl<A: ToSocketAddrs + Clone + Send + Sync + 'static>
-    ConnFactory<TlsStream<TcpStream>> for TlsConnFactory<A>
+    ConnectionStream<TlsStream<TcpStream>> for TlsConnStream<A>
 {
     type F = Pin<
         Box<

@@ -6,8 +6,8 @@ use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
 use domain::net::client::query::QueryMessage4;
 use domain::net::client::redundant;
-use domain::net::client::tcp_factory::TcpConnFactory;
-use domain::net::client::tls_factory::TlsConnFactory;
+use domain::net::client::tcp_conn_stream::TcpConnStream;
+use domain::net::client::tls_conn_stream::TlsConnStream;
 use domain::net::client::udp;
 use domain::net::client::udp_tcp;
 use std::net::{IpAddr, SocketAddr};
@@ -84,9 +84,9 @@ async fn main() {
     // when it is no longer needed.
     drop(query);
 
-    // Create a factory of TCP connections. Pass the destination address and
+    // Create a stream of TCP connections. Pass the destination address and
     // port as parameter.
-    let tcp_factory = TcpConnFactory::new(server_addr);
+    let tcp_conn_stream = TcpConnStream::new(server_addr);
 
     // A muli_stream transport connection sets up new TCP connections when
     // needed.
@@ -95,8 +95,8 @@ async fn main() {
             .unwrap();
 
     // Get a future for the run function. The run function receives
-    // the factory as a parameter.
-    let run_fut = tcp_conn.run(tcp_factory);
+    // the connection stream as a parameter.
+    let run_fut = tcp_conn.run(tcp_conn_stream);
     tokio::spawn(async move {
         let res = run_fut.await;
         println!("multi TCP run exited with {:?}", res);
@@ -138,17 +138,17 @@ async fn main() {
     let google_server_addr =
         SocketAddr::new(IpAddr::from_str("8.8.8.8").unwrap(), 853);
 
-    // Create a new TLS connection factory. We pass the TLS config, the name of
+    // Create a new TLS connection stream. We pass the TLS config, the name of
     // the remote server and the destination address and port.
-    let tls_factory =
-        TlsConnFactory::new(client_config, "dns.google", google_server_addr);
+    let tls_conn_stream =
+        TlsConnStream::new(client_config, "dns.google", google_server_addr);
 
     // Again create a multi_stream transport connection.
     let tls_conn =
         multi_stream::Connection::new(Some(multi_stream_config)).unwrap();
 
     // Start the run function.
-    let run_fut = tls_conn.run(tls_factory);
+    let run_fut = tls_conn.run(tls_conn_stream);
     tokio::spawn(async move {
         let res = run_fut.await;
         println!("TLS run exited with {:?}", res);
