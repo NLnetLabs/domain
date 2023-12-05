@@ -8,13 +8,14 @@ use crate::base::wire::ParseError;
 use crate::rdata::{Aaaa, Srv, A};
 use crate::resolv::resolver::Resolver;
 use core::fmt;
-use futures::stream;
-use futures::stream::{Stream, StreamExt};
 use octseq::octets::Octets;
 use rand::distributions::{Distribution, Uniform};
 use std::net::{IpAddr, SocketAddr};
 use std::vec::Vec;
 use std::{io, mem, ops};
+
+#[cfg(feature = "stream")]
+use futures::stream::{self, Stream, StreamExt};
 
 // Look up SRV record. Three outcomes:
 //
@@ -101,6 +102,7 @@ impl FoundSrvs {
     /// pass in a double reference since [`Resolver`] is implemented for a
     /// reference to it and this method requires a reference to that impl
     /// being passed. This quirk will be fixed in future versions.
+    #[cfg(feature = "stream")]
     pub fn into_stream<R: Resolver>(
         self,
         resolver: &R,

@@ -4,6 +4,9 @@
 
 Breaking changes
 
+* The `FoundSrvs::into_stream` function now requires enabling the `stream`
+  feature.
+
 New
 
 Bug fixes
