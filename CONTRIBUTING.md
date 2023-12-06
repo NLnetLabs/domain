@@ -217,6 +217,9 @@ The following derived rules serve this purpose:
   * _tmp_ is a temporary thing that you can forget about a few lines
     later.
 
+* Names (and all documentation) use American English. (Yes, I know. But
+  you have to pick one …)
+
 
 ### Code formatting
 
