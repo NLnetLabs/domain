@@ -169,6 +169,55 @@ in broad strokes. If, upon reading a certain piece of code, you have a hard
 time figuring out what it does, consider adding such a comment once you did.
 
 
+### Naming conventions
+
+For naming items, we use the following guidelines. As always, you can violate
+them if you have a good reason.
+
+The primary rule is to choose a name that makes it as obvious as possible what
+something is and how it behaves even without looking at the documentation.
+
+The following derived rules serve this purpose:
+
+* Follow the Rust convention for spelling items. If the compiler
+  complains, change your spelling instead of silencing the error.
+
+* Don’t make up your own abbreviations. Instead, spell things out even if
+  that means a name gets a bit longer. If that gets annoying try to find a
+  shorter synonym.
+
+  (This goes both for shortening words by leaving out letters and
+  abbreviations made from the select letters of a sequence of words.)
+
+* Types are named using (compound) nouns that describe what the types stands
+  for.
+
+* Traits are named using verb phrases that describe what actions the trait
+  represents. An exception are conversion traits that follow the usual Rust
+  convention for naming conversion functions.
+
+* Don’t use phrases that can be read as both verbs or nouns. It should be
+  clear from the name whether something is a trait or a type, given that
+  both use the same spelling variant.
+
+* Function names are verb phrases in imperative mood. Exceptions are cases
+  where the Rust naming guidelines prescribe alternative schemes, e.g.,
+  getter methods.
+
+* Good naming shouldn’t be limited to public items. Private items and
+  local variables should also have good, descriptive names that make it
+  easy to read the code.
+
+* Commonly used abbreviations are acceptable, even encouraged in local
+  variables. These should have a fixed interpretation. E.g.:
+
+  * _i_ is an integer loop counter,
+  * _res_ is a local variable that will eventually be transformed into the
+    return value,
+  * _tmp_ is a temporary thing that you can forget about a few lines
+    later.
+
+
 ### Code formatting
 
 We’re using the standard formatting as created by rustfmt with two
