@@ -46,9 +46,10 @@ impl<A: ToSocketAddrs> TlsConnect<A> {
     }
 }
 
-impl<A: ToSocketAddrs + Clone + Send + Sync + 'static>
-    AsyncConnect<TlsStream<TcpStream>> for TlsConnect<A>
+impl<A: ToSocketAddrs + Clone + Send + Sync + 'static> AsyncConnect
+    for TlsConnect<A>
 {
+    type Connection = TlsStream<TcpStream>;
     type F = Pin<
         Box<
             dyn Future<Output = Result<TlsStream<TcpStream>, std::io::Error>>

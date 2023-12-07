@@ -30,9 +30,10 @@ impl<A: ToSocketAddrs + Clone + Debug + Send + 'static> TcpConnect<A> {
     }
 }
 
-impl<A: ToSocketAddrs + Clone + Send + 'static> AsyncConnect<TcpStream>
+impl<A: ToSocketAddrs + Clone + Send + 'static> AsyncConnect
     for TcpConnect<A>
 {
+    type Connection = TcpStream;
     type F = Pin<
         Box<dyn Future<Output = Result<TcpStream, std::io::Error>> + Send>,
     >;

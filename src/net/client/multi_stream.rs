@@ -84,8 +84,8 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     /// This function has to run in the background or together with
     /// any calls to [query](Self::query) or [Query::get_result].
     pub fn run<
-        S: AsyncConnect<IO> + Send + 'static,
-        IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
+        S: AsyncConnect<Connection = C> + Send + 'static,
+        C: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
     >(
         &self,
         stream: S,
@@ -463,8 +463,8 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     /// This function is not async cancellation safe.
     /// Make sure the resulting future does not contain a reference to self.
     pub fn run<
-        S: AsyncConnect<IO> + Send + 'static,
-        IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
+        S: AsyncConnect<Connection = C> + Send + 'static,
+        C: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
     >(
         &self,
         stream: S,
@@ -481,8 +481,8 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     #[rustfmt::skip]
     async fn run_impl<
         'a,
-        S: AsyncConnect<IO> + Send,
-        IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Unpin,
+        S: AsyncConnect<Connection = C> + Send,
+        C: 'static + AsyncRead + AsyncWrite + Debug + Send + Unpin,
     >(
 	config: Config,
         stream: S,
@@ -493,7 +493,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
         };
         let mut curr_cmd: Option<ReqCmd<BMB>> = None;
 
-        let mut state = State3::<'a, S, IO, BMB> {
+        let mut state = State3::<'a, S, C, BMB> {
             conn_state: SingleConnState3::None,
             conn_id: 0,
             stream,
@@ -505,7 +505,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
 
         let mut do_stream = false;
         let mut stream_fut: Pin<
-            Box<dyn Future<Output = Result<IO, std::io::Error>> + Send>,
+            Box<dyn Future<Output = Result<C, std::io::Error>> + Send>,
         > = Box::pin(stream_nop());
         let mut opt_chan = None;
 
