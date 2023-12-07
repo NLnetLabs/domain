@@ -1,4 +1,4 @@
-//! A stream of TLS connections
+//! Create new TLS connections
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -15,12 +15,12 @@ use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::{ClientConfig, ServerName};
 use tokio_rustls::TlsConnector;
 
-use crate::net::client::connection_stream::ConnectionStream;
+use crate::net::client::async_connect::AsyncConnect;
 
-//------------ TlsConnStream -------------------------------------------------
+//------------ TlsConnect -----------------------------------------------------
 
-/// Stream of TLS connections
-pub struct TlsConnStream<A: ToSocketAddrs> {
+/// Create new TLS connections
+pub struct TlsConnect<A: ToSocketAddrs> {
     /// Configuration for setting up a TLS connection.
     client_config: Arc<ClientConfig>,
 
@@ -31,7 +31,7 @@ pub struct TlsConnStream<A: ToSocketAddrs> {
     addr: A,
 }
 
-impl<A: ToSocketAddrs> TlsConnStream<A> {
+impl<A: ToSocketAddrs> TlsConnect<A> {
     /// Function to create a new TLS connection stream
     pub fn new(
         client_config: Arc<ClientConfig>,
@@ -47,7 +47,7 @@ impl<A: ToSocketAddrs> TlsConnStream<A> {
 }
 
 impl<A: ToSocketAddrs + Clone + Send + Sync + 'static>
-    ConnectionStream<TlsStream<TcpStream>> for TlsConnStream<A>
+    AsyncConnect<TlsStream<TcpStream>> for TlsConnect<A>
 {
     type F = Pin<
         Box<
@@ -56,7 +56,7 @@ impl<A: ToSocketAddrs + Clone + Send + Sync + 'static>
         >,
     >;
 
-    fn next(&self) -> Self::F {
+    fn connect(&self) -> Self::F {
         let tls_connection = TlsConnector::from(self.client_config.clone());
         let server_name =
             match ServerName::try_from(self.server_name.as_str()) {

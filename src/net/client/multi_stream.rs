@@ -30,8 +30,8 @@ use tokio::time::{sleep_until, Instant};
 
 use crate::base::iana::Rcode;
 use crate::base::Message;
+use crate::net::client::async_connect::AsyncConnect;
 use crate::net::client::base_message_builder::BaseMessageBuilder;
-use crate::net::client::connection_stream::ConnectionStream;
 use crate::net::client::error::Error;
 use crate::net::client::octet_stream;
 use crate::net::client::query::{GetResult, QueryMessage4};
@@ -84,7 +84,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     /// This function has to run in the background or together with
     /// any calls to [query](Self::query) or [Query::get_result].
     pub fn run<
-        S: ConnectionStream<IO> + Send + 'static,
+        S: AsyncConnect<IO> + Send + 'static,
         IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
     >(
         &self,
@@ -463,7 +463,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     /// This function is not async cancellation safe.
     /// Make sure the resulting future does not contain a reference to self.
     pub fn run<
-        S: ConnectionStream<IO> + Send + 'static,
+        S: AsyncConnect<IO> + Send + 'static,
         IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
     >(
         &self,
@@ -481,7 +481,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     #[rustfmt::skip]
     async fn run_impl<
         'a,
-        S: ConnectionStream<IO> + Send,
+        S: AsyncConnect<IO> + Send,
         IO: 'static + AsyncRead + AsyncWrite + Debug + Send + Unpin,
     >(
 	config: Config,
@@ -557,7 +557,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
                             _ = chan.send(resp);
                         } else {
                             opt_chan = Some(chan);
-                            stream_fut = Box::pin(state.stream.next());
+                            stream_fut = Box::pin(state.stream.connect());
                             do_stream = true;
                         }
                     }

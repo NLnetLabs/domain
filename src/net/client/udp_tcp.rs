@@ -19,7 +19,7 @@ use crate::net::client::base_message_builder::BaseMessageBuilder;
 use crate::net::client::error::Error;
 use crate::net::client::multi_stream;
 use crate::net::client::query::{GetResult, QueryMessage4};
-use crate::net::client::tcp_conn_stream::TcpConnStream;
+use crate::net::client::tcp_connect::TcpConnect;
 use crate::net::client::udp;
 
 //------------ Config ---------------------------------------------------------
@@ -229,12 +229,12 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
 
     /// Implementation of the worker function.
     ///
-    /// Create a TCP connection stream and pass that to worker function
+    /// Create a TCP connect object and pass that to run function
     /// of the multi_stream object.
     fn run(&self) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
-        let tcp_stream = TcpConnStream::new(self.remote_addr);
+        let tcp_connect = TcpConnect::new(self.remote_addr);
 
-        let fut = self.tcp_conn.run(tcp_stream);
+        let fut = self.tcp_conn.run(tcp_connect);
         Box::pin(fut)
     }
 

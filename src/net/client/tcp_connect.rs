@@ -1,4 +1,4 @@
-//! A stream of TCP connections
+//! Create new TCP connections.
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -11,18 +11,18 @@ use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 use tokio::net::{TcpStream, ToSocketAddrs};
 
-use crate::net::client::connection_stream::ConnectionStream;
+use crate::net::client::async_connect::AsyncConnect;
 
-//------------ TcpConnStream --------------------------------------------------
+//------------ TcpConnect --------------------------------------------------
 
-/// This a stream of TCP connections.
-pub struct TcpConnStream<A: ToSocketAddrs> {
+/// Create new TCP connections.
+pub struct TcpConnect<A: ToSocketAddrs> {
     /// Remote address to connect to.
     addr: A,
 }
 
-impl<A: ToSocketAddrs + Clone + Debug + Send + 'static> TcpConnStream<A> {
-    /// Create a new TCP connection stream.
+impl<A: ToSocketAddrs + Clone + Debug + Send + 'static> TcpConnect<A> {
+    /// Create new TCP connections.
     ///
     /// addr is the destination address to connect to.
     pub fn new(addr: A) -> Self {
@@ -30,14 +30,14 @@ impl<A: ToSocketAddrs + Clone + Debug + Send + 'static> TcpConnStream<A> {
     }
 }
 
-impl<A: ToSocketAddrs + Clone + Send + 'static> ConnectionStream<TcpStream>
-    for TcpConnStream<A>
+impl<A: ToSocketAddrs + Clone + Send + 'static> AsyncConnect<TcpStream>
+    for TcpConnect<A>
 {
     type F = Pin<
         Box<dyn Future<Output = Result<TcpStream, std::io::Error>> + Send>,
     >;
 
-    fn next(&self) -> Self::F {
+    fn connect(&self) -> Self::F {
         Box::pin(Next {
             future: Box::pin(TcpStream::connect(self.addr.clone())),
         })
