@@ -4,7 +4,6 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use std::future::Future;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 /// This trait is for creating new network connections asynchronously.
 ///
@@ -15,7 +14,7 @@ pub trait AsyncConnect {
     ///
     /// This method is equivalent to async fn connect(&self) -> Result<IO, std::io::Error>;
 
-    type Connection: AsyncRead + AsyncWrite + Send + Unpin;
+    type Connection;
 
     /// Associated type for the return type of next.
     type F: Future<Output = Result<Self::Connection, std::io::Error>> + Send;
