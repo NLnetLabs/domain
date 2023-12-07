@@ -15,7 +15,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::base::Message;
-use crate::net::client::base_message_builder::BaseMessageBuilder;
+use crate::net::client::compose_request::ComposeRequest;
 use crate::net::client::error::Error;
 use crate::net::client::multi_stream;
 use crate::net::client::query::{GetResult, QueryMessage4};
@@ -44,7 +44,7 @@ pub struct Connection<BMB> {
     inner: Arc<InnerConnection<BMB>>,
 }
 
-impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
+impl<CR: ComposeRequest + Clone + 'static> Connection<CR> {
     /// Create a new connection.
     pub fn new(
         config: Option<Config>,
@@ -73,19 +73,19 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     /// Start a query for the QueryMessage4 trait.
     async fn query_impl4(
         &self,
-        query_msg: &BMB,
+        query_msg: &CR,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
         let gr = self.inner.query(query_msg).await?;
         Ok(Box::new(gr))
     }
 }
 
-impl<BMB: BaseMessageBuilder + Clone + 'static> QueryMessage4<BMB>
-    for Connection<BMB>
+impl<CR: ComposeRequest + Clone + 'static> QueryMessage4<CR>
+    for Connection<CR>
 {
     fn query<'a>(
         &'a self,
-        query_msg: &'a BMB,
+        query_msg: &'a CR,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
@@ -131,15 +131,15 @@ enum QueryState {
     GetTcpResult(Box<dyn GetResult + Send>),
 }
 
-impl<BMB: BaseMessageBuilder + Clone + 'static> Query<BMB> {
+impl<CR: ComposeRequest + Clone + 'static> Query<CR> {
     /// Create a new Query object.
     ///
     /// The initial state is to start with a UDP transport.
     fn new(
-        query_msg: &BMB,
+        query_msg: &CR,
         udp_conn: udp::Connection,
-        tcp_conn: multi_stream::Connection<BMB>,
-    ) -> Query<BMB> {
+        tcp_conn: multi_stream::Connection<CR>,
+    ) -> Query<CR> {
         Query {
             query_msg: query_msg.clone(),
             udp_conn,
@@ -185,9 +185,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Query<BMB> {
     }
 }
 
-impl<BMB: BaseMessageBuilder + Clone + Debug + 'static> GetResult
-    for Query<BMB>
-{
+impl<CR: ComposeRequest + Clone + Debug + 'static> GetResult for Query<CR> {
     fn get_result(
         &mut self,
     ) -> Pin<
@@ -211,7 +209,7 @@ struct InnerConnection<BMB> {
     tcp_conn: multi_stream::Connection<BMB>,
 }
 
-impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
+impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
     /// Create a new InnerConnection object.
     ///
     /// Create the UDP and TCP connections. Store the remote address because
@@ -241,7 +239,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     /// Implementation of the query function.
     ///
     /// Just create a Query object with the state it needs.
-    async fn query(&self, query_msg: &BMB) -> Result<Query<BMB>, Error> {
+    async fn query(&self, query_msg: &CR) -> Result<Query<CR>, Error> {
         Ok(Query::new(
             query_msg,
             self.udp_conn.clone(),

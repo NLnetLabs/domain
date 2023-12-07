@@ -1,12 +1,11 @@
-//! Trait for building a message by applying changes to a base message.
+//! Trait for composing a request by applying limited changes.
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
+use crate::base::opt::TcpKeepalive;
 use crate::base::Header;
 use crate::base::Message;
-//use crate::base::message_builder::OptBuilder;
-use crate::base::opt::TcpKeepalive;
 
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -19,11 +18,10 @@ pub enum OptTypes {
     TypeTcpKeepalive(TcpKeepalive),
 }
 
-/// A trait that allows construction of a message as a series to changes to
-/// an existing message.
-pub trait BaseMessageBuilder: Debug + Send + Sync {
+/// A trait that allows composing a request as a series.
+pub trait ComposeRequest: Debug + Send + Sync {
     /// Return a boxed dyn of the current object.
-    fn as_box_dyn(&self) -> Box<dyn BaseMessageBuilder>;
+    fn as_box_dyn(&self) -> Box<dyn ComposeRequest>;
 
     /// Create a message that captures the recorded changes.
     fn to_message(&self) -> Message<Vec<u8>>;

@@ -22,7 +22,7 @@ use tokio::time::{timeout, Duration, Instant};
 
 use crate::base::iana::Rcode;
 use crate::base::Message;
-use crate::net::client::base_message_builder::BaseMessageBuilder;
+use crate::net::client::compose_request::ComposeRequest;
 use crate::net::client::error::Error;
 use crate::net::client::query::{GetResult, QueryMessage4};
 
@@ -122,10 +122,10 @@ impl Connection {
 
     /// Start a new DNS query.
     async fn query_impl4<
-        BMB: BaseMessageBuilder + Clone + Send + Sync + 'static,
+        CR: ComposeRequest + Clone + Send + Sync + 'static,
     >(
         &self,
-        query_msg: &BMB,
+        query_msg: &CR,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
         let gr = self.inner.query(query_msg, self.clone()).await?;
         Ok(Box::new(gr))
@@ -137,12 +137,12 @@ impl Connection {
     }
 }
 
-impl<BMB: BaseMessageBuilder + Clone + Send + Sync + 'static>
-    QueryMessage4<BMB> for Connection
+impl<CR: ComposeRequest + Clone + Send + Sync + 'static> QueryMessage4<CR>
+    for Connection
 {
     fn query<'a>(
         &'a self,
-        query_msg: &'a BMB,
+        query_msg: &'a CR,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
@@ -376,9 +376,9 @@ pub struct Query4 {
 
 impl Query4 {
     /// Create new Query object.
-    fn new<BMB: BaseMessageBuilder + Clone + Send + Sync + 'static>(
+    fn new<CR: ComposeRequest + Clone + Send + Sync + 'static>(
         config: Config,
-        query_msg: &BMB,
+        query_msg: &CR,
         remote_addr: SocketAddr,
         conn: Connection,
         udp_payload_size: Option<u16>,
@@ -402,9 +402,9 @@ impl Query4 {
     /// Get the result of a DNS Query.
     ///
     /// This function is not cancel safe.
-    async fn get_result_impl2<BMB: BaseMessageBuilder>(
+    async fn get_result_impl2<CR: ComposeRequest>(
         config: Config,
-        mut query_bmb: BMB,
+        mut query_bmb: CR,
         remote_addr: SocketAddr,
         conn: Connection,
         udp_payload_size: Option<u16>,
@@ -574,11 +574,9 @@ impl InnerConnection {
     }
 
     /// Return a Query object that contains the query state.
-    async fn query<
-        BMB: BaseMessageBuilder + Clone + Send + Sync + 'static,
-    >(
+    async fn query<CR: ComposeRequest + Clone + Send + Sync + 'static>(
         &self,
-        query_msg: &BMB,
+        query_msg: &CR,
         conn: Connection,
     ) -> Result<Query4, Error> {
         Ok(Query4::new(

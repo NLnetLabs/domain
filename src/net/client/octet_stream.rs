@@ -33,8 +33,8 @@ use crate::base::{
     opt::{AllOptData, OptRecord, TcpKeepalive},
     Message,
 };
-use crate::net::client::base_message_builder::BaseMessageBuilder;
-use crate::net::client::base_message_builder::OptTypes;
+use crate::net::client::compose_request::ComposeRequest;
+use crate::net::client::compose_request::OptTypes;
 use crate::net::client::error::Error;
 use crate::net::client::query::{GetResult, QueryMessage4};
 use octseq::Octets;
@@ -88,12 +88,12 @@ impl Default for Config {
 
 #[derive(Clone, Debug)]
 /// A single DNS over octect stream connection.
-pub struct Connection<BMB> {
+pub struct Connection<CR> {
     /// Reference counted [InnerConnection].
-    inner: Arc<InnerConnection<BMB>>,
+    inner: Arc<InnerConnection<CR>>,
 }
 
-impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
+impl<CR: ComposeRequest + Clone + 'static> Connection<CR> {
     /// Constructor for [Connection].
     ///
     /// Returns a [Connection] wrapped in a [Result](io::Result).
@@ -129,7 +129,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     /// returns a [Query] object wrapped in a [Result].
     async fn query_impl4(
         &self,
-        query_msg: &BMB,
+        query_msg: &CR,
     ) -> Result<Box<dyn GetResult + Send>, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.query(tx, query_msg).await?;
@@ -143,7 +143,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     /// match the request avoids having to keep the request around.
     pub async fn query_no_check(
         &self,
-        query_msg: &BMB,
+        query_msg: &CR,
     ) -> Result<QueryNoCheck, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.query(tx, query_msg).await?;
@@ -151,12 +151,12 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> Connection<BMB> {
     }
 }
 
-impl<BMB: BaseMessageBuilder + Clone + 'static> QueryMessage4<BMB>
-    for Connection<BMB>
+impl<CR: ComposeRequest + Clone + 'static> QueryMessage4<CR>
+    for Connection<CR>
 {
     fn query<'a>(
         &'a self,
-        query_msg: &'a BMB,
+        query_msg: &'a CR,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
@@ -198,8 +198,8 @@ enum QueryState {
 impl Query {
     /// Constructor for [Query], takes a DNS query and a receiver for the
     /// reply.
-    fn new<BMB: BaseMessageBuilder>(
-        query_msg: &BMB,
+    fn new<CR: ComposeRequest>(
+        query_msg: &CR,
         receiver: oneshot::Receiver<ChanResp>,
     ) -> Query {
         let vec = query_msg.to_vec();
@@ -316,7 +316,7 @@ impl QueryNoCheck {
 
 /// The actual implementation of [Connection].
 #[derive(Debug)]
-struct InnerConnection<BMB> {
+struct InnerConnection<CR> {
     /// User configuration variables.
     config: Config,
 
@@ -324,7 +324,7 @@ struct InnerConnection<BMB> {
     /// part of a single channel.
     ///
     /// Used by [Query] to send requests to [InnerConnection::run].
-    sender: mpsc::Sender<ChanReq<BMB>>,
+    sender: mpsc::Sender<ChanReq<CR>>,
 
     /// receiver part of the channel.
     ///
@@ -332,14 +332,14 @@ struct InnerConnection<BMB> {
     /// [InnerConnection::run].
     /// The Option is to allow [InnerConnection::run] to signal that the
     /// connection is closed.
-    receiver: Mutex<Option<mpsc::Receiver<ChanReq<BMB>>>>,
+    receiver: Mutex<Option<mpsc::Receiver<ChanReq<CR>>>>,
 }
 
 #[derive(Debug)]
 /// A request from [Query] to [Connection::run] to start a DNS request.
-struct ChanReq<BMB> {
+struct ChanReq<CR> {
     /// DNS request message
-    msg: BMB,
+    msg: CR,
 
     /// Sender to send result back to [Query]
     sender: ReplySender,
@@ -427,7 +427,7 @@ enum ConnState {
 // This type could be local to InnerConnection, but I don't know how
 type ReaderChanReply = Message<Bytes>;
 
-impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
+impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
     /// Constructor for [InnerConnection].
     ///
     /// This is the implementation of [Connection::new].
@@ -461,7 +461,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     async fn run_impl<IO: AsyncReadExt + AsyncWriteExt + Unpin>(
         config: Config,
         io: IO,
-        opt_receiver: Option<mpsc::Receiver<ChanReq<BMB>>>,
+        opt_receiver: Option<mpsc::Receiver<ChanReq<CR>>>,
     ) -> Option<()> {
         let (reply_sender, mut reply_receiver) =
             mpsc::channel::<ReaderChanReply>(READ_REPLY_CHAN_CAP);
@@ -639,7 +639,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     pub async fn query(
         &self,
         sender: oneshot::Sender<ChanResp>,
-        query_msg: &BMB,
+        query_msg: &CR,
     ) -> Result<(), Error> {
         // We should figure out how to get query_msg.
 
@@ -812,7 +812,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     /// idle. Addend a edns-tcp-keepalive option if needed.
     // Note: maybe reqmsg should be a return value.
     fn insert_req(
-        mut req: ChanReq<BMB>,
+        mut req: ChanReq<CR>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
         query_vec: &mut Queries,
@@ -908,10 +908,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
     /// Convert the query message to a vector.
     // This function should return the vector instead of storing it
     // through a reference.
-    fn convert_query(
-        msg: &dyn BaseMessageBuilder,
-        reqmsg: &mut Option<Vec<u8>>,
-    ) {
+    fn convert_query(msg: &dyn ComposeRequest, reqmsg: &mut Option<Vec<u8>>) {
         // Ideally there should be a write_all_vectored. Until there is one,
         // copy to a new Vec and prepend the length octets.
 
@@ -994,9 +991,7 @@ impl<BMB: BaseMessageBuilder + Clone + 'static> InnerConnection<BMB> {
 //------------ Utility --------------------------------------------------------
 
 /// Add an edns-tcp-keepalive option to a BaseMessageBuilder.
-fn add_tcp_keepalive<BMB: BaseMessageBuilder>(
-    msg: &mut BMB,
-) -> Result<(), Error> {
+fn add_tcp_keepalive<CR: ComposeRequest>(msg: &mut CR) -> Result<(), Error> {
     msg.add_opt(OptTypes::TypeTcpKeepalive(TcpKeepalive::new(None)));
     Ok(())
 }

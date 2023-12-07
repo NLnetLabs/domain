@@ -1,11 +1,11 @@
 use domain::base::Dname;
 use domain::base::MessageBuilder;
 use domain::base::Rtype::Aaaa;
-use domain::net::client::bmb::BMB;
 use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
 use domain::net::client::query::QueryMessage4;
 use domain::net::client::redundant;
+use domain::net::client::request_message::RequestMessage;
 use domain::net::client::tcp_connect::TcpConnect;
 use domain::net::client::tls_connect::TlsConnect;
 use domain::net::client::udp;
@@ -35,7 +35,7 @@ async fn main() {
 
     // Transports take a BaseMEssageBuilder to be able to add options along
     // the way and only flatten just before actually writing to the network.
-    let bmb = BMB::new(msg);
+    let req = RequestMessage::new(msg);
 
     // Destination for UDP and TCP
     let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
@@ -73,7 +73,7 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut query = udptcp_conn.query(&bmb).await.unwrap();
+    let mut query = udptcp_conn.query(&req).await.unwrap();
 
     // Get the reply
     println!("Wating for UDP+TCP reply");
@@ -103,7 +103,7 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut query = tcp_conn.query(&bmb).await.unwrap();
+    let mut query = tcp_conn.query(&req).await.unwrap();
 
     // Get the reply. A multi_stream connection does not have any timeout.
     // Wrap get_result in a timeout.
@@ -154,7 +154,7 @@ async fn main() {
         println!("TLS run exited with {:?}", res);
     });
 
-    let mut query = tls_conn.query(&bmb).await.unwrap();
+    let mut query = tls_conn.query(&req).await.unwrap();
     println!("Wating for TLS reply");
     let reply = timeout(Duration::from_millis(500), query.get_result()).await;
     println!("TLS reply: {:?}", reply);
@@ -178,7 +178,7 @@ async fn main() {
 
     // Start a few queries.
     for i in 1..10 {
-        let mut query = redun.query(&bmb).await.unwrap();
+        let mut query = redun.query(&req).await.unwrap();
         let reply = query.get_result().await;
         if i == 2 {
             println!("redundant connection reply: {:?}", reply);
@@ -195,7 +195,7 @@ async fn main() {
         udp::Connection::new(Some(udp_config), server_addr).unwrap();
 
     // Send a query message.
-    let mut query = udp_conn.query(&bmb).await.unwrap();
+    let mut query = udp_conn.query(&req).await.unwrap();
 
     // Get the reply
     let reply = query.get_result().await;
@@ -214,7 +214,7 @@ async fn main() {
         }
     };
 
-    let tcp = octet_stream::Connection::<BMB<Vec<u8>>>::new(None).unwrap();
+    let tcp = octet_stream::Connection::new(None).unwrap();
     let run_fut = tcp.run(tcp_conn);
     tokio::spawn(async move {
         run_fut.await;
@@ -222,7 +222,7 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut query = tcp.query(&bmb).await.unwrap();
+    let mut query = tcp.query(&req).await.unwrap();
 
     // Get the reply
     let reply = query.get_result().await;

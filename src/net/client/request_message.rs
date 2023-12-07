@@ -1,11 +1,8 @@
-//! Simple class that implement the BaseMessageBuilder trait.
+//! Simple object that implements the ComposeRequest trait.
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-//use bytes::BytesMut;
-
-//use crate::base::message_builder::OptBuilder;
 use crate::base::Header;
 use crate::base::Message;
 use crate::base::MessageBuilder;
@@ -13,8 +10,8 @@ use crate::base::ParsedDname;
 use crate::base::Rtype;
 use crate::base::StaticCompressor;
 use crate::dep::octseq::Octets;
-use crate::net::client::base_message_builder::BaseMessageBuilder;
-use crate::net::client::base_message_builder::OptTypes;
+use crate::net::client::compose_request::ComposeRequest;
+use crate::net::client::compose_request::OptTypes;
 use crate::net::client::error::Error;
 use crate::rdata::AllRecordData;
 
@@ -23,9 +20,9 @@ use std::fmt::Debug;
 use std::vec::Vec;
 
 #[derive(Clone, Debug)]
-/// Object that implements the BaseMessageBuilder trait for a Message object.
-pub struct BMB<Octs: AsRef<[u8]>> {
-    /// Base messages.
+/// Object that implements the ComposeRequest trait for a Message object.
+pub struct RequestMessage<Octs: AsRef<[u8]>> {
+    /// Base message.
     msg: Message<Octs>,
 
     /// New header.
@@ -38,7 +35,7 @@ pub struct BMB<Octs: AsRef<[u8]>> {
     udp_payload_size: Option<u16>,
 }
 
-impl<Octs: AsRef<[u8]> + Debug + Octets> BMB<Octs> {
+impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
     /// Create a new BMB object.
     pub fn new(msg: Message<Octs>) -> Self {
         let header = msg.header();
@@ -150,9 +147,9 @@ impl<Octs: AsRef<[u8]> + Debug + Octets> BMB<Octs> {
 }
 
 impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
-    BaseMessageBuilder for BMB<Octs>
+    ComposeRequest for RequestMessage<Octs>
 {
-    fn as_box_dyn(&self) -> Box<dyn BaseMessageBuilder> {
+    fn as_box_dyn(&self) -> Box<dyn ComposeRequest> {
         Box::new(self.clone())
     }
 
