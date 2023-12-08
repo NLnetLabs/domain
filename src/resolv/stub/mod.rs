@@ -19,12 +19,12 @@ use crate::base::message_builder::{
 };
 use crate::base::name::{ToDname, ToRelativeDname};
 use crate::base::question::Question;
-use crate::net::client::base_message_builder::BaseMessageBuilder;
-use crate::net::client::bmb;
+use crate::net::client::compose_request::ComposeRequest;
 use crate::net::client::multi_stream;
-use crate::net::client::query::QueryMessage4;
 use crate::net::client::redundant;
-use crate::net::client::tcp_conn_stream::TcpConnStream;
+use crate::net::client::request::Request;
+use crate::net::client::request_message::RequestMessage;
+use crate::net::client::tcp_connect::TcpConnect;
 use crate::net::client::udp_tcp;
 use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
@@ -76,7 +76,7 @@ pub mod conf;
 /// [`run_with_conf()`]: #method.run_with_conf
 #[derive(Debug)]
 pub struct StubResolver {
-    transport: Mutex<Option<redundant::Connection<bmb::BMB<Vec<u8>>>>>,
+    transport: Mutex<Option<redundant::Connection<RequestMessage<Vec<u8>>>>>,
 
     /// Resolver options.
     options: ResolvOptions,
@@ -121,10 +121,10 @@ impl StubResolver {
     }
 
     async fn setup_transport<
-        BMB: Clone + Debug + BaseMessageBuilder + Send + Sync + 'static,
+        CR: Clone + Debug + ComposeRequest + Send + Sync + 'static,
     >(
         &self,
-    ) -> redundant::Connection<BMB> {
+    ) -> redundant::Connection<CR> {
         // Create a redundant transport and fill it with the right transports
         let redun = redundant::Connection::new(None).unwrap();
 
@@ -150,17 +150,13 @@ impl StubResolver {
         if self.options.use_vc {
             for s in &self.servers {
                 if let Transport::Tcp = s.transport {
-                    let tcp_conn_stream = TcpConnStream::new(s.addr);
+                    let tcp_connect = TcpConnect::new(s.addr);
                     let tcp_conn =
                         multi_stream::Connection::new(None).unwrap();
-                    // TODO: How do we handle this?
-                    // Create a clone for the run function. Start the run function on a
-                    // separate task.
-                    let conn_run = tcp_conn.clone();
+                    // Start the run function on a separate task.
+                    let run_fut = tcp_conn.run(tcp_connect);
                     fut_list_tcp.push(async move {
-                        let fut = conn_run.run(tcp_conn_stream);
-                        drop(conn_run);
-                        let _res = fut.await;
+                        let _res = run_fut.await;
                     });
                     redun.add(Box::new(tcp_conn)).await.unwrap();
                 }
@@ -172,14 +168,10 @@ impl StubResolver {
                 if let Transport::Udp = s.transport {
                     let udptcp_conn =
                         udp_tcp::Connection::new(None, s.addr).unwrap();
-                    // TODO: How do we handle this?
-                    // Create a clone for the run function. Start the run function on a
-                    // separate task.
-                    let conn_run = udptcp_conn.clone();
+                    // Start the run function on a separate task.
+                    let run_fut = udptcp_conn.run();
                     fut_list_udp_tcp.push(async move {
-                        let fut = conn_run.run();
-                        drop(conn_run);
-                        let _res = fut.await;
+                        let _res = run_fut.await;
                     });
                     redun.add(Box::new(udptcp_conn)).await.unwrap();
                 }
@@ -195,7 +187,7 @@ impl StubResolver {
 
     async fn get_transport(
         &self,
-    ) -> redundant::Connection<bmb::BMB<Vec<u8>>> {
+    ) -> redundant::Connection<RequestMessage<Vec<u8>>> {
         let mut opt_transport = self.transport.lock().await;
 
         if opt_transport.is_none() {
@@ -417,12 +409,12 @@ impl<'a> Query<'a> {
         )
         .unwrap();
 
-        let bmb = bmb::BMB::new(msg);
+        let request_msg = RequestMessage::new(msg);
 
         let transport = self.resolver.get_transport().await;
-        let mut gr_fut = transport.query(&bmb).await.unwrap();
+        let mut gr_fut = transport.request(&request_msg).await.unwrap();
         let reply =
-            timeout(self.resolver.options.timeout, gr_fut.get_result())
+            timeout(self.resolver.options.timeout, gr_fut.get_response())
                 .await
                 .unwrap()
                 .unwrap();
