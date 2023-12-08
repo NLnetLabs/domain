@@ -24,7 +24,7 @@ use crate::base::iana::Rcode;
 use crate::base::Message;
 use crate::net::client::compose_request::ComposeRequest;
 use crate::net::client::error::Error;
-use crate::net::client::query::{GetResult, QueryMessage4};
+use crate::net::client::request::{GetResponse, Request};
 
 /// How many times do we try a new random port if we get ‘address in use.’
 const RETRY_RANDOM_PORT: usize = 10;
@@ -120,14 +120,14 @@ impl Connection {
         })
     }
 
-    /// Start a new DNS query.
-    async fn query_impl4<
+    /// Start a new DNS request.
+    async fn request_impl<
         CR: ComposeRequest + Clone + Send + Sync + 'static,
     >(
         &self,
-        query_msg: &CR,
-    ) -> Result<Box<dyn GetResult + Send>, Error> {
-        let gr = self.inner.query(query_msg, self.clone()).await?;
+        request_msg: &CR,
+    ) -> Result<Box<dyn GetResponse + Send>, Error> {
+        let gr = self.inner.request(request_msg, self.clone()).await?;
         Ok(Box::new(gr))
     }
 
@@ -137,20 +137,20 @@ impl Connection {
     }
 }
 
-impl<CR: ComposeRequest + Clone + Send + Sync + 'static> QueryMessage4<CR>
+impl<CR: ComposeRequest + Clone + Send + Sync + 'static> Request<CR>
     for Connection
 {
-    fn query<'a>(
+    fn request<'a>(
         &'a self,
-        query_msg: &'a CR,
+        request_msg: &'a CR,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
                 + Send
                 + '_,
         >,
     > {
-        return Box::pin(self.query_impl4(query_msg));
+        return Box::pin(self.request_impl(request_msg));
     }
 }
 
@@ -365,28 +365,28 @@ impl GetResult for Query {
 
 */
 
-//------------ Query4 ---------------------------------------------------------
+//------------ ReqResp --------------------------------------------------------
 
-/// The state of a DNS query.
-pub struct Query4 {
-    /// Future that does the actual work of GetResult.
-    get_result_fut:
+/// The state of a DNS request.
+pub struct ReqResp {
+    /// Future that does the actual work of GetResponse.
+    get_response_fut:
         Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
 }
 
-impl Query4 {
-    /// Create new Query object.
+impl ReqResp {
+    /// Create new ReqResp object.
     fn new<CR: ComposeRequest + Clone + Send + Sync + 'static>(
         config: Config,
-        query_msg: &CR,
+        request_msg: &CR,
         remote_addr: SocketAddr,
         conn: Connection,
         udp_payload_size: Option<u16>,
     ) -> Self {
         Self {
-            get_result_fut: Box::pin(Self::get_result_impl2(
+            get_response_fut: Box::pin(Self::get_response_impl2(
                 config,
-                query_msg.clone(),
+                request_msg.clone(),
                 remote_addr,
                 conn,
                 udp_payload_size,
@@ -395,16 +395,16 @@ impl Query4 {
     }
 
     /// Async function that waits for the future stored in Query to complete.
-    async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        (&mut self.get_result_fut).await
+    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
+        (&mut self.get_response_fut).await
     }
 
-    /// Get the result of a DNS Query.
+    /// Get the response of a DNS request.
     ///
     /// This function is not cancel safe.
-    async fn get_result_impl2<CR: ComposeRequest>(
+    async fn get_response_impl2<CR: ComposeRequest>(
         config: Config,
-        mut query_bmb: CR,
+        mut request_bmb: CR,
         remote_addr: SocketAddr,
         conn: Connection,
         udp_payload_size: Option<u16>,
@@ -427,14 +427,14 @@ impl Query4 {
                 .map_err(|e| Error::UdpConnect(Arc::new(e)))?;
 
             // Set random ID in header
-            let header = query_bmb.header_mut();
+            let header = request_bmb.header_mut();
             header.set_random_id();
             // Set UDP payload size
             if let Some(size) = udp_payload_size {
-                query_bmb.set_udp_payload_size(size)
+                request_bmb.set_udp_payload_size(size)
             }
-            let query_msg = query_bmb.to_message();
-            let dgram = query_msg.as_slice();
+            let request_msg = request_bmb.to_message();
+            let dgram = request_msg.as_slice();
 
             let sent = sock
                 .as_ref()
@@ -487,7 +487,7 @@ impl Query4 {
                     Err(_) => continue,
                 };
 
-                if !is_answer(&answer, &query_msg) {
+                if !is_answer(&answer, &request_msg) {
                     // Wrong answer, go back to receiving
                     continue;
                 }
@@ -528,19 +528,19 @@ impl Query4 {
     }
 }
 
-impl Debug for Query4 {
+impl Debug for ReqResp {
     fn fmt(&self, _: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
         todo!()
     }
 }
 
-impl GetResult for Query4 {
-    fn get_result(
+impl GetResponse for ReqResp {
+    fn get_response(
         &mut self,
     ) -> Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
     > {
-        Box::pin(self.get_result_impl())
+        Box::pin(self.get_response_impl())
     }
 }
 
@@ -574,14 +574,14 @@ impl InnerConnection {
     }
 
     /// Return a Query object that contains the query state.
-    async fn query<CR: ComposeRequest + Clone + Send + Sync + 'static>(
+    async fn request<CR: ComposeRequest + Clone + Send + Sync + 'static>(
         &self,
-        query_msg: &CR,
+        request_msg: &CR,
         conn: Connection,
-    ) -> Result<Query4, Error> {
-        Ok(Query4::new(
+    ) -> Result<ReqResp, Error> {
+        Ok(ReqResp::new(
             self.config.clone(),
-            query_msg,
+            request_msg,
             self.remote_addr,
             conn,
             self.config.udp_payload_size,

@@ -34,7 +34,7 @@ use crate::net::client::async_connect::AsyncConnect;
 use crate::net::client::compose_request::ComposeRequest;
 use crate::net::client::error::Error;
 use crate::net::client::octet_stream;
-use crate::net::client::query::{GetResult, QueryMessage4};
+use crate::net::client::request::{GetResponse, Request};
 
 /// Capacity of the channel that transports [ChanReq].
 const DEF_CHAN_CAP: usize = 8;
@@ -82,7 +82,7 @@ impl<CR: ComposeRequest + Clone + 'static> Connection<CR> {
     /// Main execution function for [Connection].
     ///
     /// This function has to run in the background or together with
-    /// any calls to [query](Self::query) or [Query::get_result].
+    /// any calls to [query](Self::query) or [ReqResp::get_response].
     pub fn run<
         S: AsyncConnect<Connection = C> + Send + 'static,
         C: 'static + AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
@@ -96,14 +96,14 @@ impl<CR: ComposeRequest + Clone + 'static> Connection<CR> {
     /// Start a DNS request.
     ///
     /// This function takes a precomposed message as a parameter and
-    /// returns a [Query] object wrapped in a [Result].
-    async fn query_impl4(
+    /// returns a [ReqResp] object wrapped in a [Result].
+    async fn query_impl(
         &self,
         query_msg: &CR,
-    ) -> Result<Box<dyn GetResult + Send>, Error> {
+    ) -> Result<Box<dyn GetResponse + Send>, Error> {
         let (tx, rx) = oneshot::channel();
         self.inner.new_conn(None, tx).await?;
-        let gr = Query::<CR>::new(self.clone(), query_msg, rx);
+        let gr = ReqResp::<CR>::new(self.clone(), query_msg, rx);
         Ok(Box::new(gr))
     }
 
@@ -122,48 +122,32 @@ impl<CR: ComposeRequest + Clone + 'static> Connection<CR> {
     }
 }
 
-/*
-impl<CR: ComposeMessage, Octs: Clone + Debug + Octets + Send + Sync + 'static>
-    QueryMessage<Query<CR>, Octs> for Connection<>
-{
-    fn query<'a>(
+impl<CR: ComposeRequest + Clone + 'static> Request<CR> for Connection<CR> {
+    fn request<'a>(
         &'a self,
-        query_msg: &'a Message<Octs>,
-    ) -> Pin<Box<dyn Future<Output = Result<Query<CR>, Error>> + Send + '_>>
-    {
-        return Box::pin(self.query_impl(query_msg));
-    }
-}
-*/
-
-impl<CR: ComposeRequest + Clone + 'static> QueryMessage4<CR>
-    for Connection<CR>
-{
-    fn query<'a>(
-        &'a self,
-        query_msg: &'a CR,
+        request_msg: &'a CR,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
                 + Send
                 + '_,
         >,
     > {
-        return Box::pin(self.query_impl4(query_msg));
+        return Box::pin(self.query_impl(request_msg));
     }
 }
 
-//------------ Query ----------------------------------------------------------
+//------------ ReqResp --------------------------------------------------------
 
-/// This struct represent an active DNS query.
+/// This struct represent an active DNS request.
 #[derive(Debug)]
-pub struct Query<CR: ComposeRequest> {
+pub struct ReqResp<CR: ComposeRequest> {
     /// Request message.
     ///
     /// The reply message is compared with the request message to see if
     /// it matches the query.
     // query_msg: Message<Vec<u8>>,
-    query_msg: CR,
+    request_msg: CR,
 
     /// Current state of the query.
     state: QueryState<CR>,
@@ -216,29 +200,30 @@ struct ChanRespOk<CR> {
     conn: octet_stream::Connection<CR>,
 }
 
-impl<CR: ComposeRequest + Clone + 'static> Query<CR> {
-    /// Constructor for [Query], takes a DNS query and a receiver for the
+impl<CR: ComposeRequest + Clone + 'static> ReqResp<CR> {
+    /// Constructor for [ReqResp], takes a DNS request and a receiver for the
     /// reply.
     fn new(
         conn: Connection<CR>,
-        query_msg: &CR,
+        request_msg: &CR,
         receiver: oneshot::Receiver<ChanResp<CR>>,
-    ) -> Query<CR> {
+    ) -> ReqResp<CR> {
         Self {
             conn,
-            query_msg: query_msg.clone(),
+            request_msg: request_msg.clone(),
             state: QueryState::GetConn(receiver),
             conn_id: 0,
-            //imm_retry_count: 0,
             delayed_retry_count: 0,
         }
     }
 
-    /// Get the result of a DNS query.
+    /// Get the result of a DNS request.
     ///
-    /// This function returns the reply to a DNS query wrapped in a
+    /// This function returns the reply to a DNS request wrapped in a
     /// [Result].
-    pub async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
+    pub async fn get_response_impl(
+        &mut self,
+    ) -> Result<Message<Bytes>, Error> {
         loop {
             match self.state {
                 QueryState::GetConn(ref mut receiver) => {
@@ -271,7 +256,7 @@ impl<CR: ComposeRequest + Clone + 'static> Query<CR> {
                     }
                 }
                 QueryState::StartQuery(ref mut conn) => {
-                    let msg = self.query_msg.clone();
+                    let msg = self.request_msg.clone();
                     let query_res = conn.query_no_check(&msg).await;
                     match query_res {
                         Err(err) => {
@@ -308,9 +293,9 @@ impl<CR: ComposeRequest + Clone + 'static> Query<CR> {
                     }
 
                     let msg = reply.expect("error is checked before");
-                    let query_msg = self.query_msg.to_message();
+                    let request_msg = self.request_msg.to_message();
 
-                    if !is_answer_ignore_id(&msg, &query_msg) {
+                    if !is_answer_ignore_id(&msg, &request_msg) {
                         return Err(Error::WrongReplyForQuery);
                     }
                     return Ok(msg);
@@ -334,13 +319,13 @@ impl<CR: ComposeRequest + Clone + 'static> Query<CR> {
     }
 }
 
-impl<CR: ComposeRequest + Clone + 'static> GetResult for Query<CR> {
-    fn get_result(
+impl<CR: ComposeRequest + Clone + 'static> GetResponse for ReqResp<CR> {
+    fn get_response(
         &mut self,
     ) -> Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
     > {
-        Box::pin(self.get_result_impl())
+        Box::pin(self.get_response_impl())
     }
 }
 
@@ -355,7 +340,7 @@ struct InnerConnection<CR> {
     /// [InnerConnection::sender] and [InnerConnection::receiver] are
     /// part of a single channel.
     ///
-    /// Used by [Query] to send requests to [InnerConnection::run].
+    /// Used by [ReqResp] to send requests to [InnerConnection::run].
     sender: mpsc::Sender<ChanReq<CR>>,
 
     /// receiver part of the channel.

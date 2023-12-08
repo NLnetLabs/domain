@@ -3,8 +3,8 @@ use domain::base::MessageBuilder;
 use domain::base::Rtype::Aaaa;
 use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
-use domain::net::client::query::QueryMessage4;
 use domain::net::client::redundant;
+use domain::net::client::request::Request;
 use domain::net::client::request_message::RequestMessage;
 use domain::net::client::tcp_connect::TcpConnect;
 use domain::net::client::tls_connect::TlsConnect;
@@ -73,16 +73,16 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut query = udptcp_conn.query(&req).await.unwrap();
+    let mut request = udptcp_conn.request(&req).await.unwrap();
 
     // Get the reply
     println!("Wating for UDP+TCP reply");
-    let reply = query.get_result().await;
+    let reply = request.get_response().await;
     println!("UDP+TCP reply: {:?}", reply);
 
     // The query may have a reference to the connection. Drop the query
     // when it is no longer needed.
-    drop(query);
+    drop(request);
 
     // Create a new TCP connections object. Pass the destination address and
     // port as parameter.
@@ -103,15 +103,16 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut query = tcp_conn.query(&req).await.unwrap();
+    let mut request = tcp_conn.request(&req).await.unwrap();
 
     // Get the reply. A multi_stream connection does not have any timeout.
     // Wrap get_result in a timeout.
     println!("Wating for multi TCP reply");
-    let reply = timeout(Duration::from_millis(500), query.get_result()).await;
+    let reply =
+        timeout(Duration::from_millis(500), request.get_response()).await;
     println!("multi TCP reply: {:?}", reply);
 
-    drop(query);
+    drop(request);
 
     // Some TLS boiler plate for the root certificates.
     let mut root_store = RootCertStore::empty();
@@ -154,12 +155,13 @@ async fn main() {
         println!("TLS run exited with {:?}", res);
     });
 
-    let mut query = tls_conn.query(&req).await.unwrap();
+    let mut request = tls_conn.request(&req).await.unwrap();
     println!("Wating for TLS reply");
-    let reply = timeout(Duration::from_millis(500), query.get_result()).await;
+    let reply =
+        timeout(Duration::from_millis(500), request.get_response()).await;
     println!("TLS reply: {:?}", reply);
 
-    drop(query);
+    drop(request);
 
     // Create a transport connection for redundant connections.
     let redun = redundant::Connection::new(None).unwrap();
@@ -178,8 +180,8 @@ async fn main() {
 
     // Start a few queries.
     for i in 1..10 {
-        let mut query = redun.query(&req).await.unwrap();
-        let reply = query.get_result().await;
+        let mut request = redun.request(&req).await.unwrap();
+        let reply = request.get_response().await;
         if i == 2 {
             println!("redundant connection reply: {:?}", reply);
         }
@@ -195,10 +197,10 @@ async fn main() {
         udp::Connection::new(Some(udp_config), server_addr).unwrap();
 
     // Send a query message.
-    let mut query = udp_conn.query(&req).await.unwrap();
+    let mut request = udp_conn.request(&req).await.unwrap();
 
     // Get the reply
-    let reply = query.get_result().await;
+    let reply = request.get_response().await;
     println!("UDP reply: {:?}", reply);
 
     // Create a single TCP transport connection. This is usefull for a
@@ -221,11 +223,11 @@ async fn main() {
         println!("single TCP run terminated");
     });
 
-    // Send a query message.
-    let mut query = tcp.query(&req).await.unwrap();
+    // Send a request message.
+    let mut request = tcp.request(&req).await.unwrap();
 
     // Get the reply
-    let reply = query.get_result().await;
+    let reply = request.get_response().await;
     println!("TCP reply: {:?}", reply);
 
     drop(tcp);

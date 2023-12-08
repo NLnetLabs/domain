@@ -27,7 +27,7 @@ use tokio::time::{sleep_until, Duration, Instant};
 use crate::base::iana::OptRcode;
 use crate::base::Message;
 use crate::net::client::error::Error;
-use crate::net::client::query::{GetResult, QueryMessage4};
+use crate::net::client::request::{GetResponse, Request};
 
 /*
 Basic algorithm:
@@ -114,51 +114,51 @@ impl<'a, BMB: Clone + Debug + Send + Sync + 'static> Connection<BMB> {
     /// Add a transport connection.
     pub async fn add(
         &self,
-        conn: Box<dyn QueryMessage4<BMB> + Send + Sync>,
+        conn: Box<dyn Request<BMB> + Send + Sync>,
     ) -> Result<(), Error> {
         self.inner.add(conn).await
     }
 
-    /// Implementation of the query function.
-    async fn query_impl(
+    /// Implementation of the request function.
+    async fn request_impl(
         &self,
-        query_msg: &BMB,
-    ) -> Result<Box<dyn GetResult + Send>, Error> {
-        let query = self.inner.query(query_msg.clone()).await?;
-        Ok(Box::new(query))
+        request_msg: &BMB,
+    ) -> Result<Box<dyn GetResponse + Send>, Error> {
+        let request = self.inner.request(request_msg.clone()).await?;
+        Ok(Box::new(request))
     }
 }
 
-impl<BMB: Clone + Debug + Send + Sync + 'static> QueryMessage4<BMB>
+impl<BMB: Clone + Debug + Send + Sync + 'static> Request<BMB>
     for Connection<BMB>
 {
-    fn query<'a>(
+    fn request<'a>(
         &'a self,
-        query_msg: &'a BMB,
+        request_msg: &'a BMB,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Box<dyn GetResult + Send>, Error>>
+            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
                 + Send
                 + '_,
         >,
     > {
-        return Box::pin(self.query_impl(query_msg));
+        return Box::pin(self.request_impl(request_msg));
     }
 }
 
-//------------ Query ----------------------------------------------------------
+//------------ ReqResp --------------------------------------------------------
 
 /// This type represents an active query request.
 #[derive(Debug)]
-pub struct Query<BMB> {
+pub struct ReqResp<BMB> {
     /// User configuration.
     config: Config,
 
     /// The state of the query
     state: QueryState,
 
-    /// The query message
-    query_msg: BMB,
+    /// The reuqest message
+    request_msg: BMB,
 
     /// List of connections identifiers and estimated response times.
     conn_rt: Vec<ConnRT>,
@@ -210,7 +210,7 @@ enum ChanReq<BMB> {
     GetRT(RTReq),
 
     /// Start a query
-    Query(QueryReq<BMB>),
+    Query(RequestReq<BMB>),
 
     /// Report how long it took to get a response
     Report(TimeReport),
@@ -228,7 +228,7 @@ impl<BMB> Debug for ChanReq<BMB> {
 /// Request to add a new connection
 struct AddReq<BMB> {
     /// New connection to add
-    conn: Box<dyn QueryMessage4<BMB> + Send + Sync>,
+    conn: Box<dyn Request<BMB> + Send + Sync>,
 
     /// Channel to send the reply to
     tx: oneshot::Sender<AddReply>,
@@ -246,29 +246,29 @@ struct RTReq /*<Octs>*/ {
 /// Reply to a RT request
 type RTReply = Result<Vec<ConnRT>, Error>;
 
-/// Request to start a query
-struct QueryReq<BMB> {
+/// Request to start a request
+struct RequestReq<BMB> {
     /// Identifier of connection
     id: u64,
 
     /// Request message
-    query_msg: BMB,
+    request_msg: BMB,
 
     /// Channel to send the reply to
-    tx: oneshot::Sender<QueryReply>,
+    tx: oneshot::Sender<RequestReply>,
 }
 
-impl<BMB: Debug> Debug for QueryReq<BMB> {
+impl<BMB: Debug> Debug for RequestReq<BMB> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        f.debug_struct("QueryReq")
+        f.debug_struct("RequestReq")
             .field("id", &self.id)
-            .field("query_msg", &self.query_msg)
+            .field("request_msg", &self.request_msg)
             .finish()
     }
 }
 
-/// Reply to a query request.
-type QueryReply = Result<Box<dyn GetResult + Send>, Error>;
+/// Reply to a request request.
+type RequestReply = Result<Box<dyn GetResponse + Send>, Error>;
 
 /// Report the amount of time until success or failure.
 #[derive(Debug)]
@@ -305,11 +305,11 @@ struct ConnRT {
 /// Result of the futures in fut_list.
 type FutListOutput = (usize, Result<Message<Bytes>, Error>);
 
-impl<BMB: Clone + Send + Sync + 'static> Query<BMB> {
+impl<BMB: Clone + Send + Sync + 'static> ReqResp<BMB> {
     /// Create a new query object.
     fn new(
         config: Config,
-        query_msg: BMB,
+        request_msg: BMB,
         mut conn_rt: Vec<ConnRT>,
         sender: mpsc::Sender<ChanReq<BMB>>,
     ) -> Self {
@@ -327,8 +327,7 @@ impl<BMB: Clone + Send + Sync + 'static> Query<BMB> {
 
         Self {
             config,
-            query_msg,
-            //conns,
+            request_msg,
             conn_rt,
             sender,
             state: QueryState::Init,
@@ -340,8 +339,8 @@ impl<BMB: Clone + Send + Sync + 'static> Query<BMB> {
         }
     }
 
-    /// Implementation of get_result.
-    async fn get_result_impl(&mut self) -> Result<Message<Bytes>, Error> {
+    /// Implementation of get_response.
+    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
         loop {
             match self.state {
                 QueryState::Init => {
@@ -357,7 +356,7 @@ impl<BMB: Clone + Send + Sync + 'static> Query<BMB> {
                         ind,
                         self.conn_rt[ind].id,
                         self.sender.clone(),
-                        self.query_msg.clone(),
+                        self.request_msg.clone(),
                     );
                     self.fut_list.push(Box::pin(fut));
                     let timeout = Instant::now() + self.conn_rt[ind].est_rt;
@@ -540,13 +539,15 @@ impl<BMB: Clone + Send + Sync + 'static> Query<BMB> {
     }
 }
 
-impl<BMB: Clone + Debug + Send + Sync + 'static> GetResult for Query<BMB> {
-    fn get_result(
+impl<BMB: Clone + Debug + Send + Sync + 'static> GetResponse
+    for ReqResp<BMB>
+{
+    fn get_response(
         &mut self,
     ) -> Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
     > {
-        Box::pin(self.get_result_impl())
+        Box::pin(self.get_response_impl())
     }
 }
 
@@ -592,8 +593,7 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
         let mut next_id: u64 = 10;
         let mut conn_stats: Vec<ConnStats> = Vec::new();
         let mut conn_rt: Vec<ConnRT> = Vec::new();
-        let mut conns: Vec<Box<dyn QueryMessage4<BMB> + Send + Sync>> =
-            Vec::new();
+        let mut conns: Vec<Box<dyn Request<BMB> + Send + Sync>> = Vec::new();
 
         let mut receiver =
             opt_receiver.expect("receiver should not be empty");
@@ -625,19 +625,20 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
                     // Don't care if send fails
                     let _ = rt_req.tx.send(Ok(conn_rt.clone()));
                 }
-                ChanReq::Query(query_req) => {
+                ChanReq::Query(request_req) => {
                     let opt_ind =
-                        conn_rt.iter().position(|e| e.id == query_req.id);
+                        conn_rt.iter().position(|e| e.id == request_req.id);
                     match opt_ind {
                         Some(ind) => {
-                            let query =
-                                conns[ind].query(&query_req.query_msg).await;
+                            let query = conns[ind]
+                                .request(&request_req.request_msg)
+                                .await;
                             // Don't care if send fails
-                            let _ = query_req.tx.send(query);
+                            let _ = request_req.tx.send(query);
                         }
                         None => {
                             // Don't care if send fails
-                            let _ = query_req
+                            let _ = request_req
                                 .tx
                                 .send(Err(Error::RedundantTransportNotFound));
                         }
@@ -692,7 +693,7 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
     /// Implementation of the add method.
     async fn add(
         &self,
-        conn: Box<dyn QueryMessage4<BMB> + Send + Sync>,
+        conn: Box<dyn Request<BMB> + Send + Sync>,
     ) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
@@ -703,16 +704,19 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
     }
 
     /// Implementation of the query method.
-    async fn query(&'a self, query_msg: BMB) -> Result<Query<BMB>, Error> {
+    async fn request(
+        &'a self,
+        request_msg: BMB,
+    ) -> Result<ReqResp<BMB>, Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(ChanReq::GetRT(RTReq { tx }))
             .await
             .expect("send should not fail");
         let conn_rt = rx.await.expect("receive should not fail")?;
-        Ok(Query::new(
+        Ok(ReqResp::new(
             self.config.clone(),
-            query_msg,
+            request_msg,
             conn_rt,
             self.sender.clone(),
         ))
@@ -728,18 +732,22 @@ async fn start_request<BMB>(
     index: usize,
     id: u64,
     sender: mpsc::Sender<ChanReq<BMB>>,
-    query_msg: BMB,
+    request_msg: BMB,
 ) -> (usize, Result<Message<Bytes>, Error>) {
     let (tx, rx) = oneshot::channel();
     sender
-        .send(ChanReq::Query(QueryReq { id, query_msg, tx }))
+        .send(ChanReq::Query(RequestReq {
+            id,
+            request_msg,
+            tx,
+        }))
         .await
         .expect("send is expected to work");
-    let mut query = match rx.await.expect("receive is expected to work") {
+    let mut request = match rx.await.expect("receive is expected to work") {
         Err(err) => return (index, Err(err)),
-        Ok(query) => query,
+        Ok(request) => request,
     };
-    let reply = query.get_result().await;
+    let reply = request.get_response().await;
 
     (index, reply)
 }
