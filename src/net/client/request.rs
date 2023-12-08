@@ -13,6 +13,9 @@ use crate::base::Message;
 use crate::net::client::error::Error;
 
 /// Trait for starting a DNS request based on a request composer.
+///
+/// In the future, the return type of request should become an associated type.
+/// However, the use of 'dyn Request' in redundant currently prevents that.
 pub trait Request<CR> {
     /// Request function that takes a ComposeRequest type.
     ///
@@ -28,6 +31,9 @@ pub trait Request<CR> {
 type RequestResultOutput = Result<Box<dyn GetResponse + Send>, Error>;
 
 /// Trait for getting the result of a DNS query.
+///
+/// In the future, the return type of get_response should become an associated
+/// type. However, too many uses of 'dyn GetResponse' currently prevent that.
 pub trait GetResponse: Debug {
     /// Get the result of a DNS request.
     ///
