@@ -10,6 +10,8 @@ Bug fixes
 
 Other changes
 
+* The `resolv` feature now depends on `futures_util` instead of `futures`,
+  trimming unused dependencies from the the dependency tree.
 
 ## 0.9.2
 
