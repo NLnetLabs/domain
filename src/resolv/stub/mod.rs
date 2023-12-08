@@ -161,8 +161,6 @@ impl StubResolver {
                     redun.add(Box::new(tcp_conn)).await.unwrap();
                 }
             }
-        } else if self.options.ign_tc {
-            todo!();
         } else {
             for s in &self.servers {
                 if let Transport::Udp = s.transport {
