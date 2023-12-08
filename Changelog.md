@@ -11,7 +11,12 @@ Bug fixes
 Other changes
 
 * The `resolv` feature now depends on `futures_util` instead of `futures`,
-  trimming unused dependencies from the the dependency tree.
+  trimming unused dependencies from the dependency tree. ([#246] by
+  [@WhyNotHugo])
+
+[#246]: https://github.com/NLnetLabs/domain/pull/246
+[@WhyNotHugo]: https://github.com/WhyNotHugo
+
 
 ## 0.9.2
 
