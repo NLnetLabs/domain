@@ -3,8 +3,8 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
-use core::ops::DerefMut;
 use core::future::Future;
+use core::ops::DerefMut;
 use std::boxed::Box;
 use std::pin::Pin;
 use std::string::String;
