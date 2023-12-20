@@ -1,6 +1,6 @@
 # Change Log
 
-## Unrelease next version
+## Unreleased next version
 
 Breaking changes
 
@@ -9,6 +9,49 @@ New
 Bug fixes
 
 Other changes
+
+* The `resolv` feature now depends on `futures_util` instead of `futures`,
+  trimming unused dependencies from the dependency tree. ([#246] by
+  [@WhyNotHugo])
+
+[#246]: https://github.com/NLnetLabs/domain/pull/246
+[@WhyNotHugo]: https://github.com/WhyNotHugo
+
+
+## 0.9.2
+
+Released 2023-11-16.
+
+New
+
+* Removed the `Sized` bound for octets types used by the `tsig` module.
+  ([#241] by [@torin-carey])
+* Added an impl for `AsRef<Message<[u8]>>` for any message. ([#242] by
+  [@torin-carey])
+
+Bug fixes
+
+* Fixed in scanning absolute domain names from a zonefile that resulted
+  in illegal wire data being produced. ([#240] by [@xofyarg)]
+
+[#240]: https://github.com/NLnetLabs/domain/pull/240
+[#241]: https://github.com/NLnetLabs/domain/pull/241
+[#242]: https://github.com/NLnetLabs/domain/pull/242
+[@torin-carey]: https://github.com/torin-carey
+[@xofyarg]: https://github.com/xofyarg
+
+
+## 0.9.1
+
+Released 2023-10-27.
+
+Bug fixes
+
+* Added missing `?Sized` bounds to the octets type for parsing
+  `ZoneRecordData` and `UnknownRecordData`. ([#237] by [@hunts])
+
+[#237]: https://github.com/NLnetLabs/domain/pull/237
+[@hunts]: https://github.com/hunts
 
 
 ## 0.9.0

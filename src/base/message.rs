@@ -641,6 +641,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> AsRef<[u8]> for Message<Octs> {
     }
 }
 
+impl<Octs: AsRef<[u8]> + ?Sized> AsRef<Message<[u8]>> for Message<Octs> {
+    fn as_ref(&self) -> &Message<[u8]> {
+        unsafe { Message::from_slice_unchecked(self.octets.as_ref()) }
+    }
+}
+
 //--- OctetsFrom
 
 impl<Octs, SrcOcts> OctetsFrom<Message<SrcOcts>> for Message<Octs>

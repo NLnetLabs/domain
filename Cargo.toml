@@ -1,6 +1,6 @@
 [package]
 name = "domain"
-version = "0.9.1-dev"
+version = "0.9.3-dev"
 rust-version = "1.67.0"
 edition = "2021"
 authors = ["NLnet Labs <dns-team@nlnetlabs.nl>"]
@@ -23,7 +23,7 @@ time           = "0.3.1"
 rand           = { version = "0.8", optional = true }
 bytes          = { version = "1.0", optional = true }
 chrono         = { version = "0.4.6", optional = true, default-features = false }
-futures        = { version = "0.3", optional = true }
+futures-util   = { version = "0.3", optional = true }
 heapless       = { version = "0.7", optional = true }
 #openssl       = { version = "0.10", optional = true }
 ring           = { version = "0.17", optional = true }
@@ -45,7 +45,7 @@ default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 interop     = ["bytes", "ring"]
-resolv      = ["bytes", "futures", "net", "smallvec", "std", "tokio", "libc", "rand"]
+resolv      = ["bytes", "futures-util", "net", "smallvec", "std", "tokio", "libc", "rand"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
 sign        = ["std"]

@@ -262,7 +262,7 @@ impl Key {
     }
 
     /// Checks whether the key in the record is this key.
-    fn check_tsig<Octs: Octets>(
+    fn check_tsig<Octs: Octets + ?Sized>(
         &self,
         tsig: &MessageTsig<Octs>,
     ) -> Result<(), ValidationError> {
@@ -494,7 +494,7 @@ impl<K: AsRef<Key>> ClientTransaction<K> {
     /// whether this record is a correct record for this transaction and if
     /// it correctly signs the answer for this transaction. If any of this
     /// fails, returns an error.
-    pub fn answer<Octs: Octets + AsMut<[u8]>>(
+    pub fn answer<Octs: Octets + AsMut<[u8]> + ?Sized>(
         &self,
         message: &mut Message<Octs>,
         now: Time48,
@@ -569,7 +569,7 @@ impl<K: AsRef<Key>> ServerTransaction<K> {
     ) -> Result<Option<Self>, ServerError<K>>
     where
         Store: KeyStore<Key = K>,
-        Octs: Octets + AsMut<[u8]>,
+        Octs: Octets + AsMut<[u8]> + ?Sized,
     {
         SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerTransaction { context })
@@ -729,7 +729,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octs: Octets + AsMut<[u8]>,
+        Octs: Octets + AsMut<[u8]> + ?Sized,
     {
         if self.first {
             self.answer_first(message, now)
@@ -760,7 +760,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octs: Octets + AsMut<[u8]>,
+        Octs: Octets + AsMut<[u8]> + ?Sized,
     {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(some) => some,
@@ -796,7 +796,7 @@ impl<K: AsRef<Key>> ClientSequence<K> {
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octs: Octets + AsMut<[u8]>,
+        Octs: Octets + AsMut<[u8]> + ?Sized,
     {
         let tsig = match self.context.get_answer_tsig(message)? {
             Some(tsig) => tsig,
@@ -892,7 +892,7 @@ impl<K: AsRef<Key>> ServerSequence<K> {
     ) -> Result<Option<Self>, ServerError<K>>
     where
         Store: KeyStore<Key = K>,
-        Octs: Octets + AsMut<[u8]>,
+        Octs: Octets + AsMut<[u8]> + ?Sized,
     {
         SigningContext::server_request(store, message, now).map(|context| {
             context.map(|context| ServerSequence {
@@ -999,7 +999,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
     ) -> Result<Option<Self>, ServerError<Store::Key>>
     where
         Store: KeyStore<Key = K>,
-        Octs: Octets + AsMut<[u8]>,
+        Octs: Octets + AsMut<[u8]> + ?Sized,
     {
         // 4.5 Server TSIG checks
         //
@@ -1090,7 +1090,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         message: &'a Message<Octs>,
     ) -> Result<Option<MessageTsig<'a, Octs>>, ValidationError>
     where
-        Octs: Octets,
+        Octs: Octets + ?Sized,
     {
         // Extract TSIG or bail out.
         let tsig = match MessageTsig::from_message(message) {
@@ -1127,7 +1127,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
         now: Time48,
     ) -> Result<(), ValidationError>
     where
-        Octs: Octets,
+        Octs: Octets + ?Sized,
     {
         if message.header().rcode() == Rcode::NotAuth
             && tsig.record.data().error() == TsigRcode::BadTime
@@ -1293,7 +1293,7 @@ impl<K: AsRef<Key>> SigningContext<K> {
 //------------ MessageTsig ---------------------------------------------------
 
 /// The TSIG record of a message.
-struct MessageTsig<'a, Octs: Octets + 'a> {
+struct MessageTsig<'a, Octs: Octets + ?Sized + 'a> {
     /// The actual record.
     #[allow(clippy::type_complexity)]
     record: Record<
@@ -1305,7 +1305,7 @@ struct MessageTsig<'a, Octs: Octets + 'a> {
     start: usize,
 }
 
-impl<'a, Octs: Octets> MessageTsig<'a, Octs> {
+impl<'a, Octs: Octets + ?Sized> MessageTsig<'a, Octs> {
     /// Get the TSIG record from a message.
     ///
     /// Checks that there is exactly one TSIG record in the additional
@@ -1583,7 +1583,7 @@ impl fmt::Display for Algorithm {
 
 fn remove_tsig<Octs>(original_id: u16, message: &mut Message<Octs>)
 where
-    Octs: Octets + AsMut<[u8]>,
+    Octs: Octets + AsMut<[u8]> + ?Sized,
 {
     message.header_mut().set_id(original_id);
     message.remove_last_additional();
@@ -1640,7 +1640,7 @@ impl<K: AsRef<Key>> ServerError<K> {
         builder: MessageBuilder<Target>,
     ) -> Result<AdditionalBuilder<Target>, PushError>
     where
-        Octs: Octets,
+        Octs: Octets + ?Sized,
         Target: Composer,
     {
         let builder = builder.start_answer(msg, Rcode::NotAuth)?;
