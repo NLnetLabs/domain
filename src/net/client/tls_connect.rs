@@ -4,7 +4,7 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 use core::ops::DerefMut;
-use futures::Future;
+use core::future::Future;
 use std::boxed::Box;
 use std::pin::Pin;
 use std::string::String;

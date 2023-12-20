@@ -8,8 +8,8 @@
 
 use bytes::Bytes;
 
-use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use futures_util::stream::FuturesUnordered;
+use futures_util::StreamExt;
 
 use octseq::Octets;
 

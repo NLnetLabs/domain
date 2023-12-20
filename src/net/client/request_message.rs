@@ -37,7 +37,8 @@ pub struct RequestMessage<Octs: AsRef<[u8]>> {
 
 impl<Octs: AsRef<[u8]> + Debug + Octets> RequestMessage<Octs> {
     /// Create a new BMB object.
-    pub fn new(msg: Message<Octs>) -> Self {
+    pub fn new(msg: impl Into<Message<Octs>>) -> Self {
+        let msg = msg.into();
         let header = msg.header();
         Self {
             msg,

@@ -31,7 +31,7 @@ use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
 use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
 use crate::resolv::resolver::{Resolver, SearchNames};
 use bytes::Bytes;
-use futures::stream::{FuturesUnordered, StreamExt};
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use octseq::array::Array;
 use std::boxed::Box;
 use std::fmt::Debug;
