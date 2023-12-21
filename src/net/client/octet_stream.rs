@@ -33,10 +33,9 @@ use crate::base::{
     opt::{AllOptData, OptRecord, TcpKeepalive},
     Message,
 };
-use crate::net::client::compose_request::ComposeRequest;
-use crate::net::client::compose_request::OptTypes;
-use crate::net::client::error::Error;
-use crate::net::client::request::{GetResponse, Request};
+use crate::net::client::request::{
+    ComposeRequest, Error, GetResponse, Request,
+};
 use octseq::Octets;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -905,7 +904,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
     /// Convert the query message to a vector.
     // This function should return the vector instead of storing it
     // through a reference.
-    fn convert_query(msg: &dyn ComposeRequest, reqmsg: &mut Option<Vec<u8>>) {
+    fn convert_query(msg: &CR, reqmsg: &mut Option<Vec<u8>>) {
         // Ideally there should be a write_all_vectored. Until there is one,
         // copy to a new Vec and prepend the length octets.
 
@@ -989,7 +988,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
 
 /// Add an edns-tcp-keepalive option to a BaseMessageBuilder.
 fn add_tcp_keepalive<CR: ComposeRequest>(msg: &mut CR) -> Result<(), Error> {
-    msg.add_opt(OptTypes::TypeTcpKeepalive(TcpKeepalive::new(None)));
+    msg.add_opt(&TcpKeepalive::new(None))?;
     Ok(())
 }
 

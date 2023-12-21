@@ -26,8 +26,7 @@ use tokio::time::{sleep_until, Duration, Instant};
 
 use crate::base::iana::OptRcode;
 use crate::base::Message;
-use crate::net::client::error::Error;
-use crate::net::client::request::{GetResponse, Request};
+use crate::net::client::request::{Error, GetResponse, Request};
 
 /*
 Basic algorithm:

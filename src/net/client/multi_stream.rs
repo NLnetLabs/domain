@@ -30,11 +30,11 @@ use tokio::time::{sleep_until, Instant};
 
 use crate::base::iana::Rcode;
 use crate::base::Message;
-use crate::net::client::compose_request::ComposeRequest;
-use crate::net::client::error::Error;
 use crate::net::client::octet_stream;
 use crate::net::client::protocol::AsyncConnect;
-use crate::net::client::request::{GetResponse, Request};
+use crate::net::client::request::{
+    ComposeRequest, Error, GetResponse, Request,
+};
 
 /// Capacity of the channel that transports [ChanReq].
 const DEF_CHAN_CAP: usize = 8;

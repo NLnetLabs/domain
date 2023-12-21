@@ -6,13 +6,11 @@ use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect};
 use domain::net::client::redundant;
-use domain::net::client::request::Request;
-use domain::net::client::request_message::RequestMessage;
+use domain::net::client::request::{Request, RequestMessage};
 use domain::net::client::udp;
 use domain::net::client::udp_tcp;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -124,12 +122,10 @@ async fn main() {
     ));
 
     // TLS config
-    let client_config = Arc::new(
-        ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(root_store)
-            .with_no_client_auth(),
-    );
+    let client_config = ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
 
     // Currently the only support TLS connections are the ones that have a
     // valid certificate. Use a well known public resolver.
@@ -138,8 +134,11 @@ async fn main() {
 
     // Create a new TLS connections object. We pass the TLS config, the name of
     // the remote server and the destination address and port.
-    let tls_connect =
-        TlsConnect::new(client_config, "dns.google", google_server_addr);
+    let tls_connect = TlsConnect::new(
+        client_config,
+        "dns.google".try_into().unwrap(),
+        google_server_addr,
+    );
 
     // Again create a multi_stream transport connection.
     let tls_conn =

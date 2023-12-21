@@ -22,9 +22,9 @@ use tokio::time::{timeout, Duration, Instant};
 
 use crate::base::iana::Rcode;
 use crate::base::Message;
-use crate::net::client::compose_request::ComposeRequest;
-use crate::net::client::error::Error;
-use crate::net::client::request::{GetResponse, Request};
+use crate::net::client::request::{
+    ComposeRequest, Error, GetResponse, Request,
+};
 
 /// How many times do we try a new random port if we get ‘address in use.’
 const RETRY_RANDOM_PORT: usize = 10;

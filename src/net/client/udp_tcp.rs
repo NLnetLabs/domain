@@ -15,11 +15,11 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::base::Message;
-use crate::net::client::compose_request::ComposeRequest;
-use crate::net::client::error::Error;
 use crate::net::client::multi_stream;
 use crate::net::client::protocol::TcpConnect;
-use crate::net::client::request::{GetResponse, Request};
+use crate::net::client::request::{
+    ComposeRequest, Error, GetResponse, Request,
+};
 use crate::net::client::udp;
 
 //------------ Config ---------------------------------------------------------

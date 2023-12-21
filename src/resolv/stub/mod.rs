@@ -19,12 +19,10 @@ use crate::base::message_builder::{
 };
 use crate::base::name::{ToDname, ToRelativeDname};
 use crate::base::question::Question;
-use crate::net::client::compose_request::ComposeRequest;
 use crate::net::client::multi_stream;
 use crate::net::client::protocol::TcpConnect;
 use crate::net::client::redundant;
-use crate::net::client::request::Request;
-use crate::net::client::request_message::RequestMessage;
+use crate::net::client::request::{ComposeRequest, Request, RequestMessage};
 use crate::net::client::udp_tcp;
 use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
