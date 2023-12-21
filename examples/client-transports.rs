@@ -6,7 +6,7 @@ use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect};
 use domain::net::client::redundant;
-use domain::net::client::request::{Request, RequestMessage};
+use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::udp;
 use domain::net::client::udp_tcp;
 use std::net::{IpAddr, SocketAddr};
@@ -68,7 +68,7 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut request = udptcp_conn.request(&req).await.unwrap();
+    let mut request = udptcp_conn.send_request(&req).await.unwrap();
 
     // Get the reply
     println!("Wating for UDP+TCP reply");
@@ -98,7 +98,7 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut request = tcp_conn.request(&req).await.unwrap();
+    let mut request = tcp_conn.send_request(&req).await.unwrap();
 
     // Get the reply. A multi_stream connection does not have any timeout.
     // Wrap get_result in a timeout.
@@ -151,7 +151,7 @@ async fn main() {
         println!("TLS run exited with {:?}", res);
     });
 
-    let mut request = tls_conn.request(&req).await.unwrap();
+    let mut request = tls_conn.send_request(&req).await.unwrap();
     println!("Wating for TLS reply");
     let reply =
         timeout(Duration::from_millis(500), request.get_response()).await;
@@ -176,7 +176,7 @@ async fn main() {
 
     // Start a few queries.
     for i in 1..10 {
-        let mut request = redun.request(&req).await.unwrap();
+        let mut request = redun.send_request(&req).await.unwrap();
         let reply = request.get_response().await;
         if i == 2 {
             println!("redundant connection reply: {:?}", reply);
@@ -193,7 +193,7 @@ async fn main() {
         udp::Connection::new(Some(udp_config), server_addr).unwrap();
 
     // Send a query message.
-    let mut request = udp_conn.request(&req).await.unwrap();
+    let mut request = udp_conn.send_request(&req).await.unwrap();
 
     // Get the reply
     let reply = request.get_response().await;
@@ -220,7 +220,7 @@ async fn main() {
     });
 
     // Send a request message.
-    let mut request = tcp.request(&req).await.unwrap();
+    let mut request = tcp.send_request(&req).await.unwrap();
 
     // Get the reply
     let reply = request.get_response().await;

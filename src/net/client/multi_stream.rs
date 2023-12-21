@@ -33,7 +33,7 @@ use crate::base::Message;
 use crate::net::client::octet_stream;
 use crate::net::client::protocol::AsyncConnect;
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, Request,
+    ComposeRequest, Error, GetResponse, SendRequest,
 };
 
 /// Capacity of the channel that transports [ChanReq].
@@ -122,8 +122,10 @@ impl<CR: ComposeRequest + Clone + 'static> Connection<CR> {
     }
 }
 
-impl<CR: ComposeRequest + Clone + 'static> Request<CR> for Connection<CR> {
-    fn request<'a>(
+impl<CR: ComposeRequest + Clone + 'static> SendRequest<CR>
+    for Connection<CR>
+{
+    fn send_request<'a>(
         &'a self,
         request_msg: &'a CR,
     ) -> Pin<

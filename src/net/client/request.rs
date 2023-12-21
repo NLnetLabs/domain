@@ -1,4 +1,4 @@
-//! Traits for request/response transports
+//! Requests.
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -48,11 +48,11 @@ pub trait ComposeRequest: Debug + Send + Sync {
 ///
 /// In the future, the return type of request should become an associated type.
 /// However, the use of 'dyn Request' in redundant currently prevents that.
-pub trait Request<CR> {
+pub trait SendRequest<CR> {
     /// Request function that takes a ComposeRequest type.
     ///
     /// This function is intended to be cancel safe.
-    fn request<'a>(
+    fn send_request<'a>(
         &'a self,
         request_msg: &'a CR,
     ) -> Pin<Box<dyn Future<Output = RequestResultOutput> + Send + '_>>;

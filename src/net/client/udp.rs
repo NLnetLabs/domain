@@ -23,7 +23,7 @@ use tokio::time::{timeout, Duration, Instant};
 use crate::base::iana::Rcode;
 use crate::base::Message;
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, Request,
+    ComposeRequest, Error, GetResponse, SendRequest,
 };
 
 /// How many times do we try a new random port if we get ‘address in use.’
@@ -137,10 +137,10 @@ impl Connection {
     }
 }
 
-impl<CR: ComposeRequest + Clone + Send + Sync + 'static> Request<CR>
+impl<CR: ComposeRequest + Clone + Send + Sync + 'static> SendRequest<CR>
     for Connection
 {
-    fn request<'a>(
+    fn send_request<'a>(
         &'a self,
         request_msg: &'a CR,
     ) -> Pin<

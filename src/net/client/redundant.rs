@@ -26,7 +26,7 @@ use tokio::time::{sleep_until, Duration, Instant};
 
 use crate::base::iana::OptRcode;
 use crate::base::Message;
-use crate::net::client::request::{Error, GetResponse, Request};
+use crate::net::client::request::{Error, GetResponse, SendRequest};
 
 /*
 Basic algorithm:
@@ -113,7 +113,7 @@ impl<'a, BMB: Clone + Debug + Send + Sync + 'static> Connection<BMB> {
     /// Add a transport connection.
     pub async fn add(
         &self,
-        conn: Box<dyn Request<BMB> + Send + Sync>,
+        conn: Box<dyn SendRequest<BMB> + Send + Sync>,
     ) -> Result<(), Error> {
         self.inner.add(conn).await
     }
@@ -128,10 +128,10 @@ impl<'a, BMB: Clone + Debug + Send + Sync + 'static> Connection<BMB> {
     }
 }
 
-impl<BMB: Clone + Debug + Send + Sync + 'static> Request<BMB>
+impl<BMB: Clone + Debug + Send + Sync + 'static> SendRequest<BMB>
     for Connection<BMB>
 {
-    fn request<'a>(
+    fn send_request<'a>(
         &'a self,
         request_msg: &'a BMB,
     ) -> Pin<
@@ -227,7 +227,7 @@ impl<BMB> Debug for ChanReq<BMB> {
 /// Request to add a new connection
 struct AddReq<BMB> {
     /// New connection to add
-    conn: Box<dyn Request<BMB> + Send + Sync>,
+    conn: Box<dyn SendRequest<BMB> + Send + Sync>,
 
     /// Channel to send the reply to
     tx: oneshot::Sender<AddReply>,
@@ -592,7 +592,8 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
         let mut next_id: u64 = 10;
         let mut conn_stats: Vec<ConnStats> = Vec::new();
         let mut conn_rt: Vec<ConnRT> = Vec::new();
-        let mut conns: Vec<Box<dyn Request<BMB> + Send + Sync>> = Vec::new();
+        let mut conns: Vec<Box<dyn SendRequest<BMB> + Send + Sync>> =
+            Vec::new();
 
         let mut receiver =
             opt_receiver.expect("receiver should not be empty");
@@ -630,7 +631,7 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
                     match opt_ind {
                         Some(ind) => {
                             let query = conns[ind]
-                                .request(&request_req.request_msg)
+                                .send_request(&request_req.request_msg)
                                 .await;
                             // Don't care if send fails
                             let _ = request_req.tx.send(query);
@@ -692,7 +693,7 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
     /// Implementation of the add method.
     async fn add(
         &self,
-        conn: Box<dyn Request<BMB> + Send + Sync>,
+        conn: Box<dyn SendRequest<BMB> + Send + Sync>,
     ) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.sender

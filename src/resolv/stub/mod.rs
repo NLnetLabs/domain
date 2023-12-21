@@ -22,7 +22,9 @@ use crate::base::question::Question;
 use crate::net::client::multi_stream;
 use crate::net::client::protocol::TcpConnect;
 use crate::net::client::redundant;
-use crate::net::client::request::{ComposeRequest, Request, RequestMessage};
+use crate::net::client::request::{
+    ComposeRequest, RequestMessage, SendRequest,
+};
 use crate::net::client::udp_tcp;
 use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
@@ -408,7 +410,7 @@ impl<'a> Query<'a> {
         let request_msg = RequestMessage::new(msg);
 
         let transport = self.resolver.get_transport().await;
-        let mut gr_fut = transport.request(&request_msg).await.unwrap();
+        let mut gr_fut = transport.send_request(&request_msg).await.unwrap();
         let reply =
             timeout(self.resolver.options.timeout, gr_fut.get_response())
                 .await

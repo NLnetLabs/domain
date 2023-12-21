@@ -18,7 +18,7 @@ use crate::base::Message;
 use crate::net::client::multi_stream;
 use crate::net::client::protocol::TcpConnect;
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, Request,
+    ComposeRequest, Error, GetResponse, SendRequest,
 };
 use crate::net::client::udp;
 
@@ -80,8 +80,10 @@ impl<CR: ComposeRequest + Clone + 'static> Connection<CR> {
     }
 }
 
-impl<CR: ComposeRequest + Clone + 'static> Request<CR> for Connection<CR> {
-    fn request<'a>(
+impl<CR: ComposeRequest + Clone + 'static> SendRequest<CR>
+    for Connection<CR>
+{
+    fn send_request<'a>(
         &'a self,
         request_msg: &'a CR,
     ) -> Pin<
@@ -154,7 +156,7 @@ impl<CR: ComposeRequest + Clone + 'static> ReqResp<CR> {
             match &mut self.state {
                 QueryState::StartUdpRequest => {
                     let msg = self.request_msg.clone();
-                    let request = self.udp_conn.request(&msg).await?;
+                    let request = self.udp_conn.send_request(&msg).await?;
                     self.state = QueryState::GetUdpResponse(request);
                     continue;
                 }
@@ -168,7 +170,7 @@ impl<CR: ComposeRequest + Clone + 'static> ReqResp<CR> {
                 }
                 QueryState::StartTcpRequest => {
                     let msg = self.request_msg.clone();
-                    let request = self.tcp_conn.request(&msg).await?;
+                    let request = self.tcp_conn.send_request(&msg).await?;
                     self.state = QueryState::GetTcpResponse(request);
                     continue;
                 }
