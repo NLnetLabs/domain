@@ -11,7 +11,7 @@ use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 use tokio::net::{TcpStream, ToSocketAddrs};
 
-use crate::net::client::async_connect::AsyncConnect;
+use crate::net::client::protocol::AsyncConnect;
 
 //------------ TcpConnect --------------------------------------------------
 
@@ -34,11 +34,11 @@ impl<A: ToSocketAddrs + Clone + Send + 'static> AsyncConnect
     for TcpConnect<A>
 {
     type Connection = TcpStream;
-    type F = Pin<
+    type Fut = Pin<
         Box<dyn Future<Output = Result<TcpStream, std::io::Error>> + Send>,
     >;
 
-    fn connect(&self) -> Self::F {
+    fn connect(&self) -> Self::Fut {
         Box::pin(Next {
             future: Box::pin(TcpStream::connect(self.addr.clone())),
         })

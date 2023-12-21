@@ -15,7 +15,7 @@ use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::{ClientConfig, ServerName};
 use tokio_rustls::TlsConnector;
 
-use crate::net::client::async_connect::AsyncConnect;
+use crate::net::client::protocol::AsyncConnect;
 
 //------------ TlsConnect -----------------------------------------------------
 
@@ -50,14 +50,14 @@ impl<A: ToSocketAddrs + Clone + Send + Sync + 'static> AsyncConnect
     for TlsConnect<A>
 {
     type Connection = TlsStream<TcpStream>;
-    type F = Pin<
+    type Fut = Pin<
         Box<
             dyn Future<Output = Result<TlsStream<TcpStream>, std::io::Error>>
                 + Send,
         >,
     >;
 
-    fn connect(&self) -> Self::F {
+    fn connect(&self) -> Self::Fut {
         let tls_connection = TlsConnector::from(self.client_config.clone());
         let server_name =
             match ServerName::try_from(self.server_name.as_str()) {

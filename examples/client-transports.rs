@@ -1,13 +1,13 @@
+/// Using the `domain::net::client` module for sending a query.
 use domain::base::Dname;
 use domain::base::MessageBuilder;
 use domain::base::Rtype::Aaaa;
 use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
+use domain::net::client::protocol::{TcpConnect, TlsConnect};
 use domain::net::client::redundant;
 use domain::net::client::request::Request;
 use domain::net::client::request_message::RequestMessage;
-use domain::net::client::tcp_connect::TcpConnect;
-use domain::net::client::tls_connect::TlsConnect;
 use domain::net::client::udp;
 use domain::net::client::udp_tcp;
 use std::net::{IpAddr, SocketAddr};
@@ -20,31 +20,28 @@ use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 
 #[tokio::main]
 async fn main() {
-    // Create DNS request message. It would be nice if there was an object
-    // that implements both MessageBuilder and BaseMEssageBuilder. Until
-    // that time, first create a message using MessageBuilder, then turn
-    // that into a Message, and create a BaseMessaBuilder based on the message.
+    // Create DNS request message.
+    //
+    // Transports currently take a `RequestMessage` as their input to be able
+    // to add options along the way.
+    //
+    // In the future, it will also be possible to pass in a message or message
+    // builder directly as input but for now it needs to be converted into a
+    // `RequestMessage` manually.
     let mut msg = MessageBuilder::new_vec();
     msg.header_mut().set_rd(true);
     let mut msg = msg.question();
-    msg.push((Dname::<Vec<u8>>::vec_from_str("example.com").unwrap(), Aaaa))
+    msg.push((Dname::vec_from_str("example.com").unwrap(), Aaaa))
         .unwrap();
-
-    // Create a Message to pass to BMB.
-    let msg = msg.into_message();
-
-    // Transports take a BaseMEssageBuilder to be able to add options along
-    // the way and only flatten just before actually writing to the network.
     let req = RequestMessage::new(msg);
 
     // Destination for UDP and TCP
     let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
 
-    let octet_stream_config = octet_stream::Config {
-        response_timeout: Duration::from_millis(100),
-    };
     let multi_stream_config = multi_stream::Config {
-        octet_stream: Some(octet_stream_config.clone()),
+        octet_stream: Some(octet_stream::Config {
+            response_timeout: Duration::from_millis(100),
+        }),
     };
 
     // Create a new UDP+TCP transport connection. Pass the destination address
