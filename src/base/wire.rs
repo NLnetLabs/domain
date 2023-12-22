@@ -46,6 +46,9 @@ impl Composer for bytes::BytesMut {}
 #[cfg(feature = "smallvec")]
 impl<A: smallvec::Array<Item = u8>> Composer for smallvec::SmallVec<A> {}
 
+#[cfg(feature = "smallvec")]
+impl<const N: usize> Composer for heapless::Vec<u8, N> {}
+
 impl<T: Composer> Composer for &mut T {
     fn append_compressed_dname<N: ToDname + ?Sized>(
         &mut self,
