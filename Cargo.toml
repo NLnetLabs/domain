@@ -18,7 +18,7 @@ path = "src/lib.rs"
 
 [dependencies]
 octseq         = "0.3"
-time           = "0.3.1"
+time           = { version = "0.3.1", default-features = false }
 
 rand           = { version = "0.8", optional = true }
 bytes          = { version = "1.0", optional = true }
@@ -46,7 +46,7 @@ resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
 sign        = ["std"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
-std         = []
+std         = ["time/std"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
