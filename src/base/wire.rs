@@ -46,7 +46,7 @@ impl Composer for bytes::BytesMut {}
 #[cfg(feature = "smallvec")]
 impl<A: smallvec::Array<Item = u8>> Composer for smallvec::SmallVec<A> {}
 
-#[cfg(feature = "smallvec")]
+#[cfg(feature = "heapless")]
 impl<const N: usize> Composer for heapless::Vec<u8, N> {}
 
 impl<T: Composer> Composer for &mut T {
