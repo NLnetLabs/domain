@@ -4,11 +4,16 @@ use core::future::Future;
 use core::pin::Pin;
 use std::boxed::Box;
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::{TcpStream, ToSocketAddrs};
+use std::vec::Vec;
+use tokio::net::{TcpStream, ToSocketAddrs, UdpSocket};
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::{ClientConfig, ServerName};
 use tokio_rustls::TlsConnector;
+
+/// How many times do we try a new random port if we get ‘address in use.’
+const RETRY_RANDOM_PORT: usize = 10;
 
 //------------ AsyncConnect --------------------------------------------------
 
@@ -114,3 +119,143 @@ where
         })
     }
 }
+
+//------------ AsyncDgramRecv -------------------------------------------------
+
+/// Receive a datagram packet asynchronously.
+///
+///
+pub trait AsyncDgramRecv {
+    /// The future performing the receive operation.
+    type Fut: Future<Output = Result<Vec<u8>, io::Error>> + Send;
+
+    /// Returns a future that performs the receive operation.
+    fn recv(&self, buf: Vec<u8>) -> Self::Fut;
+}
+
+//------------ AsyncDgramSend -------------------------------------------------
+
+/// Send a datagram packet asynchronously.
+///
+///
+pub trait AsyncDgramSend {
+    /// The future performing the send operation.
+    type Fut: Future<Output = Result<usize, io::Error>> + Send;
+
+    /// Returns a future that performs the send operation.
+    fn send(&self, buf: &[u8]) -> Self::Fut;
+}
+
+//------------ UdpConnect --------------------------------------------------
+
+/// Create new TCP connections.
+#[derive(Clone, Copy, Debug)]
+pub struct UdpConnect {
+    /// Remote address to connect to.
+    addr: SocketAddr,
+}
+
+impl UdpConnect {
+    /// Create new UDP connections.
+    ///
+    /// addr is the destination address to connect to.
+    pub fn new(addr: SocketAddr) -> Self {
+        Self { addr }
+    }
+}
+
+impl AsyncConnect for UdpConnect {
+    type Connection = UdpDgram;
+    type Fut = Pin<
+        Box<
+            dyn Future<Output = Result<Self::Connection, std::io::Error>>
+                + Send,
+        >,
+    >;
+
+    fn connect(&self) -> Self::Fut {
+        Box::pin(UdpDgram::new(self.addr))
+    }
+}
+
+/// A single UDP 'connection'
+pub struct UdpDgram {
+    /// Underlying UDP socket
+    sock: Arc<UdpSocket>,
+}
+
+impl UdpDgram {
+    /// Create a new UdpDgram object.
+    async fn new(addr: SocketAddr) -> Result<Self, io::Error> {
+        let sock = Self::udp_bind(addr.is_ipv4()).await?;
+        sock.connect(addr).await?;
+        Ok(Self {
+            sock: Arc::new(sock),
+        })
+    }
+    /// Bind to a local UDP port.
+    ///
+    /// This should explicitly pick a random number in a suitable range of
+    /// ports.
+    async fn udp_bind(v4: bool) -> Result<UdpSocket, io::Error> {
+        let mut i = 0;
+        loop {
+            let local: SocketAddr = if v4 {
+                ([0u8; 4], 0).into()
+            } else {
+                ([0u16; 8], 0).into()
+            };
+            match UdpSocket::bind(&local).await {
+                Ok(sock) => return Ok(sock),
+                Err(err) => {
+                    if i == RETRY_RANDOM_PORT {
+                        return Err(err);
+                    } else {
+                        i += 1
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl AsyncDgramRecv for UdpDgram {
+    type Fut =
+        Pin<Box<dyn Future<Output = Result<Vec<u8>, io::Error>> + Send>>;
+    fn recv(&self, mut buf: Vec<u8>) -> Self::Fut {
+        let sock = self.sock.clone();
+        Box::pin(async move {
+            let len = sock.recv(&mut buf).await?;
+            buf.truncate(len);
+            Ok(buf)
+        })
+    }
+}
+
+impl AsyncDgramSend for UdpDgram {
+    type Fut = Pin<Box<dyn Future<Output = Result<usize, io::Error>> + Send>>;
+    fn send(&self, buf: &[u8]) -> Self::Fut {
+        let sock = self.sock.clone();
+        let buf = buf.to_vec();
+        Box::pin(async move { sock.send(&buf).await })
+    }
+}
+
+/*
+struct Sender {
+    sock: Arc<UdpSocket>,
+    buf: Vec<u8>
+}
+
+impl Sender {
+    fn new() -> Self { Self }
+}
+
+impl Future for Sender {
+    type Output = Result<usize, io::Error>;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) ->
+    Poll<Self::Output> {
+        self.sock.poll_send(cx, &self.buf)
+    }
+}
+*/

@@ -11,6 +11,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
+pub mod dgram;
 pub mod multi_stream;
 pub mod octet_stream;
 pub mod protocol;
