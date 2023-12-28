@@ -1,10 +1,8 @@
 # Change Log
 
-## Unreleased next version
+## 0.9.3
 
-Breaking changes
-
-New
+Released 2023-12-29.
 
 Bug fixes
 
