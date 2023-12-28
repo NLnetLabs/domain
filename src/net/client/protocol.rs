@@ -2,11 +2,13 @@
 
 use core::future::Future;
 use core::pin::Pin;
+use pin_project_lite::pin_project;
 use std::boxed::Box;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::vec::Vec;
+use std::task::{Context, Poll};
+use tokio::io::ReadBuf;
 use tokio::net::{TcpStream, ToSocketAddrs, UdpSocket};
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::rustls::{ClientConfig, ServerName};
@@ -122,15 +124,66 @@ where
 
 //------------ AsyncDgramRecv -------------------------------------------------
 
-/// Receive a datagram packet asynchronously.
+/// Receive a datagram packets asynchronously.
 ///
 ///
 pub trait AsyncDgramRecv {
-    /// The future performing the receive operation.
-    type Fut: Future<Output = Result<Vec<u8>, io::Error>> + Send;
+    /// Polled receive.
+    fn poll_recv(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<(), io::Error>>;
+}
 
-    /// Returns a future that performs the receive operation.
-    fn recv(&self, buf: Vec<u8>) -> Self::Fut;
+/// Convenvience trait to turn poll_recv into an asynchronous function.
+pub trait AsyncDgramRecvEx: AsyncDgramRecv {
+    /// Asynchronous receive function.
+    fn recv<'a>(&'a mut self, buf: &'a mut [u8]) -> DgramRecv<'a, Self>
+    where
+        Self: Unpin,
+    {
+        recv(self, buf)
+    }
+}
+
+impl<R: AsyncDgramRecv> AsyncDgramRecvEx for R {}
+
+pin_project! {
+    /// Return value of recv. This captures the future for recv.
+    pub struct DgramRecv<'a, R: ?Sized> {
+        receiver: &'a mut R,
+        buf: &'a mut [u8],
+    }
+}
+
+impl<R: AsyncDgramRecv + Unpin> Future for DgramRecv<'_, R> {
+    type Output = io::Result<usize>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<usize>> {
+        let me = self.project();
+        let mut buf = ReadBuf::new(me.buf);
+        match Pin::new(me.receiver).poll_recv(cx, &mut buf) {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(res) => {
+                if let Err(err) = res {
+                    return Poll::Ready(Err(err));
+                }
+            }
+        }
+        Poll::Ready(Ok(buf.filled().len()))
+    }
+}
+
+/// Helper function for the recv method.
+fn recv<'a, R: ?Sized>(
+    receiver: &'a mut R,
+    buf: &'a mut [u8],
+) -> DgramRecv<'a, R> {
+    DgramRecv { receiver, buf }
 }
 
 //------------ AsyncDgramSend -------------------------------------------------
@@ -139,11 +192,50 @@ pub trait AsyncDgramRecv {
 ///
 ///
 pub trait AsyncDgramSend {
-    /// The future performing the send operation.
-    type Fut: Future<Output = Result<usize, io::Error>> + Send;
+    /// Polled send function.
+    fn poll_send(
+        self: Pin<&Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>>;
+}
 
-    /// Returns a future that performs the send operation.
-    fn send(&self, buf: &[u8]) -> Self::Fut;
+/// Convenience trait that turns poll_send into an asynchronous function.
+pub trait AsyncDgramSendEx: AsyncDgramSend {
+    /// Asynchronous function to send a packet.
+    fn send<'a>(&'a self, buf: &'a [u8]) -> DgramSend<'a, Self>
+    where
+        Self: Unpin,
+    {
+        send(self, buf)
+    }
+}
+
+impl<S: AsyncDgramSend> AsyncDgramSendEx for S {}
+
+/// This is the return value of send. It captures the future for send.
+pub struct DgramSend<'a, S: ?Sized> {
+    /// The datagram send object.
+    sender: &'a S,
+
+    /// The buffer that needs to be sent.
+    buf: &'a [u8],
+}
+
+impl<S: AsyncDgramSend + Unpin> Future for DgramSend<'_, S> {
+    type Output = io::Result<usize>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(self.sender).poll_send(cx, self.buf)
+    }
+}
+
+/// Send helper function to implement the send method of AsyncDgramSendEx.
+fn send<'a, S: ?Sized>(sender: &'a S, buf: &'a [u8]) -> DgramSend<'a, S> {
+    DgramSend { sender, buf }
 }
 
 //------------ UdpConnect --------------------------------------------------
@@ -220,42 +312,21 @@ impl UdpDgram {
 }
 
 impl AsyncDgramRecv for UdpDgram {
-    type Fut =
-        Pin<Box<dyn Future<Output = Result<Vec<u8>, io::Error>> + Send>>;
-    fn recv(&self, mut buf: Vec<u8>) -> Self::Fut {
-        let sock = self.sock.clone();
-        Box::pin(async move {
-            let len = sock.recv(&mut buf).await?;
-            buf.truncate(len);
-            Ok(buf)
-        })
+    fn poll_recv(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        self.sock.poll_recv(cx, buf)
     }
 }
 
 impl AsyncDgramSend for UdpDgram {
-    type Fut = Pin<Box<dyn Future<Output = Result<usize, io::Error>> + Send>>;
-    fn send(&self, buf: &[u8]) -> Self::Fut {
-        let sock = self.sock.clone();
-        let buf = buf.to_vec();
-        Box::pin(async move { sock.send(&buf).await })
+    fn poll_send(
+        self: Pin<&Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        self.sock.poll_send(cx, buf)
     }
 }
-
-/*
-struct Sender {
-    sock: Arc<UdpSocket>,
-    buf: Vec<u8>
-}
-
-impl Sender {
-    fn new() -> Self { Self }
-}
-
-impl Future for Sender {
-    type Output = Result<usize, io::Error>;
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) ->
-    Poll<Self::Output> {
-        self.sock.poll_send(cx, &self.buf)
-    }
-}
-*/

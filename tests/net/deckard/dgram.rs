@@ -10,7 +10,9 @@ use domain::net::client::protocol::{
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use std::sync::Mutex as SyncMutex;
+use std::task::{Context, Poll, Waker};
+use tokio::io::ReadBuf;
 
 #[derive(Clone, Debug)]
 pub struct Dgram {
@@ -46,51 +48,61 @@ pub struct DgramConnection {
     deckard: Deckard,
     step_value: Arc<CurrStepValue>,
 
-    sender: mpsc::Sender<Message<Vec<u8>>>,
-    receiver: Arc<Mutex<mpsc::Receiver<Message<Vec<u8>>>>>,
+    reply: SyncMutex<Option<Message<Vec<u8>>>>,
+    waker: SyncMutex<Option<Waker>>,
 }
 
 impl DgramConnection {
     fn new(deckard: Deckard, step_value: Arc<CurrStepValue>) -> Self {
-        let (sender, receiver) = mpsc::channel(2);
         Self {
             deckard,
             step_value,
-            sender,
-            receiver: Arc::new(Mutex::new(receiver)),
+            reply: SyncMutex::new(None),
+            waker: SyncMutex::new(None),
         }
     }
 }
 impl AsyncDgramRecv for DgramConnection {
-    type Fut =
-        Pin<Box<dyn Future<Output = Result<Vec<u8>, std::io::Error>> + Send>>;
-    fn recv(&self, buf: Vec<u8>) -> Self::Fut {
-        let arc_m_rec = self.receiver.clone();
-        Box::pin(async move {
-            let mut rec = arc_m_rec.lock().await;
-            let msg = (*rec).recv().await.unwrap();
-            let msg_octets = msg.into_octets();
-            if msg_octets.len() > buf.len() {
-                panic!("test returned reply that is bigger than buffer");
-            }
-            Ok(msg_octets)
-        })
+    fn poll_recv(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        let mut reply = self.reply.lock().unwrap();
+        if (*reply).is_some() {
+            let slice = (*reply).as_ref().unwrap().as_slice();
+            buf.put_slice(slice);
+            *reply = None;
+            return Poll::Ready(Ok(()));
+        }
+        *reply = None;
+        let mut waker = self.waker.lock().unwrap();
+        *waker = Some(cx.waker().clone());
+        Poll::Pending
     }
 }
 
 impl AsyncDgramSend for DgramConnection {
-    type Fut =
-        Pin<Box<dyn Future<Output = Result<usize, std::io::Error>> + Send>>;
-    fn send(&self, buf: &[u8]) -> Self::Fut {
+    fn poll_send(
+        self: Pin<&Self>,
+        _: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
         let msg = Message::from_octets(buf).unwrap();
         let opt_reply = do_server(&msg, &self.deckard, &self.step_value);
-        let sender = self.sender.clone();
         let len = buf.len();
-        Box::pin(async move {
-            if opt_reply.is_some() {
-                sender.send(opt_reply.unwrap()).await.unwrap();
+        if opt_reply.is_some() {
+            // Do we need to support more than one reply?
+            let mut reply = self.reply.lock().unwrap();
+            *reply = opt_reply;
+            drop(reply);
+            let mut waker = self.waker.lock().unwrap();
+            let opt_waker = (*waker).take();
+            drop(waker);
+            if let Some(waker) = opt_waker {
+                waker.wake();
             }
-            Ok(len)
-        })
+        }
+        Poll::Ready(Ok(len))
     }
 }

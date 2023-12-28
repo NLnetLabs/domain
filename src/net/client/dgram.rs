@@ -20,7 +20,8 @@ use tokio::time::{timeout, Duration, Instant};
 use crate::base::iana::Rcode;
 use crate::base::Message;
 use crate::net::client::protocol::{
-    AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
+    AsyncConnect, AsyncDgramRecv, AsyncDgramRecvEx, AsyncDgramSend,
+    AsyncDgramSendEx,
 };
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
@@ -100,7 +101,7 @@ pub struct Connection<S: AsyncConnect + Clone + Sync> {
 
 impl<
         S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + 'static,
+        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
     > Connection<S>
 {
     /// Create a new datagram transport connection.
@@ -140,7 +141,7 @@ impl<
 
 impl<
         S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + 'static,
+        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
         CR: ComposeRequest + Clone + Send + Sync + 'static,
     > SendRequest<CR> for Connection<S>
 {
@@ -171,7 +172,7 @@ impl ReqResp {
     /// Create new ReqResp object.
     fn new<
         S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + 'static,
+        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
         CR: ComposeRequest + Clone + Send + Sync + 'static,
     >(
         config: Config,
@@ -201,7 +202,7 @@ impl ReqResp {
     /// This function is not cancel safe.
     async fn get_response_impl2<
         S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + 'static,
+        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
         CR: ComposeRequest,
     >(
         config: Config,
@@ -219,7 +220,7 @@ impl ReqResp {
         let _permit = conn.get_permit().await;
 
         loop {
-            let sock = connect
+            let mut sock = connect
                 .connect()
                 .await
                 .map_err(|e| Error::UdpConnect(Arc::new(e)))?;
@@ -253,8 +254,8 @@ impl ReqResp {
                 }
                 let remain = config.read_timeout - elapsed;
 
-                let buf = vec![0; recv_size]; // XXX use uninit'ed mem here.
-                let timeout_res = timeout(remain, sock.recv(buf)).await;
+                let mut buf = vec![0; recv_size]; // XXX use uninit'ed mem here.
+                let timeout_res = timeout(remain, sock.recv(&mut buf)).await;
                 if timeout_res.is_err() {
                     retries += 1;
                     if retries < config.max_retries {
@@ -264,9 +265,10 @@ impl ReqResp {
                     }
                     return Err(Error::UdpTimeoutNoResponse);
                 }
-                let buf = timeout_res
+                let len = timeout_res
                     .expect("errror case is checked above")
                     .map_err(|e| Error::UdpReceive(Arc::new(e)))?;
+                buf.truncate(len);
 
                 // We ignore garbage since there is a timer on this whole
                 // thing.
@@ -325,7 +327,7 @@ struct InnerConnection<S: AsyncConnect> {
 
 impl<
         S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + 'static,
+        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
     > InnerConnection<S>
 {
     /// Create new InnerConnection object.

@@ -52,7 +52,7 @@ impl<
         CR: ComposeRequest + Clone + 'static,
     > Connection<S, CR>
 where
-    S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync,
+    S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
 {
     /// Create a new connection.
     pub fn new(
@@ -98,7 +98,7 @@ impl<
         CR: ComposeRequest + Clone + 'static,
     > SendRequest<CR> for Connection<S, CR>
 where
-    S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync,
+    S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
 {
     fn send_request<'a>(
         &'a self,
@@ -174,7 +174,7 @@ impl<
     /// This function is cancel safe.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error>
     where
-        S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync,
+        S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
     {
         loop {
             match &mut self.state {
@@ -212,7 +212,7 @@ impl<
         CR: ComposeRequest + Clone + Debug + 'static,
     > GetResponse for ReqResp<S, CR>
 where
-    S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync,
+    S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
 {
     fn get_response(
         &mut self,
@@ -245,7 +245,7 @@ impl<
     /// run needs it later.
     fn new(config: Config, dgram_connect: S) -> Result<Self, Error>
     where
-        S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync,
+        S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
     {
         let udp_conn = dgram::Connection::new(config.dgram, dgram_connect)?;
         let tcp_conn = multi_stream::Connection::new(config.multi_stream)?;
