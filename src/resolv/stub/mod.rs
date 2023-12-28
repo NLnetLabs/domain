@@ -19,13 +19,13 @@ use crate::base::message_builder::{
 };
 use crate::base::name::{ToDname, ToRelativeDname};
 use crate::base::question::Question;
+use crate::net::client::dgram_stream;
 use crate::net::client::multi_stream;
 use crate::net::client::protocol::{TcpConnect, UdpConnect};
 use crate::net::client::redundant;
 use crate::net::client::request::{
     ComposeRequest, RequestMessage, SendRequest,
 };
-use crate::net::client::dgram_stream;
 use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
 use crate::resolv::lookup::srv::{lookup_srv, FoundSrvs, SrvError};
@@ -164,10 +164,11 @@ impl StubResolver {
         } else {
             for s in &self.servers {
                 if let Transport::Udp = s.transport {
-		    let udp_connect = UdpConnect::new(s.addr);
-		    let tcp_connect = TcpConnect::new(s.addr);
+                    let udp_connect = UdpConnect::new(s.addr);
+                    let tcp_connect = TcpConnect::new(s.addr);
                     let udptcp_conn =
-                        dgram_stream::Connection::new(None, udp_connect).unwrap();
+                        dgram_stream::Connection::new(None, udp_connect)
+                            .unwrap();
                     // Start the run function on a separate task.
                     let run_fut = udptcp_conn.run(tcp_connect);
                     fut_list_udp_tcp.push(async move {
