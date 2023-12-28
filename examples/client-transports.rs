@@ -3,13 +3,13 @@ use domain::base::Dname;
 use domain::base::MessageBuilder;
 use domain::base::Rtype::Aaaa;
 use domain::net::client::dgram;
+use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
 use domain::net::client::request::{RequestMessage, SendRequest};
 use domain::net::client::udp;
-use domain::net::client::udp_tcp;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
@@ -51,18 +51,27 @@ async fn main() {
         max_retries: 1,
         udp_payload_size: Some(1400),
     };
-    let udp_tcp_config = udp_tcp::Config {
-        udp: Some(udp_config.clone()),
+    let dgram_config = dgram::Config {
+        max_parallel: 1,
+        read_timeout: Duration::from_millis(1000),
+        max_retries: 1,
+        udp_payload_size: Some(1400),
+    };
+    let dgram_stream_config = dgram_stream::Config {
+        dgram: Some(dgram_config.clone()),
         multi_stream: Some(multi_stream_config.clone()),
     };
+    let udp_connect = UdpConnect::new(server_addr);
+    let tcp_connect = TcpConnect::new(server_addr);
     let udptcp_conn =
-        udp_tcp::Connection::new(Some(udp_tcp_config), server_addr).unwrap();
+        dgram_stream::Connection::new(Some(dgram_stream_config), udp_connect)
+            .unwrap();
 
     // Start the run function in a separate task. The run function will
     // terminate when all references to the connection have been dropped.
     // Make sure that the task does not accidentally get a reference to the
     // connection.
-    let run_fut = udptcp_conn.run();
+    let run_fut = udptcp_conn.run(tcp_connect);
     tokio::spawn(async move {
         let res = run_fut.await;
         println!("UDP+TCP run exited with {:?}", res);
@@ -204,12 +213,6 @@ async fn main() {
     // and port as parameter. This transport does not retry over TCP if the
     // reply is truncated. This transport does not have a separate run
     // function.
-    let dgram_config = dgram::Config {
-        max_parallel: 1,
-        read_timeout: Duration::from_millis(1000),
-        max_retries: 1,
-        udp_payload_size: Some(1400),
-    };
     let udp_connect = UdpConnect::new(server_addr);
     let dgram_conn =
         dgram::Connection::new(Some(dgram_config), udp_connect).unwrap();

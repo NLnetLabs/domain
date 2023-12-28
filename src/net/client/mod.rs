@@ -12,10 +12,10 @@
 #![warn(clippy::missing_docs_in_private_items)]
 
 pub mod dgram;
+pub mod dgram_stream;
 pub mod multi_stream;
 pub mod octet_stream;
 pub mod protocol;
 pub mod redundant;
 pub mod request;
 pub mod udp;
-pub mod udp_tcp;
