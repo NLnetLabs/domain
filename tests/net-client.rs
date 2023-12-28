@@ -8,6 +8,7 @@ use crate::net::deckard::connection::Connection;
 use crate::net::deckard::dgram::Dgram;
 use crate::net::deckard::parse_deckard::parse_file;
 use domain::net::client::dgram;
+use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
 use domain::net::client::redundant;
@@ -69,6 +70,26 @@ fn multi() {
         });
 
         do_client(&deckard, ms.clone(), &step_value).await;
+    });
+}
+
+#[test]
+fn dgram_stream() {
+    tokio_test::block_on(async {
+        let file = File::open(TEST_FILE).unwrap();
+        let deckard = parse_file(file);
+
+        let step_value = Arc::new(CurrStepValue::new());
+        let conn = Dgram::new(deckard.clone(), step_value.clone());
+        let multi_conn = Connect::new(deckard.clone(), step_value.clone());
+        let ds = dgram_stream::Connection::new(None, conn).unwrap();
+        let run_fut = ds.run(multi_conn);
+        tokio::spawn(async move {
+            run_fut.await.unwrap();
+            println!("dgram_stream conn run terminated");
+        });
+
+        do_client(&deckard, ds, &step_value).await;
     });
 }
 

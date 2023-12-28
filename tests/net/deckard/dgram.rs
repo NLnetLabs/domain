@@ -12,7 +12,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Dgram {
     deckard: Deckard,
     step_value: Arc<CurrStepValue>,
