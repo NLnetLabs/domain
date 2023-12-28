@@ -1,11 +1,12 @@
-//! DNS transport protocols
-#![cfg(feature = "net")]
-#![cfg_attr(docsrs, doc(cfg(feature = "net")))]
+//! Sending requests and receiving responses.
 
 //! # Example with various transport connections
 //! ```
 #![doc = include_str!("../../../examples/client-transports.rs")]
 //! ```
+
+#![cfg(feature = "unstable-client-transport")]
+#![cfg_attr(docsrs, doc(cfg(feature = "unstable-client-transport")))]
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]

@@ -56,6 +56,9 @@ tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
 
+# Unstable features
+unstable-client-transport = []
+
 # This feature should include all features that the CI should include for a
 # test run. Which is everything except interop.
 ci-test     = ["resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]

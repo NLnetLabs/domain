@@ -27,6 +27,9 @@
 //!
 //! Currently, there are the following modules:
 //!
+#![cfg_attr(feature = "net", doc = "* [net]:")]
+#![cfg_attr(not(feature = "net"), doc = "* net:")]
+//!   Sending and receiving DNS message.
 #![cfg_attr(feature = "resolv", doc = "* [resolv]:")]
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
@@ -48,12 +51,13 @@
 //! Finally, the [dep] module contains re-exports of some important
 //! dependencies to help avoid issues with multiple versions of a crate.
 //!
-//! # Reference of Feature Flags
+//! # Reference of feature flags
 //!
-//! The following is the complete list of the feature flags available.
+//! The following is the complete list of the feature flags with the
+//! exception of unstable features which are described below.
 //!
 //! * `bytes`: Enables using the types `Bytes` and `BytesMut` from the
-//!    [bytes](https://github.com/tokio-rs/bytes) crate as octet sequences.
+//!   [bytes](https://github.com/tokio-rs/bytes) crate as octet sequences.
 //! * `chrono`: Adds the [chrono](https://github.com/chronotope/chrono)
 //!   crate as a dependency. This adds support for generating serial numbers
 //!   from time stamps.
@@ -104,6 +108,30 @@
 #![cfg_attr(feature = "zonefile", doc = "  [zonefile]")]
 #![cfg_attr(not(feature = "zonefile"), doc = "  zonefile")]
 //!   module and currently also enables the `bytes` and `std` features.
+//!
+//! # Unstable features
+//!
+//! When adding new functionality to the crate, practical experience is
+//! necessary to arrive at a good, user friendly design. Unstable features
+//! allow adding and rapidly changing new code without having to release
+//! versions allowing breaking changes all the time. If you use unstable
+//! features, it is best to specify a concrete version as a dependency in
+//! `Cargo.toml` using the `=` operator, e.g.:
+//!
+//! ```
+//! [dependencies]
+//! domain = "=0.9.3"
+//! ```
+//!
+//! Currently, the following unstable features exist:
+//!
+//! * `unstable-client-transport`: sending and receiving DNS messages from
+//!   a client perspective; primarily the `net::client` module.
+//!
+//! Note: Some functionality is currently informally marked as
+//! “experimental” since it was introduced before adoption of the concept
+//! of unstable features. These will follow proper Semver practice but may
+//! significant changes in releases with breakting changes.
 
 #![no_std]
 #![allow(renamed_and_removed_lints)]
