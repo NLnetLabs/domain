@@ -5,7 +5,9 @@ use crate::net::deckard::client::do_client;
 use crate::net::deckard::client::CurrStepValue;
 use crate::net::deckard::connect::Connect;
 use crate::net::deckard::connection::Connection;
+use crate::net::deckard::dgram::Dgram;
 use crate::net::deckard::parse_deckard::parse_file;
+use domain::net::client::dgram;
 use domain::net::client::multi_stream;
 use domain::net::client::octet_stream;
 use domain::net::client::redundant;
@@ -18,6 +20,20 @@ use tokio::net::TcpStream;
 use tokio_test;
 
 const TEST_FILE: &str = "test-data/basic.rpl";
+
+#[test]
+fn dgram() {
+    tokio_test::block_on(async {
+        let file = File::open(TEST_FILE).unwrap();
+        let deckard = parse_file(file);
+
+        let step_value = Arc::new(CurrStepValue::new());
+        let conn = Dgram::new(deckard.clone(), step_value.clone());
+        let octstr = dgram::Connection::new(None, conn).unwrap();
+
+        do_client(&deckard, octstr, &step_value).await;
+    });
+}
 
 #[test]
 fn single() {

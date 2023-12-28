@@ -35,8 +35,7 @@ async fn main() {
     let req = RequestMessage::new(msg);
 
     // Destination for UDP and TCP
-    let server_addr =
-        SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
+    let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
 
     let multi_stream_config = multi_stream::Config {
         octet_stream: Some(octet_stream::Config {
