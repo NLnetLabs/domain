@@ -5,7 +5,7 @@ use domain::base::Rtype::Aaaa;
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
-use domain::net::client::octet_stream;
+use domain::net::client::stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
 use domain::net::client::request::{RequestMessage, SendRequest};
@@ -37,7 +37,7 @@ async fn main() {
     let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
 
     let multi_stream_config = multi_stream::Config {
-        octet_stream: Some(octet_stream::Config {
+        stream: Some(stream::Config {
             response_timeout: Duration::from_millis(100),
         }),
     };
@@ -216,7 +216,7 @@ async fn main() {
         }
     };
 
-    let tcp = octet_stream::Connection::new(None).unwrap();
+    let tcp = stream::Connection::new(None).unwrap();
     let run_fut = tcp.run(tcp_conn);
     tokio::spawn(async move {
         run_fut.await;

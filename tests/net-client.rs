@@ -10,7 +10,7 @@ use crate::net::deckard::parse_deckard::parse_file;
 use domain::net::client::dgram;
 use domain::net::client::dgram_stream;
 use domain::net::client::multi_stream;
-use domain::net::client::octet_stream;
+use domain::net::client::stream;
 use domain::net::client::redundant;
 use std::fs::File;
 use std::net::IpAddr;
@@ -44,7 +44,7 @@ fn single() {
 
         let step_value = Arc::new(CurrStepValue::new());
         let conn = Connection::new(deckard.clone(), step_value.clone());
-        let octstr = octet_stream::Connection::new(None).unwrap();
+        let octstr = stream::Connection::new(None).unwrap();
         let run_fut = octstr.run(conn);
         tokio::spawn(async move {
             run_fut.await;
@@ -142,7 +142,7 @@ fn tcp() {
             }
         };
 
-        let tcp = octet_stream::Connection::new(None).unwrap();
+        let tcp = stream::Connection::new(None).unwrap();
         let run_fut = tcp.run(tcp_conn);
         tokio::spawn(async move {
             run_fut.await;

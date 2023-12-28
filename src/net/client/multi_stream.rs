@@ -30,7 +30,7 @@ use tokio::time::{sleep_until, Instant};
 
 use crate::base::iana::Rcode;
 use crate::base::Message;
-use crate::net::client::octet_stream;
+use crate::net::client::stream;
 use crate::net::client::protocol::AsyncConnect;
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
@@ -45,11 +45,11 @@ const ERR_CONN_CLOSED: &str = "connection closed";
 
 //------------ Config ---------------------------------------------------------
 
-/// Configuration for an octet_stream transport connection.
+/// Configuration for an stream transport connection.
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     /// Response timeout.
-    pub octet_stream: Option<octet_stream::Config>,
+    pub stream: Option<stream::Config>,
 }
 
 //------------ Connection -----------------------------------------------------
@@ -155,7 +155,7 @@ pub struct ReqResp<CR: ComposeRequest> {
     state: QueryState<CR>,
 
     /// A multi_octet connection object is needed to request new underlying
-    /// octet_stream transport connections.
+    /// stream transport connections.
     conn: Connection<CR>,
 
     /// id of most recent connection.
@@ -170,14 +170,14 @@ pub struct ReqResp<CR: ComposeRequest> {
 /// Status of a query. Used in [Query].
 #[derive(Debug)]
 enum QueryState<CR> {
-    /// Get a octet_stream transport.
+    /// Get a stream transport.
     GetConn(oneshot::Receiver<ChanResp<CR>>),
 
     /// Start a query using the transport.
-    StartQuery(octet_stream::Connection<CR>),
+    StartQuery(stream::Connection<CR>),
 
     /// Get the result of the query.
-    GetResult(octet_stream::QueryNoCheck),
+    GetResult(stream::QueryNoCheck),
 
     /// Wait until trying again.
     ///
@@ -198,8 +198,8 @@ struct ChanRespOk<CR> {
     /// id of this connection.
     id: u64,
 
-    /// New octet_stream transport.
-    conn: octet_stream::Connection<CR>,
+    /// New stream transport.
+    conn: stream::Connection<CR>,
 }
 
 impl<CR: ComposeRequest + Clone + 'static> ReqResp<CR> {
@@ -355,7 +355,7 @@ struct InnerConnection<CR> {
 }
 
 #[derive(Debug)]
-/// A request to [Connection::run] either for a new octet_stream or to
+/// A request to [Connection::run] either for a new stream or to
 /// shutdown.
 struct ChanReq<CR> {
     /// A requests consists of a command.
@@ -382,7 +382,7 @@ type ReplySender<CR> = oneshot::Sender<ChanResp<CR>>;
 /// the status of the connection.
 // The types Status and ConnState are only used in InnerConnection
 struct State3<'a, S, IO, CR> {
-    /// Underlying octet_stream connection.
+    /// Underlying stream connection.
     conn_state: SingleConnState3<CR>,
 
     /// Current connection id.
@@ -392,7 +392,7 @@ struct State3<'a, S, IO, CR> {
     stream: S,
 
     /// Collection of futures for the async run function of the underlying
-    /// octet_stream.
+    /// stream.
     runners: FuturesUnordered<
         Pin<Box<dyn Future<Output = Option<()>> + Send + 'a>>,
     >,
@@ -401,20 +401,20 @@ struct State3<'a, S, IO, CR> {
     phantom: PhantomData<&'a IO>,
 }
 
-/// State of the current underlying octet_stream transport.
+/// State of the current underlying stream transport.
 enum SingleConnState3<CR> {
-    /// No current octet_stream transport.
+    /// No current stream transport.
     None,
 
-    /// Current octet_stream transport.
-    Some(octet_stream::Connection<CR>),
+    /// Current stream transport.
+    Some(stream::Connection<CR>),
 
     /// State that deals with an error getting a new octet stream from
     /// a connection stream.
     Err(ErrorState),
 }
 
-/// State associated with a failed attempt to create a new octet_stream
+/// State associated with a failed attempt to create a new stream
 /// transport.
 #[derive(Clone)]
 struct ErrorState {
@@ -598,7 +598,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
 
                             let stream = res_conn
                                 .expect("error case is checked before");
-                            let conn = octet_stream::Connection::new(config.octet_stream.clone())?;
+                            let conn = stream::Connection::new(config.stream.clone())?;
                             let conn_run = conn.clone();
 
                             let clo = || async move {
@@ -648,7 +648,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
         // Avoid new queries
         drop(receiver);
 
-        // Wait for existing octet_stream runners to terminate
+        // Wait for existing stream runners to terminate
         while !state.runners.is_empty() {
             state.runners.next().await;
         }
