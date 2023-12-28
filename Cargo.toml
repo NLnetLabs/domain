@@ -17,8 +17,8 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-octseq         = { version = "0.3", default-features = false }
-time           = { version = "0.3", default-features = false }
+octseq         = { version = "0.3.2", default-features = false }
+time           = { version = "0.3.1", default-features = false }
 
 rand           = { version = "0.8", optional = true }
 bytes          = { version = "1.0", optional = true, default-features = false }
