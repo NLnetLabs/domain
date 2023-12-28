@@ -8,6 +8,9 @@ New
 
 Bug fixes
 
+* Fixed various issues preventing building in a no-std environment.
+  ([#247] by [@dzamlo], [#248] by [@reitermarkus])
+
 Other changes
 
 * The `resolv` feature now depends on `futures_util` instead of `futures`,
@@ -15,6 +18,10 @@ Other changes
   [@WhyNotHugo])
 
 [#246]: https://github.com/NLnetLabs/domain/pull/246
+[#247]: https://github.com/NLnetLabs/domain/pull/246
+[#248]: https://github.com/NLnetLabs/domain/pull/246
+[@dzamlo]: https://github.com/dzamlo
+[@reitermarkus]: https://github.com/reitermarkus
 [@WhyNotHugo]: https://github.com/WhyNotHugo
 
 
