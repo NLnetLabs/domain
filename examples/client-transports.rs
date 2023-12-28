@@ -9,7 +9,6 @@ use domain::net::client::octet_stream;
 use domain::net::client::protocol::{TcpConnect, TlsConnect, UdpConnect};
 use domain::net::client::redundant;
 use domain::net::client::request::{RequestMessage, SendRequest};
-use domain::net::client::udp;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
@@ -45,12 +44,6 @@ async fn main() {
 
     // Create a new UDP+TCP transport connection. Pass the destination address
     // and port as parameter.
-    let udp_config = udp::Config {
-        max_parallel: 1,
-        read_timeout: Duration::from_millis(1000),
-        max_retries: 1,
-        udp_payload_size: Some(1400),
-    };
     let dgram_config = dgram::Config {
         max_parallel: 1,
         read_timeout: Duration::from_millis(1000),
@@ -194,20 +187,6 @@ async fn main() {
     }
 
     drop(redun);
-
-    // Create a new UDP transport connection. Pass the destination address
-    // and port as parameter. This transport does not retry over TCP if the
-    // reply is truncated. This transport does not have a separate run
-    // function.
-    let udp_conn =
-        udp::Connection::new(Some(udp_config), server_addr).unwrap();
-
-    // Send a query message.
-    let mut request = udp_conn.send_request(&req).await.unwrap();
-
-    // Get the reply
-    let reply = request.get_response().await;
-    println!("UDP reply: {:?}", reply);
 
     // Create a new datagram transport connection. Pass the destination address
     // and port as parameter. This transport does not retry over TCP if the
