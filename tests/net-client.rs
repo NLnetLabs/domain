@@ -30,7 +30,7 @@ fn dgram() {
 
         let step_value = Arc::new(CurrStepValue::new());
         let conn = Dgram::new(deckard.clone(), step_value.clone());
-        let octstr = dgram::Connection::new(None, conn).unwrap();
+        let octstr = dgram::Connection::new(None, conn);
 
         do_client(&deckard, octstr, &step_value).await;
     });
@@ -44,10 +44,9 @@ fn single() {
 
         let step_value = Arc::new(CurrStepValue::new());
         let conn = Connection::new(deckard.clone(), step_value.clone());
-        let octstr = stream::Connection::new(None).unwrap();
-        let run_fut = octstr.run(conn);
+        let (octstr, transport) = stream::Connection::new(conn);
         tokio::spawn(async move {
-            run_fut.await;
+            transport.run().await;
         });
 
         do_client(&deckard, octstr, &step_value).await;
@@ -62,10 +61,9 @@ fn multi() {
 
         let step_value = Arc::new(CurrStepValue::new());
         let multi_conn = Connect::new(deckard.clone(), step_value.clone());
-        let ms = multi_stream::Connection::new(None).unwrap();
-        let run_fut = ms.run(multi_conn);
+        let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
         tokio::spawn(async move {
-            run_fut.await.unwrap();
+            ms_tran.run().await;
             println!("multi conn run terminated");
         });
 
@@ -82,10 +80,9 @@ fn dgram_stream() {
         let step_value = Arc::new(CurrStepValue::new());
         let conn = Dgram::new(deckard.clone(), step_value.clone());
         let multi_conn = Connect::new(deckard.clone(), step_value.clone());
-        let ds = dgram_stream::Connection::new(None, conn).unwrap();
-        let run_fut = ds.run(multi_conn);
+        let (ds, tran) = dgram_stream::Connection::new(conn, multi_conn);
         tokio::spawn(async move {
-            run_fut.await.unwrap();
+            tran.run().await;
             println!("dgram_stream conn run terminated");
         });
 
@@ -101,10 +98,9 @@ fn redundant() {
 
         let step_value = Arc::new(CurrStepValue::new());
         let multi_conn = Connect::new(deckard.clone(), step_value.clone());
-        let ms = multi_stream::Connection::new(None).unwrap();
-        let run_fut = ms.run(multi_conn);
+        let (ms, ms_tran) = multi_stream::Connection::new(multi_conn);
         tokio::spawn(async move {
-            run_fut.await.unwrap();
+            ms_tran.run().await;
             println!("multi conn run terminated");
         });
 
@@ -142,10 +138,9 @@ fn tcp() {
             }
         };
 
-        let tcp = stream::Connection::new(None).unwrap();
-        let run_fut = tcp.run(tcp_conn);
+        let (tcp, transport) = stream::Connection::new(tcp_conn);
         tokio::spawn(async move {
-            run_fut.await;
+            transport.run().await;
             println!("single TCP run terminated");
         });
 

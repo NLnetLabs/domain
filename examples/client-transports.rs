@@ -36,38 +36,37 @@ async fn main() {
     // Destination for UDP and TCP
     let server_addr = SocketAddr::new(IpAddr::from_str("::1").unwrap(), 53);
 
-    let multi_stream_config = multi_stream::Config {
-        stream: Some(stream::Config {
-            response_timeout: Duration::from_millis(100),
-        }),
-    };
+    let mut stream_config = stream::Config::new();
+    stream_config.set_response_timeout(Duration::from_millis(100));
+    let multi_stream_config =
+        multi_stream::Config::from(stream_config.clone());
 
     // Create a new UDP+TCP transport connection. Pass the destination address
     // and port as parameter.
-    let dgram_config = dgram::Config {
-        max_parallel: 1,
-        read_timeout: Duration::from_millis(1000),
-        max_retries: 1,
-        udp_payload_size: Some(1400),
-    };
-    let dgram_stream_config = dgram_stream::Config {
-        dgram: Some(dgram_config.clone()),
-        multi_stream: Some(multi_stream_config.clone()),
-    };
+    let mut dgram_config = dgram::Config::new();
+    dgram_config.set_max_parallel(1);
+    dgram_config.set_read_timeout(Duration::from_millis(1000));
+    dgram_config.set_max_retries(1);
+    dgram_config.set_udp_payload_size(Some(1400));
+    let dgram_stream_config = dgram_stream::Config::from_parts(
+        dgram_config.clone(),
+        multi_stream_config.clone(),
+    );
     let udp_connect = UdpConnect::new(server_addr);
     let tcp_connect = TcpConnect::new(server_addr);
-    let udptcp_conn =
-        dgram_stream::Connection::new(Some(dgram_stream_config), udp_connect)
-            .unwrap();
+    let (udptcp_conn, transport) = dgram_stream::Connection::with_config(
+        udp_connect,
+        tcp_connect,
+        dgram_stream_config,
+    );
 
     // Start the run function in a separate task. The run function will
     // terminate when all references to the connection have been dropped.
     // Make sure that the task does not accidentally get a reference to the
     // connection.
-    let run_fut = udptcp_conn.run(tcp_connect);
     tokio::spawn(async move {
-        let res = run_fut.await;
-        println!("UDP+TCP run exited with {:?}", res);
+        transport.run().await;
+        println!("UDP+TCP run exited");
     });
 
     // Send a query message.
@@ -88,16 +87,16 @@ async fn main() {
 
     // A muli_stream transport connection sets up new TCP connections when
     // needed.
-    let tcp_conn =
-        multi_stream::Connection::new(Some(multi_stream_config.clone()))
-            .unwrap();
+    let (tcp_conn, transport) = multi_stream::Connection::with_config(
+        tcp_connect,
+        multi_stream_config.clone(),
+    );
 
     // Get a future for the run function. The run function receives
     // the connection stream as a parameter.
-    let run_fut = tcp_conn.run(tcp_connect);
     tokio::spawn(async move {
-        let res = run_fut.await;
-        println!("multi TCP run exited with {:?}", res);
+        transport.run().await;
+        println!("multi TCP run exited");
     });
 
     // Send a query message.
@@ -144,14 +143,15 @@ async fn main() {
     );
 
     // Again create a multi_stream transport connection.
-    let tls_conn =
-        multi_stream::Connection::new(Some(multi_stream_config)).unwrap();
+    let (tls_conn, transport) = multi_stream::Connection::with_config(
+        tls_connect,
+        multi_stream_config,
+    );
 
     // Start the run function.
-    let run_fut = tls_conn.run(tls_connect);
     tokio::spawn(async move {
-        let res = run_fut.await;
-        println!("TLS run exited with {:?}", res);
+        transport.run().await;
+        println!("TLS run exited");
     });
 
     let mut request = tls_conn.send_request(&req).await.unwrap();
@@ -193,8 +193,7 @@ async fn main() {
     // reply is truncated. This transport does not have a separate run
     // function.
     let udp_connect = UdpConnect::new(server_addr);
-    let dgram_conn =
-        dgram::Connection::new(Some(dgram_config), udp_connect).unwrap();
+    let dgram_conn = dgram::Connection::new(Some(dgram_config), udp_connect);
 
     // Send a query message.
     let mut request = dgram_conn.send_request(&req).await.unwrap();
@@ -216,10 +215,9 @@ async fn main() {
         }
     };
 
-    let tcp = stream::Connection::new(None).unwrap();
-    let run_fut = tcp.run(tcp_conn);
+    let (tcp, transport) = stream::Connection::new(tcp_conn);
     tokio::spawn(async move {
-        run_fut.await;
+        transport.run().await;
         println!("single TCP run terminated");
     });
 

@@ -118,7 +118,7 @@
 //! features, it is best to specify a concrete version as a dependency in
 //! `Cargo.toml` using the `=` operator, e.g.:
 //!
-//! ```
+//! ```text
 //! [dependencies]
 //! domain = "=0.9.3"
 //! ```

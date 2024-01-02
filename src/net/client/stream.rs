@@ -1,4 +1,4 @@
-//! A DNS over octet stream transport
+//! A client transport using a stream socket.
 
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -17,62 +17,80 @@
 //   - request timeout
 // - create new connection after end/failure of previous one
 
-use bytes;
-use bytes::{Bytes, BytesMut};
-use core::convert::From;
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::io::ErrorKind;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use std::vec::Vec;
-
-use crate::base::{
-    opt::{AllOptData, OptRecord, TcpKeepalive},
-    Message,
-};
+use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
+use crate::base::Message;
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
+use bytes;
+use bytes::{Bytes, BytesMut};
+use core::cmp;
+use core::convert::From;
 use octseq::Octets;
-
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::boxed::Box;
+use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use std::vec::Vec;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 
-/// Default configuration value for the amount of time to wait on a non-idle
-/// connection for the other side to send a response on any outstanding query.
-// Implement a simple response timer to see if the connection and the server
-// are alive. Set the timer when the connection goes from idle to busy.
-// Reset the timer each time a reply arrives. Cancel the timer when the
-// connection goes back to idle. When the time expires, mark all outstanding
-// queries as timed out and shutdown the connection.
-//
-// Note: nsd has 120 seconds, unbound has 3 seconds.
+//------------ Configuration Constants ----------------------------------------
+
+/// Default response timeout.
+///
+/// Note: nsd has 120 seconds, unbound has 3 seconds.
 const DEF_RESPONSE_TIMEOUT: Duration = Duration::from_secs(19);
 
-/// Minimum configuration value for response_timeout.
+/// Minimum configuration value for the response timeout.
 const MIN_RESPONSE_TIMEOUT: Duration = Duration::from_millis(1);
 
-/// Maximum configuration value for response_timeout.
+/// Maximum configuration value for the response timeout.
 const MAX_RESPONSE_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// Capacity of the channel that transports [ChanReq].
+/// Capacity of the channel that transports `ChanReq`s.
 const DEF_CHAN_CAP: usize = 8;
 
-/// Capacity of a private channel between [InnerConnection::reader] and
-/// [InnerConnection::run].
+/// Capacity of a private channel dispatching responses.
 const READ_REPLY_CHAN_CAP: usize = 8;
 
 //------------ Config ---------------------------------------------------------
 
-/// Configuration for an octet_stream transport connection.
+/// Configuration for a stream transport connection.
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Response timeout.
-    pub response_timeout: Duration,
+    response_timeout: Duration,
+}
+
+impl Config {
+    /// Creates a new, default config.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Returns the response timeout.
+    ///
+    /// This is the amount of time to wait on a non-idle connection for a
+    /// response to an outstanding request.
+    pub fn response_timeout(&self) -> Duration {
+        self.response_timeout
+    }
+
+    /// Sets the response timeout.
+    ///
+    /// Excessive values are quietly trimmed.
+    //
+    //  XXX Maybe that’s wrong and we should rather return an error?
+    pub fn set_response_timeout(&mut self, timeout: Duration) {
+        self.response_timeout = cmp::max(
+            cmp::min(timeout, MAX_RESPONSE_TIMEOUT),
+            MIN_RESPONSE_TIMEOUT,
+        )
+    }
 }
 
 impl Default for Config {
@@ -85,53 +103,53 @@ impl Default for Config {
 
 //------------ Connection -----------------------------------------------------
 
-#[derive(Clone, Debug)]
-/// A single DNS over octect stream connection.
-pub struct Connection<CR> {
-    /// Reference counted [InnerConnection].
-    inner: Arc<InnerConnection<CR>>,
+/// A connection to a single stream transport.
+#[derive(Debug)]
+pub struct Connection<Req> {
+    /// The sender half of the request channel.
+    sender: mpsc::Sender<ChanReq<Req>>,
 }
 
-impl<CR: ComposeRequest + Clone + 'static> Connection<CR> {
-    /// Constructor for [Connection].
+impl<Req> Connection<Req> {
+    /// Creates a new stream transport with default configuration.
     ///
-    /// Returns a [Connection] wrapped in a [Result](io::Result).
-    pub fn new(config: Option<Config>) -> Result<Self, Error> {
-        let config = match config {
-            Some(config) => {
-                check_config(&config)?;
-                config
-            }
-            None => Default::default(),
+    /// Returns a connection and a future that drives the transport using
+    /// the provided stream. This future needs to be run while any queries
+    /// are active. This is most easly achieved by spawning it into a runtime.
+    /// It terminates when the last connection is dropped.
+    pub fn new<Stream>(stream: Stream) -> (Self, Transport<Stream, Req>) {
+        Self::with_config(stream, Default::default())
+    }
+
+    /// Creates a new stream transport with the given configuration.
+    ///
+    /// Returns a connection and a future that drives the transport using
+    /// the provided stream. This future needs to be run while any queries
+    /// are active. This is most easly achieved by spawning it into a runtime.
+    /// It terminates when the last connection is dropped.
+    pub fn with_config<Stream>(
+        stream: Stream,
+        config: Config,
+    ) -> (Self, Transport<Stream, Req>) {
+        let (sender, transport) = Transport::new(stream, config);
+        let this = Self {
+            sender: sender.into(),
         };
-        let connection = InnerConnection::new(config)?;
-        Ok(Self {
-            inner: Arc::new(connection),
-        })
+        (this, transport)
     }
+}
 
-    /// Main execution function for [Connection].
-    ///
-    /// This function has to run in the background or together with
-    /// any calls to [query](Self::query) or [Query::get_result].
-    /// Worker function for a connection object.
-    pub fn run<IO: AsyncReadExt + AsyncWriteExt + Send + Unpin + 'static>(
-        &self,
-        io: IO,
-    ) -> Pin<Box<dyn Future<Output = Option<()>> + Send>> {
-        self.inner.run(io)
-    }
-
+impl<Req: ComposeRequest + Clone + 'static> Connection<Req> {
     /// Start a DNS request.
     ///
     /// This function takes a precomposed message as a parameter and
     /// returns a [ReqRepl] object wrapped in a [Result].
     async fn request_impl(
         &self,
-        request_msg: &CR,
+        request_msg: &Req,
     ) -> Result<Box<dyn GetResponse + Send>, Error> {
         let (tx, rx) = oneshot::channel();
-        self.inner.request(tx, request_msg).await?;
+        self.request(tx, request_msg.clone()).await?;
         Ok(Box::new(ReqResp::new(request_msg, rx)))
     }
 
@@ -141,20 +159,41 @@ impl<CR: ComposeRequest + Clone + 'static> Connection<CR> {
     /// match the request avoids having to keep the request around.
     pub async fn query_no_check(
         &self,
-        query_msg: &CR,
+        query_msg: &Req,
     ) -> Result<QueryNoCheck, Error> {
         let (tx, rx) = oneshot::channel();
-        self.inner.request(tx, query_msg).await?;
+        self.request(tx, query_msg.clone()).await?;
         Ok(QueryNoCheck::new(rx))
+    }
+
+    /// Sends a request.
+    async fn request(
+        &self,
+        sender: oneshot::Sender<ChanResp>,
+        request_msg: Req,
+    ) -> Result<(), Error> {
+        let req = ChanReq {
+            sender,
+            msg: request_msg,
+        };
+        match self.sender.send(req).await {
+            Err(_) =>
+            // Send error. The receiver is gone, this means that the
+            // connection is closed.
+            {
+                Err(Error::ConnectionClosed)
+            }
+            Ok(_) => Ok(()),
+        }
     }
 }
 
-impl<CR: ComposeRequest + Clone + 'static> SendRequest<CR>
-    for Connection<CR>
+impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
+    for Connection<Req>
 {
     fn send_request<'a>(
         &'a self,
-        request_msg: &'a CR,
+        request_msg: &'a Req,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
@@ -196,8 +235,8 @@ enum QueryState {
 impl ReqResp {
     /// Constructor for [Query], takes a DNS query and a receiver for the
     /// reply.
-    fn new<CR: ComposeRequest>(
-        request_msg: &CR,
+    fn new<Req: ComposeRequest>(
+        request_msg: &Req,
         receiver: oneshot::Receiver<ChanResp>,
     ) -> ReqResp {
         let vec = request_msg.to_vec();
@@ -233,8 +272,7 @@ impl ReqResp {
                     return Err(err);
                 }
 
-                let resp = res.expect("error case is checked already");
-                let msg = resp.reply;
+                let msg = res.expect("error case is checked already");
 
                 if !is_answer_ignore_id(&msg, &self.request_msg) {
                     return Err(Error::WrongReplyForQuery);
@@ -300,8 +338,7 @@ impl QueryNoCheck {
                     return Err(err);
                 }
 
-                let resp = res.expect("error case is checked already");
-                let msg = resp.reply;
+                let msg = res.expect("error case is checked already");
 
                 Ok(msg)
             }
@@ -312,34 +349,26 @@ impl QueryNoCheck {
     }
 }
 
-//------------ InnerConnection ------------------------------------------------
+//------------ Transport ------------------------------------------------
 
-/// The actual implementation of [Connection].
+/// The underlying machinery of a stream transport.
 #[derive(Debug)]
-struct InnerConnection<CR> {
-    /// User configuration variables.
+pub struct Transport<Stream, Req> {
+    /// The stream socket towards the remove end.
+    stream: Stream,
+
+    /// Transport configuration.
     config: Config,
 
-    /// [InnerConnection::sender] and [InnerConnection::receiver] are
-    /// part of a single channel.
-    ///
-    /// Used by [Query] to send requests to [InnerConnection::run].
-    sender: mpsc::Sender<ChanReq<CR>>,
-
-    /// receiver part of the channel.
-    ///
-    /// Protected by a mutex to allow read/write access by
-    /// [InnerConnection::run].
-    /// The Option is to allow [InnerConnection::run] to signal that the
-    /// connection is closed.
-    receiver: Mutex<Option<mpsc::Receiver<ChanReq<CR>>>>,
+    /// The receiver half of request channel.
+    receiver: mpsc::Receiver<ChanReq<Req>>,
 }
 
+/// A message from a `Query` to start a new request.
 #[derive(Debug)]
-/// A request from [Query] to [Connection::run] to start a DNS request.
-struct ChanReq<CR> {
+struct ChanReq<Req> {
     /// DNS request message
-    msg: CR,
+    msg: Req,
 
     /// Sender to send result back to [Query]
     sender: ReplySender,
@@ -348,17 +377,10 @@ struct ChanReq<CR> {
 /// This is the type of sender in [ChanReq].
 type ReplySender = oneshot::Sender<ChanResp>;
 
-/// Response to the DNS request sent by [InnerConnection::run] to [Query].
-type ChanResp = Result<Response, Error>;
+/// A message back to `Query` returning a response.
+type ChanResp = Result<Message<Bytes>, Error>;
 
-#[derive(Debug)]
-/// a response to a [ChanReq].
-struct Response {
-    /// The DNS reply message.
-    reply: Message<Bytes>,
-}
-
-/// Internal datastructure of [InnerConnection::run] to keep track of
+/// Internal datastructure of [Transport::run] to keep track of
 /// outstanding DNS requests.
 struct Queries {
     /// The number of elements in [Queries::vec] that are not None.
@@ -371,19 +393,18 @@ struct Queries {
     vec: Vec<Option<ReplySender>>,
 }
 
-/// Internal datastructure of [InnerConnection::run] to keep track of
+/// Internal datastructure of [Transport::run] to keep track of
 /// the status of the connection.
-// The types Status and ConnState are only used in InnerConnection
+// The types Status and ConnState are only used in Transport
 struct Status {
     /// State of the connection.
     state: ConnState,
 
-    /// Boolean if we need to include an edns-tcp-keepalive option in an
-    /// outogoing request.
+    /// Do we need to include edns-tcp-keepalive in an outogoing request.
     ///
-    /// Typically send_keepalive is true at the start of the connection.
-    /// it gets cleared when we successfully managed to include the option
-    /// in a request.
+    /// Typically this is true at the start of the connection and gets
+    /// cleared when we successfully managed to include the option in a
+    /// request.
     send_keepalive: bool,
 
     /// Time we are allow to keep the connection open when idle.
@@ -415,63 +436,45 @@ enum ConnState {
     /// A read error occurred.
     ReadError(Error),
 
-    /// It took too long to receive a (or another) response.
+    /// It took too long to receive a response.
     ReadTimeout,
 
     /// A write error occurred.
     WriteError(Error),
 }
 
-/// A DNS message received to [InnerConnection::reader] and sent to
-/// [InnerConnection::run].
-// This type could be local to InnerConnection, but I don't know how
-type ReaderChanReply = Message<Bytes>;
-
-impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
-    /// Constructor for [InnerConnection].
-    ///
-    /// This is the implementation of [Connection::new].
-    pub fn new(config: Config) -> Result<Self, Error> {
-        let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
-        Ok(Self {
-            config,
-            sender: tx,
-            receiver: Mutex::new(Some(rx)),
-        })
-    }
-
-    /// Run method.
-    ///
-    /// Make sure the future does not contain a reference to self.
-    pub fn run<IO: AsyncReadExt + AsyncWriteExt + Send + Unpin + 'static>(
-        &self,
-        io: IO,
-    ) -> Pin<Box<dyn Future<Output = Option<()>> + Send>> {
-        let mut receiver = self.receiver.lock().unwrap();
-        let opt_receiver = receiver.take();
-        drop(receiver);
-
-        Box::pin(Self::run_impl(self.config.clone(), io, opt_receiver))
-    }
-
-    /// Main execution function for [InnerConnection].
-    ///
-    /// This function Gets called by [Connection::run].
-    /// This function is not async cancellation safe
-    async fn run_impl<IO: AsyncReadExt + AsyncWriteExt + Unpin>(
+impl<Stream, Req> Transport<Stream, Req> {
+    /// Creates a new transport.
+    fn new(
+        stream: Stream,
         config: Config,
-        io: IO,
-        opt_receiver: Option<mpsc::Receiver<ChanReq<CR>>>,
-    ) -> Option<()> {
+    ) -> (mpsc::Sender<ChanReq<Req>>, Self) {
+        let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
+        (
+            sender,
+            Self {
+                config,
+                stream,
+                receiver,
+            },
+        )
+    }
+}
+
+impl<Stream, Req> Transport<Stream, Req>
+where
+    Stream: AsyncRead + AsyncWrite,
+    Req: ComposeRequest,
+{
+    /// Run the transport machinery.
+    pub async fn run(mut self) {
         let (reply_sender, mut reply_receiver) =
-            mpsc::channel::<ReaderChanReply>(READ_REPLY_CHAN_CAP);
+            mpsc::channel::<Message<Bytes>>(READ_REPLY_CHAN_CAP);
 
-        let (mut read_stream, mut write_stream) = tokio::io::split(io);
+        let (read_stream, mut write_stream) = tokio::io::split(self.stream);
 
-        let reader_fut = Self::reader(&mut read_stream, reply_sender);
+        let reader_fut = Self::reader(read_stream, reply_sender);
         tokio::pin!(reader_fut);
-
-        let mut receiver = { opt_receiver.expect("no receiver present?") };
 
         let mut status = Status {
             state: ConnState::Active(None),
@@ -491,7 +494,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
                 ConnState::Active(opt_instant) => {
                     if let Some(instant) = opt_instant {
                         let elapsed = instant.elapsed();
-                        if elapsed > config.response_timeout {
+                        if elapsed > self.config.response_timeout {
                             Self::error(
                                 Error::StreamReadTimeout,
                                 &mut query_vec,
@@ -499,7 +502,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
                             status.state = ConnState::ReadTimeout;
                             break;
                         }
-                        Some(config.response_timeout - elapsed)
+                        Some(self.config.response_timeout - elapsed)
                     } else {
                         None
                     }
@@ -532,12 +535,12 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
                 None =>
                 // Just use the response timeout
                 {
-                    config.response_timeout
+                    self.config.response_timeout
                 }
             };
 
             let sleep_fut = sleep(timeout);
-            let recv_fut = receiver.recv();
+            let recv_fut = self.receiver.recv();
 
             let (do_write, msg) = match &reqmsg {
                 None => {
@@ -598,14 +601,16 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
                 }
                 res = recv_fut, if !do_write => {
                     match res {
-                        Some(req) =>
-                            Self::insert_req(req, &mut status,
-                                &mut reqmsg, &mut query_vec),
+                        Some(req) => {
+                            Self::insert_req(
+                                req, &mut status, &mut reqmsg, &mut query_vec
+                            )
+                        }
                         None => {
-                // All references to the connection object have
-                // been dropped. Shutdown.
-                break;
-            }
+                            // All references to the connection object have
+                            // been dropped. Shutdown.
+                            break;
+                        }
                     }
                 }
                 _ = sleep_fut => {
@@ -631,43 +636,19 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
 
         // Send FIN
         _ = write_stream.shutdown().await;
-
-        None
-    }
-
-    /// This function sends a DNS request to [InnerConnection::run].
-    pub async fn request(
-        &self,
-        sender: oneshot::Sender<ChanResp>,
-        request_msg: &CR,
-    ) -> Result<(), Error> {
-        let req = ChanReq {
-            sender,
-            msg: request_msg.clone(),
-        };
-        match self.sender.send(req).await {
-            Err(_) =>
-            // Send error. The receiver is gone, this means that the
-            // connection is closed.
-            {
-                Err(Error::ConnectionClosed)
-            }
-            Ok(_) => Ok(()),
-        }
     }
 
     /// This function reads a DNS message from the connection and sends
-    /// it to [InnerConnection::run].
+    /// it to [Transport::run].
     ///
     /// Reading has to be done in two steps: first read a two octet value
     /// the specifies the length of the message, and then read in a loop the
     /// body of the message.
     ///
     /// This function is not async cancellation safe.
-    async fn reader<ReadStream: AsyncReadExt + Unpin>(
-        //sock: &mut ReadStream,
-        mut sock: ReadStream,
-        sender: mpsc::Sender<ReaderChanReply>,
+    async fn reader(
+        mut sock: tokio::io::ReadHalf<Stream>,
+        sender: mpsc::Sender<Message<Bytes>>,
     ) -> Result<(), Error> {
         loop {
             let read_res = sock.read_u16().await;
@@ -724,7 +705,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
         }
     }
 
-    /// An error occured, report the error to all outstanding [Query] objects.
+    /// Reports an error to all outstanding queries.
     fn error(error: Error, query_vec: &mut Queries) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
@@ -737,12 +718,16 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
         }
     }
 
-    /// Handle received EDNS options, in particular the edns-tcp-keepalive
-    /// option.
-    fn handle_opts<Octs2: Octets + AsRef<[u8]>>(
-        opts: &OptRecord<Octs2>,
+    /// Handles received EDNS options.
+    ///
+    /// In particular, it processes the edns-tcp-keepalive option.
+    fn handle_opts<Octs: Octets + AsRef<[u8]>>(
+        opts: &OptRecord<Octs>,
         status: &mut Status,
     ) {
+        // XXX This handles _all_ keepalive options. I think just using the
+        //     first option as returned by Opt::tcp_keepalive should be good
+        //     enough? -- M.
         for option in opts.opt().iter().flatten() {
             if let AllOptData::TcpKeepalive(tcpkeepalive) = option {
                 Self::handle_keepalive(tcpkeepalive, status);
@@ -750,7 +735,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
         }
     }
 
-    /// Demultiplex a DNS reply and send it to the right [Query] object.
+    /// Demultiplexes a response and sends it to the right query.
     ///
     /// In addition, the status is updated to IdleTimeout or Idle if there
     /// are no remaining pending requests.
@@ -782,8 +767,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
             Some(_) => {
                 let sender = Self::take_query(query_vec, index)
                     .expect("sender should be there");
-                let reply = Response { reply: answer };
-                _ = sender.send(Ok(reply));
+                _ = sender.send(Ok(answer));
             }
         }
         if query_vec.count == 0 {
@@ -810,7 +794,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
     /// idle. Addend a edns-tcp-keepalive option if needed.
     // Note: maybe reqmsg should be a return value.
     fn insert_req(
-        mut req: ChanReq<CR>,
+        mut req: ChanReq<Req>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
         query_vec: &mut Queries,
@@ -906,7 +890,7 @@ impl<CR: ComposeRequest + Clone + 'static> InnerConnection<CR> {
     /// Convert the query message to a vector.
     // This function should return the vector instead of storing it
     // through a reference.
-    fn convert_query(msg: &CR, reqmsg: &mut Option<Vec<u8>>) {
+    fn convert_query(msg: &Req, reqmsg: &mut Option<Vec<u8>>) {
         // Ideally there should be a write_all_vectored. Until there is one,
         // copy to a new Vec and prepend the length octets.
 
@@ -1009,17 +993,4 @@ fn is_answer_ignore_id<
     } else {
         reply.question() == query.question()
     }
-}
-
-/// Check if config is valid.
-fn check_config(config: &Config) -> Result<(), Error> {
-    if config.response_timeout < MIN_RESPONSE_TIMEOUT
-        || config.response_timeout > MAX_RESPONSE_TIMEOUT
-    {
-        return Err(Error::OctetStreamConfigError(Arc::new(
-            std::io::Error::new(ErrorKind::Other, "response_timeout"),
-        )));
-    }
-
-    Ok(())
 }

@@ -150,15 +150,15 @@ impl StubResolver {
         if self.options.use_vc {
             for s in &self.servers {
                 if let Transport::Tcp = s.transport {
-                    let tcp_connect = TcpConnect::new(s.addr);
-                    let tcp_conn =
-                        multi_stream::Connection::new(None).unwrap();
+                    let (conn, tran) = multi_stream::Connection::new(
+                        TcpConnect::new(s.addr),
+                    );
                     // Start the run function on a separate task.
-                    let run_fut = tcp_conn.run(tcp_connect);
+                    let run_fut = tran.run();
                     fut_list_tcp.push(async move {
                         let _res = run_fut.await;
                     });
-                    redun.add(Box::new(tcp_conn)).await.unwrap();
+                    redun.add(Box::new(conn)).await.unwrap();
                 }
             }
         } else {
@@ -166,15 +166,15 @@ impl StubResolver {
                 if let Transport::Udp = s.transport {
                     let udp_connect = UdpConnect::new(s.addr);
                     let tcp_connect = TcpConnect::new(s.addr);
-                    let udptcp_conn =
-                        dgram_stream::Connection::new(None, udp_connect)
-                            .unwrap();
+                    let (conn, tran) = dgram_stream::Connection::new(
+                        udp_connect,
+                        tcp_connect,
+                    );
                     // Start the run function on a separate task.
-                    let run_fut = udptcp_conn.run(tcp_connect);
                     fut_list_udp_tcp.push(async move {
-                        let _res = run_fut.await;
+                        tran.run().await;
                     });
-                    redun.add(Box::new(udptcp_conn)).await.unwrap();
+                    redun.add(Box::new(conn)).await.unwrap();
                 }
             }
         }

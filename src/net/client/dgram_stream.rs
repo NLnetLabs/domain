@@ -6,13 +6,6 @@
 // To do:
 // - handle shutdown
 
-use bytes::Bytes;
-use std::boxed::Box;
-use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-
 use crate::base::Message;
 use crate::net::client::dgram;
 use crate::net::client::multi_stream;
@@ -22,8 +15,11 @@ use crate::net::client::protocol::{
 use crate::net::client::request::{
     ComposeRequest, Error, GetResponse, SendRequest,
 };
-
-use tokio::io::{AsyncRead, AsyncWrite};
+use bytes::Bytes;
+use std::boxed::Box;
+use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
 
 //------------ Config ---------------------------------------------------------
 
@@ -31,10 +27,58 @@ use tokio::io::{AsyncRead, AsyncWrite};
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     /// Configuration for the UDP transport.
-    pub dgram: Option<dgram::Config>,
+    dgram: dgram::Config,
 
     /// Configuration for the multi_stream (TCP) transport.
-    pub multi_stream: Option<multi_stream::Config>,
+    multi_stream: multi_stream::Config,
+}
+
+impl Config {
+    /// Creates a new config with default values.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Creates a new config from the two portions.
+    pub fn from_parts(
+        dgram: dgram::Config,
+        multi_stream: multi_stream::Config,
+    ) -> Self {
+        Self {
+            dgram,
+            multi_stream,
+        }
+    }
+
+    /// Returns the datagram config.
+    pub fn dgram(&self) -> &dgram::Config {
+        &self.dgram
+    }
+
+    /// Returns a mutable reference to the datagram config.
+    pub fn dgram_mut(&mut self) -> &mut dgram::Config {
+        &mut self.dgram
+    }
+
+    /// Sets the datagram config.
+    pub fn set_dgram(&mut self, dgram: dgram::Config) {
+        self.dgram = dgram
+    }
+
+    /// Returns the stream config.
+    pub fn stream(&self) -> &multi_stream::Config {
+        &self.multi_stream
+    }
+
+    /// Returns a mutable reference to the stream config.
+    pub fn stream_mut(&mut self) -> &mut multi_stream::Config {
+        &mut self.multi_stream
+    }
+
+    /// Sets the stream config.
+    pub fn set_stream(&mut self, stream: multi_stream::Config) {
+        self.multi_stream = stream
+    }
 }
 
 //------------ Connection -----------------------------------------------------
@@ -42,67 +86,72 @@ pub struct Config {
 /// DNS transport connection that first issues a query over a UDP transport and
 /// falls back to TCP if the reply is truncated.
 #[derive(Clone)]
-pub struct Connection<S: AsyncConnect + Clone + Sync, BMB> {
-    /// Reference to the real object that provides the connection.
-    inner: Arc<InnerConnection<S, BMB>>,
+pub struct Connection<DgramS, Req> {
+    /// The UDP transport connection.
+    udp_conn: dgram::Connection<DgramS>,
+
+    /// The TCP transport connection.
+    tcp_conn: multi_stream::Connection<Req>,
 }
 
-impl<
-        S: AsyncConnect + Clone + Debug + Send + Sync + 'static,
-        CR: ComposeRequest + Clone + 'static,
-    > Connection<S, CR>
+impl<DgramS, Req> Connection<DgramS, Req>
 where
-    S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
+    DgramS: AsyncConnect + Clone + Send + Sync + 'static,
+    DgramS::Connection:
+        AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
 {
-    /// Create a new connection.
-    pub fn new(
-        config: Option<Config>,
-        dgram_connect: S,
-    ) -> Result<Self, Error> {
-        let config = match config {
-            Some(config) => {
-                check_config(&config)?;
-                config
-            }
-            None => Default::default(),
-        };
-        let connection = InnerConnection::new(config, dgram_connect)?;
-        Ok(Self {
-            inner: Arc::new(connection),
-        })
+    /// Creates a new multi-stream transport with default configuration.
+    pub fn new<StreamS>(
+        dgram_remote: DgramS,
+        stream_remote: StreamS,
+    ) -> (Self, multi_stream::Transport<StreamS, Req>) {
+        Self::with_config(dgram_remote, stream_remote, Default::default())
     }
 
-    /// Worker function for a connection object.
-    pub fn run<SC: AsyncConnect + Send + 'static>(
-        &self,
-        stream_connect: SC,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>
-    where
-        SC::Connection: AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
-    {
-        self.inner.run(stream_connect)
+    /// Creates a new multi-stream transport.
+    pub fn with_config<StreamS>(
+        dgram_remote: DgramS,
+        stream_remote: StreamS,
+        config: Config,
+    ) -> (Self, multi_stream::Transport<StreamS, Req>) {
+        let udp_conn =
+            dgram::Connection::new(Some(config.dgram), dgram_remote);
+        let (tcp_conn, transport) = multi_stream::Connection::with_config(
+            stream_remote,
+            config.multi_stream,
+        );
+        (Self { udp_conn, tcp_conn }, transport)
     }
+}
 
+impl<DgramS, Req> Connection<DgramS, Req>
+where
+    DgramS: AsyncConnect + Clone + Debug + Send + Sync + 'static,
+    DgramS::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
+    Req: ComposeRequest + Clone + 'static,
+{
     /// Start a request for the Request trait.
     async fn request_impl(
         &self,
-        request_msg: &CR,
+        request_msg: &Req,
     ) -> Result<Box<dyn GetResponse + Send>, Error> {
-        let gr = self.inner.request(request_msg).await?;
-        Ok(Box::new(gr))
+        Ok(Box::new(ReqResp::new(
+            request_msg,
+            self.udp_conn.clone(),
+            self.tcp_conn.clone(),
+        )))
     }
 }
 
-impl<
-        S: AsyncConnect + Clone + Debug + Send + Sync + 'static,
-        CR: ComposeRequest + Clone + 'static,
-    > SendRequest<CR> for Connection<S, CR>
+impl<DgramS, Req> SendRequest<Req> for Connection<DgramS, Req>
 where
-    S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
+    DgramS: AsyncConnect + Clone + Debug + Send + Sync + 'static,
+    DgramS::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
+    Req: ComposeRequest + Clone + 'static,
 {
     fn send_request<'a>(
         &'a self,
-        request_msg: &'a CR,
+        request_msg: &'a Req,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
@@ -118,15 +167,15 @@ where
 
 /// Object that contains the current state of a query.
 #[derive(Debug)]
-pub struct ReqResp<S: AsyncConnect + Clone + Sync, BMB> {
+pub struct ReqResp<S: AsyncConnect + Clone + Sync, Req> {
     /// Reqeust message.
-    request_msg: BMB,
+    request_msg: Req,
 
     /// UDP transport to be used.
     udp_conn: dgram::Connection<S>,
 
     /// TCP transport to be used.
-    tcp_conn: multi_stream::Connection<BMB>,
+    tcp_conn: multi_stream::Connection<Req>,
 
     /// Current state of the request.
     state: QueryState,
@@ -150,17 +199,17 @@ enum QueryState {
 
 impl<
         S: AsyncConnect + Clone + Send + Sync + 'static,
-        CR: ComposeRequest + Clone + 'static,
-    > ReqResp<S, CR>
+        Reg: ComposeRequest + Clone + 'static,
+    > ReqResp<S, Reg>
 {
     /// Create a new ReqResp object.
     ///
     /// The initial state is to start with a UDP transport.
     fn new(
-        request_msg: &CR,
+        request_msg: &Reg,
         udp_conn: dgram::Connection<S>,
-        tcp_conn: multi_stream::Connection<CR>,
-    ) -> ReqResp<S, CR> {
+        tcp_conn: multi_stream::Connection<Reg>,
+    ) -> ReqResp<S, Reg> {
         Self {
             request_msg: request_msg.clone(),
             udp_conn,
@@ -209,8 +258,8 @@ impl<
 
 impl<
         S: AsyncConnect + Clone + Debug + Send + Sync + 'static,
-        CR: ComposeRequest + Clone + Debug + 'static,
-    > GetResponse for ReqResp<S, CR>
+        Reg: ComposeRequest + Clone + Debug + 'static,
+    > GetResponse for ReqResp<S, Reg>
 where
     S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
 {
@@ -221,70 +270,4 @@ where
     > {
         Box::pin(self.get_response_impl())
     }
-}
-
-//------------ InnerConnection ------------------------------------------------
-
-/// The actual connection object.
-struct InnerConnection<S: AsyncConnect + Clone + Sync, BMB> {
-    /// The UDP transport connection.
-    udp_conn: dgram::Connection<S>,
-
-    /// The TCP transport connection.
-    tcp_conn: multi_stream::Connection<BMB>,
-}
-
-impl<
-        S: AsyncConnect + Clone + Send + Sync + 'static,
-        CR: ComposeRequest + Clone + 'static,
-    > InnerConnection<S, CR>
-{
-    /// Create a new InnerConnection object.
-    ///
-    /// Create the UDP and TCP connections. Store the remote address because
-    /// run needs it later.
-    fn new(config: Config, dgram_connect: S) -> Result<Self, Error>
-    where
-        S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
-    {
-        let udp_conn = dgram::Connection::new(config.dgram, dgram_connect)?;
-        let tcp_conn = multi_stream::Connection::new(config.multi_stream)?;
-
-        Ok(Self { udp_conn, tcp_conn })
-    }
-
-    /// Implementation of the worker function.
-    ///
-    /// Create a TCP connect object and pass that to run function
-    /// of the multi_stream object.
-    fn run<SC: AsyncConnect + Send + 'static>(
-        &self,
-        stream_connect: SC,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>
-    where
-        SC::Connection: AsyncRead + AsyncWrite + Debug + Send + Sync + Unpin,
-    {
-        let fut = self.tcp_conn.run(stream_connect);
-        Box::pin(fut)
-    }
-
-    /// Implementation of the request function.
-    ///
-    /// Just create a ReqResp object with the state it needs.
-    async fn request(
-        &self,
-        request_msg: &CR,
-    ) -> Result<ReqResp<S, CR>, Error> {
-        Ok(ReqResp::new(
-            request_msg,
-            self.udp_conn.clone(),
-            self.tcp_conn.clone(),
-        ))
-    }
-}
-
-/// Check if config is valid.
-fn check_config(_config: &Config) -> Result<(), Error> {
-    // Nothing to check at the moment.
-    Ok(())
 }
