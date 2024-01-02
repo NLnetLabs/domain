@@ -46,7 +46,7 @@ default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 interop     = ["bytes", "ring"]
-resolv      = ["net", "smallvec", "std", "rand"]
+resolv      = ["net", "smallvec", "std", "rand", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
 sign        = ["std"]
@@ -62,7 +62,7 @@ unstable-client-transport = []
 
 # This feature should include all features that the CI should include for a
 # test run. Which is everything except interop.
-ci-test     = ["resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]
+ci-test     = ["net", "resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]
 
 [dev-dependencies]
 rustls             = { version = "0.21.9" }
