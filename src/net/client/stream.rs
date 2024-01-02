@@ -132,10 +132,7 @@ impl<Req> Connection<Req> {
         config: Config,
     ) -> (Self, Transport<Stream, Req>) {
         let (sender, transport) = Transport::new(stream, config);
-        let this = Self {
-            sender: sender.into(),
-        };
-        (this, transport)
+        (Self { sender }, transport)
     }
 }
 

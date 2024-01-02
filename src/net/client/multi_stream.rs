@@ -232,7 +232,7 @@ impl<Req> Query<Req> {
     ) -> Self {
         Self {
             conn,
-            request_msg: request_msg,
+            request_msg,
             state: QueryState::GetConn(receiver),
             conn_id: 0,
             delayed_retry_count: 0,

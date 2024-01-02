@@ -18,7 +18,6 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio_test;
 
 const TEST_FILE: &str = "test-data/basic.rpl";
 
