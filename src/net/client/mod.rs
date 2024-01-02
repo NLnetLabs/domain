@@ -25,10 +25,14 @@
 //!
 //! For example:
 //! ```rust
+//! # use domain::base::{Dname, MessageBuilder, Rtype};
+//! # use domain::net::client::request::RequestMessage;
 //! let mut msg = MessageBuilder::new_vec();
 //! msg.header_mut().set_rd(true);
 //! let mut msg = msg.question();
-//! msg.push((Dname::vec_from_str("example.com").unwrap(), Aaaa)).unwrap();
+//! msg.push(
+//!     (Dname::vec_from_str("example.com").unwrap(), Rtype::Aaaa)
+//! ).unwrap();
 //! let req = RequestMessage::new(msg);
 //! ```
 
@@ -39,19 +43,26 @@
 //! DNS transport and running a ```run``` method as a separate task. This
 //! is illustrated in the following example:
 //! ```rust
-//! let multi_stream_config = multi_stream::Config {
-//!        stream: Some(stream::Config {
-//!            response_timeout: Duration::from_millis(100),
-//!        }),
-//!    };
+//! # use domain::net::client::multi_stream;
+//! # use domain::net::client::protocol::TcpConnect;
+//! # use domain::net::client::request::SendRequest;
+//! # use std::time::Duration;
+//! # async fn _test() {
+//! # let server_addr = String::from("127.0.0.1:53");
+//! let mut multi_stream_config = multi_stream::Config::default();
+//! multi_stream_config.stream_mut().set_response_timeout(
+//!     Duration::from_millis(100),
+//! );
 //! let tcp_connect = TcpConnect::new(server_addr);
-//! let tcp_conn =
-//!        multi_stream::Connection::new(Some(multi_stream_config.clone()))
-//!            .unwrap();
-//! let run_fut = tcp_conn.run(tcp_connect);
-//! tokio::spawn(async move {
-//!        let res = run_fut.await;
-//! });
+//! let (tcp_conn, transport) = multi_stream::Connection::with_config(
+//!     tcp_connect, multi_stream_config
+//! );
+//! tokio::spawn(transport.run());
+//! # let req = domain::net::client::request::RequestMessage::new(
+//! #     domain::base::MessageBuilder::new_vec()
+//! # );
+//! # let mut request = tcp_conn.send_request(&req).await.unwrap();
+//! # }
 //! ```
 //! Note that the run function ends when the last reference to the DNS
 //! transport is dropped. For this reason it is important to avoid having a
@@ -80,7 +91,18 @@
 //!
 //! For example:
 //! ```rust
+//! # use domain::net::client::request::SendRequest;
+//! # async fn _test() {
+//! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
+//! #     domain::net::client::protocol::TcpConnect::new(
+//! #         String::from("127.0.0.1:53")
+//! #     )
+//! # );
+//! # let req = domain::net::client::request::RequestMessage::new(
+//! #     domain::base::MessageBuilder::new_vec()
+//! # );
 //! let mut request = tls_conn.send_request(&req).await.unwrap();
+//! # }
 //! ```
 //! where ```tls_conn``` is a transport connection for DNS over TLS.
 
@@ -95,7 +117,19 @@
 //!
 //! For example:
 //! ```rust
+//! # use crate::domain::net::client::request::SendRequest;
+//! # async fn _test() {
+//! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
+//! #     domain::net::client::protocol::TcpConnect::new(
+//! #         String::from("127.0.0.1:53")
+//! #     )
+//! # );
+//! # let req = domain::net::client::request::RequestMessage::new(
+//! #     domain::base::MessageBuilder::new_vec()
+//! # );
+//! # let mut request = tls_conn.send_request(&req).await.unwrap();
 //! let reply = request.get_response().await;
+//! # }
 //! ```
 
 //! # Example with various transport connections
