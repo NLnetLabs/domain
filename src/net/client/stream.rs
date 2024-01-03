@@ -29,7 +29,6 @@ use core::cmp;
 use core::convert::From;
 use futures_util::FutureExt;
 use octseq::Octets;
-use slab::Slab;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -381,7 +380,7 @@ where
             idle_timeout: None,
             send_keepalive: true,
         };
-        let mut query_vec = Slab::new();
+        let mut query_vec = Queries::new();
 
         let mut reqmsg: Option<Vec<u8>> = None;
 
@@ -459,10 +458,8 @@ where
                             // error.
                             panic!("reader terminated"),
                         Err(error) => {
-                            Self::error(error.clone(),
-                                &mut query_vec);
-                            status.state =
-                                ConnState::ReadError(error);
+                            Self::error(error.clone(), &mut query_vec);
+                            status.state = ConnState::ReadError(error);
                             // Reader failed. Break
                             // out of loop and
                             // shut down
@@ -601,7 +598,7 @@ where
     }
 
     /// Reports an error to all outstanding queries.
-    fn error(error: Error, query_vec: &mut Slab<ChanReq<Req>>) {
+    fn error(error: Error, query_vec: &mut Queries<ChanReq<Req>>) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
         for item in query_vec.drain() {
@@ -633,13 +630,13 @@ where
     fn demux_reply(
         answer: Message<Bytes>,
         status: &mut Status,
-        query_vec: &mut Slab<ChanReq<Req>>,
+        query_vec: &mut Queries<ChanReq<Req>>,
     ) {
         // We got an answer, reset the timer
         status.state = ConnState::Active(Some(Instant::now()));
 
         // Get the correct query and send it the reply.
-        let req = match query_vec.try_remove(answer.header().id().into()) {
+        let req = match query_vec.try_remove(answer.header().id()) {
             Some(req) => req,
             None => {
                 // No query with this ID. We should
@@ -681,7 +678,7 @@ where
         req: ChanReq<Req>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
-        query_vec: &mut Slab<ChanReq<Req>>,
+        query_vec: &mut Queries<ChanReq<Req>>,
     ) {
         match &status.state {
             ConnState::Active(timer) => {
@@ -716,18 +713,16 @@ where
         // Note that insert may fail if there are too many
         // outstanding queires. First call insert before checking
         // send_keepalive.
-        let (index, req) = match Self::insert(req, query_vec) {
-            Ok(index) => index,
-            Err(_) => {
-                // insert sends an error reply, so we can just
-                // return here
+        let (index, req) = match query_vec.insert(req) {
+            Ok(res) => res,
+            Err(req) => {
+                // Send an appropriate error and return.
+                _ = req.sender.send(
+                    Err(Error::StreamTooManyOutstandingQueries)
+                );
                 return;
             }
         };
-
-        let ind16: u16 = index
-            .try_into()
-            .expect("insert should return a value that fits in u16");
 
         // We set the ID to the array index. Defense in depth
         // suggests that a random ID is better because it works
@@ -738,7 +733,7 @@ where
         // resilient against forgery by third parties."
 
         let hdr = req.msg.header_mut();
-        hdr.set_id(ind16);
+        hdr.set_id(index);
 
         if status.send_keepalive
             && req.msg.add_opt(&TcpKeepalive::new(None)).is_ok()
@@ -774,25 +769,173 @@ where
             .map_err(|_| Error::StreamLongMessage)?;
         Ok(target.into_target())
     }
+}
 
-    /// Insert a sender (for the reply) in the query_vec and return the index.
+//------------ Queries -------------------------------------------------------
+
+/// Mapping outstanding queries to their ID.
+///
+/// This is generic over anything rather than our concrete request time for
+/// easier testing.
+#[derive(Clone, Debug)]
+struct Queries<T> {
+    /// The number of elements in `vec` that are not None.
+    count: usize,
+
+    /// Index in `vec? where to look for a space for a new query.
+    curr: usize,
+
+    /// Vector of senders to forward a DNS reply message (or error) to.
+    vec: Vec<Option<T>>,
+}
+
+impl<T> Queries<T> {
+    /// Creates a new empty value.
+    fn new() -> Self {
+        Self {
+            count: 0,
+            curr: 0,
+            vec: Vec::new(),
+        }
+    }
+
+    /// Returns whether there are no more outstanding queries.
+    fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    /// Inserts the given query.
+    ///
+    /// Upon success, returns the index and a mutable reference to the stored
+    /// query.
+    ///
+    /// Upon error, which means the set is full, returns the query.
     fn insert(
-        req: ChanReq<Req>,
-        query_vec: &mut Slab<ChanReq<Req>>,
-    ) -> Result<(usize, &mut ChanReq<Req>), Error> {
+        &mut self, req: T 
+    ) -> Result<(u16, &mut T), T> {
         // Fail if there are to many entries already in this vector
         // We cannot have more than u16::MAX entries because the
         // index needs to fit in an u16. For efficiency we want to
         // keep the vector half empty. So we return a failure if
         // 2*count > u16::MAX
-        if 2 * query_vec.len() > u16::MAX.into() {
-            // We own the sender. So we need to send the error reply here
-            let error = Error::StreamTooManyOutstandingQueries;
-            _ = req.sender.send(Err(error.clone()));
-            return Err(error);
+        if 2 * self.count > u16::MAX.into() {
+            return Err(req)
         }
 
-        let entry = query_vec.vacant_entry();
-        Ok((entry.key(), entry.insert(req)))
+        // If more than half the vec is empty, we try and find the index of
+        // an empty slot.
+        let idx = if self.vec.len() >= 2 * self.count {
+            let mut found = None;
+            for idx in self.curr .. self.vec.len() {
+                if self.vec[idx].is_none() {
+                    found = Some(idx);
+                    break;
+                }
+            }
+            found
+        }
+        else {
+            None
+        };
+
+        // If we have an index, we can insert there, otherwise we need to
+        // append.
+        let idx = match idx {
+            Some(idx) => {
+                self.vec[idx] = Some(req);
+                idx
+            }
+            None => {
+                let idx = self.vec.len();
+                self.vec.push(Some(req));
+                idx
+            }
+        };
+
+        self.count += 1;
+        if idx == self.curr {
+            self.curr += 1;
+        }
+        let req =  self.vec[idx].as_mut().expect("no inserted item?");
+        let idx = u16::try_from(idx).expect("query vec too large");
+        Ok((idx, req))
+    }
+
+    /// Tries to remove and return the query at the given index.
+    ///
+    /// Returns `None` if there was no query there.
+    fn try_remove(&mut self, index: u16) -> Option<T> {
+        let res = self.vec.get_mut(usize::from(index))?.take()?;
+        self.count = self.count.saturating_sub(1);
+        self.curr = cmp::min(self.curr, index.into());
+        Some(res)
+    }
+
+    /// Removes all queries and returns an iterator over them.
+    fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
+        let res = self.vec.drain(..).flatten(); // Skips all the `None`s.
+        self.count = 0;
+        self.curr = 0;
+        res
     }
 }
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    #[allow(clippy::needless_range_loop)]
+    fn queries_insert_remove() {
+        // Insert items, remove a few, insert a few more. Check that
+        // everything looks right.
+        let mut idxs = [None; 20];
+        let mut queries = Queries::new();
+
+        for i in 0..12 {
+            let (idx, item) = queries.insert(i).unwrap();
+            idxs[i] = Some(idx);
+            assert_eq!(i, *item);
+        }
+        assert_eq!(queries.count, 12);
+        assert_eq!(queries.vec.iter().flatten().count(), 12);
+
+        for i in [1, 2, 3, 4, 7, 9] {
+            let item = queries.try_remove(idxs[i].unwrap()).unwrap();
+            assert_eq!(i, item);
+            idxs[i] = None;
+        }
+        assert_eq!(queries.count, 6);
+        assert_eq!(queries.vec.iter().flatten().count(), 6);
+
+        for i in 12..20 {
+            let (idx, item) = queries.insert(i).unwrap();
+            idxs[i] = Some(idx);
+            assert_eq!(i, *item);
+        }
+        assert_eq!(queries.count, 14);
+        assert_eq!(queries.vec.iter().flatten().count(), 14);
+
+        for i in 0..20 {
+            if let Some(idx) = idxs[i] {
+                let item = queries.try_remove(idx).unwrap();
+                assert_eq!(i, item);
+            }
+        }
+        assert_eq!(queries.count, 0);
+        assert_eq!(queries.vec.iter().flatten().count(), 0);
+    }
+
+    #[test]
+    fn queries_overrun() {
+        // This is just a quick check that inserting to much stuff doesn’t
+        // break.
+        let mut queries = Queries::new();
+        for i in 0..usize::from(u16::MAX) * 2 {
+            let _ = queries.insert(i);
+        }
+    }
+}
+
