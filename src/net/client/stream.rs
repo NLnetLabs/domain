@@ -717,9 +717,9 @@ where
             Ok(res) => res,
             Err(req) => {
                 // Send an appropriate error and return.
-                _ = req.sender.send(
-                    Err(Error::StreamTooManyOutstandingQueries)
-                );
+                _ = req
+                    .sender
+                    .send(Err(Error::StreamTooManyOutstandingQueries));
                 return;
             }
         };
@@ -810,31 +810,28 @@ impl<T> Queries<T> {
     /// query.
     ///
     /// Upon error, which means the set is full, returns the query.
-    fn insert(
-        &mut self, req: T 
-    ) -> Result<(u16, &mut T), T> {
+    fn insert(&mut self, req: T) -> Result<(u16, &mut T), T> {
         // Fail if there are to many entries already in this vector
         // We cannot have more than u16::MAX entries because the
         // index needs to fit in an u16. For efficiency we want to
         // keep the vector half empty. So we return a failure if
         // 2*count > u16::MAX
         if 2 * self.count > u16::MAX.into() {
-            return Err(req)
+            return Err(req);
         }
 
         // If more than half the vec is empty, we try and find the index of
         // an empty slot.
         let idx = if self.vec.len() >= 2 * self.count {
             let mut found = None;
-            for idx in self.curr .. self.vec.len() {
+            for idx in self.curr..self.vec.len() {
                 if self.vec[idx].is_none() {
                     found = Some(idx);
                     break;
                 }
             }
             found
-        }
-        else {
+        } else {
             None
         };
 
@@ -856,7 +853,7 @@ impl<T> Queries<T> {
         if idx == self.curr {
             self.curr += 1;
         }
-        let req =  self.vec[idx].as_mut().expect("no inserted item?");
+        let req = self.vec[idx].as_mut().expect("no inserted item?");
         let idx = u16::try_from(idx).expect("query vec too large");
         Ok((idx, req))
     }
@@ -938,4 +935,3 @@ mod test {
         }
     }
 }
-
