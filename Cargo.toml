@@ -30,7 +30,7 @@ heapless       = { version = "0.7", optional = true }
 ring           = { version = "0.17", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
-slab           = { version = "0.4.0", optional = true }
+slab           = { version = "0.4.9", optional = true }
 smallvec       = { version = "1", optional = true }
 tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "time", "sync", "rt-multi-thread" ] }
 tokio-rustls   = { version = "0.24", optional = true, features = [] }
