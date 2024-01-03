@@ -30,6 +30,7 @@ heapless       = { version = "0.7", optional = true }
 ring           = { version = "0.17", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
+slab           = { version = "0.4.0", optional = true }
 smallvec       = { version = "1", optional = true }
 tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "time", "sync", "rt-multi-thread" ] }
 tokio-rustls   = { version = "0.24", optional = true, features = [] }
@@ -52,7 +53,7 @@ serde       = ["dep:serde", "octseq/serde"]
 sign        = ["std"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = []
-net         = ["bytes", "futures-util", "std", "tokio", "tokio-rustls"]
+net         = ["bytes", "futures-util", "slab", "std", "tokio", "tokio-rustls"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]

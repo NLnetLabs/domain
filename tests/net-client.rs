@@ -1,8 +1,8 @@
 #![cfg(feature = "net")]
 mod net;
 
-use crate::net::deckard::client::do_client;
 use crate::net::deckard::client::CurrStepValue;
+use crate::net::deckard::client::{closure_do_client, do_client};
 use crate::net::deckard::connect::Connect;
 use crate::net::deckard::connection::Connection;
 use crate::net::deckard::dgram::Dgram;
@@ -145,4 +145,38 @@ fn tcp() {
 
         do_client(&deckard, tcp, &CurrStepValue::new()).await;
     });
+}
+
+#[test]
+#[ignore]
+// Connect directly to the internet. Disabled by default.
+fn tcp_async_fn() {
+    tokio_test::block_on(async {
+        let file = File::open(TEST_FILE).unwrap();
+        let deckard = parse_file(file);
+
+        let server_addr =
+            SocketAddr::new(IpAddr::from_str("9.9.9.9").unwrap(), 53);
+
+        let tcp_conn = match TcpStream::connect(server_addr).await {
+            Ok(conn) => conn,
+            Err(err) => {
+                println!(
+                    "TCP Connection to {server_addr} failed: {err}, exiting"
+                );
+                return;
+            }
+        };
+
+        let (tcp, transport) = stream::Connection::new(tcp_conn);
+        tokio::spawn(async move {
+            transport.run().await;
+            println!("single TCP run terminated");
+        });
+
+        closure_do_client(&deckard, &CurrStepValue::new(), |req| {
+            tcp.request(req)
+        })
+        .await;
+    })
 }

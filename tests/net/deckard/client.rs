@@ -4,9 +4,42 @@ use crate::net::deckard::parse_query;
 use bytes::Bytes;
 
 use domain::base::{Message, MessageBuilder};
-use domain::net::client::request::RequestMessage;
-use domain::net::client::request::SendRequest;
+use domain::net::client::request::{Error, RequestMessage, SendRequest};
+use std::future::Future;
 use std::sync::Mutex;
+
+pub async fn closure_do_client<F, Fut>(
+    deckard: &Deckard,
+    step_value: &CurrStepValue,
+    request: F,
+) where
+    F: Fn(RequestMessage<Vec<u8>>) -> Fut,
+    Fut: Future<Output = Result<Message<Bytes>, Error>>,
+{
+    let mut resp: Option<Message<Bytes>> = None;
+
+    // Assume steps are in order. Maybe we need to define that.
+    for step in &deckard.scenario.steps {
+        step_value.set(step.step_value);
+        match step.step_type {
+            StepType::Query => {
+                let reqmsg = entry2reqmsg(step.entry.as_ref().unwrap());
+                resp = Some(request(reqmsg).await.unwrap());
+            }
+            StepType::CheckAnswer => {
+                let answer = resp.take().unwrap();
+                if !match_msg(step.entry.as_ref().unwrap(), &answer, true) {
+                    panic!("reply failed");
+                }
+            }
+            StepType::TimePasses
+            | StepType::Traffic
+            | StepType::CheckTempfile
+            | StepType::Assign => todo!(),
+        }
+    }
+    println!("Done");
+}
 
 pub async fn do_client<R: SendRequest<RequestMessage<Vec<u8>>>>(
     deckard: &Deckard,

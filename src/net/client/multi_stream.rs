@@ -198,7 +198,7 @@ enum QueryState<Req> {
     StartQuery(Arc<stream::Connection<Req>>),
 
     /// Get the result of the query.
-    GetResult(stream::QueryNoCheck),
+    GetResult(stream::Query),
 
     /// Wait until trying again.
     ///
@@ -282,7 +282,7 @@ impl<Req: ComposeRequest + Clone + 'static> Query<Req> {
                 }
                 QueryState::StartQuery(ref mut conn) => {
                     let msg = self.request_msg.clone();
-                    let query_res = conn.query_no_check(&msg).await;
+                    let query_res = conn.start_request(msg.clone()).await;
                     match query_res {
                         Err(err) => {
                             if let Error::ConnectionClosed = err {
@@ -305,7 +305,7 @@ impl<Req: ComposeRequest + Clone + 'static> Query<Req> {
                     }
                 }
                 QueryState::GetResult(ref mut query) => {
-                    let reply = query.get_result().await;
+                    let reply = query.get_response().await;
 
                     if reply.is_err() {
                         self.delayed_retry_count += 1;

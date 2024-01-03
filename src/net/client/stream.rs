@@ -17,16 +17,19 @@
 //   - request timeout
 // - create new connection after end/failure of previous one
 
+use crate::base::message::Message;
+use crate::base::message_builder::StreamTarget;
 use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
-use crate::base::Message;
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
+    ComposeRequest, Error, GetResponse, HandleRequest, SendRequest,
 };
 use bytes;
 use bytes::{Bytes, BytesMut};
 use core::cmp;
 use core::convert::From;
+use futures_util::FutureExt;
 use octseq::Octets;
+use slab::Slab;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -136,52 +139,58 @@ impl<Req> Connection<Req> {
     }
 }
 
-impl<Req: ComposeRequest + Clone + 'static> Connection<Req> {
+impl<Req: ComposeRequest> Connection<Req> {
+    /// Sends a request and receives a response.
+    pub async fn request(
+        &self,
+        request: Req,
+    ) -> Result<Message<Bytes>, Error> {
+        let receiver = self.send_request(request).await?;
+        receiver.await.map_err(|_| Error::StreamReceiveError)?
+    }
+}
+
+impl<Req: ComposeRequest> Connection<Req> {
     /// Start a DNS request.
     ///
     /// This function takes a precomposed message as a parameter and
     /// returns a [ReqRepl] object wrapped in a [Result].
     async fn request_impl(
         &self,
-        request_msg: &Req,
+        request: Req,
     ) -> Result<Box<dyn GetResponse + Send>, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.request(tx, request_msg.clone()).await?;
-        Ok(Box::new(ReqResp::new(request_msg, rx)))
+        let rx = self.send_request(request).await?;
+        Ok(Box::new(Query::new(rx)))
     }
 
     /// Start a DNS request but do not check if the reply matches the request.
     ///
     /// This function is similar to [Self::query]. Not checking if the reply
     /// match the request avoids having to keep the request around.
-    pub async fn query_no_check(
+    pub async fn start_request(
         &self,
-        query_msg: &Req,
-    ) -> Result<QueryNoCheck, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.request(tx, query_msg.clone()).await?;
-        Ok(QueryNoCheck::new(rx))
+        query_msg: Req,
+    ) -> Result<Query, Error> {
+        let rx = self.send_request(query_msg).await?;
+        Ok(Query::new(rx))
     }
 
     /// Sends a request.
-    async fn request(
+    async fn send_request(
         &self,
-        sender: oneshot::Sender<ChanResp>,
         request_msg: Req,
-    ) -> Result<(), Error> {
+    ) -> Result<oneshot::Receiver<ChanResp>, Error> {
+        let (sender, receiver) = oneshot::channel();
         let req = ChanReq {
             sender,
             msg: request_msg,
         };
-        match self.sender.send(req).await {
-            Err(_) =>
+        self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
             // connection is closed.
-            {
-                Err(Error::ConnectionClosed)
-            }
-            Ok(_) => Ok(()),
-        }
+            Error::ConnectionClosed
+        })?;
+        Ok(receiver)
     }
 }
 
@@ -198,51 +207,36 @@ impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
                 + '_,
         >,
     > {
-        return Box::pin(self.request_impl(request_msg));
+        return Box::pin(self.request_impl(request_msg.clone()));
     }
 }
 
-//------------ ReqResp --------------------------------------------------------
+impl<Req: ComposeRequest + Send> HandleRequest<Req> for Connection<Req> {
+    type Response = Message<Bytes>;
+    type Error = Error;
+    type Fut<'s> = Pin<Box<
+        dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 's
+    >> where Self: 's;
+
+    fn handle_request(&self, request: Req) -> Self::Fut<'_> {
+        self.request(request).boxed()
+    }
+}
+
+//------------ Query ----------------------------------------------------------
 
 /// This struct represent an active DNS request.
 #[derive(Debug)]
-pub struct ReqResp {
-    /// Request message.
-    ///
-    /// The reply message is compared with the request message to see if
-    /// it matches the query.
-    request_msg: Message<Vec<u8>>,
-
-    /// Current state of the query.
-    state: QueryState,
+pub struct Query {
+    /// The receiver for the response.
+    receiver: oneshot::Receiver<ChanResp>,
 }
 
-/// Status of a query. Used in [Query].
-#[derive(Debug)]
-enum QueryState {
-    /// A request is in progress.
-    ///
-    /// The receiver for receiving the response is part of this state.
-    Busy(oneshot::Receiver<ChanResp>),
-
-    /// The response has been received and the query is done.
-    Done,
-}
-
-impl ReqResp {
+impl Query {
     /// Constructor for [Query], takes a DNS query and a receiver for the
     /// reply.
-    fn new<Req: ComposeRequest>(
-        request_msg: &Req,
-        receiver: oneshot::Receiver<ChanResp>,
-    ) -> ReqResp {
-        let vec = request_msg.to_vec();
-        let msg = Message::from_octets(vec)
-            .expect("Message failed to parse contents of another Message");
-        Self {
-            request_msg: msg,
-            state: QueryState::Busy(receiver),
-        }
+    fn new(receiver: oneshot::Receiver<ChanResp>) -> Query {
+        Self { receiver }
     }
 
     /// Get the result of a DNS request.
@@ -252,38 +246,13 @@ impl ReqResp {
     pub async fn get_response_impl(
         &mut self,
     ) -> Result<Message<Bytes>, Error> {
-        match self.state {
-            QueryState::Busy(ref mut receiver) => {
-                let res = receiver.await;
-                self.state = QueryState::Done;
-                if res.is_err() {
-                    // Assume receive error
-                    return Err(Error::StreamReceiveError);
-                }
-                let res = res.expect("already check error case");
-
-                // clippy seems to be wrong here. Replacing
-                // the following with 'res?;' doesn't work
-                #[allow(clippy::question_mark)]
-                if let Err(err) = res {
-                    return Err(err);
-                }
-
-                let msg = res.expect("error case is checked already");
-
-                if !is_answer_ignore_id(&msg, &self.request_msg) {
-                    return Err(Error::WrongReplyForQuery);
-                }
-                Ok(msg)
-            }
-            QueryState::Done => {
-                panic!("Already done");
-            }
-        }
+        (&mut self.receiver)
+            .await
+            .map_err(|_| Error::StreamReceiveError)?
     }
 }
 
-impl GetResponse for ReqResp {
+impl GetResponse for Query {
     fn get_response(
         &mut self,
     ) -> Pin<
@@ -293,60 +262,7 @@ impl GetResponse for ReqResp {
     }
 }
 
-//------------ QueryNoCheck ---------------------------------------------------
-
-/// This represents that state of an active DNS query if there is no need
-/// to check that the reply matches the request. The assumption is that the
-/// caller will do this check.
-#[derive(Debug)]
-pub struct QueryNoCheck {
-    /// Current state of the query.
-    state: QueryState,
-}
-
-impl QueryNoCheck {
-    /// Constructor for [Query], takes a DNS query and a receiver for the
-    /// reply.
-    fn new(receiver: oneshot::Receiver<ChanResp>) -> QueryNoCheck {
-        Self {
-            state: QueryState::Busy(receiver),
-        }
-    }
-
-    /// Get the result of a DNS query.
-    ///
-    /// This function returns the reply to a DNS query wrapped in a
-    /// [Result].
-    pub async fn get_result(&mut self) -> Result<Message<Bytes>, Error> {
-        match self.state {
-            QueryState::Busy(ref mut receiver) => {
-                let res = receiver.await;
-                self.state = QueryState::Done;
-                if res.is_err() {
-                    // Assume receive error
-                    return Err(Error::StreamReceiveError);
-                }
-                let res = res.expect("error case is checked already");
-
-                // clippy seems to be wrong here. Replacing
-                // the following with 'res?;' doesn't work
-                #[allow(clippy::question_mark)]
-                if let Err(err) = res {
-                    return Err(err);
-                }
-
-                let msg = res.expect("error case is checked already");
-
-                Ok(msg)
-            }
-            QueryState::Done => {
-                panic!("Already done");
-            }
-        }
-    }
-}
-
-//------------ Transport ------------------------------------------------
+//------------ Transport -----------------------------------------------------
 
 /// The underlying machinery of a stream transport.
 #[derive(Debug)]
@@ -376,19 +292,6 @@ type ReplySender = oneshot::Sender<ChanResp>;
 
 /// A message back to `Query` returning a response.
 type ChanResp = Result<Message<Bytes>, Error>;
-
-/// Internal datastructure of [Transport::run] to keep track of
-/// outstanding DNS requests.
-struct Queries {
-    /// The number of elements in [Queries::vec] that are not None.
-    count: usize,
-
-    /// Index in the [Queries::vec] where to look for a space for a new query.
-    curr: usize,
-
-    /// Vector of senders to forward a DNS reply message (or error) to.
-    vec: Vec<Option<ReplySender>>,
-}
 
 /// Internal datastructure of [Transport::run] to keep track of
 /// the status of the connection.
@@ -478,11 +381,7 @@ where
             idle_timeout: None,
             send_keepalive: true,
         };
-        let mut query_vec = Queries {
-            count: 0,
-            curr: 0,
-            vec: Vec::new(),
-        };
+        let mut query_vec = Slab::new();
 
         let mut reqmsg: Option<Vec<u8>> = None;
 
@@ -580,13 +479,12 @@ where
                             &mut status);
                     };
                     drop(opt_record);
-                    Self::demux_reply(answer,
-                        &mut status, &mut query_vec);
+                    Self::demux_reply(answer, &mut status, &mut query_vec);
                 }
                 res = write_stream.write_all(msg),
-                    if do_write => {
+                if do_write => {
                     if let Err(error) = res {
-            let error = Error::StreamWriteError(Arc::new(error));
+                        let error = Error::StreamWriteError(Arc::new(error));
                         Self::error(error.clone(), &mut query_vec);
                         status.state =
                             ConnState::WriteError(error);
@@ -703,15 +601,11 @@ where
     }
 
     /// Reports an error to all outstanding queries.
-    fn error(error: Error, query_vec: &mut Queries) {
+    fn error(error: Error, query_vec: &mut Slab<ChanReq<Req>>) {
         // Update all requests that are in progress. Don't wait for
         // any reply that may be on its way.
-        for index in 0..query_vec.vec.len() {
-            if query_vec.vec[index].is_some() {
-                let sender = Self::take_query(query_vec, index)
-                    .expect("we tested is_none before");
-                _ = sender.send(Err(error.clone()));
-            }
+        for item in query_vec.drain() {
+            _ = item.sender.send(Err(error.clone()));
         }
     }
 
@@ -739,35 +633,28 @@ where
     fn demux_reply(
         answer: Message<Bytes>,
         status: &mut Status,
-        query_vec: &mut Queries,
+        query_vec: &mut Slab<ChanReq<Req>>,
     ) {
         // We got an answer, reset the timer
         status.state = ConnState::Active(Some(Instant::now()));
 
-        let ind16 = answer.header().id();
-        let index: usize = ind16.into();
-
-        let vec_len = query_vec.vec.len();
-        if index >= vec_len {
-            // Index is out of bouds. We should mark
-            // the connection as broken
-            return;
-        }
-
-        // Do we have a query with this ID?
-        match &mut query_vec.vec[index] {
+        // Get the correct query and send it the reply.
+        let req = match query_vec.try_remove(answer.header().id().into()) {
+            Some(req) => req,
             None => {
                 // No query with this ID. We should
                 // mark the connection as broken
                 return;
             }
-            Some(_) => {
-                let sender = Self::take_query(query_vec, index)
-                    .expect("sender should be there");
-                _ = sender.send(Ok(answer));
-            }
-        }
-        if query_vec.count == 0 {
+        };
+        let answer = if req.msg.is_answer(answer.for_slice()) {
+            Ok(answer)
+        } else {
+            Err(Error::WrongReplyForQuery)
+        };
+        _ = req.sender.send(answer);
+
+        if query_vec.is_empty() {
             // Clear the activity timer. There is no need to do
             // this because state will be set to either IdleTimeout
             // or Idle just below. However, it is nicer to keep
@@ -791,10 +678,10 @@ where
     /// idle. Addend a edns-tcp-keepalive option if needed.
     // Note: maybe reqmsg should be a return value.
     fn insert_req(
-        mut req: ChanReq<Req>,
+        req: ChanReq<Req>,
         status: &mut Status,
         reqmsg: &mut Option<Vec<u8>>,
-        query_vec: &mut Queries,
+        query_vec: &mut Slab<ChanReq<Req>>,
     ) {
         match &status.state {
             ConnState::Active(timer) => {
@@ -829,15 +716,12 @@ where
         // Note that insert may fail if there are too many
         // outstanding queires. First call insert before checking
         // send_keepalive.
-        let index = {
-            let res = Self::insert(req.sender, query_vec);
-            match res {
-                Err(_) => {
-                    // insert sends an error reply, so we can just
-                    // return here
-                    return;
-                }
-                Ok(index) => index,
+        let (index, req) = match Self::insert(req, query_vec) {
+            Ok(index) => index,
+            Err(_) => {
+                // insert sends an error reply, so we can just
+                // return here
+                return;
             }
         };
 
@@ -856,24 +740,23 @@ where
         let hdr = req.msg.header_mut();
         hdr.set_id(ind16);
 
-        if status.send_keepalive {
-            let res = add_tcp_keepalive(&mut req.msg);
+        if status.send_keepalive
+            && req.msg.add_opt(&TcpKeepalive::new(None)).is_ok()
+        {
+            status.send_keepalive = false;
+        }
 
-            if let Ok(()) = res {
-                status.send_keepalive = false;
+        match Self::convert_query(&req.msg) {
+            Ok(msg) => {
+                *reqmsg = Some(msg);
+            }
+            Err(err) => {
+                // Take the sender out again and return the error.
+                if let Some(req) = query_vec.try_remove(index) {
+                    _ = req.sender.send(Err(err));
+                }
             }
         }
-        Self::convert_query(&req.msg, reqmsg);
-    }
-
-    /// Take an element out of query_vec.
-    fn take_query(
-        query_vec: &mut Queries,
-        index: usize,
-    ) -> Option<ReplySender> {
-        let query = query_vec.vec[index].take();
-        query_vec.count -= 1;
-        query
     }
 
     /// Handle a received edns-tcp-keepalive option.
@@ -885,109 +768,31 @@ where
     }
 
     /// Convert the query message to a vector.
-    // This function should return the vector instead of storing it
-    // through a reference.
-    fn convert_query(msg: &Req, reqmsg: &mut Option<Vec<u8>>) {
-        // Ideally there should be a write_all_vectored. Until there is one,
-        // copy to a new Vec and prepend the length octets.
-
-        let slice = msg.to_vec();
-        let len = slice.len();
-
-        let mut vec = Vec::with_capacity(2 + len);
-        let len16 = len as u16;
-        vec.extend_from_slice(&len16.to_be_bytes());
-        vec.extend_from_slice(&slice);
-
-        *reqmsg = Some(vec);
+    fn convert_query(msg: &Req) -> Result<Vec<u8>, Error> {
+        let mut target = StreamTarget::new_vec();
+        msg.append_message(&mut target)
+            .map_err(|_| Error::StreamLongMessage)?;
+        Ok(target.into_target())
     }
 
     /// Insert a sender (for the reply) in the query_vec and return the index.
     fn insert(
-        sender: oneshot::Sender<ChanResp>,
-        query_vec: &mut Queries,
-    ) -> Result<usize, Error> {
+        req: ChanReq<Req>,
+        query_vec: &mut Slab<ChanReq<Req>>,
+    ) -> Result<(usize, &mut ChanReq<Req>), Error> {
         // Fail if there are to many entries already in this vector
         // We cannot have more than u16::MAX entries because the
         // index needs to fit in an u16. For efficiency we want to
         // keep the vector half empty. So we return a failure if
         // 2*count > u16::MAX
-        if 2 * query_vec.count > u16::MAX.into() {
-            // We own sender. So we need to send the error reply here
+        if 2 * query_vec.len() > u16::MAX.into() {
+            // We own the sender. So we need to send the error reply here
             let error = Error::StreamTooManyOutstandingQueries;
-            _ = sender.send(Err(error.clone()));
+            _ = req.sender.send(Err(error.clone()));
             return Err(error);
         }
 
-        let q = Some(sender);
-
-        let vec_len = query_vec.vec.len();
-
-        // Append if the amount of empty space in the vector is less
-        // than half. But limit vec_len to u16::MAX
-        if vec_len < 2 * (query_vec.count + 1) && vec_len < u16::MAX.into() {
-            // Just append
-            query_vec.vec.push(q);
-            query_vec.count += 1;
-            let index = query_vec.vec.len() - 1;
-            return Ok(index);
-        }
-        let loc_curr = query_vec.curr;
-
-        for index in loc_curr..vec_len {
-            if query_vec.vec[index].is_none() {
-                Self::insert_at(query_vec, index, q);
-                return Ok(index);
-            }
-        }
-
-        // Nothing until the end of the vector. Try for the entire
-        // vector
-        for index in 0..vec_len {
-            if query_vec.vec[index].is_none() {
-                Self::insert_at(query_vec, index, q);
-                return Ok(index);
-            }
-        }
-
-        // Still nothing, that is not good
-        panic!("insert failed");
-    }
-
-    /// Insert a sender at a specific position in query_vec and update
-    /// the statistics.
-    fn insert_at(
-        query_vec: &mut Queries,
-        index: usize,
-        q: Option<ReplySender>,
-    ) {
-        query_vec.vec[index] = q;
-        query_vec.count += 1;
-        query_vec.curr = index + 1;
-    }
-}
-
-//------------ Utility --------------------------------------------------------
-
-/// Add an edns-tcp-keepalive option to a BaseMessageBuilder.
-fn add_tcp_keepalive<CR: ComposeRequest>(msg: &mut CR) -> Result<(), Error> {
-    msg.add_opt(&TcpKeepalive::new(None))?;
-    Ok(())
-}
-
-/// Check if a DNS reply match the query. Ignore whether id fields match.
-fn is_answer_ignore_id<
-    Octs1: Octets + AsRef<[u8]>,
-    Octs2: Octets + AsRef<[u8]>,
->(
-    reply: &Message<Octs1>,
-    query: &Message<Octs2>,
-) -> bool {
-    if !reply.header().qr()
-        || reply.header_counts().qdcount() != query.header_counts().qdcount()
-    {
-        false
-    } else {
-        reply.question() == query.question()
+        let entry = query_vec.vacant_entry();
+        Ok((entry.key(), entry.insert(req)))
     }
 }

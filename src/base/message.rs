@@ -1194,6 +1194,12 @@ impl From<ParseError> for CopyRecordsError {
     }
 }
 
+impl From<PushError> for CopyRecordsError {
+    fn from(err: PushError) -> Self {
+        CopyRecordsError::Push(err)
+    }
+}
+
 //--- Display and Error
 
 impl fmt::Display for CopyRecordsError {
