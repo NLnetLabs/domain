@@ -90,7 +90,7 @@
 //! that provides the response.
 //!
 //! For example:
-//! ```rust
+//! ```no_run
 //! # use domain::net::client::request::SendRequest;
 //! # async fn _test() {
 //! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
@@ -116,7 +116,7 @@
 //! cancelation safe.
 //!
 //! For example:
-//! ```rust
+//! ```no_run
 //! # use crate::domain::net::client::request::SendRequest;
 //! # async fn _test() {
 //! # let (tls_conn, _) = domain::net::client::stream::Connection::new(
