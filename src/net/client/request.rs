@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
 
+use crate::base::iana::Rcode;
 use crate::base::message::CopyRecordsError;
 use crate::base::message_builder::{
     AdditionalBuilder, MessageBuilder, PushError, StaticCompressor,
@@ -254,11 +255,29 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
     }
 
     fn is_answer(&self, answer: &Message<[u8]>) -> bool {
-        if !answer.header().qr()
-            || answer.header_counts().qdcount()
-                != self.msg.header_counts().qdcount()
-            || answer.header().id() != self.header.id()
+        let answer_header = answer.header();
+        let answer_hcounts = answer.header_counts();
+
+        // First check qr is set and IDs match.
+        if !answer_header.qr() || answer_header.id() != self.header.id() {
+            return false;
+        }
+
+        // If the result is an error, then the question section can be empty.
+        // In that case we require all other sections to be empty as well.
+        if answer_header.rcode() != Rcode::NoError
+            && answer_hcounts.qdcount() == 0
+            && answer_hcounts.ancount() == 0
+            && answer_hcounts.nscount() == 0
+            && answer_hcounts.arcount() == 0
         {
+            // We can accept this as a valid reply.
+            return true;
+        }
+
+        // Now the question section in the reply has to be the same as in the
+        // query.
+        if answer_hcounts.qdcount() != self.msg.header_counts().qdcount() {
             false
         } else {
             answer.question() == self.msg.for_slice().question()

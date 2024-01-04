@@ -6,24 +6,22 @@
 // To do:
 // - cookies
 
-use crate::base::iana::Rcode;
 use crate::base::Message;
 use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramRecvEx, AsyncDgramSend,
     AsyncDgramSendEx,
 };
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
+    ComposeRequest, Error, GetResponse, HandleRequest, SendRequest,
 };
 use bytes::Bytes;
-use core::cmp;
-use octseq::Octets;
+use core::{cmp, fmt};
+use futures_util::FutureExt;
 use std::boxed::Box;
-use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{Semaphore, SemaphorePermit};
 use tokio::time::{timeout, Duration, Instant};
 
 //------------ Configuration Constants ----------------------------------------
@@ -138,114 +136,39 @@ impl Default for Config {
 //------------ Connection -----------------------------------------------------
 
 /// A datagram transport connection.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Connection<S> {
-    /// Reference to the actual connection object.
-    inner: Arc<InnerConnection<S>>,
+    /// User configuration variables.
+    config: Config,
+
+    /// Connections to datagram sockets.
+    connect: S,
+
+    /// Semaphore to limit access to UDP sockets.
+    semaphore: Semaphore,
 }
 
-impl<
-        S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-    > Connection<S>
-{
+impl<S> Connection<S> {
     /// Create a new datagram transport connection.
     pub fn new(config: Option<Config>, connect: S) -> Connection<S> {
-        let connection =
-            InnerConnection::new(config.unwrap_or_default(), connect);
+        let config = config.unwrap_or_default();
         Self {
-            inner: Arc::new(connection),
+            semaphore: Semaphore::new(config.max_parallel),
+            config,
+            connect,
         }
-    }
-
-    /// Start a new DNS request.
-    async fn request_impl<
-        CR: ComposeRequest + Clone + Send + Sync + 'static,
-    >(
-        &self,
-        request_msg: &CR,
-    ) -> Result<Box<dyn GetResponse + Send>, Error> {
-        let gr = self.inner.request(request_msg, self.clone()).await?;
-        Ok(Box::new(gr))
-    }
-
-    /// Get a permit from the semaphore to start using a socket.
-    async fn get_permit(&self) -> OwnedSemaphorePermit {
-        self.inner.get_permit().await
     }
 }
 
-impl<
-        S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-        CR: ComposeRequest + Clone + Send + Sync + 'static,
-    > SendRequest<CR> for Connection<S>
+impl<S> Connection<S>
+where
+    S: AsyncConnect,
+    S::Connection: AsyncDgramRecv + AsyncDgramSend + Unpin,
 {
-    fn send_request<'a>(
-        &'a self,
-        request_msg: &'a CR,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
-                + Send
-                + '_,
-        >,
-    > {
-        return Box::pin(self.request_impl(request_msg));
-    }
-}
-
-//------------ ReqResp --------------------------------------------------------
-
-/// The state of a DNS request.
-pub struct ReqResp {
-    /// Future that does the actual work of GetResponse.
-    get_response_fut:
-        Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
-}
-
-impl ReqResp {
-    /// Create new ReqResp object.
-    fn new<
-        S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-        CR: ComposeRequest + Clone + Send + Sync + 'static,
-    >(
-        config: Config,
-        request_msg: &CR,
-        conn: Connection<S>,
-        udp_payload_size: Option<u16>,
-        connect: S,
-    ) -> Self {
-        Self {
-            get_response_fut: Box::pin(Self::get_response_impl2(
-                config,
-                request_msg.clone(),
-                conn,
-                udp_payload_size,
-                connect,
-            )),
-        }
-    }
-
-    /// Async function that waits for the future stored in Query to complete.
-    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        (&mut self.get_response_fut).await
-    }
-
-    /// Get the response of a DNS request.
-    ///
-    /// This function is not cancel safe.
-    async fn get_response_impl2<
-        S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-        CR: ComposeRequest,
-    >(
-        config: Config,
-        mut request_bmb: CR,
-        conn: Connection<S>,
-        udp_payload_size: Option<u16>,
-        connect: S,
+    /// Sends a request and receives a response.
+    pub async fn request<Req: ComposeRequest>(
+        &self,
+        mut request: Req,
     ) -> Result<Message<Bytes>, Error> {
         let recv_size = 2000; // Should be configurable.
 
@@ -253,22 +176,23 @@ impl ReqResp {
 
         // We need to get past the semaphore that limits the
         // number of concurrent sockets we can use.
-        let _permit = conn.get_permit().await;
+        let _permit = self.get_permit().await;
 
         loop {
-            let mut sock = connect
+            let mut sock = self
+                .connect
                 .connect()
                 .await
                 .map_err(|e| Error::UdpConnect(Arc::new(e)))?;
 
             // Set random ID in header
-            let header = request_bmb.header_mut();
-            header.set_random_id();
+            request.header_mut().set_random_id();
+
             // Set UDP payload size
-            if let Some(size) = udp_payload_size {
-                request_bmb.set_udp_payload_size(size)
+            if let Some(size) = self.config.udp_payload_size {
+                request.set_udp_payload_size(size)
             }
-            let request_msg = request_bmb.to_message();
+            let request_msg = request.to_message();
             let dgram = request_msg.as_slice();
 
             let sent = sock
@@ -283,18 +207,18 @@ impl ReqResp {
 
             loop {
                 let elapsed = start.elapsed();
-                if elapsed > config.read_timeout {
+                if elapsed > self.config.read_timeout {
                     // Break out of the receive loop and continue in the
                     // transmit loop.
                     break;
                 }
-                let remain = config.read_timeout - elapsed;
+                let remain = self.config.read_timeout - elapsed;
 
                 let mut buf = vec![0; recv_size]; // XXX use uninit'ed mem here.
                 let timeout_res = timeout(remain, sock.recv(&mut buf)).await;
                 if timeout_res.is_err() {
                     retries += 1;
-                    if retries < config.max_retries {
+                    if retries < self.config.max_retries {
                         // Break out of the receive loop and continue in the
                         // transmit loop.
                         break;
@@ -314,131 +238,121 @@ impl ReqResp {
                     Err(_) => continue,
                 };
 
-                if !is_answer(&answer, &request_msg) {
+                if !request.is_answer(answer.for_slice()) {
                     // Wrong answer, go back to receiving
                     continue;
                 }
                 return Ok(answer);
             }
             retries += 1;
-            if retries < config.max_retries {
+            if retries < self.config.max_retries {
                 continue;
             }
             break;
         }
         Err(Error::UdpTimeoutNoResponse)
     }
+
+    /// Return a permit for a our semaphore.
+    async fn get_permit(&self) -> SemaphorePermit {
+        self.semaphore
+            .acquire()
+            .await
+            .expect("the semaphore has not been closed")
+    }
 }
 
-impl Debug for ReqResp {
-    fn fmt(&self, _: &mut Formatter<'_>) -> Result<(), core::fmt::Error> {
+impl<S> Connection<S>
+where
+    S: AsyncConnect + Clone + Send + Sync + 'static,
+    S::Connection:
+        AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
+{
+    /// Start a new DNS request.
+    async fn request_impl<
+        CR: ComposeRequest + Clone + Send + Sync + 'static,
+    >(
+        self: Arc<Self>,
+        request_msg: CR,
+    ) -> Result<Box<dyn GetResponse + Send>, Error> {
+        Ok(Box::new(Query {
+            get_response_fut: async move { self.request(request_msg).await }
+                .boxed(),
+        }))
+    }
+}
+
+//--- SendRequest and HandleRequest
+
+impl<S, Req> SendRequest<Req> for Arc<Connection<S>>
+where
+    S: AsyncConnect + Clone + Send + Sync + 'static,
+    S::Connection:
+        AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
+    Req: ComposeRequest + Clone + Send + Sync + 'static,
+{
+    fn send_request<'a>(
+        &'a self,
+        request_msg: &'a Req,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
+                + Send
+                + '_,
+        >,
+    > {
+        let this = self.clone();
+        Box::pin(this.request_impl(request_msg.clone()))
+    }
+}
+
+impl<S, Req> HandleRequest<Req> for Connection<S>
+where
+    S: AsyncConnect + Clone + Send + Sync + 'static,
+    S::Connection:
+        AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
+    Req: ComposeRequest + Clone + Send + Sync + 'static,
+{
+    type Response = Message<Bytes>;
+    type Error = Error;
+    type Fut<'s> = Pin<Box<
+        dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 's
+    >> where Self: 's;
+
+    fn handle_request(&self, request: Req) -> Self::Fut<'_> {
+        self.request(request).boxed()
+    }
+}
+
+//------------ Query --------------------------------------------------------
+
+/// The state of a DNS request.
+pub struct Query {
+    /// Future that does the actual work of GetResponse.
+    get_response_fut:
+        Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
+}
+
+impl Query {
+    /// Async function that waits for the future stored in Query to complete.
+    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
+        (&mut self.get_response_fut).await
+    }
+}
+
+impl fmt::Debug for Query {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         todo!()
     }
 }
 
-impl GetResponse for ReqResp {
+impl GetResponse for Query {
     fn get_response(
         &mut self,
     ) -> Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
     > {
         Box::pin(self.get_response_impl())
-    }
-}
-
-//------------ InnerConnection ------------------------------------------------
-
-/// Actual implementation of the datagram transport connection.
-#[derive(Debug)]
-struct InnerConnection<S> {
-    /// User configuration variables.
-    config: Config,
-
-    /// Connections to datagram sockets.
-    connect: S,
-
-    /// Semaphore to limit access to UDP sockets.
-    semaphore: Arc<Semaphore>,
-}
-
-impl<
-        S: AsyncConnect<Connection = C> + Clone + Send + Sync + 'static,
-        C: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-    > InnerConnection<S>
-{
-    /// Create new InnerConnection object.
-    fn new(config: Config, connect: S) -> InnerConnection<S> {
-        let max_parallel = config.max_parallel;
-        Self {
-            config,
-            connect,
-            semaphore: Arc::new(Semaphore::new(max_parallel)),
-        }
-    }
-
-    /// Return a Query object that contains the query state.
-    async fn request<CR: ComposeRequest + Clone + Send + Sync + 'static>(
-        &self,
-        request_msg: &CR,
-        conn: Connection<S>,
-    ) -> Result<ReqResp, Error> {
-        Ok(ReqResp::new(
-            self.config.clone(),
-            request_msg,
-            conn,
-            self.config.udp_payload_size,
-            self.connect.clone(),
-        ))
-    }
-
-    /// Return a permit for a our semaphore.
-    async fn get_permit(&self) -> OwnedSemaphorePermit {
-        self.semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("the semaphore has not been closed")
-    }
-}
-
-//------------ Utility --------------------------------------------------------
-
-/// Check if a message is a valid reply for a query. Allow the question section
-/// to be empty if there is an error or if the reply is truncated.
-fn is_answer<
-    QueryOcts: AsRef<[u8]> + Octets,
-    ReplyOcts: AsRef<[u8]> + Octets,
->(
-    reply: &Message<ReplyOcts>,
-    query: &Message<QueryOcts>,
-) -> bool {
-    let reply_header = reply.header();
-    let reply_hcounts = reply.header_counts();
-
-    // First check qr and id
-    if !reply_header.qr() || reply_header.id() != query.header().id() {
-        return false;
-    }
-
-    // If either tc is set or the result is an error, then the question
-    // section can be empty. In that case we require all other sections
-    // to be empty as well.
-    if (reply_header.tc() || reply_header.rcode() != Rcode::NoError)
-        && reply_hcounts.qdcount() == 0
-        && reply_hcounts.ancount() == 0
-        && reply_hcounts.nscount() == 0
-        && reply_hcounts.arcount() == 0
-    {
-        // We can accept this as a valid reply.
-        return true;
-    }
-
-    // Remaining checks. The question section in the reply has to be the
-    // same as in the query.
-    if reply_hcounts.qdcount() != query.header_counts().qdcount() {
-        false
-    } else {
-        reply.question() == query.question()
     }
 }
 

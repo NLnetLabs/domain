@@ -195,11 +195,8 @@ async fn main() {
     let udp_connect = UdpConnect::new(server_addr);
     let dgram_conn = dgram::Connection::new(Some(dgram_config), udp_connect);
 
-    // Send a query message.
-    let mut request = dgram_conn.send_request(&req).await.unwrap();
-
-    // Get the reply
-    let reply = request.get_response().await;
+    // Send a query message and get the reply.
+    let reply = dgram_conn.request(req.clone()).await.unwrap();
     println!("Dgram reply: {:?}", reply);
 
     // Create a single TCP transport connection. This is usefull for a

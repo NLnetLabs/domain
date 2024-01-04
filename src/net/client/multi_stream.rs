@@ -6,17 +6,15 @@
 // To do:
 // - too many connection errors
 
-use crate::base::iana::Rcode;
 use crate::base::Message;
 use crate::net::client::protocol::AsyncConnect;
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, SendRequest,
+    ComposeRequest, Error, GetResponse, HandleRequest, SendRequest,
 };
 use crate::net::client::stream;
 use bytes::Bytes;
 use futures_util::stream::FuturesUnordered;
-use futures_util::StreamExt;
-use octseq::Octets;
+use futures_util::{FutureExt, StreamExt};
 use rand::random;
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -67,10 +65,10 @@ impl From<stream::Config> for Config {
 //------------ Connection -----------------------------------------------------
 
 /// A connection to a multi-stream transport.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Connection<Req> {
     /// The sender half of the connection request channel.
-    sender: Arc<mpsc::Sender<ChanReq<Req>>>,
+    sender: mpsc::Sender<ChanReq<Req>>,
 }
 
 impl<Req> Connection<Req> {
@@ -85,26 +83,30 @@ impl<Req> Connection<Req> {
         config: Config,
     ) -> (Self, Transport<Remote, Req>) {
         let (sender, transport) = Transport::new(remote, config);
-        (
-            Self {
-                sender: sender.into(),
-            },
-            transport,
-        )
+        (Self { sender }, transport)
     }
 }
 
-impl<Req: ComposeRequest + Clone + 'static> Connection<Req> {
+impl<Req: ComposeRequest + Clone> Connection<Req> {
+    /// Sends a request and receives a response.
+    pub async fn request(
+        &self,
+        request: Req,
+    ) -> Result<Message<Bytes>, Error> {
+        Query::new(self.clone(), request).get_response().await
+    }
+
     /// Starts a request.
     ///
     /// This is the future that is returned by the `SendRequest` impl.
     async fn _send_request(
         &self,
         request: &Req,
-    ) -> Result<Box<dyn GetResponse + Send>, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.new_conn(None, tx).await?;
-        let gr = Query::new(self.clone(), request.clone(), rx);
+    ) -> Result<Box<dyn GetResponse + Send>, Error>
+    where
+        Req: 'static,
+    {
+        let gr = Query::new(self.clone(), request.clone());
         Ok(Box::new(gr))
     }
 
@@ -112,20 +114,16 @@ impl<Req: ComposeRequest + Clone + 'static> Connection<Req> {
     async fn new_conn(
         &self,
         opt_id: Option<u64>,
-        sender: oneshot::Sender<ChanResp<Req>>,
-    ) -> Result<(), Error> {
+    ) -> Result<oneshot::Receiver<ChanResp<Req>>, Error> {
+        let (sender, receiver) = oneshot::channel();
         let req = ChanReq {
             cmd: ReqCmd::NewConn(opt_id, sender),
         };
-        match self.sender.send(req).await {
-            Err(_) =>
-            // Send error. The receiver is gone, this means that the
-            // connection is closed.
-            {
-                Err(Error::ConnectionClosed)
-            }
-            Ok(_) => Ok(()),
-        }
+        self.sender
+            .send(req)
+            .await
+            .map_err(|_| Error::ConnectionClosed)?;
+        Ok(receiver)
     }
 
     /// Request a shutdown.
@@ -145,7 +143,17 @@ impl<Req: ComposeRequest + Clone + 'static> Connection<Req> {
     }
 }
 
-//--- SendRequest
+//--- Clone
+
+impl<Req> Clone for Connection<Req> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
+    }
+}
+
+//--- SendRequest and HandleRequest
 
 impl<Req> SendRequest<Req> for Connection<Req>
 where
@@ -165,6 +173,21 @@ where
     }
 }
 
+impl<Req> HandleRequest<Req> for Connection<Req>
+where
+    Req: ComposeRequest + Clone + Send,
+{
+    type Response = Message<Bytes>;
+    type Error = Error;
+    type Fut<'s> = Pin<Box<
+        dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 's
+    >> where Self: 's;
+
+    fn handle_request(&self, request: Req) -> Self::Fut<'_> {
+        self.request(request).boxed()
+    }
+}
+
 //------------ Query --------------------------------------------------------
 
 /// The connection side of an active request.
@@ -181,8 +204,8 @@ struct Query<Req> {
     /// The underlying transport.
     conn: Connection<Req>,
 
-    /// The id of the most recent connection.
-    conn_id: u64,
+    /// The id of the most recent connection, if any.
+    conn_id: Option<u64>,
 
     /// Number of retries with delay.
     delayed_retry_count: u64,
@@ -191,8 +214,11 @@ struct Query<Req> {
 /// The states of the query state machine.
 #[derive(Debug)]
 enum QueryState<Req> {
+    /// Request a new connection.
+    RequestConn,
+
     /// Receive a new connection from the receiver.
-    GetConn(oneshot::Receiver<ChanResp<Req>>),
+    ReceiveConn(oneshot::Receiver<ChanResp<Req>>),
 
     /// Start a query using the given stream transport.
     StartQuery(Arc<stream::Connection<Req>>),
@@ -225,32 +251,36 @@ struct ChanRespOk<Req> {
 
 impl<Req> Query<Req> {
     /// Creates a new query.
-    fn new(
-        conn: Connection<Req>,
-        request_msg: Req,
-        receiver: oneshot::Receiver<ChanResp<Req>>,
-    ) -> Self {
+    fn new(conn: Connection<Req>, request_msg: Req) -> Self {
         Self {
             conn,
             request_msg,
-            state: QueryState::GetConn(receiver),
-            conn_id: 0,
+            state: QueryState::RequestConn,
+            conn_id: None,
             delayed_retry_count: 0,
         }
     }
 }
 
-impl<Req: ComposeRequest + Clone + 'static> Query<Req> {
+impl<Req: ComposeRequest + Clone> Query<Req> {
     /// Get the result of a DNS request.
     ///
-    /// This function returns the reply to a DNS request wrapped in a
-    /// [Result].
-    pub async fn get_response_impl(
-        &mut self,
-    ) -> Result<Message<Bytes>, Error> {
+    /// This function is cancellation safe. If its future is dropped before
+    /// it is resolved, you can call it again to get a new future.
+    pub async fn get_response(&mut self) -> Result<Message<Bytes>, Error> {
         loop {
             match self.state {
-                QueryState::GetConn(ref mut receiver) => {
+                QueryState::RequestConn => {
+                    let rx = match self.conn.new_conn(self.conn_id).await {
+                        Ok(rx) => rx,
+                        Err(err) => {
+                            self.state = QueryState::Done;
+                            return Err(err);
+                        }
+                    };
+                    self.state = QueryState::ReceiveConn(rx);
+                }
+                QueryState::ReceiveConn(ref mut receiver) => {
                     let res = match receiver.await {
                         Ok(res) => res,
                         Err(_) => {
@@ -274,7 +304,7 @@ impl<Req: ComposeRequest + Clone + 'static> Query<Req> {
                             let id = ok_res.id;
                             let conn = ok_res.conn;
 
-                            self.conn_id = id;
+                            self.conn_id = Some(id);
                             self.state = QueryState::StartQuery(conn);
                             continue;
                         }
@@ -286,14 +316,7 @@ impl<Req: ComposeRequest + Clone + 'static> Query<Req> {
                     match query_res {
                         Err(err) => {
                             if let Error::ConnectionClosed = err {
-                                let (tx, rx) = oneshot::channel();
-                                let res =
-                                    self.new_conn(self.conn_id, tx).await;
-                                if let Err(err) = res {
-                                    self.state = QueryState::Done;
-                                    return Err(err);
-                                }
-                                self.state = QueryState::GetConn(rx);
+                                self.state = QueryState::RequestConn;
                                 continue;
                             }
                             return Err(err);
@@ -305,49 +328,34 @@ impl<Req: ComposeRequest + Clone + 'static> Query<Req> {
                     }
                 }
                 QueryState::GetResult(ref mut query) => {
-                    let reply = query.get_response().await;
-
-                    if reply.is_err() {
-                        self.delayed_retry_count += 1;
-                        let retry_time = retry_time(self.delayed_retry_count);
-                        self.state =
-                            QueryState::Delay(Instant::now(), retry_time);
-                        continue;
+                    match query.get_response().await {
+                        Ok(reply) => return Ok(reply),
+                        // XXX This replicates the previous behavior. But
+                        //     maybe we should have a whole category of
+                        //     fatal errors where retrying doesn’t make any
+                        //     sense?
+                        Err(Error::WrongReplyForQuery) => {
+                            return Err(Error::WrongReplyForQuery)
+                        }
+                        Err(_) => {
+                            self.delayed_retry_count += 1;
+                            let retry_time =
+                                retry_time(self.delayed_retry_count);
+                            self.state =
+                                QueryState::Delay(Instant::now(), retry_time);
+                            continue;
+                        }
                     }
-
-                    let msg = reply.expect("error is checked before");
-                    let request_msg = self.request_msg.to_message();
-
-                    if !is_answer_ignore_id(&msg, &request_msg) {
-                        return Err(Error::WrongReplyForQuery);
-                    }
-                    return Ok(msg);
                 }
                 QueryState::Delay(instant, duration) => {
                     sleep_until(instant + duration).await;
-                    let (tx, rx) = oneshot::channel();
-                    let res = self.new_conn(self.conn_id, tx).await;
-                    if let Err(err) = res {
-                        self.state = QueryState::Done;
-                        return Err(err);
-                    }
-                    self.state = QueryState::GetConn(rx);
-                    continue;
+                    self.state = QueryState::RequestConn;
                 }
                 QueryState::Done => {
                     panic!("Already done");
                 }
             }
         }
-    }
-
-    /// Requests a new connection.
-    async fn new_conn(
-        &self,
-        id: u64,
-        tx: oneshot::Sender<ChanResp<Req>>,
-    ) -> Result<(), Error> {
-        self.conn.new_conn(Some(id), tx).await
     }
 }
 
@@ -357,7 +365,7 @@ impl<Req: ComposeRequest + Clone + 'static> GetResponse for Query<Req> {
     ) -> Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
     > {
-        Box::pin(self.get_response_impl())
+        Box::pin(Self::get_response(self))
     }
 }
 
@@ -646,47 +654,6 @@ fn retry_time(retries: u64) -> Duration {
     let rnd: f64 = random();
     let to_usecs = to_usecs as f64 * rnd;
     Duration::from_micros(to_usecs as u64)
-}
-
-/// Check if a message is the reply to a query.
-///
-/// Avoid checking the id field because the id has been changed in the
-/// query that was actually issued.
-fn is_answer_ignore_id<
-    Octs1: Octets + AsRef<[u8]>,
-    Octs2: Octets + AsRef<[u8]>,
->(
-    reply: &Message<Octs1>,
-    query: &Message<Octs2>,
-) -> bool {
-    let reply_header = reply.header();
-    let reply_hcounts = reply.header_counts();
-
-    // First check qr is set
-    if !reply_header.qr() {
-        return false;
-    }
-
-    // If the result is an error, then the question
-    // section can be empty. In that case we require all other sections
-    // to be empty as well.
-    if reply_header.rcode() != Rcode::NoError
-        && reply_hcounts.qdcount() == 0
-        && reply_hcounts.ancount() == 0
-        && reply_hcounts.nscount() == 0
-        && reply_hcounts.arcount() == 0
-    {
-        // We can accept this as a valid reply.
-        return true;
-    }
-
-    // Remaining checks. The question section in the reply has to be the
-    // same as in the query.
-    if reply_hcounts.qdcount() != query.header_counts().qdcount() {
-        false
-    } else {
-        reply.question() == query.question()
-    }
 }
 
 /// Helper function to create an empty future that is compatible with the

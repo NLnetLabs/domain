@@ -775,7 +775,7 @@ where
 
 /// Mapping outstanding queries to their ID.
 ///
-/// This is generic over anything rather than our concrete request time for
+/// This is generic over anything rather than our concrete request type for
 /// easier testing.
 #[derive(Clone, Debug)]
 struct Queries<T> {
