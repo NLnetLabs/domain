@@ -193,10 +193,11 @@ async fn main() {
     // reply is truncated. This transport does not have a separate run
     // function.
     let udp_connect = UdpConnect::new(server_addr);
-    let dgram_conn = dgram::Connection::new(Some(dgram_config), udp_connect);
+    let dgram_conn =
+        dgram::Connection::with_config(udp_connect, dgram_config);
 
     // Send a query message and get the reply.
-    let reply = dgram_conn.request(req.clone()).await.unwrap();
+    let reply = dgram_conn.query(req.clone()).await.unwrap();
     println!("Dgram reply: {:?}", reply);
 
     // Create a single TCP transport connection. This is usefull for a

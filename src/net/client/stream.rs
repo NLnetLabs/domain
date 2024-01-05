@@ -162,10 +162,7 @@ impl<Req: ComposeRequest> Connection<Req> {
         Ok(Box::new(Query::new(rx)))
     }
 
-    /// Start a DNS request but do not check if the reply matches the request.
-    ///
-    /// This function is similar to [Self::query]. Not checking if the reply
-    /// match the request avoids having to keep the request around.
+    /// Start a DNS request.
     pub async fn start_request(
         &self,
         query_msg: Req,

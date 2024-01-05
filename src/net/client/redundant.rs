@@ -83,12 +83,12 @@ pub struct Config {
 
 /// This type represents a transport connection.
 #[derive(Clone, Debug)]
-pub struct Connection<BMB> {
+pub struct Connection<Req> {
     /// Reference to the actual implementation of the connection.
-    inner: Arc<InnerConnection<BMB>>,
+    inner: Arc<Transport<Req>>,
 }
 
-impl<'a, BMB: Clone + Debug + Send + Sync + 'static> Connection<BMB> {
+impl<'a, Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
     /// Create a new connection.
     pub fn new(config: Option<Config>) -> Result<Self, Error> {
         let config = match config {
@@ -98,7 +98,7 @@ impl<'a, BMB: Clone + Debug + Send + Sync + 'static> Connection<BMB> {
             }
             None => Default::default(),
         };
-        let connection = InnerConnection::new(config)?;
+        let connection = Transport::new(config)?;
         //test_send(connection);
         Ok(Self {
             inner: Arc::new(connection),
@@ -113,7 +113,7 @@ impl<'a, BMB: Clone + Debug + Send + Sync + 'static> Connection<BMB> {
     /// Add a transport connection.
     pub async fn add(
         &self,
-        conn: Box<dyn SendRequest<BMB> + Send + Sync>,
+        conn: Box<dyn SendRequest<Req> + Send + Sync>,
     ) -> Result<(), Error> {
         self.inner.add(conn).await
     }
@@ -121,19 +121,19 @@ impl<'a, BMB: Clone + Debug + Send + Sync + 'static> Connection<BMB> {
     /// Implementation of the request function.
     async fn request_impl(
         &self,
-        request_msg: &BMB,
+        request_msg: &Req,
     ) -> Result<Box<dyn GetResponse + Send>, Error> {
         let request = self.inner.request(request_msg.clone()).await?;
         Ok(Box::new(request))
     }
 }
 
-impl<BMB: Clone + Debug + Send + Sync + 'static> SendRequest<BMB>
-    for Connection<BMB>
+impl<Req: Clone + Debug + Send + Sync + 'static> SendRequest<Req>
+    for Connection<Req>
 {
     fn send_request<'a>(
         &'a self,
-        request_msg: &'a BMB,
+        request_msg: &'a Req,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
@@ -145,11 +145,11 @@ impl<BMB: Clone + Debug + Send + Sync + 'static> SendRequest<BMB>
     }
 }
 
-//------------ ReqResp --------------------------------------------------------
+//------------ Query --------------------------------------------------------
 
 /// This type represents an active query request.
 #[derive(Debug)]
-pub struct ReqResp<BMB> {
+pub struct Query<Req> {
     /// User configuration.
     config: Config,
 
@@ -157,13 +157,13 @@ pub struct ReqResp<BMB> {
     state: QueryState,
 
     /// The reuqest message
-    request_msg: BMB,
+    request_msg: Req,
 
     /// List of connections identifiers and estimated response times.
     conn_rt: Vec<ConnRT>,
 
     /// Channel to send requests to the run function.
-    sender: mpsc::Sender<ChanReq<BMB>>,
+    sender: mpsc::Sender<ChanReq<Req>>,
 
     /// List of futures for outstanding requests.
     fut_list:
@@ -201,15 +201,15 @@ enum QueryState {
 }
 
 /// The commands that can be sent to the run function.
-enum ChanReq<BMB> {
+enum ChanReq<Req> {
     /// Add a connection
-    Add(AddReq<BMB>),
+    Add(AddReq<Req>),
 
     /// Get the list of estimated response times for all connections
     GetRT(RTReq),
 
     /// Start a query
-    Query(RequestReq<BMB>),
+    Query(RequestReq<Req>),
 
     /// Report how long it took to get a response
     Report(TimeReport),
@@ -218,16 +218,16 @@ enum ChanReq<BMB> {
     Failure(TimeReport),
 }
 
-impl<BMB> Debug for ChanReq<BMB> {
+impl<Req> Debug for ChanReq<Req> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("ChanReq").finish()
     }
 }
 
 /// Request to add a new connection
-struct AddReq<BMB> {
+struct AddReq<Req> {
     /// New connection to add
-    conn: Box<dyn SendRequest<BMB> + Send + Sync>,
+    conn: Box<dyn SendRequest<Req> + Send + Sync>,
 
     /// Channel to send the reply to
     tx: oneshot::Sender<AddReply>,
@@ -246,18 +246,18 @@ struct RTReq /*<Octs>*/ {
 type RTReply = Result<Vec<ConnRT>, Error>;
 
 /// Request to start a request
-struct RequestReq<BMB> {
+struct RequestReq<Req> {
     /// Identifier of connection
     id: u64,
 
     /// Request message
-    request_msg: BMB,
+    request_msg: Req,
 
     /// Channel to send the reply to
     tx: oneshot::Sender<RequestReply>,
 }
 
-impl<BMB: Debug> Debug for RequestReq<BMB> {
+impl<Req: Debug> Debug for RequestReq<Req> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("RequestReq")
             .field("id", &self.id)
@@ -304,13 +304,13 @@ struct ConnRT {
 /// Result of the futures in fut_list.
 type FutListOutput = (usize, Result<Message<Bytes>, Error>);
 
-impl<BMB: Clone + Send + Sync + 'static> ReqResp<BMB> {
+impl<Req: Clone + Send + Sync + 'static> Query<Req> {
     /// Create a new query object.
     fn new(
         config: Config,
-        request_msg: BMB,
+        request_msg: Req,
         mut conn_rt: Vec<ConnRT>,
-        sender: mpsc::Sender<ChanReq<BMB>>,
+        sender: mpsc::Sender<ChanReq<Req>>,
     ) -> Self {
         let conn_rt_len = conn_rt.len();
         conn_rt.sort_unstable_by(conn_rt_cmp);
@@ -362,79 +362,78 @@ impl<BMB: Clone + Send + Sync + 'static> ReqResp<BMB> {
                     loop {
                         tokio::select! {
                             res = self.fut_list.next() => {
-                            let res = res.expect("res should not be empty");
-                            match res.1 {
-                                Err(ref err) => {
-                                    if self.config.defer_transport_error {
-                                    if self.deferred_transport_error.is_none() {
-                                        self.deferred_transport_error = Some(err.clone());
-                                    }
-                                    if res.0 == ind {
-                                        // The current upstream finished,
-                                        // try the next one, if any.
-                                        self.state =
-                                        if ind+1 < self.conn_rt.len() {
-                                            QueryState::Probe(ind+1)
+                                let res = res.expect("res should not be empty");
+                                match res.1 {
+                                    Err(ref err) => {
+                                        if self.config.defer_transport_error {
+                                            if self.deferred_transport_error.is_none() {
+                                                self.deferred_transport_error = Some(err.clone());
+                                            }
+                                            if res.0 == ind {
+                                                // The current upstream finished,
+                                                // try the next one, if any.
+                                                self.state =
+                                                if ind+1 < self.conn_rt.len() {
+                                                    QueryState::Probe(ind+1)
+                                                }
+                                                else
+                                                {
+                                                    QueryState::Wait
+                                                };
+                                                // Break out of receive loop
+                                                break;
+                                            }
+                                            // Just continue receiving
+                                            continue;
                                         }
-                                        else
-                                        {
-                                            QueryState::Wait
-                                        };
-                                        // Break out of receive loop
-                                        break;
+                                        // Return error to the user.
                                     }
-                                    // Just continue receiving
-                                    continue;
+                                    Ok(ref msg) => {
+                                        if skip(msg, &self.config) {
+                                            if self.deferred_reply.is_none() {
+                                                self.deferred_reply = Some(msg.clone());
+                                            }
+                                            if res.0 == ind {
+                                                // The current upstream finished,
+                                                // try the next one, if any.
+                                                self.state =
+                                                    if ind+1 < self.conn_rt.len() {
+                                                        QueryState::Probe(ind+1)
+                                                    }
+                                                    else
+                                                    {
+                                                        QueryState::Wait
+                                                    };
+                                                // Break out of receive loop
+                                                break;
+                                            }
+                                            // Just continue receiving
+                                            continue;
+                                        }
+                                        // Now we have a reply that can be
+                                        // returned to the user.
                                     }
-                                    // Return error to the user.
                                 }
-                                Ok(ref msg) => {
-                                if skip(msg, &self.config) {
-                                    if self.deferred_reply.is_none() {
-                                        self.deferred_reply = Some(msg.clone());
-                                    }
-                                    if res.0 == ind {
-                                    // The current upstream finished,
-                                    // try the next one, if any.
-                                    self.state =
-                                    if ind+1 < self.conn_rt.len() {
-                                        QueryState::Probe(ind+1)
-                                    }
-                                    else
-                                    {
-                                        QueryState::Wait
-                                    };
-                                    // Break out of receive loop
-                                    break;
-                                    }
-                                    // Just continue receiving
-                                    continue;
-                                }
-                                // Now we have a reply that can be
-                                // returned to the user.
-                                }
-                            }
-                            self.result = Some(res.1);
-                            self.res_index= res.0;
+                                self.result = Some(res.1);
+                                self.res_index= res.0;
 
-                            self.state = QueryState::Report(0);
-                            // Break out of receive loop
-                            break;
+                                self.state = QueryState::Report(0);
+                                // Break out of receive loop
+                                break;
                             }
                             _ = sleep_until(timeout) => {
-                            // Move to the next Probe state if there
-                            // are more upstreams to try, otherwise
-                            // move to the Wait state.
-                            self.state =
-                            if ind+1 < self.conn_rt.len() {
-                                QueryState::Probe(ind+1)
-                            }
-                            else
-                            {
-                                QueryState::Wait
-                            };
-                            // Break out of receive loop
-                            break;
+                                // Move to the next Probe state if there
+                                // are more upstreams to try, otherwise
+                                // move to the Wait state.
+                                self.state =
+                                if ind+1 < self.conn_rt.len() {
+                                    QueryState::Probe(ind+1)
+                                }
+                                else {
+                                    QueryState::Wait
+                                };
+                                // Break out of receive loop
+                                break;
                             }
                         }
                     }
@@ -538,9 +537,7 @@ impl<BMB: Clone + Send + Sync + 'static> ReqResp<BMB> {
     }
 }
 
-impl<BMB: Clone + Debug + Send + Sync + 'static> GetResponse
-    for ReqResp<BMB>
-{
+impl<Req: Clone + Debug + Send + Sync + 'static> GetResponse for Query<Req> {
     fn get_response(
         &mut self,
     ) -> Pin<
@@ -550,22 +547,22 @@ impl<BMB: Clone + Debug + Send + Sync + 'static> GetResponse
     }
 }
 
-//------------ InnerConnection ------------------------------------------------
+//------------ Transport -----------------------------------------------------
 
 /// Type that actually implements the connection.
 #[derive(Debug)]
-struct InnerConnection<BMB> {
+struct Transport<Req> {
     /// User configuation.
     config: Config,
 
     /// Receive side of the channel used by the runner.
-    receiver: Mutex<Option<mpsc::Receiver<ChanReq<BMB>>>>,
+    receiver: Mutex<Option<mpsc::Receiver<ChanReq<Req>>>>,
 
     /// To send a request to the runner.
-    sender: mpsc::Sender<ChanReq<BMB>>,
+    sender: mpsc::Sender<ChanReq<Req>>,
 }
 
-impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
+impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
     /// Implementation of the new method.
     fn new(config: Config) -> Result<Self, Error> {
         let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
@@ -588,11 +585,11 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
     }
 
     /// Implementation of the run method.
-    async fn run_impl(opt_receiver: Option<mpsc::Receiver<ChanReq<BMB>>>) {
+    async fn run_impl(opt_receiver: Option<mpsc::Receiver<ChanReq<Req>>>) {
         let mut next_id: u64 = 10;
         let mut conn_stats: Vec<ConnStats> = Vec::new();
         let mut conn_rt: Vec<ConnRT> = Vec::new();
-        let mut conns: Vec<Box<dyn SendRequest<BMB> + Send + Sync>> =
+        let mut conns: Vec<Box<dyn SendRequest<Req> + Send + Sync>> =
             Vec::new();
 
         let mut receiver =
@@ -693,7 +690,7 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
     /// Implementation of the add method.
     async fn add(
         &self,
-        conn: Box<dyn SendRequest<BMB> + Send + Sync>,
+        conn: Box<dyn SendRequest<Req> + Send + Sync>,
     ) -> Result<(), Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
@@ -706,15 +703,15 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
     /// Implementation of the query method.
     async fn request(
         &'a self,
-        request_msg: BMB,
-    ) -> Result<ReqResp<BMB>, Error> {
+        request_msg: Req,
+    ) -> Result<Query<Req>, Error> {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(ChanReq::GetRT(RTReq { tx }))
             .await
             .expect("send should not fail");
         let conn_rt = rx.await.expect("receive should not fail")?;
-        Ok(ReqResp::new(
+        Ok(Query::new(
             self.config.clone(),
             request_msg,
             conn_rt,
@@ -728,11 +725,11 @@ impl<'a, BMB: Clone + Send + Sync + 'static> InnerConnection<BMB> {
 /// Async function to send a request and wait for the reply.
 ///
 /// This gives a single future that we can put in a list.
-async fn start_request<BMB>(
+async fn start_request<Req>(
     index: usize,
     id: u64,
-    sender: mpsc::Sender<ChanReq<BMB>>,
-    request_msg: BMB,
+    sender: mpsc::Sender<ChanReq<Req>>,
+    request_msg: Req,
 ) -> (usize, Result<Message<Bytes>, Error>) {
     let (tx, rx) = oneshot::channel();
     sender

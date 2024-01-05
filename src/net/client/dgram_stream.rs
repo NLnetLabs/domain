@@ -117,7 +117,7 @@ where
         config: Config,
     ) -> (Self, multi_stream::Transport<StreamS, Req>) {
         let udp_conn =
-            dgram::Connection::new(Some(config.dgram), dgram_remote).into();
+            dgram::Connection::with_config(dgram_remote, config.dgram).into();
         let (tcp_conn, transport) = multi_stream::Connection::with_config(
             stream_remote,
             config.multi_stream,
@@ -137,7 +137,7 @@ where
         &self,
         request: Req,
     ) -> Result<Message<Bytes>, Error> {
-        let response = self.udp_conn.request(request.clone()).await?;
+        let response = self.udp_conn.query(request.clone()).await?;
         if !response.header().tc() {
             return Ok(response);
         }

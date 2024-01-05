@@ -29,7 +29,7 @@ fn dgram() {
 
         let step_value = Arc::new(CurrStepValue::new());
         let conn = Dgram::new(deckard.clone(), step_value.clone());
-        let octstr = Arc::new(dgram::Connection::new(None, conn));
+        let octstr = Arc::new(dgram::Connection::new(conn));
 
         do_client(&deckard, octstr, &step_value).await;
     });

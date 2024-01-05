@@ -84,7 +84,7 @@ impl AsyncDgramRecv for DgramConnection {
 
 impl AsyncDgramSend for DgramConnection {
     fn poll_send(
-        self: Pin<&Self>,
+        &self,
         _: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {

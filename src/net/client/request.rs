@@ -302,9 +302,6 @@ pub enum Error {
     /// ParseError from Message.
     MessageParseError,
 
-    /// octet_stream configuration error.
-    OctetStreamConfigError(Arc<std::io::Error>),
-
     /// Underlying transport not found in redundant connection
     RedundantTransportNotFound,
 
@@ -318,6 +315,7 @@ pub enum Error {
     StreamIdleTimeout,
 
     /// Error receiving a reply.
+    //
     StreamReceiveError,
 
     /// Reading from stream gave an error.
@@ -335,32 +333,14 @@ pub enum Error {
     /// Reading for a stream ended unexpectedly.
     StreamUnexpectedEndOfData,
 
-    /// Binding a UDP socket gave an error.
-    UdpBind(Arc<std::io::Error>),
-
-    /// UDP configuration error.
-    UdpConfigError(Arc<std::io::Error>),
-
-    /// Connecting a UDP socket gave an error.
-    UdpConnect(Arc<std::io::Error>),
-
-    /// Receiving from a UDP socket gave an error.
-    UdpReceive(Arc<std::io::Error>),
-
-    /// Sending over a UDP socket gaven an error.
-    UdpSend(Arc<std::io::Error>),
-
-    /// Sending over a UDP socket gave a partial result.
-    UdpShortSend,
-
-    /// Timeout receiving a response over a UDP socket.
-    UdpTimeoutNoResponse,
-
     /// Reply does not match the query.
     WrongReplyForQuery,
 
     /// No transport available to transmit request.
     NoTransportAvailable,
+
+    /// An error happened in the datagram transport.
+    Dgram(Arc<super::dgram::QueryError>),
 }
 
 impl From<LongOptData> for Error {
@@ -369,8 +349,16 @@ impl From<LongOptData> for Error {
     }
 }
 
+impl From<super::dgram::QueryError> for Error {
+    fn from(err: super::dgram::QueryError) -> Self {
+        Self::Dgram(err.into())
+    }
+}
+
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        unimplemented!()
+        /*
         match self {
             Error::ConnectionClosed => write!(f, "connection closed"),
             Error::OptTooLong => write!(f, "OPT record is too long"),
@@ -378,7 +366,6 @@ impl fmt::Display for Error {
                 write!(f, "PushError from MessageBuilder")
             }
             Error::MessageParseError => write!(f, "ParseError from Message"),
-            Error::OctetStreamConfigError(_) => write!(f, "bad config value"),
             Error::RedundantTransportNotFound => write!(
                 f,
                 "Underlying transport not found in redundant connection"
@@ -426,6 +413,7 @@ impl fmt::Display for Error {
                 write!(f, "no transport available")
             }
         }
+        */
     }
 }
 
@@ -440,12 +428,13 @@ impl From<CopyRecordsError> for Error {
 
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        unimplemented!()
+        /*
         match self {
             Error::ConnectionClosed => None,
             Error::OptTooLong => None,
             Error::MessageBuilderPushError => None,
             Error::MessageParseError => None,
-            Error::OctetStreamConfigError(e) => Some(e),
             Error::RedundantTransportNotFound => None,
             Error::ShortMessage => None,
             Error::StreamLongMessage => None,
@@ -466,5 +455,6 @@ impl error::Error for Error {
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
         }
+        */
     }
 }

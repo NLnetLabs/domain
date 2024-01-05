@@ -122,11 +122,65 @@ where
     }
 }
 
+//------------ UdpConnect --------------------------------------------------
+
+/// Create new TCP connections.
+#[derive(Clone, Copy, Debug)]
+pub struct UdpConnect {
+    /// Remote address to connect to.
+    addr: SocketAddr,
+}
+
+impl UdpConnect {
+    /// Create new UDP connections.
+    ///
+    /// addr is the destination address to connect to.
+    pub fn new(addr: SocketAddr) -> Self {
+        Self { addr }
+    }
+
+    /// Bind to a random local UDP port.
+    async fn bind_and_connect(self) -> Result<UdpSocket, io::Error> {
+        let mut i = 0;
+        let sock = loop {
+            let local: SocketAddr = if self.addr.is_ipv4() {
+                ([0u8; 4], 0).into()
+            } else {
+                ([0u16; 8], 0).into()
+            };
+            match UdpSocket::bind(&local).await {
+                Ok(sock) => break sock,
+                Err(err) => {
+                    if i == RETRY_RANDOM_PORT {
+                        return Err(err);
+                    } else {
+                        i += 1
+                    }
+                }
+            }
+        };
+        sock.connect(self.addr).await?;
+        Ok(sock)
+    }
+}
+
+impl AsyncConnect for UdpConnect {
+    type Connection = UdpSocket;
+    type Fut = Pin<
+        Box<
+            dyn Future<Output = Result<Self::Connection, std::io::Error>>
+                + Send,
+        >,
+    >;
+
+    fn connect(&self) -> Self::Fut {
+        Box::pin(self.bind_and_connect())
+    }
+}
+
 //------------ AsyncDgramRecv -------------------------------------------------
 
 /// Receive a datagram packets asynchronously.
-///
-///
 pub trait AsyncDgramRecv {
     /// Polled receive.
     fn poll_recv(
@@ -136,6 +190,18 @@ pub trait AsyncDgramRecv {
     ) -> Poll<Result<(), io::Error>>;
 }
 
+impl AsyncDgramRecv for UdpSocket {
+    fn poll_recv(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        UdpSocket::poll_recv(self, cx, buf)
+    }
+}
+
+//------------ AsyncDgramRecvEx -----------------------------------------------
+
 /// Convenvience trait to turn poll_recv into an asynchronous function.
 pub trait AsyncDgramRecvEx: AsyncDgramRecv {
     /// Asynchronous receive function.
@@ -143,16 +209,21 @@ pub trait AsyncDgramRecvEx: AsyncDgramRecv {
     where
         Self: Unpin,
     {
-        recv(self, buf)
+        DgramRecv {
+            receiver: self,
+            buf,
+        }
     }
 }
 
 impl<R: AsyncDgramRecv> AsyncDgramRecvEx for R {}
 
+//------------ DgramRecv -----------------------------------------------------
+
 pin_project! {
     /// Return value of recv. This captures the future for recv.
     pub struct DgramRecv<'a, R: ?Sized> {
-        receiver: &'a mut R,
+        receiver: &'a R,
         buf: &'a mut [u8],
     }
 }
@@ -178,14 +249,6 @@ impl<R: AsyncDgramRecv + Unpin> Future for DgramRecv<'_, R> {
     }
 }
 
-/// Helper function for the recv method.
-fn recv<'a, R: ?Sized>(
-    receiver: &'a mut R,
-    buf: &'a mut [u8],
-) -> DgramRecv<'a, R> {
-    DgramRecv { receiver, buf }
-}
-
 //------------ AsyncDgramSend -------------------------------------------------
 
 /// Send a datagram packet asynchronously.
@@ -194,11 +257,23 @@ fn recv<'a, R: ?Sized>(
 pub trait AsyncDgramSend {
     /// Polled send function.
     fn poll_send(
-        self: Pin<&Self>,
+        &self,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>>;
 }
+
+impl AsyncDgramSend for UdpSocket {
+    fn poll_send(
+        &self,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        UdpSocket::poll_send(self, cx, buf)
+    }
+}
+
+//------------ AsyncDgramSendEx ----------------------------------------------
 
 /// Convenience trait that turns poll_send into an asynchronous function.
 pub trait AsyncDgramSendEx: AsyncDgramSend {
@@ -207,11 +282,13 @@ pub trait AsyncDgramSendEx: AsyncDgramSend {
     where
         Self: Unpin,
     {
-        send(self, buf)
+        DgramSend { sender: self, buf }
     }
 }
 
 impl<S: AsyncDgramSend> AsyncDgramSendEx for S {}
+
+//------------ DgramSend -----------------------------------------------------
 
 /// This is the return value of send. It captures the future for send.
 pub struct DgramSend<'a, S: ?Sized> {
@@ -230,103 +307,5 @@ impl<S: AsyncDgramSend + Unpin> Future for DgramSend<'_, S> {
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<usize>> {
         Pin::new(self.sender).poll_send(cx, self.buf)
-    }
-}
-
-/// Send helper function to implement the send method of AsyncDgramSendEx.
-fn send<'a, S: ?Sized>(sender: &'a S, buf: &'a [u8]) -> DgramSend<'a, S> {
-    DgramSend { sender, buf }
-}
-
-//------------ UdpConnect --------------------------------------------------
-
-/// Create new TCP connections.
-#[derive(Clone, Copy, Debug)]
-pub struct UdpConnect {
-    /// Remote address to connect to.
-    addr: SocketAddr,
-}
-
-impl UdpConnect {
-    /// Create new UDP connections.
-    ///
-    /// addr is the destination address to connect to.
-    pub fn new(addr: SocketAddr) -> Self {
-        Self { addr }
-    }
-}
-
-impl AsyncConnect for UdpConnect {
-    type Connection = UdpDgram;
-    type Fut = Pin<
-        Box<
-            dyn Future<Output = Result<Self::Connection, std::io::Error>>
-                + Send,
-        >,
-    >;
-
-    fn connect(&self) -> Self::Fut {
-        Box::pin(UdpDgram::new(self.addr))
-    }
-}
-
-/// A single UDP 'connection'
-pub struct UdpDgram {
-    /// Underlying UDP socket
-    sock: Arc<UdpSocket>,
-}
-
-impl UdpDgram {
-    /// Create a new UdpDgram object.
-    async fn new(addr: SocketAddr) -> Result<Self, io::Error> {
-        let sock = Self::udp_bind(addr.is_ipv4()).await?;
-        sock.connect(addr).await?;
-        Ok(Self {
-            sock: Arc::new(sock),
-        })
-    }
-    /// Bind to a local UDP port.
-    ///
-    /// This should explicitly pick a random number in a suitable range of
-    /// ports.
-    async fn udp_bind(v4: bool) -> Result<UdpSocket, io::Error> {
-        let mut i = 0;
-        loop {
-            let local: SocketAddr = if v4 {
-                ([0u8; 4], 0).into()
-            } else {
-                ([0u16; 8], 0).into()
-            };
-            match UdpSocket::bind(&local).await {
-                Ok(sock) => return Ok(sock),
-                Err(err) => {
-                    if i == RETRY_RANDOM_PORT {
-                        return Err(err);
-                    } else {
-                        i += 1
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl AsyncDgramRecv for UdpDgram {
-    fn poll_recv(
-        &self,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<Result<(), io::Error>> {
-        self.sock.poll_recv(cx, buf)
-    }
-}
-
-impl AsyncDgramSend for UdpDgram {
-    fn poll_send(
-        self: Pin<&Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize, io::Error>> {
-        self.sock.poll_send(cx, buf)
     }
 }
