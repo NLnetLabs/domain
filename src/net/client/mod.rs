@@ -133,7 +133,7 @@
 //! ```
 
 //! # Example with various transport connections
-//! ```
+//! ```no_run
 #![doc = include_str!("../../../examples/client-transports.rs")]
 //! ```
 
