@@ -248,14 +248,11 @@ where
         &self,
         mut request: Req,
     ) -> Result<Message<Bytes>, QueryError> {
-        // How often we’ve retried the request.
-        let mut retries: u8 = 0;
-
         // A place to store the receive buffer for reuse.
         let mut reuse_buf = None;
 
         // Transmit loop.
-        while retries < self.config.max_retries {
+        for _ in 0..self.config.max_retries {
             let mut sock =
                 self.connect.connect().await.map_err(QueryError::connect)?;
 
@@ -291,10 +288,6 @@ where
                         }
                         Err(_) => {
                             // Timeout.
-                            // XXX Is this extra increase of the retry counter
-                            //     here on purpose? If not, we can turn the
-                            //     outer loop into a for loop.
-                            retries += 1;
                             break;
                         }
                     };
@@ -318,7 +311,6 @@ where
                 }
                 return Ok(answer.octets_into());
             }
-            retries += 1;
         }
         Err(QueryError::timeout())
     }
