@@ -200,9 +200,27 @@ where
 
 //--- Display
 
-impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
+impl<L, R> fmt::Display for Chain<L, R>
+where
+    Self: ToLabelIter,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}", self.left, self.right)
+        let mut empty = true;
+        for label in self.iter_labels() {
+            if label.is_root() {
+                if empty {
+                    f.write_str(".")?
+                }
+            } else {
+                if !empty {
+                    f.write_str(".")?
+                } else {
+                    empty = false;
+                }
+                label.fmt(f)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -521,5 +539,46 @@ mod test {
                 .compose(&mut buf),
         );
         assert_eq!(buf, b"\x07example\x03com\x00");
+    }
+
+    /// Tests that displaying works as expected.
+    #[test]
+    fn display() {
+        fn cmp<T: fmt::Display, E: fmt::Debug>(
+            chain: Result<T, E>,
+            out: &str,
+        ) {
+            use std::string::ToString;
+
+            assert_eq!(chain.unwrap().to_string(), out);
+        }
+
+        let empty = &RelativeDname::from_octets(b"".as_slice()).unwrap();
+        let uempty = UncertainDname::from(empty.clone());
+        let rel =
+            &RelativeDname::from_octets(b"\x03www\x07example".as_slice())
+                .unwrap();
+        let urel = UncertainDname::from(rel.clone());
+        let root = &Dname::from_octets(b"\0".as_slice()).unwrap();
+        let uroot = UncertainDname::from(root.clone());
+        let abs = &Dname::from_octets(b"\x03com\0".as_slice()).unwrap();
+        let uabs = UncertainDname::from(abs.clone());
+
+        cmp(empty.chain(empty), "");
+        cmp(empty.chain(rel), "www.example");
+        cmp(empty.chain(root), ".");
+        cmp(empty.chain(abs), "com");
+        cmp(rel.chain(empty), "www.example");
+        cmp(rel.chain(rel), "www.example.www.example");
+        cmp(rel.chain(root), "www.example");
+        cmp(rel.chain(abs), "www.example.com");
+        cmp(uempty.clone().chain(root), ".");
+        cmp(uempty.clone().chain(abs), "com");
+        cmp(urel.clone().chain(root), "www.example");
+        cmp(urel.clone().chain(abs), "www.example.com");
+        cmp(uroot.clone().chain(root), ".");
+        cmp(uroot.clone().chain(abs), ".");
+        cmp(uabs.clone().chain(root), "com");
+        cmp(uabs.clone().chain(abs), "com");
     }
 }
