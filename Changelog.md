@@ -6,9 +6,15 @@ Breaking changes
 
 New
 
+* Add impls for `AsRef<RelativeDname<[u8]>>` and `Borrow<RelativeDname<[u8]>>`
+  to `RelativeDname<_>`. ([#251] by [@torin-carey])
+
 Bug fixes
 
 Other changes
+
+[#251]: https://github.com/NLnetLabs/domain/pull/251
+[@torin-carey]: https://github.com/torin-carey
 
 
 ## 0.9.3
