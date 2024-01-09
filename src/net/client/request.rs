@@ -356,9 +356,7 @@ impl From<super::dgram::QueryError> for Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        unimplemented!()
-        /*
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::ConnectionClosed => write!(f, "connection closed"),
             Error::OptTooLong => write!(f, "OPT record is too long"),
@@ -395,25 +393,14 @@ impl fmt::Display for Error {
             Error::StreamUnexpectedEndOfData => {
                 write!(f, "unexpected end of data")
             }
-            Error::UdpBind(_) => write!(f, "error binding UDP socket"),
-            Error::UdpConfigError(_) => write!(f, "bad config value"),
-            Error::UdpConnect(_) => write!(f, "error connecting UDP socket"),
-            Error::UdpReceive(_) => {
-                write!(f, "error receiving from UDP socket")
-            }
-            Error::UdpSend(_) => write!(f, "error sending to UDP socket"),
-            Error::UdpShortSend => write!(f, "partial sent to UDP socket"),
-            Error::UdpTimeoutNoResponse => {
-                write!(f, "timeout waiting for response")
-            }
             Error::WrongReplyForQuery => {
                 write!(f, "reply does not match query")
             }
             Error::NoTransportAvailable => {
                 write!(f, "no transport available")
             }
+            Error::Dgram(err) => fmt::Display::fmt(err, f)
         }
-        */
     }
 }
 
@@ -428,8 +415,6 @@ impl From<CopyRecordsError> for Error {
 
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        unimplemented!()
-        /*
         match self {
             Error::ConnectionClosed => None,
             Error::OptTooLong => None,
@@ -445,16 +430,9 @@ impl error::Error for Error {
             Error::StreamTooManyOutstandingQueries => None,
             Error::StreamWriteError(e) => Some(e),
             Error::StreamUnexpectedEndOfData => None,
-            Error::UdpBind(e) => Some(e),
-            Error::UdpConfigError(e) => Some(e),
-            Error::UdpConnect(e) => Some(e),
-            Error::UdpReceive(e) => Some(e),
-            Error::UdpSend(e) => Some(e),
-            Error::UdpShortSend => None,
-            Error::UdpTimeoutNoResponse => None,
             Error::WrongReplyForQuery => None,
             Error::NoTransportAvailable => None,
+            Error::Dgram(err) => Some(err),
         }
-        */
     }
 }
