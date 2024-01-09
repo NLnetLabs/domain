@@ -413,7 +413,7 @@ impl<'a> Query<'a> {
         let request_msg = RequestMessage::new(msg);
 
         let transport = self.resolver.get_transport().await;
-        let mut gr_fut = transport.send_request(&request_msg).await.unwrap();
+        let mut gr_fut = transport.send_request(request_msg);
         let reply =
             timeout(self.resolver.options.timeout, gr_fut.get_response())
                 .await

@@ -21,13 +21,12 @@ use crate::base::message::Message;
 use crate::base::message_builder::StreamTarget;
 use crate::base::opt::{AllOptData, OptRecord, TcpKeepalive};
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, HandleRequest, SendRequest,
+    ComposeRequest, Error, GetResponse, SendRequest,
 };
 use bytes;
 use bytes::{Bytes, BytesMut};
 use core::cmp;
 use core::convert::From;
-use futures_util::FutureExt;
 use octseq::Octets;
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -138,123 +137,79 @@ impl<Req> Connection<Req> {
     }
 }
 
-impl<Req: ComposeRequest> Connection<Req> {
-    /// Sends a request and receives a response.
-    pub async fn request(
-        &self,
-        request: Req,
-    ) -> Result<Message<Bytes>, Error> {
-        let receiver = self.send_request(request).await?;
-        receiver.await.map_err(|_| Error::StreamReceiveError)?
-    }
-}
-
-impl<Req: ComposeRequest> Connection<Req> {
+impl<Req: ComposeRequest + 'static> Connection<Req> {
     /// Start a DNS request.
     ///
     /// This function takes a precomposed message as a parameter and
     /// returns a [ReqRepl] object wrapped in a [Result].
-    async fn request_impl(
-        &self,
-        request: Req,
-    ) -> Result<Box<dyn GetResponse + Send>, Error> {
-        let rx = self.send_request(request).await?;
-        Ok(Box::new(Query::new(rx)))
-    }
-
-    /// Start a DNS request.
-    pub async fn start_request(
-        &self,
-        query_msg: Req,
-    ) -> Result<Query, Error> {
-        let rx = self.send_request(query_msg).await?;
-        Ok(Query::new(rx))
-    }
-
-    /// Sends a request.
-    async fn send_request(
-        &self,
-        request_msg: Req,
-    ) -> Result<oneshot::Receiver<ChanResp>, Error> {
+    async fn handle_request_impl(
+        self,
+        msg: Req,
+    ) -> Result<Message<Bytes>, Error> {
         let (sender, receiver) = oneshot::channel();
-        let req = ChanReq {
-            sender,
-            msg: request_msg,
-        };
+        let req = ChanReq { sender, msg };
         self.sender.send(req).await.map_err(|_| {
             // Send error. The receiver is gone, this means that the
             // connection is closed.
             Error::ConnectionClosed
         })?;
-        Ok(receiver)
+        receiver.await.map_err(|_| Error::StreamReceiveError)?
+    }
+
+    /// Returns a request handler for this connection.
+    pub fn get_request(&self, request_msg: Req) -> Request {
+        Request {
+            fut: Box::pin(self.clone().handle_request_impl(request_msg)),
+        }
+    }
+}
+
+impl<Req> Clone for Connection<Req> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
     }
 }
 
 impl<Req: ComposeRequest + Clone + 'static> SendRequest<Req>
     for Connection<Req>
 {
-    fn send_request<'a>(
-        &'a self,
-        request_msg: &'a Req,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
-                + Send
-                + '_,
-        >,
-    > {
-        return Box::pin(self.request_impl(request_msg.clone()));
+    fn send_request(&self, request_msg: Req) -> Box<dyn GetResponse + Send> {
+        Box::new(self.get_request(request_msg))
     }
 }
 
-impl<Req: ComposeRequest + Send> HandleRequest<Req> for Connection<Req> {
-    type Response = Message<Bytes>;
-    type Error = Error;
-    type Fut<'s> = Pin<Box<
-        dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 's
-    >> where Self: 's;
+//------------ Request -------------------------------------------------------
 
-    fn handle_request(&self, request: Req) -> Self::Fut<'_> {
-        self.request(request).boxed()
+/// An active request.
+pub struct Request {
+    /// The underlying future.
+    fut: Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
+}
+
+impl Request {
+    /// Async function that waits for the future stored in Request to complete.
+    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
+        (&mut self.fut).await
     }
 }
 
-//------------ Query ----------------------------------------------------------
-
-/// This struct represent an active DNS request.
-#[derive(Debug)]
-pub struct Query {
-    /// The receiver for the response.
-    receiver: oneshot::Receiver<ChanResp>,
-}
-
-impl Query {
-    /// Constructor for [Query], takes a DNS query and a receiver for the
-    /// reply.
-    fn new(receiver: oneshot::Receiver<ChanResp>) -> Query {
-        Self { receiver }
-    }
-
-    /// Get the result of a DNS request.
-    ///
-    /// This function returns the reply to a DNS request wrapped in a
-    /// [Result].
-    pub async fn get_response_impl(
-        &mut self,
-    ) -> Result<Message<Bytes>, Error> {
-        (&mut self.receiver)
-            .await
-            .map_err(|_| Error::StreamReceiveError)?
-    }
-}
-
-impl GetResponse for Query {
+impl GetResponse for Request {
     fn get_response(
         &mut self,
     ) -> Pin<
         Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
     > {
         Box::pin(self.get_response_impl())
+    }
+}
+
+impl Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("Request")
+            .field("fut", &format_args!("_"))
+            .finish()
     }
 }
 
@@ -273,20 +228,20 @@ pub struct Transport<Stream, Req> {
     receiver: mpsc::Receiver<ChanReq<Req>>,
 }
 
-/// A message from a `Query` to start a new request.
+/// A message from a `Request` to start a new request.
 #[derive(Debug)]
 struct ChanReq<Req> {
     /// DNS request message
     msg: Req,
 
-    /// Sender to send result back to [Query]
+    /// Sender to send result back to [Request]
     sender: ReplySender,
 }
 
 /// This is the type of sender in [ChanReq].
 type ReplySender = oneshot::Sender<ChanResp>;
 
-/// A message back to `Query` returning a response.
+/// A message back to `Request` returning a response.
 type ChanResp = Result<Message<Bytes>, Error>;
 
 /// Internal datastructure of [Transport::run] to keep track of

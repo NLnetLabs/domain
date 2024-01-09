@@ -61,7 +61,7 @@
 //! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
 //! # );
-//! # let mut request = tcp_conn.send_request(&req).await.unwrap();
+//! # let mut request = tcp_conn.send_request(req);
 //! # }
 //! ```
 //! Note that the run function ends when the last reference to the DNS
@@ -101,7 +101,7 @@
 //! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
 //! # );
-//! let mut request = tls_conn.send_request(&req).await.unwrap();
+//! let mut request = tls_conn.send_request(req);
 //! # }
 //! ```
 //! where ```tls_conn``` is a transport connection for DNS over TLS.
@@ -127,7 +127,7 @@
 //! # let req = domain::net::client::request::RequestMessage::new(
 //! #     domain::base::MessageBuilder::new_vec()
 //! # );
-//! # let mut request = tls_conn.send_request(&req).await.unwrap();
+//! # let mut request = tls_conn.send_request(req);
 //! let reply = request.get_response().await;
 //! # }
 //! ```

@@ -15,18 +15,17 @@ use crate::net::client::protocol::{
     AsyncDgramSendEx,
 };
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, HandleRequest, SendRequest,
+    ComposeRequest, Error, GetResponse, SendRequest,
 };
 use bytes::Bytes;
 use core::{cmp, fmt};
-use futures_util::FutureExt;
 use octseq::OctetsInto;
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::{error, io};
-use tokio::sync::{Semaphore, TryAcquireError};
+use tokio::sync::Semaphore;
 use tokio::time::{timeout_at, Duration, Instant};
 
 //------------ Configuration Constants ----------------------------------------
@@ -179,6 +178,11 @@ impl Default for Config {
 /// However, it is entirely safe to share it by sticking it into e.g. an arc.
 #[derive(Debug)]
 pub struct Connection<S> {
+    state: Arc<ConnectionState<S>>,
+}
+
+#[derive(Debug)]
+struct ConnectionState<S> {
     /// User configuration variables.
     config: Config,
 
@@ -191,16 +195,18 @@ pub struct Connection<S> {
 
 impl<S> Connection<S> {
     /// Create a new datagram transport with default configuration.
-    pub fn new(connect: S) -> Connection<S> {
+    pub fn new(connect: S) -> Self {
         Self::with_config(connect, Default::default())
     }
 
     /// Create a new datagram transport with a given configuration.
-    pub fn with_config(connect: S, config: Config) -> Connection<S> {
+    pub fn with_config(connect: S, config: Config) -> Self {
         Self {
-            semaphore: Semaphore::new(config.max_parallel),
-            config,
-            connect,
+            state: Arc::new(ConnectionState {
+                semaphore: Semaphore::new(config.max_parallel),
+                config,
+                connect,
+            }),
         }
     }
 }
@@ -210,57 +216,40 @@ where
     S: AsyncConnect,
     S::Connection: AsyncDgramRecv + AsyncDgramSend + Unpin,
 {
-    /// Performs a query.
+    /// Performs a request.
     ///
     /// Sends the provided and returns either a response or an error. If there
     /// are currently too many active queries, the future will wait until the
     /// number has dropped below the limit.
-    pub async fn query<Req: ComposeRequest>(
-        &self,
-        request: Req,
-    ) -> Result<Message<Bytes>, QueryError> {
-        let _ = self.semaphore.acquire().await.expect("semaphore closed");
-        self.query_unchecked(request).await
-    }
-
-    /// Tries to perform a query.
-    ///
-    /// This is essentially the same as [`request`][Self::query] but returns
-    /// an error immediately if there are currently too many active queries.
-    pub async fn try_query<Req: ComposeRequest>(
-        &self,
-        request: Req,
-    ) -> Result<Message<Bytes>, TryQueryError<Req>> {
-        let _ = match self.semaphore.try_acquire() {
-            Ok(permit) => permit,
-            Err(TryAcquireError::NoPermits) => {
-                return Err(TryQueryError::TooManyQueries(request))
-            }
-            Err(TryAcquireError::Closed) => panic!("semaphore closed"),
-        };
-        self.query_unchecked(request)
-            .await
-            .map_err(TryQueryError::Query)
-    }
-
-    /// Performs a query without acquiring the semaphore.
-    async fn query_unchecked<Req: ComposeRequest>(
-        &self,
+    pub async fn handle_request_impl<Req: ComposeRequest>(
+        self,
         mut request: Req,
-    ) -> Result<Message<Bytes>, QueryError> {
+    ) -> Result<Message<Bytes>, Error> {
+        // Acquire the semaphore or wait for it.
+        let _ = self
+            .state
+            .semaphore
+            .acquire()
+            .await
+            .expect("semaphore closed");
+
         // A place to store the receive buffer for reuse.
         let mut reuse_buf = None;
 
         // Transmit loop.
-        for _ in 0..self.config.max_retries {
-            let mut sock =
-                self.connect.connect().await.map_err(QueryError::connect)?;
+        for _ in 0..self.state.config.max_retries {
+            let mut sock = self
+                .state
+                .connect
+                .connect()
+                .await
+                .map_err(QueryError::connect)?;
 
             // Set random ID in header
             request.header_mut().set_random_id();
 
             // Set UDP payload size if necessary.
-            if let Some(size) = self.config.udp_payload_size {
+            if let Some(size) = self.state.config.udp_payload_size {
                 request.set_udp_payload_size(size)
             }
 
@@ -269,22 +258,22 @@ where
             let dgram = request_msg.as_slice();
             let sent = sock.send(dgram).await.map_err(QueryError::send)?;
             if sent != dgram.len() {
-                return Err(QueryError::short_send());
+                return Err(QueryError::short_send().into());
             }
 
             // Receive loop. It may at most take read_timeout time.
-            let deadline = Instant::now() + self.config.read_timeout;
+            let deadline = Instant::now() + self.state.config.read_timeout;
             while deadline > Instant::now() {
                 let mut buf = reuse_buf.take().unwrap_or_else(|| {
                     // XXX use uninit'ed mem here.
-                    vec![0; self.config.recv_size]
+                    vec![0; self.state.config.recv_size]
                 });
                 let len =
                     match timeout_at(deadline, sock.recv(&mut buf)).await {
                         Ok(Ok(len)) => len,
                         Ok(Err(err)) => {
                             // Receiving failed.
-                            return Err(QueryError::receive(err));
+                            return Err(QueryError::receive(err).into());
                         }
                         Err(_) => {
                             // Timeout.
@@ -312,97 +301,58 @@ where
                 return Ok(answer.octets_into());
             }
         }
-        Err(QueryError::timeout())
+        Err(QueryError::timeout().into())
     }
 }
 
-impl<S> Connection<S>
-where
-    S: AsyncConnect + Clone + Send + Sync + 'static,
-    S::Connection:
-        AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-{
-    /// Start a new DNS request.
-    async fn request_impl<
-        CR: ComposeRequest + Clone + Send + Sync + 'static,
-    >(
-        self: Arc<Self>,
-        request_msg: CR,
-    ) -> Result<Box<dyn GetResponse + Send>, Error> {
-        Ok(Box::new(Query {
-            get_response_fut: async move {
-                self.query(request_msg).await.map_err(Into::into)
-            }
-            .boxed(),
-        }))
+//--- Clone
+
+impl<S> Clone for Connection<S> {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+        }
     }
 }
 
-//--- SendRequest and HandleRequest
+//--- SendRequest
 
-impl<S, Req> SendRequest<Req> for Arc<Connection<S>>
+impl<S, Req> SendRequest<Req> for Connection<S>
 where
     S: AsyncConnect + Clone + Send + Sync + 'static,
     S::Connection:
         AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
     Req: ComposeRequest + Clone + Send + Sync + 'static,
 {
-    fn send_request<'a>(
-        &'a self,
-        request_msg: &'a Req,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
-                + Send
-                + '_,
-        >,
-    > {
-        let this = self.clone();
-        Box::pin(this.request_impl(request_msg.clone()))
+    fn send_request(&self, request_msg: Req) -> Box<dyn GetResponse + Send> {
+        Box::new(Request {
+            fut: Box::pin(self.clone().handle_request_impl(request_msg)),
+        })
     }
 }
 
-impl<S, Req> HandleRequest<Req> for Connection<S>
-where
-    S: AsyncConnect + Clone + Send + Sync + 'static,
-    S::Connection:
-        AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin + 'static,
-    Req: ComposeRequest + Clone + Send + Sync + 'static,
-{
-    type Response = Message<Bytes>;
-    type Error = Error;
-    type Fut<'s> = Pin<Box<
-        dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 's
-    >> where Self: 's;
-
-    fn handle_request(&self, request: Req) -> Self::Fut<'_> {
-        async { self.query(request).await.map_err(Into::into) }.boxed()
-    }
-}
-
-//------------ Query --------------------------------------------------------
+//------------ Request ------------------------------------------------------
 
 /// The state of a DNS request.
-pub struct Query {
+pub struct Request {
     /// Future that does the actual work of GetResponse.
-    get_response_fut:
-        Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
+    fut: Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
 }
 
-impl Query {
-    /// Async function that waits for the future stored in Query to complete.
+impl Request {
+    /// Async function that waits for the future stored in Request to complete.
     async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
-        (&mut self.get_response_fut).await
+        (&mut self.fut).await
     }
 }
 
-impl fmt::Debug for Query {
+impl fmt::Debug for Request {
     fn fmt(&self, _: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         todo!()
     }
 }
 
-impl GetResponse for Query {
+impl GetResponse for Request {
     fn get_response(
         &mut self,
     ) -> Pin<
@@ -566,7 +516,7 @@ impl fmt::Display for QueryErrorKind {
 /// This error is returned by [`Connection::try_query`].
 pub enum TryQueryError<Req> {
     /// The query has failed with the given error.
-    Query(QueryError),
+    Request(QueryError),
 
     /// There were too many active queries.
     ///
@@ -577,8 +527,8 @@ pub enum TryQueryError<Req> {
 impl<Req> fmt::Debug for TryQueryError<Req> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Query(err) => {
-                f.debug_tuple("TryQueryError::Query").field(err).finish()
+            Self::Request(err) => {
+                f.debug_tuple("TryQueryError::Request").field(err).finish()
             }
             Self::TooManyQueries(_) => f
                 .debug_tuple("TryQueryError::Req")
@@ -591,7 +541,7 @@ impl<Req> fmt::Debug for TryQueryError<Req> {
 impl<Req> fmt::Display for TryQueryError<Req> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Query(error) => error.fmt(f),
+            Self::Request(error) => error.fmt(f),
             Self::TooManyQueries(_) => {
                 f.write_str("too many active requests")
             }

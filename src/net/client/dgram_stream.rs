@@ -13,10 +13,9 @@ use crate::net::client::protocol::{
     AsyncConnect, AsyncDgramRecv, AsyncDgramSend,
 };
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, HandleRequest, SendRequest,
+    ComposeRequest, Error, GetResponse, SendRequest,
 };
 use bytes::Bytes;
-use futures_util::FutureExt;
 use std::boxed::Box;
 use std::fmt::Debug;
 use std::future::Future;
@@ -126,45 +125,7 @@ where
     }
 }
 
-impl<DgramS, Req> Connection<DgramS, Req>
-where
-    DgramS: AsyncConnect,
-    DgramS::Connection: AsyncDgramRecv + AsyncDgramSend + Unpin,
-    Req: ComposeRequest + Clone,
-{
-    /// Sends a request and receives a response.
-    pub async fn request(
-        &self,
-        request: Req,
-    ) -> Result<Message<Bytes>, Error> {
-        let response = self.udp_conn.query(request.clone()).await?;
-        if !response.header().tc() {
-            return Ok(response);
-        }
-        self.tcp_conn.request(request).await
-    }
-}
-
-impl<DgramS, Req> Connection<DgramS, Req>
-where
-    DgramS: AsyncConnect + Clone + Debug + Send + Sync + 'static,
-    DgramS::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
-    Req: ComposeRequest + Clone + 'static,
-{
-    /// Start a request for the Request trait.
-    async fn request_impl(
-        &self,
-        request_msg: &Req,
-    ) -> Result<Box<dyn GetResponse + Send>, Error> {
-        Ok(Box::new(Query::new(
-            request_msg,
-            self.udp_conn.clone(),
-            self.tcp_conn.clone(),
-        )))
-    }
-}
-
-//--- SendRequest and HandleRequest
+//--- SendRequest
 
 impl<DgramS, Req> SendRequest<Req> for Connection<DgramS, Req>
 where
@@ -172,42 +133,20 @@ where
     DgramS::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
     Req: ComposeRequest + Clone + 'static,
 {
-    fn send_request<'a>(
-        &'a self,
-        request_msg: &'a Req,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
-                + Send
-                + '_,
-        >,
-    > {
-        return Box::pin(self.request_impl(request_msg));
+    fn send_request(&self, request_msg: Req) -> Box<dyn GetResponse + Send> {
+        Box::new(Request::new(
+            request_msg,
+            self.udp_conn.clone(),
+            self.tcp_conn.clone(),
+        ))
     }
 }
 
-impl<DgramS, Req> HandleRequest<Req> for Connection<DgramS, Req>
-where
-    DgramS: AsyncConnect + Clone + Debug + Send + Sync + 'static,
-    DgramS::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,
-    Req: ComposeRequest + Clone + 'static,
-{
-    type Response = Message<Bytes>;
-    type Error = Error;
-    type Fut<'s> = Pin<Box<
-        dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 's
-    >> where Self: 's;
-
-    fn handle_request(&self, request: Req) -> Self::Fut<'_> {
-        self.request(request).boxed()
-    }
-}
-
-//------------ Query --------------------------------------------------------
+//------------ Request --------------------------------------------------------
 
 /// Object that contains the current state of a query.
 #[derive(Debug)]
-pub struct Query<S, Req> {
+pub struct Request<S, Req> {
     /// Reqeust message.
     request_msg: Req,
 
@@ -237,21 +176,21 @@ enum QueryState {
     GetTcpResponse(Box<dyn GetResponse + Send>),
 }
 
-impl<S, Req> Query<S, Req>
+impl<S, Req> Request<S, Req>
 where
     S: AsyncConnect + Clone + Send + Sync + 'static,
     Req: ComposeRequest + Clone + 'static,
 {
-    /// Create a new Query object.
+    /// Create a new Request object.
     ///
     /// The initial state is to start with a UDP transport.
     fn new(
-        request_msg: &Req,
+        request_msg: Req,
         udp_conn: Arc<dgram::Connection<S>>,
         tcp_conn: multi_stream::Connection<Req>,
-    ) -> Query<S, Req> {
+    ) -> Request<S, Req> {
         Self {
-            request_msg: request_msg.clone(),
+            request_msg,
             udp_conn,
             tcp_conn,
             state: QueryState::StartUdpRequest,
@@ -269,7 +208,7 @@ where
             match &mut self.state {
                 QueryState::StartUdpRequest => {
                     let msg = self.request_msg.clone();
-                    let request = self.udp_conn.send_request(&msg).await?;
+                    let request = self.udp_conn.send_request(msg);
                     self.state = QueryState::GetUdpResponse(request);
                     continue;
                 }
@@ -283,7 +222,7 @@ where
                 }
                 QueryState::StartTcpRequest => {
                     let msg = self.request_msg.clone();
-                    let request = self.tcp_conn.send_request(&msg).await?;
+                    let request = self.tcp_conn.send_request(msg);
                     self.state = QueryState::GetTcpResponse(request);
                     continue;
                 }
@@ -296,7 +235,7 @@ where
     }
 }
 
-impl<S, Req> GetResponse for Query<S, Req>
+impl<S, Req> GetResponse for Request<S, Req>
 where
     S: AsyncConnect + Clone + Debug + Send + Sync + 'static,
     S::Connection: AsyncDgramRecv + AsyncDgramSend + Send + Sync + Unpin,

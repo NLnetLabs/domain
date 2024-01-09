@@ -70,7 +70,7 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut request = udptcp_conn.send_request(&req).await.unwrap();
+    let mut request = udptcp_conn.send_request(req.clone());
 
     // Get the reply
     println!("Wating for UDP+TCP reply");
@@ -100,7 +100,7 @@ async fn main() {
     });
 
     // Send a query message.
-    let mut request = tcp_conn.send_request(&req).await.unwrap();
+    let mut request = tcp_conn.send_request(req.clone());
 
     // Get the reply. A multi_stream connection does not have any timeout.
     // Wrap get_result in a timeout.
@@ -154,7 +154,7 @@ async fn main() {
         println!("TLS run exited");
     });
 
-    let mut request = tls_conn.send_request(&req).await.unwrap();
+    let mut request = tls_conn.send_request(req.clone());
     println!("Wating for TLS reply");
     let reply =
         timeout(Duration::from_millis(500), request.get_response()).await;
@@ -179,7 +179,7 @@ async fn main() {
 
     // Start a few queries.
     for i in 1..10 {
-        let mut request = redun.send_request(&req).await.unwrap();
+        let mut request = redun.send_request(req.clone());
         let reply = request.get_response().await;
         if i == 2 {
             println!("redundant connection reply: {:?}", reply);
@@ -196,8 +196,11 @@ async fn main() {
     let dgram_conn =
         dgram::Connection::with_config(udp_connect, dgram_config);
 
-    // Send a query message and get the reply.
-    let reply = dgram_conn.query(req.clone()).await.unwrap();
+    // Send a message.
+    let mut request = dgram_conn.send_request(req.clone());
+    //
+    // Get the reply
+    let reply = request.get_response().await;
     println!("Dgram reply: {:?}", reply);
 
     // Create a single TCP transport connection. This is usefull for a
@@ -220,7 +223,7 @@ async fn main() {
     });
 
     // Send a request message.
-    let mut request = tcp.send_request(&req).await.unwrap();
+    let mut request = tcp.send_request(req);
 
     // Get the reply
     let reply = request.get_response().await;

@@ -55,25 +55,6 @@ pub trait ComposeRequest: Debug + Send + Sync {
     fn is_answer(&self, answer: &Message<[u8]>) -> bool;
 }
 
-//------------ HandleRequest -------------------------------------------------
-
-/// Trait for handling a DNS request.
-pub trait HandleRequest<Req: ComposeRequest> {
-    /// The response returned upon success.
-    type Response: AsRef<Message<[u8]>>;
-
-    /// The error returned upon failure.
-    type Error;
-
-    /// The future producing the response.
-    type Fut<'s>: Future<Output = Result<Self::Response, Self::Error>> + 's
-    where
-        Self: 's;
-
-    /// Returns a future processing the request.
-    fn handle_request(&self, request_msg: Req) -> Self::Fut<'_>;
-}
-
 //------------ SendRequest ---------------------------------------------------
 
 /// Trait for starting a DNS request based on a request composer.
@@ -82,17 +63,8 @@ pub trait HandleRequest<Req: ComposeRequest> {
 /// However, the use of 'dyn Request' in redundant currently prevents that.
 pub trait SendRequest<CR> {
     /// Request function that takes a ComposeRequest type.
-    ///
-    /// This function is intended to be cancel safe.
-    fn send_request<'a>(
-        &'a self,
-        request_msg: &'a CR,
-    ) -> Pin<Box<dyn Future<Output = RequestResultOutput> + Send + '_>>;
+    fn send_request(&self, request_msg: CR) -> Box<dyn GetResponse + Send>;
 }
-
-/// This type is the actual result type of the future returned by the
-/// request function in the Request trait.
-type RequestResultOutput = Result<Box<dyn GetResponse + Send>, Error>;
 
 //------------ GetResponse ---------------------------------------------------
 
@@ -399,7 +371,7 @@ impl fmt::Display for Error {
             Error::NoTransportAvailable => {
                 write!(f, "no transport available")
             }
-            Error::Dgram(err) => fmt::Display::fmt(err, f)
+            Error::Dgram(err) => fmt::Display::fmt(err, f),
         }
     }
 }

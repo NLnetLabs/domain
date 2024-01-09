@@ -9,12 +9,12 @@
 use crate::base::Message;
 use crate::net::client::protocol::AsyncConnect;
 use crate::net::client::request::{
-    ComposeRequest, Error, GetResponse, HandleRequest, SendRequest,
+    ComposeRequest, Error, GetResponse, SendRequest,
 };
 use crate::net::client::stream;
 use bytes::Bytes;
 use futures_util::stream::FuturesUnordered;
-use futures_util::{FutureExt, StreamExt};
+use futures_util::StreamExt;
 use rand::random;
 use std::boxed::Box;
 use std::fmt::Debug;
@@ -87,13 +87,13 @@ impl<Req> Connection<Req> {
     }
 }
 
-impl<Req: ComposeRequest + Clone> Connection<Req> {
+impl<Req: ComposeRequest + Clone + 'static> Connection<Req> {
     /// Sends a request and receives a response.
     pub async fn request(
         &self,
         request: Req,
     ) -> Result<Message<Bytes>, Error> {
-        Query::new(self.clone(), request).get_response().await
+        Request::new(self.clone(), request).get_response().await
     }
 
     /// Starts a request.
@@ -106,7 +106,7 @@ impl<Req: ComposeRequest + Clone> Connection<Req> {
     where
         Req: 'static,
     {
-        let gr = Query::new(self.clone(), request.clone());
+        let gr = Request::new(self.clone(), request.clone());
         Ok(Box::new(gr))
     }
 
@@ -153,46 +153,22 @@ impl<Req> Clone for Connection<Req> {
     }
 }
 
-//--- SendRequest and HandleRequest
+//--- SendRequest
 
 impl<Req> SendRequest<Req> for Connection<Req>
 where
     Req: ComposeRequest + Clone + 'static,
 {
-    fn send_request<'a>(
-        &'a self,
-        request: &'a Req,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
-                + Send
-                + '_,
-        >,
-    > {
-        return Box::pin(self._send_request(request));
+    fn send_request(&self, request: Req) -> Box<dyn GetResponse + Send> {
+        Box::new(Request::new(self.clone(), request))
     }
 }
 
-impl<Req> HandleRequest<Req> for Connection<Req>
-where
-    Req: ComposeRequest + Clone + Send,
-{
-    type Response = Message<Bytes>;
-    type Error = Error;
-    type Fut<'s> = Pin<Box<
-        dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 's
-    >> where Self: 's;
-
-    fn handle_request(&self, request: Req) -> Self::Fut<'_> {
-        self.request(request).boxed()
-    }
-}
-
-//------------ Query --------------------------------------------------------
+//------------ Request --------------------------------------------------------
 
 /// The connection side of an active request.
 #[derive(Debug)]
-struct Query<Req> {
+struct Request<Req> {
     /// The request message.
     ///
     /// It is kept so we can compare a response with it.
@@ -224,7 +200,7 @@ enum QueryState<Req> {
     StartQuery(Arc<stream::Connection<Req>>),
 
     /// Get the result of the query.
-    GetResult(stream::Query),
+    GetResult(stream::Request),
 
     /// Wait until trying again.
     ///
@@ -249,7 +225,7 @@ struct ChanRespOk<Req> {
     conn: Arc<stream::Connection<Req>>,
 }
 
-impl<Req> Query<Req> {
+impl<Req> Request<Req> {
     /// Creates a new query.
     fn new(conn: Connection<Req>, request_msg: Req) -> Self {
         Self {
@@ -262,7 +238,7 @@ impl<Req> Query<Req> {
     }
 }
 
-impl<Req: ComposeRequest + Clone> Query<Req> {
+impl<Req: ComposeRequest + Clone + 'static> Request<Req> {
     /// Get the result of a DNS request.
     ///
     /// This function is cancellation safe. If its future is dropped before
@@ -311,21 +287,10 @@ impl<Req: ComposeRequest + Clone> Query<Req> {
                     }
                 }
                 QueryState::StartQuery(ref mut conn) => {
-                    let msg = self.request_msg.clone();
-                    let query_res = conn.start_request(msg.clone()).await;
-                    match query_res {
-                        Err(err) => {
-                            if let Error::ConnectionClosed = err {
-                                self.state = QueryState::RequestConn;
-                                continue;
-                            }
-                            return Err(err);
-                        }
-                        Ok(query) => {
-                            self.state = QueryState::GetResult(query);
-                            continue;
-                        }
-                    }
+                    self.state = QueryState::GetResult(
+                        conn.get_request(self.request_msg.clone()),
+                    );
+                    continue;
                 }
                 QueryState::GetResult(ref mut query) => {
                     match query.get_response().await {
@@ -359,7 +324,7 @@ impl<Req: ComposeRequest + Clone> Query<Req> {
     }
 }
 
-impl<Req: ComposeRequest + Clone + 'static> GetResponse for Query<Req> {
+impl<Req: ComposeRequest + Clone + 'static> GetResponse for Request<Req> {
     fn get_response(
         &mut self,
     ) -> Pin<

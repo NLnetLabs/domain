@@ -82,7 +82,7 @@ pub struct Config {
 //------------ Connection -----------------------------------------------------
 
 /// This type represents a transport connection.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Connection<Req> {
     /// Reference to the actual implementation of the connection.
     inner: Arc<Transport<Req>>,
@@ -120,28 +120,61 @@ impl<'a, Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
 
     /// Implementation of the request function.
     async fn request_impl(
-        &self,
-        request_msg: &Req,
-    ) -> Result<Box<dyn GetResponse + Send>, Error> {
-        let request = self.inner.request(request_msg.clone()).await?;
-        Ok(Box::new(request))
+        self,
+        request_msg: Req,
+    ) -> Result<Message<Bytes>, Error> {
+        self.inner.request(request_msg).await?.get_response().await
+    }
+}
+
+impl<Req> Clone for Connection<Req> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
 impl<Req: Clone + Debug + Send + Sync + 'static> SendRequest<Req>
     for Connection<Req>
 {
-    fn send_request<'a>(
-        &'a self,
-        request_msg: &'a Req,
+    fn send_request(&self, request_msg: Req) -> Box<dyn GetResponse + Send> {
+        Box::new(Request {
+            fut: Box::pin(self.clone().request_impl(request_msg)),
+        })
+    }
+}
+
+//------------ Request -------------------------------------------------------
+
+/// An active request.
+pub struct Request {
+    /// The underlying future.
+    fut: Pin<Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send>>,
+}
+
+impl Request {
+    /// Async function that waits for the future stored in Query to complete.
+    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
+        (&mut self.fut).await
+    }
+}
+
+impl GetResponse for Request {
+    fn get_response(
+        &mut self,
     ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Box<dyn GetResponse + Send>, Error>>
-                + Send
-                + '_,
-        >,
+        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
     > {
-        return Box::pin(self.request_impl(request_msg));
+        Box::pin(self.get_response_impl())
+    }
+}
+
+impl Debug for Request {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        f.debug_struct("Request")
+            .field("fut", &format_args!("_"))
+            .finish()
     }
 }
 
@@ -339,7 +372,7 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
     }
 
     /// Implementation of get_response.
-    async fn get_response_impl(&mut self) -> Result<Message<Bytes>, Error> {
+    async fn get_response(&mut self) -> Result<Message<Bytes>, Error> {
         loop {
             match self.state {
                 QueryState::Init => {
@@ -537,16 +570,6 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
     }
 }
 
-impl<Req: Clone + Debug + Send + Sync + 'static> GetResponse for Query<Req> {
-    fn get_response(
-        &mut self,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<Message<Bytes>, Error>> + Send + '_>,
-    > {
-        Box::pin(self.get_response_impl())
-    }
-}
-
 //------------ Transport -----------------------------------------------------
 
 /// Type that actually implements the connection.
@@ -628,10 +651,9 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
                     match opt_ind {
                         Some(ind) => {
                             let query = conns[ind]
-                                .send_request(&request_req.request_msg)
-                                .await;
+                                .send_request(request_req.request_msg);
                             // Don't care if send fails
-                            let _ = request_req.tx.send(query);
+                            let _ = request_req.tx.send(Ok(query));
                         }
                         None => {
                             // Don't care if send fails
