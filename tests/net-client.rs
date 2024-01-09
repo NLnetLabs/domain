@@ -104,8 +104,8 @@ fn redundant() {
         });
 
         // Redundant add previous connection.
-        let redun = redundant::Connection::new(None).unwrap();
-        let run_fut = redun.run();
+        let (redun, transp) = redundant::Connection::new();
+        let run_fut = transp.run();
         tokio::spawn(async move {
             run_fut.await;
             println!("redundant conn run terminated");

@@ -17,8 +17,6 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::vec::Vec;
 
 use tokio::sync::{mpsc, oneshot};
@@ -67,7 +65,7 @@ const PROBE_RT: Duration = Duration::from_millis(1);
 //------------ Config ---------------------------------------------------------
 
 /// User configuration variables.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
     /// Defer transport errors.
     pub defer_transport_error: bool,
@@ -84,30 +82,23 @@ pub struct Config {
 /// This type represents a transport connection.
 #[derive(Debug)]
 pub struct Connection<Req> {
-    /// Reference to the actual implementation of the connection.
-    inner: Arc<Transport<Req>>,
+    /// User configuation.
+    config: Config,
+
+    /// To send a request to the runner.
+    sender: mpsc::Sender<ChanReq<Req>>,
 }
 
-impl<'a, Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
+impl<Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
     /// Create a new connection.
-    pub fn new(config: Option<Config>) -> Result<Self, Error> {
-        let config = match config {
-            Some(config) => {
-                check_config(&config)?;
-                config
-            }
-            None => Default::default(),
-        };
-        let connection = Transport::new(config)?;
-        //test_send(connection);
-        Ok(Self {
-            inner: Arc::new(connection),
-        })
+    pub fn new() -> (Self, Transport<Req>) {
+        Self::with_config(Default::default())
     }
 
-    /// Runner function for a connection.
-    pub fn run(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        self.inner.run()
+    /// Create a new connection with a given config.
+    pub fn with_config(config: Config) -> (Self, Transport<Req>) {
+        let (sender, receiver) = mpsc::channel(DEF_CHAN_CAP);
+        (Self { config, sender }, Transport::new(receiver))
     }
 
     /// Add a transport connection.
@@ -115,22 +106,36 @@ impl<'a, Req: Clone + Debug + Send + Sync + 'static> Connection<Req> {
         &self,
         conn: Box<dyn SendRequest<Req> + Send + Sync>,
     ) -> Result<(), Error> {
-        self.inner.add(conn).await
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(ChanReq::Add(AddReq { conn, tx }))
+            .await
+            .expect("send should not fail");
+        rx.await.expect("receive should not fail")
     }
 
-    /// Implementation of the request function.
+    /// Implementation of the query method.
     async fn request_impl(
         self,
         request_msg: Req,
     ) -> Result<Message<Bytes>, Error> {
-        self.inner.request(request_msg).await?.get_response().await
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(ChanReq::GetRT(RTReq { tx }))
+            .await
+            .expect("send should not fail");
+        let conn_rt = rx.await.expect("receive should not fail")?;
+        Query::new(self.config, request_msg, conn_rt, self.sender.clone())
+            .get_response()
+            .await
     }
 }
 
 impl<Req> Clone for Connection<Req> {
     fn clone(&self) -> Self {
         Self {
-            inner: self.inner.clone(),
+            config: self.config,
+            sender: self.sender.clone(),
         }
     }
 }
@@ -574,51 +579,27 @@ impl<Req: Clone + Send + Sync + 'static> Query<Req> {
 
 /// Type that actually implements the connection.
 #[derive(Debug)]
-struct Transport<Req> {
-    /// User configuation.
-    config: Config,
-
+pub struct Transport<Req> {
     /// Receive side of the channel used by the runner.
-    receiver: Mutex<Option<mpsc::Receiver<ChanReq<Req>>>>,
-
-    /// To send a request to the runner.
-    sender: mpsc::Sender<ChanReq<Req>>,
+    receiver: mpsc::Receiver<ChanReq<Req>>,
 }
 
 impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
     /// Implementation of the new method.
-    fn new(config: Config) -> Result<Self, Error> {
-        let (tx, rx) = mpsc::channel(DEF_CHAN_CAP);
-        Ok(Self {
-            config,
-            receiver: Mutex::new(Some(rx)),
-            sender: tx,
-        })
+    fn new(receiver: mpsc::Receiver<ChanReq<Req>>) -> Self {
+        Self { receiver }
     }
 
     /// Run method.
-    ///
-    /// Make sure the future does not contain a reference to self.
-    fn run(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let mut receiver = self.receiver.lock().unwrap();
-        let opt_receiver = receiver.take();
-        drop(receiver);
-
-        Box::pin(Self::run_impl(opt_receiver))
-    }
-
-    /// Implementation of the run method.
-    async fn run_impl(opt_receiver: Option<mpsc::Receiver<ChanReq<Req>>>) {
+    pub async fn run(mut self) {
         let mut next_id: u64 = 10;
         let mut conn_stats: Vec<ConnStats> = Vec::new();
         let mut conn_rt: Vec<ConnRT> = Vec::new();
         let mut conns: Vec<Box<dyn SendRequest<Req> + Send + Sync>> =
             Vec::new();
 
-        let mut receiver =
-            opt_receiver.expect("receiver should not be empty");
         loop {
-            let req = match receiver.recv().await {
+            let req = match self.receiver.recv().await {
                 Some(req) => req,
                 None => break, // All references to connection objects are
                                // dropped. Shutdown.
@@ -708,38 +689,6 @@ impl<'a, Req: Clone + Send + Sync + 'static> Transport<Req> {
             }
         }
     }
-
-    /// Implementation of the add method.
-    async fn add(
-        &self,
-        conn: Box<dyn SendRequest<Req> + Send + Sync>,
-    ) -> Result<(), Error> {
-        let (tx, rx) = oneshot::channel();
-        self.sender
-            .send(ChanReq::Add(AddReq { conn, tx }))
-            .await
-            .expect("send should not fail");
-        rx.await.expect("receive should not fail")
-    }
-
-    /// Implementation of the query method.
-    async fn request(
-        &'a self,
-        request_msg: Req,
-    ) -> Result<Query<Req>, Error> {
-        let (tx, rx) = oneshot::channel();
-        self.sender
-            .send(ChanReq::GetRT(RTReq { tx }))
-            .await
-            .expect("send should not fail");
-        let conn_rt = rx.await.expect("receive should not fail")?;
-        Ok(Query::new(
-            self.config.clone(),
-            request_msg,
-            conn_rt,
-            self.sender.clone(),
-        ))
-    }
 }
 
 //------------ Utility --------------------------------------------------------
@@ -810,10 +759,4 @@ fn get_opt_rcode<Octs: Octets>(msg: &Message<Octs>) -> OptRcode {
             OptRcode::from_int(msg.header().rcode().to_int() as u16)
         }
     }
-}
-
-/// Check if config is valid.
-fn check_config(_config: &Config) -> Result<(), Error> {
-    // Nothing to check at the moment.
-    Ok(())
 }

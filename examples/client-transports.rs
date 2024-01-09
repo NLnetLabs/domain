@@ -163,10 +163,10 @@ async fn main() {
     drop(request);
 
     // Create a transport connection for redundant connections.
-    let redun = redundant::Connection::new(None).unwrap();
+    let (redun, transp) = redundant::Connection::new();
 
     // Start the run function on a separate task.
-    let run_fut = redun.run();
+    let run_fut = transp.run();
     tokio::spawn(async move {
         run_fut.await;
         println!("redundant run terminated");
