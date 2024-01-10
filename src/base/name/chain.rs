@@ -604,7 +604,7 @@ mod test {
             assert_eq!(chain.fmt_with_dot().to_string(), dot_out);
         }
 
-        // An empty relativ name.
+        // An empty relative name.
         let empty = &RelativeDname::from_octets(b"".as_slice()).unwrap();
 
         // An empty relative name wrapped in an uncertain name.
