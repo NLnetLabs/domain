@@ -111,7 +111,7 @@ impl<L, R> Chain<L, R>
 where
     Self: ToLabelIter,
 {
-    /// Returns an objects that displays an absolute name with a final dot.
+    /// Returns an object that displays an absolute name with a final dot.
     ///
     /// The chain itself displays without a final dot unless the chain
     /// results in an absolute name with the root label only. This method can

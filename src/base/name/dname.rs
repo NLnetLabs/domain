@@ -350,7 +350,7 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
         self.0.as_ref().len()
     }
 
-    /// Returns an objects that displays the name with a final dot.
+    /// Returns an object that displays the name with a final dot.
     ///
     /// The name itself displays without a final dot unless the name is the
     /// root label only. Because this means you can’t just unconditionally
