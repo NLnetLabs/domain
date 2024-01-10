@@ -583,6 +583,11 @@ mod test {
     }
 
     /// Tests that displaying works as expected.
+    ///
+    /// The tricky bit is to produce to correct number of dots between the
+    /// left and the right part and at the end of the chain. This is made
+    /// difficult by empty relative names and absolute root names. So this
+    /// is what we are testing below in a number of combinations.
     #[test]
     fn display() {
         fn cmp<E: fmt::Debug, L, R>(
@@ -599,29 +604,66 @@ mod test {
             assert_eq!(chain.fmt_with_dot().to_string(), dot_out);
         }
 
+        // An empty relativ name.
         let empty = &RelativeDname::from_octets(b"".as_slice()).unwrap();
-        let uempty = UncertainDname::from(empty.clone());
+
+        // An empty relative name wrapped in an uncertain name.
+        let uempty = &UncertainDname::from(empty.clone());
+
+        // A non-empty relative name. We are using two labels here just to
+        // have that covered as well.
         let rel =
             &RelativeDname::from_octets(b"\x03www\x07example".as_slice())
                 .unwrap();
-        let urel = UncertainDname::from(rel.clone());
-        let root = &Dname::from_octets(b"\0".as_slice()).unwrap();
-        let uroot = UncertainDname::from(root.clone());
-        let abs = &Dname::from_octets(b"\x03com\0".as_slice()).unwrap();
-        let uabs = UncertainDname::from(abs.clone());
 
+        // A non-empty relative name wrapped in an uncertain name.
+        let urel = &UncertainDname::from(rel.clone());
+
+        // The root name which is an absolute name.
+        let root = &Dname::from_octets(b"\0".as_slice()).unwrap();
+
+        // The root name wrapped in an uncertain name.
+        let uroot = &UncertainDname::from(root.clone());
+
+        // A “normal” absolute name.
+        let abs = &Dname::from_octets(b"\x03com\0".as_slice()).unwrap();
+
+        // A “normal” absolute name wrapped in an uncertain name.
+        let uabs = &UncertainDname::from(abs.clone());
+
+        // Now we produce all possible cases and their expected result. First
+        // result is for normal display, second is for fmt_with_dot.
+        //
+        // If the left side of the chain is a relative name,
+        // the right side can be relative, absolute, or uncertain.
         cmp(empty.chain(empty), "", "");
+        cmp(empty.chain(uempty), "", "");
         cmp(empty.chain(rel), "www.example", "www.example");
+        cmp(empty.chain(urel), "www.example", "www.example");
         cmp(empty.chain(root), ".", ".");
+        cmp(empty.chain(uroot), ".", ".");
         cmp(empty.chain(abs), "com", "com.");
+        cmp(empty.chain(uabs), "com", "com.");
+
         cmp(rel.chain(empty), "www.example", "www.example");
+        cmp(rel.chain(uempty), "www.example", "www.example");
         cmp(
             rel.chain(rel),
             "www.example.www.example",
             "www.example.www.example",
         );
+        cmp(
+            rel.chain(urel),
+            "www.example.www.example",
+            "www.example.www.example",
+        );
         cmp(rel.chain(root), "www.example", "www.example.");
+        cmp(rel.chain(uroot), "www.example", "www.example.");
         cmp(rel.chain(abs), "www.example.com", "www.example.com.");
+        cmp(rel.chain(uabs), "www.example.com", "www.example.com.");
+
+        // If the left side of a chain is an uncertain name, the right side
+        // must be an absolute name.
         cmp(uempty.clone().chain(root), ".", ".");
         cmp(uempty.clone().chain(abs), "com", "com.");
         cmp(urel.clone().chain(root), "www.example", "www.example.");
