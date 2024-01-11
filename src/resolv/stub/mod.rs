@@ -14,9 +14,7 @@ use self::conf::{
 };
 use crate::base::iana::Rcode;
 use crate::base::message::Message;
-use crate::base::message_builder::{
-    AdditionalBuilder, MessageBuilder, StreamTarget,
-};
+use crate::base::message_builder::{AdditionalBuilder, MessageBuilder};
 use crate::base::name::{ToDname, ToRelativeDname};
 use crate::base::question::Question;
 use crate::net::client::dgram_stream;
@@ -24,7 +22,7 @@ use crate::net::client::multi_stream;
 use crate::net::client::protocol::{TcpConnect, UdpConnect};
 use crate::net::client::redundant;
 use crate::net::client::request::{
-    ComposeRequest, RequestMessage, SendRequest,
+    ComposeRequest, Error, RequestMessage, SendRequest,
 };
 use crate::resolv::lookup::addr::{lookup_addr, FoundAddrs};
 use crate::resolv::lookup::host::{lookup_host, search_host, FoundHosts};
@@ -38,6 +36,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
+use std::string::ToString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::vec::Vec;
@@ -124,7 +123,7 @@ impl StubResolver {
         CR: Clone + Debug + ComposeRequest + Send + Sync + 'static,
     >(
         &self,
-    ) -> redundant::Connection<CR> {
+    ) -> Result<redundant::Connection<CR>, Error> {
         // Create a redundant transport and fill it with the right transports
         let (redun, transp) = redundant::Connection::new();
 
@@ -156,9 +155,9 @@ impl StubResolver {
                     // Start the run function on a separate task.
                     let run_fut = tran.run();
                     fut_list_tcp.push(async move {
-                        let _res = run_fut.await;
+                        run_fut.await;
                     });
-                    redun.add(Box::new(conn)).await.unwrap();
+                    redun.add(Box::new(conn)).await?;
                 }
             }
         } else {
@@ -174,7 +173,7 @@ impl StubResolver {
                     fut_list_udp_tcp.push(async move {
                         tran.run().await;
                     });
-                    redun.add(Box::new(conn)).await.unwrap();
+                    redun.add(Box::new(conn)).await?;
                 }
             }
         }
@@ -183,20 +182,22 @@ impl StubResolver {
             run(fut_list_tcp, fut_list_udp_tcp).await;
         });
 
-        redun
+        Ok(redun)
     }
 
     async fn get_transport(
         &self,
-    ) -> redundant::Connection<RequestMessage<Vec<u8>>> {
+    ) -> Result<redundant::Connection<RequestMessage<Vec<u8>>>, Error> {
         let mut opt_transport = self.transport.lock().await;
 
-        if opt_transport.is_none() {
-            let transport = self.setup_transport().await;
-            *opt_transport = Some(transport);
+        match &*opt_transport {
+            Some(transport) => Ok(transport.clone()),
+            None => {
+                let transport = self.setup_transport().await?;
+                *opt_transport = Some(transport.clone());
+                Ok(transport)
+            }
         }
-
-        (*opt_transport).as_ref().unwrap().clone()
     }
 }
 
@@ -269,10 +270,10 @@ impl StubResolver {
     /// The only argument is a closure taking a reference to a `StubResolver`
     /// and returning a future. Whatever that future resolves to will be
     /// returned.
-    pub fn run<R, F>(op: F) -> R::Output
+    pub fn run<R, T, E, F>(op: F) -> R::Output
     where
-        R: Future + Send + 'static,
-        R::Output: Send + 'static,
+        R: Future<Output = Result<T, E>> + Send + 'static,
+        E: From<io::Error>,
         F: FnOnce(StubResolver) -> R + Send + 'static,
     {
         Self::run_with_conf(ResolvConf::default(), op)
@@ -284,17 +285,16 @@ impl StubResolver {
     /// tailor-making your own resolver.
     ///
     /// [`run()`]: #method.run
-    pub fn run_with_conf<R, F>(conf: ResolvConf, op: F) -> R::Output
+    pub fn run_with_conf<R, T, E, F>(conf: ResolvConf, op: F) -> R::Output
     where
-        R: Future + Send + 'static,
-        R::Output: Send + 'static,
+        R: Future<Output = Result<T, E>> + Send + 'static,
+        E: From<io::Error>,
         F: FnOnce(StubResolver) -> R + Send + 'static,
     {
         let resolver = Self::from_conf(conf);
         let runtime = runtime::Builder::new_current_thread()
             .enable_all()
-            .build()
-            .unwrap();
+            .build()?;
         runtime.block_on(op(resolver))
     }
 }
@@ -391,13 +391,11 @@ impl<'a> Query<'a> {
     }
 
     fn create_message(question: Question<impl ToDname>) -> QueryMessage {
-        let mut message = MessageBuilder::from_target(
-            StreamTarget::new(Default::default()).unwrap(),
-        )
-        .unwrap();
+        let mut message = MessageBuilder::from_target(Default::default())
+            .expect("MessageBuilder should not fail");
         message.header_mut().set_rd(true);
         let mut message = message.question();
-        message.push(question).unwrap();
+        message.push(question).expect("push should not fail");
         message.additional()
     }
 
@@ -405,20 +403,21 @@ impl<'a> Query<'a> {
         &mut self,
         message: &mut QueryMessage,
     ) -> Result<Answer, io::Error> {
-        let msg = Message::from_octets(
-            message.as_target().as_dgram_slice().to_vec(),
-        )
-        .unwrap();
+        let msg = Message::from_octets(message.as_target().to_vec())
+            .expect("Message::from_octets should not fail");
 
         let request_msg = RequestMessage::new(msg);
 
-        let transport = self.resolver.get_transport().await;
+        let transport = self.resolver.get_transport().await.map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, e.to_string())
+        })?;
         let mut gr_fut = transport.send_request(request_msg);
         let reply =
             timeout(self.resolver.options.timeout, gr_fut.get_response())
-                .await
-                .unwrap()
-                .unwrap();
+                .await?
+                .map_err(|e| {
+                    io::Error::new(io::ErrorKind::Other, e.to_string())
+                })?;
         Ok(Answer { message: reply })
     }
 
@@ -447,7 +446,7 @@ impl<'a> Query<'a> {
 //------------ QueryMessage --------------------------------------------------
 
 // XXX This needs to be re-evaluated if we start adding OPTtions to the query.
-pub(super) type QueryMessage = AdditionalBuilder<StreamTarget<Array<512>>>;
+pub(super) type QueryMessage = AdditionalBuilder<Array<512>>;
 
 //------------ Answer --------------------------------------------------------
 
