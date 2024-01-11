@@ -2,9 +2,9 @@ use std::string::String;
 use std::time::Duration;
 
 use futures::{Future, Stream};
+use octseq::OctetsBuilder;
 
-use crate::base::octets::{OctetsBuilder, ShortBuf};
-use crate::base::{Message, StreamTarget};
+use crate::base::{Message, StreamTarget, message::ShortMessage};
 
 //------------ MsgProvider ---------------------------------------------------
 
@@ -28,7 +28,7 @@ pub trait MsgProvider<RequestOctets: AsRef<[u8]>> {
     fn determine_msg_len(hdr_buf: &mut RequestOctets) -> usize;
 
     /// Convert a sequence of bytes to a concrete message.
-    fn from_octets(octets: RequestOctets) -> Result<Self::Msg, ShortBuf>;
+    fn from_octets(octets: RequestOctets) -> Result<Self::Msg, ShortMessage>;
 }
 
 /// An implementation of MsgProvider for DNS [Message]s.
@@ -46,7 +46,7 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets> for Message<RequestO
         u16::from_be_bytes(hdr_buf.as_ref().try_into().unwrap()) as usize
     }
 
-    fn from_octets(octets: RequestOctets) -> Result<Self, ShortBuf> {
+    fn from_octets(octets: RequestOctets) -> Result<Self, ShortMessage> {
         Self::from_octets(octets)
     }
 }

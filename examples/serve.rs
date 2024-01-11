@@ -17,7 +17,6 @@ use std::{
 use domain::{
     base::{
         iana::{Class, Rcode},
-        octets::OctetsBuilder,
         Dname, Message, MessageBuilder, StreamTarget,
     },
     rdata::A,
@@ -32,6 +31,7 @@ use domain::{
     },
 };
 use futures::{stream::Once, Future, Stream};
+use octseq::OctetsBuilder;
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio_rustls::{
