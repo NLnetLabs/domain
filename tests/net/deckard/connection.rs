@@ -18,6 +18,8 @@ pub struct Connection {
     waker: Option<Waker>,
     reply: Option<Message<Vec<u8>>>,
     send_body: bool,
+
+    tmpbuf: Vec<u8>,
 }
 
 impl Connection {
@@ -31,6 +33,7 @@ impl Connection {
             waker: None,
             reply: None,
             send_body: false,
+            tmpbuf: Vec::new(),
         }
     }
 }
@@ -67,14 +70,19 @@ impl AsyncWrite for Connection {
         _: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
-        let buflen = buf.len();
+        self.tmpbuf.push(buf[0]);
+        let buflen = self.tmpbuf.len();
+        if buflen < 2 {
+            return Poll::Ready(Ok(1));
+        }
         let mut len_str: [u8; 2] = [0; 2];
-        len_str.copy_from_slice(&buf[0..2]);
+        len_str.copy_from_slice(&self.tmpbuf[0..2]);
         let len = u16::from_be_bytes(len_str) as usize;
         if buflen != 2 + len {
-            panic!("expecting one complete message per write");
+            return Poll::Ready(Ok(1));
         }
-        let msg = Message::from_octets(buf[2..].to_vec()).unwrap();
+        let msg = Message::from_octets(self.tmpbuf[2..].to_vec()).unwrap();
+        self.tmpbuf = Vec::new();
         let opt_reply = do_server(&msg, &self.deckard, &self.step_value);
         if opt_reply.is_some() {
             // Do we need to support more than one reply?
@@ -84,7 +92,7 @@ impl AsyncWrite for Connection {
                 waker.wake();
             }
         }
-        Poll::Ready(Ok(buflen))
+        Poll::Ready(Ok(1))
     }
     fn poll_flush(
         self: Pin<&mut Self>,

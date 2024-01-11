@@ -335,6 +335,7 @@ where
         let mut query_vec = Queries::new();
 
         let mut reqmsg: Option<Vec<u8>> = None;
+        let mut reqmsg_offset = 0;
 
         loop {
             let opt_timeout = match status.state {
@@ -430,18 +431,25 @@ where
                     drop(opt_record);
                     Self::demux_reply(answer, &mut status, &mut query_vec);
                 }
-                res = write_stream.write_all(msg),
+                res = write_stream.write(&msg[reqmsg_offset..]),
                 if do_write => {
-                    if let Err(error) = res {
-                        let error = Error::StreamWriteError(Arc::new(error));
-                        Self::error(error.clone(), &mut query_vec);
-                        status.state =
-                            ConnState::WriteError(error);
-                        break;
-                    }
-                    else {
-                        reqmsg = None;
-                    }
+            match res {
+            Err(error) => {
+                let error =
+                Error::StreamWriteError(Arc::new(error));
+                Self::error(error.clone(), &mut query_vec);
+                status.state =
+                ConnState::WriteError(error);
+                break;
+            }
+            Ok(len) => {
+                reqmsg_offset += len;
+                if reqmsg_offset >= msg.len() {
+                reqmsg = None;
+                reqmsg_offset = 0;
+                }
+            }
+            }
                 }
                 res = recv_fut, if !do_write => {
                     match res {
