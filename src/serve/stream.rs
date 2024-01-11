@@ -1,6 +1,6 @@
 use super::buf::BufSource;
 use super::server::ServerMetrics;
-use super::service::{CallResult, Service, Transaction, MsgProvider};
+use super::service::{CallResult, MsgProvider, Service, Transaction};
 
 use core::marker::PhantomData;
 use std::{boxed::Box, io, sync::Mutex, time::Duration};
@@ -240,7 +240,8 @@ where
         let mut state =
             StreamState::new(stream_tx, result_q_tx, idle_timeout);
 
-        let mut msg_size_buf = self.buf_source.create_sized(MsgTyp::MIN_HDR_BYTES);
+        let mut msg_size_buf =
+            self.buf_source.create_sized(MsgTyp::MIN_HDR_BYTES);
 
         loop {
             if let Err(err) = self
@@ -629,7 +630,7 @@ where
     async fn write_result_to_stream(
         &self,
         state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
-        msg: crate::base::StreamTarget<<Svc as Service<<Buf as BufSource>::Output, MsgTyp>>::ResponseOctets>
+        msg: crate::base::StreamTarget<<Svc as Service<<Buf as BufSource>::Output, MsgTyp>>::ResponseOctets>,
     ) {
         // TODO: spawn this as a task and serialize access to write with a lock?
         if let Err(err) =
@@ -638,9 +639,7 @@ where
             eprintln!("Write error: {err}");
             todo!()
         }
-        if state.result_q_tx.capacity()
-            == state.result_q_tx.max_capacity()
-        {
+        if state.result_q_tx.capacity() == state.result_q_tx.max_capacity() {
             state.response_queue_emptied();
         }
         self.metrics
@@ -651,7 +650,7 @@ where
     async fn act_on_queued_command(
         &self,
         cmd: ServiceCommand,
-        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>
+        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
     ) {
         match cmd {
             ServiceCommand::CloseConnection { .. } => todo!(),
@@ -661,7 +660,7 @@ where
                     "Reconfigured connection timeout to {idle_timeout:?}"
                 );
                 state.idle_timeout =
-                chrono::Duration::from_std(idle_timeout).unwrap();
+                    chrono::Duration::from_std(idle_timeout).unwrap();
                 // TODO: Check this unwrap()
             }
             ServiceCommand::Shutdown => {
@@ -670,7 +669,6 @@ where
         }
     }
 }
-    
 
 //------------ StreamServerEvent ---------------------------------------------
 

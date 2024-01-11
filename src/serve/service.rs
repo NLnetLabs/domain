@@ -4,7 +4,7 @@ use std::time::Duration;
 use futures::{Future, Stream};
 use octseq::OctetsBuilder;
 
-use crate::base::{Message, StreamTarget, message::ShortMessage};
+use crate::base::{message::ShortMessage, Message, StreamTarget};
 
 //------------ MsgProvider ---------------------------------------------------
 
@@ -32,7 +32,9 @@ pub trait MsgProvider<RequestOctets: AsRef<[u8]>> {
 }
 
 /// An implementation of MsgProvider for DNS [Message]s.
-impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets> for Message<RequestOctets> {
+impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
+    for Message<RequestOctets>
+{
     /// RFC 1035 section 4.2.2 "TCP Usage" says:
     ///     "The message is prefixed with a two byte length field which gives
     ///      the message length, excluding the two byte length field.  This
@@ -71,7 +73,11 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets> for Message<RequestO
 /// You can either implement the [`Service`] trait directly, or use the blanket
 /// impl to turn any function with a compatible signature into a [`Service`]
 /// implementation.
-pub trait Service<RequestOctets: AsRef<[u8]>, MsgTyp: MsgProvider<RequestOctets>> {
+pub trait Service<
+    RequestOctets: AsRef<[u8]>,
+    MsgTyp: MsgProvider<RequestOctets>,
+>
+{
     type Error: Send + Sync + 'static;
 
     type ResponseOctets: OctetsBuilder
@@ -106,11 +112,10 @@ pub trait Service<RequestOctets: AsRef<[u8]>, MsgTyp: MsgProvider<RequestOctets>
     >;
 }
 
-impl<F, SrvErr, ReqOct, RespOct, MsgTyp, Sing, Strm> Service<ReqOct, MsgTyp> for F
+impl<F, SrvErr, ReqOct, RespOct, MsgTyp, Sing, Strm> Service<ReqOct, MsgTyp>
+    for F
 where
-    F: Fn(
-        MsgTyp,
-    ) -> Result<Transaction<Sing, Strm>, ServiceError<SrvErr>>,
+    F: Fn(MsgTyp) -> Result<Transaction<Sing, Strm>, ServiceError<SrvErr>>,
     ReqOct: AsRef<[u8]>,
     RespOct:
         OctetsBuilder + Send + Sync + 'static + std::convert::AsRef<[u8]>,

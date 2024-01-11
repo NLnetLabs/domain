@@ -10,7 +10,8 @@ use super::{
     buf::BufSource,
     server::ServerMetrics,
     service::{
-        CallResult, Service, ServiceCommand, ServiceError, Transaction, MsgProvider,
+        CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
+        Transaction,
     },
     sock::AsyncDgramSock,
 };
