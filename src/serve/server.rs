@@ -431,7 +431,7 @@ mod tests {
         }
     }
 
-    impl Service<Vec<u8>> for MyService {
+    impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
         type Error = ();
 
         type ResponseOctets = Vec<u8>;
