@@ -96,6 +96,7 @@ pub trait Service<RequestOctets: AsRef<[u8]>, MsgTyp: MsgProvider<RequestOctets>
         > + Send
         + 'static;
 
+    #[allow(clippy::type_complexity)]
     fn call(
         &self,
         message: MsgTyp,

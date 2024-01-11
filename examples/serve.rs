@@ -437,8 +437,8 @@ async fn main() {
     //
     //   wget -O /tmp/my.crt https://raw.githubusercontent.com/rustls/hyper-rustls/main/examples/sample.pem
     //   wget -O /tmp/my.key https://raw.githubusercontent.com/rustls/hyper-rustls/main/examples/sample.rsa
-    let certs = load_certs(&Path::new("/tmp/my.crt")).unwrap();
-    let mut keys = load_keys(&Path::new("/tmp/my.key")).unwrap();
+    let certs = load_certs(Path::new("/tmp/my.crt")).unwrap();
+    let mut keys = load_keys(Path::new("/tmp/my.key")).unwrap();
 
     let config = rustls::ServerConfig::builder()
         .with_safe_defaults()
@@ -457,10 +457,10 @@ async fn main() {
 
     // Keep the services running in the background
 
-    let _ = udp_join_handle.await.unwrap().unwrap();
-    let _ = udp_mtu_join_handle.await.unwrap().unwrap();
-    let _ = tcp_join_handle.await.unwrap().unwrap();
-    let _ = tfo_join_handle.await.unwrap().unwrap();
-    let _ = fn_join_handle.await.unwrap().unwrap();
-    let _ = tls_join_handle.await.unwrap().unwrap();
+    udp_join_handle.await.unwrap().unwrap();
+    udp_mtu_join_handle.await.unwrap().unwrap();
+    tcp_join_handle.await.unwrap().unwrap();
+    tfo_join_handle.await.unwrap().unwrap();
+    fn_join_handle.await.unwrap().unwrap();
+    tls_join_handle.await.unwrap().unwrap();
 }

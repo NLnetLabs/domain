@@ -92,6 +92,12 @@ impl ServerMetrics {
     }
 }
 
+impl Default for ServerMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,7 +189,7 @@ mod tests {
         }
 
         fn _last_ready(&self) -> Option<Instant> {
-            self.last_ready.lock().unwrap().clone()
+            *self.last_ready.lock().unwrap()
         }
 
         fn _messages_remaining(&self) -> usize {
@@ -208,7 +214,7 @@ mod tests {
                 match buf.remaining() {
                     2 => {
                         // Initial read: return the number of bytes that will follow
-                        if let Some(next_msg) = messages_to_read.get(0) {
+                        if let Some(next_msg) = messages_to_read.front() {
                             let next_msg_len =
                                 u16::try_from(next_msg.len()).unwrap();
                             buf.put_slice(&next_msg_len.to_be_bytes());
@@ -295,7 +301,7 @@ mod tests {
         }
 
         fn _last_accept(&self) -> Option<Instant> {
-            self.last_accept.lock().unwrap().clone()
+            *self.last_accept.lock().unwrap()
         }
 
         fn streams_remaining(&self) -> usize {

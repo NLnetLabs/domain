@@ -476,6 +476,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn process_action<T, U, V>(
         &self,
         action: Either<
