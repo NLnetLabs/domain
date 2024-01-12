@@ -8,12 +8,17 @@ New
 
 * Add impls for `AsRef<RelativeDname<[u8]>>` and `Borrow<RelativeDname<[u8]>>`
   to `RelativeDname<_>`. ([#251] by [@torin-carey])
+* Added `name::Chain::fmt_with_dots` to format an absolute chained name
+  with a final dot. ([#253])
 
 Bug fixes
+
+* Fixed display implementation of `name::Chain<_, _>`. ([#253])
 
 Other changes
 
 [#251]: https://github.com/NLnetLabs/domain/pull/251
+[#253]: https://github.com/NLnetLabs/domain/pull/253
 [@torin-carey]: https://github.com/torin-carey
 
 
