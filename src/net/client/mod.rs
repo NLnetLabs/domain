@@ -9,13 +9,13 @@
 //! 3) Sending the request, and
 //! 4) Receiving the reply.
 //!
-//! The first and second step are independent and happen in any order.
+//! The first and second step are independent and can happen in any order.
 //! The third step uses the resuts of the first and second step.
 //! Finally, the fourth step uses the result of the third step.
 
 //! # Creating a request message
 //!
-//! The DNS transport protocols expect a request message that implements
+//! The DNS transport protocols expect a request message that implements the
 //! [ComposeRequest][request::ComposeRequest] trait.
 //! This trait allows transports to add ENDS(0) options, set flags, etc.
 //! The [RequestMessage][request::RequestMessage] type implements this trait.
@@ -64,13 +64,8 @@
 //! # let mut request = tcp_conn.send_request(req);
 //! # }
 //! ```
-//! Note that the run function ends when the last reference to the DNS
-//! transport is dropped. For this reason it is important to avoid having a
-//! reference to the transport end up in the task. Only pass the future
-//! returned by the run function to the task.
-//!
-//! The currently implemented DNS transport have the following layering. At
-//! the lower layer are [dgram] and [stream]. The dgram transport is used for
+//! The currently implemented DNS transports have the following layering. At
+//! the lowest layer are [dgram] and [stream]. The dgram transport is used for
 //! DNS over UDP, the stream transport is used for DNS over a single TCP or
 //! TLS connection. The transport works as long as the connection continuous
 //! to exist.
