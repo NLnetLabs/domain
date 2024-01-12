@@ -1,5 +1,5 @@
 //! Tests the TSIG implementation.
-#![cfg(all(test, feature = "interop"))]
+#![cfg(test)]
 
 use crate::base::iana::{Rcode, Rtype};
 use crate::base::message::Message;
@@ -33,6 +33,7 @@ type TestAdditional = AdditionalBuilder<StreamTarget<Vec<u8>>>;
 ///
 /// Spins up an NSD serving example.com. and then tries to AXFR that.
 #[test]
+#[ignore]
 fn tsig_client_nsd() {
     // Set up and start NSD with example.org and a TSIG key for AXFRing it.
     let rng = SystemRandom::new();
@@ -120,6 +121,7 @@ fn tsig_client_nsd() {
 
 /// Tests the TSIG server implementation against drill as a client.
 #[test]
+#[ignore]
 fn tsig_server_drill() {
     let rng = SystemRandom::new();
     let (key, secret) = tsig::Key::generate(
@@ -183,6 +185,7 @@ fn tsig_server_drill() {
 
 /// Test the client sequence implementation against NSD.
 #[test]
+#[ignore]
 fn tsig_client_sequence_nsd() {
     let rng = SystemRandom::new();
 
@@ -268,6 +271,7 @@ fn tsig_client_sequence_nsd() {
 
 /// Tests the TSIG server sequence implementation against drill.
 #[test]
+#[ignore]
 fn tsig_server_sequence_drill() {
     let rng = SystemRandom::new();
     let (key, secret) = tsig::Key::generate(

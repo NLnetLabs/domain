@@ -5,10 +5,9 @@
 //!
 //! The actual tests live with their respective modules in a sub-module called
 //! `interop`. Since they require additional software packages to be available
-//! and can be expensive, they are only run if the `"interop"` feature is
-//! given to `cargo test`.
+//! and can be expensive, they are tagged as ignored by default.
 //!
-#![cfg(all(test, feature = "interop"))]
+#![cfg(test)]
 
 pub mod cargo;
 pub mod nsd;

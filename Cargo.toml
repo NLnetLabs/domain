@@ -40,7 +40,6 @@ libc = { version = "0.2.71", default-features = false, optional = true }
 default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
-interop     = ["bytes", "ring"]
 resolv      = ["bytes", "futures-util", "smallvec", "std", "tokio", "libc", "rand"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
@@ -50,10 +49,6 @@ std         = ["bytes?/std", "octseq/std", "time/std"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
-
-# This feature should include all features that the CI should include for a
-# test run. Which is everything except interop.
-ci-test     = ["resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]
 
 [dev-dependencies]
 serde_test         = "1.0.130"
