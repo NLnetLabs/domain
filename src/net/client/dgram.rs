@@ -221,7 +221,7 @@ where
     /// Sends the provided and returns either a response or an error. If there
     /// are currently too many active queries, the future will wait until the
     /// number has dropped below the limit.
-    pub async fn handle_request_impl<Req: ComposeRequest>(
+    async fn handle_request_impl<Req: ComposeRequest>(
         self,
         mut request: Req,
     ) -> Result<Message<Bytes>, Error> {
@@ -508,45 +508,3 @@ impl fmt::Display for QueryErrorKind {
         })
     }
 }
-
-//------------ TryQueryError -------------------------------------------------
-
-/// An attempted query failed
-///
-/// This error is returned by [`Connection::try_query`].
-pub enum TryQueryError<Req> {
-    /// The query has failed with the given error.
-    Request(QueryError),
-
-    /// There were too many active queries.
-    ///
-    /// This variant contains the original request unchanged.
-    TooManyQueries(Req),
-}
-
-impl<Req> fmt::Debug for TryQueryError<Req> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Request(err) => {
-                f.debug_tuple("TryQueryError::Request").field(err).finish()
-            }
-            Self::TooManyQueries(_) => f
-                .debug_tuple("TryQueryError::Req")
-                .field(&format_args!("_"))
-                .finish(),
-        }
-    }
-}
-
-impl<Req> fmt::Display for TryQueryError<Req> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Request(error) => error.fmt(f),
-            Self::TooManyQueries(_) => {
-                f.write_str("too many active requests")
-            }
-        }
-    }
-}
-
-impl<Req> error::Error for TryQueryError<Req> {}
