@@ -10,6 +10,9 @@ New
   to `RelativeDname<_>`. ([#251] by [@torin-carey])
 * Added `name::Chain::fmt_with_dots` to format an absolute chained name
   with a final dot. ([#253])
+* Add the module `net::client` with experimental support for client
+  message transport, i.e., sending of request and receiving responses.
+  This is gated by the `unstable-client-transport` feature. ([#215])
 
 Bug fixes
 
@@ -17,6 +20,8 @@ Bug fixes
 
 Other changes
 
+
+[#215]: https://github.com/NLnetLabs/domain/pull/215
 [#251]: https://github.com/NLnetLabs/domain/pull/251
 [#253]: https://github.com/NLnetLabs/domain/pull/253
 [@torin-carey]: https://github.com/torin-carey
