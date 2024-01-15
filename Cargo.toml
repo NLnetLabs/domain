@@ -17,8 +17,9 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-octseq         =  { version = "0.3.2", default-features = false }
-time           =  { version = "0.3.1", default-features = false }
+octseq           =  { version = "0.3.2", default-features = false }
+pin-project-lite = "0.2"
+time             =  { version = "0.3.1", default-features = false }
 
 rand           = { version = "0.8", optional = true }
 bytes          = { version = "1.0", optional = true, default-features = false }
@@ -30,7 +31,11 @@ ring           = { version = "0.17", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
 smallvec       = { version = "1", optional = true }
-tokio          = { version = "1.0", optional = true, features = ["io-util", "macros", "net", "time"] }
+tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "time", "sync", "rt-multi-thread" ] }
+tokio-rustls   = { version = "0.24", optional = true, features = [] }
+
+# XXX Force proc-macro2 to at least 1.0.69 for minimal-version build
+proc-macro2    = "1.0.69"
 
 [target.'cfg(macos)'.dependencies]
 # specifying this overrides minimum-version mio's 0.2.69 libc dependency, which allows the build to work
@@ -40,20 +45,27 @@ libc = { version = "0.2.71", default-features = false, optional = true }
 default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
-resolv      = ["bytes", "futures-util", "smallvec", "std", "tokio", "libc", "rand"]
+resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
 sign        = ["std"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["bytes?/std", "octseq/std", "time/std"]
+net         = ["bytes", "futures-util", "rand", "std", "tokio", "tokio-rustls"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
 
+# Unstable features
+unstable-client-transport = []
+
 [dev-dependencies]
+rustls             = { version = "0.21.9" }
 serde_test         = "1.0.130"
 serde_yaml         = "0.9"
 tokio              = { version = "1", features = ["rt-multi-thread", "io-util", "net"] }
+tokio-test	   = "0.4"
+webpki-roots       = { version = "0.25" }
 
 [package.metadata.docs.rs]
 all-features = true
@@ -79,3 +91,6 @@ required-features = ["resolv-sync"]
 name = "client"
 required-features = ["std", "rand"]
 
+[[example]]
+name = "client-transports"
+required-features = ["net"]

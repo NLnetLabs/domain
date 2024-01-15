@@ -107,6 +107,21 @@ impl<L: ToRelativeDname, R: ToLabelIter> Chain<L, R> {
     }
 }
 
+impl<L, R> Chain<L, R>
+where
+    Self: ToLabelIter,
+{
+    /// Returns an object that displays an absolute name with a final dot.
+    ///
+    /// The chain itself displays without a final dot unless the chain
+    /// results in an absolute name with the root label only. This method can
+    /// be used to display a chain that results in an absolute name with a
+    /// single dot at its end.
+    pub fn fmt_with_dot(&self) -> impl fmt::Display + '_ {
+        DisplayWithDot(self)
+    }
+}
+
 impl<L, R> Chain<L, R> {
     /// Unwraps the chain into its two constituent components.
     pub fn unwrap(self) -> (L, R) {
@@ -200,9 +215,27 @@ where
 
 //--- Display
 
-impl<L: fmt::Display, R: fmt::Display> fmt::Display for Chain<L, R> {
+impl<L, R> fmt::Display for Chain<L, R>
+where
+    Self: ToLabelIter,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}", self.left, self.right)
+        let mut empty = true;
+        for label in self.iter_labels() {
+            if label.is_root() {
+                if empty {
+                    f.write_str(".")?
+                }
+            } else {
+                if !empty {
+                    f.write_str(".")?
+                } else {
+                    empty = false;
+                }
+                label.fmt(f)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -294,6 +327,32 @@ where
             UncertainChainIter::Absolute(ref mut inner) => inner.next_back(),
             UncertainChainIter::Relative(ref mut inner) => inner.next_back(),
         }
+    }
+}
+
+//------------ DisplayWithDot ------------------------------------------------
+
+struct DisplayWithDot<'a, L, R>(&'a Chain<L, R>);
+
+impl<'a, L, R> fmt::Display for DisplayWithDot<'a, L, R>
+where
+    Chain<L, R>: ToLabelIter,
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut empty = true;
+        for label in self.0.iter_labels() {
+            if label.is_root() {
+                f.write_str(".")?
+            } else {
+                if !empty {
+                    f.write_str(".")?
+                } else {
+                    empty = false;
+                }
+                label.fmt(f)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -521,5 +580,101 @@ mod test {
                 .compose(&mut buf),
         );
         assert_eq!(buf, b"\x07example\x03com\x00");
+    }
+
+    /// Tests that displaying works as expected.
+    ///
+    /// The tricky bit is to produce to correct number of dots between the
+    /// left and the right part and at the end of the chain. This is made
+    /// difficult by empty relative names and absolute root names. So this
+    /// is what we are testing below in a number of combinations.
+    #[test]
+    fn display() {
+        fn cmp<E: fmt::Debug, L, R>(
+            chain: Result<Chain<L, R>, E>,
+            out: &str,
+            dot_out: &str,
+        ) where
+            Chain<L, R>: ToLabelIter,
+        {
+            use std::string::ToString;
+
+            let chain = chain.unwrap();
+            assert_eq!(chain.to_string(), out);
+            assert_eq!(chain.fmt_with_dot().to_string(), dot_out);
+        }
+
+        // An empty relative name.
+        let empty = &RelativeDname::from_octets(b"".as_slice()).unwrap();
+
+        // An empty relative name wrapped in an uncertain name.
+        let uempty = &UncertainDname::from(empty.clone());
+
+        // A non-empty relative name. We are using two labels here just to
+        // have that covered as well.
+        let rel =
+            &RelativeDname::from_octets(b"\x03www\x07example".as_slice())
+                .unwrap();
+
+        // A non-empty relative name wrapped in an uncertain name.
+        let urel = &UncertainDname::from(rel.clone());
+
+        // The root name which is an absolute name.
+        let root = &Dname::from_octets(b"\0".as_slice()).unwrap();
+
+        // The root name wrapped in an uncertain name.
+        let uroot = &UncertainDname::from(root.clone());
+
+        // A “normal” absolute name.
+        let abs = &Dname::from_octets(b"\x03com\0".as_slice()).unwrap();
+
+        // A “normal” absolute name wrapped in an uncertain name.
+        let uabs = &UncertainDname::from(abs.clone());
+
+        // Now we produce all possible cases and their expected result. First
+        // result is for normal display, second is for fmt_with_dot.
+        //
+        // If the left side of the chain is a relative name,
+        // the right side can be relative, absolute, or uncertain.
+        cmp(empty.chain(empty), "", "");
+        cmp(empty.chain(uempty), "", "");
+        cmp(empty.chain(rel), "www.example", "www.example");
+        cmp(empty.chain(urel), "www.example", "www.example");
+        cmp(empty.chain(root), ".", ".");
+        cmp(empty.chain(uroot), ".", ".");
+        cmp(empty.chain(abs), "com", "com.");
+        cmp(empty.chain(uabs), "com", "com.");
+
+        cmp(rel.chain(empty), "www.example", "www.example");
+        cmp(rel.chain(uempty), "www.example", "www.example");
+        cmp(
+            rel.chain(rel),
+            "www.example.www.example",
+            "www.example.www.example",
+        );
+        cmp(
+            rel.chain(urel),
+            "www.example.www.example",
+            "www.example.www.example",
+        );
+        cmp(rel.chain(root), "www.example", "www.example.");
+        cmp(rel.chain(uroot), "www.example", "www.example.");
+        cmp(rel.chain(abs), "www.example.com", "www.example.com.");
+        cmp(rel.chain(uabs), "www.example.com", "www.example.com.");
+
+        // If the left side of a chain is an uncertain name, the right side
+        // must be an absolute name.
+        cmp(uempty.clone().chain(root), ".", ".");
+        cmp(uempty.clone().chain(abs), "com", "com.");
+        cmp(urel.clone().chain(root), "www.example", "www.example.");
+        cmp(
+            urel.clone().chain(abs),
+            "www.example.com",
+            "www.example.com.",
+        );
+        cmp(uroot.clone().chain(root), ".", ".");
+        cmp(uroot.clone().chain(abs), ".", ".");
+        cmp(uabs.clone().chain(root), "com", "com.");
+        cmp(uabs.clone().chain(abs), "com", "com.");
     }
 }
