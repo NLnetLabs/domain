@@ -171,6 +171,18 @@ impl<Octs> Message<Octs> {
         Ok(unsafe { Self::from_octets_unchecked(octets) })
     }
 
+    /// Creates a message from octets, returning the octets if it fails.
+    pub fn try_from_octets(octets: Octs) -> Result<Self, Octs>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        if Message::check_slice(octets.as_ref()).is_err() {
+            Err(octets)
+        } else {
+            Ok(unsafe { Self::from_octets_unchecked(octets) })
+        }
+    }
+
     /// Creates a message from a bytes value without checking.
     ///
     /// # Safety
@@ -1191,6 +1203,12 @@ pub enum CopyRecordsError {
 impl From<ParseError> for CopyRecordsError {
     fn from(err: ParseError) -> Self {
         CopyRecordsError::Parse(err)
+    }
+}
+
+impl From<PushError> for CopyRecordsError {
+    fn from(err: PushError) -> Self {
+        CopyRecordsError::Push(err)
     }
 }
 
