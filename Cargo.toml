@@ -17,25 +17,26 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-octseq         =  { version = "0.3.2", default-features = false }
-time           =  { version = "0.3.1", default-features = false }
+octseq           =  { version = "0.3.2", default-features = false }
+pin-project-lite = "0.2"
+time             =  { version = "0.3.1", default-features = false }
 
 rand           = { version = "0.8", optional = true }
 bytes          = { version = "1.0", optional = true, default-features = false }
 chrono         = { version = "0.4.6", optional = true, default-features = false }
-proc-macro2    = { version = "1.0.60", optional = true }
 futures        = { version = "0.3", optional = true }
 futures-util   = { version = "0.3", optional = true }
 heapless       = { version = "0.7", optional = true }
 libc           = { version = "0.2.79", default-features = false, optional = true } # 0.2.79 is the first version that has IP_PMTUDISC_OMIT
+proc-macro2    = { version = "1.0.69", optional = true } # Force proc-macro2 to at least 1.0.69 for minimal-version build
 ring           = { version = "0.17", optional = true }
+rustls-pemfile = { version = "1.0", optional = true }
 serde          = { version = "1.0.130", optional = true, features = ["derive"] }
 siphasher      = { version = "1", optional = true }
 smallvec       = { version = "1.3", optional = true }
-tokio          = { version = "1.0", optional = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio          = { version = "1.33", optional = true, features = ["io-util", "macros", "net", "rt", "sync", "time", "sync", "rt-multi-thread" ] }
 tokio-tfo      = { version = "0.2.0", optional = true }
-tokio-rustls   = { version = "0.23.4", optional = true }
-rustls-pemfile = { version = "1.0", optional = true }
+tokio-rustls   = { version = "0.24", optional = true, features = [] }
 
 [target.'cfg(macos)'.dependencies]
 # specifying this overrides minimum-version mio's 0.2.69 libc dependency, which allows the build to work
@@ -46,7 +47,7 @@ default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
 interop     = ["bytes", "ring"]
-resolv      = ["bytes", "futures-util", "smallvec", "std", "tokio", "libc", "rand"]
+resolv      = ["net", "smallvec", "std", "rand", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
 serve       = ["bytes", "chrono/clock", "futures", "libc", "std", "tokio"]
@@ -54,18 +55,25 @@ serve-sync  = []
 sign        = ["std"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["bytes?/std", "octseq/std", "time/std"]
+net         = ["bytes", "futures-util", "std", "tokio", "tokio-rustls"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
 
+# Unstable features
+unstable-client-transport = []
+
 # This feature should include all features that the CI should include for a
 # test run. Which is everything except interop.
-ci-test     = ["resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]
+ci-test     = ["net", "resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]
 
 [dev-dependencies]
-serde_test       = "1.0.130"
-serde_yaml       = "0.9"
-tokio            = { version = "1", features = ["rt-multi-thread", "io-util", "net", "test-util"] }
+rustls       = { version = "0.21.9" }
+serde_test   = "1.0.130"
+serde_yaml   = "0.9"
+tokio        = { version = "1", features = ["rt-multi-thread", "io-util", "net", "test-util"] }
+tokio-test	 = "0.4"
+webpki-roots = { version = "0.25" }
 
 [package.metadata.docs.rs]
 all-features = true
@@ -90,6 +98,10 @@ required-features = ["resolv-sync"]
 [[example]]
 name = "client"
 required-features = ["std", "rand"]
+
+[[example]]
+name = "client-transports"
+required-features = ["net"]
 
 [[example]]
 name = "serve"

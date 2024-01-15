@@ -66,11 +66,6 @@ pub struct ResolvOptions {
     /// it is supposed to mean.
     pub primary: bool,
 
-    /// Ignore trunactions errors, don’t retry with TCP.
-    ///
-    /// This option is implemented by the query.
-    pub ign_tc: bool,
-
     /// Set the recursion desired bit in queries.
     ///
     /// Enabled by default.
@@ -186,7 +181,6 @@ impl Default for ResolvOptions {
             aa_only: false,
             use_vc: false,
             primary: false,
-            ign_tc: false,
             stay_open: false,
             use_inet6: false,
             rotate: false,
@@ -555,9 +549,6 @@ impl fmt::Display for ResolvConf {
         }
         if self.options.primary {
             options.push("primary".into())
-        }
-        if self.options.ign_tc {
-            options.push("ign-tc".into())
         }
         if !self.options.recurse {
             options.push("no-recurse".into())
