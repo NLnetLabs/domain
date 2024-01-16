@@ -331,11 +331,15 @@ async fn main() {
                 libc::IP_MTU_DISCOVER,
                 &libc::IP_PMTUDISC_OMIT as *const libc::c_int
                     as *const libc::c_void,
-                std::mem::size_of_val(&libc::IP_PMTUDISC_OMIT) as libc::socklen_t,
+                std::mem::size_of_val(&libc::IP_PMTUDISC_OMIT)
+                    as libc::socklen_t,
             )
         };
         if result == -1 {
-            eprintln!("setsockopt error when setting IP_MTU_DISCOVER: {}", std::io::Error::last_os_error());
+            eprintln!(
+                "setsockopt error when setting IP_MTU_DISCOVER: {}",
+                std::io::Error::last_os_error()
+            );
         }
         let srv = Arc::new(DgramServer::new(
             udpsocket,
