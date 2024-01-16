@@ -46,8 +46,7 @@ libc = { version = "0.2.71", default-features = false, optional = true }
 default     = ["std", "rand"]
 bytes       = ["dep:bytes", "octseq/bytes"]
 heapless    = ["dep:heapless", "octseq/heapless"]
-interop     = ["bytes", "ring"]
-resolv      = ["net", "smallvec", "std", "rand", "unstable-client-transport"]
+resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
 serve       = ["bytes", "chrono/clock", "futures", "libc", "std", "tokio"]
@@ -55,17 +54,13 @@ serve-sync  = []
 sign        = ["std"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["bytes?/std", "octseq/std", "time/std"]
-net         = ["bytes", "futures-util", "std", "tokio", "tokio-rustls"]
+net         = ["bytes", "futures-util", "rand", "std", "tokio", "tokio-rustls"]
 tsig        = ["bytes", "ring", "smallvec"]
 validate    = ["std", "ring"]
 zonefile    = ["bytes", "std"]
 
 # Unstable features
 unstable-client-transport = []
-
-# This feature should include all features that the CI should include for a
-# test run. Which is everything except interop.
-ci-test     = ["net", "resolv", "resolv-sync", "sign", "std", "serde", "tsig", "validate", "zonefile"]
 
 [dev-dependencies]
 rustls       = { version = "0.21.9" }
