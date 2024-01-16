@@ -131,7 +131,7 @@
 //! Note: Some functionality is currently informally marked as
 //! “experimental” since it was introduced before adoption of the concept
 //! of unstable features. These will follow proper Semver practice but may
-//! significant changes in releases with breakting changes.
+//! change significantly in releases with breaking changes.
 
 #![no_std]
 #![allow(renamed_and_removed_lints)]
