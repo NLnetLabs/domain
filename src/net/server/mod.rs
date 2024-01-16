@@ -93,7 +93,11 @@ pub type TcpServer<Buf, Svc> = stream::StreamServer<
 
 pub mod buf;
 pub mod dgram;
-pub mod server;
+pub mod metrics;
 pub mod service;
 pub mod sock;
 pub mod stream;
+
+#[cfg(test)]
+pub mod tests;
+

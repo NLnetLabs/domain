@@ -1,5 +1,5 @@
 use super::buf::BufSource;
-use super::server::ServerMetrics;
+use super::metrics::ServerMetrics;
 use super::service::{CallResult, MsgProvider, Service, Transaction};
 
 use core::marker::PhantomData;

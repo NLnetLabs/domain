@@ -8,7 +8,7 @@ use std::{
 
 use super::{
     buf::BufSource,
-    server::ServerMetrics,
+    metrics::ServerMetrics,
     service::{
         CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
         Transaction,
