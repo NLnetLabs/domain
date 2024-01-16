@@ -19,7 +19,6 @@ use domain::{
         iana::{Class, Rcode},
         Dname, Message, MessageBuilder, StreamTarget,
     },
-    rdata::A,
     net::server::{
         buf::BufSource,
         dgram::DgramServer,
@@ -29,6 +28,7 @@ use domain::{
         sock::AsyncAccept,
         stream::StreamServer,
     },
+    rdata::A,
 };
 use futures::{stream::Once, Future, Stream};
 use octseq::OctetsBuilder;

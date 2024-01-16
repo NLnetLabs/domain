@@ -106,8 +106,7 @@ impl AsyncRead for MockStream {
             .map(|instant| instant.elapsed() > self.new_message_every)
             .unwrap_or(true)
         {
-            let mut messages_to_read =
-                self.messages_to_read.lock().unwrap();
+            let mut messages_to_read = self.messages_to_read.lock().unwrap();
             match buf.remaining() {
                 2 => {
                     // Initial read: return the number of bytes that will follow
@@ -210,8 +209,7 @@ impl AsyncAccept for MockListener {
     type Addr = ();
     type Error = io::Error;
     type StreamType = MockStream;
-    type Stream =
-        futures::future::Ready<Result<Self::StreamType, io::Error>>;
+    type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
 
     fn poll_accept(
         &self,
@@ -221,9 +219,7 @@ impl AsyncAccept for MockListener {
             true => {
                 let mut last_accept = self.last_accept.lock().unwrap();
                 if last_accept
-                    .map(|instant| {
-                        instant.elapsed() > self.new_client_every
-                    })
+                    .map(|instant| instant.elapsed() > self.new_client_every)
                     .unwrap_or(true)
                 {
                     let mut streams_to_read =
@@ -402,8 +398,7 @@ async fn stop_service_test() {
         );
         let streams_to_read = VecDeque::from([fast_client, slow_client]);
         let new_client_every = Duration::from_millis(2000);
-        let listener =
-            MockListener::new(streams_to_read, new_client_every);
+        let listener = MockListener::new(streams_to_read, new_client_every);
         let ready_flag = listener.get_ready_flag();
 
         let buf = MockBufSource;
