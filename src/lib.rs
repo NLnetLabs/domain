@@ -34,10 +34,6 @@
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
 //!   [Tokio](https://tokio.rs/) async runtime.
-#![cfg_attr(feature = "serve", doc = "* [serve]:")]
-#![cfg_attr(not(feature = "serve"), doc = "* serve:")]
-//!   An asynchronous DNS server based on the
-//!   [Tokio](https://tokio.rs/) async runtime.
 #![cfg_attr(feature = "sign", doc = "* [sign]:")]
 #![cfg_attr(not(feature = "sign"), doc = "* sign:")]
 //!   Experimental support for DNSSEC signing.
@@ -81,11 +77,6 @@
 //! * `ring`: Enables crypto functionality via the
 //!   [ring](https://github.com/briansmith/ring) crate.
 //! * `serde`: Enables serde serialization for a number of basic types.
-//! * `serve`: Enables the asynchronous server via the
-#![cfg_attr(feature = "serve", doc = "  [serve]")]
-#![cfg_attr(not(feature = "serve"), doc = "  serve")]
-//!   module.
-//! * `serve-sync`: Enables the synchronous version of the server.
 //! * `sign`: basic DNSSEC signing support. This will enable the
 #![cfg_attr(feature = "sign", doc = "  [sign]")]
 #![cfg_attr(not(feature = "sign"), doc = "  sign")]

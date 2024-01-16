@@ -70,9 +70,6 @@
 //! [`tokio::net::TcpStream`]: https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html
 //! [`tokio::net::UdpSocket`]: https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html
 
-#![cfg(feature = "serve")]
-#![cfg_attr(docsrs, doc(cfg(feature = "serve")))]
-
 use tokio::net::{TcpListener, UdpSocket};
 
 use crate::base::Message;

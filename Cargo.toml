@@ -49,8 +49,6 @@ heapless    = ["dep:heapless", "octseq/heapless"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
-serve       = ["bytes", "chrono/clock", "futures", "libc", "net", "std", "tokio", "unstable-server-transport"]
-serve-sync  = []
 sign        = ["std"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
 std         = ["bytes?/std", "octseq/std", "time/std"]
@@ -61,7 +59,7 @@ zonefile    = ["bytes", "std"]
 
 # Unstable features
 unstable-client-transport = []
-unstable-server-transport = []
+unstable-server-transport = ["chrono/clock", "futures", "libc"]
 
 [dev-dependencies]
 rustls       = { version = "0.21.9" }
@@ -101,4 +99,4 @@ required-features = ["net"]
 
 [[example]]
 name = "serve"
-required-features = ["serve", "tokio-tfo", "tokio-rustls", "rustls-pemfile"]
+required-features = ["net", "unstable-server-transport", "tokio-tfo", "tokio-rustls", "rustls-pemfile"]
