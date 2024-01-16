@@ -316,31 +316,34 @@ async fn main() {
     ));
     let udp_join_handle = tokio::spawn(srv.run());
 
-    // This UDP example sets IP_MTU_DISCOVER via setsockopt(), using the
-    // libc crate (as the nix crate doesn't support IP_MTU_DISCOVER at the
-    // time of writing). This example is inspired by
-    // https://mailarchive.ietf.org/arch/msg/dnsop/Zy3wbhHephubsy2uJesGeDst4F4/
-    let udpsocket = UdpSocket::bind("127.0.0.1:8054").await.unwrap();
-    let fd = <UdpSocket as std::os::fd::AsRawFd>::as_raw_fd(&udpsocket);
-    let result = unsafe {
-        libc::setsockopt(
-            fd,
-            libc::IPPROTO_UDP,
-            libc::IP_MTU_DISCOVER,
-            &libc::IP_PMTUDISC_OMIT as *const libc::c_int
-                as *const libc::c_void,
-            std::mem::size_of_val(&libc::IP_PMTUDISC_OMIT) as libc::socklen_t,
-        )
+    #[cfg(target_os = "linux")]
+    let udp_mtu_join_handle = {
+        // This UDP example sets IP_MTU_DISCOVER via setsockopt(), using the
+        // libc crate (as the nix crate doesn't support IP_MTU_DISCOVER at the
+        // time of writing). This example is inspired by
+        // https://mailarchive.ietf.org/arch/msg/dnsop/Zy3wbhHephubsy2uJesGeDst4F4/
+        let udpsocket = UdpSocket::bind("127.0.0.1:8054").await.unwrap();
+        let fd = <UdpSocket as std::os::fd::AsRawFd>::as_raw_fd(&udpsocket);
+        let result = unsafe {
+            libc::setsockopt(
+                fd,
+                libc::IPPROTO_UDP,
+                libc::IP_MTU_DISCOVER,
+                &libc::IP_PMTUDISC_OMIT as *const libc::c_int
+                    as *const libc::c_void,
+                std::mem::size_of_val(&libc::IP_PMTUDISC_OMIT) as libc::socklen_t,
+            )
+        };
+        if result == -1 {
+            eprintln!("setsockopt error when setting IP_MTU_DISCOVER: {}", std::io::Error::last_os_error());
+        }
+        let srv = Arc::new(DgramServer::new(
+            udpsocket,
+            buf_source.clone(),
+            svc.clone(),
+        ));
+        tokio::spawn(srv.run())
     };
-    // TODO: result will be 0 for success, -1 for error (with the error code
-    // available via Error::last_os_error().raw_os_error())
-    eprintln!("setsockopt result = {}", result);
-    let srv = Arc::new(DgramServer::new(
-        udpsocket,
-        buf_source.clone(),
-        svc.clone(),
-    ));
-    let udp_mtu_join_handle = tokio::spawn(srv.run());
 
     // Demonstrate manually binding to two separate IPv4 and IPv6 sockets and
     // then listening on both at once using a single server instance. (e.g.
@@ -458,6 +461,7 @@ async fn main() {
     // Keep the services running in the background
 
     udp_join_handle.await.unwrap().unwrap();
+    #[cfg(target_os = "linux")]
     udp_mtu_join_handle.await.unwrap().unwrap();
     tcp_join_handle.await.unwrap().unwrap();
     tfo_join_handle.await.unwrap().unwrap();
