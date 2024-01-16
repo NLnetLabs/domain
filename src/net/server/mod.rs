@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(feature = "unstable-server-transport"),
+    doc = " The `unstable-server-transport` feature is necessary to enable this module."
+)]
 //! Asynchronous DNS serving.
 //!
 //! TODO: Re-read https://datatracker.ietf.org/doc/html/rfc9210.

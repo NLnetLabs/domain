@@ -20,7 +20,7 @@ use domain::{
         Dname, Message, MessageBuilder, StreamTarget,
     },
     rdata::A,
-    serve::{
+    net::server::{
         buf::BufSource,
         dgram::DgramServer,
         service::{

@@ -136,6 +136,8 @@
 //!
 //! * `unstable-client-transport`: sending and receiving DNS messages from
 //!   a client perspective; primarily the `net::client` module.
+//! * `unstable-server-transport`: receiving and sending DNS messages from
+//!   a server perspective; primarily the `net::server` module.
 //!
 //! Note: Some functionality is currently informally marked as
 //! “experimental” since it was introduced before adoption of the concept
@@ -161,7 +163,6 @@ pub mod dep;
 pub mod net;
 pub mod rdata;
 pub mod resolv;
-pub mod serve;
 pub mod sign;
 pub mod test;
 pub mod tsig;

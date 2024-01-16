@@ -127,14 +127,14 @@ mod tests {
         /*iana::Rcode, octets::OctetsRef,*/ Message,
         /*MessageBuilder,*/ StreamTarget,
     };
-    use crate::serve::buf::BufSource;
-    use crate::serve::service::CallResult;
-    use crate::serve::service::Service;
-    use crate::serve::service::ServiceCommand;
-    use crate::serve::service::ServiceError;
-    use crate::serve::service::Transaction;
-    use crate::serve::sock::AsyncAccept;
-    use crate::serve::stream::StreamServer;
+    use crate::net::server::buf::BufSource;
+    use crate::net::server::service::CallResult;
+    use crate::net::server::service::Service;
+    use crate::net::server::service::ServiceCommand;
+    use crate::net::server::service::ServiceError;
+    use crate::net::server::service::Transaction;
+    use crate::net::server::sock::AsyncAccept;
+    use crate::net::server::stream::StreamServer;
 
     /*fn service<RequestOctets: AsRef<[u8]> + Send + Sync + 'static>(
         count: Arc<AtomicU8>,

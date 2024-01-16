@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(feature = "unstable-client-transport"),
+    doc = " The `unstable-client-transport` feature is necessary to enable this module."
+)]
 //! Sending requests and receiving responses.
 //!
 //! This module provides DNS transport protocols that allow sending a DNS

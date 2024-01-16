@@ -49,7 +49,7 @@ heapless    = ["dep:heapless", "octseq/heapless"]
 resolv      = ["net", "smallvec", "unstable-client-transport"]
 resolv-sync = ["resolv", "tokio/rt"]
 serde       = ["dep:serde", "octseq/serde"]
-serve       = ["bytes", "chrono/clock", "futures", "libc", "std", "tokio"]
+serve       = ["bytes", "chrono/clock", "futures", "libc", "std", "tokio", "unstable-server-transport"]
 serve-sync  = []
 sign        = ["std"]
 smallvec    = ["dep:smallvec", "octseq/smallvec"]
@@ -61,6 +61,7 @@ zonefile    = ["bytes", "std"]
 
 # Unstable features
 unstable-client-transport = []
+unstable-server-transport = []
 
 [dev-dependencies]
 rustls       = { version = "0.21.9" }
