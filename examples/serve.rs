@@ -89,7 +89,9 @@ impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
 
     type ResponseOctets = Vec<u8>;
 
-    type Single = std::future::Ready<Result<CallResult<Vec<u8>>, ServiceError<Self::Error>>>;
+    type Single = std::future::Ready<
+        Result<CallResult<Vec<u8>>, ServiceError<Self::Error>>,
+    >;
 
     type Stream = NoStream;
 
@@ -107,9 +109,9 @@ impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
         target
             .append_slice(&mk_answer(&message).into_octets())
             .unwrap();
-        Ok(Transaction::Single(std::future::ready(Ok(CallResult::new(
-            target,
-        )))))
+        Ok(Transaction::Single(std::future::ready(Ok(
+            CallResult::new(target),
+        ))))
     }
 }
 
