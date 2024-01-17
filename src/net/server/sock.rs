@@ -41,7 +41,7 @@ impl AsyncDgramSock for UdpSocket {
         cx: &mut Context,
         data: &[u8],
         dest: &Self::Addr,
-    ) -> Poll<Result<usize, io::Error>> {
+    ) -> Poll<io::Result<usize>> {
         UdpSocket::poll_send_to(self, cx, data, *dest)
     }
 
@@ -49,7 +49,7 @@ impl AsyncDgramSock for UdpSocket {
         &self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<Result<Self::Addr, io::Error>> {
+    ) -> Poll<io::Result<Self::Addr>> {
         UdpSocket::poll_recv_from(self, cx, buf)
     }
 
@@ -57,7 +57,7 @@ impl AsyncDgramSock for UdpSocket {
         &self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<Result<Self::Addr, io::Error>> {
+    ) -> Poll<io::Result<Self::Addr>> {
         UdpSocket::poll_peek_from(self, cx, buf)
     }
 }
@@ -74,7 +74,7 @@ pub trait AsyncAccept {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>>;
+    ) -> Poll<io::Result<(Self::Stream, Self::Addr)>>;
 }
 
 impl AsyncAccept for TcpListener {
@@ -87,7 +87,7 @@ impl AsyncAccept for TcpListener {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+    ) -> Poll<io::Result<(Self::Stream, Self::Addr)>> {
         TcpListener::poll_accept(self, cx).map(|res| {
             res.map(|(stream, addr)| {
                 (futures::future::ready(Ok(stream)), addr)
