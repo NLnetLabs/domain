@@ -298,6 +298,14 @@ fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>, Message<Vec<u8>>> {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    eprintln!("Test with commands such as:");
+    eprintln!("  dig +short -4 @127.0.0.1 -p 8053 A google.com");
+    eprintln!("  dig +short -4 @127.0.0.1 -p 8054 A google.com");
+    eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8080 A google.com");
+    eprintln!("  dig +short -6 @::1 +tcp -p 8080 A google.com");
+    eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8081 A google.com");
+    eprintln!("  dig +short -4 @127.0.0.1 +tls -p 8443 A google.com");
+
     let svc = Arc::new(MyService);
 
     // Run a DNS server on UDP port 8053 on 127.0.0.1. Test it like so:
