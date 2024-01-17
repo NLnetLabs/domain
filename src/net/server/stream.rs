@@ -4,7 +4,7 @@ use super::service::{CallResult, MsgProvider, Service, Transaction};
 
 use core::marker::PhantomData;
 use std::{boxed::Box, io, sync::Mutex, time::Duration};
-use std::{future::poll_fn, sync::atomic::Ordering};
+use std::{future::poll_fn, string::String, sync::atomic::Ordering};
 
 use std::sync::Arc;
 
@@ -87,23 +87,54 @@ where
     }
 
     pub async fn run(self: Arc<Self>) {
+        if let Err(err) = self.run_until_error().await {
+            eprintln!("DgramServer: {err}");
+        }
+    }
+
+    async fn run_until_error(&self) -> Result<(), String> {
         let mut command_rx = self.command_rx.clone();
 
         loop {
-            // TODO: Factor the next 5 lines out to a helper fn.
-            let command_fut = command_rx.changed();
-            let accept_fut = self.accept();
+            tokio::select! {
+                biased;
 
-            pin_mut!(command_fut);
-            pin_mut!(accept_fut);
+                command_res = command_rx.changed() => {
+                    command_res.map_err(|err| format!("Error while receiving command: {err}"))?;
 
-            match (
-                select(accept_fut, command_fut).await,
-                self.command_rx.clone(),
-            )
-                .into()
-            {
-                StreamServerEvent::Accept(stream, _addr) => {
+                    let cmd = *command_rx.borrow_and_update();
+
+                    match cmd {
+                        ServiceCommand::Reconfigure { .. } => { /* TODO */ }
+
+                        ServiceCommand::Shutdown => break,
+
+                        ServiceCommand::Init => {
+                            // The initial "Init" value in the watch channel is never
+                            // actually seen because the select Into impl only calls
+                            // watch::Receiver::borrow_and_update() AFTER changed()
+                            // signals that a new value has been placed in the watch
+                            // channel. So the only way to end up here would be if
+                            // we somehow wrongly placed another ServiceCommand::Init
+                            // value into the watch channel after the initial one.
+                            unreachable!()
+                        }
+
+                        ServiceCommand::CloseConnection => {
+                            // Individual connections can be closed. The server
+                            // itself should never receive a CloseConnection
+                            // command.
+                            unreachable!()
+                        }
+                    }
+                }
+
+                accept_res = self.accept() => {
+                    let (stream, _addr) = accept_res
+                        .map_err(|err|
+                            format!("Error while accepting connection: {err}")
+                        )?;
+
                     let conn_command_rx = self.command_rx.clone();
                     let conn_service = self.service.clone();
                     let conn_buf = self.buf.clone();
@@ -124,50 +155,13 @@ where
                             conn.run(conn_command_rx).await
                         }
                     };
+
                     tokio::spawn(conn_fut);
-                }
-
-                StreamServerEvent::AcceptError(err) => {
-                    eprintln!(
-                        "Error while accepting stream connections: {err}"
-                    );
-                    todo!()
-                }
-
-                StreamServerEvent::Command(ServiceCommand::Init) => {
-                    // The initial "Init" value in the watch channel is never
-                    // actually seen because the select Into impl only calls
-                    // watch::Receiver::borrow_and_update() AFTER changed()
-                    // signals that a new value has been placed in the watch
-                    // channel. So the only way to end up here would be if
-                    // we somehow wrongly placed another ServiceCommand::Init
-                    // value into the watch channel after the initial one.
-                    unreachable!()
-                }
-
-                StreamServerEvent::Command(ServiceCommand::Reconfigure {
-                    ..
-                }) => { /* TO DO */ }
-
-                StreamServerEvent::Command(
-                    ServiceCommand::CloseConnection,
-                ) => {
-                    // Individual connections can be closed. The server
-                    // itself should never receive a CloseConnection
-                    // command.
-                    unreachable!()
-                }
-
-                StreamServerEvent::Command(ServiceCommand::Shutdown) => {
-                    break;
-                }
-
-                StreamServerEvent::CommandError(err) => {
-                    eprintln!("Error while processing command: {err}");
-                    todo!();
                 }
             }
         }
+
+        Ok(())
     }
 
     async fn accept(
@@ -680,15 +674,6 @@ where
     }
 }
 
-//------------ StreamServerEvent ---------------------------------------------
-
-pub enum StreamServerEvent<Stream, Addr, AcceptErr, CommandErr> {
-    Accept(Stream, Addr),
-    AcceptError(AcceptErr),
-    Command(ServiceCommand),
-    CommandError(CommandErr),
-}
-
 //------------ ConnectionEvent -----------------------------------------------
 
 enum ConnectionEvent<T> {
@@ -815,46 +800,6 @@ where
         // session to be idle when it has sent responses to all the queries it
         // has received on that connection."
         self.reset_idle_timer()
-    }
-}
-
-//------------ From ... for StreamServerEvent --------------------------------
-
-// Used by StreamServer::run() via select(..).await.into() to make the match
-// arms more readable.
-impl<Stream, Addr, AcceptErr, W, CommandErr, Y>
-    From<(
-        Either<
-            (Result<(Stream, Addr), AcceptErr>, W),
-            (Result<(), CommandErr>, Y),
-        >,
-        watch::Receiver<ServiceCommand>,
-    )> for StreamServerEvent<Stream, Addr, AcceptErr, CommandErr>
-{
-    fn from(
-        (value, mut command_rx): (
-            Either<
-                (Result<(Stream, Addr), AcceptErr>, W),
-                (Result<(), CommandErr>, Y),
-            >,
-            watch::Receiver<ServiceCommand>,
-        ),
-    ) -> Self {
-        match value {
-            Either::Left((Ok((stream, addr)), _)) => {
-                StreamServerEvent::Accept(stream, addr)
-            }
-            Either::Left((Err(err), _)) => {
-                StreamServerEvent::AcceptError(err)
-            }
-            Either::Right((Ok(()), _)) => {
-                let cmd = *command_rx.borrow_and_update();
-                StreamServerEvent::Command(cmd)
-            }
-            Either::Right((Err(err), _)) => {
-                StreamServerEvent::CommandError(err)
-            }
-        }
     }
 }
 
