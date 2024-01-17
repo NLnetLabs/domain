@@ -332,7 +332,7 @@ where
         // the read is complete or results in an error.
         'read: loop {
             let stream_read_fut = timeout(
-                state.timeout_at_std(),
+                state.timeout_as_std(),
                 stream_rx.read_exact(buf.as_mut()),
             );
             let mut stream_read_fut = Box::pin(stream_read_fut);
@@ -777,7 +777,7 @@ where
             .unwrap_or(chrono::Duration::zero())
     }
 
-    pub fn timeout_at_std(&self) -> Duration {
+    pub fn timeout_as_std(&self) -> Duration {
         self.timeout_at().to_std().unwrap_or_default()
     }
 
