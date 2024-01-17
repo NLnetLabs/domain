@@ -3,26 +3,21 @@ use super::metrics::ServerMetrics;
 use super::service::{CallResult, MsgProvider, Service, Transaction};
 
 use core::marker::PhantomData;
-use std::{boxed::Box, io, sync::Mutex, time::Duration};
 use std::{future::poll_fn, string::String, sync::atomic::Ordering};
+use std::{io, sync::Mutex, time::Duration};
 
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use futures::pin_mut;
 use futures::StreamExt;
-use futures::{
-    future::{select, Either},
-    pin_mut,
-};
 
-use tokio::sync::watch::error::RecvError;
 use tokio::{
     io::{
         AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf,
         WriteHalf,
     },
     sync::{mpsc, watch},
-    time::timeout,
 };
 
 use super::{
@@ -100,7 +95,8 @@ where
                 biased;
 
                 command_res = command_rx.changed() => {
-                    command_res.map_err(|err| format!("Error while receiving command: {err}"))?;
+                    command_res.map_err(|err|
+                        format!("Error while receiving command: {err}"))?;
 
                     let cmd = *command_rx.borrow_and_update();
 
@@ -110,20 +106,22 @@ where
                         ServiceCommand::Shutdown => break,
 
                         ServiceCommand::Init => {
-                            // The initial "Init" value in the watch channel is never
-                            // actually seen because the select Into impl only calls
-                            // watch::Receiver::borrow_and_update() AFTER changed()
-                            // signals that a new value has been placed in the watch
-                            // channel. So the only way to end up here would be if
-                            // we somehow wrongly placed another ServiceCommand::Init
-                            // value into the watch channel after the initial one.
+                            // The initial "Init" value in the watch channel
+                            // is never actually seen because the select Into
+                            // impl only calls
+                            // watch::Receiver::borrow_and_update() AFTER
+                            // changed() signals that a new value has been
+                            // placed in the watch channel. So the only way to
+                            // end up here would be if we somehow wrongly
+                            // placed another ServiceCommand::Init value into
+                            // the watch channel after the initial one.
                             unreachable!()
                         }
 
                         ServiceCommand::CloseConnection => {
-                            // Individual connections can be closed. The server
-                            // itself should never receive a CloseConnection
-                            // command.
+                            // Individual connections can be closed. The
+                            // server itself should never receive a
+                            // CloseConnection command.
                             unreachable!()
                         }
                     }
@@ -335,196 +333,144 @@ where
         // we must keep using the same future until it finally resolves when
         // the read is complete or results in an error.
         'read: loop {
-            let stream_read_fut = timeout(
-                state.timeout_as_std(),
-                stream_rx.read_exact(buf.as_mut()),
-            );
-            let mut stream_read_fut = Box::pin(stream_read_fut);
+            let timeout_fut = tokio::time::sleep(state.timeout_as_std());
+            tokio::pin!(timeout_fut);
 
             'while_not_read: loop {
-                // This outer block ensures the mutable reference on command_rx is
-                // dropped so that we can take another one below in order to call
-                // command_rx.borrow_and_update().
-                {
-                    let command_read_fut = command_rx.changed();
-                    let result_read_fut = result_q_rx.recv();
-                    pin_mut!(command_read_fut);
-                    pin_mut!(result_read_fut);
+                tokio::select! {
+                    biased;
 
-                    let action_read_fut =
-                        select(command_read_fut, result_read_fut);
+                    command_res = command_rx.changed() => {
+                        // If there was a problem receiving commands from the
+                        // parent server this could occur if the command
+                        // sender is dropped, i.e. the parent server no longer
+                        // exists but was not cleanly shutdown. We disconnect
+                        // and cleanup if such a problem occurs.
+                        command_res.map_err(|_err| ConnectionEvent::DisconnectWithFlush)?;
 
-                    match select(action_read_fut, stream_read_fut).await {
-                        Either::Left((
-                            action,
-                            incomplete_stream_read_fut,
-                        )) => {
-                            let action_res = self.process_action(action)?;
-                            stream_read_fut = incomplete_stream_read_fut;
+                        let cmd = *command_rx.borrow_and_update();
 
-                            match action_res {
-                                ProcessActionResult::CommandReceived => {
-                                    // handle below to work around double use of &mut ref
+                        match cmd {
+                            ServiceCommand::Reconfigure { idle_timeout } => {
+                                // Support RFC 7828 "The edns-tcp-keepalive
+                                // EDNS0 Option". This cannot be done by the
+                                // caller as it requires knowing (a) when the
+                                // last message was received and (b) when all
+                                // pending messages have been sent, neither of
+                                // which is known to the caller. However we
+                                // also don't want to parse and understand DNS
+                                // messages in this layer, it is left to the
+                                // caller to process received messages and
+                                // construct appropriate responses. If the
+                                // caller detects an EDNS0 edns-tcp-keepalive
+                                // option it can use this reconfigure
+                                // mechanism to signal to us that we should
+                                // adjust the point at which we will consider
+                                // the connectin to be idle and thus
+                                // potentially worthy of timing out.
+                                eprintln!("Server connection timeout reconfigured to {idle_timeout:?}");
+                                if let Ok(timeout) =
+                                    chrono::Duration::from_std(idle_timeout)
+                                {
+                                    state.idle_timeout = timeout;
                                 }
-                                ProcessActionResult::CallResultReceived(
-                                    call_result,
-                                ) => {
-                                    self.handle_queued_result(
-                                        state,
-                                        call_result,
-                                    )
-                                    .await;
-                                    continue 'while_not_read;
+                            }
+
+                            ServiceCommand::Shutdown => {
+                                return Err(ConnectionEvent::DisconnectWithFlush);
+                            }
+
+                            ServiceCommand::Init => {
+                                // The initial "Init" value in the watch
+                                // channel is never actually seen because the
+                                // select Into impl only calls
+                                // watch::Receiver::borrow_and_update() AFTER
+                                // changed() signals that a new value has been
+                                // placed in the watch channel. So the only
+                                // way to end up here would be if we somehow
+                                // wrongly placed another ServiceCommand::Init
+                                // value into the watch channel after the
+                                // initial one.
+                                unreachable!()
+                            }
+
+                            ServiceCommand::CloseConnection => {
+                                // TODO: Why do we not handle this?
+                                unreachable!()
+                            }
+                        }
+                    }
+
+                    result_q_res = result_q_rx.recv() => {
+                        // If we failed to read the results of requests
+                        // processed by the service because the queue holding
+                        // those results is empty and can no longer be read
+                        // from, then there is no point continuing to read
+                        // from the input stream because we will not be able
+                        // to access the result of processing the request.
+                        // TODO: Describe when this can occur.
+                        let call_result = result_q_res.ok_or(ConnectionEvent::DisconnectWithFlush)?;
+
+                        self.handle_queued_result(
+                            state,
+                            call_result,
+                        )
+                        .await;
+
+                        continue 'while_not_read;
+                    }
+
+                    stream_read_res = stream_rx.read_exact(buf.as_mut()) => {
+                        match stream_read_res {
+                            // The stream read succeeded. Return to the caller
+                            // so that it can process the bytes written to the
+                            // buffer.
+                            Ok(_size) => {
+                                return Ok(ConnectionEvent::ReadSucceeded);
+                            }
+
+                            Err(err) => {
+                                match err.kind() {
+                                    io::ErrorKind::UnexpectedEof => {
+                                        // The client disconnected. Per RFC
+                                        // 7766 6.2.4 pending responses MUST
+                                        // NOT be sent to the client.
+                                        return Err(
+                                            ConnectionEvent::DisconnectWithoutFlush,
+                                        );
+                                    }
+                                    io::ErrorKind::TimedOut
+                                    | io::ErrorKind::Interrupted => {
+                                        // These errors might be recoverable,
+                                        // try again
+                                        eprintln!(
+                                            "Warn: Stream read failed: {err}"
+                                        );
+                                        continue 'read;
+                                    }
+                                    _ => {
+                                        // Everything else is either
+                                        // unrecoverable or unknown to us at
+                                        // the time of writing and so we can't
+                                        // guess how to handle it, so abort.
+                                        eprintln!(
+                                            "Error: Stream read failed: {err}"
+                                        );
+                                        return Err(
+                                            ConnectionEvent::DisconnectWithoutFlush,
+                                        );
+                                    }
                                 }
                             }
                         }
-
-                        // The stream read succeeded. Return to the caller so that it
-                        // can process the bytes written to the buffer.
-                        Either::Right((Ok(Ok(_size)), _)) => {
-                            return Ok(ConnectionEvent::ReadSucceeded);
-                        }
-
-                        // The stream read failed. What kind of failure was it? Was it
-                        // transient or permanent? For now assume that the stream can
-                        // no longer be read from.
-                        // TODO: Determine the various kinds of possible failure and
-                        // handle them as appropriate.
-                        Either::Right((Ok(Err(err)), _)) => {
-                            match err.kind() {
-                                io::ErrorKind::UnexpectedEof => {
-                                    // The client disconnected. Per RFC 7766
-                                    // 6.2.4 pending responses MUST NOT be
-                                    // sent to the client.
-                                    return Err(
-                                        ConnectionEvent::DisconnectWithoutFlush,
-                                    );
-                                }
-                                io::ErrorKind::TimedOut
-                                | io::ErrorKind::Interrupted => {
-                                    // These errors might be recoverable, try again
-                                    eprintln!(
-                                        "Warn: Stream read failed: {err}"
-                                    );
-                                    continue 'read;
-                                }
-                                _ => {
-                                    // Everything else is either unrecoverable or
-                                    // unknown to us at the time of writing and so
-                                    // we can't guess how to handle it, so abort.
-                                    eprintln!(
-                                        "Error: Stream read failed: {err}"
-                                    );
-                                    return Err(
-                                        ConnectionEvent::DisconnectWithoutFlush,
-                                    );
-                                }
-                            }
-                        }
-
-                        // The stream read timed out.
-                        // TODO: Determine what to do here.
-                        // TODO: Per RFC 7766 6.1 "If the server needs to
-                        // close a dormant connection to reclaim resources,
-                        // it should wait until the connection has been idle
-                        // for a period on the order of two minutes.  In
-                        // particular, the server should allow the SOA and
-                        // AXFR request sequence (which begins a refresh
-                        // operation) to be made on a single connection."
-                        // TODO: So should an idle determination actually be
-                        // made in the service which as that is the layer at
-                        // which we interpret DNS messages, rather than here
-                        // where DNS message are just opaque byte sequences?
-                        Either::Right((Err(_elapsed), _)) => {
-                            eprintln!("Stream read timed out");
-                            return Err(ConnectionEvent::DisconnectWithFlush);
-                        }
                     }
-                }
 
-                // Process any command received from the parent server.
-                let command = *command_rx.borrow_and_update();
-                match command {
-                    ServiceCommand::CloseConnection => {
-                        unreachable!()
-                    }
-                    ServiceCommand::Init => {
-                        unreachable!()
-                    }
-                    ServiceCommand::Reconfigure { idle_timeout } => {
-                        // Support RFC 7828 "The edns-tcp-keepalive EDNS0
-                        // Option". This cannot be done by the caller as it
-                        // requires knowing (a) when the last message was
-                        // received and (b) when all pending messages have
-                        // been sent, neither of which is known to the caller.
-                        // However we also don't want to parse and understand
-                        // DNS messages in this layer, it is left to the
-                        // caller to process received messages and construct
-                        // appropriate responses. If the caller detects an
-                        // EDNS0 edns-tcp-keepalive option it can use this
-                        // reconfigure mechanism to signal to us that we
-                        // should adjust the point at which we will consider
-                        // the connectin to be idle and thus potentially
-                        // worthy of timing out.
-                        eprintln!("Server connection timeout reconfigured to {idle_timeout:?}");
-                        if let Ok(timeout) =
-                            chrono::Duration::from_std(idle_timeout)
-                        {
-                            state.idle_timeout = timeout;
-                        }
-                    }
-                    ServiceCommand::Shutdown => {
+                    _ = &mut timeout_fut => {
+                        eprintln!("Stream read timed out");
                         return Err(ConnectionEvent::DisconnectWithFlush);
                     }
                 }
             }
-        }
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn process_action<T, U, V>(
-        &self,
-        action: Either<
-            (CommandNotification, U),
-            (Option<CallResult<Svc::ResponseOctets>>, V),
-        >,
-    ) -> Result<
-        ProcessActionResult<CallResult<Svc::ResponseOctets>>,
-        ConnectionEvent<T>,
-    > {
-        match action {
-            // The parent server sent us a command.
-            Either::Left((
-                Ok(_command_changed),
-                _incomplete_call_result_fut,
-            )) => Ok(ProcessActionResult::CommandReceived),
-
-            // There was a problem receiving commands from the parent server.
-            // This can happen if the command sender is dropped, i.e. the
-            // parent server no longer exists but was not cleanly shutdown.
-            Either::Left((Err(_err), _incomplete_call_result_fut)) => {
-                Err(ConnectionEvent::DisconnectWithFlush)
-            }
-
-            // It is no longer possible to read the results of requests
-            // processed by the service because the queue holding those
-            // results is empty and can no longer be read from. There is
-            // no point continuing to read from the input stream because
-            // we will not be able to access the result of processing the
-            // request.
-            // TODO: Describe when this can occur.
-            Either::Right((None, _incomplete_command_changed_fut)) => {
-                Err(ConnectionEvent::DisconnectWithFlush)
-            }
-
-            // The service finished processing a request so apply the
-            // call result to ourselves and/or the output stream. Then go
-            // back to waiting for the stream read to complete or another
-            // request to finish being processed.
-            Either::Right((
-                Some(call_result),
-                _incomplete_command_changed_fut,
-            )) => Ok(ProcessActionResult::CallResultReceived(call_result)),
         }
     }
 
@@ -802,14 +748,3 @@ where
         self.reset_idle_timer()
     }
 }
-
-//------------ ProcessActionResult -------------------------------------------
-
-enum ProcessActionResult<T> {
-    CommandReceived,
-    CallResultReceived(T),
-}
-
-//------------ CommandNotification -------------------------------------------
-
-type CommandNotification = Result<(), RecvError>;
