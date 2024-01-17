@@ -100,6 +100,9 @@ impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
         Transaction<Self::Single, Self::Stream>,
         ServiceError<Self::Error>,
     > {
+        // Note: This fn will block the server until it returns. As the code
+        // below works out the answer to the request immediately this will
+        // block the server until the answer has been constructed.
         let mut target = StreamTarget::new_vec();
         target
             .append_slice(&mk_answer(&message).into_octets())
@@ -271,6 +274,9 @@ fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>, Message<Vec<u8>>> {
             })
             .unwrap();
 
+        // This fn blocks the server until it returns. By returning a future
+        // that handles the request we allow the server to execute the future
+        // in the background without blocking the server.
         Transaction::Single(async move {
             eprintln!("Sleeping for 100ms");
             tokio::time::sleep(Duration::from_millis(100)).await;
