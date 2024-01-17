@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use std::{future::poll_fn, sync::atomic::Ordering};
+use std::{future::poll_fn, string::String, sync::atomic::Ordering};
 
 use std::{
     io,
@@ -16,8 +16,7 @@ use super::{
     sock::AsyncDgramSock,
 };
 
-use futures::future::Either;
-use futures::{future::select, pin_mut, StreamExt};
+use futures::{pin_mut, StreamExt};
 use tokio::{io::ReadBuf, sync::watch};
 
 //------------ DgramServer ---------------------------------------------------
@@ -42,7 +41,7 @@ where
     pub fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
-        let metrics = Arc::new(ServerMetrics::new());
+        let metrics = Arc::new(ServerMetrics::connection_less());
 
         DgramServer {
             command_tx,
@@ -65,62 +64,63 @@ where
     }
 
     pub async fn run(self: Arc<Self>) {
+        if let Err(err) = self.run_until_error().await {
+            eprintln!("DgramServer: {err}");
+        }
+    }
+
+    async fn run_until_error(&self) -> Result<(), String> {
         let mut command_rx = self.command_rx.clone();
 
         loop {
-            let command_fut = command_rx.changed();
-            let recv_fut = self.recv_from(); // TODO: time out this read
+            tokio::select! {
+                biased;
 
-            pin_mut!(command_fut);
-            pin_mut!(recv_fut);
+                command_res = command_rx.changed() => {
+                    command_res.map_err(|err| format!("Error while receiving command: {err}"))?;
 
-            match (
-                select(recv_fut, command_fut).await,
-                self.command_rx.clone(), // this is crazy
-            )
-                .into()
-            {
-                DgramServerEvent::Recv(msg, addr) => {
-                    if let Err(_err) =
-                        self.as_ref().process_message(msg, addr)
-                    {
-                        eprintln!("DgramServer process message error");
+                    let cmd = *command_rx.borrow_and_update();
+
+                    match cmd {
+                        ServiceCommand::Reconfigure { .. } => { /* TODO */ }
+
+                        ServiceCommand::Shutdown => break,
+
+                        ServiceCommand::Init => {
+                            // The initial "Init" value in the watch channel is never
+                            // actually seen because the select Into impl only calls
+                            // watch::Receiver::borrow_and_update() AFTER changed()
+                            // signals that a new value has been placed in the watch
+                            // channel. So the only way to end up here would be if
+                            // we somehow wrongly placed another ServiceCommand::Init
+                            // value into the watch channel after the initial one.
+                            unreachable!()
+                        }
+
+                        ServiceCommand::CloseConnection => {
+                            // A datagram server does not have connections so handling
+                            // the close of a connection which can never happen has no
+                            // meaning as it cannot occur.
+                            unreachable!()
+                        }
                     }
                 }
-                DgramServerEvent::RecvError(err) => {
-                    eprintln!("DgramServer receive message error: {err}");
-                    todo!();
-                }
-                DgramServerEvent::Command(ServiceCommand::Init) => {
-                    // The initial "Init" value in the watch channel is never
-                    // actually seen because the select Into impl only calls
-                    // watch::Receiver::borrow_and_update() AFTER changed()
-                    // signals that a new value has been placed in the watch
-                    // channel. So the only way to end up here would be if
-                    // we somehow wrongly placed another ServiceCommand::Init
-                    // value into the watch channel after the initial one.
-                    unreachable!()
-                }
-                DgramServerEvent::Command(ServiceCommand::Reconfigure {
-                    ..
-                }) => { /* TODO */ }
-                DgramServerEvent::Command(
-                    ServiceCommand::CloseConnection,
-                ) => {
-                    // A datagram server does not have connections so handling
-                    // the close of a connection which can never happen has no
-                    // meaning as it cannot occur.
-                    unreachable!()
-                }
-                DgramServerEvent::Command(ServiceCommand::Shutdown) => {
-                    break;
-                }
-                DgramServerEvent::CommandError(err) => {
-                    eprintln!("DgramServer receive command error: {err}");
-                    todo!();
+
+                recv_res = self.recv_from() => {
+                    let (msg, addr) = recv_res
+                        .map_err(|err|
+                            format!("Error while receiving message: {err}")
+                        )?;
+
+                    self.process_message(msg, addr)
+                        .map_err(|err|
+                            format!("Error while processing message: {err}")
+                        )?;
                 }
             }
         }
+
+        Ok(())
     }
 
     fn process_message(
@@ -204,53 +204,6 @@ where
             Err(io::Error::new(io::ErrorKind::Other, "short send"))
         } else {
             Ok(())
-        }
-    }
-}
-
-//------------ DgramServerEvent ----------------------------------------------
-
-pub enum DgramServerEvent<Msg, Addr, RecvErr, CommandErr> {
-    Recv(Msg, Addr),
-    RecvError(RecvErr),
-    Command(ServiceCommand),
-    CommandError(CommandErr),
-}
-
-//------------ From ... for DgramServerEvent ---------------------------------
-
-// Used by DgramServer::run() via select(..).await.into() to make the match
-// arms more readable.
-impl<Msg, Addr, RecvErr, W, CommandErr, Y>
-    From<(
-        Either<
-            (Result<(Msg, Addr), RecvErr>, W),
-            (Result<(), CommandErr>, Y),
-        >,
-        watch::Receiver<ServiceCommand>,
-    )> for DgramServerEvent<Msg, Addr, RecvErr, CommandErr>
-{
-    fn from(
-        (value, mut command_rx): (
-            Either<
-                (Result<(Msg, Addr), RecvErr>, W),
-                (Result<(), CommandErr>, Y),
-            >,
-            watch::Receiver<ServiceCommand>,
-        ),
-    ) -> Self {
-        match value {
-            Either::Left((Ok((msg, addr)), _)) => {
-                DgramServerEvent::Recv(msg, addr)
-            }
-            Either::Left((Err(err), _)) => DgramServerEvent::RecvError(err),
-            Either::Right((Ok(()), _)) => {
-                let cmd = *command_rx.borrow_and_update();
-                DgramServerEvent::Command(cmd)
-            }
-            Either::Right((Err(err), _)) => {
-                DgramServerEvent::CommandError(err)
-            }
         }
     }
 }
