@@ -4,10 +4,7 @@ use super::service::{CallResult, MsgProvider, Service, Transaction};
 
 use core::marker::PhantomData;
 use std::{boxed::Box, io, sync::Mutex, time::Duration};
-use std::{
-    future::poll_fn,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::{future::poll_fn, sync::atomic::Ordering};
 
 use std::sync::Arc;
 
@@ -59,9 +56,7 @@ where
 
         let listener = Arc::new(listener);
 
-        let mut metrics = ServerMetrics::new();
-        metrics.num_connections.replace(AtomicUsize::new(0));
-        let metrics = Arc::new(metrics);
+        let metrics = Arc::new(ServerMetrics::connection_oriented());
 
         StreamServer {
             command_tx,

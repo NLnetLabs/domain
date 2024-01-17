@@ -11,9 +11,17 @@ pub struct ServerMetrics {
 }
 
 impl ServerMetrics {
-    pub fn new() -> Self {
+    pub fn connection_less() -> Self {
         Self {
             num_connections: None,
+            num_inflight_requests: AtomicUsize::new(0),
+            num_pending_writes: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn connection_oriented() -> Self {
+        Self {
+            num_connections: Some(AtomicUsize::new(0)),
             num_inflight_requests: AtomicUsize::new(0),
             num_pending_writes: AtomicUsize::new(0),
         }
@@ -31,11 +39,5 @@ impl ServerMetrics {
 
     pub fn num_pending_writes(&self) -> usize {
         self.num_pending_writes.load(Ordering::Relaxed)
-    }
-}
-
-impl Default for ServerMetrics {
-    fn default() -> Self {
-        Self::new()
     }
 }
