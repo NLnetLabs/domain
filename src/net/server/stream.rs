@@ -135,6 +135,13 @@ where
                 }
 
                 StreamServerEvent::Command(ServiceCommand::Init) => {
+                    // The initial "Init" value in the watch channel is never
+                    // actually seen because the select Into impl only calls
+                    // watch::Receiver::borrow_and_update() AFTER changed()
+                    // signals that a new value has been placed in the watch
+                    // channel. So the only way to end up here would be if
+                    // we somehow wrongly placed another ServiceCommand::Init
+                    // value into the watch channel after the initial one.
                     unreachable!()
                 }
 
@@ -143,8 +150,13 @@ where
                 }) => { /* TO DO */ }
 
                 StreamServerEvent::Command(
-                    ServiceCommand::CloseConnection { .. },
-                ) => unreachable!(),
+                    ServiceCommand::CloseConnection,
+                ) => {
+                    // Individual connections can be closed. The server
+                    // itself should never receive a CloseConnection
+                    // command.
+                    unreachable!()
+                }
 
                 StreamServerEvent::Command(ServiceCommand::Shutdown) => {
                     break;
@@ -258,7 +270,10 @@ where
                             .await;
                         break;
                     }
-                    ConnectionEvent::ReadSucceeded => unreachable!(),
+                    ConnectionEvent::ReadSucceeded => {
+                        // A success is not an error, this shouldn't happen.
+                        unreachable!()
+                    }
                     ConnectionEvent::ServiceError(err) => {
                         eprintln!("Service error: {}", err);
                     }
