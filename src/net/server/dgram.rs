@@ -92,6 +92,13 @@ where
                     todo!();
                 }
                 DgramServerEvent::Command(ServiceCommand::Init) => {
+                    // The initial "Init" value in the watch channel is never
+                    // actually seen because the select Into impl only calls
+                    // watch::Receiver::borrow_and_update() AFTER changed()
+                    // signals that a new value has been placed in the watch
+                    // channel. So the only way to end up here would be if
+                    // we somehow wrongly placed another ServiceCommand::Init
+                    // value into the watch channel after the initial one.
                     unreachable!()
                 }
                 DgramServerEvent::Command(ServiceCommand::Reconfigure {
@@ -100,6 +107,9 @@ where
                 DgramServerEvent::Command(
                     ServiceCommand::CloseConnection,
                 ) => {
+                    // A datagram server does not have connections so handling
+                    // the close of a connection which can never happen has no
+                    // meaning as it cannot occur.
                     unreachable!()
                 }
                 DgramServerEvent::Command(ServiceCommand::Shutdown) => {
