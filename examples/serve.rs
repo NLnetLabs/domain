@@ -69,19 +69,6 @@ impl BufSource for VecBufSource {
     }
 }
 
-struct VecSingle(Option<CallResult<Vec<u8>>>);
-
-impl Future for VecSingle {
-    type Output = Result<CallResult<Vec<u8>>, ServiceError<()>>;
-
-    fn poll(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Self::Output> {
-        Poll::Ready(Ok(self.0.take().unwrap()))
-    }
-}
-
 struct NoStream;
 
 impl Stream for NoStream {
@@ -102,7 +89,7 @@ impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
 
     type ResponseOctets = Vec<u8>;
 
-    type Single = VecSingle;
+    type Single = std::future::Ready<Result<CallResult<Vec<u8>>, ServiceError<Self::Error>>>;
 
     type Stream = NoStream;
 
@@ -117,7 +104,7 @@ impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
         target
             .append_slice(&mk_answer(&message).into_octets())
             .unwrap();
-        Ok(Transaction::Single(VecSingle(Some(CallResult::new(
+        Ok(Transaction::Single(std::future::ready(Ok(CallResult::new(
             target,
         )))))
     }
