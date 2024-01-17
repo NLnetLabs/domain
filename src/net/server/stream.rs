@@ -91,7 +91,7 @@ where
             .send(ServiceCommand::Shutdown)
     }
 
-    pub async fn run(self: Arc<Self>) -> Result<(), io::Error> {
+    pub async fn run(self: Arc<Self>) {
         let mut command_rx = self.command_rx.clone();
 
         loop {
@@ -152,7 +152,7 @@ where
                 ) => unreachable!(),
 
                 StreamServerEvent::Command(ServiceCommand::Shutdown) => {
-                    return Ok(());
+                    break;
                 }
 
                 StreamServerEvent::CommandError(err) => {

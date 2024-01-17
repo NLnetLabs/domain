@@ -462,8 +462,8 @@ async fn main() {
     udp_join_handle.await.unwrap();
     #[cfg(target_os = "linux")]
     udp_mtu_join_handle.await.unwrap();
-    tcp_join_handle.await.unwrap().unwrap();
-    tfo_join_handle.await.unwrap().unwrap();
-    fn_join_handle.await.unwrap().unwrap();
-    tls_join_handle.await.unwrap().unwrap();
+    tcp_join_handle.await.unwrap();
+    tfo_join_handle.await.unwrap();
+    fn_join_handle.await.unwrap();
+    tls_join_handle.await.unwrap();
 }
