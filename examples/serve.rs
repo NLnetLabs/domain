@@ -464,9 +464,9 @@ async fn main() {
 
     // Keep the services running in the background
 
-    udp_join_handle.await.unwrap().unwrap();
+    udp_join_handle.await.unwrap();
     #[cfg(target_os = "linux")]
-    udp_mtu_join_handle.await.unwrap().unwrap();
+    udp_mtu_join_handle.await.unwrap();
     tcp_join_handle.await.unwrap().unwrap();
     tfo_join_handle.await.unwrap().unwrap();
     fn_join_handle.await.unwrap().unwrap();
