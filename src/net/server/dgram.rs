@@ -21,6 +21,7 @@ use tokio::{io::ReadBuf, sync::watch};
 
 //------------ DgramServer ---------------------------------------------------
 
+/// A server for connecting clients via datagram transport to a [`Service`].
 pub struct DgramServer<Sock, Buf, Svc, MsgTyp> {
     command_rx: watch::Receiver<ServiceCommand>,
     command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,

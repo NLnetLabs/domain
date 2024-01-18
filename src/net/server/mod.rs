@@ -70,31 +70,17 @@
 //! [`tokio::net::TcpStream`]: https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html
 //! [`tokio::net::UdpSocket`]: https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html
 
-use tokio::net::{TcpListener, UdpSocket};
-
-use crate::base::Message;
-use buf::BufSource;
-
-pub type UdpServer<Buf, Svc> = dgram::DgramServer<
-    UdpSocket,
-    Buf,
-    Svc,
-    Message<<Buf as BufSource>::Output>,
->;
-pub type TcpServer<Buf, Svc> = stream::StreamServer<
-    TcpListener,
-    Buf,
-    Svc,
-    Message<<Buf as BufSource>::Output>,
->;
-
 pub mod buf;
 pub mod connection;
 pub mod dgram;
+pub mod error;
 pub mod metrics;
 pub mod service;
 pub mod sock;
 pub mod stream;
+pub mod types;
 
 #[cfg(test)]
 pub mod tests;
+
+pub use types::*;

@@ -1,5 +1,6 @@
 use super::buf::BufSource;
 use super::connection::Connection;
+use super::error::Error;
 use super::metrics::ServerMetrics;
 use super::service::{MsgProvider, Service, ServiceCommand};
 use super::sock::AsyncAccept;
@@ -12,13 +13,32 @@ use tokio::sync::watch;
 
 //------------ StreamServer --------------------------------------------------
 
+/// A server for connecting clients via stream transport to a [`Service`].
 pub struct StreamServer<Listener, Buf, Svc, MsgTyp> {
+    /// A receiver for receiving [`ServiceCommand`]s.
+    ///
+    /// Used by both the server and spawned connections to react to sent
+    /// commands.
     command_rx: watch::Receiver<ServiceCommand>,
+
+    /// A sender for sending [`ServiceCommand`]s.
+    ///
+    /// Used to signal the server to stop, reconfigure, etc.
     command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
+
+    /// A listener for listening for and accepting incoming stream
+    /// connections.
     listener: Arc<Listener>,
+
+    /// A [`BufSource`] for creating buffers on demand.
     buf: Arc<Buf>,
+
+    /// A [`Service`] for handling received requests and generating responses.
     service: Arc<Svc>,
+
+    /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
+
     _phantom: PhantomData<MsgTyp>,
 }
 
@@ -30,6 +50,13 @@ where
     MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
+    /// Create a new stream transport server.
+    ///
+    /// Takes:
+    /// - A listener which must implement [`AsyncAccept`] and is responsible
+    /// awaiting and accepting incoming stream connections.
+    /// - A [`BufSource`] for creating buffers on demand.
+    /// - A [`Service`] for handling received requests and generating responses.
     pub fn new(listener: Listener, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
@@ -48,30 +75,66 @@ where
             _phantom: PhantomData,
         }
     }
+}
 
-    pub fn listener(&self) -> Arc<Listener> {
-        self.listener.clone()
-    }
-
-    pub fn metrics(&self) -> Arc<ServerMetrics> {
-        self.metrics.clone()
-    }
-
-    pub fn shutdown(
-        &self,
-    ) -> Result<(), watch::error::SendError<ServiceCommand>> {
-        self.command_tx
-            .lock()
-            .unwrap()
-            .send(ServiceCommand::Shutdown)
-    }
-
+impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+where
+    Listener: AsyncAccept + Send + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+{
+    /// Start the server.
     pub async fn run(self: Arc<Self>) {
         if let Err(err) = self.run_until_error().await {
             eprintln!("DgramServer: {err}");
         }
     }
 
+    /// Stop the server.
+    ///
+    /// No new connections will be accepted but in-flight requests will be
+    /// allowed to complete and any pending responses, or responses generated
+    /// for in-flight requests, will be collected and written back to their
+    /// respective client connections before being disconnected.
+    pub fn shutdown(&self) -> Result<(), Error> {
+        self.command_tx
+            .lock()
+            .unwrap()
+            .send(ServiceCommand::Shutdown)
+            .map_err(|_| Error::CommandCouldNotBeSent)
+    }
+}
+
+impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+where
+    Listener: AsyncAccept + Send + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+{
+    /// Get a reference to the listener used to accept connections.
+    pub fn listener(&self) -> Arc<Listener> {
+        self.listener.clone()
+    }
+
+    /// Get a reference to the metrics for this server.
+    pub fn metrics(&self) -> Arc<ServerMetrics> {
+        self.metrics.clone()
+    }
+}
+
+impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+where
+    Listener: AsyncAccept + Send + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+{
+    /// Accept stream connections until shutdown or fatal error.
     async fn run_until_error(&self) -> Result<(), String> {
         let mut command_rx = self.command_rx.clone();
 
@@ -147,6 +210,7 @@ where
         Ok(())
     }
 
+    /// Wait for and accept a single stream connection.
     async fn accept(
         &self,
     ) -> Result<(Listener::Stream, Listener::Addr), io::Error> {
