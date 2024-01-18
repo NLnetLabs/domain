@@ -7,6 +7,7 @@ use super::service::{
 use super::sock::AsyncAccept;
 use chrono::{DateTime, Utc};
 use core::marker::PhantomData;
+use core::ops::ControlFlow;
 use futures::{pin_mut, StreamExt};
 use std::future::poll_fn;
 use std::io;
@@ -365,43 +366,15 @@ where
                             }
 
                             Err(err) => {
-                                match err.kind() {
-                                    io::ErrorKind::UnexpectedEof => {
-                                        // The client disconnected. Per RFC
-                                        // 7766 6.2.4 pending responses MUST
-                                        // NOT be sent to the client.
-                                        return Err(
-                                            ConnectionEvent::DisconnectWithoutFlush,
-                                        );
-                                    }
-                                    io::ErrorKind::TimedOut
-                                    | io::ErrorKind::Interrupted => {
-                                        // These errors might be recoverable,
-                                        // try again
-                                        eprintln!(
-                                            "Warn: Stream read failed: {err}"
-                                        );
-                                        continue 'read;
-                                    }
-                                    _ => {
-                                        // Everything else is either
-                                        // unrecoverable or unknown to us at
-                                        // the time of writing and so we can't
-                                        // guess how to handle it, so abort.
-                                        eprintln!(
-                                            "Error: Stream read failed: {err}"
-                                        );
-                                        return Err(
-                                            ConnectionEvent::DisconnectWithoutFlush,
-                                        );
-                                    }
+                                match self.process_io_error(err) {
+                                    ControlFlow::Continue(_) => continue 'read,
+                                    ControlFlow::Break(err) => return Err(err),
                                 }
                             }
                         }
                     }
 
                     _ = &mut timeout_fut => {
-                        eprintln!("Stream read timed out");
                         return Err(ConnectionEvent::DisconnectWithFlush);
                     }
                 }
@@ -474,6 +447,31 @@ where
         }
 
         Ok(())
+    }
+
+    fn process_io_error(
+        &self,
+        err: io::Error,
+    ) -> ControlFlow<ConnectionEvent<Svc::Error>> {
+        match err.kind() {
+            io::ErrorKind::UnexpectedEof => {
+                // The client disconnected. Per RFC 7766 6.2.4 pending
+                // responses MUST NOT be sent to the client.
+                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+            }
+            io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
+                // These errors might be recoverable,
+                // try again.
+                ControlFlow::Continue(())
+            }
+            _ => {
+                // Everything else is either
+                // unrecoverable or unknown to us at
+                // the time of writing and so we can't
+                // guess how to handle it, so abort.
+                ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
+            }
+        }
     }
 
     async fn process_message(
