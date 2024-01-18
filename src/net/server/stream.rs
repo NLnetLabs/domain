@@ -340,65 +340,8 @@ where
                 tokio::select! {
                     biased;
 
-                    command_res = command_rx.changed() => {
-                        // If there was a problem receiving commands from the
-                        // parent server this could occur if the command
-                        // sender is dropped, i.e. the parent server no longer
-                        // exists but was not cleanly shutdown. We disconnect
-                        // and cleanup if such a problem occurs.
-                        command_res.map_err(|_err| ConnectionEvent::DisconnectWithFlush)?;
-
-                        let cmd = *command_rx.borrow_and_update();
-
-                        match cmd {
-                            ServiceCommand::Reconfigure { idle_timeout } => {
-                                // Support RFC 7828 "The edns-tcp-keepalive
-                                // EDNS0 Option". This cannot be done by the
-                                // caller as it requires knowing (a) when the
-                                // last message was received and (b) when all
-                                // pending messages have been sent, neither of
-                                // which is known to the caller. However we
-                                // also don't want to parse and understand DNS
-                                // messages in this layer, it is left to the
-                                // caller to process received messages and
-                                // construct appropriate responses. If the
-                                // caller detects an EDNS0 edns-tcp-keepalive
-                                // option it can use this reconfigure
-                                // mechanism to signal to us that we should
-                                // adjust the point at which we will consider
-                                // the connectin to be idle and thus
-                                // potentially worthy of timing out.
-                                eprintln!("Server connection timeout reconfigured to {idle_timeout:?}");
-                                if let Ok(timeout) =
-                                    chrono::Duration::from_std(idle_timeout)
-                                {
-                                    state.idle_timeout = timeout;
-                                }
-                            }
-
-                            ServiceCommand::Shutdown => {
-                                return Err(ConnectionEvent::DisconnectWithFlush);
-                            }
-
-                            ServiceCommand::Init => {
-                                // The initial "Init" value in the watch
-                                // channel is never actually seen because the
-                                // select Into impl only calls
-                                // watch::Receiver::borrow_and_update() AFTER
-                                // changed() signals that a new value has been
-                                // placed in the watch channel. So the only
-                                // way to end up here would be if we somehow
-                                // wrongly placed another ServiceCommand::Init
-                                // value into the watch channel after the
-                                // initial one.
-                                unreachable!()
-                            }
-
-                            ServiceCommand::CloseConnection => {
-                                // TODO: Why do we not handle this?
-                                unreachable!()
-                            }
-                        }
+                    _ = command_rx.changed() => {
+                        self.process_service_command(command_rx, state)?;
                     }
 
                     result_q_res = result_q_rx.recv() => {
@@ -472,6 +415,73 @@ where
                 }
             }
         }
+    }
+
+    fn process_service_command(
+        &self,
+        command_rx: &mut watch::Receiver<ServiceCommand>,
+        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+        // If the parent server no longer exists but was not cleanly shutdown
+        // then the command channel will be closed and attempting to check for
+        // a new command will fail. Advise the caller to break the connection
+        // and cleanup if such a problem occurs.
+        let command_has_changed = command_rx
+            .has_changed()
+            .map_err(|_err| ConnectionEvent::DisconnectWithFlush)?;
+
+        if !command_has_changed {
+            // Nothing to do.
+            return Ok(());
+        }
+
+        // Get the changed command.
+        let command = *command_rx.borrow_and_update();
+
+        // And process it.
+        match command {
+            ServiceCommand::Reconfigure { idle_timeout } => {
+                // Support RFC 7828 "The edns-tcp-keepalive EDNS0 Option".
+                // This cannot be done by the caller as it requires knowing
+                // (a) when the last message was received and (b) when all
+                // pending messages have been sent, neither of which is known
+                // to the caller. However we also don't want to parse and
+                // understand DNS messages in this layer, it is left to the
+                // caller to process received messages and construct
+                // appropriate responses. If the caller detects an EDNS0
+                // edns-tcp-keepalive option it can use this reconfigure
+                // mechanism to signal to us that we should adjust the point
+                // at which we will consider the connectin to be idle and thus
+                // potentially worthy of timing out.
+                eprintln!("Server connection timeout reconfigured to {idle_timeout:?}");
+                if let Ok(timeout) = chrono::Duration::from_std(idle_timeout)
+                {
+                    state.idle_timeout = timeout;
+                }
+            }
+
+            ServiceCommand::Shutdown => {
+                return Err(ConnectionEvent::DisconnectWithFlush);
+            }
+
+            ServiceCommand::Init => {
+                // The initial "Init" value in the watch channel is never
+                // actually seen because the select Into impl only calls
+                // watch::Receiver::borrow_and_update() AFTER changed()
+                // signals that a new value has been placed in the watch
+                // channel. So the only way to end up here would be if we
+                // somehow wrongly placed another ServiceCommand::Init value
+                // into the watch channel after the initial one.
+                unreachable!()
+            }
+
+            ServiceCommand::CloseConnection => {
+                // TODO: Why do we not handle this?
+                unreachable!()
+            }
+        }
+
+        Ok(())
     }
 
     async fn process_message(
