@@ -327,7 +327,10 @@ where
         // we must keep using the same future until it finally resolves when
         // the read is complete or results in an error.
         'read: loop {
+            let stream_read_fut = stream_rx.read_exact(buf.as_mut());
             let timeout_fut = tokio::time::sleep(state.timeout_as_std());
+
+            tokio::pin!(stream_read_fut);
             tokio::pin!(timeout_fut);
 
             loop {
@@ -352,7 +355,7 @@ where
                         self.process_queued_result(state, call_result).await;
                     }
 
-                    stream_read_res = stream_rx.read_exact(buf.as_mut()) => {
+                    stream_read_res = &mut stream_read_fut => {
                         match stream_read_res {
                             // The stream read succeeded. Return to the caller
                             // so that it can process the bytes written to the
