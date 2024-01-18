@@ -1,29 +1,23 @@
 use super::buf::BufSource;
 use super::metrics::ServerMetrics;
-use super::service::{CallResult, MsgProvider, Service, Transaction};
-
-use core::marker::PhantomData;
-use std::{future::poll_fn, string::String, sync::atomic::Ordering};
-use std::{io, sync::Mutex, time::Duration};
-
-use std::sync::Arc;
-
+use super::service::{
+    CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
+    Transaction,
+};
+use super::sock::AsyncAccept;
 use chrono::{DateTime, Utc};
-use futures::pin_mut;
-use futures::StreamExt;
-
-use tokio::{
-    io::{
-        AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf,
-        WriteHalf,
-    },
-    sync::{mpsc, watch},
+use core::marker::PhantomData;
+use futures::{pin_mut, StreamExt};
+use std::future::poll_fn;
+use std::io;
+use std::string::String;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::io::{
+    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
 };
-
-use super::{
-    service::{ServiceCommand, ServiceError},
-    sock::AsyncAccept,
-};
+use tokio::sync::{mpsc, watch};
 
 //------------ StreamServer --------------------------------------------------
 
