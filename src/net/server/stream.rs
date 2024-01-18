@@ -336,12 +336,12 @@ where
             let timeout_fut = tokio::time::sleep(state.timeout_as_std());
             tokio::pin!(timeout_fut);
 
-            'while_not_read: loop {
+            loop {
                 tokio::select! {
                     biased;
 
                     _ = command_rx.changed() => {
-                        self.process_service_command(command_rx, state)?;
+                        self.process_service_command(state, command_rx)?;
                     }
 
                     result_q_res = result_q_rx.recv() => {
@@ -352,15 +352,10 @@ where
                         // from the input stream because we will not be able
                         // to access the result of processing the request.
                         // TODO: Describe when this can occur.
-                        let call_result = result_q_res.ok_or(ConnectionEvent::DisconnectWithFlush)?;
+                        let call_result = result_q_res
+                            .ok_or(ConnectionEvent::DisconnectWithFlush)?;
 
-                        self.handle_queued_result(
-                            state,
-                            call_result,
-                        )
-                        .await;
-
-                        continue 'while_not_read;
+                        self.process_queued_result(state, call_result).await;
                     }
 
                     stream_read_res = stream_rx.read_exact(buf.as_mut()) => {
@@ -419,8 +414,8 @@ where
 
     fn process_service_command(
         &self,
-        command_rx: &mut watch::Receiver<ServiceCommand>,
         state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+        command_rx: &mut watch::Receiver<ServiceCommand>,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         // If the parent server no longer exists but was not cleanly shutdown
         // then the command channel will be closed and attempting to check for
@@ -570,11 +565,11 @@ where
         // the write queue and exit this connection handler.
         result_q_rx.close();
         while let Some(call_result) = result_q_rx.recv().await {
-            self.handle_queued_result(state, call_result).await;
+            self.process_queued_result(state, call_result).await;
         }
     }
 
-    async fn handle_queued_result(
+    async fn process_queued_result(
         &self,
         state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
         mut call_result: CallResult<Svc::ResponseOctets>,
