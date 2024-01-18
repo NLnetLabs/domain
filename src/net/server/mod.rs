@@ -89,6 +89,7 @@ pub type TcpServer<Buf, Svc> = stream::StreamServer<
 >;
 
 pub mod buf;
+pub mod connection;
 pub mod dgram;
 pub mod metrics;
 pub mod service;
