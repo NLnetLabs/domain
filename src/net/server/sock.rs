@@ -1,4 +1,8 @@
 //! Network socket abstractions.
+//!
+//! TODO: When Rust gains more support for async fns in traits consider if it
+//! is possible then to modify functions that return [`Poll`] to be async fns
+//! instead.
 
 use futures::Future;
 use std::io;

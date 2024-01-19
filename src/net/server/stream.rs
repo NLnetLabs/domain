@@ -14,6 +14,70 @@ use tokio::sync::watch;
 //------------ StreamServer --------------------------------------------------
 
 /// A server for connecting clients via stream transport to a [`Service`].
+///
+/// # Usage
+///
+/// The [`StreamServer`] needs a listener to accept incoming connections, a
+/// [`BufSource`] to create message buffers on demand, and a [`Service`] to
+/// handle received request messages and generate corresponding response
+/// messages for [`StreamServer`] to deliver to the client.
+///
+/// A listener is anything that implements the [`AsyncAccept`] trait. This
+/// crate provides an implementation for [`tokio::net::TcpListener`].
+///
+/// One way therefore to use [`StreamServer`] with your [`Service`] is to use
+/// a [`tokio::net::TcpListener`] and a [`VecBufSource`] like so:
+///
+/// _Note: This example skips creation of the service and proper error
+/// handling. You can learn about creating a service in the [`Service`]
+/// documentation._
+///
+/// ```ignore
+/// # use std::sync::Arc;
+/// # use domain::base::Message;
+/// # use domain::net::server::service::Service;
+/// # use domain::net::server::stream::StreamServer;
+/// # use domain::net::server::buf::VecBufSource;
+/// # use tokio::net::TcpListener;
+/// # fn my_service() -> impl Service<Vec<u8>, Message<Vec<u8>>> {
+/// #     todo!()
+/// # }
+/// #
+/// # #[tokio::main(flavor = "multi_thread")]
+/// # async fn main() {
+/// # let my_service = my_service().into();
+/// // Bind to a local port and listen for incoming TCP connections.
+/// let listener = TcpListener::bind("127.0.0.1:8053").await.unwrap();
+///
+/// // Create a server that will accept those connections and pass
+/// // received messages to your service and in turn pass generated
+/// // responses back to the client.
+/// let srv = Arc::new(StreamServer::new(listener, VecBufSource, my_service));
+///
+/// // Run the server.
+/// let join_handle = tokio::spawn(srv.run());
+///
+/// // ... do something ...
+///
+/// // Shutdown the server.
+/// srv.shutdown().unwrap();
+///
+/// // Wait for shutdown to complete.
+/// join_handle.await.unwrap();
+/// # }
+/// ```
+///
+/// # Advanced Usage
+///
+/// [`StreamServer`] doesn't itself define how connections should be accepted,
+/// message buffers should be allocated, message lengths should be determined
+/// or how request messages should be responded to. Instead it is generic over
+/// types that provide these services.
+///
+/// [`Service`]: crate::net::server::service::Service
+/// [`VecBufSource`]: crate::net::server::buf::VecBufSource
+/// [`tokio::net::TcpListener`]:
+///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
 pub struct StreamServer<Listener, Buf, Svc, MsgTyp> {
     /// A receiver for receiving [`ServiceCommand`]s.
     ///
@@ -86,6 +150,8 @@ where
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     /// Start the server.
+    ///
+    /// TODO: What happens to ongoing connections if the server is dropped?
     pub async fn run(self: Arc<Self>) {
         if let Err(err) = self.run_until_error().await {
             eprintln!("DgramServer: {err}");
@@ -98,6 +164,14 @@ where
     /// allowed to complete and any pending responses, or responses generated
     /// for in-flight requests, will be collected and written back to their
     /// respective client connections before being disconnected.
+    ///
+    /// Tip: Await the [`tokio::task::JoinHandle`] that you received when
+    /// spawning a task to run the server to know when shutdown is complete.
+    ///
+    /// TODO: Do we also need a non-graceful terminate immediately function?
+    ///
+    /// [`tokio::task::JoinHandle`]:
+    ///     https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html
     pub fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
@@ -140,8 +214,11 @@ where
 
         loop {
             tokio::select! {
+                // Poll futures in match arm order, not randomly.
                 biased;
 
+                // First, prefer obeying [`ServiceCommands`] over everything
+                // else.
                 command_res = command_rx.changed() => {
                     command_res.map_err(|err|
                         format!("Error while receiving command: {err}"))?;
@@ -175,6 +252,7 @@ where
                     }
                 }
 
+                // Next, handle a connection that has been accepted, if any.
                 accept_res = self.accept() => {
                     let (stream, _addr) = accept_res
                         .map_err(|err|
@@ -211,6 +289,8 @@ where
     }
 
     /// Wait for and accept a single stream connection.
+    ///
+    /// TODO: This may be obsoleted when Rust gains more support for async fns in traits.
     async fn accept(
         &self,
     ) -> Result<(Listener::Stream, Listener::Addr), io::Error> {

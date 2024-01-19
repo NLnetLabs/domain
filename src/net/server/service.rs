@@ -31,7 +31,7 @@ pub trait MsgProvider<RequestOctets: AsRef<[u8]>> {
     fn from_octets(octets: RequestOctets) -> Result<Self::Msg, ShortMessage>;
 }
 
-/// An implementation of MsgProvider for DNS [Message]s.
+/// An implementation of MsgProvider for DNS [`Message`]s.
 impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
     for Message<RequestOctets>
 {
@@ -55,6 +55,8 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
 
 //------------ Service -------------------------------------------------------
 
+pub type ServiceResult<R, E> = Result<CallResult<R>, ServiceError<E>>;
+
 /// A Service is responsible for generating responses to received DNS messages.
 ///
 /// Each [`Service`] implements a single [`Self::call()`] function which takes a DNS
@@ -72,7 +74,41 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
 ///
 /// You can either implement the [`Service`] trait directly, or use the blanket
 /// impl to turn any function with a compatible signature into a [`Service`]
-/// implementation.
+/// implementation like so:
+/// 
+/// ```ignore
+/// fn simple_service() -> impl Service<Vec<u8>, Message<Vec<u8>>> {
+///     type MyServiceResult = ServiceResult<Vec<u8>, ServiceError<()>>;
+/// 
+///     fn query(msg: Message<Vec<u8>>) -> Transaction<
+///         impl Future<Output = MyServiceResult>,
+///         Once<Pending<MyServiceResult>>,
+///     > {
+///         Transaction::Single(async move {
+///             let res = MessageBuilder::new_vec();
+///             let mut answer = res.start_answer(&msg, Rcode::NoError).unwrap();
+///             answer
+///                 .push((
+///                     Dname::root_ref(),
+///                     Class::In,
+///                     86400,
+///                     A::from_octets(192, 0, 2, 1),
+///                 ))
+///                 .unwrap();
+/// 
+///             let mut target = StreamTarget::new_vec();
+///             target
+///                 .append_slice(&answer.into_message().into_octets())
+///                 .map_err(|err| ServiceError::Other(err.to_string()))?;
+///             Ok(CallResult::new(target))
+///         })
+///     }
+/// 
+///     |msg| Ok(query(msg))
+/// }
+/// 
+/// let service: Service = simple_service().into();
+/// ```
 pub trait Service<
     RequestOctets: AsRef<[u8]>,
     MsgTyp: MsgProvider<RequestOctets>,
@@ -86,20 +122,12 @@ pub trait Service<
         + 'static
         + std::convert::AsRef<[u8]>;
 
-    type Single: Future<
-            Output = Result<
-                CallResult<Self::ResponseOctets>,
-                ServiceError<Self::Error>,
-            >,
-        > + Send
+    type Single: Future<Output = ServiceResult<Self::ResponseOctets, Self::Error>>
+        + Send
         + 'static;
 
-    type Stream: Stream<
-            Item = Result<
-                CallResult<Self::ResponseOctets>,
-                ServiceError<Self::Error>,
-            >,
-        > + Send
+    type Stream: Stream<Item = ServiceResult<Self::ResponseOctets, Self::Error>>
+        + Send
         + 'static;
 
     #[allow(clippy::type_complexity)]

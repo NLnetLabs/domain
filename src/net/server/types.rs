@@ -1,11 +1,19 @@
-use super::buf::BufSource;
+use super::buf::{BufSource, VecBufSource};
 use super::dgram::DgramServer;
 use super::stream::StreamServer;
 use crate::base::Message;
 use tokio::net::{TcpListener, UdpSocket};
 
-pub type UdpServer<Buf, Svc> =
-    DgramServer<UdpSocket, Buf, Svc, Message<<Buf as BufSource>::Output>>;
+pub type UdpServer<Svc> = DgramServer<
+    UdpSocket,
+    VecBufSource,
+    Svc,
+    Message<<VecBufSource as BufSource>::Output>,
+>;
 
-pub type TcpServer<Buf, Svc> =
-    StreamServer<TcpListener, Buf, Svc, Message<<Buf as BufSource>::Output>>;
+pub type TcpServer<Svc> = StreamServer<
+    TcpListener,
+    VecBufSource,
+    Svc,
+    Message<<VecBufSource as BufSource>::Output>,
+>;

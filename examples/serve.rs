@@ -20,10 +20,11 @@ use domain::{
         Dname, Message, MessageBuilder, StreamTarget,
     },
     net::server::{
-        buf::BufSource,
+        buf::VecBufSource,
         dgram::DgramServer,
         service::{
-            CallResult, Service, ServiceCommand, ServiceError, Transaction,
+            CallResult, Service, ServiceCommand, ServiceError, ServiceResult,
+            Transaction,
         },
         sock::AsyncAccept,
         stream::StreamServer,
@@ -53,20 +54,6 @@ fn mk_answer(msg: &Message<Vec<u8>>) -> Message<Vec<u8>> {
         ))
         .unwrap();
     answer.into_message()
-}
-
-struct VecBufSource;
-
-impl BufSource for VecBufSource {
-    type Output = Vec<u8>;
-
-    fn create_buf(&self) -> Self::Output {
-        vec![0; 1024]
-    }
-
-    fn create_sized(&self, size: usize) -> Self::Output {
-        vec![0; size]
-    }
 }
 
 struct NoStream;
@@ -262,13 +249,14 @@ impl AsyncAccept for RustlsTcpListener {
 }
 
 fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>, Message<Vec<u8>>> {
-    #[allow(clippy::type_complexity)]
+    type MyServiceResult = ServiceResult<Vec<u8>, ServiceError<()>>;
+
     fn query(
         count: Arc<AtomicU8>,
         message: Message<Vec<u8>>,
     ) -> Transaction<
-        impl Future<Output = Result<CallResult<Vec<u8>>, ServiceError<()>>>,
-        Once<Pending<Result<CallResult<Vec<u8>>, ServiceError<()>>>>,
+        impl Future<Output = MyServiceResult>,
+        Once<Pending<MyServiceResult>>,
     > {
         let cnt = count
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
