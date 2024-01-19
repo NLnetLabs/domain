@@ -93,6 +93,12 @@ impl AsyncAccept for TcpListener {
         cx: &mut Context,
     ) -> Poll<io::Result<(Self::Stream, Self::Addr)>> {
         TcpListener::poll_accept(self, cx).map(|res| {
+            // TODO: Should we support some sort of callback here to set
+            // arbitrary socket options? E.g. TCP keep alive ala
+            // https://stackoverflow.com/a/75697898 ? Or is it okay that this
+            // is the plain implementation and users who want to set things
+            // like TCP keep alive would need to provide their own impl?
+            // (just as the serve example currently does).
             res.map(|(stream, addr)| {
                 (futures::future::ready(Ok(stream)), addr)
             })

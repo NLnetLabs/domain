@@ -243,7 +243,23 @@ impl AsyncAccept for RustlsTcpListener {
         cx: &mut Context,
     ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
         TcpListener::poll_accept(&self.listener, cx).map(|res| {
-            res.map(|(stream, addr)| (self.acceptor.accept(stream), addr))
+            res.map(|(stream, addr)| {
+                // Demonstrate one way to set TCP keep alive.
+                // Based on https://stackoverflow.com/a/75697898.
+                let sock_ref = socket2::SockRef::from(&stream);
+                let mut ka = socket2::TcpKeepalive::new();
+                ka = ka.with_time(Duration::from_secs(20));
+                ka = ka.with_interval(Duration::from_secs(20));
+                sock_ref.set_tcp_keepalive(&ka).unwrap();
+
+                // Sleep to give us time to run a command like
+                // `ss -nte` to see the keep-alive is set. It
+                // shows up in the ss output like this:
+                //   timer:(keepalive,18sec,0)
+                std::thread::sleep(Duration::from_secs(5));
+
+                (self.acceptor.accept(stream), addr)
+            })
         })
     }
 }
