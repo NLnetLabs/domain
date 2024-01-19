@@ -154,7 +154,7 @@ where
     /// TODO: What happens to ongoing connections if the server is dropped?
     pub async fn run(self: Arc<Self>) {
         if let Err(err) = self.run_until_error().await {
-            eprintln!("DgramServer: {err}");
+            eprintln!("StreamServer: {err}");
         }
     }
 
