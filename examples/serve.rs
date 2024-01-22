@@ -302,12 +302,9 @@ async fn main() {
     //    dig +short +keepopen +tcp -4 @127.0.0.1 -p 8082 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
     let buf_source = Arc::new(VecBufSource);
-    let srv = Arc::new(DgramServer::new(
-        udpsocket,
-        buf_source.clone(),
-        svc.clone(),
-    ));
-    let udp_join_handle = tokio::spawn(srv.run());
+    let srv = DgramServer::new(udpsocket, buf_source.clone(), svc.clone());
+
+    let udp_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
     // Run a DNS server on TCP port 8053 on 127.0.0.1. Test it like so:
@@ -338,7 +335,8 @@ async fn main() {
         eprintln!("and see `timer:(keepalive,20sec,0) or similar.");
         std::thread::sleep(Duration::from_secs(5));
     });
-    let tcp_join_handle = tokio::spawn(Arc::new(srv).run());
+
+    let tcp_join_handle = tokio::spawn(async move { srv.run().await });
 
     #[cfg(target_os = "linux")]
     let udp_mtu_join_handle = {
@@ -359,18 +357,18 @@ async fn main() {
                     as libc::socklen_t,
             )
         };
+
         if result == -1 {
             eprintln!(
                 "setsockopt error when setting IP_MTU_DISCOVER: {}",
                 std::io::Error::last_os_error()
             );
         }
-        let srv = Arc::new(DgramServer::new(
-            udpsocket,
-            buf_source.clone(),
-            svc.clone(),
-        ));
-        tokio::spawn(srv.run())
+
+        let srv =
+            DgramServer::new(udpsocket, buf_source.clone(), svc.clone());
+
+        tokio::spawn(async move { srv.run().await })
     };
 
     // -----------------------------------------------------------------------
@@ -389,13 +387,8 @@ async fn main() {
     let v6listener = v6socket.listen(1024).unwrap();
 
     let listener = DoubleListener::new(v4listener, v6listener);
-
-    let srv = Arc::new(StreamServer::new(
-        listener,
-        buf_source.clone(),
-        svc.clone(),
-    ));
-    let double_tcp_join_handle = tokio::spawn(srv.run());
+    let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
+    let double_tcp_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
     // Demonstrate listening with TCP Fast Open enabled (via the tokio-tfo crate).
@@ -411,16 +404,12 @@ async fn main() {
     //   setsockopt(8, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
     //   setsockopt(8, SOL_TCP, TCP_FASTOPEN, [1024], 4) = 0
 
-    let tfo_listener = TfoListener::bind("127.0.0.1:8081".parse().unwrap())
+    let listener = TfoListener::bind("127.0.0.1:8081".parse().unwrap())
         .await
         .unwrap();
-    let tfo_listener = LocalTfoListener(tfo_listener);
-    let tfo_srv = Arc::new(StreamServer::new(
-        tfo_listener,
-        buf_source.clone(),
-        svc.clone(),
-    ));
-    let tfo_join_handle = tokio::spawn(tfo_srv.run());
+    let listener = LocalTfoListener(listener);
+    let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
+    let tfo_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
     // Demonstrate using a simple function instead of a struct as the service
@@ -443,12 +432,12 @@ async fn main() {
     let listener = TcpListener::bind("127.0.0.1:8082").await.unwrap();
     let listener = BufferedTcpListener(listener);
     let count = Arc::new(AtomicU8::new(5));
-    let srv = Arc::new(StreamServer::new(
+    let srv = StreamServer::new(
         listener,
         buf_source.clone(),
         service(count).into(),
-    ));
-    let fn_join_handle = tokio::spawn(srv.run());
+    );
+    let fn_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
     // Demonstrate using a TLS secured TCP DNS server.
@@ -485,12 +474,8 @@ async fn main() {
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:8443").await.unwrap();
     let listener = RustlsTcpListener::new(listener, acceptor);
-    let srv = Arc::new(StreamServer::new(
-        listener,
-        buf_source.clone(),
-        svc.clone(),
-    ));
-    let tls_join_handle = tokio::spawn(srv.run());
+    let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
+    let tls_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
     // Keep the services running in the background

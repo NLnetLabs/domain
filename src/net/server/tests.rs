@@ -422,7 +422,8 @@ async fn stop_service_test() {
             }
         });
 
-        let srv_handle = tokio::spawn(srv.clone().run());
+        let spawned_srv = srv.clone();
+        let srv_handle = tokio::spawn(async move { spawned_srv.run().await });
 
         eprintln!("Clients sleeping");
         tokio::time::sleep(Duration::from_millis(1000)).await;

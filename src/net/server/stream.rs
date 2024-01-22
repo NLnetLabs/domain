@@ -55,7 +55,8 @@ use tokio::sync::watch;
 /// let srv = Arc::new(StreamServer::new(listener, VecBufSource, my_service));
 ///
 /// // Run the server.
-/// let join_handle = tokio::spawn(srv.run());
+/// let spawned_srv = srv.clone();
+/// let join_handle = tokio::spawn(async move { spawned_srv.run().await });
 ///
 /// // ... do something ...
 ///
@@ -187,7 +188,7 @@ where
     /// Start the server.
     ///
     /// TODO: What happens to ongoing connections if the server is dropped?
-    pub async fn run(self: Arc<Self>) {
+    pub async fn run(&self) {
         if let Err(err) = self.run_until_error().await {
             eprintln!("StreamServer: {err}");
         }

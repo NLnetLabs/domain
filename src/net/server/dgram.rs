@@ -64,7 +64,7 @@ where
             .send(ServiceCommand::Shutdown)
     }
 
-    pub async fn run(self: Arc<Self>) {
+    pub async fn run(&self) {
         if let Err(err) = self.run_until_error().await {
             eprintln!("DgramServer: {err}");
         }
