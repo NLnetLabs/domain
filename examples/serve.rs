@@ -243,23 +243,7 @@ impl AsyncAccept for RustlsTcpListener {
         cx: &mut Context,
     ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
         TcpListener::poll_accept(&self.listener, cx).map(|res| {
-            res.map(|(stream, addr)| {
-                // Demonstrate one way to set TCP keep alive.
-                // Based on https://stackoverflow.com/a/75697898.
-                let sock_ref = socket2::SockRef::from(&stream);
-                let mut ka = socket2::TcpKeepalive::new();
-                ka = ka.with_time(Duration::from_secs(20));
-                ka = ka.with_interval(Duration::from_secs(20));
-                sock_ref.set_tcp_keepalive(&ka).unwrap();
-
-                // Sleep to give us time to run a command like
-                // `ss -nte` to see the keep-alive is set. It
-                // shows up in the ss output like this:
-                //   timer:(keepalive,18sec,0)
-                std::thread::sleep(Duration::from_secs(5));
-
-                (self.acceptor.accept(stream), addr)
-            })
+            res.map(|(stream, addr)| (self.acceptor.accept(stream), addr))
         })
     }
 }
@@ -304,6 +288,7 @@ fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>, Message<Vec<u8>>> {
 async fn main() {
     eprintln!("Test with commands such as:");
     eprintln!("  dig +short -4 @127.0.0.1 -p 8053 A google.com");
+    eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8053 A google.com");
     eprintln!("  dig +short -4 @127.0.0.1 -p 8054 A google.com");
     eprintln!("  dig +short -4 @127.0.0.1 +tcp -p 8080 A google.com");
     eprintln!("  dig +short -6 @::1 +tcp -p 8080 A google.com");
@@ -312,6 +297,7 @@ async fn main() {
 
     let svc = Arc::new(MyService);
 
+    // -----------------------------------------------------------------------
     // Run a DNS server on UDP port 8053 on 127.0.0.1. Test it like so:
     //    dig +short +keepopen +tcp -4 @127.0.0.1 -p 8082 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
@@ -322,6 +308,37 @@ async fn main() {
         svc.clone(),
     ));
     let udp_join_handle = tokio::spawn(srv.run());
+
+    // -----------------------------------------------------------------------
+    // Run a DNS server on TCP port 8053 on 127.0.0.1. Test it like so:
+    //    dig +short +keepopen +tcp -4 @127.0.0.1 +tcp -p 8053 A google.com
+    let v4socket = TcpSocket::new_v4().unwrap();
+    v4socket.set_reuseaddr(true).unwrap();
+    v4socket.bind("127.0.0.1:8053".parse().unwrap()).unwrap();
+    let v4listener = v4socket.listen(1024).unwrap();
+    let buf_source = Arc::new(VecBufSource);
+    let srv = StreamServer::new(v4listener, buf_source.clone(), svc.clone());
+    let srv = srv.with_pre_connect_hook(|stream| {
+        // Demonstrate one way without having access to the code that creates
+        // the socket initially to enable TCP keep alive, 
+        eprintln!("TCP connection detected: enabling socket TCP keepalive.");
+
+        let keep_alive = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(20))
+            .with_interval(Duration::from_secs(20));
+        let socket = socket2::SockRef::from(&stream);
+        socket.set_tcp_keepalive(&keep_alive).unwrap();
+
+        // Sleep to give us time to run a command like
+        // `ss -nte` to see the keep-alive is set. It
+        // shows up in the ss output like this:
+        //   timer:(keepalive,18sec,0)
+        eprintln!("Waiting for 5 seconds so you can run a command like:");
+        eprintln!("  ss -nte | grep 8053 | grep keepalive");
+        eprintln!("and see `timer:(keepalive,20sec,0) or similar.");
+        std::thread::sleep(Duration::from_secs(5));
+    });
+    let tcp_join_handle = tokio::spawn(Arc::new(srv).run());
 
     #[cfg(target_os = "linux")]
     let udp_mtu_join_handle = {
@@ -356,6 +373,7 @@ async fn main() {
         tokio::spawn(srv.run())
     };
 
+    // -----------------------------------------------------------------------
     // Demonstrate manually binding to two separate IPv4 and IPv6 sockets and
     // then listening on both at once using a single server instance. (e.g.
     // for on platforms that don't support binding to IPv4 and IPv6 at once
@@ -377,13 +395,15 @@ async fn main() {
         buf_source.clone(),
         svc.clone(),
     ));
-    let tcp_join_handle = tokio::spawn(srv.run());
+    let double_tcp_join_handle = tokio::spawn(srv.run());
 
+    // -----------------------------------------------------------------------
     // Demonstrate listening with TCP Fast Open enabled (via the tokio-tfo crate).
     // On Linux strace can be used to show that the socket options are indeed
     // set as expected, e.g.:
     //
-    //  > strace -e trace=setsockopt cargo run --example serve --features serve,tokio-tfo --release
+    //  > strace -e trace=setsockopt cargo run --example serve \
+    //      --features serve,tokio-tfo --release
     //     Finished release [optimized] target(s) in 0.12s
     //      Running `target/release/examples/serve`
     //   setsockopt(6, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
@@ -402,6 +422,7 @@ async fn main() {
     ));
     let tfo_join_handle = tokio::spawn(tfo_srv.run());
 
+    // -----------------------------------------------------------------------
     // Demonstrate using a simple function instead of a struct as the service
     // Note that this service reduces its connection timeout on each subsequent
     // query handled on the same connection, so try someting like this and you
@@ -429,7 +450,9 @@ async fn main() {
     ));
     let fn_join_handle = tokio::spawn(srv.run());
 
+    // -----------------------------------------------------------------------
     // Demonstrate using a TLS secured TCP DNS server.
+
     fn load_certs(path: &Path) -> io::Result<Vec<Certificate>> {
         certs(&mut BufReader::new(File::open(path)?))
             .map_err(|_| {
@@ -469,12 +492,14 @@ async fn main() {
     ));
     let tls_join_handle = tokio::spawn(srv.run());
 
+    // -----------------------------------------------------------------------
     // Keep the services running in the background
 
     udp_join_handle.await.unwrap();
+    tcp_join_handle.await.unwrap();
     #[cfg(target_os = "linux")]
     udp_mtu_join_handle.await.unwrap();
-    tcp_join_handle.await.unwrap();
+    double_tcp_join_handle.await.unwrap();
     tfo_join_handle.await.unwrap();
     fn_join_handle.await.unwrap();
     tls_join_handle.await.unwrap();

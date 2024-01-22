@@ -78,7 +78,10 @@ use tokio::sync::watch;
 /// [`VecBufSource`]: crate::net::server::buf::VecBufSource
 /// [`tokio::net::TcpListener`]:
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
-pub struct StreamServer<Listener, Buf, Svc, MsgTyp> {
+pub struct StreamServer<Listener, Buf, Svc, MsgTyp>
+where
+    Listener: AsyncAccept + Send + 'static,
+{
     /// A receiver for receiving [`ServiceCommand`]s.
     ///
     /// Used by both the server and spawned connections to react to sent
@@ -102,6 +105,9 @@ pub struct StreamServer<Listener, Buf, Svc, MsgTyp> {
 
     /// [`ServerMetrics`] describing the status of the server.
     metrics: Arc<ServerMetrics>,
+
+    /// An optional pre-connect hook.
+    pre_connect_hook: Option<fn(&Listener::StreamType)>,
 
     _phantom: PhantomData<MsgTyp>,
 }
@@ -136,8 +142,37 @@ where
             buf,
             service,
             metrics,
+            pre_connect_hook: None,
             _phantom: PhantomData,
         }
+    }
+
+    /// Specify a pre-connect hook to be invoked by the given
+    /// [`StreamServer`].
+    ///
+    /// The pre-connect hook can be used to inspect and/or modify the
+    /// properties of a newly accepted stream before it is passed to a new
+    /// [`Connection`]. This is useful if you do not control the code that
+    /// creates the underlying socket and wish to modify the socket options.
+    ///
+    /// For example, setting TCP keepalive on the stream could be done like
+    /// so:
+    ///
+    /// ```ignore
+    /// srv.with_pre_connect_hook(|stream| {
+    ///     let keep_alive = socket2::TcpKeepalive::new()
+    ///         .with_time(Duration::from_secs(20))
+    ///         .with_interval(Duration::from_secs(20));
+    ///     let socket = socket2::SockRef::from(&stream);
+    ///     socket.set_tcp_keepalive(&keep_alive).unwrap();
+    /// });
+    /// ```
+    pub fn with_pre_connect_hook(
+        mut self,
+        pre_connect_hook: fn(&Listener::StreamType),
+    ) -> Self {
+        self.pre_connect_hook = Some(pre_connect_hook);
+        self
     }
 }
 
@@ -209,6 +244,8 @@ where
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     /// Accept stream connections until shutdown or fatal error.
+    ///
+    /// TODO: Use a strongly typed error, not String.
     async fn run_until_error(&self) -> Result<(), String> {
         let mut command_rx = self.command_rx.clone();
 
@@ -259,12 +296,16 @@ where
                             format!("Error while accepting connection: {err}")
                         )?;
 
-                    let conn_command_rx = self.command_rx.clone();
-                    let conn_service = self.service.clone();
-                    let conn_buf = self.buf.clone();
-                    let conn_metrics = self.metrics.clone();
-                    let conn_fut = async move {
+                        let conn_command_rx = self.command_rx.clone();
+                        let conn_service = self.service.clone();
+                        let conn_buf = self.buf.clone();
+                        let conn_metrics = self.metrics.clone();
+                        let pre_connect_hook = self.pre_connect_hook;
+                        let conn_fut = async move {
                         if let Ok(stream) = stream.await {
+                            if let Some(hook) = pre_connect_hook {
+                                hook(&stream);
+                            }
                             let conn = Connection::<
                                 Listener::StreamType,
                                 Buf,
