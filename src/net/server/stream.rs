@@ -15,8 +15,6 @@ use tokio::sync::watch;
 
 /// A server for connecting clients via stream transport to a [`Service`].
 ///
-/// # Usage
-///
 /// The [`StreamServer`] needs a listener to accept incoming connections, a
 /// [`BufSource`] to create message buffers on demand, and a [`Service`] to
 /// handle received request messages and generate corresponding response
@@ -25,8 +23,12 @@ use tokio::sync::watch;
 /// A listener is anything that implements the [`AsyncAccept`] trait. This
 /// crate provides an implementation for [`tokio::net::TcpListener`].
 ///
-/// One way therefore to use [`StreamServer`] with your [`Service`] is to use
-/// a [`tokio::net::TcpListener`] and a [`VecBufSource`] like so:
+/// # Examples
+/// 
+/// The example below shows how to create, run and shutdown a [`StreamServer`]
+/// configured to receive requests and write responses via a
+/// [`tokio::net::TcpListener`] using a [`VecBufSource`] for buffer allocation
+/// and a [`Service`] to generate responses to requests.
 ///
 /// _Note: This example skips creation of the service and proper error
 /// handling. You can learn about creating a service in the [`Service`]
@@ -72,8 +74,10 @@ use tokio::sync::watch;
 ///
 /// [`StreamServer`] doesn't itself define how connections should be accepted,
 /// message buffers should be allocated, message lengths should be determined
-/// or how request messages should be responded to. Instead it is generic over
-/// types that provide these services.
+/// or how request messages should be received and responses sent. Instead it
+/// is generic over types that provide these abilities. By using different
+/// implementations of these traits, or even your own implementations, the
+/// behaviour of [`StreamServer`] can be tuned as needed.
 ///
 /// [`Service`]: crate::net::server::service::Service
 /// [`VecBufSource`]: crate::net::server::buf::VecBufSource
@@ -113,6 +117,8 @@ where
     _phantom: PhantomData<MsgTyp>,
 }
 
+/// # Creation and access
+///
 impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
 where
     Listener: AsyncAccept + Send + 'static,
@@ -156,8 +162,9 @@ where
     /// [`Connection`]. This is useful if you do not control the code that
     /// creates the underlying socket and wish to modify the socket options.
     ///
-    /// For example, setting TCP keepalive on the stream could be done like
-    /// so:
+    /// # Examples
+    /// 
+    /// Setting TCP keepalive on the stream:
     ///
     /// ```ignore
     /// srv.with_pre_connect_hook(|stream| {
@@ -177,6 +184,23 @@ where
     }
 }
 
+impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+where
+    Listener: AsyncAccept + Send + 'static,
+{
+    /// Get a reference to the listener used to accept connections.
+    pub fn listener(&self) -> Arc<Listener> {
+        self.listener.clone()
+    }
+
+    /// Get a reference to the metrics for this server.
+    pub fn metrics(&self) -> Arc<ServerMetrics> {
+        self.metrics.clone()
+    }
+}
+
+/// # Control
+/// 
 impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
 where
     Listener: AsyncAccept + Send + 'static,
@@ -219,21 +243,6 @@ where
             .unwrap()
             .send(ServiceCommand::Shutdown)
             .map_err(|_| Error::CommandCouldNotBeSent)
-    }
-}
-
-impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
-where
-    Listener: AsyncAccept + Send + 'static,
-{
-    /// Get a reference to the listener used to accept connections.
-    pub fn listener(&self) -> Arc<Listener> {
-        self.listener.clone()
-    }
-
-    /// Get a reference to the metrics for this server.
-    pub fn metrics(&self) -> Arc<ServerMetrics> {
-        self.metrics.clone()
     }
 }
 
@@ -345,6 +354,8 @@ where
         poll_fn(|ctx| self.listener.poll_accept(ctx)).await
     }
 }
+
+//--- Drop
 
 impl<Listener, Buf, Svc, MsgTyp> Drop
     for StreamServer<Listener, Buf, Svc, MsgTyp>
