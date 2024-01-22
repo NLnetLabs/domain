@@ -42,7 +42,7 @@ where
     MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp>,
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
-    pub fn new(
+    pub(super) fn new(
         service: Arc<Svc>,
         buf_source: Arc<Buf>,
         metrics: Arc<ServerMetrics>,
