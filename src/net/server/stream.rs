@@ -108,7 +108,7 @@ where
     metrics: Arc<ServerMetrics>,
 
     /// An optional pre-connect hook.
-    pre_connect_hook: Option<fn(&Listener::StreamType)>,
+    pre_connect_hook: Option<fn(&mut Listener::StreamType)>,
 
     _phantom: PhantomData<MsgTyp>,
 }
@@ -170,7 +170,7 @@ where
     /// ```
     pub fn with_pre_connect_hook(
         mut self,
-        pre_connect_hook: fn(&Listener::StreamType),
+        pre_connect_hook: fn(&mut Listener::StreamType),
     ) -> Self {
         self.pre_connect_hook = Some(pre_connect_hook);
         self
@@ -303,21 +303,21 @@ where
                         let conn_metrics = self.metrics.clone();
                         let pre_connect_hook = self.pre_connect_hook;
                         let conn_fut = async move {
-                        if let Ok(stream) = stream.await {
+                        if let Ok(mut stream) = stream.await {
+                            // Let the caller inspect and/or modify the
+                            // accepted stream before passing it to
+                            // Connection.
                             if let Some(hook) = pre_connect_hook {
-                                hook(&stream);
+                                hook(&mut stream);
                             }
-                            let conn = Connection::<
-                                Listener::StreamType,
-                                Buf,
-                                Svc,
-                                MsgTyp,
-                            >::new(
+
+                            let conn = Connection::new(
                                 conn_service,
                                 conn_buf,
                                 conn_metrics,
                                 stream,
                             );
+
                             conn.run(conn_command_rx).await
                         }
                     };
