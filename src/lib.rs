@@ -29,7 +29,7 @@
 //!
 #![cfg_attr(feature = "net", doc = "* [net]:")]
 #![cfg_attr(not(feature = "net"), doc = "* net:")]
-//!   Sending and receiving DNS message.
+//!   Sending and receiving DNS messages.
 #![cfg_attr(feature = "resolv", doc = "* [resolv]:")]
 #![cfg_attr(not(feature = "resolv"), doc = "* resolv:")]
 //!   An asynchronous DNS resolver based on the
