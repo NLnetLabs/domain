@@ -56,7 +56,28 @@ where
             _phantom: PhantomData,
         }
     }
+}
 
+impl<Stream, Buf, Svc, MsgTyp> Connection<Stream, Buf, Svc, MsgTyp>
+where
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp>,
+    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+{
+    /// Start reading requests and writing responses to the stream.
+    ///
+    /// # Shutdown behaviour
+    ///
+    /// When the parent server is shutdown (explicitly or via Drop) the child
+    /// connections will also see the [`ServiceCommand::Shutdown`] signal and
+    /// shutdown and flush any pending writes to the output stream.
+    ///
+    /// Any requests received after the shutdown signal or requests still
+    /// in-flight will be abandoned.
+    ///
+    /// TODO: What does it "abandoned" mean in practice here?
     pub async fn run(mut self, command_rx: watch::Receiver<ServiceCommand>) {
         self.metrics
             .num_connections
@@ -279,6 +300,14 @@ where
             }
 
             ServiceCommand::Shutdown => {
+                // The parent server has been shutdown. Close this connection
+                // but ensure that we write any pending responses to the
+                // stream first.
+                //
+                // TODO: Should we also wait for any in-flight requests to
+                // complete before shutting down? And if so how should we
+                // respond to any requests received in the meantime? Should we
+                // even stop reading from the stream?
                 return Err(ConnectionEvent::DisconnectWithFlush);
             }
 
