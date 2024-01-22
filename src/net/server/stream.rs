@@ -187,19 +187,24 @@ where
 {
     /// Start the server.
     ///
-    /// TODO: What happens to ongoing connections if the server is dropped?
+    /// # Drop behaviour
+    ///
+    /// When dropped [`shutdown()`] will be invoked.
     pub async fn run(&self) {
         if let Err(err) = self.run_until_error().await {
             eprintln!("StreamServer: {err}");
         }
     }
+}
 
+impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+where
+    Listener: AsyncAccept + Send + 'static,
+{
     /// Stop the server.
     ///
-    /// No new connections will be accepted but in-flight requests will be
-    /// allowed to complete and any pending responses, or responses generated
-    /// for in-flight requests, will be collected and written back to their
-    /// respective client connections before being disconnected.
+    /// No new connections will be accepted and in-progress connections will
+    /// be signalled to shutdown.
     ///
     /// Tip: Await the [`tokio::task::JoinHandle`] that you received when
     /// spawning a task to run the server to know when shutdown is complete.
@@ -220,10 +225,6 @@ where
 impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
 where
     Listener: AsyncAccept + Send + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
-    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
     /// Get a reference to the listener used to accept connections.
     pub fn listener(&self) -> Arc<Listener> {
@@ -266,7 +267,12 @@ where
                     match cmd {
                         ServiceCommand::Reconfigure { .. } => { /* TODO */ }
 
-                        ServiceCommand::Shutdown => break,
+                        ServiceCommand::Shutdown => {
+                            // Stop accepting new connections, terminate the
+                            // server. Child connections also receive this
+                            // signal and handle it themselves.
+                            break;
+                        }
 
                         ServiceCommand::Init => {
                             // The initial "Init" value in the watch channel
@@ -337,5 +343,18 @@ where
         &self,
     ) -> Result<(Listener::Stream, Listener::Addr), io::Error> {
         poll_fn(|ctx| self.listener.poll_accept(ctx)).await
+    }
+}
+
+impl<Listener, Buf, Svc, MsgTyp> Drop
+    for StreamServer<Listener, Buf, Svc, MsgTyp>
+where
+    Listener: AsyncAccept + Send + 'static,
+{
+    fn drop(&mut self) {
+        // Shutdown the StreamServer. Don't handle the failure case here as
+        // I'm not sure if it's safe to log or write to stderr from a Drop
+        // impl.
+        let _ = self.shutdown();
     }
 }
