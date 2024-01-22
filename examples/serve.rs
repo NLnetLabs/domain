@@ -320,7 +320,7 @@ async fn main() {
     let srv = StreamServer::new(v4listener, buf_source.clone(), svc.clone());
     let srv = srv.with_pre_connect_hook(|stream| {
         // Demonstrate one way without having access to the code that creates
-        // the socket initially to enable TCP keep alive, 
+        // the socket initially to enable TCP keep alive,
         eprintln!("TCP connection detected: enabling socket TCP keepalive.");
 
         let keep_alive = socket2::TcpKeepalive::new()
