@@ -75,11 +75,11 @@ pub type ServiceResult<R, E> = Result<CallResult<R>, ServiceError<E>>;
 /// You can either implement the [`Service`] trait directly, or use the blanket
 /// impl to turn any function with a compatible signature into a [`Service`]
 /// implementation like so:
-/// 
+///
 /// ```ignore
 /// fn simple_service() -> impl Service<Vec<u8>, Message<Vec<u8>>> {
 ///     type MyServiceResult = ServiceResult<Vec<u8>, ServiceError<()>>;
-/// 
+///
 ///     fn query(msg: Message<Vec<u8>>) -> Transaction<
 ///         impl Future<Output = MyServiceResult>,
 ///         Once<Pending<MyServiceResult>>,
@@ -95,7 +95,7 @@ pub type ServiceResult<R, E> = Result<CallResult<R>, ServiceError<E>>;
 ///                     A::from_octets(192, 0, 2, 1),
 ///                 ))
 ///                 .unwrap();
-/// 
+///
 ///             let mut target = StreamTarget::new_vec();
 ///             target
 ///                 .append_slice(&answer.into_message().into_octets())
@@ -103,10 +103,10 @@ pub type ServiceResult<R, E> = Result<CallResult<R>, ServiceError<E>>;
 ///             Ok(CallResult::new(target))
 ///         })
 ///     }
-/// 
+///
 ///     |msg| Ok(query(msg))
 /// }
-/// 
+///
 /// let service: Service = simple_service().into();
 /// ```
 pub trait Service<
