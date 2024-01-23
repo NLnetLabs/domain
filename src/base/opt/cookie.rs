@@ -156,6 +156,10 @@ impl Cookie {
             )
         )
     }
+
+    pub(crate) fn try_octets_from<E>(src: Self) -> Result<Self, E> {
+        Ok(src)
+    }
 }
 
 

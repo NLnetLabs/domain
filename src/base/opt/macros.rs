@@ -39,6 +39,37 @@ macro_rules! opt_types {
             }
         )* )*
 
+        //--- OctetsFrom
+
+        impl<Octs, Name, SrcOcts, SrcName>
+        OctetsFrom<AllOptData<SrcOcts, SrcName>>
+        for AllOptData<Octs, Name>
+        where
+            Octs: OctetsFrom<SrcOcts>,
+            Name: OctetsFrom<SrcName, Error = Octs::Error>,
+        {
+            type Error = Octs::Error;
+
+            fn try_octets_from(
+                source: AllOptData<SrcOcts, SrcName>,
+            ) -> Result<Self, Self::Error> {
+                match source {
+                    $( $(
+                        AllOptData::$opt(opt) => {
+                            Ok(AllOptData::$opt(
+                                $module::$opt::try_octets_from(opt)?
+                            ))
+                        },
+                    )* )*
+                    AllOptData::Other(opt) => {
+                        Ok(AllOptData::Other(
+                            UnknownOptData::try_octets_from(opt)?
+                        ))
+                    }
+                }
+            }
+        }
+
         //--- OptData
 
         impl<Octs, Name> OptData for AllOptData<Octs, Name> {
@@ -52,7 +83,7 @@ macro_rules! opt_types {
             }
         }
 
-        impl<'a, Octs: Octets> ParseOptData<'a, Octs>
+        impl<'a, Octs: Octets + ?Sized> ParseOptData<'a, Octs>
         for AllOptData<Octs::Range<'a>, Dname<Octs::Range<'a>>> {
             fn parse_option(
                 code: OptionCode,
@@ -97,6 +128,24 @@ macro_rules! opt_types {
                     )* )*
                     AllOptData::Other(ref inner) => {
                         inner.compose_option(target)
+                    }
+                }
+            }
+        }
+
+        //--- Debug
+
+        impl<Octs, Name> fmt::Debug for AllOptData<Octs, Name>
+        where Octs: AsRef<[u8]>, Name: fmt::Display {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                match *self {
+                    $( $(
+                        AllOptData::$opt(ref inner) => {
+                            fmt::Debug::fmt(inner, f)
+                        }
+                    )* )*
+                    AllOptData::Other(ref inner) => {
+                            fmt::Debug::fmt(inner, f)
                     }
                 }
             }

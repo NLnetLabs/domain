@@ -98,7 +98,7 @@ impl ClientSubnet {
     }
 
     /// Parses a value from its wire format.
-    pub fn parse<Octs: AsRef<[u8]>>(
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         const ERR_ADDR_LEN: &str = "invalid address length in client \
@@ -168,6 +168,10 @@ impl ClientSubnet {
             scope_prefix_len,
             addr,
         })
+    }
+
+    pub(crate) fn try_octets_from<E>(src: Self) -> Result<Self, E> {
+        Ok(src)
     }
 }
 

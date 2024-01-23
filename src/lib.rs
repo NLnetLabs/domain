@@ -19,11 +19,20 @@
 //! * [rdata] contains types and implementations for a growing number of
 //!   record types.
 //!
-//! In addition to those two basic modules, there are a number of modules for
-//! more specific features that are not required in all applications. In order
-//! to keep the amount of code to be compiled and the number of dependencies
-//! small, these are hidden behind feature flags through which they can be
-//! enabled if required. The flags have the same names as the modules.
+//! These two modules have been designed with great flexibility in mind but
+//! can be a bit cumbersome to use. The module
+#![cfg_attr(feature = "plain", doc = "[plain]")]
+#![cfg_attr(not(feature = "plain"), doc = "_plain_")]
+//! (which needs to be enabled via the `plain` feature) provides simplified
+//! version that are more convenient to use but assume use cases that
+//! provide standard library support and multi-thread synchronization.
+//!
+//! In addition to those three basic modules, there are a number of modules
+//! for more specific features that are not required in all applications. In
+//! order to keep the amount of code to be compiled and the number of
+//! dependencies small, these are hidden behind feature flags through which
+//! they can be enabled if required. The flags have the same names as the
+//! modules.
 //!
 //! Currently, there are the following modules:
 //!
@@ -63,6 +72,10 @@
 //! * `interop`: Activate interoperability tests that rely on other software
 //!   to be installed in the system (currently NSD and dig) and will fail if
 //!   it isn’t. This feature is not meaningful for users of the crate.
+//! * `plain`: Enables the
+#![cfg_attr(feature = "plain", doc = "  [plain]")]
+#![cfg_attr(not(feature = "plain"), doc = "  plain")]
+//!   module.
 //! * `rand`: Enables a number of methods that rely on a random number
 //!   generator being available in the system.
 //! * `resolv`: Enables the asynchronous stub resolver via the
@@ -121,6 +134,7 @@ extern crate core;
 
 pub mod base;
 pub mod dep;
+pub mod plain;
 pub mod rdata;
 pub mod resolv;
 pub mod sign;

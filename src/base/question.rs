@@ -6,7 +6,7 @@
 
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
-use super::name::{ParsedDname, ToDname};
+use super::name::{FlattenInto, ParsedDname, ToDname};
 use super::wire::{Composer, ParseError};
 use core::cmp::Ordering;
 use core::{fmt, hash};
@@ -79,7 +79,6 @@ impl<N: ToDname> Question<N> {
     pub fn qtype(&self) -> Rtype {
         self.qtype
     }
-
     /// Returns the class of the question.
     pub fn qclass(&self) -> Class {
         self.qclass
@@ -125,7 +124,22 @@ impl<N: ToDname> From<(N, Rtype)> for Question<N> {
     }
 }
 
-//--- OctetsFrom
+impl<Name, TName> FlattenInto<Question<TName>> for Question<Name>
+where
+    Name: FlattenInto<TName>,
+{
+    type AppendError = Name::AppendError;
+
+    fn try_flatten_into(self) -> Result<Question<TName>, Name::AppendError> {
+        Ok(Question::new(
+            self.qname.try_flatten_into()?,
+            self.qtype,
+            self.qclass,
+        ))
+    }
+}
+
+//--- OctetsFrom and FlattenInto
 
 impl<Name, SrcName> OctetsFrom<Question<SrcName>> for Question<Name>
 where

@@ -46,7 +46,7 @@ impl TcpKeepalive {
     }
 
     /// Parses an option data value from its wire format.
-    pub fn parse<Octs: AsRef<[u8]>>(
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         if parser.remaining() == 0 {
@@ -54,6 +54,10 @@ impl TcpKeepalive {
         } else {
             IdleTimeout::parse(parser).map(|v| Self::new(Some(v)))
         }
+    }
+
+    pub(crate) fn try_octets_from<E>(src: Self) -> Result<Self, E> {
+        Ok(src)
     }
 }
 
@@ -144,7 +148,7 @@ impl IdleTimeout {
     const COMPOSE_LEN: u16 = 2;
 
     /// Parses a value from its wire format.
-    fn parse<Octs: AsRef<[u8]>>(
+    fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         u16::parse(parser).map(Self)

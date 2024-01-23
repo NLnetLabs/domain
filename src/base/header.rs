@@ -494,6 +494,22 @@ impl HeaderCounts {
         Self::default()
     }
 
+    /// Creates a new value with the given four counts.
+    #[must_use]
+    pub fn from_counts(
+        qdcount: u16,
+        ancount: u16,
+        nscount: u16,
+        arcount: u16,
+    ) -> Self {
+        let mut res = Self::default();
+        res.set_qdcount(qdcount);
+        res.set_ancount(ancount);
+        res.set_nscount(nscount);
+        res.set_arcount(arcount);
+        res
+    }
+
     /// Creates a header counts reference from the octets slice of a message.
     ///
     /// The slice `message` mut be the whole message, i.e., start with the

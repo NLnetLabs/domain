@@ -151,6 +151,16 @@ impl<Octs: AsRef<[u8]> + ?Sized> Opt<Octs> {
         OptIter::new(&self.octets)
     }
 
+    /// Returns an iterator over all options.
+    pub fn iter_all(
+        &self,
+    ) -> OptIter<Octs, AllOptData<Octs::Range<'_>, Dname<Octs::Range<'_>>>>
+    where
+        Octs: Octets,
+    {
+        self.iter()
+    }
+
     /// Returns the first option of a given type if present.
     ///
     /// If trying to parse this first option fails, returns `None` as well.
@@ -317,6 +327,11 @@ impl OptHeader {
         unsafe { &mut *(slice.as_mut_ptr() as *mut OptHeader) }
     }
 
+    /// Returns the header as a slice.
+    pub fn as_slice(&self) -> &[u8] {
+        self.inner.as_ref()
+    }
+
     /// Returns the UDP payload size.
     ///
     /// Through this field a sender of a message can signal the maximum size
@@ -349,6 +364,11 @@ impl OptHeader {
     /// need to be set in the message header.
     pub fn set_rcode(&mut self, rcode: OptRcode) {
         self.inner[5] = rcode.ext()
+    }
+
+    /// Sets the extended bits of the extended rcode.
+    pub fn set_ext_rcode(&mut self, ext_rcode: u8) {
+        self.inner[5] = ext_rcode
     }
 
     /// Returns the EDNS version of the OPT header.
@@ -457,6 +477,10 @@ impl<Octs> OptRecord<Octs> {
     /// header. Such a header needs to be passed to the method.
     pub fn rcode(&self, header: Header) -> OptRcode {
         OptRcode::from_parts(header.rcode(), self.ext_rcode)
+    }
+
+    pub fn ext_rcode(&self) -> u8 {
+        self.ext_rcode
     }
 
     /// Returns the EDNS version of the OPT header.
@@ -691,7 +715,7 @@ pub trait ComposeOptData: OptData {
 /// An OPT option in its raw form.
 ///
 /// This type accepts any option type via its option code and raw data.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct UnknownOptData<Octs> {
     /// The option code for the option.
     code: OptionCode,
@@ -746,6 +770,24 @@ impl<Octs> UnknownOptData<Octs> {
         Octs: AsMut<[u8]>,
     {
         self.data.as_mut()
+    }
+}
+
+//--- OctetsFrom
+
+impl<Octs, SrcOcts> OctetsFrom<UnknownOptData<SrcOcts>>
+    for UnknownOptData<Octs>
+where
+    Octs: OctetsFrom<SrcOcts>,
+{
+    type Error = Octs::Error;
+
+    fn try_octets_from(
+        src: UnknownOptData<SrcOcts>,
+    ) -> Result<Self, Self::Error> {
+        Ok(unsafe {
+            Self::new_unchecked(src.code, Octs::try_octets_from(src.data)?)
+        })
     }
 }
 
@@ -808,11 +850,20 @@ impl<Octs: AsRef<[u8]>> ComposeOptData for UnknownOptData<Octs> {
     }
 }
 
-//--- Display
+//--- Display and Debug
 
 impl<Octs: AsRef<[u8]>> fmt::Display for UnknownOptData<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         base16::display(self.data.as_ref(), f)
+    }
+}
+
+impl<Octs: AsRef<[u8]>> fmt::Debug for UnknownOptData<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("UnknownOptData")
+            .field("code", &self.code)
+            .field("data", &format_args!("{}", self))
+            .finish()
     }
 }
 

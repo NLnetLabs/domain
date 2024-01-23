@@ -16,7 +16,7 @@ use super::message_builder::{AdditionalBuilder, AnswerBuilder, PushError};
 use super::name::ParsedDname;
 use super::opt::{Opt, OptRecord};
 use super::question::Question;
-use super::rdata::ParseRecordData;
+use super::rdata::{ParseAnyRecordData, ParseRecordData};
 use super::record::{ComposeRecord, ParsedRecord, Record};
 use super::wire::{Composer, ParseError};
 use crate::rdata::rfc1035::Cname;
@@ -956,6 +956,14 @@ impl<'a, Octs: Octets + ?Sized> RecordSection<'a, Octs> {
         RecordIter::new(self, true)
     }
 
+    /// Trades `self` in for an iterator over the records.
+    #[must_use]
+    pub fn into_records<Data: ParseAnyRecordData<'a, Octs>>(
+        self,
+    ) -> AnyRecordIter<'a, Octs, Data> {
+        AnyRecordIter::new(self)
+    }
+
     /// Proceeds to the next section if there is one.
     ///
     /// Returns an error if parsing has failed and the message is unusable
@@ -1154,6 +1162,86 @@ where
                 Ok(None) => {}
             }
         }
+    }
+}
+
+//------------ AnyRecordIter -------------------------------------------------
+
+/// An iterator over the records of a record section of a DNS message.
+///
+/// The iterator’s item type is the result of trying to parse a record.
+/// If parsing the record data fails, the iterator will return an
+/// error but can continue with the next record. If parsing the entire record
+/// fails the item will be an error and subsequent attempts to continue will
+/// also produce errors. This case can be distinguished from an error while
+/// parsing the record data by [`next_section`] returning an error, too.
+#[derive(Debug)]
+pub struct AnyRecordIter<'a, Octs: ?Sized, Data> {
+    section: RecordSection<'a, Octs>,
+    marker: PhantomData<Data>,
+}
+
+impl<'a, Octs, Data> AnyRecordIter<'a, Octs, Data>
+where
+    Octs: Octets + ?Sized,
+    Data: ParseAnyRecordData<'a, Octs>,
+{
+    /// Creates a new record iterator.
+    fn new(section: RecordSection<'a, Octs>) -> Self {
+        Self {
+            section,
+            marker: PhantomData,
+        }
+    }
+
+    /// Trades the limited iterator for the full iterator.
+    ///
+    /// The returned iterator will continue right after the last record
+    /// previously returned.
+    #[must_use]
+    pub fn unwrap(self) -> RecordSection<'a, Octs> {
+        self.section
+    }
+
+    /// Proceeds to the next section if there is one.
+    ///
+    /// Returns an error if parsing the message has failed. Returns
+    /// `Ok(None)` if this iterator was already on the additional section.
+    pub fn next_section(
+        self,
+    ) -> Result<Option<RecordSection<'a, Octs>>, ParseError> {
+        self.section.next_section()
+    }
+}
+
+//--- Clone
+
+impl<'a, Octs: ?Sized, Data> Clone for AnyRecordIter<'a, Octs, Data> {
+    fn clone(&self) -> Self {
+        Self {
+            section: self.section,
+            marker: PhantomData,
+        }
+    }
+}
+
+//--- Iterator
+
+impl<'a, Octs, Data> Iterator for AnyRecordIter<'a, Octs, Data>
+where
+    Octs: Octets + ?Sized,
+    Data: ParseAnyRecordData<'a, Octs>,
+{
+    type Item =
+        Result<Record<ParsedDname<Octs::Range<'a>>, Data>, ParseError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let record = match self.section.next() {
+            Some(Ok(record)) => record,
+            Some(Err(err)) => return Some(Err(err)),
+            None => return None,
+        };
+        Some(record.into_any_record())
     }
 }
 

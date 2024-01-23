@@ -46,7 +46,7 @@ use core::marker::PhantomData;
 /// Once you have a value, you can iterate over the algorithms via the
 /// [`iter`][Understood::iter] method or use the `IntoIterator` implementation
 /// for a reference.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct Understood<Variant, Octs: ?Sized> {
     /// A marker for the variant.
     marker: PhantomData<Variant>,
@@ -391,6 +391,33 @@ where
         Ok(())
     }
 }
+
+//--- Debug
+
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Understood<DauVariant, Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_tuple("Understood<DauVariant>")
+            .field(&format_args!("{}", self))
+            .finish()
+    }
+}
+
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Understood<DhuVariant, Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_tuple("Understood<DhuVariant>")
+            .field(&format_args!("{}", self))
+            .finish()
+    }
+}
+
+impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Understood<N3uVariant, Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_tuple("Understood<N3uVariant>")
+            .field(&format_args!("{}", self))
+            .finish()
+    }
+}
+
 
 //--- Extended Opt and OptBuilder
 

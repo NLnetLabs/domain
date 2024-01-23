@@ -23,7 +23,7 @@
 //! sequence of service parameters further describing properties of the
 //! service. These parameters are represented by the [SvcParams] type.
 //! They consist of a sequence of different parameter values. Types for
-//! the defined values are available in the [_value_][self::value] sub-module.
+//! the defined values are available in the _[value]_ sub-module.
 //! A new sequence of values can be constructed using the [`SvcParamsBuilder`]
 //! type.
 //!

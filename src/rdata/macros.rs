@@ -760,38 +760,54 @@ macro_rules! rdata_types {
         }
 
         impl<'a, Octs: octseq::octets::Octets>
+        $crate::base::rdata::ParseAnyRecordData<'a, Octs>
+        for AllRecordData<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
+            fn parse_any_rdata(
+                rtype: $crate::base::iana::Rtype,
+                parser: &mut octseq::parse::Parser<'a, Octs>,
+            ) -> Result<Self, crate::base::wire::ParseError> {
+                match rtype {
+                    $( $( $(
+                        $crate::base::iana::Rtype::$mtype => {
+                            Ok(AllRecordData::$mtype(
+                                $mtype::parse(parser)?
+                            ))
+                        }
+                    )* )* )*
+                    $( $( $(
+                        $crate::base::iana::Rtype::$ptype => {
+                            Ok(AllRecordData::$ptype(
+                                $ptype::parse(parser)?
+                            ))
+                        }
+                    )* )* )*
+                    $crate::base::iana::Rtype::Opt => {
+                        Ok(AllRecordData::Opt(
+                            $crate::base::opt::Opt::parse(parser)?
+                        ))
+                    }
+                    _ => {
+                        Ok(AllRecordData::Unknown(
+                            $crate::base::rdata
+                            ::UnknownRecordData::parse_any_rdata(
+                                rtype, parser
+                            )?
+                        ))
+                    }
+                }
+            }
+        }
+
+        impl<'a, Octs: octseq::octets::Octets>
         $crate::base::rdata::ParseRecordData<'a, Octs>
         for AllRecordData<Octs::Range<'a>, ParsedDname<Octs::Range<'a>>> {
             fn parse_rdata(
                 rtype: $crate::base::iana::Rtype,
                 parser: &mut octseq::parse::Parser<'a, Octs>,
             ) -> Result<Option<Self>, crate::base::wire::ParseError> {
-                match rtype {
-                    $( $( $(
-                        $crate::base::iana::Rtype::$mtype => {
-                            Ok(Some(AllRecordData::$mtype(
-                                $mtype::parse(parser)?
-                            )))
-                        }
-                    )* )* )*
-                    $( $( $(
-                        $crate::base::iana::Rtype::$ptype => {
-                            Ok(Some(AllRecordData::$ptype(
-                                $ptype::parse(parser)?
-                            )))
-                        }
-                    )* )* )*
-                    $crate::base::iana::Rtype::Opt => {
-                        Ok(Some(AllRecordData::Opt(
-                            $crate::base::opt::Opt::parse(parser)?
-                        )))
-                    }
-                    _ => {
-                        Ok($crate::base::rdata::UnknownRecordData::parse_rdata(
-                            rtype, parser
-                        )?.map(AllRecordData::Unknown))
-                    }
-                }
+                $crate::base::rdata::ParseAnyRecordData::parse_any_rdata(
+                    rtype, parser
+                ).map(Some)
             }
         }
 

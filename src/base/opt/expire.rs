@@ -45,7 +45,7 @@ impl Expire {
     }
 
     /// Parses a value from its wire format.
-    pub fn parse<Octs: AsRef<[u8]>>(
+    pub fn parse<Octs: AsRef<[u8]> + ?Sized>(
         parser: &mut Parser<Octs>
     ) -> Result<Self, ParseError> {
         if parser.remaining() == 0 {
@@ -54,6 +54,10 @@ impl Expire {
         else {
             u32::parse(parser).map(|res| Expire::new(Some(res)))
         }
+    }
+
+    pub(crate) fn try_octets_from<E>(src: Self) -> Result<Self, E> {
+        Ok(src)
     }
 }
 

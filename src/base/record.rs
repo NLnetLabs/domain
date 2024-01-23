@@ -18,8 +18,12 @@
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{FlattenInto, ParsedDname, ToDname};
-use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use super::opt::OptRecord;
+use super::rdata::{
+    ComposeRecordData, ParseAnyRecordData, ParseRecordData, RecordData,
+};
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
+use crate::rdata::AllRecordData;
 use core::cmp::Ordering;
 use core::time::Duration;
 use core::{fmt, hash};
@@ -181,6 +185,27 @@ impl<Name, Data> Record<Name, Data> {
     /// Trades the record for its owner name and data.
     pub fn into_owner_and_data(self) -> (Name, Data) {
         (self.owner, self.data)
+    }
+
+    /// Converts the record data type.
+    pub fn map_data<DestData, F: FnOnce(Data) -> DestData>(
+        self,
+        f: F,
+    ) -> Record<Name, DestData> {
+        Record::new(self.owner, self.class, self.ttl, f(self.data))
+    }
+}
+
+impl<OName: ToDname, DOcts, DName>
+    Record<OName, AllRecordData<DOcts, DName>>
+{
+    pub fn try_into_opt(self) -> Result<OptRecord<DOcts>, Self> {
+        match self.data {
+            AllRecordData::Opt(opt) => Ok(OptRecord::from_record(
+                Record::new(self.owner, self.class, self.ttl, opt),
+            )),
+            _ => Err(self),
+        }
     }
 }
 
@@ -687,6 +712,29 @@ impl<Octs> RecordHeader<ParsedDname<Octs>> {
         }
         Ok(res)
     }
+
+    pub fn parse_into_any_record<'a, Src, Data>(
+        self,
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Record<ParsedDname<Octs>, Data>, ParseError>
+    where
+        Src: AsRef<[u8]> + ?Sized,
+        Data: ParseAnyRecordData<'a, Src>,
+    {
+        let mut parser = parser.parse_parser(self.rdlen as usize)?;
+        let res = Record::new(
+            self.owner,
+            self.class,
+            self.ttl,
+            Data::parse_any_rdata(self.rtype, &mut parser)?,
+        );
+        if parser.remaining() > 0 {
+            return Err(ParseError::Form(FormError::new(
+                "trailing data in option",
+            )));
+        }
+        Ok(res)
+    }
 }
 
 impl<Name: ToDname> RecordHeader<Name> {
@@ -922,6 +970,17 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
         Data: ParseRecordData<'a, Octs>,
     {
         self.header.deref_owner().parse_into_record(&mut self.data)
+    }
+
+    pub fn into_any_record<Data>(
+        mut self,
+    ) -> Result<Record<ParsedDname<Octs::Range<'a>>, Data>, ParseError>
+    where
+        Data: ParseAnyRecordData<'a, Octs>,
+    {
+        self.header
+            .deref_owner()
+            .parse_into_any_record(&mut self.data)
     }
 }
 
