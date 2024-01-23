@@ -40,17 +40,17 @@ opt_types! {
 //============ Module Content ================================================
 
 use super::header::Header;
-use super::iana::{OptRcode, OptionCode, Rtype};
+use super::iana::{Class, OptRcode, OptionCode, Rtype};
 use super::name::{Dname, ToDname};
 use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
-use super::record::Record;
-use super::wire::{Composer, FormError, ParseError};
+use super::record::{Record, Ttl};
+use super::wire::{Compose, Composer, FormError, ParseError};
 use crate::utils::base16;
 use core::cmp::Ordering;
 use core::convert::TryInto;
 use core::marker::PhantomData;
 use core::{fmt, hash, mem};
-use octseq::builder::{OctetsBuilder, ShortBuf};
+use octseq::builder::{EmptyBuilder, OctetsBuilder, ShortBuf};
 use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 
@@ -76,6 +76,15 @@ pub struct Opt<Octs: ?Sized> {
     octets: Octs,
 }
 
+impl<Octs: EmptyBuilder> Opt<Octs> {
+    /// Creates empty OPT record data.
+    pub fn empty() -> Self {
+        Self {
+            octets: Octs::empty(),
+        }
+    }
+}
+
 impl<Octs: AsRef<[u8]>> Opt<Octs> {
     /// Creates OPT record data from an octets sequence.
     ///
@@ -83,7 +92,18 @@ impl<Octs: AsRef<[u8]>> Opt<Octs> {
     /// options. It does not check whether the options themselves are valid.
     pub fn from_octets(octets: Octs) -> Result<Self, ParseError> {
         Opt::check_slice(octets.as_ref())?;
-        Ok(Opt { octets })
+        Ok(unsafe { Self::from_octets_unchecked(octets) })
+    }
+
+    /// Creates OPT record data from octets without checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller needs to ensure that the slice contains correctly encoded
+    /// OPT record data. The data of the options themselves does not need to
+    /// be correct.
+    unsafe fn from_octets_unchecked(octets: Octs) -> Self {
+        Self { octets }
     }
 
     /// Parses OPT record data from the beginning of a parser.
@@ -129,6 +149,12 @@ impl Opt<[u8]> {
 }
 
 impl<Octs: AsRef<[u8]> + ?Sized> Opt<Octs> {
+    pub fn for_slice_ref(&self) -> Opt<&[u8]> {
+        unsafe { Opt::from_octets_unchecked(self.octets.as_ref()) }
+    }
+}
+
+impl<Octs: AsRef<[u8]> + ?Sized> Opt<Octs> {
     /// Returns the length of the OPT record data.
     pub fn len(&self) -> usize {
         self.octets.as_ref().len()
@@ -170,6 +196,44 @@ impl<Octs: AsRef<[u8]> + ?Sized> Opt<Octs> {
         Data: ParseOptData<'s, Octs>,
     {
         self.iter::<Data>().next()?.ok()
+    }
+}
+
+impl<Octs: Composer> Opt<Octs> {
+    /// Appends a new option to the OPT data.
+    pub fn push<Opt: ComposeOptData + ?Sized>(
+        &mut self,
+        option: &Opt,
+    ) -> Result<(), BuildDataError> {
+        self.push_raw_option(option.code(), option.compose_len(), |target| {
+            option.compose_option(target)
+        })
+    }
+
+    /// Appends a raw option to the OPT data.
+    ///
+    /// The method will append an option with the given option code. The data
+    /// of the option will be written via the closure `op`.
+    pub fn push_raw_option<F>(
+        &mut self,
+        code: OptionCode,
+        option_len: u16,
+        op: F,
+    ) -> Result<(), BuildDataError>
+    where
+        F: FnOnce(&mut Octs) -> Result<(), Octs::AppendError>,
+    {
+        LongOptData::check_len(
+            self.octets
+                .as_ref()
+                .len()
+                .saturating_add(usize::from(option_len)),
+        )?;
+
+        code.compose(&mut self.octets)?;
+        option_len.compose(&mut self.octets)?;
+        op(&mut self.octets)?;
+        Ok(())
     }
 }
 
@@ -293,7 +357,8 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for Opt<Octs> {
 ///
 /// The OPT record reappropriates the record header for encoding some
 /// basic information. This type provides access to this information. It
-/// consists of the record header accept for its `rdlen` field.
+/// consists of the record header with the exception of the fiinal `rdlen`
+/// field.
 ///
 /// This is so that `OptBuilder` can safely deref to this type.
 ///
@@ -460,6 +525,23 @@ impl<Octs> OptRecord<Octs> {
         }
     }
 
+    /// Converts the OPT record into a regular record.
+    pub fn as_record(&self) -> Record<&'static Dname<[u8]>, Opt<&[u8]>>
+    where
+        Octs: AsRef<[u8]>,
+    {
+        Record::new(
+            Dname::root_slice(),
+            Class::Int(self.udp_payload_size),
+            Ttl::from_secs(
+                u32::from(self.ext_rcode) << 24
+                    | u32::from(self.version) << 16
+                    | u32::from(self.flags),
+            ),
+            self.data.for_slice_ref(),
+        )
+    }
+
     /// Returns the UDP payload size.
     ///
     /// Through this field a sender of a message can signal the maximum size
@@ -469,6 +551,11 @@ impl<Octs> OptRecord<Octs> {
     /// payload that can actually be sent back to the sender may be smaller.
     pub fn udp_payload_size(&self) -> u16 {
         self.udp_payload_size
+    }
+
+    /// Sets the UDP payload size.
+    pub fn set_udp_payload_size(&mut self, value: u16) {
+        self.udp_payload_size = value
     }
 
     /// Returns the extended rcode.
@@ -508,6 +595,44 @@ impl<Octs> OptRecord<Octs> {
     }
 }
 
+impl<Octs: Composer> OptRecord<Octs> {
+    /// Appends a new option to the OPT data.
+    pub fn push<Opt: ComposeOptData + ?Sized>(
+        &mut self,
+        option: &Opt,
+    ) -> Result<(), BuildDataError> {
+        self.data.push(option)
+    }
+
+    /// Appends a raw option to the OPT data.
+    ///
+    /// The method will append an option with the given option code. The data
+    /// of the option will be written via the closure `op`.
+    pub fn push_raw_option<F>(
+        &mut self,
+        code: OptionCode,
+        option_len: u16,
+        op: F,
+    ) -> Result<(), BuildDataError>
+    where
+        F: FnOnce(&mut Octs) -> Result<(), Octs::AppendError>,
+    {
+        self.data.push_raw_option(code, option_len, op)
+    }
+}
+
+impl<Octs: EmptyBuilder> Default for OptRecord<Octs> {
+    fn default() -> Self {
+        Self {
+            udp_payload_size: 0,
+            ext_rcode: 0,
+            version: 0,
+            flags: 0,
+            data: Opt::empty(),
+        }
+    }
+}
+
 //--- From
 
 impl<Octs, N: ToDname> From<Record<N, Opt<Octs>>> for OptRecord<Octs> {
@@ -542,6 +667,20 @@ where
 impl<Octs> AsRef<Opt<Octs>> for OptRecord<Octs> {
     fn as_ref(&self) -> &Opt<Octs> {
         &self.data
+    }
+}
+
+//--- Debug
+
+impl<Octs: AsRef<[u8]>> fmt::Debug for OptRecord<Octs> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("OptRecord")
+            .field("udp_payload_size", &self.udp_payload_size)
+            .field("ext_rcord", &self.ext_rcode)
+            .field("version", &self.version)
+            .field("flags", &self.flags)
+            .field("data", &self.data)
+            .finish()
     }
 }
 
@@ -910,11 +1049,25 @@ impl std::error::Error for LongOptData {}
 /// An error happened while constructing an SVCB value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildDataError {
-    /// The value would exceed the allow length of a value.
+    /// The value would exceed the allowed length of a value.
     LongOptData,
 
     /// The underlying octets builder ran out of buffer space.
     ShortBuf,
+}
+
+impl BuildDataError {
+    /// Converts the error into a `LongOptData` error for ‘endless’ buffers.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the error is of the `ShortBuf` variant.
+    pub fn unlimited_buf(self) -> LongOptData {
+        match self {
+            Self::LongOptData => LongOptData(()),
+            Self::ShortBuf => panic!("ShortBuf on unlimited buffer"),
+        }
+    }
 }
 
 impl From<LongOptData> for BuildDataError {

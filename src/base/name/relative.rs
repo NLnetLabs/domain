@@ -1747,7 +1747,20 @@ mod test {
         assert_eq!(s1.finish(), s2.finish());
     }
 
-    // Display and Debug skipped for now.
+    #[test]
+    #[cfg(feature = "std")]
+    fn display() {
+        use std::string::ToString;
+
+        fn cmp(bytes: &[u8], fmt: &str) {
+            let name = RelativeDname::from_octets(bytes).unwrap();
+            assert_eq!(name.to_string(), fmt);
+        }
+
+        cmp(b"", "");
+        cmp(b"\x03com", "com");
+        cmp(b"\x07example\x03com", "example.com");
+    }
 
     #[cfg(all(feature = "serde", feature = "std"))]
     #[test]
