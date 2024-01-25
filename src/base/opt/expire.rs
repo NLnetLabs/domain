@@ -55,6 +55,13 @@ impl Expire {
             u32::parse(parser).map(|res| Expire::new(Some(res)))
         }
     }
+
+    /// Placeholder for unnecessary octets conversion.
+    ///
+    /// This method only exists for the `AllOptData` macro.
+    pub(super) fn try_octets_from<E>(src: Self) -> Result<Self, E> {
+        Ok(src)
+    }
 }
 
 //--- OptData

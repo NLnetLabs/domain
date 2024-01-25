@@ -29,7 +29,7 @@ use core::cmp::Ordering;
 /// point of the included records, i.e., the suffix of the queried name
 /// furthest away from the root to which the requesting resolver already has
 /// all necessary records.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct Chain<Name: ?Sized> {
     /// The start name AKA ‘closest trust point.’
     start: Name
@@ -163,11 +163,19 @@ impl<Name: ToDname> ComposeOptData for Chain<Name> {
     }
 }
 
-//--- Display
+//--- Display and Debug
 
 impl<Name: fmt::Display> fmt::Display for Chain<Name> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.start)
+    }
+}
+
+impl<Name: fmt::Display> fmt::Debug for Chain<Name> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Chain")
+            .field("start", &format_args!("{}", self.start))
+            .finish()
     }
 }
 
