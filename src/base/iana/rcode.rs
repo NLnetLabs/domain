@@ -190,7 +190,7 @@ impl Rcode {
         }
     }
 
-    /// Returns the integer value for this rcode.
+    /// Returns the 4-bit integer value for this rcode.
     #[must_use]
     pub fn to_int(self) -> u8 {
         use self::Rcode::*;
@@ -527,7 +527,7 @@ impl OptRcode {
         }
     }
 
-    /// Returns the integer value for this rcode.
+    /// Returns the 12-bit integer value for this rcode.
     #[must_use]
     pub fn to_int(self) -> u16 {
         use self::OptRcode::*;
@@ -546,7 +546,7 @@ impl OptRcode {
             NotZone => 10,
             BadVers => 16,
             BadCookie => 23,
-            Int(value) => value & 0x0F,
+            Int(value) => value & 0x0FFF, // OPT RCODEs are 12 bits
         }
     }
 
@@ -560,7 +560,7 @@ impl OptRcode {
     #[must_use]
     pub fn to_parts(self) -> (Rcode, u8) {
         let res = self.to_int();
-        (Rcode::from_int(res as u8), (res >> 8) as u8)
+        (Rcode::from_int(res as u8), (res >> 4) as u8)
     }
 
     /// Returns the rcode part of the extended rcode.
@@ -854,3 +854,103 @@ impl From<OptRcode> for TsigRcode {
 }
 
 int_enum_str_with_decimal!(TsigRcode, u16, "unknown TSIG error");
+
+//============ Tests =========================================================
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn optrcode_parts() {
+        // RFC 1035 defines a 4-bit RCODE in the main DNS header RCODE field.
+        //
+        // RFC 6891 defines a 12-bit extended RCODE with the lowest 4-bits
+        // stored in the main DNS header and the remaining 8-bits (right
+        // shifted by 4-bits) stored in the OPT record header RCODE field.
+        //
+        //   0b0000_0001_0000
+        //               ^^^^ 4-bits RFC 1035 RCODE or
+        //                    lower 4-bits of RFC 6891 extended 12-bit RCODE
+        //     ^^^^_^^^^ Upper 8-bits of RFC 6891 extended 12-bit RCODE
+        //
+        // Examples of RFC 6891 extended RCODEs:
+        //   NoError:    0 = 0b0000_0000_0000
+        //                               ^^^^ Stored in DNS header RCODE field
+        //                     ^^^^_^^^^      Stored in OPT header RCODE field
+        //
+        //   FormErr:    1 = 0b0000_0000_0001
+        //                               ^^^^ Stored in DNS header RCODE field
+        //                     ^^^^_^^^^      Stored in OPT header RCODE field
+        //
+        //   BadVers:   16 = 0b0000_0001_0000
+        //                               ^^^^ Stored in DNS header RCODE field
+        //                     ^^^^_^^^^      Stored in OPT header RCODE field
+        //
+        //   BadCookie: 23 = 0b0000_0001_0111
+        //                               ^^^^ Stored in DNS header RCODE field
+        //                     ^^^^_^^^^      Stored in OPT header RCODE field
+        //
+        // `OptRcode` defines several functions for accessing RFC 6891
+        // extended RCODE values in different ways:
+        //
+        //    fn         | purpose
+        //    -----------+-----------------------------------------------------
+        //    rcode()    | the RFC 1035 header RCODE part.
+        //    ext()      | the RFC 6891 ENDS OPT extended RCODE part.
+        //    to_parts() | to access both parts at once.
+        //    to_int()   | the IANA number for the RCODE combining both parts.
+        //    -----------------------------------------------------------------
+
+        // Define a macro to test the various functions involved in working
+        // with RFC 6891 extended RCODEs. Given an OPT RCODE enum variant,
+        // check if the functions produce the expected high bit, low bit and
+        // combined values.
+        macro_rules! assert_opt_rcode_parts_eq {
+            ($name:expr, $high_bits:expr, $low_bits:expr) => {
+                let u12 = (($high_bits as u16) << 4) | ($low_bits as u16);
+                assert_eq!($name.rcode().to_int(), $low_bits);
+                assert_eq!($name.ext(), $high_bits);
+                assert_eq!($name.to_parts().0.to_int(), $low_bits);
+                assert_eq!($name.to_parts().1, $high_bits);
+                assert_eq!($name.to_int(), u12);
+            };
+        }
+
+        // Test RFC 1035 Rcode enum variants that domain defines, plus any
+        // boundary cases not included in that set.
+        assert_eq!(Rcode::NoError, 0b0000);
+        assert_eq!(Rcode::FormErr, 0b0001);
+        assert_eq!(Rcode::ServFail, 0b0010);
+        assert_eq!(Rcode::NXDomain, 0b0011);
+        assert_eq!(Rcode::NotImp, 0b0100);
+        assert_eq!(Rcode::Refused, 0b0101);
+        assert_eq!(Rcode::YXDomain, 0b0110);
+        assert_eq!(Rcode::YXRRSet, 0b0111);
+        assert_eq!(Rcode::NXRRSet, 0b1000);
+        assert_eq!(Rcode::NotAuth, 0b1001);
+        assert_eq!(Rcode::NotZone, 0b1010);
+        assert_eq!(Rcode::Int(14), 0b1110);
+        assert_eq!(Rcode::Int(15), 0b1111);
+
+        // Test RFC 6891 OptRcode enum variants that domain defines, plus any
+        // boundary cases not included in that set:
+        assert_opt_rcode_parts_eq!(OptRcode::NoError, 0b000_0000, 0b0000);
+        assert_opt_rcode_parts_eq!(OptRcode::FormErr, 0b000_0000, 0b0001);
+        assert_opt_rcode_parts_eq!(OptRcode::ServFail, 0b000_0000, 0b0010);
+        assert_opt_rcode_parts_eq!(OptRcode::NXDomain, 0b000_0000, 0b0011);
+        assert_opt_rcode_parts_eq!(OptRcode::NotImp, 0b000_0000, 0b0100);
+        assert_opt_rcode_parts_eq!(OptRcode::Refused, 0b000_0000, 0b0101);
+        assert_opt_rcode_parts_eq!(OptRcode::YXDomain, 0b000_0000, 0b0110);
+        assert_opt_rcode_parts_eq!(OptRcode::YXRRSet, 0b000_0000, 0b0111);
+        assert_opt_rcode_parts_eq!(OptRcode::NXRRSet, 0b000_0000, 0b1000);
+        assert_opt_rcode_parts_eq!(OptRcode::NotAuth, 0b000_0000, 0b1001);
+        assert_opt_rcode_parts_eq!(OptRcode::NotZone, 0b000_0000, 0b1010);
+        assert_opt_rcode_parts_eq!(OptRcode::Int(15), 0b0000_0000, 0b1111);
+        assert_opt_rcode_parts_eq!(OptRcode::BadVers, 0b0000_0001, 0b0000);
+        assert_opt_rcode_parts_eq!(OptRcode::Int(17), 0b0000_0001, 0b0001);
+        assert_opt_rcode_parts_eq!(OptRcode::BadCookie, 0b000_0001, 0b0111);
+        assert_opt_rcode_parts_eq!(OptRcode::Int(4094), 0b1111_1111, 0b1110);
+        assert_opt_rcode_parts_eq!(OptRcode::Int(4095), 0b1111_1111, 0b1111);
+    }
+}
