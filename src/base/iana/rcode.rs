@@ -190,7 +190,7 @@ impl Rcode {
         }
     }
 
-    /// Returns the 4-bit integer value for this rcode.
+    /// Returns the integer value for this rcode.
     /// 
     /// Only the lower 4 bits of the returned octet are used by the rcode. The
     /// upper four bits are always zero.
@@ -530,7 +530,10 @@ impl OptRcode {
         }
     }
 
-    /// Returns the 12-bit integer value for this rcode.
+    /// Returns the integer value for this rcode.
+    /// 
+    /// Only the lower 12 bits of the returned octet are used by the rcode.
+    /// The upper four bits are always zero.
     #[must_use]
     pub fn to_int(self) -> u16 {
         use self::OptRcode::*;
@@ -549,7 +552,7 @@ impl OptRcode {
             NotZone => 10,
             BadVers => 16,
             BadCookie => 23,
-            Int(value) => value & 0x0FFF, // OPT RCODEs are 12 bits
+            Int(value) => value & 0x0FFF,
         }
     }
 
