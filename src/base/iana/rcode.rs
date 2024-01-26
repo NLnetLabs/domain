@@ -191,7 +191,7 @@ impl Rcode {
     }
 
     /// Returns the integer value for this rcode.
-    /// 
+    ///
     /// Only the lower 4 bits of the returned octet are used by the rcode. The
     /// upper four bits are always zero.
     #[must_use]
@@ -366,16 +366,16 @@ impl<'de> serde::Deserialize<'de> for Rcode {
 /// FormErr:    1 = 0b0000_0000_0001
 ///                             ^^^^ Stored in DNS header RCODE field
 ///                   ^^^^_^^^^      Stored in OPT header RCODE field
-/// 
+///
 /// BadVers:   16 = 0b0000_0001_0000
 ///                             ^^^^ Stored in DNS header RCODE field
 ///                   ^^^^_^^^^      Stored in OPT header RCODE field
-/// 
+///
 /// BadCookie: 23 = 0b0000_0001_0111
 ///                             ^^^^ Stored in DNS header RCODE field
 ///                   ^^^^_^^^^      Stored in OPT header RCODE field
 /// ```
-/// 
+///
 /// This type offers several functions to ease working with the separate parts
 /// and the combined value of an extended RCODE:
 ///
@@ -564,7 +564,7 @@ impl OptRcode {
     }
 
     /// Returns the integer value for this rcode.
-    /// 
+    ///
     /// Only the lower 12 bits of the returned octet are used by the rcode.
     /// The upper four bits are always zero.
     #[must_use]
