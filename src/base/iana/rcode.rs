@@ -191,6 +191,9 @@ impl Rcode {
     }
 
     /// Returns the 4-bit integer value for this rcode.
+    /// 
+    /// Only the lower 4 bits of the returned octet are used by the rcode. The
+    /// upper four bits are always zero.
     #[must_use]
     pub fn to_int(self) -> u8 {
         use self::Rcode::*;
