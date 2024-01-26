@@ -17,6 +17,9 @@ New
 Bug fixes
 
 * Fixed display implementation of `name::Chain<_, _>`. ([#253])
+* Fixed the extended part returned by `OptRcode::to_parts` (it was shifted
+  by 4 bits too many) and return all 12 bits for the `Int` variant in
+  `OptRcode::to_int`. ([#258])
 
 Other changes
 
@@ -24,6 +27,7 @@ Other changes
 [#215]: https://github.com/NLnetLabs/domain/pull/215
 [#251]: https://github.com/NLnetLabs/domain/pull/251
 [#253]: https://github.com/NLnetLabs/domain/pull/253
+[#258]: https://github.com/NLnetLabs/domain/pull/258
 [@torin-carey]: https://github.com/torin-carey
 
 
