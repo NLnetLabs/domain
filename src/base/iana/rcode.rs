@@ -352,7 +352,6 @@ impl<'de> serde::Deserialize<'de> for Rcode {
 /// The values for all three response code types are defined in
 /// the [IANA DNS RCODEs] registry. This type is complete as of 2019-01-28.
 ///
-///
 /// The 12-bit extended RCODE defined by [RFC 6891] stores the lowest 4-bits
 /// of the extended RCODE in the main DNS header RCODE field and stores the
 /// remaining 8-bits (right shifted by 4-bits) in the OPT record header RCODE
