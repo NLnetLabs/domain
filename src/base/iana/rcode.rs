@@ -358,7 +358,7 @@ impl<'de> serde::Deserialize<'de> for Rcode {
 /// remaining 8-bits (right shifted by 4-bits) in the OPT record header RCODE
 /// field, like so:
 ///
-/// ```ignore
+/// ```text
 /// NoError:    0 = 0b0000_0000_0000
 ///                             ^^^^ Stored in DNS header RCODE field
 ///                   ^^^^_^^^^      Stored in OPT header RCODE field
