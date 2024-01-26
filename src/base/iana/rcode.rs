@@ -336,7 +336,7 @@ impl<'de> serde::Deserialize<'de> for Rcode {
 
 /// Extended DNS Response Codes for OPT records.
 ///
-/// Originally, the response code of embedded in the header of each DNS
+/// Originally, the response code embedded in the header of each DNS
 /// message was four bits long. This code, defined in [RFC 1035], is
 /// represented by the [Rcode] type. The extension mechanism for DNS
 /// initially defined in [RFC 2671] and updated by [RFC 6891] added eight
@@ -351,6 +351,39 @@ impl<'de> serde::Deserialize<'de> for Rcode {
 ///
 /// The values for all three response code types are defined in
 /// the [IANA DNS RCODEs] registry. This type is complete as of 2019-01-28.
+///
+///
+/// The 12-bit extended RCODE defined by [RFC 6891] stores the lowest 4-bits
+/// of the extended RCODE in the main DNS header RCODE field and stores the
+/// remaining 8-bits (right shifted by 4-bits) in the OPT record header RCODE
+/// field, like so:
+///
+/// ```
+/// NoError:    0 = 0b0000_0000_0000
+///                             ^^^^ Stored in DNS header RCODE field
+///                   ^^^^_^^^^      Stored in OPT header RCODE field
+///
+/// FormErr:    1 = 0b0000_0000_0001
+///                             ^^^^ Stored in DNS header RCODE field
+///                   ^^^^_^^^^      Stored in OPT header RCODE field
+/// 
+/// BadVers:   16 = 0b0000_0001_0000
+///                             ^^^^ Stored in DNS header RCODE field
+///                   ^^^^_^^^^      Stored in OPT header RCODE field
+/// 
+/// BadCookie: 23 = 0b0000_0001_0111
+///                             ^^^^ Stored in DNS header RCODE field
+///                   ^^^^_^^^^      Stored in OPT header RCODE field
+/// ```
+/// 
+/// This type offers several functions to ease working with the separate parts
+/// and the combined value of an extended RCODE:
+///
+/// - [`OptRcode::rcode()`]: the RFC 1035 header RCODE part.
+/// - [`OptRcode::ext()`]`: the RFC 6891 ENDS OPT extended RCODE part.
+/// - [`OptRcode::to_parts()`]`: to access both parts at once.
+/// - [`OptRcode::to_int()`]`: the IANA number for the RCODE combining both
+///   parts.
 ///
 /// [Rcode]: enum.Rcode.html
 /// [`TsigRcode`]: enum.TsigRcode.html
@@ -869,45 +902,6 @@ mod test {
 
     #[test]
     fn optrcode_parts() {
-        // RFC 1035 defines a 4-bit RCODE in the main DNS header RCODE field.
-        //
-        // RFC 6891 defines a 12-bit extended RCODE with the lowest 4-bits
-        // stored in the main DNS header and the remaining 8-bits (right
-        // shifted by 4-bits) stored in the OPT record header RCODE field.
-        //
-        //   0b0000_0001_0000
-        //               ^^^^ 4-bits RFC 1035 RCODE or
-        //                    lower 4-bits of RFC 6891 extended 12-bit RCODE
-        //     ^^^^_^^^^ Upper 8-bits of RFC 6891 extended 12-bit RCODE
-        //
-        // Examples of RFC 6891 extended RCODEs:
-        //   NoError:    0 = 0b0000_0000_0000
-        //                               ^^^^ Stored in DNS header RCODE field
-        //                     ^^^^_^^^^      Stored in OPT header RCODE field
-        //
-        //   FormErr:    1 = 0b0000_0000_0001
-        //                               ^^^^ Stored in DNS header RCODE field
-        //                     ^^^^_^^^^      Stored in OPT header RCODE field
-        //
-        //   BadVers:   16 = 0b0000_0001_0000
-        //                               ^^^^ Stored in DNS header RCODE field
-        //                     ^^^^_^^^^      Stored in OPT header RCODE field
-        //
-        //   BadCookie: 23 = 0b0000_0001_0111
-        //                               ^^^^ Stored in DNS header RCODE field
-        //                     ^^^^_^^^^      Stored in OPT header RCODE field
-        //
-        // `OptRcode` defines several functions for accessing RFC 6891
-        // extended RCODE values in different ways:
-        //
-        //    fn         | purpose
-        //    -----------+-----------------------------------------------------
-        //    rcode()    | the RFC 1035 header RCODE part.
-        //    ext()      | the RFC 6891 ENDS OPT extended RCODE part.
-        //    to_parts() | to access both parts at once.
-        //    to_int()   | the IANA number for the RCODE combining both parts.
-        //    -----------------------------------------------------------------
-
         // Define a macro to test the various functions involved in working
         // with RFC 6891 extended RCODEs. Given an OPT RCODE enum variant,
         // check if the functions produce the expected high bit, low bit and
