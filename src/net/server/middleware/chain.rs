@@ -77,7 +77,6 @@ where
 
         match next_processor {
             None => {
-                eprintln!("Processor {processor_index}: no more processors, invoking callback...");
                 // This is the end of the processor chain. Execute the callback
                 // to pass the request to the service for processing.
                 let call_result = handle_msg_cb(&request, response_builder)?;
@@ -85,17 +84,14 @@ where
             }
 
             Some(processor) => {
-                eprintln!("Processor {processor_index}: pre-processing...");
                 match processor.preprocess(request, response_builder) {
                     Err((request, additional)) => {
                         // Pre-processing resulted in a response to send back to the
                         // client. This request will not be processed further.
-                        eprintln!("Processor {processor_index}: pre-processing rejected the request");
                         Ok((request, CallResult::new(additional)))
                     }
 
                     Ok((request, response_builder)) => {
-                        eprintln!("Processor {processor_index}: pre-processing accepted the request, invoking next processor...");
                         // Pre-processing allowed the request to continue.
                         // Pass the request to the next processor.
                         let (request, mut call_result) = self.walk(
@@ -106,13 +102,11 @@ where
                         )?;
 
                         // Post-process it.
-                        eprintln!("Processor {processor_index}: next processor finished, post-processing...");
                         processor
                             .postprocess(&request, &mut call_result.response);
 
                         // Go back down the processor tree and apply the next
                         // post-processor.
-                        eprintln!("Processor {processor_index}: post-processing finished.");
                         Ok((request, call_result))
                     }
                 }

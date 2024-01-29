@@ -45,7 +45,6 @@ where
     ) {
         // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1
         // 4.1.1: Header section format
-        eprintln!("post-process mandatory");
 
         // ID      A 16 bit identifier assigned by the program that
         //         generates any kind of query.  This identifier is copied

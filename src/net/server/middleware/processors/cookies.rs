@@ -141,12 +141,9 @@ impl CookiesMiddlewareProcesor {
         request: &ContextAwareMessage<Message<Target>>,
     ) -> Option<Cookie> {
         if let Some(Ok(cookie)) = Self::cookie(request) {
-            eprintln!("post-process cookies: client cookie found");
             let cookie = if cookie.server().is_some() {
-                eprintln!("post-process cookies: server cookie found, using unchanged");
                 cookie
             } else {
-                eprintln!("post-process cookies: server cookie missing, generating new");
                 cookie.create_response(
                     Serial::now(),
                     request.client_addr().ip(),
@@ -156,7 +153,6 @@ impl CookiesMiddlewareProcesor {
 
             Some(cookie)
         } else {
-            eprintln!("post-process cookies: no client cookie found");
             None
         }
     }
@@ -174,7 +170,6 @@ where
     ) -> Result<PreprocessingOk<Target>, PreprocessingError<Target>> {
         match Self::cookie(&request) {
             None => {
-                eprintln!("pre-process cookies: no cookie");
                 // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
                 // No OPT RR or No COOKIE Option:
                 //   "If there is no OPT record or no COOKIE option
@@ -185,7 +180,6 @@ where
             }
 
             Some(Err(_err)) => {
-                eprintln!("pre-process cookies: malformed cookie");
                 // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.2
                 // Malformed COOKIE Option:
                 //   "If the COOKIE option is too short to contain a
@@ -220,11 +214,6 @@ where
                 );
 
                 if !server_cookie_is_valid {
-                    if server_cookie_exists {
-                        eprintln!("pre-process cookies: client cookie with invalid server cookie");
-                    } else {
-                        eprintln!("pre-process cookies: client cookie only");
-                    }
                     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
                     // Only a Client Cookie:
                     //   "Based on server policy, including rate limiting, the
@@ -283,15 +272,12 @@ where
                     // 5.4 "Querying for a Server Cookie" too?
 
                     if request.header_counts().qdcount() == 0 {
-                        eprintln!("pre-process cookies: pre-fetch detected (qdcount==0)");
                         let additional = if !server_cookie_exists {
-                            eprintln!("pre-process cookies: sending NOERROR with new server cookie");
                             // "If such a query provided just a Client Cookie
                             // and no Server Cookie, the response SHALL have
                             // the RCODE NOERROR."
                             self.prefetch_cookie_response(&request, builder)
                         } else {
-                            eprintln!("pre-process cookies: sending BADCOOKIE with new server cookie");
                             // "In this case, the response SHALL have the
                             // RCODE BADCOOKIE if the Server Cookie sent with
                             // the query was invalid"
@@ -299,17 +285,11 @@ where
                         };
                         return Err((request, additional));
                     } else if !request.received_over_tcp() {
-                        eprintln!("pre-process cookies: UDP detected. Sending BADCOOKIE with new server cookie.");
                         let additional =
                             self.bad_cookie_response(&request, builder);
                         return Err((request, additional));
-                    } else {
-                        eprintln!("pre-process cookies: TCP detected. Ignoring missing or invalid server cookie.");
                     }
                 } else {
-                    eprintln!(
-                        "pre-process cookies: client cookie & valid server cookie"
-                    );
                     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
                     // Querying for a Server Cookie:
                     //   "This mechanism can also be used to
@@ -375,8 +355,6 @@ where
             // append another one (which, if not the first, should be ignored
             // by the client) ?
             response.opt(|opt| opt.cookie(filled_cookie)).unwrap();
-        } else {
-            eprintln!("post-process cookies: nothing to do");
         }
     }
 }

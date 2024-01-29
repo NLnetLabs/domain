@@ -275,7 +275,6 @@ where
                 // First, prefer obeying [`ServiceCommands`] over everything
                 // else.
                 res = command_rx.changed() => {
-                    eprintln!("Service command received");
                     self.process_service_command(res, &mut command_rx)?;
                 }
 
@@ -315,7 +314,6 @@ where
                 // Stop accepting new connections, terminate the server. Child
                 // connections also receeive the command and handle it
                 // themselves.
-                eprintln!("Shutdown command received");
                 return Err("Shutdown command received".to_string());
             }
 
