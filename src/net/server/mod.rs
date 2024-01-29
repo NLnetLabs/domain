@@ -70,6 +70,10 @@
 //! [`tokio::net::TcpStream`]: https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html
 //! [`tokio::net::UdpSocket`]: https://docs.rs/tokio/latest/tokio/net/struct.UdpSocket.html
 
+#![cfg(feature = "unstable-server-transport")]
+#![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
+
+
 pub mod buf;
 pub mod connection;
 pub mod dgram;
