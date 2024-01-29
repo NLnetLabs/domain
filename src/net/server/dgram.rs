@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use std::net::SocketAddr;
 use std::{future::poll_fn, string::String, sync::atomic::Ordering};
 
 use std::{
@@ -6,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use super::ContextAwareMessage;
 use super::{
     buf::BufSource,
     metrics::ServerMetrics,
@@ -127,14 +129,15 @@ where
     fn process_message(
         &self,
         buf: <Buf as BufSource>::Output,
-        addr: <Sock as AsyncDgramSock>::Addr,
+        addr: SocketAddr,
     ) -> Result<(), ServiceError<Svc::Error>> {
         let msg = MsgTyp::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
+        let msg = ContextAwareMessage::new(msg, false, addr);
 
         let metrics = self.metrics.clone();
         let sock = self.sock.clone();
-        let txn = self.service.call(msg /* also send client addr */)?;
+        let txn = self.service.call(msg)?;
 
         tokio::spawn(async move {
             metrics
@@ -175,18 +178,16 @@ where
 
     async fn handle_call_result(
         sock: &Sock,
-        addr: &Sock::Addr,
-        mut call_result: CallResult<Svc::ResponseOctets>,
+        addr: &SocketAddr,
+        CallResult { response, .. }: CallResult<Svc::Target>,
     ) {
-        if let Some(response) = call_result.response() {
-            let _ =
-                Self::send_to(sock, response.as_dgram_slice(), addr).await;
-        }
+        let _ = Self::send_to(sock, response.finish().as_dgram_slice(), addr)
+            .await;
     }
 
     async fn recv_from(
         &self,
-    ) -> Result<(Buf::Output, Sock::Addr), io::Error> {
+    ) -> Result<(Buf::Output, SocketAddr), io::Error> {
         let mut res = self.buf.create_buf();
         let addr = {
             let mut buf = ReadBuf::new(res.as_mut());
@@ -198,7 +199,7 @@ where
     async fn send_to(
         sock: &Sock,
         data: &[u8],
-        dest: &Sock::Addr,
+        dest: &SocketAddr,
     ) -> Result<(), io::Error> {
         let sent = poll_fn(|ctx| sock.poll_send_to(ctx, data, dest)).await?;
         if sent != data.len() {

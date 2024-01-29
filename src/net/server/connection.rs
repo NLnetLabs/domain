@@ -1,9 +1,12 @@
+use crate::base::StreamTarget;
+
 use super::buf::BufSource;
 use super::metrics::ServerMetrics;
 use super::service::{
     CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
     Transaction,
 };
+use super::ContextAwareMessage;
 use chrono::{DateTime, Utc};
 use core::marker::PhantomData;
 use core::ops::ControlFlow;
@@ -11,6 +14,7 @@ use core::sync::atomic::Ordering;
 use core::time::Duration;
 use futures::{pin_mut, StreamExt};
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
@@ -31,6 +35,7 @@ where
     metrics: Arc<ServerMetrics>,
     service: Arc<Svc>,
     stream: Option<Stream>,
+    addr: SocketAddr,
     _phantom: PhantomData<MsgTyp>,
 }
 
@@ -47,12 +52,14 @@ where
         buf_source: Arc<Buf>,
         metrics: Arc<ServerMetrics>,
         stream: Stream,
+        addr: SocketAddr,
     ) -> Self {
         Self {
             buf_source,
             service,
             metrics,
             stream: Some(stream),
+            addr,
             _phantom: PhantomData,
         }
     }
@@ -102,7 +109,7 @@ where
     ) {
         let (mut stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, mut result_q_rx) =
-            mpsc::channel::<CallResult<Svc::ResponseOctets>>(10); // TODO: Take from configuration
+            mpsc::channel::<CallResult<Svc::Target>>(10); // TODO: Take from configuration
         let idle_timeout = chrono::Duration::seconds(3); // TODO: Take from configuration
 
         let mut state =
@@ -148,7 +155,7 @@ where
         command_rx: &mut watch::Receiver<ServiceCommand>,
         state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
         stream_rx: &mut ReadHalf<Stream>,
-        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
+        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
         msg_size_buf: &mut <Buf as BufSource>::Output,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         self.transceive_until(
@@ -186,7 +193,7 @@ where
         command_rx: &mut watch::Receiver<ServiceCommand>,
         state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
         stream_rx: &mut ReadHalf<Stream>,
-        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
+        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
         buf: &mut <Buf as BufSource>::Output,
     ) -> Result<ConnectionEvent<Svc::Error>, ConnectionEvent<Svc::Error>>
     {
@@ -365,9 +372,11 @@ where
         let msg = MsgTyp::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
 
+        let msg = ContextAwareMessage::new(msg, true, self.addr);
+
         let metrics = self.metrics.clone();
         let tx = state.result_q_tx.clone();
-        let txn = service.call(msg /* also send client addr */)?;
+        let txn = service.call(msg)?;
 
         tokio::spawn(async move {
             // TODO: Shouldn't this counter be incremented just before
@@ -409,37 +418,29 @@ where
     }
 
     async fn enqueue_call_result(
-        tx: &mpsc::Sender<CallResult<Svc::ResponseOctets>>,
-        mut call_result: CallResult<Svc::ResponseOctets>,
+        tx: &mpsc::Sender<CallResult<Svc::Target>>,
+        call_result: CallResult<Svc::Target>,
         metrics: &Arc<ServerMetrics>,
     ) {
-        if let Some(response) = call_result.response() {
-            let call_result = if let Some(command) = call_result.command() {
-                CallResult::with_feedback(response, command)
-            } else {
-                CallResult::new(response)
-            };
-
-            if let Err(err) = tx.send(call_result).await {
-                eprintln!(
-                    "StreamServer: Error while queuing response: {err}"
-                );
-            }
-            metrics
-                .num_pending_writes
-                .store(tx.max_capacity() - tx.capacity(), Ordering::Relaxed);
+        if let Err(err) = tx.send(call_result).await {
+            // TODO: How should we properly communicate this to the operator?
+            eprintln!("StreamServer: Error while queuing response: {err}");
         }
+
+        metrics
+            .num_pending_writes
+            .store(tx.max_capacity() - tx.capacity(), Ordering::Relaxed);
     }
 
     async fn flush_write_queue(
         &self,
         state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
-        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::ResponseOctets>>,
+        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
     ) {
-        // Stop accepting new response messages (should we check
-        // for in-flight messages that haven't generated a response
-        // yet but should be allowed to do so?) so that we can flush
-        // the write queue and exit this connection handler.
+        // Stop accepting new response messages (should we check for in-flight
+        // messages that haven't generated a response yet but should be
+        // allowed to do so?) so that we can flush the write queue and exit
+        // this connection handler.
         result_q_rx.close();
         while let Some(call_result) = result_q_rx.recv().await {
             self.process_queued_result(state, call_result).await;
@@ -449,20 +450,19 @@ where
     async fn process_queued_result(
         &self,
         state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
-        mut call_result: CallResult<Svc::ResponseOctets>,
+        CallResult { response, command }: CallResult<Svc::Target>,
     ) {
-        if let Some(msg) = call_result.response() {
-            self.write_result_to_stream(state, msg).await;
-        }
-        if let Some(cmd) = call_result.command() {
-            self.act_on_queued_command(cmd, state).await;
+        self.write_result_to_stream(state, response.finish()).await;
+
+        if let Some(command) = command {
+            self.act_on_queued_command(command, state).await;
         }
     }
 
     async fn write_result_to_stream(
         &self,
         state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
-        msg: crate::base::StreamTarget<<Svc as Service<<Buf as BufSource>::Output, MsgTyp>>::ResponseOctets>,
+        msg: StreamTarget<Svc::Target>,
     ) {
         // TODO: spawn this as a task and serialize access to write with a lock?
         if let Err(err) =
@@ -540,7 +540,7 @@ where
 {
     stream_tx: WriteHalf<Stream>,
 
-    result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
+    result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
 
     // RFC 1035 7.1: "Since a resolver must be able to multiplex multiple
     // requests if it is to perform its function efficiently, each pending
@@ -579,7 +579,7 @@ where
 {
     fn new(
         stream_tx: WriteHalf<Stream>,
-        result_q_tx: mpsc::Sender<CallResult<Svc::ResponseOctets>>,
+        result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
         idle_timeout: chrono::Duration,
     ) -> Self {
         Self {

@@ -15,36 +15,32 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
 /// Asynchronous sending of datagrams.
 pub trait AsyncDgramSock {
-    type Addr: Sized + Send + Sync + 'static;
-
     fn poll_send_to(
         &self,
         cx: &mut Context,
         data: &[u8],
-        dest: &Self::Addr,
+        dest: &SocketAddr,
     ) -> Poll<io::Result<usize>>;
 
     fn poll_recv_from(
         &self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<Self::Addr>>;
+    ) -> Poll<io::Result<SocketAddr>>;
 
     fn poll_peek_from(
         &self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<Self::Addr>>;
+    ) -> Poll<io::Result<SocketAddr>>;
 }
 
 impl AsyncDgramSock for UdpSocket {
-    type Addr = SocketAddr;
-
     fn poll_send_to(
         &self,
         cx: &mut Context,
         data: &[u8],
-        dest: &Self::Addr,
+        dest: &SocketAddr,
     ) -> Poll<io::Result<usize>> {
         UdpSocket::poll_send_to(self, cx, data, *dest)
     }
@@ -53,7 +49,7 @@ impl AsyncDgramSock for UdpSocket {
         &self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<Self::Addr>> {
+    ) -> Poll<io::Result<SocketAddr>> {
         UdpSocket::poll_recv_from(self, cx, buf)
     }
 
@@ -61,7 +57,7 @@ impl AsyncDgramSock for UdpSocket {
         &self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<Self::Addr>> {
+    ) -> Poll<io::Result<SocketAddr>> {
         UdpSocket::poll_peek_from(self, cx, buf)
     }
 }
@@ -69,7 +65,6 @@ impl AsyncDgramSock for UdpSocket {
 //------------ AsyncAccept ---------------------------------------------------
 
 pub trait AsyncAccept {
-    type Addr: Sized + Send;
     type Error: Send;
     type StreamType: AsyncRead + AsyncWrite + Send + Sync + 'static;
     type Stream: Future<Output = Result<Self::StreamType, Self::Error>> + Send;
@@ -78,11 +73,10 @@ pub trait AsyncAccept {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<io::Result<(Self::Stream, Self::Addr)>>;
+    ) -> Poll<io::Result<(Self::Stream, SocketAddr)>>;
 }
 
 impl AsyncAccept for TcpListener {
-    type Addr = SocketAddr;
     type Error = io::Error;
     type StreamType = TcpStream;
     type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
@@ -91,7 +85,7 @@ impl AsyncAccept for TcpListener {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<io::Result<(Self::Stream, Self::Addr)>> {
+    ) -> Poll<io::Result<(Self::Stream, SocketAddr)>> {
         TcpListener::poll_accept(self, cx).map(|res| {
             // TODO: Should we support some sort of callback here to set
             // arbitrary socket options? E.g. TCP keep alive ala

@@ -1,10 +1,15 @@
-use std::string::String;
 use std::time::Duration;
+use std::vec::Vec;
+use std::{convert::AsRef, string::String};
 
 use futures::{Future, Stream};
-use octseq::OctetsBuilder;
+use octseq::{OctetsBuilder, ShortBuf};
 
+use crate::base::message_builder::AdditionalBuilder;
+use crate::base::wire::Composer;
 use crate::base::{message::ShortMessage, Message, StreamTarget};
+
+use super::ContextAwareMessage;
 
 //------------ MsgProvider ---------------------------------------------------
 
@@ -55,7 +60,9 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
 
 //------------ Service -------------------------------------------------------
 
-pub type ServiceResult<R, E> = Result<CallResult<R>, ServiceError<E>>;
+pub type ServiceResultItem<R, E> = Result<CallResult<R>, ServiceError<E>>;
+pub type ServiceResult<RSingle, RStream, E> =
+    Result<Transaction<RSingle, RStream>, ServiceError<E>>;
 
 /// A Service is responsible for generating responses to received DNS messages.
 ///
@@ -110,60 +117,51 @@ pub type ServiceResult<R, E> = Result<CallResult<R>, ServiceError<E>>;
 /// let service: Service = simple_service().into();
 /// ```
 pub trait Service<
-    RequestOctets: AsRef<[u8]>,
-    MsgTyp: MsgProvider<RequestOctets>,
+    RequestOctets: AsRef<[u8]> = Vec<u8>,
+    MsgTyp: MsgProvider<RequestOctets> = Message<RequestOctets>,
 >
 {
     type Error: Send + Sync + 'static;
 
-    type ResponseOctets: OctetsBuilder
-        + Send
-        + Sync
-        + 'static
-        + std::convert::AsRef<[u8]>;
+    type Target: Composer + Send + Sync + 'static;
 
-    type Single: Future<Output = ServiceResult<Self::ResponseOctets, Self::Error>>
+    type Single: Future<Output = ServiceResultItem<Self::Target, Self::Error>>
         + Send
         + 'static;
 
-    type Stream: Stream<Item = ServiceResult<Self::ResponseOctets, Self::Error>>
+    type Stream: Stream<Item = ServiceResultItem<Self::Target, Self::Error>>
         + Send
         + 'static;
 
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
-        message: MsgTyp,
-    ) -> Result<
-        Transaction<Self::Single, Self::Stream>,
-        ServiceError<Self::Error>,
-    >;
+        message: ContextAwareMessage<MsgTyp>,
+    ) -> ServiceResult<Self::Single, Self::Stream, Self::Error>;
 }
 
-impl<F, SrvErr, ReqOct, RespOct, MsgTyp, Sing, Strm> Service<ReqOct, MsgTyp>
-    for F
+impl<F, SrvErr, ReqOct, Tgt, MsgTyp, Sing, Strm> Service<ReqOct, MsgTyp> for F
 where
-    F: Fn(MsgTyp) -> Result<Transaction<Sing, Strm>, ServiceError<SrvErr>>,
+    F: Fn(ContextAwareMessage<MsgTyp>) -> ServiceResult<Sing, Strm, SrvErr>,
     ReqOct: AsRef<[u8]>,
-    RespOct:
-        OctetsBuilder + Send + Sync + 'static + std::convert::AsRef<[u8]>,
+    Tgt: Composer + Send + Sync + 'static,
     MsgTyp: MsgProvider<ReqOct>,
-    Sing: Future<Output = Result<CallResult<RespOct>, ServiceError<SrvErr>>>
+    Sing: Future<Output = Result<CallResult<Tgt>, ServiceError<SrvErr>>>
         + Send
         + 'static,
-    Strm: Stream<Item = Result<CallResult<RespOct>, ServiceError<SrvErr>>>
+    Strm: Stream<Item = Result<CallResult<Tgt>, ServiceError<SrvErr>>>
         + Send
         + 'static,
     SrvErr: Send + Sync + 'static,
 {
     type Error = SrvErr;
-    type ResponseOctets = RespOct;
+    type Target = Tgt;
     type Single = Sing;
     type Stream = Strm;
 
     fn call(
         &self,
-        message: MsgTyp,
+        message: ContextAwareMessage<MsgTyp>,
     ) -> Result<
         Transaction<Self::Single, Self::Stream>,
         ServiceError<Self::Error>,
@@ -209,9 +207,9 @@ pub enum ServiceCommand {
 
 //------------ CallResult ----------------------------------------------------
 
-pub struct CallResult<ResponseOctets> {
-    response: Option<StreamTarget<ResponseOctets>>,
-    command: Option<ServiceCommand>,
+pub struct CallResult<Target> {
+    pub response: AdditionalBuilder<StreamTarget<Target>>,
+    pub command: Option<ServiceCommand>,
 }
 
 /// Directions to a server on how to respond to a request.
@@ -231,40 +229,24 @@ pub struct CallResult<ResponseOctets> {
 ///
 /// For reasons of policy it may be necessary to ignore certain client
 /// requests without sending a response
+impl<Target> CallResult<Target>
+where
+    Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
+    Target::AppendError: Into<ShortBuf>,
+{
 impl<ResponseOctets> CallResult<ResponseOctets> {
-    pub fn new(response: StreamTarget<ResponseOctets>) -> Self {
+    pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
         Self {
-            response: Some(response),
+            response,
             command: None,
         }
     }
 
-    pub fn with_feedback(
-        response: StreamTarget<ResponseOctets>,
-        command: ServiceCommand,
-    ) -> Self {
+    pub fn with_command(self, command: ServiceCommand) -> Self {
         Self {
-            response: Some(response),
+            response: self.response,
             command: Some(command),
         }
-    }
-
-    pub fn per_policy(
-        command: ServiceCommand,
-        response: Option<StreamTarget<ResponseOctets>>,
-    ) -> Self {
-        Self {
-            response,
-            command: Some(command),
-        }
-    }
-
-    pub fn response(&mut self) -> Option<StreamTarget<ResponseOctets>> {
-        self.response.take()
-    }
-
-    pub fn command(&mut self) -> Option<ServiceCommand> {
-        self.command.take()
     }
 }
 

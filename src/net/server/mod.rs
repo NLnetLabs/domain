@@ -80,7 +80,50 @@ pub mod sock;
 pub mod stream;
 pub mod types;
 
+pub mod middleware;
 #[cfg(test)]
 pub mod tests;
 
 pub use types::*;
+
+pub struct ContextAwareMessage<T> {
+    message: T,
+    received_over_tcp: bool,
+    client_addr: std::net::SocketAddr,
+}
+
+impl<T> ContextAwareMessage<T> {
+    pub fn new(
+        message: T,
+        received_over_tcp: bool,
+        client_addr: std::net::SocketAddr,
+    ) -> Self {
+        Self {
+            message,
+            received_over_tcp,
+            client_addr,
+        }
+    }
+
+    pub fn received_over_tcp(&self) -> bool {
+        self.received_over_tcp
+    }
+
+    pub fn client_addr(&self) -> std::net::SocketAddr {
+        self.client_addr
+    }
+}
+
+impl<T> core::ops::Deref for ContextAwareMessage<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.message
+    }
+}
+
+impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.message
+    }
+}

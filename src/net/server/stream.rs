@@ -7,13 +7,23 @@ use super::sock::AsyncAccept;
 use core::marker::PhantomData;
 use std::future::poll_fn;
 use std::io;
-use std::string::String;
+use std::net::SocketAddr;
+use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
+use tokio::task::JoinHandle;
 
 //------------ StreamServer --------------------------------------------------
 
 /// A server for connecting clients via stream transport to a [`Service`].
+///
+/// [`StreamServer`] doesn't itself define how connections should be accepted,
+/// message buffers should be allocated, message lengths should be determined
+/// or how request messages should be received and responses sent. Instead it
+/// is generic over types that provide these abilities.
+///
+/// By using different implementations of these traits, or even your own
+/// implementations, the behaviour of [`StreamServer`] can be tuned as needed.
 ///
 /// The [`StreamServer`] needs a listener to accept incoming connections, a
 /// [`BufSource`] to create message buffers on demand, and a [`Service`] to
@@ -22,6 +32,8 @@ use tokio::sync::watch;
 ///
 /// A listener is anything that implements the [`AsyncAccept`] trait. This
 /// crate provides an implementation for [`tokio::net::TcpListener`].
+///
+/// _**TODO:** Should this crate also provide a TLS listener implementation?_
 ///
 /// # Examples
 /// 
@@ -69,15 +81,6 @@ use tokio::sync::watch;
 /// join_handle.await.unwrap();
 /// # }
 /// ```
-///
-/// # Advanced Usage
-///
-/// [`StreamServer`] doesn't itself define how connections should be accepted,
-/// message buffers should be allocated, message lengths should be determined
-/// or how request messages should be received and responses sent. Instead it
-/// is generic over types that provide these abilities. By using different
-/// implementations of these traits, or even your own implementations, the
-/// behaviour of [`StreamServer`] can be tuned as needed.
 ///
 /// [`Service`]: crate::net::server::service::Service
 /// [`VecBufSource`]: crate::net::server::buf::VecBufSource
@@ -267,42 +270,9 @@ where
 
                 // First, prefer obeying [`ServiceCommands`] over everything
                 // else.
-                command_res = command_rx.changed() => {
-                    command_res.map_err(|err|
-                        format!("Error while receiving command: {err}"))?;
-
-                    let cmd = *command_rx.borrow_and_update();
-
-                    match cmd {
-                        ServiceCommand::Reconfigure { .. } => { /* TODO */ }
-
-                        ServiceCommand::Shutdown => {
-                            // Stop accepting new connections, terminate the
-                            // server. Child connections also receive this
-                            // signal and handle it themselves.
-                            break;
-                        }
-
-                        ServiceCommand::Init => {
-                            // The initial "Init" value in the watch channel
-                            // is never actually seen because the select Into
-                            // impl only calls
-                            // watch::Receiver::borrow_and_update() AFTER
-                            // changed() signals that a new value has been
-                            // placed in the watch channel. So the only way to
-                            // end up here would be if we somehow wrongly
-                            // placed another ServiceCommand::Init value into
-                            // the watch channel after the initial one.
-                            unreachable!()
-                        }
-
-                        ServiceCommand::CloseConnection => {
-                            // Individual connections can be closed. The
-                            // server itself should never receive a
-                            // CloseConnection command.
-                            unreachable!()
-                        }
-                    }
+                res = command_rx.changed() => {
+                    eprintln!("Service command received");
+                    self.process_service_command(res, &mut command_rx)?;
                 }
 
                 // Next, handle a connection that has been accepted, if any.
@@ -312,37 +282,94 @@ where
                             format!("Error while accepting connection: {err}")
                         )?;
 
-                        let conn_command_rx = self.command_rx.clone();
-                        let conn_service = self.service.clone();
-                        let conn_buf = self.buf.clone();
-                        let conn_metrics = self.metrics.clone();
-                        let pre_connect_hook = self.pre_connect_hook;
-                        let conn_fut = async move {
-                        if let Ok(mut stream) = stream.await {
-                            // Let the caller inspect and/or modify the
-                            // accepted stream before passing it to
-                            // Connection.
-                            if let Some(hook) = pre_connect_hook {
-                                hook(&mut stream);
-                            }
-
-                            let conn = Connection::new(
-                                conn_service,
-                                conn_buf,
-                                conn_metrics,
-                                stream,
-                            );
-
-                            conn.run(conn_command_rx).await
-                        }
-                    };
-
-                    tokio::spawn(conn_fut);
+                    self.process_new_connection(stream, addr)?;
                 }
+            }
+        }
+    }
+
+    fn process_service_command(
+        &self,
+        res: Result<(), watch::error::RecvError>,
+        command_rx: &mut watch::Receiver<ServiceCommand>,
+    ) -> Result<(), String> {
+        // If the parent server no longer exists but was not cleanly shutdown
+        // then the command channel will be closed and attempting to check for
+        // a new command will fail. Advise the caller to break the connection
+        // and cleanup if such a problem occurs.
+        res.map_err(|err| format!("Error while receiving command: {err}"))?;
+
+        // Get the changed command.
+        let command = *command_rx.borrow_and_update();
+
+        // And process it.
+        match command {
+            ServiceCommand::Reconfigure { .. } => { /* TODO */ }
+
+            ServiceCommand::Shutdown => {
+                // Stop accepting new connections, terminate the server. Child
+                // connections also receeive the command and handle it
+                // themselves.
+                eprintln!("Shutdown command received");
+                return Err("Shutdown command received".to_string());
+            }
+
+            ServiceCommand::Init => {
+                // The initial "Init" value in the watch channel is never
+                // actually seen because the select Into impl only calls
+                // watch::Receiver::borrow_and_update() AFTER changed()
+                // signals that a new value has been placed in the watch
+                // channel. So the only way to end up here would be if we
+                // somehow wrongly placed another ServiceCommand::Init value
+                // into the watch channel after the initial one.
+                unreachable!()
+            }
+
+            ServiceCommand::CloseConnection => {
+                // Individual connections can be closed. The server itself
+                // should never receive a CloseConnection command.
+                unreachable!()
             }
         }
 
         Ok(())
+    }
+
+    fn process_new_connection(
+        &self,
+        stream: Listener::Stream,
+        addr: SocketAddr,
+    ) -> Result<JoinHandle<()>, String> {
+        // Work around the compiler wanting to move self to the async block by
+        // preparing only those pieces of information from self for the new
+        // connection handler that it actually needs.
+        let conn_command_rx = self.command_rx.clone();
+        let conn_service = self.service.clone();
+        let conn_buf = self.buf.clone();
+        let conn_metrics = self.metrics.clone();
+        let pre_connect_hook = self.pre_connect_hook;
+
+        let join_handle = tokio::spawn(async move {
+            if let Ok(mut stream) = stream.await {
+                // Let the caller inspect and/or modify the accepted stream
+                // before passing it to Connection.
+                if let Some(hook) = pre_connect_hook {
+                    hook(&mut stream);
+                }
+
+                let conn = Connection::new(
+                    conn_service,
+                    conn_buf,
+                    conn_metrics,
+                    stream,
+                    addr,
+                );
+
+                conn.run(conn_command_rx).await
+            }
+        });
+
+        Ok(join_handle)
     }
 
     /// Wait for and accept a single stream connection.
@@ -350,7 +377,7 @@ where
     /// TODO: This may be obsoleted when Rust gains more support for async fns in traits.
     async fn accept(
         &self,
-    ) -> Result<(Listener::Stream, Listener::Addr), io::Error> {
+    ) -> Result<(Listener::Stream, SocketAddr), io::Error> {
         poll_fn(|ctx| self.listener.poll_accept(ctx)).await
     }
 }

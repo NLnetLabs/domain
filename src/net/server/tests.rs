@@ -5,6 +5,7 @@ use core::sync::atomic::Ordering;
 use core::task::Context;
 use core::task::Poll;
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -32,6 +33,8 @@ use crate::net::server::service::ServiceError;
 use crate::net::server::service::Transaction;
 use crate::net::server::sock::AsyncAccept;
 use crate::net::server::stream::StreamServer;
+
+use super::ContextAwareMessage;
 
 /*fn service<RequestOctets: AsRef<[u8]> + Send + Sync + 'static>(
     count: Arc<AtomicU8>,
@@ -206,7 +209,6 @@ impl MockListener {
 }
 
 impl AsyncAccept for MockListener {
-    type Addr = ();
     type Error = io::Error;
     type StreamType = MockStream;
     type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
@@ -214,7 +216,7 @@ impl AsyncAccept for MockListener {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
         match self.ready.load(Ordering::Relaxed) {
             true => {
                 let mut last_accept = self.last_accept.lock().unwrap();
@@ -233,7 +235,8 @@ impl AsyncAccept for MockListener {
                                 messages,
                                 new_message_every,
                             ))),
-                            (),
+                            SocketAddr::from_str("192.168.0.1:12345")
+                                .unwrap(),
                         )));
                     } else {
                         //eprintln!(
@@ -300,12 +303,16 @@ impl Future for MySingle {
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Self::Output> {
-        Poll::Ready(Ok(CallResult::with_feedback(
-            StreamTarget::new_vec(),
-            ServiceCommand::Reconfigure {
-                idle_timeout: Duration::from_millis(5000),
-            },
-        )))
+        let builder = MessageBuilder::new_stream_vec();
+        let additional = builder.additional();
+
+        let command = ServiceCommand::Reconfigure {
+            idle_timeout: Duration::from_millis(5000),
+        };
+
+        let call_result = CallResult::new(additional).with_command(command);
+
+        Poll::Ready(Ok(call_result))
     }
 }
 
@@ -330,10 +337,10 @@ impl MyService {
     }
 }
 
-impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
+impl Service<Vec<u8>> for MyService {
     type Error = ();
 
-    type ResponseOctets = Vec<u8>;
+    type Target = Vec<u8>;
 
     type Single = MySingle;
 
@@ -341,7 +348,7 @@ impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
 
     fn call(
         &self,
-        _msg: Message<Vec<u8>>,
+        _msg: ContextAwareMessage<Message<Vec<u8>>>,
         // TODO: pass other requestor address details e.g. IP address, port, etc.
     ) -> Result<
         Transaction<Self::Single, Self::Stream>,
@@ -412,7 +419,7 @@ async fn stop_service_test() {
         let metrics = srv.metrics();
         let server_status_printer_handle = tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(250)).await;
                 eprintln!(
                     "Server status: #conn={:?}, #req={:?}, #writes={:?}",
                     metrics.num_connections,
@@ -444,7 +451,7 @@ async fn stop_service_test() {
         assert_eq!(srv.metrics().num_inflight_requests(), 0);
         assert_eq!(srv.metrics().num_pending_writes(), 0);
 
-        eprint!("Shutting down");
+        eprintln!("Shutting down");
         srv.shutdown().unwrap();
         eprintln!("Shutdown command sent");
 

@@ -1,7 +1,7 @@
 // TODO: Split into separate examples?
 use std::{
+    fmt::{self, Debug},
     fs::File,
-    future::Pending,
     io::{self, BufReader},
     net::SocketAddr,
     path::Path,
@@ -15,24 +15,36 @@ use std::{
 };
 
 use domain::{
+    base::message_builder::AdditionalBuilder,
+    net::server::{
+        middleware::{
+            builder::MiddlewareBuilder, chain::MiddlewareChain,
+        },
+        service::ServiceResult,
+    },
+};
+use domain::{
     base::{
         iana::{Class, Rcode},
+        wire::Composer,
         Dname, Message, MessageBuilder, StreamTarget,
     },
     net::server::{
-        buf::VecBufSource,
+        buf::{BufSource, VecBufSource},
         dgram::DgramServer,
         service::{
-            CallResult, Service, ServiceCommand, ServiceError, ServiceResult,
-            Transaction,
+            CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
+            ServiceResultItem, Transaction,
         },
         sock::AsyncAccept,
         stream::StreamServer,
+        ContextAwareMessage,
     },
     rdata::A,
 };
-use futures::{stream::Once, Future, Stream};
-use octseq::OctetsBuilder;
+use futures::{Future, Stream};
+use octseq::{FreezeBuilder, Octets};
+
 use rustls_pemfile::{certs, rsa_private_keys};
 use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio_rustls::{
@@ -42,9 +54,15 @@ use tokio_rustls::{
 use tokio_tfo::{TfoListener, TfoStream};
 
 // Helper fn to create a dummy response to send back to the client
-fn mk_answer(msg: &Message<Vec<u8>>) -> Message<Vec<u8>> {
-    let res = MessageBuilder::new_vec();
-    let mut answer = res.start_answer(msg, Rcode::NoError).unwrap();
+fn mk_answer<Target>(
+    msg: &ContextAwareMessage<Message<Target>>,
+    builder: MessageBuilder<StreamTarget<Target>>,
+) -> AdditionalBuilder<StreamTarget<Target>>
+where
+    Target: Octets + Composer + FreezeBuilder<Octets = Target>,
+    <Target as octseq::OctetsBuilder>::AppendError: fmt::Debug,
+{
+    let mut answer = builder.start_answer(msg, Rcode::NoError).unwrap();
     answer
         .push((
             Dname::root_ref(),
@@ -53,52 +71,55 @@ fn mk_answer(msg: &Message<Vec<u8>>) -> Message<Vec<u8>> {
             A::from_octets(192, 0, 2, 1),
         ))
         .unwrap();
-    answer.into_message()
+
+    answer.additional()
 }
 
-struct NoStream;
+struct UnreachableStream;
 
-impl Stream for NoStream {
+impl Stream for UnreachableStream {
     type Item = Result<CallResult<Vec<u8>>, ServiceError<()>>;
 
     fn poll_next(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        todo!()
+        unreachable!()
     }
 }
 
 struct MyService;
 
-impl Service<Vec<u8>, Message<Vec<u8>>> for MyService {
+impl Service<Vec<u8>> for MyService {
     type Error = ();
 
-    type ResponseOctets = Vec<u8>;
+    type Target = Vec<u8>;
 
     type Single = std::future::Ready<
         Result<CallResult<Vec<u8>>, ServiceError<Self::Error>>,
     >;
 
-    type Stream = NoStream;
+    type Stream = UnreachableStream;
 
     fn call(
         &self,
-        message: Message<Vec<u8>>,
+        msg: ContextAwareMessage<Message<Vec<u8>>>,
     ) -> Result<
         Transaction<Self::Single, Self::Stream>,
         ServiceError<Self::Error>,
     > {
-        // Note: This fn will block the server until it returns. As the code
-        // below works out the answer to the request immediately this will
-        // block the server until the answer has been constructed.
-        let mut target = StreamTarget::new_vec();
-        target
-            .append_slice(&mk_answer(&message).into_octets())
-            .unwrap();
-        Ok(Transaction::Single(std::future::ready(Ok(
-            CallResult::new(target),
-        ))))
+        let mut middleware = MiddlewareBuilder::<Vec<u8>>::default();
+        let middleware = middleware.finish();
+
+        let target = StreamTarget::new_vec();
+
+        let call_result = middleware
+            .apply(msg, target, |msg, target| {
+                Ok(CallResult::new(mk_answer(msg, target)))
+            })
+            .map(|(_request, call_result)| call_result)?;
+
+        Ok(Transaction::Single(std::future::ready(Ok(call_result))))
     }
 }
 
@@ -117,7 +138,6 @@ impl DoubleListener {
 
 /// Combine two streams into one by interleaving the output of both as it is produced.
 impl AsyncAccept for DoubleListener {
-    type Addr = SocketAddr;
     type Error = io::Error;
     type StreamType = TcpStream;
     type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
@@ -125,7 +145,7 @@ impl AsyncAccept for DoubleListener {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
         let (x, y) = match self.alt.fetch_xor(true, Ordering::SeqCst) {
             false => (&self.a, &self.b),
             true => (&self.b, &self.a),
@@ -163,7 +183,6 @@ impl std::ops::Deref for LocalTfoListener {
 }
 
 impl AsyncAccept for LocalTfoListener {
-    type Addr = SocketAddr;
     type Error = io::Error;
     type StreamType = TfoStream;
     type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
@@ -171,7 +190,7 @@ impl AsyncAccept for LocalTfoListener {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
         TfoListener::poll_accept(self, cx).map(|res| {
             res.map(|(stream, addr)| {
                 (futures::future::ready(Ok(stream)), addr)
@@ -197,7 +216,6 @@ impl std::ops::Deref for BufferedTcpListener {
 }
 
 impl AsyncAccept for BufferedTcpListener {
-    type Addr = SocketAddr;
     type Error = io::Error;
     type StreamType = tokio::io::BufReader<TcpStream>;
     type Stream = futures::future::Ready<Result<Self::StreamType, io::Error>>;
@@ -205,7 +223,7 @@ impl AsyncAccept for BufferedTcpListener {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
         match TcpListener::poll_accept(self, cx) {
             Poll::Ready(Ok((stream, addr))) => {
                 let stream = tokio::io::BufReader::new(stream);
@@ -232,7 +250,6 @@ impl RustlsTcpListener {
 }
 
 impl AsyncAccept for RustlsTcpListener {
-    type Addr = SocketAddr;
     type Error = io::Error;
     type StreamType = tokio_rustls::server::TlsStream<TcpStream>;
     type Stream = tokio_rustls::Accept<TcpStream>;
@@ -241,47 +258,88 @@ impl AsyncAccept for RustlsTcpListener {
     fn poll_accept(
         &self,
         cx: &mut Context,
-    ) -> Poll<Result<(Self::Stream, Self::Addr), io::Error>> {
+    ) -> Poll<Result<(Self::Stream, SocketAddr), io::Error>> {
         TcpListener::poll_accept(&self.listener, cx).map(|res| {
             res.map(|(stream, addr)| (self.acceptor.accept(stream), addr))
         })
     }
 }
 
-fn service(count: Arc<AtomicU8>) -> impl Service<Vec<u8>, Message<Vec<u8>>> {
-    type MyServiceResult = ServiceResult<Vec<u8>, ServiceError<()>>;
-
-    fn query(
-        count: Arc<AtomicU8>,
-        message: Message<Vec<u8>>,
-    ) -> Transaction<
-        impl Future<Output = MyServiceResult>,
-        Once<Pending<MyServiceResult>>,
-    > {
-        let cnt = count
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
-                Some(if x > 0 { x - 1 } else { 0 })
-            })
-            .unwrap();
-
-        // This fn blocks the server until it returns. By returning a future
-        // that handles the request we allow the server to execute the future
-        // in the background without blocking the server.
-        Transaction::Single(async move {
-            eprintln!("Sleeping for 100ms");
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            let mut target = StreamTarget::new_vec();
-            target
-                .append_slice(&mk_answer(&message).into_octets())
-                .unwrap();
-            let idle_timeout = Duration::from_millis((50 * cnt).into());
-            let cmd = ServiceCommand::Reconfigure { idle_timeout };
-            eprintln!("Setting idle timeout to {idle_timeout:?}");
-            Ok(CallResult::with_feedback(target, cmd))
-        })
+fn service<E, M, T, MsgTyp, Single, Stream, Target, TargetFactory>(
+    msg_handler: T,
+    middleware: MiddlewareChain<Target>,
+    target_factory: TargetFactory,
+    metadata: M,
+) -> impl Service<Target, MsgTyp>
+where
+    E: Send + Sync + 'static,
+    M: Clone,
+    T: Fn(
+        ContextAwareMessage<MsgTyp>,
+        MiddlewareChain<Target>,
+        StreamTarget<Target>,
+        M,
+    ) -> ServiceResult<Single, Stream, E>,
+    MsgTyp: MsgProvider<Target>,
+    Single: Future<Output = ServiceResultItem<Target, E>> + Send + 'static,
+    Stream:
+        futures::Stream<Item = ServiceResultItem<Target, E>> + Send + 'static,
+    Target: Composer + Send + Sync + 'static,
+    TargetFactory: Fn() -> StreamTarget<Target> + Clone,
+{
+    move |msg| {
+        msg_handler(
+            msg,
+            middleware.clone(),
+            target_factory(),
+            metadata.clone(),
+        )
     }
+}
 
-    move |msg| Ok(query(count.clone(), msg))
+fn query<Target>(
+    msg: ContextAwareMessage<Message<Target>>,
+    middleware: MiddlewareChain<Target>,
+    target: StreamTarget<Target>,
+    count: Arc<AtomicU8>,
+) -> ServiceResult<
+    impl Future<Output = ServiceResultItem<Target, ()>>,
+    UnreachableStream,
+    (),
+>
+where
+    Target: Composer + Octets + FreezeBuilder<Octets = Target>,
+    <Target as octseq::OctetsBuilder>::AppendError: Debug,
+{
+    let cnt = count
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+            Some(if x > 0 { x - 1 } else { 0 })
+        })
+        .unwrap();
+
+    // This fn blocks the server until it returns. By returning a future
+    // that handles the request we allow the server to execute the future
+    // in the background without blocking the server.
+    Ok(Transaction::Single(async move {
+        eprintln!("Sleeping for 100ms");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        middleware
+            .apply(msg, target, |msg, target| {
+                // TODO: business logic of processing the request
+                // and generating an answer.
+                let answer = mk_answer(msg, target);
+
+                let idle_timeout = Duration::from_millis((50 * cnt).into());
+                let cmd = ServiceCommand::Reconfigure { idle_timeout };
+                eprintln!("Setting idle timeout to {idle_timeout:?}");
+
+                let call_result = CallResult::new(answer).with_command(cmd);
+
+                Ok(call_result)
+            })
+            .map(|(_request, call_result)| call_result)
+    }))
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -432,10 +490,18 @@ async fn main() {
     let listener = TcpListener::bind("127.0.0.1:8082").await.unwrap();
     let listener = BufferedTcpListener(listener);
     let count = Arc::new(AtomicU8::new(5));
+
+    let mut middleware = MiddlewareBuilder::<Vec<u8>>::default();
+    let middleware = middleware.finish();
+
+    let cloned_buf_source = buf_source.clone();
+    let target_factory =
+        move || StreamTarget::new(cloned_buf_source.create_buf()).unwrap();
+
     let srv = StreamServer::new(
         listener,
         buf_source.clone(),
-        service(count).into(),
+        service(query, middleware, target_factory, count).into(),
     );
     let fn_join_handle = tokio::spawn(async move { srv.run().await });
 

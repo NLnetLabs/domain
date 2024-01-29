@@ -754,6 +754,12 @@ impl<Target: Composer> AnswerBuilder<Target> {
     }
 }
 
+impl<Target> AnswerBuilder<Target> {
+    pub fn into_target(self) -> Target {
+        self.builder.target
+    }
+}
+
 impl<Target: Composer> AnswerBuilder<Target> {
     /// Appends a record to the answer section.
     ///
@@ -1694,6 +1700,10 @@ impl<'a, Target: Composer + ?Sized> OptBuilder<'a, Target> {
 //------------ StreamTarget --------------------------------------------------
 
 /// A builder target for sending messages on stream transports.
+///
+/// TODO: Rename this type and adjust the doc comments as it is usable both
+/// for datagram AND stream transports via [`as_dgram_slice()`] and
+/// [`as_stream_slice()`].
 ///
 /// When messages are sent over stream-oriented transports such as TCP, a DNS
 /// message is preceded by a 16 bit length value in order to determine the
