@@ -49,6 +49,7 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
 
     type Msg = Self;
 
+    #[must_use]
     fn determine_msg_len(hdr_buf: &mut RequestOctets) -> usize {
         u16::from_be_bytes(hdr_buf.as_ref().try_into().unwrap()) as usize
     }
@@ -234,7 +235,7 @@ where
     Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Target::AppendError: Into<ShortBuf>,
 {
-impl<ResponseOctets> CallResult<ResponseOctets> {
+    #[must_use]
     pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
         Self {
             response,
@@ -242,6 +243,7 @@ impl<ResponseOctets> CallResult<ResponseOctets> {
         }
     }
 
+    #[must_use]
     pub fn with_command(self, command: ServiceCommand) -> Self {
         Self {
             response: self.response,

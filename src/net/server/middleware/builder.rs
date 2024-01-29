@@ -21,6 +21,7 @@ impl<Target> MiddlewareBuilder<Target>
 where
     Target: Composer,
 {
+    #[must_use]
     pub fn new() -> Self {
         Self { processors: vec![] }
     }
@@ -32,6 +33,7 @@ where
         self.processors.push(Box::new(processor));
     }
 
+    #[must_use]
     pub fn finish(self) -> MiddlewareChain<Target> {
         MiddlewareChain::new(self.processors)
     }
@@ -42,6 +44,7 @@ where
     Target: Composer + Octets + FreezeBuilder<Octets = Target>,
     <Target as OctetsBuilder>::AppendError: Debug,
 {
+    #[must_use]
     fn default() -> Self {
         let mut builder = Self::new();
         builder.push(MandatoryMiddlewareProcesor::new());

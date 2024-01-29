@@ -746,6 +746,7 @@ impl<Target: Composer> AnswerBuilder<Target> {
     /// Creates a new answer builder from an underlying message builder.
     ///
     /// Assumes that all three record sections are empty.
+    #[must_use]
     fn new(builder: MessageBuilder<Target>) -> Self {
         AnswerBuilder {
             start: builder.target.as_ref().len(),
@@ -755,6 +756,7 @@ impl<Target: Composer> AnswerBuilder<Target> {
 }
 
 impl<Target> AnswerBuilder<Target> {
+    #[must_use]
     pub fn into_target(self) -> Target {
         self.builder.target
     }

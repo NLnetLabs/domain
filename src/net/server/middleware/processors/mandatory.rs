@@ -19,6 +19,7 @@ use crate::{
 pub struct MandatoryMiddlewareProcesor;
 
 impl MandatoryMiddlewareProcesor {
+    #[must_use]
     pub fn new() -> Self {
         Self
     }

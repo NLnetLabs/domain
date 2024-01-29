@@ -41,6 +41,7 @@ where
     MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp>,
     Svc: Service<Buf::Output, MsgTyp>,
 {
+    #[must_use]
     pub fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));

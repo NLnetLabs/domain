@@ -27,6 +27,7 @@ impl<Target> MiddlewareChain<Target>
 where
     Target: Composer,
 {
+    #[must_use]
     pub fn new(
         processors: Vec<Box<dyn MiddlewareProcessor<Target> + Send + Sync>>,
     ) -> MiddlewareChain<Target>
@@ -125,6 +126,7 @@ impl<Target> Clone for MiddlewareChain<Target>
 where
     Target: Composer,
 {
+    #[must_use]
     fn clone(&self) -> Self {
         Self {
             processors: self.processors.clone(),

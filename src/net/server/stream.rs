@@ -137,6 +137,7 @@ where
     /// awaiting and accepting incoming stream connections.
     /// - A [`BufSource`] for creating buffers on demand.
     /// - A [`Service`] for handling received requests and generating responses.
+    #[must_use]
     pub fn new(listener: Listener, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
@@ -178,6 +179,7 @@ where
     ///     socket.set_tcp_keepalive(&keep_alive).unwrap();
     /// });
     /// ```
+    #[must_use]
     pub fn with_pre_connect_hook(
         mut self,
         pre_connect_hook: fn(&mut Listener::StreamType),
@@ -192,11 +194,13 @@ where
     Listener: AsyncAccept + Send + 'static,
 {
     /// Get a reference to the listener used to accept connections.
+    #[must_use]
     pub fn listener(&self) -> Arc<Listener> {
         self.listener.clone()
     }
 
     /// Get a reference to the metrics for this server.
+    #[must_use]
     pub fn metrics(&self) -> Arc<ServerMetrics> {
         self.metrics.clone()
     }

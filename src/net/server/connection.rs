@@ -47,6 +47,7 @@ where
     MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp>,
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
+    #[must_use]
     pub(super) fn new(
         service: Arc<Svc>,
         buf_source: Arc<Buf>,
@@ -338,6 +339,7 @@ where
         Ok(())
     }
 
+    #[must_use]
     fn process_io_error(
         &self,
         err: io::Error,
@@ -577,6 +579,7 @@ where
     MsgTyp: MsgProvider<Buf::Output>,
     Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
 {
+    #[must_use]
     fn new(
         stream_tx: WriteHalf<Stream>,
         result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
@@ -594,17 +597,20 @@ where
     ///
     /// When we (will) have been sat idle for longer than the configured idle
     /// timeout for this connection.
+    #[must_use]
     pub fn timeout_at(&self) -> chrono::Duration {
         self.idle_timeout
             .checked_sub(&self.idle_time())
             .unwrap_or(chrono::Duration::zero())
     }
 
+    #[must_use]
     pub fn timeout_as_std(&self) -> Duration {
         self.timeout_at().to_std().unwrap_or_default()
     }
 
     /// How long has this connection been sat idle?
+    #[must_use]
     pub fn idle_time(&self) -> chrono::Duration {
         Utc::now().signed_duration_since(self.idle_timer_reset_at)
     }

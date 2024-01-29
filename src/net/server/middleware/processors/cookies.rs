@@ -23,6 +23,7 @@ pub struct CookiesMiddlewareProcesor {
 }
 
 impl CookiesMiddlewareProcesor {
+    #[must_use]
     pub fn new(server_secret: [u8; 16]) -> Self {
         Self { server_secret }
     }
@@ -36,6 +37,7 @@ impl CookiesMiddlewareProcesor {
     ///   "In all cases of multiple COOKIE options in a request, only the
     ///   first (the one closest to the DNS header) is considered. All others
     ///   are ignored."
+    #[must_use]
     fn cookie<Target: Octets>(
         request: &ContextAwareMessage<Message<Target>>,
     ) -> Option<Result<opt::Cookie, ParseError>> {
@@ -48,6 +50,7 @@ impl CookiesMiddlewareProcesor {
             .and_then(|opt| opt.opt().iter::<opt::Cookie>().nth(0))
     }
 
+    #[must_use]
     fn timestamp_ok(_serial: Serial) -> bool {
         // TODO
         true
@@ -58,6 +61,7 @@ impl CookiesMiddlewareProcesor {
     /// This function will panic if the given request does not include a DNS
     /// client cookie or is unable to write to an internal buffer while
     /// constructing the response.
+    #[must_use]
     fn bad_cookie_response<Target>(
         &self,
         request: &ContextAwareMessage<Message<Target>>,
@@ -96,6 +100,7 @@ impl CookiesMiddlewareProcesor {
         additional
     }
 
+    #[must_use]
     fn prefetch_cookie_response<Target>(
         &self,
         request: &ContextAwareMessage<Message<Target>>,
@@ -130,6 +135,7 @@ impl CookiesMiddlewareProcesor {
         additional
     }
 
+    #[must_use]
     fn ensure_cookie_is_complete<Target: Octets>(
         &self,
         request: &ContextAwareMessage<Message<Target>>,
