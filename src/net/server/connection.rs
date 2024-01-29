@@ -93,6 +93,7 @@ where
             .unwrap()
             .fetch_add(1, Ordering::Relaxed);
 
+        // TODO: Why use an Option and then Option::take()?
         let stream = self.stream.take().unwrap();
         self.run_until_error(command_rx, stream).await;
 
@@ -351,15 +352,13 @@ where
                 ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
             }
             io::ErrorKind::TimedOut | io::ErrorKind::Interrupted => {
-                // These errors might be recoverable,
-                // try again.
+                // These errors might be recoverable, try again.
                 ControlFlow::Continue(())
             }
             _ => {
-                // Everything else is either
-                // unrecoverable or unknown to us at
-                // the time of writing and so we can't
-                // guess how to handle it, so abort.
+                // Everything else is either unrecoverable or unknown to us at
+                // the time of writing and so we can't guess how to handle it,
+                // so abort.
                 ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
             }
         }

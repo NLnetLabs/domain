@@ -36,7 +36,7 @@ use tokio::task::JoinHandle;
 /// _**TODO:** Should this crate also provide a TLS listener implementation?_
 ///
 /// # Examples
-/// 
+///
 /// The example below shows how to create, run and shutdown a [`StreamServer`]
 /// configured to receive requests and write responses via a
 /// [`tokio::net::TcpListener`] using a [`VecBufSource`] for buffer allocation
@@ -167,11 +167,11 @@ where
     /// creates the underlying socket and wish to modify the socket options.
     ///
     /// # Examples
-    /// 
+    ///
     /// Setting TCP keepalive on the stream:
     ///
     /// ```ignore
-    /// srv.with_pre_connect_hook(|stream| {
+    /// let srv = srv.with_pre_connect_hook(|stream| {
     ///     let keep_alive = socket2::TcpKeepalive::new()
     ///         .with_time(Duration::from_secs(20))
     ///         .with_interval(Duration::from_secs(20));
@@ -207,7 +207,7 @@ where
 }
 
 /// # Control
-/// 
+///
 impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
 where
     Listener: AsyncAccept + Send + 'static,
@@ -281,7 +281,8 @@ where
 
                 // Next, handle a connection that has been accepted, if any.
                 accept_res = self.accept() => {
-                    let (stream, _addr) = accept_res
+                    // TODO: Do we really want to abort here?
+                    let (stream, addr) = accept_res
                         .map_err(|err|
                             format!("Error while accepting connection: {err}")
                         )?;
