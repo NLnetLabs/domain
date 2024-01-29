@@ -73,7 +73,6 @@
 #![cfg(feature = "unstable-server-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
 
-
 pub mod buf;
 pub mod connection;
 pub mod dgram;
