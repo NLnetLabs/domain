@@ -1081,8 +1081,8 @@ mod test {
 
         cmp(b"foo", "foo", "\"foo\"");
         cmp(b"f oo", "f\\ oo", "\"f oo\"");
-        cmp(b"f\"oo", "f\\\"oo", "f\\\"oo\"");
-        cmp(b"f\\oo", "f\\ oo", "\"f\\\\oo\"");
+        cmp(b"f\"oo", "f\\\"oo", "\"f\\\"oo\"");
+        cmp(b"f\\oo", "f\\\\oo", "\"f\\\\oo\"");
         cmp(b"f;oo", "f\\;oo", "\"f;oo\"");
         cmp(b"f\noo", "f\\010oo", "\"f\\010oo\"");
     }
