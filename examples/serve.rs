@@ -33,8 +33,9 @@ use domain::{
     net::server::{
         buf::{BufSource, VecBufSource},
         dgram::DgramServer,
+        service,
         service::{
-            CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
+            CallResult, Service, ServiceCommand, ServiceError,
             ServiceResultItem, Transaction,
         },
         sock::AsyncAccept,
@@ -266,38 +267,6 @@ impl AsyncAccept for RustlsTcpListener {
         TcpListener::poll_accept(&self.listener, cx).map(|res| {
             res.map(|(stream, addr)| (self.acceptor.accept(stream), addr))
         })
-    }
-}
-
-fn service<E, M, T, MsgTyp, Single, Stream, Target, TargetFactory>(
-    msg_handler: T,
-    middleware: MiddlewareChain<Target>,
-    target_factory: TargetFactory,
-    metadata: M,
-) -> impl Service<Target, MsgTyp>
-where
-    E: Send + Sync + 'static,
-    M: Clone,
-    T: Fn(
-        ContextAwareMessage<MsgTyp>,
-        MiddlewareChain<Target>,
-        StreamTarget<Target>,
-        M,
-    ) -> ServiceResult<Single, Stream, E>,
-    MsgTyp: MsgProvider<Target>,
-    Single: Future<Output = ServiceResultItem<Target, E>> + Send + 'static,
-    Stream:
-        futures::Stream<Item = ServiceResultItem<Target, E>> + Send + 'static,
-    Target: Composer + Send + Sync + 'static,
-    TargetFactory: Fn() -> StreamTarget<Target> + Clone,
-{
-    move |msg| {
-        msg_handler(
-            msg,
-            middleware.clone(),
-            target_factory(),
-            metadata.clone(),
-        )
     }
 }
 

@@ -72,6 +72,7 @@
 
 #![cfg(feature = "unstable-server-transport")]
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-server-transport")))]
+// #![warn(missing_docs)]
 
 pub mod buf;
 pub mod connection;
@@ -87,7 +88,18 @@ pub mod middleware;
 #[cfg(test)]
 pub mod tests;
 
+use std::future::Future;
+
 pub use types::*;
+
+use crate::base::{wire::Composer, StreamTarget};
+
+use self::{
+    middleware::chain::MiddlewareChain,
+    service::{MsgProvider, Service, ServiceResult, ServiceResultItem},
+};
+
+//------------ ContextAwareMessage -------------------------------------------
 
 pub struct ContextAwareMessage<T> {
     message: T,
@@ -128,5 +140,39 @@ impl<T> core::ops::Deref for ContextAwareMessage<T> {
 impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.message
+    }
+}
+
+//------------ service() -----------------------------------------------------
+
+pub fn service<E, M, T, MsgTyp, Single, Stream, Target, TargetFactory>(
+    msg_handler: T,
+    middleware: MiddlewareChain<Target>,
+    target_factory: TargetFactory,
+    metadata: M,
+) -> impl Service<Target, MsgTyp>
+where
+    E: Send + Sync + 'static,
+    M: Clone,
+    T: Fn(
+        ContextAwareMessage<MsgTyp>,
+        MiddlewareChain<Target>,
+        StreamTarget<Target>,
+        M,
+    ) -> ServiceResult<Single, Stream, E>,
+    MsgTyp: MsgProvider<Target>,
+    Single: Future<Output = ServiceResultItem<Target, E>> + Send + 'static,
+    Stream:
+        futures::Stream<Item = ServiceResultItem<Target, E>> + Send + 'static,
+    Target: Composer + Send + Sync + 'static,
+    TargetFactory: Fn() -> StreamTarget<Target> + Clone,
+{
+    move |msg| {
+        msg_handler(
+            msg,
+            middleware.clone(),
+            target_factory(),
+            metadata.clone(),
+        )
     }
 }
