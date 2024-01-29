@@ -33,7 +33,7 @@ use domain::{
     net::server::{
         buf::{BufSource, VecBufSource},
         dgram::DgramServer,
-        service,
+        mk_service,
         service::{
             CallResult, Service, ServiceCommand, ServiceError,
             ServiceResultItem, Transaction,
@@ -477,7 +477,7 @@ async fn main() {
     let srv = StreamServer::new(
         listener,
         buf_source.clone(),
-        service(query, middleware, target_factory, count).into(),
+        mk_service(query, middleware, target_factory, count).into(),
     );
     let fn_join_handle = tokio::spawn(async move { srv.run().await });
 

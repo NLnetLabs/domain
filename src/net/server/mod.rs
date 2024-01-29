@@ -145,7 +145,7 @@ impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
 
 //------------ service() -----------------------------------------------------
 
-pub fn service<E, M, T, MsgTyp, Single, Stream, Target, TargetFactory>(
+pub fn mk_service<E, M, T, MsgTyp, Single, Stream, Target, TargetFactory>(
     msg_handler: T,
     middleware: MiddlewareChain<Target>,
     target_factory: TargetFactory,
