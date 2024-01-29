@@ -19,6 +19,7 @@ use domain::{
     net::server::{
         middleware::{
             builder::MiddlewareBuilder, chain::MiddlewareChain,
+            processors::cookies::CookiesMiddlewareProcesor,
         },
         service::ServiceResult,
     },
@@ -109,6 +110,9 @@ impl Service<Vec<u8>> for MyService {
         ServiceError<Self::Error>,
     > {
         let mut middleware = MiddlewareBuilder::<Vec<u8>>::default();
+        let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+        #[cfg(feature = "siphasher")]
+        middleware.push(CookiesMiddlewareProcesor::new(server_secret));
         let middleware = middleware.finish();
 
         let target = StreamTarget::new_vec();
@@ -492,6 +496,9 @@ async fn main() {
     let count = Arc::new(AtomicU8::new(5));
 
     let mut middleware = MiddlewareBuilder::<Vec<u8>>::default();
+    let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+    #[cfg(feature = "siphasher")]
+    middleware.push(CookiesMiddlewareProcesor::new(server_secret));
     let middleware = middleware.finish();
 
     let cloned_buf_source = buf_source.clone();
