@@ -221,8 +221,8 @@ where
                 tokio::select! {
                     biased;
 
-                    _ = command_rx.changed() => {
-                        self.process_service_command(state, command_rx)?;
+                    res = command_rx.changed() => {
+                        self.process_service_command(res, state, command_rx)?;
                     }
 
                     result_q_res = result_q_rx.recv() => {
@@ -267,6 +267,7 @@ where
 
     fn process_service_command(
         &self,
+        res: Result<(), watch::error::RecvError>,
         state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
         command_rx: &mut watch::Receiver<ServiceCommand>,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
@@ -274,14 +275,7 @@ where
         // then the command channel will be closed and attempting to check for
         // a new command will fail. Advise the caller to break the connection
         // and cleanup if such a problem occurs.
-        let command_has_changed = command_rx
-            .has_changed()
-            .map_err(|_err| ConnectionEvent::DisconnectWithFlush)?;
-
-        if !command_has_changed {
-            // Nothing to do.
-            return Ok(());
-        }
+        res.map_err(|_err| ConnectionEvent::DisconnectWithFlush)?;
 
         // Get the changed command.
         let command = *command_rx.borrow_and_update();
