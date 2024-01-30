@@ -1,3 +1,7 @@
+#![cfg_attr(
+    not(feature = "unstable-client-transport"),
+    doc = " The `unstable-client-transport` feature is necessary to enable this module."
+)]
 //! Sending requests and receiving responses.
 //!
 //! This module provides DNS transport protocols that allow sending a DNS
@@ -136,6 +140,7 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "unstable-client-transport")))]
 #![warn(missing_docs)]
 
+pub mod cache;
 pub mod dgram;
 pub mod dgram_stream;
 pub mod multi_stream;
