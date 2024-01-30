@@ -86,7 +86,7 @@ impl Config {
 
 /// DNS transport connection that first issues a query over a UDP transport and
 /// falls back to TCP if the reply is truncated.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Connection<DgramS, Req> {
     /// The UDP transport connection.
     udp_conn: Arc<dgram::Connection<DgramS>>,
