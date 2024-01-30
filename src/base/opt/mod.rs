@@ -564,6 +564,14 @@ impl<Octs> OptRecord<Octs> {
         self.flags & 0x8000 != 0
     }
 
+    pub fn set_dnssec_ok(&mut self, value: bool) {
+        if value {
+            self.flags |= 0x8000;
+        } else {
+            self.flags &= !0x8000;
+        }
+    }
+
     /// Returns a reference to the raw options.
     pub fn opt(&self) -> &Opt<Octs> {
         &self.data
