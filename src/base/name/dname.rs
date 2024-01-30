@@ -350,6 +350,12 @@ impl<Octs: AsRef<[u8]> + ?Sized> Dname<Octs> {
         self.0.as_ref().len()
     }
 
+    /// Returns an object that displays the name with a final dot.
+    ///
+    /// The name itself displays without a final dot unless the name is the
+    /// root label only. Because this means you can’t just unconditionally
+    /// add a dot after the name, this method can be used to display the name
+    /// always ending in a single dot.
     pub fn fmt_with_dot(&self) -> impl fmt::Display + '_ {
         DisplayWithDot(self.for_slice())
     }
@@ -1956,7 +1962,23 @@ pub(crate) mod test {
         assert_eq!(s1.finish(), s2.finish());
     }
 
-    // Scan and Display skipped for now.
+    // Scan skipped for now.
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn display() {
+        use std::string::ToString;
+
+        fn cmp(bytes: &[u8], fmt: &str, fmt_with_dot: &str) {
+            let name = Dname::from_octets(bytes).unwrap();
+            assert_eq!(name.to_string(), fmt);
+            assert_eq!(format!("{}", name.fmt_with_dot()), fmt_with_dot);
+        }
+
+        cmp(b"\0", ".", ".");
+        cmp(b"\x03com\0", "com", "com.");
+        cmp(b"\x07example\x03com\0", "example.com", "example.com.");
+    }
 
     #[cfg(all(feature = "serde", feature = "std"))]
     #[test]

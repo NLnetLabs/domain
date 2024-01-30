@@ -20,7 +20,7 @@ Currently, these blocks include:
   validation,
 * a simple Tokio-based stub resolver.
 
-If you have ideas, requests, or proposals for future features, pleased
+If you have ideas, requests, or proposals for future features, please
 don’t hesitate to open Github issues.
 
 

@@ -13,7 +13,7 @@ use bytes::Bytes;
 use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
 use core::str::FromStr;
-use core::{cmp, fmt, hash};
+use core::{borrow, cmp, fmt, hash};
 use octseq::builder::{
     EmptyBuilder, FreezeBuilder, FromBuilder, IntoBuilder, Truncate,
 };
@@ -738,6 +738,45 @@ impl<Octs: AsRef<[u8]> + ?Sized> fmt::Display for RelativeDname<Octs> {
 impl<Octs: AsRef<[u8]> + ?Sized> fmt::Debug for RelativeDname<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "RelativeDname({})", self)
+    }
+}
+
+//--- AsRef and Borrow
+
+impl<Octs> AsRef<RelativeDname<[u8]>> for RelativeDname<Octs>
+where
+    Octs: AsRef<[u8]> + ?Sized,
+{
+    fn as_ref(&self) -> &RelativeDname<[u8]> {
+        self.for_slice()
+    }
+}
+
+/// Borrow a relative domain name.
+///
+/// Containers holding an owned `RelativeDname<_>` may be queried with name
+/// over a slice. This `Borrow<_>` impl supports user code querying containers
+/// with compatible-but-different types like the following example:
+///
+/// ```
+/// use std::collections::HashMap;
+///
+/// use domain::base::RelativeDname;
+///
+/// fn get_description(
+///     hash: &HashMap<RelativeDname<Vec<u8>>, String>
+/// ) -> Option<&str> {
+///     let lookup_name: &RelativeDname<[u8]> =
+///         RelativeDname::from_slice(b"\x03ftp").unwrap();
+///     hash.get(lookup_name).map(|x| x.as_ref())
+/// }
+/// ```
+impl<Octs> borrow::Borrow<RelativeDname<[u8]>> for RelativeDname<Octs>
+where
+    Octs: AsRef<[u8]>,
+{
+    fn borrow(&self) -> &RelativeDname<[u8]> {
+        self.for_slice()
     }
 }
 
@@ -1708,7 +1747,20 @@ mod test {
         assert_eq!(s1.finish(), s2.finish());
     }
 
-    // Display and Debug skipped for now.
+    #[test]
+    #[cfg(feature = "std")]
+    fn display() {
+        use std::string::ToString;
+
+        fn cmp(bytes: &[u8], fmt: &str) {
+            let name = RelativeDname::from_octets(bytes).unwrap();
+            assert_eq!(name.to_string(), fmt);
+        }
+
+        cmp(b"", "");
+        cmp(b"\x03com", "com");
+        cmp(b"\x07example\x03com", "example.com");
+    }
 
     #[cfg(all(feature = "serde", feature = "std"))]
     #[test]

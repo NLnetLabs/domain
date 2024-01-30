@@ -15,7 +15,7 @@ fn main() {
             start.elapsed().unwrap().as_secs_f32()
         );
         let mut i = 0;
-        while let Some(_) = zone.next_entry().unwrap() {
+        while zone.next_entry().unwrap().is_some() {
             i += 1;
             if i % 100_000_000 == 0 {
                 eprintln!(

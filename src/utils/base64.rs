@@ -520,7 +520,7 @@ const EOF_MARKER: usize = 0xF0;
 
 //============ Test ==========================================================
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod test {
     use super::*;
 
@@ -535,7 +535,6 @@ mod test {
         (b"foobar", "Zm9vYmFy"),
     ];
 
-    #[cfg(feature = "std")]
     #[test]
     fn decode_str() {
         fn decode(s: &str) -> Result<std::vec::Vec<u8>, DecodeError> {
@@ -562,7 +561,6 @@ mod test {
         );
     }
 
-    #[cfg(feature = "std")]
     #[test]
     fn symbol_converter() {
         use crate::base::scan::Symbols;
@@ -590,7 +588,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn display_bytes() {
         use super::*;
 

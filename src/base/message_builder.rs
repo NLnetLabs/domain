@@ -300,14 +300,16 @@ impl<Target: OctetsBuilder + AsMut<[u8]>> MessageBuilder<Target> {
 
 /// # Conversions
 ///
-impl<Target: Composer> MessageBuilder<Target> {
+impl<Target> MessageBuilder<Target> {
     /// Converts the message builder into a message builder
     ///
     /// This is a no-op.
     pub fn builder(self) -> MessageBuilder<Target> {
         self
     }
+}
 
+impl<Target: Composer> MessageBuilder<Target> {
     /// Converts the message builder into a question builder.
     pub fn question(self) -> QuestionBuilder<Target> {
         QuestionBuilder::new(self)
@@ -340,15 +342,14 @@ impl<Target: Composer> MessageBuilder<Target> {
     pub fn finish(self) -> Target {
         self.target
     }
+}
 
+impl<Target: FreezeBuilder> MessageBuilder<Target> {
     /// Converts the builder into a message.
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<<Target as FreezeBuilder>::Octets>
-    where
-        Target: FreezeBuilder,
-    {
+    pub fn into_message(self) -> Message<Target::Octets> {
         unsafe { Message::from_octets_unchecked(self.target.freeze()) }
     }
 }
@@ -445,6 +446,15 @@ where
 {
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.builder()
+    }
+}
+
+impl<Target> From<MessageBuilder<Target>> for Message<Target::Octets>
+where
+    Target: FreezeBuilder,
+{
+    fn from(src: MessageBuilder<Target>) -> Self {
+        src.into_message()
     }
 }
 
@@ -554,14 +564,16 @@ impl<Target: Composer> QuestionBuilder<Target> {
     }
 }
 
-impl<Target: Composer> QuestionBuilder<Target> {
+impl<Target> QuestionBuilder<Target> {
     /// Converts the question builder into a question builder.
     ///
     /// In other words, doesn’t do anything.
     pub fn question(self) -> QuestionBuilder<Target> {
         self
     }
+}
 
+impl<Target: Composer> QuestionBuilder<Target> {
     /// Converts the question builder into an answer builder.
     pub fn answer(self) -> AnswerBuilder<Target> {
         AnswerBuilder::new(self.builder)
@@ -587,15 +599,14 @@ impl<Target: Composer> QuestionBuilder<Target> {
     pub fn finish(self) -> Target {
         self.builder.finish()
     }
+}
 
+impl<Target: FreezeBuilder> QuestionBuilder<Target> {
     /// Converts the question builder into the final message.
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<Target::Octets>
-    where
-        Target: FreezeBuilder,
-    {
+    pub fn into_message(self) -> Message<Target::Octets> {
         self.builder.into_message()
     }
 }
@@ -647,6 +658,15 @@ where
 {
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.question()
+    }
+}
+
+impl<Target> From<QuestionBuilder<Target>> for Message<Target::Octets>
+where
+    Target: FreezeBuilder,
+{
+    fn from(src: QuestionBuilder<Target>) -> Self {
+        src.into_message()
     }
 }
 
@@ -831,15 +851,14 @@ impl<Target: Composer> AnswerBuilder<Target> {
     pub fn finish(self) -> Target {
         self.builder.finish()
     }
+}
 
+impl<Target: FreezeBuilder> AnswerBuilder<Target> {
     /// Converts the answer builder into the final message.
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<Target::Octets>
-    where
-        Target: FreezeBuilder,
-    {
+    pub fn into_message(self) -> Message<Target::Octets> {
         self.builder.into_message()
     }
 }
@@ -891,6 +910,15 @@ where
 {
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.answer()
+    }
+}
+
+impl<Target> From<AnswerBuilder<Target>> for Message<Target::Octets>
+where
+    Target: FreezeBuilder,
+{
+    fn from(src: AnswerBuilder<Target>) -> Self {
+        src.into_message()
     }
 }
 
@@ -1055,9 +1083,7 @@ impl<Target: Composer> AuthorityBuilder<Target> {
         self.rewind();
         self.answer
     }
-}
 
-impl<Target: Composer> AuthorityBuilder<Target> {
     /// Converts the authority builder into an authority builder.
     ///
     /// This is identical to the identity function.
@@ -1076,15 +1102,14 @@ impl<Target: Composer> AuthorityBuilder<Target> {
     pub fn finish(self) -> Target {
         self.answer.finish()
     }
+}
 
+impl<Target: FreezeBuilder> AuthorityBuilder<Target> {
     /// Converts the authority builder into the final message.
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<Target::Octets>
-    where
-        Target: FreezeBuilder,
-    {
+    pub fn into_message(self) -> Message<Target::Octets> {
         self.answer.into_message()
     }
 }
@@ -1136,6 +1161,15 @@ where
 {
     fn from(src: AdditionalBuilder<Target>) -> Self {
         src.authority()
+    }
+}
+
+impl<Target> From<AuthorityBuilder<Target>> for Message<Target::Octets>
+where
+    Target: FreezeBuilder,
+{
+    fn from(src: AuthorityBuilder<Target>) -> Self {
+        src.into_message()
     }
 }
 
@@ -1336,9 +1370,7 @@ impl<Target: Composer> AdditionalBuilder<Target> {
         self.rewind();
         self.authority
     }
-}
 
-impl<Target: Composer> AdditionalBuilder<Target> {
     /// Converts the additional builder into an additional builder.
     ///
     /// In other words, does absolutely nothing.
@@ -1350,15 +1382,14 @@ impl<Target: Composer> AdditionalBuilder<Target> {
     pub fn finish(self) -> Target {
         self.authority.finish()
     }
+}
 
+impl<Target: FreezeBuilder> AdditionalBuilder<Target> {
     /// Converts the additional builder into the final message.
     ///
     /// The method will return a message atop whatever octets sequence the
     /// builder’s octets builder converts into.
-    pub fn into_message(self) -> Message<Target::Octets>
-    where
-        Target: FreezeBuilder,
-    {
+    pub fn into_message(self) -> Message<Target::Octets> {
         self.authority.into_message()
     }
 }
@@ -1410,6 +1441,15 @@ where
 {
     fn from(src: AuthorityBuilder<Target>) -> Self {
         src.additional()
+    }
+}
+
+impl<Target> From<AdditionalBuilder<Target>> for Message<Target::Octets>
+where
+    Target: FreezeBuilder,
+{
+    fn from(src: AdditionalBuilder<Target>) -> Self {
+        src.into_message()
     }
 }
 
