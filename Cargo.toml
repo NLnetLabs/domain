@@ -17,8 +17,7 @@ name = "domain"
 path = "src/lib.rs"
 
 [dependencies]
-#octseq           =  { version = "0.3.2", default-features = false }
-octseq           = { git = "https://github.com/NLnetLabs/octseq.git", branch = "octets-from-for-str", default-features = false }
+octseq           =  { version = "0.5", default-features = false }
 pin-project-lite = "0.2"
 time             =  { version = "0.3.1", default-features = false }
 
