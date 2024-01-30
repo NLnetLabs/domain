@@ -45,6 +45,9 @@ pub trait ComposeRequest: Debug + Send + Sync {
     /// Set the UDP payload size.
     fn set_udp_payload_size(&mut self, value: u16);
 
+    /// Set the DNSSEC OK flag.
+    fn set_dnssec_ok(&mut self, value: bool);
+
     /// Add an EDNS option.
     fn add_opt(
         &mut self,
@@ -217,6 +220,10 @@ impl<Octs: AsRef<[u8]> + Clone + Debug + Octets + Send + Sync + 'static>
 
     fn set_udp_payload_size(&mut self, value: u16) {
         self.opt_mut().set_udp_payload_size(value);
+    }
+
+    fn set_dnssec_ok(&mut self, value: bool) {
+        self.opt_mut().set_dnssec_ok(value);
     }
 
     fn add_opt(
