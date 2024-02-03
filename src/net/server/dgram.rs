@@ -1,4 +1,4 @@
-use core::marker::PhantomData;
+use core::ops::ControlFlow;
 use std::net::SocketAddr;
 use std::{future::poll_fn, string::String, sync::atomic::Ordering};
 
@@ -7,39 +7,44 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::base::Message;
+
+use super::middleware::chain::MiddlewareChain;
+use super::service::{ServiceResultItem, Transaction};
 use super::ContextAwareMessage;
 use super::{
     buf::BufSource,
     metrics::ServerMetrics,
-    service::{
-        CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
-        Transaction,
-    },
+    service::{CallResult, Service, ServiceCommand, ServiceError},
     sock::AsyncDgramSock,
 };
 
-use futures::{pin_mut, StreamExt};
 use tokio::{io::ReadBuf, sync::watch};
 
 //------------ DgramServer ---------------------------------------------------
 
 /// A server for connecting clients via datagram transport to a [`Service`].
-pub struct DgramServer<Sock, Buf, Svc, MsgTyp> {
+pub struct DgramServer<Sock, Buf, Svc>
+where
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
     command_rx: watch::Receiver<ServiceCommand>,
     command_tx: Arc<Mutex<watch::Sender<ServiceCommand>>>,
     sock: Arc<Sock>,
     buf: Arc<Buf>,
     service: Arc<Svc>,
+    middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
     metrics: Arc<ServerMetrics>,
-    _phantom: std::marker::PhantomData<MsgTyp>,
 }
 
-impl<Sock, Buf, Svc, MsgTyp> DgramServer<Sock, Buf, Svc, MsgTyp>
+impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
-    Buf: BufSource,
-    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp>,
-    Svc: Service<Buf::Output, MsgTyp>,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     #[must_use]
     pub fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
@@ -54,8 +59,17 @@ where
             buf,
             service,
             metrics,
-            _phantom: PhantomData,
+            middleware_chain: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_middleware(
+        mut self,
+        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
+    ) -> Self {
+        self.middleware_chain = Some(middleware_chain);
+        self
     }
 
     pub fn shutdown(
@@ -132,49 +146,84 @@ where
         buf: <Buf as BufSource>::Output,
         addr: SocketAddr,
     ) -> Result<(), ServiceError<Svc::Error>> {
-        let msg = MsgTyp::from_octets(buf)
+        let msg = Message::<Buf::Output>::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
-        let msg = ContextAwareMessage::new(msg, false, addr);
 
+        let mut msg = ContextAwareMessage::new(msg, false, addr);
+
+        let (txn, last_processor_idx) = self.preprocess_request(&mut msg)?;
+
+        self.postprocess_response(msg, txn, last_processor_idx);
+
+        Ok(())
+    }
+
+    // TODO: Deduplicate with Connection.
+    fn preprocess_request(
+        &self,
+        msg: &mut ContextAwareMessage<Message<Buf::Output>>,
+    ) -> Result<
+        (
+            Transaction<ServiceResultItem<Svc::Target, Svc::Error>>,
+            Option<usize>,
+        ),
+        ServiceError<Svc::Error>,
+    > {
+        match &self.middleware_chain {
+            Some(middleware_chain) => {
+                match middleware_chain.preprocess(msg) {
+                    ControlFlow::Continue(_) => {
+                        let txn = self.service.call(&msg)?;
+                        Ok((txn, None))
+                    }
+                    ControlFlow::Break((txn, last_processor_idx)) => {
+                        Ok((txn, Some(last_processor_idx)))
+                    }
+                }
+            }
+
+            None => {
+                let txn = self.service.call(&msg)?;
+                Ok((txn, None))
+            }
+        }
+    }
+
+    fn postprocess_response(
+        &self,
+        msg: ContextAwareMessage<Message<Buf::Output>>,
+        mut txn: Transaction<ServiceResultItem<Svc::Target, Svc::Error>>,
+        last_processor_id: Option<usize>,
+    ) {
         let metrics = self.metrics.clone();
         let sock = self.sock.clone();
-        let txn = self.service.call(msg)?;
+        let middleware_chain = self.middleware_chain.clone();
 
         tokio::spawn(async move {
+            // TODO: Shouldn't this counter be incremented just before
+            // service.call() is invoked?
             metrics
                 .num_inflight_requests
                 .fetch_add(1, Ordering::Relaxed);
-            match txn {
-                Transaction::Single(call_fut) => {
-                    if let Ok(call_result) = call_fut.await {
-                        Self::handle_call_result(&sock, &addr, call_result)
-                            .await;
-                    }
+            while let Some(Ok(mut call_result)) = txn.next().await {
+                if let Some(middleware_chain) = &middleware_chain {
+                    middleware_chain.postprocess(
+                        &msg,
+                        &mut call_result.response,
+                        last_processor_id,
+                    );
                 }
-
-                Transaction::Stream(stream) => {
-                    pin_mut!(stream);
-                    while let Some(response) = stream.next().await {
-                        match response {
-                            Ok(call_result) => {
-                                Self::handle_call_result(
-                                    &sock,
-                                    &addr,
-                                    call_result,
-                                )
-                                .await;
-                            }
-                            Err(_) => break,
-                        }
-                    }
-                }
+                Self::handle_call_result(
+                    &sock,
+                    &msg.client_addr(),
+                    call_result,
+                )
+                .await;
             }
             metrics
                 .num_inflight_requests
                 .fetch_sub(1, Ordering::Relaxed);
         });
-
-        Ok(())
     }
 
     async fn handle_call_result(

@@ -1,18 +1,17 @@
-use crate::base::StreamTarget;
+use crate::base::{Message, StreamTarget};
 
 use super::buf::BufSource;
 use super::metrics::ServerMetrics;
+use super::middleware::chain::MiddlewareChain;
 use super::service::{
     CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
-    Transaction,
+    ServiceResultItem, Transaction,
 };
 use super::ContextAwareMessage;
 use chrono::{DateTime, Utc};
-use core::marker::PhantomData;
 use core::ops::ControlFlow;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
-use futures::{pin_mut, StreamExt};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -23,33 +22,32 @@ use tokio::sync::{mpsc, watch};
 
 //------------ Connection -----------------------------------------------
 
-pub struct Connection<Stream, Buf, Svc, MsgTyp>
+pub struct Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgProvider<Buf::Output>,
-    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     buf_source: Arc<Buf>,
     metrics: Arc<ServerMetrics>,
     service: Arc<Svc>,
+    middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
     stream: Option<Stream>,
     addr: SocketAddr,
-    _phantom: PhantomData<MsgTyp>,
 }
 
-impl<Stream, Buf, Svc, MsgTyp> Connection<Stream, Buf, Svc, MsgTyp>
+impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp>,
-    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     #[must_use]
     pub(super) fn new(
         service: Arc<Svc>,
+        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
         buf_source: Arc<Buf>,
         metrics: Arc<ServerMetrics>,
         stream: Stream,
@@ -58,21 +56,20 @@ where
         Self {
             buf_source,
             service,
+            middleware_chain,
             metrics,
             stream: Some(stream),
             addr,
-            _phantom: PhantomData,
         }
     }
 }
 
-impl<Stream, Buf, Svc, MsgTyp> Connection<Stream, Buf, Svc, MsgTyp>
+impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp>,
-    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Start reading requests and writing responses to the stream.
     ///
@@ -117,8 +114,9 @@ where
         let mut state =
             StreamState::new(stream_tx, result_q_tx, idle_timeout);
 
-        let mut msg_size_buf =
-            self.buf_source.create_sized(MsgTyp::MIN_HDR_BYTES);
+        let mut msg_size_buf = self
+            .buf_source
+            .create_sized(Message::<Buf::Output>::MIN_HDR_BYTES);
 
         loop {
             if let Err(err) = self
@@ -155,7 +153,7 @@ where
     async fn transceive_one_request(
         &self,
         command_rx: &mut watch::Receiver<ServiceCommand>,
-        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+        state: &mut StreamState<Stream, Buf, Svc>,
         stream_rx: &mut ReadHalf<Stream>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
         msg_size_buf: &mut <Buf as BufSource>::Output,
@@ -169,7 +167,7 @@ where
         )
         .await?;
 
-        let msg_len = MsgTyp::determine_msg_len(msg_size_buf);
+        let msg_len = Message::determine_msg_len(msg_size_buf);
         let mut msg_buf = self.buf_source.create_sized(msg_len);
 
         self.transceive_until(
@@ -183,7 +181,7 @@ where
 
         state.full_msg_received();
 
-        self.process_message(&*state, msg_buf, self.service.clone())
+        self.process_message(&*state, msg_buf)
             .await
             .map_err(ConnectionEvent::ServiceError)?;
 
@@ -193,7 +191,7 @@ where
     async fn transceive_until(
         &self,
         command_rx: &mut watch::Receiver<ServiceCommand>,
-        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+        state: &mut StreamState<Stream, Buf, Svc>,
         stream_rx: &mut ReadHalf<Stream>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
         buf: &mut <Buf as BufSource>::Output,
@@ -268,7 +266,7 @@ where
     fn process_service_command(
         &self,
         res: Result<(), watch::error::RecvError>,
-        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+        state: &mut StreamState<Stream, Buf, Svc>,
         command_rx: &mut watch::Receiver<ServiceCommand>,
     ) -> Result<(), ConnectionEvent<Svc::Error>> {
         // If the parent server no longer exists but was not cleanly shutdown
@@ -360,18 +358,62 @@ where
 
     async fn process_message(
         &self,
-        state: &StreamState<Stream, Buf, Svc, MsgTyp>,
+        state: &StreamState<Stream, Buf, Svc>,
         buf: <Buf as BufSource>::Output,
-        service: Arc<Svc>,
     ) -> Result<(), ServiceError<Svc::Error>> {
-        let msg = MsgTyp::from_octets(buf)
+        let msg = Message::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
 
-        let msg = ContextAwareMessage::new(msg, true, self.addr);
+        let mut msg = ContextAwareMessage::new(msg, true, self.addr);
 
+        let (txn, last_processor_idx) = self.preprocess_request(&mut msg)?;
+
+        self.postprocess_response(state, msg, txn, last_processor_idx);
+
+        Ok(())
+    }
+
+    // TODO: Deduplicate with DgramServer.
+    fn preprocess_request(
+        &self,
+        msg: &mut ContextAwareMessage<Message<Buf::Output>>,
+    ) -> Result<
+        (
+            Transaction<ServiceResultItem<Svc::Target, Svc::Error>>,
+            Option<usize>,
+        ),
+        ServiceError<Svc::Error>,
+    > {
+        match &self.middleware_chain {
+            Some(middleware_chain) => {
+                match middleware_chain.preprocess(msg) {
+                    ControlFlow::Continue(_) => {
+                        let txn = self.service.call(&msg)?;
+                        Ok((txn, None))
+                    }
+                    ControlFlow::Break((txn, last_processor_idx)) => {
+                        Ok((txn, Some(last_processor_idx)))
+                    }
+                }
+            }
+
+            None => {
+                let txn = self.service.call(&msg)?;
+                Ok((txn, None))
+            }
+        }
+    }
+
+    fn postprocess_response(
+        &self,
+        state: &StreamState<Stream, Buf, Svc>,
+        msg: ContextAwareMessage<Message<Buf::Output>>,
+        mut txn: Transaction<ServiceResultItem<Svc::Target, Svc::Error>>,
+        last_processor_id: Option<usize>,
+    ) {
         let metrics = self.metrics.clone();
         let tx = state.result_q_tx.clone();
-        let txn = service.call(msg)?;
+        let middleware_chain = self.middleware_chain.clone();
 
         tokio::spawn(async move {
             // TODO: Shouldn't this counter be incremented just before
@@ -379,37 +421,20 @@ where
             metrics
                 .num_inflight_requests
                 .fetch_add(1, Ordering::Relaxed);
-            match txn {
-                Transaction::Single(call_fut) => {
-                    if let Ok(call_result) = call_fut.await {
-                        Self::enqueue_call_result(&tx, call_result, &metrics)
-                            .await
-                    }
+            while let Some(Ok(mut call_result)) = txn.next().await {
+                if let Some(middleware_chain) = &middleware_chain {
+                    middleware_chain.postprocess(
+                        &msg,
+                        &mut call_result.response,
+                        last_processor_id,
+                    );
                 }
-
-                Transaction::Stream(stream) => {
-                    pin_mut!(stream);
-                    while let Some(call_result) = stream.next().await {
-                        match call_result {
-                            Ok(call_result) => {
-                                Self::enqueue_call_result(
-                                    &tx,
-                                    call_result,
-                                    &metrics,
-                                )
-                                .await;
-                            }
-                            Err(_) => break,
-                        }
-                    }
-                }
+                Self::enqueue_call_result(&tx, call_result, &metrics).await;
             }
             metrics
                 .num_inflight_requests
                 .fetch_sub(1, Ordering::Relaxed);
         });
-
-        Ok(())
     }
 
     async fn enqueue_call_result(
@@ -429,7 +454,7 @@ where
 
     async fn flush_write_queue(
         &self,
-        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+        state: &mut StreamState<Stream, Buf, Svc>,
         result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
     ) {
         // Stop accepting new response messages (should we check for in-flight
@@ -444,7 +469,7 @@ where
 
     async fn process_queued_result(
         &self,
-        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+        state: &mut StreamState<Stream, Buf, Svc>,
         CallResult { response, command }: CallResult<Svc::Target>,
     ) {
         self.write_result_to_stream(state, response.finish()).await;
@@ -456,7 +481,7 @@ where
 
     async fn write_result_to_stream(
         &self,
-        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+        state: &mut StreamState<Stream, Buf, Svc>,
         msg: StreamTarget<Svc::Target>,
     ) {
         // TODO: spawn this as a task and serialize access to write with a lock?
@@ -477,7 +502,7 @@ where
     async fn act_on_queued_command(
         &self,
         cmd: ServiceCommand,
-        state: &mut StreamState<Stream, Buf, Svc, MsgTyp>,
+        state: &mut StreamState<Stream, Buf, Svc>,
     ) {
         match cmd {
             ServiceCommand::CloseConnection { .. } => todo!(),
@@ -525,13 +550,12 @@ enum ConnectionEvent<T> {
 
 //------------ StreamState ---------------------------------------------------
 
-pub struct StreamState<Stream, Buf, Svc, MsgTyp>
+pub struct StreamState<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgProvider<Buf::Output>,
-    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     stream_tx: WriteHalf<Stream>,
 
@@ -564,13 +588,12 @@ where
     idle_timeout: chrono::Duration,
 }
 
-impl<Stream, Buf, Svc, MsgTyp> StreamState<Stream, Buf, Svc, MsgTyp>
+impl<Stream, Buf, Svc> StreamState<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgProvider<Buf::Output>,
-    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     #[must_use]
     fn new(

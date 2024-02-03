@@ -1,39 +1,30 @@
 use crate::{
     base::{
         message_builder::AdditionalBuilder, wire::Composer, Message,
-        MessageBuilder, StreamTarget,
+        StreamTarget,
     },
     net::server::ContextAwareMessage,
 };
-
-pub type PreprocessingOk<Target> = (
-    ContextAwareMessage<Message<Target>>,
-    MessageBuilder<StreamTarget<Target>>,
-);
-
-pub type PreprocessingError<Target> = (
-    ContextAwareMessage<Message<Target>>,
-    AdditionalBuilder<StreamTarget<Target>>,
-);
+use core::ops::ControlFlow;
 
 /// A processing stage applied to incoming and outgoing messages.
 ///
 /// See [`MiddlewareChain`] for more information.
-pub trait MiddlewareProcessor<Target>
+pub trait MiddlewareProcessor<RequestOctets, Target>
 where
-    Target: Composer,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
 {
     /// Apply middleware pre-processing rules to a request.
     fn preprocess(
         &self,
-        request: ContextAwareMessage<Message<Target>>,
-        builder: MessageBuilder<StreamTarget<Target>>,
-    ) -> Result<PreprocessingOk<Target>, PreprocessingError<Target>>;
+        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>>;
 
     /// Apply middleware post-processing rules to a response.
     fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<Target>>,
+        request: &ContextAwareMessage<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     );
 }

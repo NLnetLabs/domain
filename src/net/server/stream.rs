@@ -2,9 +2,9 @@ use super::buf::BufSource;
 use super::connection::Connection;
 use super::error::Error;
 use super::metrics::ServerMetrics;
-use super::service::{MsgProvider, Service, ServiceCommand};
+use super::middleware::chain::MiddlewareChain;
+use super::service::{Service, ServiceCommand};
 use super::sock::AsyncAccept;
-use core::marker::PhantomData;
 use std::future::poll_fn;
 use std::io;
 use std::net::SocketAddr;
@@ -86,9 +86,12 @@ use tokio::task::JoinHandle;
 /// [`VecBufSource`]: crate::net::server::buf::VecBufSource
 /// [`tokio::net::TcpListener`]:
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
-pub struct StreamServer<Listener, Buf, Svc, MsgTyp>
+pub struct StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// A receiver for receiving [`ServiceCommand`]s.
     ///
@@ -111,24 +114,23 @@ where
     /// A [`Service`] for handling received requests and generating responses.
     service: Arc<Svc>,
 
-    /// [`ServerMetrics`] describing the status of the server.
-    metrics: Arc<ServerMetrics>,
-
     /// An optional pre-connect hook.
     pre_connect_hook: Option<fn(&mut Listener::StreamType)>,
 
-    _phantom: PhantomData<MsgTyp>,
+    middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
+
+    /// [`ServerMetrics`] describing the status of the server.
+    metrics: Arc<ServerMetrics>,
 }
 
 /// # Creation and access
 ///
-impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
-    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Create a new stream transport server.
     ///
@@ -141,9 +143,7 @@ where
     pub fn new(listener: Listener, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
-
         let listener = Arc::new(listener);
-
         let metrics = Arc::new(ServerMetrics::connection_oriented());
 
         StreamServer {
@@ -152,9 +152,9 @@ where
             listener,
             buf,
             service,
-            metrics,
             pre_connect_hook: None,
-            _phantom: PhantomData,
+            middleware_chain: None,
+            metrics,
         }
     }
 
@@ -187,11 +187,23 @@ where
         self.pre_connect_hook = Some(pre_connect_hook);
         self
     }
+
+    #[must_use]
+    pub fn with_middleware(
+        mut self,
+        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
+    ) -> Self {
+        self.middleware_chain = Some(middleware_chain);
+        self
+    }
 }
 
-impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Get a reference to the listener used to accept connections.
     #[must_use]
@@ -208,13 +220,12 @@ where
 
 /// # Control
 ///
-impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
-    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Start the server.
     ///
@@ -228,9 +239,12 @@ where
     }
 }
 
-impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Stop the server.
     ///
@@ -253,13 +267,12 @@ where
     }
 }
 
-impl<Listener, Buf, Svc, MsgTyp> StreamServer<Listener, Buf, Svc, MsgTyp>
+impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
-    MsgTyp: MsgProvider<Buf::Output, Msg = MsgTyp> + Send + Sync + 'static,
-    Svc: Service<Buf::Output, MsgTyp> + Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     /// Accept stream connections until shutdown or fatal error.
     ///
@@ -348,6 +361,7 @@ where
         // connection handler that it actually needs.
         let conn_command_rx = self.command_rx.clone();
         let conn_service = self.service.clone();
+        let conn_middleware_chain = self.middleware_chain.clone();
         let conn_buf = self.buf.clone();
         let conn_metrics = self.metrics.clone();
         let pre_connect_hook = self.pre_connect_hook;
@@ -362,6 +376,7 @@ where
 
                 let conn = Connection::new(
                     conn_service,
+                    conn_middleware_chain,
                     conn_buf,
                     conn_metrics,
                     stream,
@@ -387,10 +402,12 @@ where
 
 //--- Drop
 
-impl<Listener, Buf, Svc, MsgTyp> Drop
-    for StreamServer<Listener, Buf, Svc, MsgTyp>
+impl<Listener, Buf, Svc> Drop for StreamServer<Listener, Buf, Svc>
 where
     Listener: AsyncAccept + Send + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     fn drop(&mut self) {
         // Shutdown the StreamServer. Don't handle the failure case here as

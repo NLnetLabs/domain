@@ -88,16 +88,11 @@ pub mod middleware;
 #[cfg(test)]
 pub mod tests;
 
-use std::future::Future;
-
 pub use types::*;
 
-use crate::base::{wire::Composer, StreamTarget};
+use crate::base::{wire::Composer, Message, StreamTarget};
 
-use self::{
-    middleware::chain::MiddlewareChain,
-    service::{MsgProvider, Service, ServiceResult, ServiceResultItem},
-};
+use self::service::{Service, ServiceResult};
 
 //------------ ContextAwareMessage -------------------------------------------
 
@@ -145,34 +140,22 @@ impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
 
 //------------ service() -----------------------------------------------------
 
-pub fn mk_service<E, M, T, MsgTyp, Single, Stream, Target, TargetFactory>(
+pub fn mk_service<RequestOctets, Target, Error, T, Metadata, TargetFactory>(
     msg_handler: T,
-    middleware: MiddlewareChain<Target>,
     target_factory: TargetFactory,
-    metadata: M,
-) -> impl Service<Target, MsgTyp>
+    metadata: Metadata,
+) -> impl Service<RequestOctets>
 where
-    E: Send + Sync + 'static,
-    M: Clone,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default + Send + Sync + 'static,
+    Error: Send + Sync + 'static,
+    Metadata: Clone,
     T: Fn(
-        ContextAwareMessage<MsgTyp>,
-        MiddlewareChain<Target>,
+        &ContextAwareMessage<Message<RequestOctets>>,
         StreamTarget<Target>,
-        M,
-    ) -> ServiceResult<Single, Stream, E>,
-    MsgTyp: MsgProvider<Target>,
-    Single: Future<Output = ServiceResultItem<Target, E>> + Send + 'static,
-    Stream:
-        futures::Stream<Item = ServiceResultItem<Target, E>> + Send + 'static,
-    Target: Composer + Send + Sync + 'static,
+        Metadata,
+    ) -> ServiceResult<Target, Error>,
     TargetFactory: Fn() -> StreamTarget<Target> + Clone,
 {
-    move |msg| {
-        msg_handler(
-            msg,
-            middleware.clone(),
-            target_factory(),
-            metadata.clone(),
-        )
-    }
+    move |msg: &_| msg_handler(msg, target_factory(), metadata.clone())
 }

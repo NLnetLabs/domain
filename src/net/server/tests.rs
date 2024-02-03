@@ -34,6 +34,7 @@ use crate::net::server::service::Transaction;
 use crate::net::server::sock::AsyncAccept;
 use crate::net::server::stream::StreamServer;
 
+use super::service::ServiceResultItem;
 use super::ContextAwareMessage;
 
 /*fn service<RequestOctets: AsRef<[u8]> + Send + Sync + 'static>(
@@ -339,22 +340,17 @@ impl MyService {
 
 impl Service<Vec<u8>> for MyService {
     type Error = ();
-
     type Target = Vec<u8>;
-
-    type Single = MySingle;
-
-    type Stream = MyStream;
 
     fn call(
         &self,
-        _msg: ContextAwareMessage<Message<Vec<u8>>>,
+        _msg: &ContextAwareMessage<Message<Vec<u8>>>,
         // TODO: pass other requestor address details e.g. IP address, port, etc.
     ) -> Result<
-        Transaction<Self::Single, Self::Stream>,
+        Transaction<ServiceResultItem<Self::Target, Self::Error>>,
         ServiceError<Self::Error>,
     > {
-        Ok(Transaction::Single(MySingle))
+        Ok(Transaction::Single(None))
         // Err(ServiceError::ShuttingDown)
     }
 }

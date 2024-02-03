@@ -1,3 +1,4 @@
+use std::boxed::Box;
 use std::time::Duration;
 use std::vec::Vec;
 use std::{convert::AsRef, string::String};
@@ -10,6 +11,7 @@ use crate::base::wire::Composer;
 use crate::base::{message::ShortMessage, Message, StreamTarget};
 
 use super::ContextAwareMessage;
+use futures::prelude::stream::StreamExt;
 
 //------------ MsgProvider ---------------------------------------------------
 
@@ -61,9 +63,10 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
 
 //------------ Service -------------------------------------------------------
 
-pub type ServiceResultItem<R, E> = Result<CallResult<R>, ServiceError<E>>;
-pub type ServiceResult<RSingle, RStream, E> =
-    Result<Transaction<RSingle, RStream>, ServiceError<E>>;
+pub type ServiceResultItem<Target, E> =
+    Result<CallResult<Target>, ServiceError<E>>;
+pub type ServiceResult<Target, E> =
+    Result<Transaction<ServiceResultItem<Target, E>>, ServiceError<E>>;
 
 /// A Service is responsible for generating responses to received DNS messages.
 ///
@@ -117,54 +120,34 @@ pub type ServiceResult<RSingle, RStream, E> =
 ///
 /// let service: Service = simple_service().into();
 /// ```
-pub trait Service<
-    RequestOctets: AsRef<[u8]> = Vec<u8>,
-    MsgTyp: MsgProvider<RequestOctets> = Message<RequestOctets>,
->
-{
+pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     type Error: Send + Sync + 'static;
-
-    type Target: Composer + Send + Sync + 'static;
-
-    type Single: Future<Output = ServiceResultItem<Self::Target, Self::Error>>
-        + Send
-        + 'static;
-
-    type Stream: Stream<Item = ServiceResultItem<Self::Target, Self::Error>>
-        + Send
-        + 'static;
+    type Target: Composer + Default + Send + Sync + 'static;
 
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
-        message: ContextAwareMessage<MsgTyp>,
-    ) -> ServiceResult<Self::Single, Self::Stream, Self::Error>;
+        message: &ContextAwareMessage<Message<RequestOctets>>,
+    ) -> ServiceResult<Self::Target, Self::Error>;
 }
 
-impl<F, SrvErr, ReqOct, Tgt, MsgTyp, Sing, Strm> Service<ReqOct, MsgTyp> for F
+impl<F, SrvErr, ReqOct, Tgt> Service<ReqOct> for F
 where
-    F: Fn(ContextAwareMessage<MsgTyp>) -> ServiceResult<Sing, Strm, SrvErr>,
+    F: Fn(
+        &ContextAwareMessage<Message<ReqOct>>,
+    ) -> ServiceResult<Tgt, SrvErr>,
     ReqOct: AsRef<[u8]>,
-    Tgt: Composer + Send + Sync + 'static,
-    MsgTyp: MsgProvider<ReqOct>,
-    Sing: Future<Output = Result<CallResult<Tgt>, ServiceError<SrvErr>>>
-        + Send
-        + 'static,
-    Strm: Stream<Item = Result<CallResult<Tgt>, ServiceError<SrvErr>>>
-        + Send
-        + 'static,
+    Tgt: Composer + Default + Send + Sync + 'static,
     SrvErr: Send + Sync + 'static,
 {
     type Error = SrvErr;
     type Target = Tgt;
-    type Single = Sing;
-    type Stream = Strm;
 
     fn call(
         &self,
-        message: ContextAwareMessage<MsgTyp>,
+        message: &ContextAwareMessage<Message<ReqOct>>,
     ) -> Result<
-        Transaction<Self::Single, Self::Stream>,
+        Transaction<Result<CallResult<Tgt>, ServiceError<SrvErr>>>,
         ServiceError<Self::Error>,
     > {
         (*self)(message)
@@ -255,14 +238,35 @@ where
 //------------ Transaction ---------------------------------------------------
 
 /// A server transaction generating the responses for a request.
-pub enum Transaction<SingleFut, StreamFut>
-where
-    SingleFut: Future,
-    StreamFut: Stream,
-{
+pub enum Transaction<Item> {
     /// The transaction will be concluded with a single response.
-    Single(SingleFut),
+    Single(Option<Box<dyn Future<Output = Item> + Send + Unpin>>),
 
     /// The transaction will results in stream of multiple responses.
-    Stream(StreamFut),
+    Stream(Box<dyn Stream<Item = Item> + Send + Unpin>),
+}
+
+impl<Item> Transaction<Item> {
+    pub fn single(
+        fut: Box<dyn Future<Output = Item> + Send + Unpin>,
+    ) -> Self {
+        Self::Single(Some(fut))
+    }
+
+    pub fn stream(
+        stream: Box<dyn Stream<Item = Item> + Send + Unpin>,
+    ) -> Self {
+        Self::Stream(stream)
+    }
+
+    pub async fn next(&mut self) -> Option<Item> {
+        match self {
+            Transaction::Single(opt_fut) => match opt_fut.take() {
+                Some(fut) => Some(fut.await),
+                None => None,
+            },
+
+            Transaction::Stream(stream) => stream.next().await,
+        }
+    }
 }

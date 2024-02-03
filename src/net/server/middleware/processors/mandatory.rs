@@ -1,19 +1,13 @@
-use std::fmt::Debug;
-
-use octseq::{FreezeBuilder, Octets, OctetsBuilder};
-
 use crate::{
     base::{
         message_builder::AdditionalBuilder, wire::Composer, Message,
-        MessageBuilder, StreamTarget,
+        StreamTarget,
     },
     net::server::{
-        middleware::processor::{
-            MiddlewareProcessor, PreprocessingError, PreprocessingOk,
-        },
-        ContextAwareMessage,
+        middleware::processor::MiddlewareProcessor, ContextAwareMessage,
     },
 };
+use core::ops::ControlFlow;
 
 #[derive(Default)]
 pub struct MandatoryMiddlewareProcesor;
@@ -25,22 +19,22 @@ impl MandatoryMiddlewareProcesor {
     }
 }
 
-impl<Target> MiddlewareProcessor<Target> for MandatoryMiddlewareProcesor
+impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
+    for MandatoryMiddlewareProcesor
 where
-    Target: Composer + Octets + FreezeBuilder<Octets = Target>,
-    <Target as OctetsBuilder>::AppendError: Debug,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
 {
     fn preprocess(
         &self,
-        request: ContextAwareMessage<Message<Target>>,
-        builder: MessageBuilder<StreamTarget<Target>>,
-    ) -> Result<PreprocessingOk<Target>, PreprocessingError<Target>> {
-        Ok((request, builder))
+        _request: &mut ContextAwareMessage<Message<RequestOctets>>,
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
+        ControlFlow::Continue(())
     }
 
     fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<Target>>,
+        request: &ContextAwareMessage<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.1

@@ -1,14 +1,19 @@
 use std::boxed::Box;
+use std::future::ready;
 use std::sync::Arc;
 use std::vec::Vec;
 
 use crate::base::wire::Composer;
-use crate::base::{Message, MessageBuilder, StreamTarget};
-use crate::net::server::service::CallResult;
+use crate::base::{Message, StreamTarget};
+use crate::net::server::service::{
+    CallResult, ServiceResultItem, Transaction,
+};
 use crate::net::server::ContextAwareMessage;
 
 use super::processor::MiddlewareProcessor;
-
+use crate::base::message_builder::AdditionalBuilder;
+use core::convert::AsRef;
+use core::ops::{ControlFlow, RangeTo};
 /// Middleware pre-processes requests and post-processes responses to
 /// filter/reject/modify them according to policy and standards.
 ///
@@ -16,111 +21,88 @@ use super::processor::MiddlewareProcessor;
 /// (to ensure the least resources are spent on processing malicious requests)
 /// and immediately prior to writing responses back to the client (to ensure
 /// that what is sent to the client is correct).
-pub struct MiddlewareChain<Target>
+pub struct MiddlewareChain<RequestOctets, Target>
 where
-    Target: Composer,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
 {
-    processors: Arc<Vec<Box<dyn MiddlewareProcessor<Target> + Sync + Send>>>,
+    processors: Arc<
+        Vec<
+            Box<dyn MiddlewareProcessor<RequestOctets, Target> + Sync + Send>,
+        >,
+    >,
 }
 
-impl<Target> MiddlewareChain<Target>
+impl<RequestOctets, Target> MiddlewareChain<RequestOctets, Target>
 where
-    Target: Composer,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
 {
     #[must_use]
     pub fn new(
-        processors: Vec<Box<dyn MiddlewareProcessor<Target> + Send + Sync>>,
-    ) -> MiddlewareChain<Target>
-    where
-        Target: Composer,
-    {
+        processors: Vec<
+            Box<dyn MiddlewareProcessor<RequestOctets, Target> + Send + Sync>,
+        >,
+    ) -> MiddlewareChain<RequestOctets, Target> {
         Self {
             processors: Arc::new(processors),
         }
     }
 }
 
-impl<Target> MiddlewareChain<Target>
+impl<RequestOctets, Target> MiddlewareChain<RequestOctets, Target>
 where
-    Target: Composer,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default + Send + 'static,
 {
-    pub fn apply<T, E>(
+    pub fn preprocess<E: Send + 'static>(
         &self,
-        request: ContextAwareMessage<Message<Target>>,
-        target: StreamTarget<Target>,
-        handle_msg_cb: T,
-    ) -> Result<(ContextAwareMessage<Message<Target>>, CallResult<Target>), E>
-    where
-        T: Fn(
-            &ContextAwareMessage<Message<Target>>,
-            MessageBuilder<StreamTarget<Target>>,
-        ) -> Result<CallResult<Target>, E>,
-    {
-        let response_builder = MessageBuilder::from_target(target).unwrap();
-        self.walk(request, response_builder, handle_msg_cb, 0)
-    }
+        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+    ) -> ControlFlow<(Transaction<ServiceResultItem<Target, E>>, usize)> {
+        for (i, p) in self.processors.iter().enumerate() {
+            match p.preprocess(request) {
+                ControlFlow::Continue(()) => {
+                    // Pre-processing complete, move on to the next pre-processor.
+                }
 
-    fn walk<T, E>(
-        &self,
-        request: ContextAwareMessage<Message<Target>>,
-        response_builder: MessageBuilder<StreamTarget<Target>>,
-        handle_msg_cb: T,
-        processor_index: usize,
-    ) -> Result<(ContextAwareMessage<Message<Target>>, CallResult<Target>), E>
-    where
-        T: Fn(
-            &ContextAwareMessage<Message<Target>>,
-            MessageBuilder<StreamTarget<Target>>,
-        ) -> Result<CallResult<Target>, E>,
-    {
-        let next_processor = self.processors.get(processor_index);
-
-        match next_processor {
-            None => {
-                // This is the end of the processor chain. Execute the callback
-                // to pass the request to the service for processing.
-                let call_result = handle_msg_cb(&request, response_builder)?;
-                Ok((request, call_result))
-            }
-
-            Some(processor) => {
-                match processor.preprocess(request, response_builder) {
-                    Err((request, additional)) => {
-                        // Pre-processing resulted in a response to send back to the
-                        // client. This request will not be processed further.
-                        Ok((request, CallResult::new(additional)))
-                    }
-
-                    Ok((request, response_builder)) => {
-                        // Pre-processing allowed the request to continue.
-                        // Pass the request to the next processor.
-                        let (request, mut call_result) = self.walk(
-                            request,
-                            response_builder,
-                            handle_msg_cb,
-                            processor_index + 1,
-                        )?;
-
-                        // Post-process it.
-                        processor
-                            .postprocess(&request, &mut call_result.response);
-
-                        // Go back down the processor tree and apply the next
-                        // post-processor.
-                        Ok((request, call_result))
-                    }
+                ControlFlow::Break(response) => {
+                    // Stop pre-processing, return the produced response
+                    // (after first applying post-processors to it).
+                    let item = Box::new(ready(Ok(CallResult::new(response))));
+                    return ControlFlow::Break((
+                        Transaction::single(item),
+                        i,
+                    ));
                 }
             }
         }
+
+        ControlFlow::Continue(())
+    }
+
+    pub fn postprocess(
+        &self,
+        request: &ContextAwareMessage<Message<RequestOctets>>,
+        response: &mut AdditionalBuilder<StreamTarget<Target>>,
+        last_processor_idx: Option<usize>,
+    ) {
+        let processors = match last_processor_idx {
+            Some(end) => &self.processors[RangeTo { end }],
+            None => &self.processors[..],
+        };
+
+        processors
+            .iter()
+            .rev()
+            .for_each(|p| p.postprocess(request, response));
     }
 }
 
-/// Manual implementation of Clone to avoid requiring trait bounds to also be Clone.
-impl<Target> Clone for MiddlewareChain<Target>
+impl<RequestOctets, Target> Clone for MiddlewareChain<RequestOctets, Target>
 where
-    Target: Composer,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
 {
-    #[must_use]
     fn clone(&self) -> Self {
         Self {
             processors: self.processors.clone(),

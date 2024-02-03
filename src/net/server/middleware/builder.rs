@@ -1,7 +1,4 @@
-use core::fmt::Debug;
 use std::{boxed::Box, vec::Vec};
-
-use octseq::{FreezeBuilder, Octets, OctetsBuilder};
 
 use crate::base::wire::Composer;
 
@@ -10,16 +7,20 @@ use super::{
     processors::mandatory::MandatoryMiddlewareProcesor,
 };
 
-pub struct MiddlewareBuilder<Target>
+pub struct MiddlewareBuilder<RequestOctets = Vec<u8>, Target = Vec<u8>>
 where
-    Target: Composer,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
 {
-    processors: Vec<Box<dyn MiddlewareProcessor<Target> + Sync + Send>>,
+    processors: Vec<
+        Box<dyn MiddlewareProcessor<RequestOctets, Target> + Sync + Send>,
+    >,
 }
 
-impl<Target> MiddlewareBuilder<Target>
+impl<RequestOctets, Target> MiddlewareBuilder<RequestOctets, Target>
 where
-    Target: Composer,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
 {
     #[must_use]
     pub fn new() -> Self {
@@ -28,21 +29,22 @@ where
 
     pub fn push<T>(&mut self, processor: T)
     where
-        T: MiddlewareProcessor<Target> + Sync + Send + 'static,
+        T: MiddlewareProcessor<RequestOctets, Target> + Sync + Send + 'static,
     {
         self.processors.push(Box::new(processor));
     }
 
     #[must_use]
-    pub fn finish(self) -> MiddlewareChain<Target> {
+    pub fn finish(self) -> MiddlewareChain<RequestOctets, Target> {
         MiddlewareChain::new(self.processors)
     }
 }
 
-impl<Target> Default for MiddlewareBuilder<Target>
+impl<RequestOctets, Target> Default
+    for MiddlewareBuilder<RequestOctets, Target>
 where
-    Target: Composer + Octets + FreezeBuilder<Octets = Target>,
-    <Target as OctetsBuilder>::AppendError: Debug,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default,
 {
     #[must_use]
     fn default() -> Self {

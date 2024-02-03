@@ -1,6 +1,4 @@
-use std::fmt::Debug;
-
-use octseq::{FreezeBuilder, Octets, OctetsBuilder};
+use octseq::{Octets, OctetsBuilder};
 
 use crate::{
     base::{
@@ -11,12 +9,10 @@ use crate::{
         Message, MessageBuilder, Serial, StreamTarget,
     },
     net::server::{
-        middleware::processor::{
-            MiddlewareProcessor, PreprocessingError, PreprocessingOk,
-        },
-        ContextAwareMessage,
+        middleware::processor::MiddlewareProcessor, ContextAwareMessage,
     },
 };
+use core::ops::ControlFlow;
 
 pub struct CookiesMiddlewareProcesor {
     server_secret: [u8; 16],
@@ -38,8 +34,8 @@ impl CookiesMiddlewareProcesor {
     ///   first (the one closest to the DNS header) is considered. All others
     ///   are ignored."
     #[must_use]
-    fn cookie<Target: Octets>(
-        request: &ContextAwareMessage<Message<Target>>,
+    fn cookie<RequestOctets: AsRef<[u8]> + Octets>(
+        request: &ContextAwareMessage<Message<RequestOctets>>,
     ) -> Option<Result<opt::Cookie, ParseError>> {
         // Note: We don't use `opt::Opt::first()` because that will silently
         // ignore an unparseable COOKIE option but we need to detect and
@@ -62,14 +58,14 @@ impl CookiesMiddlewareProcesor {
     /// client cookie or is unable to write to an internal buffer while
     /// constructing the response.
     #[must_use]
-    fn bad_cookie_response<Target>(
+    fn bad_cookie_response<RequestOctets, Target>(
         &self,
-        request: &ContextAwareMessage<Message<Target>>,
+        request: &ContextAwareMessage<Message<RequestOctets>>,
         builder: MessageBuilder<StreamTarget<Target>>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
-        Target: Composer + Octets + FreezeBuilder<Octets = Target>,
-        <Target as OctetsBuilder>::AppendError: Debug,
+        RequestOctets: Octets,
+        Target: Composer + OctetsBuilder,
     {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.3
         //   "If the server responds [ed: by sending a BADCOOKIE error
@@ -101,14 +97,14 @@ impl CookiesMiddlewareProcesor {
     }
 
     #[must_use]
-    fn prefetch_cookie_response<Target>(
+    fn prefetch_cookie_response<RequestOctets, Target>(
         &self,
-        request: &ContextAwareMessage<Message<Target>>,
+        request: &ContextAwareMessage<Message<RequestOctets>>,
         mut builder: MessageBuilder<StreamTarget<Target>>,
     ) -> AdditionalBuilder<StreamTarget<Target>>
     where
-        Target: Composer + Octets + FreezeBuilder<Octets = Target>,
-        <Target as OctetsBuilder>::AppendError: Debug,
+        RequestOctets: AsRef<[u8]> + Octets,
+        Target: Composer + OctetsBuilder,
     {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
         // Querying for a Server Cookie:
@@ -156,19 +152,29 @@ impl CookiesMiddlewareProcesor {
             None
         }
     }
+
+    fn mk_builder_for_target<Target>() -> MessageBuilder<StreamTarget<Target>>
+    where
+        Target: Composer + OctetsBuilder + Default,
+    {
+        let target = StreamTarget::new(Target::default())
+            .map_err(|_| ())
+            .unwrap(); // SAFETY
+        MessageBuilder::from_target(target).unwrap() // SAFETY
+    }
 }
 
-impl<Target> MiddlewareProcessor<Target> for CookiesMiddlewareProcesor
+impl<RequestOctets, Target> MiddlewareProcessor<RequestOctets, Target>
+    for CookiesMiddlewareProcesor
 where
-    Target: Composer + Octets + FreezeBuilder<Octets = Target>,
-    <Target as OctetsBuilder>::AppendError: Debug,
+    RequestOctets: AsRef<[u8]> + Octets,
+    Target: Composer + OctetsBuilder + Default,
 {
     fn preprocess(
         &self,
-        request: ContextAwareMessage<Message<Target>>,
-        mut builder: MessageBuilder<StreamTarget<Target>>,
-    ) -> Result<PreprocessingOk<Target>, PreprocessingError<Target>> {
-        match Self::cookie(&request) {
+        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+    ) -> ControlFlow<AdditionalBuilder<StreamTarget<Target>>> {
+        match Self::cookie(request) {
             None => {
                 // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1
                 // No OPT RR or No COOKIE Option:
@@ -195,8 +201,9 @@ where
                 // TODO: Should we warn in some way about the exact reason
                 // for rejecting the request?
 
+                let mut builder = Self::mk_builder_for_target();
                 builder.header_mut().set_rcode(Rcode::FormErr);
-                return Err((request, builder.additional()));
+                return ControlFlow::Break(builder.additional());
             }
 
             Some(Ok(cookie)) => {
@@ -272,22 +279,24 @@ where
                     // 5.4 "Querying for a Server Cookie" too?
 
                     if request.header_counts().qdcount() == 0 {
+                        let builder = Self::mk_builder_for_target::<Target>();
                         let additional = if !server_cookie_exists {
                             // "If such a query provided just a Client Cookie
                             // and no Server Cookie, the response SHALL have
                             // the RCODE NOERROR."
-                            self.prefetch_cookie_response(&request, builder)
+                            self.prefetch_cookie_response(request, builder)
                         } else {
                             // "In this case, the response SHALL have the
                             // RCODE BADCOOKIE if the Server Cookie sent with
                             // the query was invalid"
-                            self.bad_cookie_response(&request, builder)
+                            self.bad_cookie_response(request, builder)
                         };
-                        return Err((request, additional));
+                        return ControlFlow::Break(additional);
                     } else if !request.received_over_tcp() {
+                        let builder = Self::mk_builder_for_target();
                         let additional =
-                            self.bad_cookie_response(&request, builder);
-                        return Err((request, additional));
+                            self.bad_cookie_response(request, builder);
+                        return ControlFlow::Break(additional);
                     }
                 } else {
                     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
@@ -303,19 +312,20 @@ where
                     // TODO: Does the TCP check also apply to RFC 7873 section
                     // 5.4 "Querying for a Server Cookie" too?
 
+                    let builder = Self::mk_builder_for_target();
                     let additional =
-                        self.prefetch_cookie_response(&request, builder);
-                    return Err((request, additional));
+                        self.prefetch_cookie_response(request, builder);
+                    return ControlFlow::Break(additional);
                 }
             }
         }
 
-        Ok((request, builder))
+        ControlFlow::Continue(())
     }
 
     fn postprocess(
         &self,
-        request: &ContextAwareMessage<Message<Target>>,
+        request: &ContextAwareMessage<Message<RequestOctets>>,
         response: &mut AdditionalBuilder<StreamTarget<Target>>,
     ) {
         // https://datatracker.ietf.org/doc/html/rfc7873#section-5.2.1

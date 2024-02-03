@@ -1,13 +1,14 @@
+use core::future::ready;
 // TODO: Split into separate examples?
 use std::{
-    fmt::{self, Debug},
+    fmt::{self},
     fs::File,
     io::{self, BufReader},
     net::SocketAddr,
     path::Path,
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc,
     },
     task::{Context, Poll},
@@ -18,7 +19,7 @@ use domain::{
     base::message_builder::AdditionalBuilder,
     net::server::{
         middleware::{
-            builder::MiddlewareBuilder, chain::MiddlewareChain,
+            builder::MiddlewareBuilder,
             processors::cookies::CookiesMiddlewareProcesor,
         },
         service::ServiceResult,
@@ -31,20 +32,17 @@ use domain::{
         Dname, Message, MessageBuilder, StreamTarget,
     },
     net::server::{
-        buf::{BufSource, VecBufSource},
+        buf::VecBufSource,
         dgram::DgramServer,
-        mk_service,
-        service::{
-            CallResult, Service, ServiceCommand, ServiceError,
-            ServiceResultItem, Transaction,
-        },
+        // mk_service,
+        service::{CallResult, Service, ServiceError, Transaction},
         sock::AsyncAccept,
         stream::StreamServer,
         ContextAwareMessage,
     },
     rdata::A,
 };
-use futures::{Future, Stream};
+use futures::Stream;
 use octseq::{FreezeBuilder, Octets};
 
 use rustls_pemfile::{certs, rsa_private_keys};
@@ -94,37 +92,18 @@ struct MyService;
 
 impl Service<Vec<u8>> for MyService {
     type Error = ();
-
     type Target = Vec<u8>;
-
-    type Single = std::future::Ready<
-        Result<CallResult<Vec<u8>>, ServiceError<Self::Error>>,
-    >;
-
-    type Stream = UnreachableStream;
 
     fn call(
         &self,
-        msg: ContextAwareMessage<Message<Vec<u8>>>,
-    ) -> Result<
-        Transaction<Self::Single, Self::Stream>,
-        ServiceError<Self::Error>,
-    > {
-        let mut middleware = MiddlewareBuilder::<Vec<u8>>::default();
-        let server_secret = "server12secret34".as_bytes().try_into().unwrap();
-        #[cfg(feature = "siphasher")]
-        middleware.push(CookiesMiddlewareProcesor::new(server_secret));
-        let middleware = middleware.finish();
-
-        let target = StreamTarget::new_vec();
-
-        let call_result = middleware
-            .apply(msg, target, |msg, target| {
-                Ok(CallResult::new(mk_answer(msg, target)))
-            })
-            .map(|(_request, call_result)| call_result)?;
-
-        Ok(Transaction::Single(std::future::ready(Ok(call_result))))
+        msg: &ContextAwareMessage<Message<Vec<u8>>>,
+    ) -> ServiceResult<Self::Target, Self::Error> {
+        let target = StreamTarget::new(Self::Target::default()).unwrap(); // SAFETY
+        let builder = MessageBuilder::from_target(target).unwrap(); // SAFETY
+        let additional = mk_answer(msg, builder);
+        let item = Box::new(ready(Ok(CallResult::new(additional))));
+        let txn = Transaction::single(item);
+        Ok(txn)
     }
 }
 
@@ -270,50 +249,42 @@ impl AsyncAccept for RustlsTcpListener {
     }
 }
 
-fn query<Target>(
-    msg: ContextAwareMessage<Message<Target>>,
-    middleware: MiddlewareChain<Target>,
-    target: StreamTarget<Target>,
-    count: Arc<AtomicU8>,
-) -> ServiceResult<
-    impl Future<Output = ServiceResultItem<Target, ()>>,
-    UnreachableStream,
-    (),
->
-where
-    Target: Composer + Octets + FreezeBuilder<Octets = Target>,
-    <Target as octseq::OctetsBuilder>::AppendError: Debug,
-{
-    let cnt = count
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
-            Some(if x > 0 { x - 1 } else { 0 })
-        })
-        .unwrap();
+// fn query<Target>(
+//     msg: ContextAwareMessage<Message<Target>>,
+//     target: StreamTarget<Target>,
+//     count: Arc<AtomicU8>,
+// ) -> ServiceResult<Target, ()>
+// where
+//     Target: Composer + Octets + FreezeBuilder<Octets = Target>,
+//     <Target as octseq::OctetsBuilder>::AppendError: Debug,
+// {
+//     let cnt = count
+//         .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+//             Some(if x > 0 { x - 1 } else { 0 })
+//         })
+//         .unwrap();
 
-    // This fn blocks the server until it returns. By returning a future
-    // that handles the request we allow the server to execute the future
-    // in the background without blocking the server.
-    Ok(Transaction::Single(async move {
-        eprintln!("Sleeping for 100ms");
-        tokio::time::sleep(Duration::from_millis(100)).await;
+//     // This fn blocks the server until it returns. By returning a future
+//     // that handles the request we allow the server to execute the future
+//     // in the background without blocking the server.
+//     Ok(Transaction::single(Box::new(async move {
+//         // eprintln!("Sleeping for 100ms");
+//         // tokio::time::sleep(Duration::from_millis(100)).await;
 
-        middleware
-            .apply(msg, target, |msg, target| {
-                // TODO: business logic of processing the request
-                // and generating an answer.
-                let answer = mk_answer(msg, target);
+//         // // TODO: business logic of processing the request
+//         // // and generating an answer.
+//         // let answer = mk_answer(&msg, target);
 
-                let idle_timeout = Duration::from_millis((50 * cnt).into());
-                let cmd = ServiceCommand::Reconfigure { idle_timeout };
-                eprintln!("Setting idle timeout to {idle_timeout:?}");
+//         // let idle_timeout = Duration::from_millis((50 * cnt).into());
+//         // let cmd = ServiceCommand::Reconfigure { idle_timeout };
+//         // eprintln!("Setting idle timeout to {idle_timeout:?}");
 
-                let call_result = CallResult::new(answer).with_command(cmd);
+//         // let call_result = CallResult::new(answer).with_command(cmd);
 
-                Ok(call_result)
-            })
-            .map(|(_request, call_result)| call_result)
-    }))
-}
+//         // Ok(call_result)
+//         todo!()
+//     })))
+// }
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -328,12 +299,19 @@ async fn main() {
 
     let svc = Arc::new(MyService);
 
+    let mut middleware = MiddlewareBuilder::default();
+    let server_secret = "server12secret34".as_bytes().try_into().unwrap();
+    #[cfg(feature = "siphasher")]
+    middleware.push(CookiesMiddlewareProcesor::new(server_secret));
+    let middleware = middleware.finish();
+
     // -----------------------------------------------------------------------
     // Run a DNS server on UDP port 8053 on 127.0.0.1. Test it like so:
     //    dig +short +keepopen +tcp -4 @127.0.0.1 -p 8082 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
     let buf_source = Arc::new(VecBufSource);
     let srv = DgramServer::new(udpsocket, buf_source.clone(), svc.clone());
+    let srv = srv.with_middleware(middleware.clone());
 
     let udp_join_handle = tokio::spawn(async move { srv.run().await });
 
@@ -346,6 +324,7 @@ async fn main() {
     let v4listener = v4socket.listen(1024).unwrap();
     let buf_source = Arc::new(VecBufSource);
     let srv = StreamServer::new(v4listener, buf_source.clone(), svc.clone());
+    let srv = srv.with_middleware(middleware.clone());
     let srv = srv.with_pre_connect_hook(|stream| {
         // Demonstrate one way without having access to the code that creates
         // the socket initially to enable TCP keep alive,
@@ -398,6 +377,7 @@ async fn main() {
 
         let srv =
             DgramServer::new(udpsocket, buf_source.clone(), svc.clone());
+        let srv = srv.with_middleware(middleware.clone());
 
         tokio::spawn(async move { srv.run().await })
     };
@@ -419,6 +399,7 @@ async fn main() {
 
     let listener = DoubleListener::new(v4listener, v6listener);
     let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
+    let srv = srv.with_middleware(middleware.clone());
     let double_tcp_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -440,6 +421,7 @@ async fn main() {
         .unwrap();
     let listener = LocalTfoListener(listener);
     let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
+    let srv = srv.with_middleware(middleware.clone());
     let tfo_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -462,23 +444,19 @@ async fn main() {
 
     let listener = TcpListener::bind("127.0.0.1:8082").await.unwrap();
     let listener = BufferedTcpListener(listener);
-    let count = Arc::new(AtomicU8::new(5));
+    // let count = Arc::new(AtomicU8::new(5));
 
-    let mut middleware = MiddlewareBuilder::<Vec<u8>>::default();
-    let server_secret = "server12secret34".as_bytes().try_into().unwrap();
-    #[cfg(feature = "siphasher")]
-    middleware.push(CookiesMiddlewareProcesor::new(server_secret));
-    let middleware = middleware.finish();
-
-    let cloned_buf_source = buf_source.clone();
-    let target_factory =
-        move || StreamTarget::new(cloned_buf_source.create_buf()).unwrap();
+    // let cloned_buf_source = buf_source.clone();
+    // let target_factory =
+    //     move || StreamTarget::new(cloned_buf_source.create_buf()).unwrap();
 
     let srv = StreamServer::new(
         listener,
         buf_source.clone(),
-        mk_service(query, middleware, target_factory, count).into(),
+        // mk_service(query, middleware, target_factory, count).into(),
+        MyService.into(),
     );
+    let srv = srv.with_middleware(middleware.clone());
     let fn_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
@@ -517,6 +495,7 @@ async fn main() {
     let listener = TcpListener::bind("127.0.0.1:8443").await.unwrap();
     let listener = RustlsTcpListener::new(listener, acceptor);
     let srv = StreamServer::new(listener, buf_source.clone(), svc.clone());
+    let srv = srv.with_middleware(middleware.clone());
     let tls_join_handle = tokio::spawn(async move { srv.run().await });
 
     // -----------------------------------------------------------------------
