@@ -298,7 +298,7 @@ where
                             self.bad_cookie_response(request, builder);
                         return ControlFlow::Break(additional);
                     }
-                } else {
+                } else if request.header_counts().qdcount() == 0 {
                     // https://datatracker.ietf.org/doc/html/rfc7873#section-5.4
                     // Querying for a Server Cookie:
                     //   "This mechanism can also be used to
