@@ -12,7 +12,9 @@ use crate::base::net::Ipv4Addr;
 use crate::base::rdata::{
     ComposeRecordData, LongRecordData, ParseRecordData, RecordData,
 };
-use crate::base::scan::{Scan, Scanner, ScannerError, Symbol};
+use crate::base::scan::{Scan, Scanner, ScannerError};
+#[cfg(feature = "serde")]
+use crate::base::scan::Symbol;
 use crate::base::serial::Serial;
 use crate::base::wire::{Compose, Composer, FormError, Parse, ParseError};
 use crate::base::Ttl;
@@ -1882,10 +1884,15 @@ impl<Octs: AsRef<[u8]>> ComposeRecordData for Txt<Octs> {
 
 impl<Octs: AsRef<[u8]>> fmt::Display for Txt<Octs> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for slice in self.iter() {
-            for ch in slice.iter() {
-                fmt::Display::fmt(&Symbol::from_octet(*ch), f)?
+        let mut first = true;
+        for slice in self.iter_char_strs() {
+            if !first {
+                f.write_str(" ")?;
             }
+            else {
+                first = false;
+            }
+            write!(f, "{}", slice.display_quoted())?;
         }
         Ok(())
     }
@@ -2458,9 +2465,14 @@ mod test {
             "yandex-verification: 6059b187e78de544",
             "v=spf1 include:_spf.protonmail.ch ~all",
             "swisssign-check=CF0JHMTlTDNoES3rrknIRggocffSwqmzMb9X8YbjzK",
-            "google-site-verification=aq9zJnp3H3bNE0Y4D4rH5I5Dhj8VMaLYx0uQ7Rozfgg",
-            "ahrefs-site-verification_4bdac6bbaa81e0d591d7c0f3ef238905c0521b69bf3d74e64d3775bcb2743afd",
-            "brave-ledger-verification=66a7f27fb99949cc0c564ab98efcc58ea1bac3e97eb557c782ab2d44b49aefd7",
+            "google-site-\
+                verification=aq9zJnp3H3bNE0Y4D4rH5I5Dhj8VMaLYx0uQ7Rozfgg",
+            "ahrefs-site-verification_\
+                4bdac6bbaa81e0d591d7c0f3ef238905c0521b69bf3d74e64d3775bc\
+                b2743afd",
+            "brave-ledger-verification=\
+                66a7f27fb99949cc0c564ab98efcc58ea1bac3e97eb557c782ab2d44b\
+                49aefd7",
         ];
 
         let records = data
@@ -2472,7 +2484,8 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        // The canonical sort must sort by TXT labels which are prefixed by length byte first.
+        // The canonical sort must sort by TXT labels which are prefixed by
+        // length byte first.
         let mut sorted = records.clone();
         sorted.sort_by(|a, b| a.canonical_cmp(b));
 
@@ -2519,5 +2532,21 @@ mod test {
                 Token::BorrowedStr("foo"),
             ],
         );
+    }
+
+    #[test]
+    fn txt_display() {
+        fn cmp(input: &[u8], output: &str) {
+            assert_eq!(
+                format!("{}", Txt::from_octets(input).unwrap()),
+                output
+            );
+        }
+
+        cmp(b"\x03foo", "\"foo\"");
+        cmp(b"\x03foo\x03bar", "\"foo\" \"bar\"");
+        cmp(b"\x03fo\"\x04bar ", "\"fo\\\"\" \"bar \"");
+        // I don’t think we need more escaping tests since the impl defers
+        // to CharStr::display_quoted which is tested ...
     }
 }

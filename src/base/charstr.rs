@@ -269,12 +269,20 @@ impl<Octs: AsRef<[u8]> + ?Sized> CharStr<Octs> {
     }
 }
 
-impl<Octets> CharStr<Octets> {
+impl<Octs> CharStr<Octs> {
     /// Scans the presentation format from a scanner.
-    pub fn scan<S: Scanner<Octets = Octets>>(
+    pub fn scan<S: Scanner<Octets = Octs>>(
         scanner: &mut S,
     ) -> Result<Self, S::Error> {
         scanner.scan_charstr()
+    }
+
+    /// Returns an object that displays the string always quoted.
+    pub fn display_quoted(&self) -> DisplayQuoted
+    where
+        Octs: AsRef<[u8]>,
+    {
+        DisplayQuoted(self.for_slice())
     }
 }
 
@@ -794,6 +802,24 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
+//------------ DisplayQuoted -------------------------------------------------
+
+/// Helper struct for display a character string surrounded by quotes.
+///
+/// A value of this type can be obtained via `CharStr::display_quoted`.
+#[derive(Clone, Copy, Debug)]
+pub struct DisplayQuoted<'a>(&'a CharStr<[u8]>);
+
+impl<'a> fmt::Display for DisplayQuoted<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("\"")?;
+        for &ch in self.0.as_ref() {
+            fmt::Display::fmt(&Symbol::from_quoted_octet(ch), f)?;
+        }
+        f.write_str("\"")
+    }
+}
+
 //============ Error Types ===================================================
 
 //------------ CharStrError --------------------------------------------------
@@ -1035,5 +1061,29 @@ mod test {
                 Token::Str("fo\\018"),
             ],
         );
+    }
+
+    #[test]
+    fn display() {
+        fn cmp(input: &[u8], normal: &str, quoted: &str) {
+            assert_eq!(
+                format!("{}", CharStr::from_octets(input).unwrap()),
+                normal
+            );
+            assert_eq!(
+                format!(
+                    "{}",
+                    CharStr::from_octets(input).unwrap().display_quoted()
+                ),
+                quoted
+            );
+        }
+
+        cmp(b"foo", "foo", "\"foo\"");
+        cmp(b"f oo", "f\\ oo", "\"f oo\"");
+        cmp(b"f\"oo", "f\\\"oo", "\"f\\\"oo\"");
+        cmp(b"f\\oo", "f\\\\oo", "\"f\\\\oo\"");
+        cmp(b"f;oo", "f\\;oo", "\"f;oo\"");
+        cmp(b"f\noo", "f\\010oo", "\"f\\010oo\"");
     }
 }
