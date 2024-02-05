@@ -14,7 +14,7 @@ use super::super::message_builder::OptBuilder;
 use super::super::wire::{Compose, Composer, ParseError};
 use super::{LongOptData, OptData, ComposeOptData, ParseOptData};
 use octseq::builder::OctetsBuilder;
-use octseq::octets::Octets;
+use octseq::octets::{Octets, OctetsFrom};
 use octseq::parse::Parser;
 
 
@@ -88,6 +88,19 @@ impl<Octs: ?Sized> Padding<Octs> {
         Octs: AsRef<[u8]>,
     {
         self.octets.as_ref()
+    }
+}
+
+//--- OctetsFrom
+
+impl<Octs, SrcOcts> OctetsFrom<Padding<SrcOcts>> for Padding<Octs>
+where Octs: OctetsFrom<SrcOcts> {
+    type Error = Octs::Error;
+
+    fn try_octets_from(src: Padding<SrcOcts>) -> Result<Self, Self::Error> {
+        Octs::try_octets_from(src.octets).map(|octets| unsafe {
+            Self::from_octets_unchecked(octets)
+        })
     }
 }
 
