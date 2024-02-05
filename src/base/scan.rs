@@ -588,6 +588,21 @@ impl Symbol {
         }
     }
 
+    /// Provides the best symbol for an octet inside a quoted string.
+    ///
+    /// The function will only escape a double quote and backslash using the
+    /// simple escape and all non-printable characters using decimal escapes.
+    #[must_use]
+    pub fn from_quoted_octet(ch: u8) -> Self {
+        if ch == b'"' || ch == b'\\' {
+            Symbol::SimpleEscape(ch)
+        } else if !(0x20..0x7F).contains(&ch) {
+            Symbol::DecimalEscape(ch)
+        } else {
+            Symbol::Char(ch as char)
+        }
+    }
+
     /// Converts the symbol into an octet if it represents one.
     ///
     /// Both domain names and character strings operate on bytes instead of
@@ -698,7 +713,7 @@ impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Symbol::Char(ch) => write!(f, "{}", ch),
-            Symbol::SimpleEscape(ch) => write!(f, "\\{}", ch),
+            Symbol::SimpleEscape(ch) => write!(f, "\\{}", ch as char),
             Symbol::DecimalEscape(ch) => write!(f, "\\{:03}", ch),
         }
     }
