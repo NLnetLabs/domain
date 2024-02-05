@@ -4,22 +4,36 @@
 
 Breaking changes
 
+* The stub resolver now uses the new client transports. This doesn’t change
+  how it is used but does change how it queries the configured servers.
+  ([#215])
+* Upgraded `octseq` to 0.5. ([#257])
+
 New
 
 * Add impls for `AsRef<RelativeDname<[u8]>>` and `Borrow<RelativeDname<[u8]>>`
   to `RelativeDname<_>`. ([#251] by [@torin-carey])
 * Added `name::Chain::fmt_with_dots` to format an absolute chained name
   with a final dot. ([#253])
-* Add the module `net::client` with experimental support for client
-  message transport, i.e., sending of request and receiving responses.
-  This is gated by the `unstable-client-transport` feature. ([#215])
+* Added a new `ParseAnyRecordData` trait for record data types that can
+  parse any type of record data. ([#256])
+* Added implementations of `OctetsFrom` and `Debug` to `AllOptData` and
+  the specific options types that didn’t have them yet. ([#257])
 
 Bug fixes
 
-* Fixed display implementation of `name::Chain<_, _>`. ([#253])
+* Fixed the display implementation of `name::Chain<_, _>`. ([#253])
+* Fixed the display implementation of `rdata::Txt<..>`. It now displays
+  each embedded character string separately in quoted form. ([#259])
 * Fixed the extended part returned by `OptRcode::to_parts` (it was shifted
   by 4 bits too many) and return all 12 bits for the `Int` variant in
   `OptRcode::to_int`. ([#258])
+
+Unstable features
+
+* Add the module `net::client` with experimental support for client
+  message transport, i.e., sending of request and receiving responses.
+  This is gated by the `unstable-client-transport` feature. ([#215])
 
 Other changes
 
@@ -27,7 +41,10 @@ Other changes
 [#215]: https://github.com/NLnetLabs/domain/pull/215
 [#251]: https://github.com/NLnetLabs/domain/pull/251
 [#253]: https://github.com/NLnetLabs/domain/pull/253
+[#256]: https://github.com/NLnetLabs/domain/pull/256
+[#257]: https://github.com/NLnetLabs/domain/pull/257
 [#258]: https://github.com/NLnetLabs/domain/pull/258
+[#259]: https://github.com/NLnetLabs/domain/pull/259
 [@torin-carey]: https://github.com/torin-carey
 
 
