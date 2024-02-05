@@ -88,11 +88,14 @@ pub mod middleware;
 #[cfg(test)]
 pub mod tests;
 
+use std::future::Future;
+
+use futures::Stream;
 pub use types::*;
 
-use crate::base::{wire::Composer, Message, StreamTarget};
+use crate::base::{wire::Composer, Message};
 
-use self::service::{Service, ServiceResult};
+use self::service::{Service, ServiceResult, ServiceResultItem};
 
 //------------ ContextAwareMessage -------------------------------------------
 
@@ -122,6 +125,10 @@ impl<T> ContextAwareMessage<T> {
     pub fn client_addr(&self) -> std::net::SocketAddr {
         self.client_addr
     }
+
+    pub fn into_inner(self) -> T {
+        self.message
+    }
 }
 
 impl<T> core::ops::Deref for ContextAwareMessage<T> {
@@ -140,22 +147,44 @@ impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
 
 //------------ service() -----------------------------------------------------
 
-pub fn mk_service<RequestOctets, Target, Error, T, Metadata, TargetFactory>(
+pub fn mk_service<
+    RequestOctets,
+    Target,
+    Error,
+    SingleFut,
+    StreamFut,
+    T,
+    Metadata,
+>(
     msg_handler: T,
-    target_factory: TargetFactory,
     metadata: Metadata,
-) -> impl Service<RequestOctets>
+) -> impl Service<
+    RequestOctets,
+    Error = Error,
+    Target = Target,
+    Single = SingleFut,
+    Stream = StreamFut,
+>
 where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
     Error: Send + Sync + 'static,
+    SingleFut:
+        Future<Output = ServiceResultItem<RequestOctets, Target, Error>>,
+    StreamFut: Stream<Item = ServiceResultItem<RequestOctets, Target, Error>>
+        + Unpin,
     Metadata: Clone,
     T: Fn(
-        &ContextAwareMessage<Message<RequestOctets>>,
-        StreamTarget<Target>,
+        ContextAwareMessage<Message<RequestOctets>>,
         Metadata,
-    ) -> ServiceResult<Target, Error>,
-    TargetFactory: Fn() -> StreamTarget<Target> + Clone,
+    ) -> ServiceResult<
+        RequestOctets,
+        Target,
+        Error,
+        SingleFut,
+        StreamFut,
+    >,
+    // ) -> ServiceResult<RequestOctets, Target, Error>,
 {
-    move |msg: &_| msg_handler(msg, target_factory(), metadata.clone())
+    move |msg| msg_handler(msg, metadata.clone())
 }

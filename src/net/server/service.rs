@@ -1,4 +1,3 @@
-use std::boxed::Box;
 use std::time::Duration;
 use std::vec::Vec;
 use std::{convert::AsRef, string::String};
@@ -63,10 +62,17 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
 
 //------------ Service -------------------------------------------------------
 
-pub type ServiceResultItem<Target, E> =
-    Result<CallResult<Target>, ServiceError<E>>;
-pub type ServiceResult<Target, E> =
-    Result<Transaction<ServiceResultItem<Target, E>>, ServiceError<E>>;
+pub type ServiceResultItem<RequestOctets, Target, E> =
+    Result<CallResult<RequestOctets, Target>, ServiceError<E>>;
+pub type ServiceResult<RequestOctets, Target, E, SingleFut, StreamFut> =
+    Result<
+        Transaction<
+            ServiceResultItem<RequestOctets, Target, E>,
+            SingleFut,
+            StreamFut,
+        >,
+        ServiceError<E>,
+    >;
 
 /// A Service is responsible for generating responses to received DNS messages.
 ///
@@ -123,33 +129,50 @@ pub type ServiceResult<Target, E> =
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     type Error: Send + Sync + 'static;
     type Target: Composer + Default + Send + Sync + 'static;
+    type Single: Future<
+        Output = ServiceResultItem<RequestOctets, Self::Target, Self::Error>,
+    >;
+    type Stream: Stream<
+            Item = ServiceResultItem<
+                RequestOctets,
+                Self::Target,
+                Self::Error,
+            >,
+        > + Unpin;
 
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
-        message: &ContextAwareMessage<Message<RequestOctets>>,
-    ) -> ServiceResult<Self::Target, Self::Error>;
+        message: ContextAwareMessage<Message<RequestOctets>>,
+    ) -> ServiceResult<
+        RequestOctets,
+        Self::Target,
+        Self::Error,
+        Self::Single,
+        Self::Stream,
+    >;
 }
 
-impl<F, SrvErr, ReqOct, Tgt> Service<ReqOct> for F
+impl<F, SrvErr, ReqOct, Tgt, SingleFut, StreamFut> Service<ReqOct> for F
 where
     F: Fn(
-        &ContextAwareMessage<Message<ReqOct>>,
-    ) -> ServiceResult<Tgt, SrvErr>,
+        ContextAwareMessage<Message<ReqOct>>,
+    ) -> ServiceResult<ReqOct, Tgt, SrvErr, SingleFut, StreamFut>,
     ReqOct: AsRef<[u8]>,
     Tgt: Composer + Default + Send + Sync + 'static,
     SrvErr: Send + Sync + 'static,
+    SingleFut: Future<Output = ServiceResultItem<ReqOct, Tgt, SrvErr>>,
+    StreamFut: Stream<Item = ServiceResultItem<ReqOct, Tgt, SrvErr>> + Unpin,
 {
     type Error = SrvErr;
     type Target = Tgt;
+    type Single = SingleFut;
+    type Stream = StreamFut;
 
     fn call(
         &self,
-        message: &ContextAwareMessage<Message<ReqOct>>,
-    ) -> Result<
-        Transaction<Result<CallResult<Tgt>, ServiceError<SrvErr>>>,
-        ServiceError<Self::Error>,
-    > {
+        message: ContextAwareMessage<Message<ReqOct>>,
+    ) -> ServiceResult<ReqOct, Tgt, SrvErr, Self::Single, Self::Stream> {
         (*self)(message)
     }
 }
@@ -191,7 +214,8 @@ pub enum ServiceCommand {
 
 //------------ CallResult ----------------------------------------------------
 
-pub struct CallResult<Target> {
+pub struct CallResult<RequestOctets: AsRef<[u8]>, Target> {
+    pub request: ContextAwareMessage<Message<RequestOctets>>,
     pub response: AdditionalBuilder<StreamTarget<Target>>,
     pub command: Option<ServiceCommand>,
 }
@@ -213,54 +237,69 @@ pub struct CallResult<Target> {
 ///
 /// For reasons of policy it may be necessary to ignore certain client
 /// requests without sending a response
-impl<Target> CallResult<Target>
+impl<RequestOctets, Target> CallResult<RequestOctets, Target>
 where
+    RequestOctets: AsRef<[u8]>,
     Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Target::AppendError: Into<ShortBuf>,
 {
     #[must_use]
-    pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
+    pub fn new(
+        request: ContextAwareMessage<Message<RequestOctets>>,
+        response: AdditionalBuilder<StreamTarget<Target>>,
+    ) -> Self {
         Self {
+            request,
             response,
             command: None,
         }
     }
 
     #[must_use]
-    pub fn with_command(self, command: ServiceCommand) -> Self {
-        Self {
-            response: self.response,
-            command: Some(command),
-        }
+    pub fn with_command(mut self, command: ServiceCommand) -> Self {
+        self.command = Some(command);
+        self
     }
 }
 
 //------------ Transaction ---------------------------------------------------
 
 /// A server transaction generating the responses for a request.
-pub enum Transaction<Item> {
+pub enum Transaction<Item, SingleFut, StreamFut>
+where
+    SingleFut: Future<Output = Item>,
+    StreamFut: Stream<Item = Item>,
+{
+    Immediate(Option<Item>),
+
     /// The transaction will be concluded with a single response.
-    Single(Option<Box<dyn Future<Output = Item> + Send + Unpin>>),
+    Single(Option<SingleFut>),
 
     /// The transaction will results in stream of multiple responses.
-    Stream(Box<dyn Stream<Item = Item> + Send + Unpin>),
+    Stream(StreamFut),
 }
 
-impl<Item> Transaction<Item> {
-    pub fn single(
-        fut: Box<dyn Future<Output = Item> + Send + Unpin>,
-    ) -> Self {
+impl<Item, SingleFut, StreamFut> Transaction<Item, SingleFut, StreamFut>
+where
+    SingleFut: Future<Output = Item>,
+    StreamFut: Stream<Item = Item> + Unpin,
+{
+    pub fn immediate(item: Item) -> Self {
+        Self::Immediate(Some(item))
+    }
+
+    pub fn single(fut: SingleFut) -> Self {
         Self::Single(Some(fut))
     }
 
-    pub fn stream(
-        stream: Box<dyn Stream<Item = Item> + Send + Unpin>,
-    ) -> Self {
+    pub fn stream(stream: StreamFut) -> Self {
         Self::Stream(stream)
     }
 
     pub async fn next(&mut self) -> Option<Item> {
         match self {
+            Transaction::Immediate(item) => item.take(),
+
             Transaction::Single(opt_fut) => match opt_fut.take() {
                 Some(fut) => Some(fut.await),
                 None => None,

@@ -232,7 +232,11 @@ where
     /// # Drop behaviour
     ///
     /// When dropped [`shutdown()`] will be invoked.
-    pub async fn run(&self) {
+    pub async fn run(&self)
+    where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         if let Err(err) = self.run_until_error().await {
             eprintln!("StreamServer: {err}");
         }
@@ -277,7 +281,11 @@ where
     /// Accept stream connections until shutdown or fatal error.
     ///
     /// TODO: Use a strongly typed error, not String.
-    async fn run_until_error(&self) -> Result<(), String> {
+    async fn run_until_error(&self) -> Result<(), String>
+    where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         let mut command_rx = self.command_rx.clone();
 
         loop {
@@ -355,7 +363,11 @@ where
         &self,
         stream: Listener::Stream,
         addr: SocketAddr,
-    ) -> Result<JoinHandle<()>, String> {
+    ) -> Result<JoinHandle<()>, String>
+    where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new
         // connection handler that it actually needs.

@@ -298,20 +298,27 @@ async fn stop_service_fn_test() {
 struct MySingle;
 
 impl Future for MySingle {
-    type Output = Result<CallResult<Vec<u8>>, ServiceError<()>>;
+    type Output = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError<()>>;
 
     fn poll(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Self::Output> {
+        let mock_client_ip = SocketAddr::from_str("127.0.0.1:12345").unwrap();
+        let octets = MessageBuilder::new_vec().finish();
+        let message = Message::from_octets(octets).unwrap();
+        let mock_request =
+            ContextAwareMessage::new(message, false, mock_client_ip);
+
         let builder = MessageBuilder::new_stream_vec();
-        let additional = builder.additional();
+        let response = builder.additional();
 
         let command = ServiceCommand::Reconfigure {
             idle_timeout: Duration::from_millis(5000),
         };
 
-        let call_result = CallResult::new(additional).with_command(command);
+        let call_result =
+            CallResult::new(mock_request, response).with_command(command);
 
         Poll::Ready(Ok(call_result))
     }
@@ -320,7 +327,7 @@ impl Future for MySingle {
 struct MyStream;
 
 impl Stream for MyStream {
-    type Item = Result<CallResult<Vec<u8>>, ServiceError<()>>;
+    type Item = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError<()>>;
 
     fn poll_next(
         self: Pin<&mut Self>,
@@ -341,13 +348,20 @@ impl MyService {
 impl Service<Vec<u8>> for MyService {
     type Error = ();
     type Target = Vec<u8>;
+    type Single = MySingle;
+    type Stream = MyStream;
 
     fn call(
         &self,
-        _msg: &ContextAwareMessage<Message<Vec<u8>>>,
+        _msg: ContextAwareMessage<Message<Vec<u8>>>,
         // TODO: pass other requestor address details e.g. IP address, port, etc.
     ) -> Result<
-        Transaction<ServiceResultItem<Self::Target, Self::Error>>,
+        Transaction<
+            ServiceResultItem<Vec<u8>, Self::Target, Self::Error>,
+            Self::Single,
+            Self::Stream,
+        >,
+        // Transaction<ServiceResultItem<Vec<u8>, Self::Target, Self::Error>,
         ServiceError<Self::Error>,
     > {
         Ok(Transaction::Single(None))

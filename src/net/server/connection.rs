@@ -83,7 +83,11 @@ where
     /// in-flight will be abandoned.
     ///
     /// TODO: What does it "abandoned" mean in practice here?
-    pub async fn run(mut self, command_rx: watch::Receiver<ServiceCommand>) {
+    pub async fn run(mut self, command_rx: watch::Receiver<ServiceCommand>)
+    where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         self.metrics
             .num_connections
             .as_ref()
@@ -105,10 +109,13 @@ where
         &self,
         mut command_rx: watch::Receiver<ServiceCommand>,
         stream: Stream,
-    ) {
+    ) where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         let (mut stream_rx, stream_tx) = tokio::io::split(stream);
         let (result_q_tx, mut result_q_rx) =
-            mpsc::channel::<CallResult<Svc::Target>>(10); // TODO: Take from configuration
+            mpsc::channel::<CallResult<Buf::Output, Svc::Target>>(10); // TODO: Take from configuration
         let idle_timeout = chrono::Duration::seconds(3); // TODO: Take from configuration
 
         let mut state =
@@ -155,9 +162,15 @@ where
         command_rx: &mut watch::Receiver<ServiceCommand>,
         state: &mut StreamState<Stream, Buf, Svc>,
         stream_rx: &mut ReadHalf<Stream>,
-        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
+        result_q_rx: &mut mpsc::Receiver<
+            CallResult<Buf::Output, Svc::Target>,
+        >,
         msg_size_buf: &mut <Buf as BufSource>::Output,
-    ) -> Result<(), ConnectionEvent<Svc::Error>> {
+    ) -> Result<(), ConnectionEvent<Svc::Error>>
+    where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         self.transceive_until(
             command_rx,
             state,
@@ -193,7 +206,9 @@ where
         command_rx: &mut watch::Receiver<ServiceCommand>,
         state: &mut StreamState<Stream, Buf, Svc>,
         stream_rx: &mut ReadHalf<Stream>,
-        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
+        result_q_rx: &mut mpsc::Receiver<
+            CallResult<Buf::Output, Svc::Target>,
+        >,
         buf: &mut <Buf as BufSource>::Output,
     ) -> Result<ConnectionEvent<Svc::Error>, ConnectionEvent<Svc::Error>>
     {
@@ -360,26 +375,35 @@ where
         &self,
         state: &StreamState<Stream, Buf, Svc>,
         buf: <Buf as BufSource>::Output,
-    ) -> Result<(), ServiceError<Svc::Error>> {
+    ) -> Result<(), ServiceError<Svc::Error>>
+    where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         let msg = Message::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
 
-        let mut msg = ContextAwareMessage::new(msg, true, self.addr);
+        let msg = ContextAwareMessage::new(msg, true, self.addr);
 
-        let (txn, last_processor_idx) = self.preprocess_request(&mut msg)?;
+        let (txn, last_processor_idx) = self.preprocess_request(msg)?;
 
-        self.postprocess_response(state, msg, txn, last_processor_idx);
+        self.postprocess_response(state, txn, last_processor_idx);
 
         Ok(())
     }
 
     // TODO: Deduplicate with DgramServer.
+    #[allow(clippy::type_complexity)]
     fn preprocess_request(
         &self,
-        msg: &mut ContextAwareMessage<Message<Buf::Output>>,
+        msg: ContextAwareMessage<Message<Buf::Output>>,
     ) -> Result<
         (
-            Transaction<ServiceResultItem<Svc::Target, Svc::Error>>,
+            Transaction<
+                ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
+                Svc::Single,
+                Svc::Stream,
+            >,
             Option<usize>,
         ),
         ServiceError<Svc::Error>,
@@ -387,8 +411,8 @@ where
         match &self.middleware_chain {
             Some(middleware_chain) => {
                 match middleware_chain.preprocess(msg) {
-                    ControlFlow::Continue(_) => {
-                        let txn = self.service.call(&msg)?;
+                    ControlFlow::Continue(msg) => {
+                        let txn = self.service.call(msg)?;
                         Ok((txn, None))
                     }
                     ControlFlow::Break((txn, last_processor_idx)) => {
@@ -398,19 +422,26 @@ where
             }
 
             None => {
-                let txn = self.service.call(&msg)?;
+                let txn = self.service.call(msg)?;
                 Ok((txn, None))
             }
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn postprocess_response(
         &self,
         state: &StreamState<Stream, Buf, Svc>,
-        msg: ContextAwareMessage<Message<Buf::Output>>,
-        mut txn: Transaction<ServiceResultItem<Svc::Target, Svc::Error>>,
+        mut txn: Transaction<
+            ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
+            Svc::Single,
+            Svc::Stream,
+        >,
         last_processor_id: Option<usize>,
-    ) {
+    ) where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         let metrics = self.metrics.clone();
         let tx = state.result_q_tx.clone();
         let middleware_chain = self.middleware_chain.clone();
@@ -424,7 +455,7 @@ where
             while let Some(Ok(mut call_result)) = txn.next().await {
                 if let Some(middleware_chain) = &middleware_chain {
                     middleware_chain.postprocess(
-                        &msg,
+                        &call_result.request,
                         &mut call_result.response,
                         last_processor_id,
                     );
@@ -438,8 +469,8 @@ where
     }
 
     async fn enqueue_call_result(
-        tx: &mpsc::Sender<CallResult<Svc::Target>>,
-        call_result: CallResult<Svc::Target>,
+        tx: &mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
+        call_result: CallResult<Buf::Output, Svc::Target>,
         metrics: &Arc<ServerMetrics>,
     ) {
         if let Err(err) = tx.send(call_result).await {
@@ -455,7 +486,9 @@ where
     async fn flush_write_queue(
         &self,
         state: &mut StreamState<Stream, Buf, Svc>,
-        result_q_rx: &mut mpsc::Receiver<CallResult<Svc::Target>>,
+        result_q_rx: &mut mpsc::Receiver<
+            CallResult<Buf::Output, Svc::Target>,
+        >,
     ) {
         // Stop accepting new response messages (should we check for in-flight
         // messages that haven't generated a response yet but should be
@@ -470,7 +503,9 @@ where
     async fn process_queued_result(
         &self,
         state: &mut StreamState<Stream, Buf, Svc>,
-        CallResult { response, command }: CallResult<Svc::Target>,
+        CallResult {
+            response, command, ..
+        }: CallResult<Buf::Output, Svc::Target>,
     ) {
         self.write_result_to_stream(state, response.finish()).await;
 
@@ -559,7 +594,7 @@ where
 {
     stream_tx: WriteHalf<Stream>,
 
-    result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
+    result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
 
     // RFC 1035 7.1: "Since a resolver must be able to multiplex multiple
     // requests if it is to perform its function efficiently, each pending
@@ -598,7 +633,7 @@ where
     #[must_use]
     fn new(
         stream_tx: WriteHalf<Stream>,
-        result_q_tx: mpsc::Sender<CallResult<Svc::Target>>,
+        result_q_tx: mpsc::Sender<CallResult<Buf::Output, Svc::Target>>,
         idle_timeout: chrono::Duration,
     ) -> Self {
         Self {

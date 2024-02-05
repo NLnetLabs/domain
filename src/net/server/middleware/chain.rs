@@ -1,7 +1,9 @@
 use std::boxed::Box;
-use std::future::ready;
+use std::future::Future;
 use std::sync::Arc;
 use std::vec::Vec;
+
+use futures::Stream;
 
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
@@ -52,15 +54,34 @@ where
 
 impl<RequestOctets, Target> MiddlewareChain<RequestOctets, Target>
 where
-    RequestOctets: AsRef<[u8]>,
+    RequestOctets: AsRef<[u8]> + Send + 'static,
     Target: Composer + Default + Send + 'static,
 {
-    pub fn preprocess<E: Send + 'static>(
+    #[allow(clippy::type_complexity)]
+    pub fn preprocess<E, SingleFut, StreamFut>(
         &self,
-        request: &mut ContextAwareMessage<Message<RequestOctets>>,
-    ) -> ControlFlow<(Transaction<ServiceResultItem<Target, E>>, usize)> {
+        mut request: ContextAwareMessage<Message<RequestOctets>>,
+    ) -> ControlFlow<
+        (
+            Transaction<
+                ServiceResultItem<RequestOctets, Target, E>,
+                SingleFut,
+                StreamFut,
+            >,
+            usize,
+        ),
+        ContextAwareMessage<Message<RequestOctets>>,
+    >
+    where
+        E: Send + 'static,
+        SingleFut:
+            Future<Output = ServiceResultItem<RequestOctets, Target, E>>,
+        StreamFut: Stream<Item = ServiceResultItem<RequestOctets, Target, E>>
+            + Unpin,
+    {
+        // ) -> ControlFlow<(Transaction<ServiceResultItem<RequestOctets, Target, E>>, usize), ContextAwareMessage<Message<RequestOctets>>> {
         for (i, p) in self.processors.iter().enumerate() {
-            match p.preprocess(request) {
+            match p.preprocess(&mut request) {
                 ControlFlow::Continue(()) => {
                     // Pre-processing complete, move on to the next pre-processor.
                 }
@@ -68,16 +89,16 @@ where
                 ControlFlow::Break(response) => {
                     // Stop pre-processing, return the produced response
                     // (after first applying post-processors to it).
-                    let item = Box::new(ready(Ok(CallResult::new(response))));
+                    let item = Ok(CallResult::new(request, response));
                     return ControlFlow::Break((
-                        Transaction::single(item),
+                        Transaction::immediate(item),
                         i,
                     ));
                 }
             }
         }
 
-        ControlFlow::Continue(())
+        ControlFlow::Continue(request)
     }
 
     pub fn postprocess(

@@ -81,13 +81,21 @@ where
             .send(ServiceCommand::Shutdown)
     }
 
-    pub async fn run(&self) {
+    pub async fn run(&self)
+    where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         if let Err(err) = self.run_until_error().await {
             eprintln!("DgramServer: {err}");
         }
     }
 
-    async fn run_until_error(&self) -> Result<(), String> {
+    async fn run_until_error(&self) -> Result<(), String>
+    where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         let mut command_rx = self.command_rx.clone();
 
         loop {
@@ -145,26 +153,36 @@ where
         &self,
         buf: <Buf as BufSource>::Output,
         addr: SocketAddr,
-    ) -> Result<(), ServiceError<Svc::Error>> {
+    ) -> Result<(), ServiceError<Svc::Error>>
+    where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         let msg = Message::<Buf::Output>::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
 
-        let mut msg = ContextAwareMessage::new(msg, false, addr);
+        let msg = ContextAwareMessage::new(msg, false, addr);
 
-        let (txn, last_processor_idx) = self.preprocess_request(&mut msg)?;
+        let (txn, last_processor_idx) = self.preprocess_request(msg)?;
 
-        self.postprocess_response(msg, txn, last_processor_idx);
+        self.postprocess_response(txn, last_processor_idx);
 
         Ok(())
     }
 
     // TODO: Deduplicate with Connection.
+    #[allow(clippy::type_complexity)]
     fn preprocess_request(
         &self,
-        msg: &mut ContextAwareMessage<Message<Buf::Output>>,
+        msg: ContextAwareMessage<Message<Buf::Output>>,
     ) -> Result<
         (
-            Transaction<ServiceResultItem<Svc::Target, Svc::Error>>,
+            Transaction<
+                ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
+                Svc::Single,
+                Svc::Stream,
+            >,
+            // Transaction<ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>>,
             Option<usize>,
         ),
         ServiceError<Svc::Error>,
@@ -172,8 +190,8 @@ where
         match &self.middleware_chain {
             Some(middleware_chain) => {
                 match middleware_chain.preprocess(msg) {
-                    ControlFlow::Continue(_) => {
-                        let txn = self.service.call(&msg)?;
+                    ControlFlow::Continue(msg) => {
+                        let txn = self.service.call(msg)?;
                         Ok((txn, None))
                     }
                     ControlFlow::Break((txn, last_processor_idx)) => {
@@ -183,18 +201,25 @@ where
             }
 
             None => {
-                let txn = self.service.call(&msg)?;
+                let txn = self.service.call(msg)?;
                 Ok((txn, None))
             }
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn postprocess_response(
         &self,
-        msg: ContextAwareMessage<Message<Buf::Output>>,
-        mut txn: Transaction<ServiceResultItem<Svc::Target, Svc::Error>>,
+        mut txn: Transaction<
+            ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
+            Svc::Single,
+            Svc::Stream,
+        >,
         last_processor_id: Option<usize>,
-    ) {
+    ) where
+        Svc::Single: Send,
+        Svc::Stream: Send,
+    {
         let metrics = self.metrics.clone();
         let sock = self.sock.clone();
         let middleware_chain = self.middleware_chain.clone();
@@ -208,14 +233,14 @@ where
             while let Some(Ok(mut call_result)) = txn.next().await {
                 if let Some(middleware_chain) = &middleware_chain {
                     middleware_chain.postprocess(
-                        &msg,
+                        &call_result.request,
                         &mut call_result.response,
                         last_processor_id,
                     );
                 }
                 Self::handle_call_result(
                     &sock,
-                    &msg.client_addr(),
+                    &call_result.request.client_addr(),
                     call_result,
                 )
                 .await;
@@ -229,7 +254,7 @@ where
     async fn handle_call_result(
         sock: &Sock,
         addr: &SocketAddr,
-        CallResult { response, .. }: CallResult<Svc::Target>,
+        CallResult { response, .. }: CallResult<Buf::Output, Svc::Target>,
     ) {
         let _ = Self::send_to(sock, response.finish().as_dgram_slice(), addr)
             .await;
