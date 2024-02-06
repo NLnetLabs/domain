@@ -1,13 +1,14 @@
 use std::boxed::Box;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use std::vec::Vec;
 use std::{convert::AsRef, string::String};
 
+use futures_util::stream::FuturesOrdered;
+use futures_util::{FutureExt, StreamExt};
 use octseq::{OctetsBuilder, ShortBuf};
-use std::collections::VecDeque;
 
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
@@ -251,59 +252,60 @@ where
 //------------ Transaction ---------------------------------------------------
 
 /// A server transaction generating the responses for a request.
-pub enum Transaction<Item, SingleFut>
+pub struct Transaction<Item, SingleFut>(TransactionInner<Item, SingleFut>)
+where
+    SingleFut: Future<Output = Item> + Send;
+
+enum TransactionInner<Item, SingleFut>
 where
     SingleFut: Future<Output = Item> + Send,
 {
+    /// The transaction will be concluded with a single immediate response.
     Immediate(Option<Item>),
 
     /// The transaction will be concluded with a single response.
     Single(Option<SingleFut>),
 
     /// The transaction will results in stream of multiple responses.
-    Stream(Arc<Mutex<VecDeque<Pin<Box<dyn Future<Output = Item> + Send>>>>>),
+    Stream(FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>),
 }
 
 impl<Item, SingleFut> Transaction<Item, SingleFut>
 where
     SingleFut: Future<Output = Item> + Send,
 {
-    pub fn immediate(item: Item) -> Self {
-        Self::Immediate(Some(item))
+    pub(crate) fn immediate(item: Item) -> Self {
+        Self(TransactionInner::Immediate(Some(item)))
     }
 
     pub fn single(fut: SingleFut) -> Self {
-        Self::Single(Some(fut))
+        Self(TransactionInner::Single(Some(fut)))
     }
 
-    pub fn stream<T: Iterator<Item = Pin<Box<dyn Future<Output = Item> + Send>>>>(
-        stream: T,
-    ) -> Self {
-        Self::Stream(Arc::new(Mutex::new(stream.collect())))
+    pub fn stream() -> Self {
+        Self(TransactionInner::Stream(Default::default()))
+    }
+
+    pub fn push<T: Future<Output = Item> + Send + 'static>(
+        &mut self,
+        fut: T,
+    ) {
+        match &mut self.0 {
+            TransactionInner::Stream(stream) => stream.push_back(fut.boxed()),
+            _ => unreachable!(),
+        }
     }
 
     pub async fn next(&mut self) -> Option<Item> {
-        match self {
-            Transaction::Immediate(item) => item.take(),
+        match &mut self.0 {
+            TransactionInner::Immediate(item) => item.take(),
 
-            Transaction::Single(opt_fut) => match opt_fut.take() {
+            TransactionInner::Single(opt_fut) => match opt_fut.take() {
                 Some(fut) => Some(fut.await),
                 None => None,
             },
 
-            Transaction::Stream(stream) => {
-                let fut = {
-                    let mut locked = stream.lock().unwrap();
-                    locked.pop_front()
-                };
-
-                if let Some(fut) = fut {
-                    let item = fut.await;
-                    Some(item)
-                } else {
-                    None
-                }
-            }
+            TransactionInner::Stream(stream) => stream.next().await,
         }
     }
 }
