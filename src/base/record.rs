@@ -18,7 +18,9 @@
 use super::cmp::CanonicalOrd;
 use super::iana::{Class, Rtype};
 use super::name::{FlattenInto, ParsedDname, ToDname};
-use super::rdata::{ComposeRecordData, ParseRecordData, RecordData};
+use super::rdata::{
+    ComposeRecordData, ParseAnyRecordData, ParseRecordData, RecordData,
+};
 use super::wire::{Compose, Composer, FormError, Parse, ParseError};
 use core::cmp::Ordering;
 use core::time::Duration;
@@ -662,9 +664,9 @@ impl RecordHeader<()> {
 }
 
 impl<Octs> RecordHeader<ParsedDname<Octs>> {
-    /// Parses the remainder of the record and returns it.
+    /// Parses the remainder of the record if the record data type supports it.
     ///
-    /// The method assumes that the parsers is currently positioned right
+    /// The method assumes that the parser is currently positioned right
     /// after the end of the record header. If the record data type `D`
     /// feels capable of parsing a record with a header of `self`, the
     /// method will parse the data and return a full `Record<D>`. Otherwise,
@@ -681,6 +683,33 @@ impl<Octs> RecordHeader<ParsedDname<Octs>> {
         let res = Data::parse_rdata(self.rtype, &mut parser)?
             .map(|data| Record::new(self.owner, self.class, self.ttl, data));
         if res.is_some() && parser.remaining() > 0 {
+            return Err(ParseError::Form(FormError::new(
+                "trailing data in option",
+            )));
+        }
+        Ok(res)
+    }
+
+    /// Parses the remainder of the record.
+    ///
+    /// The method assumes that the parser is currently positioned right
+    /// after the end of the record header.
+    pub fn parse_into_any_record<'a, Src, Data>(
+        self,
+        parser: &mut Parser<'a, Src>,
+    ) -> Result<Record<ParsedDname<Octs>, Data>, ParseError>
+    where
+        Src: AsRef<[u8]> + ?Sized,
+        Data: ParseAnyRecordData<'a, Src>,
+    {
+        let mut parser = parser.parse_parser(self.rdlen as usize)?;
+        let res = Record::new(
+            self.owner,
+            self.class,
+            self.ttl,
+            Data::parse_any_rdata(self.rtype, &mut parser)?,
+        );
+        if parser.remaining() > 0 {
             return Err(ParseError::Form(FormError::new(
                 "trailing data in option",
             )));
@@ -880,7 +909,7 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
 }
 
 impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
-    /// Creates a real resource record from the parsed record.
+    /// Creates a real resource record if the record data type supports it.
     ///
     /// The method is generic over a type that knows how to parse record
     /// data via the [`ParseRecordData`] trait. The record data is given to
@@ -889,8 +918,6 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     /// the method returns `Ok(Some(_))`. It returns `Ok(None)` if the trait
     /// doesn’t know how to parse this particular record type. It returns
     /// an error if parsing fails.
-    ///
-    /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
     #[allow(clippy::type_complexity)]
     pub fn to_record<Data>(
         &self,
@@ -903,7 +930,23 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
             .parse_into_record(&mut self.data.clone())
     }
 
-    /// Trades the parsed record for a real resource record.
+    /// Creates a real resource record.
+    ///
+    /// The method is generic over a type that knows how to parse record
+    /// data via the [`ParseAnyRecordData`] trait. The record data is given to
+    /// this trait for parsing.
+    pub fn to_any_record<Data>(
+        &self,
+    ) -> Result<Record<ParsedDname<Octs::Range<'_>>, Data>, ParseError>
+    where
+        Data: ParseAnyRecordData<'a, Octs>,
+    {
+        self.header
+            .deref_owner()
+            .parse_into_any_record(&mut self.data.clone())
+    }
+
+    /// Trades for a real resource record if the record data type supports it.
     ///
     /// The method is generic over a type that knows how to parse record
     /// data via the [`ParseRecordData`] trait. The record data is given to
@@ -912,8 +955,6 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
     /// the method returns `Ok(Some(_))`. It returns `Ok(None)` if the trait
     /// doesn’t know how to parse this particular record type. It returns
     /// an error if parsing fails.
-    ///
-    /// [`ParseRecordData`]: ../rdata/trait.ParseRecordData.html
     #[allow(clippy::type_complexity)]
     pub fn into_record<Data>(
         mut self,
@@ -922,6 +963,22 @@ impl<'a, Octs: Octets + ?Sized> ParsedRecord<'a, Octs> {
         Data: ParseRecordData<'a, Octs>,
     {
         self.header.deref_owner().parse_into_record(&mut self.data)
+    }
+
+    /// Trades for a real resource record.
+    ///
+    /// The method is generic over a type that knows how to parse record
+    /// data via the [`ParseAnyRecordData`] trait. The record data is given to
+    /// this trait for parsing.    #[allow(clippy::type_complexity)]
+    pub fn into_any_record<Data>(
+        mut self,
+    ) -> Result<Record<ParsedDname<Octs::Range<'a>>, Data>, ParseError>
+    where
+        Data: ParseAnyRecordData<'a, Octs>,
+    {
+        self.header
+            .deref_owner()
+            .parse_into_any_record(&mut self.data)
     }
 }
 

@@ -16,7 +16,6 @@ macro_rules! opt_types {
 
         //------------ AllOptData --------------------------------------------
 
-        // TODO Impl Debug.
         #[derive(Clone)]
         #[non_exhaustive]
         pub enum AllOptData<Octs, Name> {
@@ -24,6 +23,37 @@ macro_rules! opt_types {
                 $opt($module::$opt $( < $( $octets ),* > )? ),
             )* )*
             Other(UnknownOptData<Octs>),
+        }
+
+        //--- OctetsFrom
+
+        impl<Octs, Name, SrcOcts, SrcName>
+        OctetsFrom<AllOptData<SrcOcts, SrcName>>
+        for AllOptData<Octs, Name>
+        where
+            Octs: OctetsFrom<SrcOcts>,
+            Name: OctetsFrom<SrcName, Error = Octs::Error>,
+        {
+            type Error = Octs::Error;
+
+            fn try_octets_from(
+                source: AllOptData<SrcOcts, SrcName>,
+            ) -> Result<Self, Self::Error> {
+                match source {
+                    $( $(
+                        AllOptData::$opt(opt) => {
+                            Ok(AllOptData::$opt(
+                                $module::$opt::try_octets_from(opt)?
+                            ))
+                        },
+                    )* )*
+                    AllOptData::Other(opt) => {
+                        Ok(AllOptData::Other(
+                            UnknownOptData::try_octets_from(opt)?
+                        ))
+                    }
+                }
+            }
         }
 
         //--- From
@@ -97,6 +127,24 @@ macro_rules! opt_types {
                     )* )*
                     AllOptData::Other(ref inner) => {
                         inner.compose_option(target)
+                    }
+                }
+            }
+        }
+
+        //--- Debug
+
+        impl<Octs, Name> fmt::Debug for AllOptData<Octs, Name>
+        where Octs: AsRef<[u8]>, Name: fmt::Display {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                match *self {
+                    $( $(
+                        AllOptData::$opt(ref inner) => {
+                            fmt::Debug::fmt(inner, f)
+                        }
+                    )* )*
+                    AllOptData::Other(ref inner) => {
+                            fmt::Debug::fmt(inner, f)
                     }
                 }
             }
