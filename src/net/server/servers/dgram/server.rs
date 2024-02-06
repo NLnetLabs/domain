@@ -14,7 +14,6 @@ use crate::net::server::error::Error;
 use crate::net::server::metrics::ServerMetrics;
 use crate::net::server::middleware::chain::MiddlewareChain;
 use crate::net::server::traits::processor::MessageProcessor;
-use crate::net::server::traits::server::Server;
 use crate::net::server::traits::service::{
     CallResult, Service, ServiceCommand,
 };
@@ -38,7 +37,9 @@ where
     metrics: Arc<ServerMetrics>,
 }
 
-impl<Sock, Buf, Svc> Server<Sock, Buf, Svc> for DgramServer<Sock, Buf, Svc>
+/// Creation
+///
+impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
@@ -46,7 +47,7 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     #[must_use]
-    fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
+    pub fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::connection_less());
@@ -63,35 +64,39 @@ where
     }
 
     #[must_use]
-    fn with_middleware(
+    pub fn with_middleware(
         mut self,
         middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
     ) -> Self {
         self.middleware_chain = Some(middleware_chain);
         self
     }
+}
 
+/// Access
+///
+impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
+where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
     /// Get a reference to the source.
     #[must_use]
-    fn source(&self) -> Arc<Sock> {
+    pub fn source(&self) -> Arc<Sock> {
         self.sock.clone()
     }
 
     /// Get a reference to the metrics for this server.
     #[must_use]
-    fn metrics(&self) -> Arc<ServerMetrics> {
+    pub fn metrics(&self) -> Arc<ServerMetrics> {
         self.metrics.clone()
-    }
-
-    fn shutdown(&self) -> Result<(), Error> {
-        self.command_tx
-            .lock()
-            .unwrap()
-            .send(ServiceCommand::Shutdown)
-            .map_err(|_| Error::CommandCouldNotBeSent)
     }
 }
 
+/// Control
+///
 impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
@@ -108,6 +113,24 @@ where
         }
     }
 
+    pub fn shutdown(&self) -> Result<(), Error> {
+        self.command_tx
+            .lock()
+            .unwrap()
+            .send(ServiceCommand::Shutdown)
+            .map_err(|_| Error::CommandCouldNotBeSent)
+    }
+}
+
+//--- Internal details
+
+impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
+where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Single: Send,
@@ -201,6 +224,8 @@ where
         }
     }
 }
+
+//--- MessageProcessor
 
 impl<Sock, Buf, Svc> MessageProcessor<Buf, Svc>
     for DgramServer<Sock, Buf, Svc>

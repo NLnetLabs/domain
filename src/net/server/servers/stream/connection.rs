@@ -39,6 +39,8 @@ where
     addr: SocketAddr,
 }
 
+/// Creation
+///
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
@@ -66,6 +68,8 @@ where
     }
 }
 
+/// Control
+///
 impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
@@ -105,7 +109,17 @@ where
             .unwrap()
             .fetch_sub(1, Ordering::Relaxed);
     }
+}
 
+//--- Internal details
+
+impl<Stream, Buf, Svc> Connection<Stream, Buf, Svc>
+where
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
     async fn run_until_error(
         &self,
         mut command_rx: watch::Receiver<ServiceCommand>,
@@ -446,6 +460,8 @@ where
         }
     }
 }
+
+//--- MessageProcessor
 
 impl<Stream, Buf, Svc> MessageProcessor<Buf, Svc>
     for Connection<Stream, Buf, Svc>
