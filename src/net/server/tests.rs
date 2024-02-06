@@ -25,17 +25,17 @@ use crate::base::{
     /*MessageBuilder,*/ StreamTarget,
 };
 use crate::net::server::buf::BufSource;
-use crate::net::server::service::CallResult;
-use crate::net::server::service::Service;
-use crate::net::server::service::ServiceCommand;
-use crate::net::server::service::ServiceError;
-use crate::net::server::service::Transaction;
-use crate::net::server::sock::AsyncAccept;
-use crate::net::server::stream::StreamServer;
-use crate::net::server::Server;
+use crate::net::server::servers::stream::server::StreamServer;
+use crate::net::server::traits::server::Server;
+use crate::net::server::traits::service::CallResult;
+use crate::net::server::traits::service::Service;
+use crate::net::server::traits::service::ServiceCommand;
+use crate::net::server::traits::service::ServiceError;
+use crate::net::server::traits::service::Transaction;
+use crate::net::server::traits::sock::AsyncAccept;
 
-use super::service::ServiceResultItem;
-use super::ContextAwareMessage;
+use super::traits::message::ContextAwareMessage;
+use super::traits::service::ServiceResultItem;
 
 /*fn service<RequestOctets: AsRef<[u8]> + Send + Sync + 'static>(
     count: Arc<AtomicU8>,

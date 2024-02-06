@@ -6,17 +6,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::error::Error;
-use super::middleware::chain::MiddlewareChain;
-use super::{
-    buf::BufSource,
-    metrics::ServerMetrics,
-    service::{CallResult, Service, ServiceCommand},
-    sock::AsyncDgramSock,
-};
-use super::{MessageProcessor, Server};
-
 use tokio::{io::ReadBuf, sync::watch};
+
+use crate::net::server::buf::BufSource;
+use crate::net::server::error::Error;
+use crate::net::server::metrics::ServerMetrics;
+use crate::net::server::middleware::chain::MiddlewareChain;
+use crate::net::server::traits::processor::MessageProcessor;
+use crate::net::server::traits::server::Server;
+use crate::net::server::traits::service::{
+    CallResult, Service, ServiceCommand,
+};
+use crate::net::server::traits::sock::AsyncDgramSock;
 
 //------------ DgramServer ---------------------------------------------------
 
@@ -164,7 +165,7 @@ where
                         self.middleware_chain.clone(),
                         &self.service,
                         self.metrics.clone()
-                    ).await
+                    )
                         .map_err(|err|
                             format!("Error while processing message: {err}")
                         )?;

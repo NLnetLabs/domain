@@ -1,12 +1,13 @@
 use crate::base::{Message, StreamTarget};
-
-use super::buf::BufSource;
-use super::metrics::ServerMetrics;
-use super::middleware::chain::MiddlewareChain;
-use super::service::{
-    CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
+use crate::net::server::buf::BufSource;
+use crate::net::server::metrics::ServerMetrics;
+use crate::net::server::middleware::chain::MiddlewareChain;
+use crate::net::server::traits::message::MsgProvider;
+use crate::net::server::traits::processor::MessageProcessor;
+use crate::net::server::traits::service::{
+    CallResult, Service, ServiceCommand, ServiceError,
 };
-use super::MessageProcessor;
+
 use chrono::{DateTime, Utc};
 use core::ops::ControlFlow;
 use core::sync::atomic::Ordering;
@@ -22,7 +23,7 @@ use tokio::sync::{mpsc, watch};
 
 //------------ Connection -----------------------------------------------
 
-pub struct Connection<Stream, Buf, Svc>
+pub(super) struct Connection<Stream, Buf, Svc>
 where
     Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
@@ -197,7 +198,6 @@ where
             &self.service,
             self.metrics.clone(),
         )
-        .await
         .map_err(ConnectionEvent::ServiceError)?;
 
         Ok(())

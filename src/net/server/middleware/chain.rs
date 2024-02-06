@@ -5,10 +5,10 @@ use std::vec::Vec;
 
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
-use crate::net::server::service::{
+use crate::net::server::traits::message::ContextAwareMessage;
+use crate::net::server::traits::service::{
     CallResult, ServiceResultItem, Transaction,
 };
-use crate::net::server::ContextAwareMessage;
 
 use super::processor::MiddlewareProcessor;
 use crate::base::message_builder::AdditionalBuilder;

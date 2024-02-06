@@ -22,9 +22,17 @@ use domain::{
             builder::MiddlewareBuilder,
             processors::cookies::CookiesMiddlewareProcesor,
         },
-        mk_service,
-        service::{ServiceCommand, ServiceResult, ServiceResultItem},
-        Server,
+        servers::{dgram::server::DgramServer, stream::server::StreamServer},
+        traits::{
+            message::ContextAwareMessage,
+            server::Server,
+            service::{
+                CallResult, Service, ServiceCommand, ServiceError,
+                ServiceResult, ServiceResultItem, Transaction,
+            },
+            sock::AsyncAccept,
+        },
+        util::mk_service,
     },
 };
 use domain::{
@@ -33,15 +41,7 @@ use domain::{
         wire::Composer,
         Dname, Message, MessageBuilder, StreamTarget,
     },
-    net::server::{
-        buf::VecBufSource,
-        dgram::DgramServer,
-        // mk_service,
-        service::{CallResult, Service, ServiceError, Transaction},
-        sock::AsyncAccept,
-        stream::StreamServer,
-        ContextAwareMessage,
-    },
+    net::server::buf::VecBufSource,
     rdata::A,
 };
 use octseq::{FreezeBuilder, Octets};

@@ -4,7 +4,8 @@ use crate::{
         StreamTarget,
     },
     net::server::{
-        middleware::processor::MiddlewareProcessor, ContextAwareMessage,
+        middleware::processor::MiddlewareProcessor,
+        traits::message::ContextAwareMessage,
     },
 };
 use core::ops::ControlFlow;

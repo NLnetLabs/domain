@@ -1,11 +1,3 @@
-use super::buf::BufSource;
-use super::connection::Connection;
-use super::error::Error;
-use super::metrics::ServerMetrics;
-use super::middleware::chain::MiddlewareChain;
-use super::service::{Service, ServiceCommand};
-use super::sock::AsyncAccept;
-use super::Server;
 use std::future::poll_fn;
 use std::io;
 use std::net::SocketAddr;
@@ -13,6 +5,16 @@ use std::string::{String, ToString};
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+
+use crate::net::server::buf::BufSource;
+use crate::net::server::error::Error;
+use crate::net::server::metrics::ServerMetrics;
+use crate::net::server::middleware::chain::MiddlewareChain;
+use crate::net::server::traits::server::Server;
+use crate::net::server::traits::service::{Service, ServiceCommand};
+use crate::net::server::traits::sock::AsyncAccept;
+
+use super::connection::Connection;
 
 //------------ StreamServer --------------------------------------------------
 
