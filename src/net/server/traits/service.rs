@@ -243,7 +243,7 @@ where
         fut: T,
     ) {
         match &mut self.0 {
-            TransactionInner::Stream(stream) => stream.push_back(fut.boxed()),
+            TransactionInner::Stream(stream) => stream.push(fut.boxed()),
             _ => unreachable!(),
         }
     }
