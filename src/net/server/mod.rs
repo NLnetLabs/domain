@@ -23,7 +23,7 @@
 //!                  <--                            generates responses
 //!              <-- (optional) middleware chain  - post-processes responses
 //!           <-- server                          - serializes responses
-//!    <-- network source                      - writes bytes to the client
+//!    <-- network source                         - writes bytes to the client
 //! ````
 //!
 //! # Usage
