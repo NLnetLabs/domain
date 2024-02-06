@@ -16,7 +16,16 @@ use std::{
 };
 
 use domain::{
-    base::message_builder::AdditionalBuilder,
+    base::{
+        iana::{Class, Rcode},
+        wire::Composer,
+        Dname, Message, MessageBuilder, StreamTarget,
+    },
+    net::server::buf::VecBufSource,
+    rdata::A,
+};
+use domain::{
+    base::{message_builder::AdditionalBuilder, name::ToLabelIter},
     net::server::{
         middleware::{
             builder::MiddlewareBuilder,
@@ -33,15 +42,6 @@ use domain::{
         },
         util::mk_service,
     },
-};
-use domain::{
-    base::{
-        iana::{Class, Rcode},
-        wire::Composer,
-        Dname, Message, MessageBuilder, StreamTarget,
-    },
-    net::server::buf::VecBufSource,
-    rdata::A,
 };
 use octseq::{FreezeBuilder, Octets};
 
@@ -289,6 +289,61 @@ where
     Ok(Transaction::single(fut))
 }
 
+fn name_to_ip<Target>(
+    msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+    _metadata: (),
+) -> ServiceResult<
+    Target,
+    (),
+    impl Future<Output = ServiceResultItem<Target, ()>>,
+>
+where
+    Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
+    <Target as octseq::OctetsBuilder>::AppendError: Debug,
+{
+    let fut = async move {
+        let mut out_answer = None;
+        if let Ok(question) = msg.sole_question() {
+            let qname = question.qname();
+            let num_labels = qname.label_count();
+            if num_labels >= 5 {
+                let mut iter = qname.iter_labels();
+                let a = iter.nth(num_labels - 5).unwrap();
+                let b = iter.next().unwrap();
+                let c = iter.next().unwrap();
+                let d = iter.next().unwrap();
+                let a_rec: Result<A, _> = format!("{a}.{b}.{c}.{d}").parse();
+                if let Ok(a_rec) = a_rec {
+                    let target = Target::default();
+                    let target = StreamTarget::new(target).unwrap(); // SAFETY
+                    let builder =
+                        MessageBuilder::from_target(target).unwrap(); // SAFETY
+                    let mut answer =
+                        builder.start_answer(&msg, Rcode::NoError).unwrap();
+                    answer
+                        .push((Dname::root_ref(), Class::In, 86400, a_rec))
+                        .unwrap();
+                    out_answer = Some(answer);
+                }
+            }
+        }
+
+        if out_answer.is_none() {
+            let target = Target::default();
+            let target = StreamTarget::new(target).unwrap(); // SAFETY
+            let builder = MessageBuilder::from_target(target).unwrap(); // SAFETY
+            out_answer =
+                Some(builder.start_answer(&msg, Rcode::Refused).unwrap());
+        }
+
+        let additional = out_answer.unwrap().additional();
+
+        let res = CallResult::new(additional);
+        Ok(res)
+    };
+    Ok(Transaction::single(fut))
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     eprintln!("Test with commands such as:");
@@ -313,7 +368,11 @@ async fn main() {
     //    dig +short +keepopen +tcp -4 @127.0.0.1 -p 8082 A google.com
     let udpsocket = UdpSocket::bind("127.0.0.1:8053").await.unwrap();
     let buf_source = Arc::new(VecBufSource);
-    let srv = DgramServer::new(udpsocket, buf_source.clone(), svc.clone());
+    let srv = DgramServer::new(
+        udpsocket,
+        buf_source.clone(),
+        mk_service(name_to_ip, ()).into(),
+    );
     let srv = srv.with_middleware(middleware.clone());
 
     let udp_join_handle = tokio::spawn(async move { srv.run().await });
