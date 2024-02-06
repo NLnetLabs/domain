@@ -44,7 +44,7 @@ impl CookiesMiddlewareProcesor {
         // has more than one COOKIE option?
         request
             .opt()
-            .and_then(|opt| opt.opt().iter::<opt::Cookie>().nth(0))
+            .and_then(|opt| opt.opt().iter::<opt::Cookie>().next())
     }
 
     #[must_use]

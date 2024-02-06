@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use tokio::task::JoinHandle;
 use tokio::{io::ReadBuf, sync::watch};
 
 use crate::net::server::buf::BufSource;
@@ -82,15 +83,6 @@ where
         self.metrics.clone()
     }
 
-    async fn run(&self)
-    where
-        Svc::Single: Send,
-    {
-        if let Err(err) = self.run_until_error().await {
-            eprintln!("DgramServer: {err}");
-        }
-    }
-
     fn shutdown(&self) -> Result<(), Error> {
         self.command_tx
             .lock()
@@ -107,6 +99,15 @@ where
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
+    pub async fn run(&self)
+    where
+        Svc::Single: Send,
+    {
+        if let Err(err) = self.run_until_error().await {
+            eprintln!("DgramServer: {err}");
+        }
+    }
+
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Single: Send,
@@ -211,17 +212,22 @@ where
 {
     type State = Arc<Sock>;
 
-    async fn handle_finalized_response(
+    fn handle_finalized_response(
         CallResult { response, .. }: CallResult<Svc::Target>,
         addr: SocketAddr,
-        sock: &Self::State,
-        _metrics: &Arc<ServerMetrics>,
-    ) {
-        let _ =
-            Self::send_to(sock, response.finish().as_dgram_slice(), &addr)
-                .await;
+        sock: Self::State,
+        _metrics: Arc<ServerMetrics>,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            let _ = Self::send_to(
+                &sock,
+                response.finish().as_dgram_slice(),
+                &addr,
+            )
+            .await;
 
-        // TODO:
-        // metrics.num_pending_writes.store(???, Ordering::Relaxed);
+            // TODO:
+            // metrics.num_pending_writes.store(???, Ordering::Relaxed);
+        })
     }
 }

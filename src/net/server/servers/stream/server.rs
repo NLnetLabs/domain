@@ -183,20 +183,6 @@ where
         self.metrics.clone()
     }
 
-    /// Start the server.
-    ///
-    /// # Drop behaviour
-    ///
-    /// When dropped [`shutdown()`] will be invoked.
-    async fn run(&self)
-    where
-        Svc::Single: Send,
-    {
-        if let Err(err) = self.run_until_error().await {
-            eprintln!("StreamServer: {err}");
-        }
-    }
-
     /// Stop the server.
     ///
     /// No new connections will be accepted and in-progress connections will
@@ -263,6 +249,20 @@ where
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
+    /// Start the server.
+    ///
+    /// # Drop behaviour
+    ///
+    /// When dropped [`shutdown()`] will be invoked.
+    pub async fn run(&self)
+    where
+        Svc::Single: Send,
+    {
+        if let Err(err) = self.run_until_error().await {
+            eprintln!("StreamServer: {err}");
+        }
+    }
+
     /// Accept stream connections until shutdown or fatal error.
     ///
     /// TODO: Use a strongly typed error, not String.

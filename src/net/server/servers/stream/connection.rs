@@ -20,6 +20,7 @@ use tokio::io::{
 };
 use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
 
 //------------ Connection -----------------------------------------------
 
@@ -456,20 +457,24 @@ where
 {
     type State = Sender<CallResult<Svc::Target>>;
 
-    async fn handle_finalized_response(
+    fn handle_finalized_response(
         call_result: CallResult<Svc::Target>,
         _addr: SocketAddr,
-        tx: &Self::State,
-        metrics: &Arc<ServerMetrics>,
-    ) {
-        if let Err(err) = tx.send(call_result).await {
-            // TODO: How should we properly communicate this to the operator?
-            eprintln!("StreamServer: Error while queuing response: {err}");
-        }
+        tx: Self::State,
+        metrics: Arc<ServerMetrics>,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            if let Err(err) = tx.send(call_result).await {
+                // TODO: How should we properly communicate this to the operator?
+                eprintln!(
+                    "StreamServer: Error while queuing response: {err}"
+                );
+            }
 
-        metrics
-            .num_pending_writes
-            .store(tx.max_capacity() - tx.capacity(), Ordering::Relaxed);
+            metrics
+                .num_pending_writes
+                .store(tx.max_capacity() - tx.capacity(), Ordering::Relaxed);
+        })
     }
 }
 

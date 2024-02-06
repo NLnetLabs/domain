@@ -1,7 +1,8 @@
 use core::{ops::ControlFlow, sync::atomic::Ordering};
-use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
+
+use tokio::task::JoinHandle;
 
 use crate::{
     base::Message,
@@ -24,7 +25,7 @@ where
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
-    type State: Send + 'static;
+    type State: Clone + Send + Sync + 'static;
 
     fn process_message(
         buf: <Buf as BufSource>::Output,
@@ -133,11 +134,11 @@ where
                     );
                 }
 
-                Self::handle_finalized_response(
+                let _ = Self::handle_finalized_response(
                     call_result,
                     msg.client_addr(),
-                    &state,
-                    &metrics,
+                    state.clone(),
+                    metrics.clone(),
                 )
                 .await;
             }
@@ -151,7 +152,7 @@ where
     fn handle_finalized_response(
         call_result: CallResult<Svc::Target>,
         addr: SocketAddr,
-        state: &Self::State,
-        metrics: &Arc<ServerMetrics>,
-    ) -> impl Future<Output = ()> + Send;
+        state: Self::State,
+        metrics: Arc<ServerMetrics>,
+    ) -> JoinHandle<()>;
 }

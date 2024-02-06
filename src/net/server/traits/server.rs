@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::sync::Arc;
 
 use crate::net::server::{
@@ -32,11 +31,6 @@ where
     /// Get a reference to the metrics for this server.
     #[must_use]
     fn metrics(&self) -> Arc<ServerMetrics>;
-
-    /// Start the server.
-    fn run(&self) -> impl Future<Output = ()> + Send
-    where
-        Svc::Single: Send;
 
     /// Stop the server.
     fn shutdown(&self) -> Result<(), Error>;
