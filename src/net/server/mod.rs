@@ -102,16 +102,16 @@
 //! [`with_middleware()`]: traits::server::Server::with_middleware()
 //! [`run()`]: servers::dgram::server::DgramServer::run()
 //! [`shutdown()`]: traits::server::Server::shutdown()
-//! [`AsyncAccept`]: sock::AsyncAccept
-//! [`AsyncDgramSock`]: sock::AsyncDgramSock
+//! [`AsyncAccept`]: traits::sock::AsyncAccept
+//! [`AsyncDgramSock`]: traits::sock::AsyncDgramSock
 //! [`BufSource`]: buf::BufSource
-//! [`DgramServer`]: dgram::DgramServer
-//! [`MiddlewareChain`]: middleware::MiddlewareChain
+//! [`DgramServer`]: servers::dgram::server::DgramServer
+//! [`MiddlewareChain`]: middleware::chain::MiddlewareChain
 //! [`Server`]: traits::server::Server
-//! [`Service`]: service::Service
+//! [`Service`]: traits::service::Service
 //! [`ServiceCommand::Reconfigure`]:
 //!     traits::service::ServiceCommand::Reconfigure
-//! [`StreamServer`]: stream::StreamServer
+//! [`StreamServer`]: servers::stream::server::StreamServer
 //! [`TcpServer`]: servers::TcpServer
 //! [`UdpServer`]: servers::UdpServer
 //! [`tokio::io::AsyncRead`]:
