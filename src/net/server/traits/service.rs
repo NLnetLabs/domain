@@ -18,11 +18,11 @@ use super::message::ContextAwareMessage;
 
 //------------ Service -------------------------------------------------------
 
-pub type ServiceResultItem<Target, E> =
-    Result<CallResult<Target>, ServiceError<E>>;
-pub type ServiceResult<Target, E, SingleFut> = Result<
-    Transaction<ServiceResultItem<Target, E>, SingleFut>,
-    ServiceError<E>,
+pub type ServiceResultItem<Target, Error> =
+    Result<CallResult<Target>, ServiceError<Error>>;
+pub type ServiceResult<Target, Error, Single> = Result<
+    Transaction<ServiceResultItem<Target, Error>, Single>,
+    ServiceError<Error>,
 >;
 
 /// A Service is responsible for generating responses to received DNS messages.
@@ -91,24 +91,24 @@ pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
         <Self as Service<RequestOctets>>::Single: core::marker::Send;
 }
 
-impl<F, SrvErr, ReqOct, Tgt, SingleFut> Service<ReqOct> for F
+impl<F, Error, RequestOctets, Target, Single> Service<RequestOctets> for F
 where
     F: Fn(
-        Arc<ContextAwareMessage<Message<ReqOct>>>,
-    ) -> ServiceResult<Tgt, SrvErr, SingleFut>,
-    ReqOct: AsRef<[u8]>,
-    Tgt: Composer + Default + Send + Sync + 'static,
-    SrvErr: Send + Sync + 'static,
-    SingleFut: Future<Output = ServiceResultItem<Tgt, SrvErr>> + Send,
+        Arc<ContextAwareMessage<Message<RequestOctets>>>,
+    ) -> ServiceResult<Target, Error, Single>,
+    RequestOctets: AsRef<[u8]>,
+    Target: Composer + Default + Send + Sync + 'static,
+    Error: Send + Sync + 'static,
+    Single: Future<Output = ServiceResultItem<Target, Error>> + Send,
 {
-    type Error = SrvErr;
-    type Target = Tgt;
-    type Single = SingleFut;
+    type Error = Error;
+    type Target = Target;
+    type Single = Single;
 
     fn call(
         &self,
-        message: Arc<ContextAwareMessage<Message<ReqOct>>>,
-    ) -> ServiceResult<Tgt, SrvErr, Self::Single> {
+        message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+    ) -> ServiceResult<Target, Error, Self::Single> {
         (*self)(message)
     }
 }
@@ -122,7 +122,7 @@ pub enum ServiceError<T> {
     Other(String),
 }
 
-impl<T> std::fmt::Display for ServiceError<T> {
+impl<T> core::fmt::Display for ServiceError<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ServiceError::ServiceSpecificError(_err) => {
@@ -204,33 +204,33 @@ where
 //------------ Transaction ---------------------------------------------------
 
 /// A server transaction generating the responses for a request.
-pub struct Transaction<Item, SingleFut>(TransactionInner<Item, SingleFut>)
+pub struct Transaction<Item, Single>(TransactionInner<Item, Single>)
 where
-    SingleFut: Future<Output = Item> + Send;
+    Single: Future<Output = Item> + Send;
 
-enum TransactionInner<Item, SingleFut>
+enum TransactionInner<Item, Single>
 where
-    SingleFut: Future<Output = Item> + Send,
+    Single: Future<Output = Item> + Send,
 {
     /// The transaction will be concluded with a single immediate response.
     Immediate(Option<Item>),
 
     /// The transaction will be concluded with a single response.
-    Single(Option<SingleFut>),
+    Single(Option<Single>),
 
     /// The transaction will results in stream of multiple responses.
     Stream(FuturesOrdered<Pin<Box<dyn Future<Output = Item> + Send>>>),
 }
 
-impl<Item, SingleFut> Transaction<Item, SingleFut>
+impl<Item, Single> Transaction<Item, Single>
 where
-    SingleFut: Future<Output = Item> + Send,
+    Single: Future<Output = Item> + Send,
 {
     pub(crate) fn immediate(item: Item) -> Self {
         Self(TransactionInner::Immediate(Some(item)))
     }
 
-    pub fn single(fut: SingleFut) -> Self {
+    pub fn single(fut: Single) -> Self {
         Self(TransactionInner::Single(Some(fut)))
     }
 

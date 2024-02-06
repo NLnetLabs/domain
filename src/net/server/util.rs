@@ -10,20 +10,20 @@ use super::traits::{
 
 //------------ mk_service ----------------------------------------------------
 
-pub fn mk_service<RequestOctets, Target, Error, SingleFut, T, Metadata>(
+pub fn mk_service<RequestOctets, Target, Error, Single, T, Metadata>(
     msg_handler: T,
     metadata: Metadata,
-) -> impl Service<RequestOctets, Error = Error, Target = Target, Single = SingleFut>
+) -> impl Service<RequestOctets, Error = Error, Target = Target, Single = Single>
 where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
     Error: Send + Sync + 'static,
-    SingleFut: Future<Output = ServiceResultItem<Target, Error>> + Send,
+    Single: Future<Output = ServiceResultItem<Target, Error>> + Send,
     Metadata: Clone,
     T: Fn(
         Arc<ContextAwareMessage<Message<RequestOctets>>>,
         Metadata,
-    ) -> ServiceResult<Target, Error, SingleFut>,
+    ) -> ServiceResult<Target, Error, Single>,
 {
     move |msg| msg_handler(msg, metadata.clone())
 }

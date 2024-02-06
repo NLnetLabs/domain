@@ -56,16 +56,16 @@ where
     Target: Composer + Default + Send + 'static,
 {
     #[allow(clippy::type_complexity)]
-    pub fn preprocess<E, SingleFut>(
+    pub fn preprocess<Error, Single>(
         &self,
         request: &mut ContextAwareMessage<Message<RequestOctets>>,
     ) -> ControlFlow<(
-        Transaction<ServiceResultItem<Target, E>, SingleFut>,
+        Transaction<ServiceResultItem<Target, Error>, Single>,
         usize,
     )>
     where
-        E: Send + 'static,
-        SingleFut: Future<Output = ServiceResultItem<Target, E>> + Send,
+        Error: Send + 'static,
+        Single: Future<Output = ServiceResultItem<Target, Error>> + Send,
     {
         for (i, p) in self.processors.iter().enumerate() {
             match p.preprocess(request) {
