@@ -247,7 +247,6 @@ impl AsyncAccept for RustlsTcpListener {
     }
 }
 
-#[allow(clippy::type_complexity)]
 fn query<Target>(
     msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
     count: Arc<AtomicU8>,
