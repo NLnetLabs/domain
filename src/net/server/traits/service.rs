@@ -76,7 +76,7 @@ pub type ServiceResult<Target, Error, Single> = Result<
 ///
 /// let service: Service = simple_service().into();
 /// ```
-/// 
+///
 /// [`CallResult`]: crate::net::server::traits::service::CallResult
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     type Error: Send + Sync + 'static;

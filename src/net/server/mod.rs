@@ -9,12 +9,12 @@
 //! appropriate network interface, optional [`MiddlewareChain`] and your own
 //! [`Service`] implementation they can be used to run a standards compliant
 //! DNS server that answers requests based on the business logic you specify.
-//! 
+//!
 //! # Architecture
-//! 
+//!
 //! A layered stack of components is responsible for handling incoming
 //! requests and outgoing responses:
-//! 
+//!
 //! ```text
 //!    --> network source                         - reads bytes from the client
 //!           --> server                          - deserializes requests
@@ -25,12 +25,12 @@
 //!           <-- server                          - serializes responses
 //!    <-- network source                      - writes bytes to the client
 //! ````
-//! 
+//!
 //! # Usage
-//! 
+//!
 //! The [`Server`] trait defines the interface common to all server
 //! implementations. Using a [`Server`] follows the pattern:
-//! 
+//!
 //!   - Create an appropriate network source (more on this below).
 //!   - Construct a server instance with [`new()`] using the network
 //!     interface.
@@ -38,7 +38,7 @@
 //!     [`with_middleware()`].
 //!   - [`run()`] the server.
 //!   - [`shutdown()`] the server, explicitly or on [`drop()`].
-//! 
+//!
 //! # Network transports
 //!
 //! While DNS servers historically communicated primarily via datagram based
@@ -46,7 +46,7 @@
 //! protocols only for zone transfers, modern DNS servers increasingly need to
 //! support stream based network transport protocols, e.g. to handle messages
 //! that exceed the maximum size supported by datagram protocols.
-//! 
+//!
 //! This module provides support for both datagram and stream based network
 //! transport protocols via the [`DgramServer`] and [`StreamServer`] types
 //! respectively.
@@ -81,9 +81,9 @@
 //! The allocation of buffers, e.g. for receiving DNS messages, is delegated
 //! to an implementation of the [`BufSource`] trait, giving you some control
 //! over the memory allocation strategy in use.
-//! 
+//!
 //! # Dynamic reconfiguration
-//! 
+//!
 //! Servers in principle support the ability to dynamically reconfigure
 //! themselves in response to [`ServiceCommand::Reconfigure`] while running,
 //! though the actual degree of support for this is server implementation
