@@ -62,11 +62,11 @@
 //!
 //! # Stream (e.g. TCP) servers
 //!
-//! [`StreamServer`] can communicate via any type that implements the
-//! [`AsyncAccept`] trait, and whose associated stream type implements the
-//! [`tokio::io::AsyncRead`] and [`tokio::io::AsyncWrite`] traits, with an
-//! implementation provided for [`tokio::net::TcpListener`] and associated
-//! stream type [`tokio::net::TcpStream`].
+//! [`StreamServer`] can communicate via any "network source" type that
+//! implements the [`AsyncAccept`] trait, and whose associated stream type
+//! implements the [`tokio::io::AsyncRead`] and [`tokio::io::AsyncWrite`]
+//! traits, with an implementation provided for [`tokio::net::TcpListener`]
+//! and associated stream type [`tokio::net::TcpStream`].
 //!
 //! The type alias [`TcpServer`] is provided for convenience for
 //! implementations based on [`tokio::net::TcpListener`].
