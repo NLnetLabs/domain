@@ -16,6 +16,8 @@ use crate::net::server::traits::sock::AsyncAccept;
 
 use super::connection::Connection;
 
+// TODO: Should this crate also provide a TLS listener implementation?
+
 //------------ StreamServer --------------------------------------------------
 
 /// A server for connecting clients via stream transport to a [`Service`].
@@ -35,8 +37,6 @@ use super::connection::Connection;
 ///
 /// A listener is anything that implements the [`AsyncAccept`] trait. This
 /// crate provides an implementation for [`tokio::net::TcpListener`].
-///
-/// _**TODO:** Should this crate also provide a TLS listener implementation?_
 ///
 /// # Examples
 ///
