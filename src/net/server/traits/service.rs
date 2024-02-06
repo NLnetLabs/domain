@@ -31,9 +31,8 @@ pub type ServiceResult<Target, Error, Single> = Result<
 /// request [`Message`] and returns either a [`Transaction`] on success, or a
 /// [`ServiceError`] on failure.
 ///
-/// Responses are encapsulated inside a [`Transaction`] which is either [Single]
-/// (a single response) or [Stream] (a stream of responses, e.g. for a zone
-/// transfer), where each response is a [`CallResult`].
+/// Responses are encapsulated inside a [`Transaction`] which is either a single response, or a stream of responses (e.g. for a zone
+/// transfer), where each response is a [`std::future::Future`] that resolves to a [`CallResult`].
 ///
 /// In the common case a [`CallResult`] is a DNS response message. For some
 /// advanced use cases it can instead, or additionally, direct the server
@@ -77,6 +76,8 @@ pub type ServiceResult<Target, Error, Single> = Result<
 ///
 /// let service: Service = simple_service().into();
 /// ```
+/// 
+/// [`CallResult`]: crate::net::server::traits::service::CallResult
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     type Error: Send + Sync + 'static;
     type Target: Composer + Default + Send + Sync + 'static;
