@@ -3,11 +3,10 @@ use core::future::ready;
 use std::{
     fmt::{self, Debug},
     fs::File,
-    future::{Future, Pending, Ready},
+    future::{Future, Ready},
     io::{self, BufReader},
     net::SocketAddr,
     path::Path,
-    pin::Pin,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
@@ -44,8 +43,6 @@ use domain::{
     },
     rdata::A,
 };
-use futures::Stream;
-use futures_util::stream::Once;
 use octseq::{FreezeBuilder, Octets};
 
 use rustls_pemfile::{certs, rsa_private_keys};
@@ -80,13 +77,10 @@ where
 
 struct UnreachableStream;
 
-impl Stream for UnreachableStream {
-    type Item = Result<CallResult<Vec<u8>, Vec<u8>>, ServiceError<()>>;
+impl Iterator for UnreachableStream {
+    type Item = Result<CallResult<Vec<u8>>, ServiceError<()>>;
 
-    fn poll_next(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn next(&mut self) -> Option<Self::Item> {
         unreachable!()
     }
 }
@@ -96,24 +90,16 @@ struct MyService;
 impl Service<Vec<u8>> for MyService {
     type Error = ();
     type Target = Vec<u8>;
-    type Single =
-        Ready<ServiceResultItem<Vec<u8>, Self::Target, Self::Error>>;
-    type Stream = UnreachableStream;
+    type Single = Ready<ServiceResultItem<Self::Target, Self::Error>>;
 
     fn call(
         &self,
-        msg: ContextAwareMessage<Message<Vec<u8>>>,
-    ) -> ServiceResult<
-        Vec<u8>,
-        Self::Target,
-        Self::Error,
-        Self::Single,
-        Self::Stream,
-    > {
+        msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
+    ) -> ServiceResult<Self::Target, Self::Error, Self::Single> {
         let target = StreamTarget::new(Self::Target::default()).unwrap(); // SAFETY
         let builder = MessageBuilder::from_target(target).unwrap(); // SAFETY
         let additional = mk_answer(&msg, builder);
-        let item = ready(Ok(CallResult::new(msg, additional)));
+        let item = ready(Ok(CallResult::new(additional)));
         let txn = Transaction::single(item);
         Ok(txn)
     }
@@ -263,14 +249,12 @@ impl AsyncAccept for RustlsTcpListener {
 
 #[allow(clippy::type_complexity)]
 fn query<Target>(
-    msg: ContextAwareMessage<Message<Vec<u8>>>,
+    msg: Arc<ContextAwareMessage<Message<Vec<u8>>>>,
     count: Arc<AtomicU8>,
 ) -> ServiceResult<
-    Vec<u8>,
     Target,
     (),
-    impl Future<Output = ServiceResultItem<Vec<u8>, Target, ()>>,
-    Once<Pending<ServiceResultItem<Vec<u8>, Target, ()>>>,
+    impl Future<Output = ServiceResultItem<Target, ()>>,
 >
 where
     Target: Composer + Octets + FreezeBuilder<Octets = Target> + Default,
@@ -285,7 +269,7 @@ where
     // This fn blocks the server until it returns. By returning a future
     // that handles the request we allow the server to execute the future
     // in the background without blocking the server.
-    Ok(Transaction::single(async move {
+    let fut = async move {
         eprintln!("Sleeping for 100ms");
         tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -300,9 +284,10 @@ where
         let target = StreamTarget::new(target).unwrap(); // SAFETY
         let builder = MessageBuilder::from_target(target).unwrap(); // SAFETY
         let additional = mk_answer(&msg, builder);
-        let res = CallResult::new(msg, additional).with_command(cmd);
+        let res = CallResult::new(additional).with_command(cmd);
         Ok(res)
-    }))
+    };
+    Ok(Transaction::single(fut))
 }
 
 #[tokio::main(flavor = "multi_thread")]

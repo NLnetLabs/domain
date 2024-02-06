@@ -1,16 +1,19 @@
+use std::boxed::Box;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::vec::Vec;
 use std::{convert::AsRef, string::String};
 
-use futures::{Future, Stream};
 use octseq::{OctetsBuilder, ShortBuf};
+use std::collections::VecDeque;
 
 use crate::base::message_builder::AdditionalBuilder;
 use crate::base::wire::Composer;
 use crate::base::{message::ShortMessage, Message, StreamTarget};
 
 use super::ContextAwareMessage;
-use futures::prelude::stream::StreamExt;
 
 //------------ MsgProvider ---------------------------------------------------
 
@@ -62,17 +65,12 @@ impl<RequestOctets: AsRef<[u8]>> MsgProvider<RequestOctets>
 
 //------------ Service -------------------------------------------------------
 
-pub type ServiceResultItem<RequestOctets, Target, E> =
-    Result<CallResult<RequestOctets, Target>, ServiceError<E>>;
-pub type ServiceResult<RequestOctets, Target, E, SingleFut, StreamFut> =
-    Result<
-        Transaction<
-            ServiceResultItem<RequestOctets, Target, E>,
-            SingleFut,
-            StreamFut,
-        >,
-        ServiceError<E>,
-    >;
+pub type ServiceResultItem<Target, E> =
+    Result<CallResult<Target>, ServiceError<E>>;
+pub type ServiceResult<Target, E, SingleFut> = Result<
+    Transaction<ServiceResultItem<Target, E>, SingleFut>,
+    ServiceError<E>,
+>;
 
 /// A Service is responsible for generating responses to received DNS messages.
 ///
@@ -129,50 +127,35 @@ pub type ServiceResult<RequestOctets, Target, E, SingleFut, StreamFut> =
 pub trait Service<RequestOctets: AsRef<[u8]> = Vec<u8>> {
     type Error: Send + Sync + 'static;
     type Target: Composer + Default + Send + Sync + 'static;
-    type Single: Future<
-        Output = ServiceResultItem<RequestOctets, Self::Target, Self::Error>,
-    >;
-    type Stream: Stream<
-            Item = ServiceResultItem<
-                RequestOctets,
-                Self::Target,
-                Self::Error,
-            >,
-        > + Unpin;
+    type Single: Future<Output = ServiceResultItem<Self::Target, Self::Error>>;
 
     #[allow(clippy::type_complexity)]
     fn call(
         &self,
-        message: ContextAwareMessage<Message<RequestOctets>>,
-    ) -> ServiceResult<
-        RequestOctets,
-        Self::Target,
-        Self::Error,
-        Self::Single,
-        Self::Stream,
-    >;
+        message: Arc<ContextAwareMessage<Message<RequestOctets>>>,
+    ) -> ServiceResult<Self::Target, Self::Error, Self::Single>
+    where
+        <Self as Service<RequestOctets>>::Single: core::marker::Send;
 }
 
-impl<F, SrvErr, ReqOct, Tgt, SingleFut, StreamFut> Service<ReqOct> for F
+impl<F, SrvErr, ReqOct, Tgt, SingleFut> Service<ReqOct> for F
 where
     F: Fn(
-        ContextAwareMessage<Message<ReqOct>>,
-    ) -> ServiceResult<ReqOct, Tgt, SrvErr, SingleFut, StreamFut>,
+        Arc<ContextAwareMessage<Message<ReqOct>>>,
+    ) -> ServiceResult<Tgt, SrvErr, SingleFut>,
     ReqOct: AsRef<[u8]>,
     Tgt: Composer + Default + Send + Sync + 'static,
     SrvErr: Send + Sync + 'static,
-    SingleFut: Future<Output = ServiceResultItem<ReqOct, Tgt, SrvErr>>,
-    StreamFut: Stream<Item = ServiceResultItem<ReqOct, Tgt, SrvErr>> + Unpin,
+    SingleFut: Future<Output = ServiceResultItem<Tgt, SrvErr>> + Send,
 {
     type Error = SrvErr;
     type Target = Tgt;
     type Single = SingleFut;
-    type Stream = StreamFut;
 
     fn call(
         &self,
-        message: ContextAwareMessage<Message<ReqOct>>,
-    ) -> ServiceResult<ReqOct, Tgt, SrvErr, Self::Single, Self::Stream> {
+        message: Arc<ContextAwareMessage<Message<ReqOct>>>,
+    ) -> ServiceResult<Tgt, SrvErr, Self::Single> {
         (*self)(message)
     }
 }
@@ -206,16 +189,24 @@ impl<T> std::fmt::Display for ServiceError<T> {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ServiceCommand {
-    CloseConnection,
     Init,
-    Reconfigure { idle_timeout: Duration },
+
+    Reconfigure {
+        idle_timeout: Duration,
+    },
+
+    /// Close the connection.
+    ///
+    /// E.g. in the case where an RFC 5936 AXFR TCP server "believes beyond a
+    /// doubt that the AXFR client is attempting abusive behavior".
+    CloseConnection,
+
     Shutdown,
 }
 
 //------------ CallResult ----------------------------------------------------
 
-pub struct CallResult<RequestOctets: AsRef<[u8]>, Target> {
-    pub request: ContextAwareMessage<Message<RequestOctets>>,
+pub struct CallResult<Target> {
     pub response: AdditionalBuilder<StreamTarget<Target>>,
     pub command: Option<ServiceCommand>,
 }
@@ -237,19 +228,14 @@ pub struct CallResult<RequestOctets: AsRef<[u8]>, Target> {
 ///
 /// For reasons of policy it may be necessary to ignore certain client
 /// requests without sending a response
-impl<RequestOctets, Target> CallResult<RequestOctets, Target>
+impl<Target> CallResult<Target>
 where
-    RequestOctets: AsRef<[u8]>,
     Target: OctetsBuilder + AsRef<[u8]> + AsMut<[u8]>,
     Target::AppendError: Into<ShortBuf>,
 {
     #[must_use]
-    pub fn new(
-        request: ContextAwareMessage<Message<RequestOctets>>,
-        response: AdditionalBuilder<StreamTarget<Target>>,
-    ) -> Self {
+    pub fn new(response: AdditionalBuilder<StreamTarget<Target>>) -> Self {
         Self {
-            request,
             response,
             command: None,
         }
@@ -265,10 +251,9 @@ where
 //------------ Transaction ---------------------------------------------------
 
 /// A server transaction generating the responses for a request.
-pub enum Transaction<Item, SingleFut, StreamFut>
+pub enum Transaction<Item, SingleFut>
 where
-    SingleFut: Future<Output = Item>,
-    StreamFut: Stream<Item = Item>,
+    SingleFut: Future<Output = Item> + Send,
 {
     Immediate(Option<Item>),
 
@@ -276,13 +261,12 @@ where
     Single(Option<SingleFut>),
 
     /// The transaction will results in stream of multiple responses.
-    Stream(StreamFut),
+    Stream(Arc<Mutex<VecDeque<Pin<Box<dyn Future<Output = Item> + Send>>>>>),
 }
 
-impl<Item, SingleFut, StreamFut> Transaction<Item, SingleFut, StreamFut>
+impl<Item, SingleFut> Transaction<Item, SingleFut>
 where
-    SingleFut: Future<Output = Item>,
-    StreamFut: Stream<Item = Item> + Unpin,
+    SingleFut: Future<Output = Item> + Send,
 {
     pub fn immediate(item: Item) -> Self {
         Self::Immediate(Some(item))
@@ -292,8 +276,10 @@ where
         Self::Single(Some(fut))
     }
 
-    pub fn stream(stream: StreamFut) -> Self {
-        Self::Stream(stream)
+    pub fn stream<T: Iterator<Item = Pin<Box<dyn Future<Output = Item> + Send>>>>(
+        stream: T,
+    ) -> Self {
+        Self::Stream(Arc::new(Mutex::new(stream.collect())))
     }
 
     pub async fn next(&mut self) -> Option<Item> {
@@ -305,7 +291,19 @@ where
                 None => None,
             },
 
-            Transaction::Stream(stream) => stream.next().await,
+            Transaction::Stream(stream) => {
+                let fut = {
+                    let mut locked = stream.lock().unwrap();
+                    locked.pop_front()
+                };
+
+                if let Some(fut) = fut {
+                    let item = fut.await;
+                    Some(item)
+                } else {
+                    None
+                }
+            }
         }
     }
 }

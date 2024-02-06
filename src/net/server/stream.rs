@@ -235,7 +235,6 @@ where
     pub async fn run(&self)
     where
         Svc::Single: Send,
-        Svc::Stream: Send,
     {
         if let Err(err) = self.run_until_error().await {
             eprintln!("StreamServer: {err}");
@@ -284,7 +283,6 @@ where
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Single: Send,
-        Svc::Stream: Send,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -366,7 +364,6 @@ where
     ) -> Result<JoinHandle<()>, String>
     where
         Svc::Single: Send,
-        Svc::Stream: Send,
     {
         // Work around the compiler wanting to move self to the async block by
         // preparing only those pieces of information from self for the new

@@ -84,7 +84,6 @@ where
     pub async fn run(&self)
     where
         Svc::Single: Send,
-        Svc::Stream: Send,
     {
         if let Err(err) = self.run_until_error().await {
             eprintln!("DgramServer: {err}");
@@ -94,7 +93,6 @@ where
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Single: Send,
-        Svc::Stream: Send,
     {
         let mut command_rx = self.command_rx.clone();
 
@@ -156,16 +154,15 @@ where
     ) -> Result<(), ServiceError<Svc::Error>>
     where
         Svc::Single: Send,
-        Svc::Stream: Send,
     {
         let msg = Message::<Buf::Output>::from_octets(buf)
             .map_err(|_| ServiceError::Other("short message".into()))?;
 
         let msg = ContextAwareMessage::new(msg, false, addr);
 
-        let (txn, last_processor_idx) = self.preprocess_request(msg)?;
+        let (msg, txn, last_processor_idx) = self.preprocess_request(msg)?;
 
-        self.postprocess_response(txn, last_processor_idx);
+        self.postprocess_response(msg, txn, last_processor_idx);
 
         Ok(())
     }
@@ -174,35 +171,43 @@ where
     #[allow(clippy::type_complexity)]
     fn preprocess_request(
         &self,
-        msg: ContextAwareMessage<Message<Buf::Output>>,
+        mut msg: ContextAwareMessage<Message<Buf::Output>>,
     ) -> Result<
         (
+            Arc<ContextAwareMessage<Message<Buf::Output>>>,
             Transaction<
-                ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
+                ServiceResultItem<Svc::Target, Svc::Error>,
                 Svc::Single,
-                Svc::Stream,
             >,
-            // Transaction<ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>>,
             Option<usize>,
         ),
         ServiceError<Svc::Error>,
-    > {
+    >
+    where
+        Svc::Single: Send,
+    {
         match &self.middleware_chain {
             Some(middleware_chain) => {
-                match middleware_chain.preprocess(msg) {
-                    ControlFlow::Continue(msg) => {
-                        let txn = self.service.call(msg)?;
-                        Ok((txn, None))
+                let res = middleware_chain
+                    .preprocess::<Svc::Error, Svc::Single>(
+                        &mut msg,
+                    );
+                let out_msg = Arc::new(msg);
+                match res {
+                    ControlFlow::Continue(()) => {
+                        let txn = self.service.call(out_msg.clone())?;
+                        Ok((out_msg, txn, None))
                     }
                     ControlFlow::Break((txn, last_processor_idx)) => {
-                        Ok((txn, Some(last_processor_idx)))
+                        Ok((out_msg, txn, Some(last_processor_idx)))
                     }
                 }
             }
 
             None => {
-                let txn = self.service.call(msg)?;
-                Ok((txn, None))
+                let out_msg = Arc::new(msg);
+                let txn = self.service.call(out_msg.clone())?;
+                Ok((out_msg, txn, None))
             }
         }
     }
@@ -210,19 +215,19 @@ where
     #[allow(clippy::type_complexity)]
     fn postprocess_response(
         &self,
+        msg: Arc<ContextAwareMessage<Message<Buf::Output>>>,
         mut txn: Transaction<
-            ServiceResultItem<Buf::Output, Svc::Target, Svc::Error>,
+            ServiceResultItem<Svc::Target, Svc::Error>,
             Svc::Single,
-            Svc::Stream,
         >,
         last_processor_id: Option<usize>,
     ) where
         Svc::Single: Send,
-        Svc::Stream: Send,
     {
         let metrics = self.metrics.clone();
         let sock = self.sock.clone();
         let middleware_chain = self.middleware_chain.clone();
+        let msg = Arc::new(msg);
 
         tokio::spawn(async move {
             // TODO: Shouldn't this counter be incremented just before
@@ -233,14 +238,14 @@ where
             while let Some(Ok(mut call_result)) = txn.next().await {
                 if let Some(middleware_chain) = &middleware_chain {
                     middleware_chain.postprocess(
-                        &call_result.request,
+                        &msg,
                         &mut call_result.response,
                         last_processor_id,
                     );
                 }
                 Self::handle_call_result(
                     &sock,
-                    &call_result.request.client_addr(),
+                    &msg.client_addr(),
                     call_result,
                 )
                 .await;
@@ -254,7 +259,7 @@ where
     async fn handle_call_result(
         sock: &Sock,
         addr: &SocketAddr,
-        CallResult { response, .. }: CallResult<Buf::Output, Svc::Target>,
+        CallResult { response, .. }: CallResult<Svc::Target>,
     ) {
         let _ = Self::send_to(sock, response.finish().as_dgram_slice(), addr)
             .await;

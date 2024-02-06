@@ -88,9 +88,8 @@ pub mod middleware;
 #[cfg(test)]
 pub mod tests;
 
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 
-use futures::Stream;
 pub use types::*;
 
 use crate::base::{wire::Composer, Message};
@@ -147,44 +146,20 @@ impl<T> core::ops::DerefMut for ContextAwareMessage<T> {
 
 //------------ service() -----------------------------------------------------
 
-pub fn mk_service<
-    RequestOctets,
-    Target,
-    Error,
-    SingleFut,
-    StreamFut,
-    T,
-    Metadata,
->(
+pub fn mk_service<RequestOctets, Target, Error, SingleFut, T, Metadata>(
     msg_handler: T,
     metadata: Metadata,
-) -> impl Service<
-    RequestOctets,
-    Error = Error,
-    Target = Target,
-    Single = SingleFut,
-    Stream = StreamFut,
->
+) -> impl Service<RequestOctets, Error = Error, Target = Target, Single = SingleFut>
 where
     RequestOctets: AsRef<[u8]>,
     Target: Composer + Default + Send + Sync + 'static,
     Error: Send + Sync + 'static,
-    SingleFut:
-        Future<Output = ServiceResultItem<RequestOctets, Target, Error>>,
-    StreamFut: Stream<Item = ServiceResultItem<RequestOctets, Target, Error>>
-        + Unpin,
+    SingleFut: Future<Output = ServiceResultItem<Target, Error>> + Send,
     Metadata: Clone,
     T: Fn(
-        ContextAwareMessage<Message<RequestOctets>>,
+        Arc<ContextAwareMessage<Message<RequestOctets>>>,
         Metadata,
-    ) -> ServiceResult<
-        RequestOctets,
-        Target,
-        Error,
-        SingleFut,
-        StreamFut,
-    >,
-    // ) -> ServiceResult<RequestOctets, Target, Error>,
+    ) -> ServiceResult<Target, Error, SingleFut>,
 {
     move |msg| msg_handler(msg, metadata.clone())
 }

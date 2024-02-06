@@ -3,8 +3,6 @@ use std::future::Future;
 use std::sync::Arc;
 use std::vec::Vec;
 
-use futures::Stream;
-
 use crate::base::wire::Composer;
 use crate::base::{Message, StreamTarget};
 use crate::net::server::service::{
@@ -58,30 +56,19 @@ where
     Target: Composer + Default + Send + 'static,
 {
     #[allow(clippy::type_complexity)]
-    pub fn preprocess<E, SingleFut, StreamFut>(
+    pub fn preprocess<E, SingleFut>(
         &self,
-        mut request: ContextAwareMessage<Message<RequestOctets>>,
-    ) -> ControlFlow<
-        (
-            Transaction<
-                ServiceResultItem<RequestOctets, Target, E>,
-                SingleFut,
-                StreamFut,
-            >,
-            usize,
-        ),
-        ContextAwareMessage<Message<RequestOctets>>,
-    >
+        request: &mut ContextAwareMessage<Message<RequestOctets>>,
+    ) -> ControlFlow<(
+        Transaction<ServiceResultItem<Target, E>, SingleFut>,
+        usize,
+    )>
     where
         E: Send + 'static,
-        SingleFut:
-            Future<Output = ServiceResultItem<RequestOctets, Target, E>>,
-        StreamFut: Stream<Item = ServiceResultItem<RequestOctets, Target, E>>
-            + Unpin,
+        SingleFut: Future<Output = ServiceResultItem<Target, E>> + Send,
     {
-        // ) -> ControlFlow<(Transaction<ServiceResultItem<RequestOctets, Target, E>>, usize), ContextAwareMessage<Message<RequestOctets>>> {
         for (i, p) in self.processors.iter().enumerate() {
-            match p.preprocess(&mut request) {
+            match p.preprocess(request) {
                 ControlFlow::Continue(()) => {
                     // Pre-processing complete, move on to the next pre-processor.
                 }
@@ -89,7 +76,7 @@ where
                 ControlFlow::Break(response) => {
                     // Stop pre-processing, return the produced response
                     // (after first applying post-processors to it).
-                    let item = Ok(CallResult::new(request, response));
+                    let item = Ok(CallResult::new(response));
                     return ControlFlow::Break((
                         Transaction::immediate(item),
                         i,
@@ -98,7 +85,7 @@ where
             }
         }
 
-        ControlFlow::Continue(request)
+        ControlFlow::Continue(())
     }
 
     pub fn postprocess(
@@ -115,7 +102,7 @@ where
         processors
             .iter()
             .rev()
-            .for_each(|p| p.postprocess(request, response));
+            .for_each(|p| p.postprocess(&request, response));
     }
 }
 
