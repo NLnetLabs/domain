@@ -85,7 +85,7 @@ use super::connection::Connection;
 /// # }
 /// ```
 ///
-/// [`Service`]: crate::net::server::service::Service
+/// [`Service`]: crate::net::server::traits::service::Service
 /// [`VecBufSource`]: crate::net::server::buf::VecBufSource
 /// [`tokio::net::TcpListener`]:
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
