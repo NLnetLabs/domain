@@ -39,15 +39,6 @@
 //!   - [`run()`] the server.
 //!   - [`shutdown()`] the server, explicitly or on [`drop()`].
 //! 
-//! # A note about async
-//! 
-//! The server functionality provided by this module is based on async
-//! functions. Async functions are not supported in traits by the minimum
-//! supported version of Rust targeted by this crate at the time of writing.
-//! As such async functions that ideally would be part of the [`Server`]
-//! trait, such as [`run()`], are not actually defined in the [`Server`] trait
-//! but instead exist only in the concrete implementations.
-//!
 //! # Network transports
 //!
 //! While DNS servers historically communicated primarily via datagram based

@@ -9,6 +9,21 @@ use super::service::Service;
 
 //----------- Server --------------------------------------------------------
 
+/// A trait for dealing with DNS server implementations.
+/// 
+/// <div class="warning"><b>A note about async functions</b>
+/// 
+/// Some functions common to DNS server implementations are async. However, at
+/// the time of writing the minimum supported Rust version for this crate
+/// doesn't support async (or desugared async) functions in traits. 
+/// 
+/// Therefore some functions that ideally would be part of the [`Server`]
+/// trait, such as [`run()`], are not actually defined in the [`Server`] trait
+/// but instead exist only in the concrete implementations.
+/// 
+/// </div>
+/// 
+/// [`run()`]: crate::net::server::servers::dgram::server::DgramServer::run()
 pub trait Server<Source, Buf, Svc>
 where
     Buf: BufSource + Send + Sync + 'static,
