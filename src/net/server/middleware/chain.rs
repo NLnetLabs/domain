@@ -102,7 +102,7 @@ where
         processors
             .iter()
             .rev()
-            .for_each(|p| p.postprocess(&request, response));
+            .for_each(|p| p.postprocess(request, response));
     }
 }
 
