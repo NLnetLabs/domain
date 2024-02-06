@@ -24,6 +24,7 @@ use domain::{
         },
         mk_service,
         service::{ServiceCommand, ServiceResult, ServiceResultItem},
+        Server,
     },
 };
 use domain::{

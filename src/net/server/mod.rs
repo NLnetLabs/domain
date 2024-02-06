@@ -88,13 +88,23 @@ pub mod middleware;
 #[cfg(test)]
 pub mod tests;
 
-use std::{future::Future, sync::Arc};
+use core::{ops::ControlFlow, sync::atomic::Ordering};
+use std::{future::Future, net::SocketAddr, sync::Arc};
 
 pub use types::*;
 
 use crate::base::{wire::Composer, Message};
 
-use self::service::{Service, ServiceResult, ServiceResultItem};
+use self::{
+    buf::BufSource,
+    error::Error,
+    metrics::ServerMetrics,
+    middleware::chain::MiddlewareChain,
+    service::{
+        CallResult, Service, ServiceError, ServiceResult, ServiceResultItem,
+        Transaction,
+    },
+};
 
 //------------ ContextAwareMessage -------------------------------------------
 
@@ -162,4 +172,176 @@ where
     ) -> ServiceResult<Target, Error, SingleFut>,
 {
     move |msg| msg_handler(msg, metadata.clone())
+}
+
+//----------- Server --------------------------------------------------------
+
+pub trait Server<Source, Buf, Svc>
+where
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    #[must_use]
+    fn new(source: Source, buf: Arc<Buf>, service: Arc<Svc>) -> Self;
+
+    #[must_use]
+    fn with_middleware(
+        self,
+        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
+    ) -> Self;
+
+    /// Get a reference to the source for this server.
+    #[must_use]
+    fn source(&self) -> Arc<Source>;
+
+    /// Get a reference to the metrics for this server.
+    #[must_use]
+    fn metrics(&self) -> Arc<ServerMetrics>;
+
+    /// Start the server.
+    fn run(&self) -> impl Future<Output = ()> + Send
+    where
+        Svc::Single: Send;
+
+    /// Stop the server.
+    fn shutdown(&self) -> Result<(), Error>;
+}
+
+trait MessageProcessor<Buf, Svc>
+where
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    type State: Send + 'static;
+
+    async fn process_message(
+        buf: <Buf as BufSource>::Output,
+        addr: SocketAddr,
+        state: Self::State,
+        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
+        svc: &Arc<Svc>,
+        metrics: Arc<ServerMetrics>,
+    ) -> Result<(), ServiceError<Svc::Error>>
+    where
+        Svc::Single: Send,
+    {
+        let (frozen_request, pp_res) = Self::preprocess_request(
+            buf,
+            addr,
+            middleware_chain.as_ref(),
+            &metrics,
+        )?;
+
+        let (txn, aborted_pp_idx) = match pp_res {
+            ControlFlow::Continue(()) => {
+                let txn = svc.call(frozen_request.clone())?;
+                (txn, None)
+            }
+            ControlFlow::Break((txn, aborted_pp_idx)) => {
+                (txn, Some(aborted_pp_idx))
+            }
+        };
+
+        Self::postprocess_response(
+            frozen_request,
+            state,
+            middleware_chain,
+            txn,
+            aborted_pp_idx,
+            metrics,
+        );
+
+        Ok(())
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn preprocess_request(
+        buf: <Buf as BufSource>::Output,
+        addr: SocketAddr,
+        middleware_chain: Option<&MiddlewareChain<Buf::Output, Svc::Target>>,
+        metrics: &Arc<ServerMetrics>,
+    ) -> Result<
+        (
+            Arc<ContextAwareMessage<Message<Buf::Output>>>,
+            ControlFlow<(
+                Transaction<
+                    ServiceResultItem<Svc::Target, Svc::Error>,
+                    Svc::Single,
+                >,
+                usize,
+            )>,
+        ),
+        ServiceError<Svc::Error>,
+    >
+    where
+        Svc::Single: Send,
+    {
+        let request = Message::from_octets(buf)
+            .map_err(|_| ServiceError::Other("short message".into()))?;
+
+        let mut request = ContextAwareMessage::new(request, true, addr);
+
+        metrics
+            .num_inflight_requests
+            .fetch_add(1, Ordering::Relaxed);
+
+        let pp_res = if let Some(middleware_chain) = middleware_chain {
+            middleware_chain
+                .preprocess::<Svc::Error, Svc::Single>(&mut request)
+        } else {
+            ControlFlow::Continue(())
+        };
+
+        let frozen_request = Arc::new(request);
+
+        Ok((frozen_request, pp_res))
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn postprocess_response(
+        msg: Arc<ContextAwareMessage<Message<Buf::Output>>>,
+        state: Self::State,
+        middleware_chain: Option<MiddlewareChain<Buf::Output, Svc::Target>>,
+        mut txn: Transaction<
+            ServiceResultItem<Svc::Target, Svc::Error>,
+            Svc::Single,
+        >,
+        last_processor_id: Option<usize>,
+        metrics: Arc<ServerMetrics>,
+    ) where
+        Svc::Single: Send,
+    {
+        tokio::spawn(async move {
+            while let Some(Ok(mut call_result)) = txn.next().await {
+                if let Some(middleware_chain) = &middleware_chain {
+                    middleware_chain.postprocess(
+                        &msg,
+                        &mut call_result.response,
+                        last_processor_id,
+                    );
+                }
+
+                Self::handle_finalized_response(
+                    call_result,
+                    msg.client_addr(),
+                    &state,
+                    &metrics,
+                )
+                .await;
+            }
+
+            metrics
+                .num_inflight_requests
+                .fetch_sub(1, Ordering::Relaxed);
+        });
+    }
+
+    fn handle_finalized_response(
+        call_result: CallResult<Svc::Target>,
+        addr: SocketAddr,
+        state: &Self::State,
+        metrics: &Arc<ServerMetrics>,
+    ) -> impl Future<Output = ()> + Send;
 }

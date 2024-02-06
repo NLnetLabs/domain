@@ -5,9 +5,8 @@ use super::metrics::ServerMetrics;
 use super::middleware::chain::MiddlewareChain;
 use super::service::{
     CallResult, MsgProvider, Service, ServiceCommand, ServiceError,
-    ServiceResultItem, Transaction,
 };
-use super::ContextAwareMessage;
+use super::MessageProcessor;
 use chrono::{DateTime, Utc};
 use core::ops::ControlFlow;
 use core::sync::atomic::Ordering;
@@ -18,6 +17,7 @@ use std::sync::Arc;
 use tokio::io::{
     AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf,
 };
+use tokio::sync::mpsc::Sender;
 use tokio::sync::{mpsc, watch};
 
 //------------ Connection -----------------------------------------------
@@ -189,9 +189,16 @@ where
 
         state.full_msg_received();
 
-        self.process_message(&*state, msg_buf)
-            .await
-            .map_err(ConnectionEvent::ServiceError)?;
+        <Self as MessageProcessor<Buf, Svc>>::process_message(
+            msg_buf,
+            self.addr,
+            state.result_q_tx.clone(),
+            self.middleware_chain.clone(),
+            &self.service,
+            self.metrics.clone(),
+        )
+        .await
+        .map_err(ConnectionEvent::ServiceError)?;
 
         Ok(())
     }
@@ -306,6 +313,9 @@ where
                 {
                     state.idle_timeout = timeout;
                 }
+
+                // TODO: Support dynamic replacement of the middleware chain?
+                // E.g. via ArcSwapOption<MiddlewareChain> instead of Option?
             }
 
             ServiceCommand::Shutdown => {
@@ -362,125 +372,6 @@ where
                 ControlFlow::Break(ConnectionEvent::DisconnectWithoutFlush)
             }
         }
-    }
-
-    async fn process_message(
-        &self,
-        state: &StreamState<Stream, Buf, Svc>,
-        buf: <Buf as BufSource>::Output,
-    ) -> Result<(), ServiceError<Svc::Error>>
-    where
-        Svc::Single: Send,
-    {
-        let msg = Message::from_octets(buf)
-            .map_err(|_| ServiceError::Other("short message".into()))?;
-
-        let msg = ContextAwareMessage::new(msg, true, self.addr);
-
-        let (msg, txn, last_processor_idx) = self.preprocess_request(msg)?;
-
-        self.postprocess_response(msg, state, txn, last_processor_idx);
-
-        Ok(())
-    }
-
-    // TODO: Deduplicate with DgramServer.
-    #[allow(clippy::type_complexity)]
-    fn preprocess_request(
-        &self,
-        mut msg: ContextAwareMessage<Message<Buf::Output>>,
-    ) -> Result<
-        (
-            Arc<ContextAwareMessage<Message<Buf::Output>>>,
-            Transaction<
-                ServiceResultItem<Svc::Target, Svc::Error>,
-                Svc::Single,
-            >,
-            Option<usize>,
-        ),
-        ServiceError<Svc::Error>,
-    >
-    where
-        Svc::Single: Send,
-    {
-        match &self.middleware_chain {
-            Some(middleware_chain) => {
-                let res = middleware_chain
-                    .preprocess::<Svc::Error, Svc::Single>(
-                        &mut msg,
-                    );
-                let out_msg = Arc::new(msg);
-                match res {
-                    ControlFlow::Continue(()) => {
-                        let txn = self.service.call(out_msg.clone())?;
-                        Ok((out_msg, txn, None))
-                    }
-                    ControlFlow::Break((txn, last_processor_idx)) => {
-                        Ok((out_msg, txn, Some(last_processor_idx)))
-                    }
-                }
-            }
-
-            None => {
-                let out_msg = Arc::new(msg);
-                let txn = self.service.call(out_msg.clone())?;
-                Ok((out_msg, txn, None))
-            }
-        }
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn postprocess_response(
-        &self,
-        msg: Arc<ContextAwareMessage<Message<Buf::Output>>>,
-        state: &StreamState<Stream, Buf, Svc>,
-        mut txn: Transaction<
-            ServiceResultItem<Svc::Target, Svc::Error>,
-            Svc::Single,
-        >,
-        last_processor_id: Option<usize>,
-    ) where
-        Svc::Single: Send,
-    {
-        let metrics = self.metrics.clone();
-        let tx = state.result_q_tx.clone();
-        let middleware_chain = self.middleware_chain.clone();
-
-        tokio::spawn(async move {
-            // TODO: Shouldn't this counter be incremented just before
-            // service.call() is invoked?
-            metrics
-                .num_inflight_requests
-                .fetch_add(1, Ordering::Relaxed);
-            while let Some(Ok(mut call_result)) = txn.next().await {
-                if let Some(middleware_chain) = &middleware_chain {
-                    middleware_chain.postprocess(
-                        &msg,
-                        &mut call_result.response,
-                        last_processor_id,
-                    );
-                }
-                Self::enqueue_call_result(&tx, call_result, &metrics).await;
-            }
-            metrics
-                .num_inflight_requests
-                .fetch_sub(1, Ordering::Relaxed);
-        });
-    }
-
-    async fn enqueue_call_result(
-        tx: &mpsc::Sender<CallResult<Svc::Target>>,
-        call_result: CallResult<Svc::Target>,
-        metrics: &Arc<ServerMetrics>,
-    ) {
-        if let Err(err) = tx.send(call_result).await {
-            // TODO: How should we properly communicate this to the operator?
-            eprintln!("StreamServer: Error while queuing response: {err}");
-        }
-
-        metrics
-            .num_pending_writes
-            .store(tx.max_capacity() - tx.capacity(), Ordering::Relaxed);
     }
 
     async fn flush_write_queue(
@@ -552,6 +443,33 @@ where
                 state.stream_tx.shutdown().await.unwrap()
             }
         }
+    }
+}
+
+impl<Stream, Buf, Svc> MessageProcessor<Buf, Svc>
+    for Connection<Stream, Buf, Svc>
+where
+    Stream: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    type State = Sender<CallResult<Svc::Target>>;
+
+    async fn handle_finalized_response(
+        call_result: CallResult<Svc::Target>,
+        _addr: SocketAddr,
+        tx: &Self::State,
+        metrics: &Arc<ServerMetrics>,
+    ) {
+        if let Err(err) = tx.send(call_result).await {
+            // TODO: How should we properly communicate this to the operator?
+            eprintln!("StreamServer: Error while queuing response: {err}");
+        }
+
+        metrics
+            .num_pending_writes
+            .store(tx.max_capacity() - tx.capacity(), Ordering::Relaxed);
     }
 }
 

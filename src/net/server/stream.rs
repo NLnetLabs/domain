@@ -5,6 +5,7 @@ use super::metrics::ServerMetrics;
 use super::middleware::chain::MiddlewareChain;
 use super::service::{Service, ServiceCommand};
 use super::sock::AsyncAccept;
+use super::Server;
 use std::future::poll_fn;
 use std::io;
 use std::net::SocketAddr;
@@ -88,7 +89,7 @@ use tokio::task::JoinHandle;
 ///     https://docs.rs/tokio/latest/tokio/net/struct.TcpListener.html
 pub struct StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + 'static,
+    Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
@@ -125,9 +126,10 @@ where
 
 /// # Creation and access
 ///
-impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
+impl<Listener, Buf, Svc> Server<Listener, Buf, Svc>
+    for StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + 'static,
+    Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
@@ -140,7 +142,7 @@ where
     /// - A [`BufSource`] for creating buffers on demand.
     /// - A [`Service`] for handling received requests and generating responses.
     #[must_use]
-    pub fn new(listener: Listener, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
+    fn new(listener: Listener, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let listener = Arc::new(listener);
@@ -158,6 +160,69 @@ where
         }
     }
 
+    #[must_use]
+    fn with_middleware(
+        mut self,
+        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
+    ) -> Self {
+        self.middleware_chain = Some(middleware_chain);
+        self
+    }
+
+    /// Get a reference to the source for this server.
+    #[must_use]
+    fn source(&self) -> Arc<Listener> {
+        self.listener.clone()
+    }
+
+    /// Get a reference to the metrics for this server.
+    #[must_use]
+    fn metrics(&self) -> Arc<ServerMetrics> {
+        self.metrics.clone()
+    }
+
+    /// Start the server.
+    ///
+    /// # Drop behaviour
+    ///
+    /// When dropped [`shutdown()`] will be invoked.
+    async fn run(&self)
+    where
+        Svc::Single: Send,
+    {
+        if let Err(err) = self.run_until_error().await {
+            eprintln!("StreamServer: {err}");
+        }
+    }
+
+    /// Stop the server.
+    ///
+    /// No new connections will be accepted and in-progress connections will
+    /// be signalled to shutdown.
+    ///
+    /// Tip: Await the [`tokio::task::JoinHandle`] that you received when
+    /// spawning a task to run the server to know when shutdown is complete.
+    ///
+    /// TODO: Do we also need a non-graceful terminate immediately function?
+    ///
+    /// [`tokio::task::JoinHandle`]:
+    ///     https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html
+    fn shutdown(&self) -> Result<(), Error> {
+        self.command_tx
+            .lock()
+            .unwrap()
+            .send(ServiceCommand::Shutdown)
+            .map_err(|_| Error::CommandCouldNotBeSent)
+    }
+}
+
+impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
+where
+    Listener: AsyncAccept + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
     /// Specify a pre-connect hook to be invoked by the given
     /// [`StreamServer`].
     ///
@@ -187,92 +252,11 @@ where
         self.pre_connect_hook = Some(pre_connect_hook);
         self
     }
-
-    #[must_use]
-    pub fn with_middleware(
-        mut self,
-        middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
-    ) -> Self {
-        self.middleware_chain = Some(middleware_chain);
-        self
-    }
 }
 
 impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-{
-    /// Get a reference to the listener used to accept connections.
-    #[must_use]
-    pub fn listener(&self) -> Arc<Listener> {
-        self.listener.clone()
-    }
-
-    /// Get a reference to the metrics for this server.
-    #[must_use]
-    pub fn metrics(&self) -> Arc<ServerMetrics> {
-        self.metrics.clone()
-    }
-}
-
-/// # Control
-///
-impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
-where
-    Listener: AsyncAccept + Send + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-{
-    /// Start the server.
-    ///
-    /// # Drop behaviour
-    ///
-    /// When dropped [`shutdown()`] will be invoked.
-    pub async fn run(&self)
-    where
-        Svc::Single: Send,
-    {
-        if let Err(err) = self.run_until_error().await {
-            eprintln!("StreamServer: {err}");
-        }
-    }
-}
-
-impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
-where
-    Listener: AsyncAccept + Send + 'static,
-    Buf: BufSource + Send + Sync + 'static,
-    Buf::Output: Send + Sync + 'static,
-    Svc: Service<Buf::Output> + Send + Sync + 'static,
-{
-    /// Stop the server.
-    ///
-    /// No new connections will be accepted and in-progress connections will
-    /// be signalled to shutdown.
-    ///
-    /// Tip: Await the [`tokio::task::JoinHandle`] that you received when
-    /// spawning a task to run the server to know when shutdown is complete.
-    ///
-    /// TODO: Do we also need a non-graceful terminate immediately function?
-    ///
-    /// [`tokio::task::JoinHandle`]:
-    ///     https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html
-    pub fn shutdown(&self) -> Result<(), Error> {
-        self.command_tx
-            .lock()
-            .unwrap()
-            .send(ServiceCommand::Shutdown)
-            .map_err(|_| Error::CommandCouldNotBeSent)
-    }
-}
-
-impl<Listener, Buf, Svc> StreamServer<Listener, Buf, Svc>
-where
-    Listener: AsyncAccept + Send + 'static,
+    Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,
@@ -413,7 +397,7 @@ where
 
 impl<Listener, Buf, Svc> Drop for StreamServer<Listener, Buf, Svc>
 where
-    Listener: AsyncAccept + Send + 'static,
+    Listener: AsyncAccept + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
     Buf::Output: Send + Sync + 'static,
     Svc: Service<Buf::Output> + Send + Sync + 'static,

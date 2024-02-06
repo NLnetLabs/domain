@@ -32,6 +32,7 @@ use crate::net::server::service::ServiceError;
 use crate::net::server::service::Transaction;
 use crate::net::server::sock::AsyncAccept;
 use crate::net::server::stream::StreamServer;
+use crate::net::server::Server;
 
 use super::service::ServiceResultItem;
 use super::ContextAwareMessage;
@@ -340,7 +341,7 @@ impl Service<Vec<u8>> for MyService {
         >,
         ServiceError<Self::Error>,
     > {
-        Ok(Transaction::Single(None))
+        Ok(Transaction::single(MySingle))
         // Err(ServiceError::ShuttingDown)
     }
 }
@@ -429,7 +430,7 @@ async fn stop_service_test() {
         tokio::time::sleep(Duration::from_millis(15000)).await;
 
         // Verify that all simulated clients connected.
-        assert_eq!(0, srv.listener().streams_remaining());
+        assert_eq!(0, srv.source().streams_remaining());
 
         // Verify that no requests or responses are in progress still in
         // the server.

@@ -1,23 +1,20 @@
-use core::ops::ControlFlow;
 use std::net::SocketAddr;
-use std::{future::poll_fn, string::String, sync::atomic::Ordering};
+use std::{future::poll_fn, string::String};
 
 use std::{
     io,
     sync::{Arc, Mutex},
 };
 
-use crate::base::Message;
-
+use super::error::Error;
 use super::middleware::chain::MiddlewareChain;
-use super::service::{ServiceResultItem, Transaction};
-use super::ContextAwareMessage;
 use super::{
     buf::BufSource,
     metrics::ServerMetrics,
-    service::{CallResult, Service, ServiceCommand, ServiceError},
+    service::{CallResult, Service, ServiceCommand},
     sock::AsyncDgramSock,
 };
+use super::{MessageProcessor, Server};
 
 use tokio::{io::ReadBuf, sync::watch};
 
@@ -39,7 +36,7 @@ where
     metrics: Arc<ServerMetrics>,
 }
 
-impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
+impl<Sock, Buf, Svc> Server<Sock, Buf, Svc> for DgramServer<Sock, Buf, Svc>
 where
     Sock: AsyncDgramSock + Send + Sync + 'static,
     Buf: BufSource + Send + Sync + 'static,
@@ -47,7 +44,7 @@ where
     Svc: Service<Buf::Output> + Send + Sync + 'static,
 {
     #[must_use]
-    pub fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
+    fn new(sock: Sock, buf: Arc<Buf>, service: Arc<Svc>) -> Self {
         let (command_tx, command_rx) = watch::channel(ServiceCommand::Init);
         let command_tx = Arc::new(Mutex::new(command_tx));
         let metrics = Arc::new(ServerMetrics::connection_less());
@@ -64,7 +61,7 @@ where
     }
 
     #[must_use]
-    pub fn with_middleware(
+    fn with_middleware(
         mut self,
         middleware_chain: MiddlewareChain<Buf::Output, Svc::Target>,
     ) -> Self {
@@ -72,16 +69,19 @@ where
         self
     }
 
-    pub fn shutdown(
-        &self,
-    ) -> Result<(), watch::error::SendError<ServiceCommand>> {
-        self.command_tx
-            .lock()
-            .unwrap()
-            .send(ServiceCommand::Shutdown)
+    /// Get a reference to the source.
+    #[must_use]
+    fn source(&self) -> Arc<Sock> {
+        self.sock.clone()
     }
 
-    pub async fn run(&self)
+    /// Get a reference to the metrics for this server.
+    #[must_use]
+    fn metrics(&self) -> Arc<ServerMetrics> {
+        self.metrics.clone()
+    }
+
+    async fn run(&self)
     where
         Svc::Single: Send,
     {
@@ -90,6 +90,22 @@ where
         }
     }
 
+    fn shutdown(&self) -> Result<(), Error> {
+        self.command_tx
+            .lock()
+            .unwrap()
+            .send(ServiceCommand::Shutdown)
+            .map_err(|_| Error::CommandCouldNotBeSent)
+    }
+}
+
+impl<Sock, Buf, Svc> DgramServer<Sock, Buf, Svc>
+where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
     async fn run_until_error(&self) -> Result<(), String>
     where
         Svc::Single: Send,
@@ -106,7 +122,14 @@ where
                     let cmd = *command_rx.borrow_and_update();
 
                     match cmd {
-                        ServiceCommand::Reconfigure { .. } => { /* TODO */ }
+                        ServiceCommand::Reconfigure { .. } => {
+                            /* TODO */
+
+                            // TODO: Support dynamic replacement of the
+                            // middleware chain? E.g. via
+                            // ArcSwapOption<MiddlewareChain> instead of
+                            // Option?
+                        }
 
                         ServiceCommand::Shutdown => break,
 
@@ -136,7 +159,12 @@ where
                             format!("Error while receiving message: {err}")
                         )?;
 
-                    self.process_message(msg, addr)
+                    <Self as MessageProcessor<Buf, Svc>>::process_message(
+                        msg, addr, self.sock.clone(),
+                        self.middleware_chain.clone(),
+                        &self.service,
+                        self.metrics.clone()
+                    ).await
                         .map_err(|err|
                             format!("Error while processing message: {err}")
                         )?;
@@ -145,124 +173,6 @@ where
         }
 
         Ok(())
-    }
-
-    fn process_message(
-        &self,
-        buf: <Buf as BufSource>::Output,
-        addr: SocketAddr,
-    ) -> Result<(), ServiceError<Svc::Error>>
-    where
-        Svc::Single: Send,
-    {
-        let msg = Message::<Buf::Output>::from_octets(buf)
-            .map_err(|_| ServiceError::Other("short message".into()))?;
-
-        let msg = ContextAwareMessage::new(msg, false, addr);
-
-        let (msg, txn, last_processor_idx) = self.preprocess_request(msg)?;
-
-        self.postprocess_response(msg, txn, last_processor_idx);
-
-        Ok(())
-    }
-
-    // TODO: Deduplicate with Connection.
-    #[allow(clippy::type_complexity)]
-    fn preprocess_request(
-        &self,
-        mut msg: ContextAwareMessage<Message<Buf::Output>>,
-    ) -> Result<
-        (
-            Arc<ContextAwareMessage<Message<Buf::Output>>>,
-            Transaction<
-                ServiceResultItem<Svc::Target, Svc::Error>,
-                Svc::Single,
-            >,
-            Option<usize>,
-        ),
-        ServiceError<Svc::Error>,
-    >
-    where
-        Svc::Single: Send,
-    {
-        match &self.middleware_chain {
-            Some(middleware_chain) => {
-                let res = middleware_chain
-                    .preprocess::<Svc::Error, Svc::Single>(
-                        &mut msg,
-                    );
-                let out_msg = Arc::new(msg);
-                match res {
-                    ControlFlow::Continue(()) => {
-                        let txn = self.service.call(out_msg.clone())?;
-                        Ok((out_msg, txn, None))
-                    }
-                    ControlFlow::Break((txn, last_processor_idx)) => {
-                        Ok((out_msg, txn, Some(last_processor_idx)))
-                    }
-                }
-            }
-
-            None => {
-                let out_msg = Arc::new(msg);
-                let txn = self.service.call(out_msg.clone())?;
-                Ok((out_msg, txn, None))
-            }
-        }
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn postprocess_response(
-        &self,
-        msg: Arc<ContextAwareMessage<Message<Buf::Output>>>,
-        mut txn: Transaction<
-            ServiceResultItem<Svc::Target, Svc::Error>,
-            Svc::Single,
-        >,
-        last_processor_id: Option<usize>,
-    ) where
-        Svc::Single: Send,
-    {
-        let metrics = self.metrics.clone();
-        let sock = self.sock.clone();
-        let middleware_chain = self.middleware_chain.clone();
-        let msg = Arc::new(msg);
-
-        tokio::spawn(async move {
-            // TODO: Shouldn't this counter be incremented just before
-            // service.call() is invoked?
-            metrics
-                .num_inflight_requests
-                .fetch_add(1, Ordering::Relaxed);
-            while let Some(Ok(mut call_result)) = txn.next().await {
-                if let Some(middleware_chain) = &middleware_chain {
-                    middleware_chain.postprocess(
-                        &msg,
-                        &mut call_result.response,
-                        last_processor_id,
-                    );
-                }
-                Self::handle_call_result(
-                    &sock,
-                    &msg.client_addr(),
-                    call_result,
-                )
-                .await;
-            }
-            metrics
-                .num_inflight_requests
-                .fetch_sub(1, Ordering::Relaxed);
-        });
-    }
-
-    async fn handle_call_result(
-        sock: &Sock,
-        addr: &SocketAddr,
-        CallResult { response, .. }: CallResult<Svc::Target>,
-    ) {
-        let _ = Self::send_to(sock, response.finish().as_dgram_slice(), addr)
-            .await;
     }
 
     async fn recv_from(
@@ -287,5 +197,30 @@ where
         } else {
             Ok(())
         }
+    }
+}
+
+impl<Sock, Buf, Svc> MessageProcessor<Buf, Svc>
+    for DgramServer<Sock, Buf, Svc>
+where
+    Sock: AsyncDgramSock + Send + Sync + 'static,
+    Buf: BufSource + Send + Sync + 'static,
+    Buf::Output: Send + Sync + 'static,
+    Svc: Service<Buf::Output> + Send + Sync + 'static,
+{
+    type State = Arc<Sock>;
+
+    async fn handle_finalized_response(
+        CallResult { response, .. }: CallResult<Svc::Target>,
+        addr: SocketAddr,
+        sock: &Self::State,
+        _metrics: &Arc<ServerMetrics>,
+    ) {
+        let _ =
+            Self::send_to(sock, response.finish().as_dgram_slice(), &addr)
+                .await;
+
+        // TODO:
+        // metrics.num_pending_writes.store(???, Ordering::Relaxed);
     }
 }
