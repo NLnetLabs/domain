@@ -6,7 +6,7 @@
 //!
 //! This module provides skeleton asynchronous server implementations based on
 //! the [Tokio](https://tokio.rs/) async runtime. In combination with an
-//! appropriate network interface, optional [`MiddlewareChain`] and your own
+//! appropriate network source, optional [`MiddlewareChain`] and your own
 //! [`Service`] implementation they can be used to run a standards compliant
 //! DNS server that answers requests based on the business logic you specify.
 //!
@@ -28,16 +28,15 @@
 //!
 //! # Usage
 //!
-//! The [`Server`] trait defines the interface common to all server
-//! implementations. Using a [`Server`] follows the pattern:
+//! Server implementations implement a common interface. To use a server
+//! implementation:
 //!
 //!   - Create an appropriate network source (more on this below).
-//!   - Construct a server instance with [`new()`] using the network
-//!     interface.
+//!   - Construct a server instance with `new()` passing the network source.
 //!   - Tune the server behaviour via builder functions such as
-//!     [`with_middleware()`].
-//!   - [`run()`] the server.
-//!   - [`shutdown()`] the server, explicitly or on [`drop()`].
+//!     `with_middleware()`.
+//!   - `run()` the server.
+//!   - `shutdown()` the server, explicitly or on [`drop()`].
 //!
 //! # Network transports
 //!
